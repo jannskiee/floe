@@ -1,0 +1,35 @@
+# Dependencies
+node_modules
+**/node_modules
+
+# Next.js Build Output
+.next
+out
+client/.next
+
+# Standard Build Artifacts
+dist
+build
+coverage
+
+# IDE & System Files (WebStorm & Mac/Windows)
+.idea
+.vscode
+*.iml
+.DS_Store
+Thumbs.db
+
+# Package Manager Locks
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Environment Variables
+.env
+.env.local
+.env.*
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

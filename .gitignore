@@ -1,0 +1,33 @@
+# --- Dependencies ---
+node_modules/
+
+# --- Next.js Build Output ---
+.next/
+out/
+
+# --- Vercel ---
+.vercel
+
+# --- OS Junk ---
+.DS_Store
+Thumbs.db
+
+# --- IDE Settings ---
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# --- Environment Variables ---
+.env
+.env.local
+.env.*
+
+# --- Build Outputs ---
+dist/
+build/
+
+# --- Logs ---
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
