@@ -21,7 +21,7 @@ export const Navbar = () => {
                     <button onClick={() => scrollToSection('faq')} className="rounded-full px-4 py-2 text-sm font-medium text-zinc-400 transition hover:bg-white/10 hover:text-white">FAQs</button>
                 </div>
                 <div className="h-4 w-px bg-white/10 mx-1" />
-                <a href="https://github.com" target="_blank" rel="noreferrer" className="rounded-full bg-white px-4 py-2 text-sm font-bold text-black transition hover:bg-zinc-200">GitHub</a>
+                <a href="https://github.com/jannskiee/floe" target="_blank" rel="noreferrer" className="rounded-full bg-white px-4 py-2 text-sm font-bold text-black transition hover:bg-zinc-200">GitHub</a>
             </div>
         </nav>
     );
