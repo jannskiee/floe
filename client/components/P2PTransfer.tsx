@@ -305,7 +305,7 @@ export function P2PTransfer() {
 
             const peer = new SimplePeer({
                 initiator: true,
-                trickle: false,
+                trickle: true,
                 config: {
                     iceServers: iceServersRef.current,
                 },
@@ -486,7 +486,7 @@ export function P2PTransfer() {
 
         const peer = new SimplePeer({
             initiator: false,
-            trickle: false,
+            trickle: true,
             config: {
                 iceServers: iceServersRef.current,
             },
