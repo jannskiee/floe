@@ -566,9 +566,6 @@ export function P2PTransfer() {
                                     const receivedBuffer = await blob.arrayBuffer();
                                     const receivedHash = await computeFileHash(receivedBuffer);
                                     hashVerified = receivedHash === currentMetadata.fileHash;
-                                    if (!hashVerified) {
-                                        console.warn('File hash mismatch! File may be corrupted.');
-                                    }
                                 }
 
                                 setReceivedFiles((prev) => [
