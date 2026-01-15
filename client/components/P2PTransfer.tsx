@@ -77,6 +77,25 @@ export function P2PTransfer() {
         Map<string, { chunks: ArrayBuffer[]; received: number }>
     >(new Map());
     const fileListRef = useRef<HTMLDivElement>(null);
+    const iceServersRef = useRef<RTCIceServer[]>([
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+    ]);
+
+    const fetchIceServers = async () => {
+        try {
+            const response = await fetch(
+                `https://${process.env.NEXT_PUBLIC_METERED_DOMAIN}/api/v1/turn/credentials?apiKey=${process.env.NEXT_PUBLIC_METERED_API_KEY}`
+            );
+            const iceServers = await response.json();
+            if (Array.isArray(iceServers) && iceServers.length > 0) {
+                iceServersRef.current = iceServers;
+                console.log('ICE servers fetched from metered.ca');
+            }
+        } catch (err) {
+            console.warn('Failed to fetch TURN servers, using fallback STUN:', err);
+        }
+    };
 
     const requestWakeLock = async () => {
         if ('wakeLock' in navigator) {
@@ -93,7 +112,7 @@ export function P2PTransfer() {
 
     const releaseWakeLock = () => {
         if (wakeLockRef.current) {
-            wakeLockRef.current.release().catch(() => {});
+            wakeLockRef.current.release().catch(() => { });
             wakeLockRef.current = null;
         }
     };
@@ -193,6 +212,8 @@ export function P2PTransfer() {
     };
 
     useEffect(() => {
+        fetchIceServers();
+
         if (socket.connected) setIsConnected(true);
         socket.on('connect', () => setIsConnected(true));
         socket.on('disconnect', () => {
@@ -285,7 +306,7 @@ export function P2PTransfer() {
                 initiator: true,
                 trickle: false,
                 config: {
-                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+                    iceServers: iceServersRef.current,
                 },
             });
 
@@ -365,7 +386,7 @@ export function P2PTransfer() {
                                 peer.off('data', handleAck);
                                 resolveAck(msg.offset);
                             }
-                        } catch (e) {}
+                        } catch (e) { }
                     }
                 };
                 peer.on('data', handleAck);
@@ -412,7 +433,7 @@ export function P2PTransfer() {
             }
             try {
                 peer.send(JSON.stringify({ type: 'end' }));
-            } catch (err) {}
+            } catch (err) { }
             resolve();
         });
     };
@@ -430,7 +451,9 @@ export function P2PTransfer() {
         const peer = new SimplePeer({
             initiator: false,
             trickle: false,
-            config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] },
+            config: {
+                iceServers: iceServersRef.current,
+            },
         });
 
         peer.on('signal', (signal) =>
@@ -506,7 +529,7 @@ export function P2PTransfer() {
                         }
                         return;
                     }
-                } catch (e) {}
+                } catch (e) { }
             }
 
             const fileData = partialDownloads.current.get(currentMetadata.id);
@@ -623,11 +646,11 @@ export function P2PTransfer() {
                                                 ? status === 'All Files Sent!'
                                                     ? `Upload Complete (${files.length} Files)`
                                                     : files.length > 1
-                                                      ? `Sending File ${currentFileIndex + 1} of ${files.length}...`
-                                                      : 'Transferring 1 File...'
+                                                        ? `Sending File ${currentFileIndex + 1} of ${files.length}...`
+                                                        : 'Transferring 1 File...'
                                                 : status.includes('Receiving')
-                                                  ? status
-                                                  : 'Receiving...'}
+                                                    ? status
+                                                    : 'Receiving...'}
                                         </span>
                                         <span>{progress}%</span>
                                     </div>
@@ -704,7 +727,7 @@ export function P2PTransfer() {
                                                 </div>
                                                 <div className="mt-4 flex w-full items-center justify-center gap-2 text-xs transition-colors duration-300">
                                                     {status ===
-                                                    'All Files Sent!' ? (
+                                                        'All Files Sent!' ? (
                                                         <CheckCircle2 className="h-3 w-3 shrink-0 text-green-400" />
                                                     ) : (
                                                         <Loader2 className="h-3 w-3 shrink-0 animate-spin text-zinc-500" />
@@ -754,13 +777,13 @@ export function P2PTransfer() {
                                                         {!generatedLink ? (
                                                             <div className="h-2 w-2 rounded-full bg-zinc-600"></div>
                                                         ) : i <
-                                                              currentFileIndex ||
-                                                          status ===
-                                                              'All Files Sent!' ? (
+                                                            currentFileIndex ||
+                                                            status ===
+                                                            'All Files Sent!' ? (
                                                             <CheckCircle2 className="h-4 w-4 text-green-500" />
                                                         ) : i ===
-                                                              currentFileIndex &&
-                                                          progress > 0 ? (
+                                                            currentFileIndex &&
+                                                            progress > 0 ? (
                                                             <Loader2 className="h-4 w-4 animate-spin text-white" />
                                                         ) : null}
                                                     </div>
