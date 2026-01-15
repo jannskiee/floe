@@ -55,14 +55,9 @@ interface ReceivedFile {
     fileName: string;
     fileSize: number;
     downloadUrl: string;
-    hashVerified?: boolean;
 }
 
-async function computeFileHash(data: ArrayBuffer): Promise<string> {
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
+
 
 export function P2PTransfer() {
     const [isSender, setIsSender] = useState(false);
@@ -77,7 +72,6 @@ export function P2PTransfer() {
     const [copied, setCopied] = useState(false);
     const [isZipping, setIsZipping] = useState(false);
     const [error, setError] = useState('');
-    const [transferSpeed, setTransferSpeed] = useState(0);
 
     const peerRef = useRef<PeerInstance | null>(null);
     const wakeLockRef = useRef<WakeLockSentinel | null>(null);
@@ -369,16 +363,12 @@ export function P2PTransfer() {
                 return;
             }
 
-            const fileBuffer = await file.arrayBuffer();
-            const fileHash = await computeFileHash(fileBuffer);
-
             try {
                 peer.send(
                     JSON.stringify({
                         id: id,
                         fileName: file.name,
                         fileSize: file.size,
-                        fileHash: fileHash,
                         type: 'metadata',
                         index: index,
                         total: total,
@@ -447,7 +437,6 @@ export function P2PTransfer() {
                     if (chunkCount % ADAPT_INTERVAL === 0) {
                         const elapsed = (performance.now() - measureStart) / 1000;
                         const bytesPerSec = measureBytes / elapsed;
-                        setTransferSpeed(bytesPerSec);
 
                         let newChunkSize: number;
                         if (bytesPerSec > 2 * 1024 * 1024) {
