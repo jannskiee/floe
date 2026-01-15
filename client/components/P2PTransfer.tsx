@@ -165,31 +165,29 @@ export function P2PTransfer() {
             const filesToZip: Zippable = {};
             const usedNames = new Set<string>();
 
-            await Promise.all(
-                receivedFiles.map(async (file) => {
-                    const response = await fetch(file.downloadUrl);
-                    const blob = await response.blob();
-                    const arrayBuffer = await blob.arrayBuffer();
+            for (const file of receivedFiles) {
+                const response = await fetch(file.downloadUrl);
+                const blob = await response.blob();
+                const arrayBuffer = await blob.arrayBuffer();
 
-                    let finalName = file.fileName;
-                    let counter = 1;
+                let finalName = file.fileName;
+                let counter = 1;
 
-                    while (usedNames.has(finalName)) {
-                        const dotIndex = file.fileName.lastIndexOf('.');
-                        if (dotIndex === -1) {
-                            finalName = `${file.fileName} (${counter})`;
-                        } else {
-                            const base = file.fileName.substring(0, dotIndex);
-                            const ext = file.fileName.substring(dotIndex);
-                            finalName = `${base} (${counter})${ext}`;
-                        }
-                        counter++;
+                while (usedNames.has(finalName)) {
+                    const dotIndex = file.fileName.lastIndexOf('.');
+                    if (dotIndex === -1) {
+                        finalName = `${file.fileName} (${counter})`;
+                    } else {
+                        const base = file.fileName.substring(0, dotIndex);
+                        const ext = file.fileName.substring(dotIndex);
+                        finalName = `${base} (${counter})${ext}`;
                     }
+                    counter++;
+                }
 
-                    usedNames.add(finalName);
-                    filesToZip[finalName] = new Uint8Array(arrayBuffer);
-                })
-            );
+                usedNames.add(finalName);
+                filesToZip[finalName] = new Uint8Array(arrayBuffer);
+            }
 
             zip(filesToZip, (err, data) => {
                 if (err) {
@@ -519,7 +517,7 @@ export function P2PTransfer() {
 
         let currentMetadata: any = {};
 
-        peer.on('data', async (data) => {
+        peer.on('data', (data) => {
             const isFileChunk = data.byteLength > 1000;
 
             if (!isFileChunk) {
@@ -561,13 +559,6 @@ export function P2PTransfer() {
                                 const blob = new Blob(fileData.chunks);
                                 const url = URL.createObjectURL(blob);
 
-                                let hashVerified: boolean | undefined;
-                                if (currentMetadata.fileHash) {
-                                    const receivedBuffer = await blob.arrayBuffer();
-                                    const receivedHash = await computeFileHash(receivedBuffer);
-                                    hashVerified = receivedHash === currentMetadata.fileHash;
-                                }
-
                                 setReceivedFiles((prev) => [
                                     ...prev,
                                     {
@@ -575,7 +566,6 @@ export function P2PTransfer() {
                                         fileName: currentMetadata.fileName,
                                         fileSize: currentMetadata.fileSize,
                                         downloadUrl: url,
-                                        hashVerified,
                                     },
                                 ]);
                                 partialDownloads.current.delete(
