@@ -1,6 +1,3 @@
-// Service Worker for Floe P2P File Transfer
-// Provides offline caching for faster subsequent loads
-
 const CACHE_NAME = 'floe-cache-v1';
 const STATIC_ASSETS = [
     '/',
@@ -9,18 +6,15 @@ const STATIC_ASSETS = [
     '/github-mark-white.png',
 ];
 
-// Install event - cache static assets
 self.addEventListener('install', (event) => {
     event.waitUntil(
         caches.open(CACHE_NAME).then((cache) => {
-            console.log('Service Worker: Caching static assets');
             return cache.addAll(STATIC_ASSETS);
         })
     );
     self.skipWaiting();
 });
 
-// Activate event - clean up old caches
 self.addEventListener('activate', (event) => {
     event.waitUntil(
         caches.keys().then((cacheNames) => {
@@ -34,21 +28,14 @@ self.addEventListener('activate', (event) => {
     self.clients.claim();
 });
 
-// Fetch event - serve from cache, fallback to network
 self.addEventListener('fetch', (event) => {
     const { request } = event;
     const url = new URL(request.url);
 
-    // Skip non-GET requests
     if (request.method !== 'GET') return;
-
-    // Skip WebSocket and Socket.io requests
     if (url.pathname.includes('socket.io')) return;
-
-    // Skip API requests (metered.ca, etc.)
     if (url.hostname !== self.location.hostname) return;
 
-    // For navigation requests, use network-first
     if (request.mode === 'navigate') {
         event.respondWith(
             fetch(request)
@@ -64,14 +51,12 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // For static assets, use cache-first
     event.respondWith(
         caches.match(request).then((cachedResponse) => {
             if (cachedResponse) {
                 return cachedResponse;
             }
             return fetch(request).then((response) => {
-                // Cache successful responses for static assets
                 if (response.status === 200) {
                     const responseClone = response.clone();
                     caches.open(CACHE_NAME).then((cache) => {

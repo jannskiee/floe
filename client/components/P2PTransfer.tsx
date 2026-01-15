@@ -55,6 +55,13 @@ interface ReceivedFile {
     fileName: string;
     fileSize: number;
     downloadUrl: string;
+    hashVerified?: boolean;
+}
+
+async function computeFileHash(data: ArrayBuffer): Promise<string> {
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 export function P2PTransfer() {
@@ -78,7 +85,7 @@ export function P2PTransfer() {
         Map<string, { chunks: ArrayBuffer[]; received: number }>
     >(new Map());
     const fileListRef = useRef<HTMLDivElement>(null);
-    const chunkSizeRef = useRef(160 * 1024); // Start at 160KB (original)
+    const chunkSizeRef = useRef(160 * 1024);
     const iceServersRef = useRef<RTCIceServer[]>([
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
@@ -353,10 +360,10 @@ export function P2PTransfer() {
         total: number
     ) => {
         return new Promise<void>(async (resolve) => {
-            const MIN_CHUNK = 64 * 1024;   // 64KB minimum
-            const MAX_CHUNK = 256 * 1024;  // 256KB maximum (WebRTC limit)
+            const MIN_CHUNK = 64 * 1024;
+            const MAX_CHUNK = 256 * 1024;
             const BUFFER_LIMIT = 1 * 1024 * 1024;
-            const ADAPT_INTERVAL = 20;     // Adapt every 20 chunks
+            const ADAPT_INTERVAL = 20;
             const { file, id } = fileItem;
 
             if (!peer || peer.destroyed) {
@@ -364,12 +371,16 @@ export function P2PTransfer() {
                 return;
             }
 
+            const fileBuffer = await file.arrayBuffer();
+            const fileHash = await computeFileHash(fileBuffer);
+
             try {
                 peer.send(
                     JSON.stringify({
                         id: id,
                         fileName: file.name,
                         fileSize: file.size,
+                        fileHash: fileHash,
                         type: 'metadata',
                         index: index,
                         total: total,
@@ -407,7 +418,6 @@ export function P2PTransfer() {
                 const CHUNK_SIZE = chunkSizeRef.current;
                 const channel = peer._channel as RTCDataChannel | undefined;
 
-                // Wait for buffer to drain using event-based approach (not throttled in background)
                 if (channel && channel.bufferedAmount > BUFFER_LIMIT) {
                     await new Promise<void>((r) => {
                         const lowThreshold = CHUNK_SIZE;
@@ -418,7 +428,6 @@ export function P2PTransfer() {
                             r();
                         };
 
-                        // If already below threshold, resolve immediately
                         if (channel.bufferedAmount < lowThreshold) {
                             r();
                         } else {
@@ -437,20 +446,18 @@ export function P2PTransfer() {
                     measureBytes += chunkBuffer.byteLength;
                     chunkCount++;
 
-                    // Adapt chunk size every ADAPT_INTERVAL chunks
                     if (chunkCount % ADAPT_INTERVAL === 0) {
                         const elapsed = (performance.now() - measureStart) / 1000;
                         const bytesPerSec = measureBytes / elapsed;
                         setTransferSpeed(bytesPerSec);
 
-                        // Adjust chunk size based on throughput
                         let newChunkSize: number;
                         if (bytesPerSec > 2 * 1024 * 1024) {
-                            newChunkSize = MAX_CHUNK; // >2MB/s → 256KB
+                            newChunkSize = MAX_CHUNK;
                         } else if (bytesPerSec > 500 * 1024) {
-                            newChunkSize = 128 * 1024; // >500KB/s → 128KB
+                            newChunkSize = 128 * 1024;
                         } else {
-                            newChunkSize = MIN_CHUNK; // slow → 64KB
+                            newChunkSize = MIN_CHUNK;
                         }
 
                         if (newChunkSize !== chunkSizeRef.current) {
@@ -512,7 +519,7 @@ export function P2PTransfer() {
 
         let currentMetadata: any = {};
 
-        peer.on('data', (data) => {
+        peer.on('data', async (data) => {
             const isFileChunk = data.byteLength > 1000;
 
             if (!isFileChunk) {
@@ -553,6 +560,17 @@ export function P2PTransfer() {
                             if (fileData) {
                                 const blob = new Blob(fileData.chunks);
                                 const url = URL.createObjectURL(blob);
+
+                                let hashVerified: boolean | undefined;
+                                if (currentMetadata.fileHash) {
+                                    const receivedBuffer = await blob.arrayBuffer();
+                                    const receivedHash = await computeFileHash(receivedBuffer);
+                                    hashVerified = receivedHash === currentMetadata.fileHash;
+                                    if (!hashVerified) {
+                                        console.warn('File hash mismatch! File may be corrupted.');
+                                    }
+                                }
+
                                 setReceivedFiles((prev) => [
                                     ...prev,
                                     {
@@ -560,6 +578,7 @@ export function P2PTransfer() {
                                         fileName: currentMetadata.fileName,
                                         fileSize: currentMetadata.fileSize,
                                         downloadUrl: url,
+                                        hashVerified,
                                     },
                                 ]);
                                 partialDownloads.current.delete(
