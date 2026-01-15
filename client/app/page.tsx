@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Coffee } from 'lucide-react';
+import { Heart } from 'lucide-react';
 import { Navbar } from '@/components/layout/Navbar';
 import { AboutSection } from '@/components/layout/AboutSection';
 import { FAQSection } from '@/components/layout/FAQSection';
@@ -32,7 +32,7 @@ export default function Home() {
             <footer className="mt-24 mb-12 w-full max-w-md flex flex-col items-center space-y-6 border-t border-white/5 pt-8">
                 <div className="flex items-center gap-6">
                     <a
-                        href="https://github.com/your-username/floe"
+                        href="https://github.com/jannskiee/floe"
                         target="_blank"
                         rel="noreferrer"
                         className="flex items-center gap-2 text-sm text-zinc-400 hover:text-white transition-colors"
@@ -47,11 +47,13 @@ export default function Home() {
                         <span className="font-medium">Open Source</span>
                     </a>
                     <a
-                        href="#"
-                        className="flex items-center gap-2 text-sm text-zinc-400 hover:text-yellow-400 transition-colors"
+                        href="https://ko-fi.com/jannskiee"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-2 text-sm text-zinc-400 hover:text-[#FF5E5B] transition-colors"
                     >
-                        <Coffee className="h-4 w-4" />
-                        <span className="font-medium">Buy me a coffee</span>
+                        <Heart className="h-4 w-4" />
+                        <span className="font-medium">Support on Ko-fi</span>
                     </a>
                 </div>
                 <div className="flex gap-4 text-[10px] text-zinc-500 uppercase tracking-widest">
