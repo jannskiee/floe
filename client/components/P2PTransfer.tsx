@@ -70,6 +70,7 @@ export function P2PTransfer() {
     const [copied, setCopied] = useState(false);
     const [isZipping, setIsZipping] = useState(false);
     const [error, setError] = useState('');
+    const [transferSpeed, setTransferSpeed] = useState(0);
 
     const peerRef = useRef<PeerInstance | null>(null);
     const wakeLockRef = useRef<WakeLockSentinel | null>(null);
@@ -77,6 +78,7 @@ export function P2PTransfer() {
         Map<string, { chunks: ArrayBuffer[]; received: number }>
     >(new Map());
     const fileListRef = useRef<HTMLDivElement>(null);
+    const chunkSizeRef = useRef(160 * 1024); // Start at 160KB (original)
     const iceServersRef = useRef<RTCIceServer[]>([
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
@@ -351,8 +353,10 @@ export function P2PTransfer() {
         total: number
     ) => {
         return new Promise<void>(async (resolve) => {
-            const CHUNK_SIZE = 160 * 1024;
+            const MIN_CHUNK = 64 * 1024;   // 64KB minimum
+            const MAX_CHUNK = 256 * 1024;  // 256KB maximum (WebRTC limit)
             const BUFFER_LIMIT = 1 * 1024 * 1024;
+            const ADAPT_INTERVAL = 20;     // Adapt every 20 chunks
             const { file, id } = fileItem;
 
             if (!peer || peer.destroyed) {
@@ -395,21 +399,31 @@ export function P2PTransfer() {
             console.log(`Resuming ${file.name} from: ${startOffset}`);
 
             let offset = startOffset;
+            let chunkCount = 0;
+            let measureStart = performance.now();
+            let measureBytes = 0;
+
             while (offset < file.size) {
-                const channel = peer._channel;
+                const CHUNK_SIZE = chunkSizeRef.current;
+                const channel = peer._channel as RTCDataChannel | undefined;
+
+                // Wait for buffer to drain using event-based approach (not throttled in background)
                 if (channel && channel.bufferedAmount > BUFFER_LIMIT) {
                     await new Promise<void>((r) => {
-                        const wait = () => {
-                            if (
-                                !channel ||
-                                channel.bufferedAmount < CHUNK_SIZE
-                            ) {
-                                r();
-                            } else {
-                                setTimeout(wait, 5);
-                            }
+                        const lowThreshold = CHUNK_SIZE;
+                        channel.bufferedAmountLowThreshold = lowThreshold;
+
+                        const onBufferLow = () => {
+                            channel.removeEventListener('bufferedamountlow', onBufferLow);
+                            r();
                         };
-                        wait();
+
+                        // If already below threshold, resolve immediately
+                        if (channel.bufferedAmount < lowThreshold) {
+                            r();
+                        } else {
+                            channel.addEventListener('bufferedamountlow', onBufferLow);
+                        }
                     });
                 }
 
@@ -419,9 +433,37 @@ export function P2PTransfer() {
 
                 try {
                     peer.send(chunkBuffer);
-                    offset += CHUNK_SIZE;
+                    offset += chunkBuffer.byteLength;
+                    measureBytes += chunkBuffer.byteLength;
+                    chunkCount++;
+
+                    // Adapt chunk size every ADAPT_INTERVAL chunks
+                    if (chunkCount % ADAPT_INTERVAL === 0) {
+                        const elapsed = (performance.now() - measureStart) / 1000;
+                        const bytesPerSec = measureBytes / elapsed;
+                        setTransferSpeed(bytesPerSec);
+
+                        // Adjust chunk size based on throughput
+                        let newChunkSize: number;
+                        if (bytesPerSec > 2 * 1024 * 1024) {
+                            newChunkSize = MAX_CHUNK; // >2MB/s → 256KB
+                        } else if (bytesPerSec > 500 * 1024) {
+                            newChunkSize = 128 * 1024; // >500KB/s → 128KB
+                        } else {
+                            newChunkSize = MIN_CHUNK; // slow → 64KB
+                        }
+
+                        if (newChunkSize !== chunkSizeRef.current) {
+                            console.log(`Adapting chunk size: ${chunkSizeRef.current / 1024}KB → ${newChunkSize / 1024}KB (${(bytesPerSec / 1024 / 1024).toFixed(2)} MB/s)`);
+                            chunkSizeRef.current = newChunkSize;
+                        }
+
+                        measureStart = performance.now();
+                        measureBytes = 0;
+                    }
+
                     if (
-                        offset % (CHUNK_SIZE * 10) === 0 ||
+                        chunkCount % 10 === 0 ||
                         offset >= file.size
                     ) {
                         setProgress(Math.round((offset / file.size) * 100));
