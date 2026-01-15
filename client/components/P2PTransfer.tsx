@@ -188,7 +188,7 @@ export function P2PTransfer() {
                     setIsZipping(false);
                     return;
                 }
-                const blob = new Blob([data], { type: 'application/zip' });
+                const blob = new Blob([data.buffer as ArrayBuffer], { type: 'application/zip' });
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement('a');
                 link.href = url;
