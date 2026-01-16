@@ -110,11 +110,9 @@ io.on('connection', (socket) => {
 
         if (numClients === 0) {
             socket.join(roomId);
-            console.log(`Room ${roomId} created by ${socket.id}`);
         } else if (numClients === 1) {
             socket.join(roomId);
             socket.to(roomId).emit('user-connected', socket.id);
-            console.log(`User ${socket.id} joined room ${roomId}`);
         } else {
             socket.emit('room-full');
         }
@@ -145,12 +143,8 @@ io.on('connection', (socket) => {
         });
     });
 
-    socket.on('disconnect', () => {
-        console.log('User Disconnected', socket.id);
-    });
+    socket.on('disconnect', () => { });
 });
 
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
-    console.log(`SERVER RUNNING ON PORT ${PORT}`);
-});
+server.listen(PORT);

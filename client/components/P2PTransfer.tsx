@@ -97,7 +97,6 @@ export function P2PTransfer() {
             const iceServers = await response.json();
             if (Array.isArray(iceServers) && iceServers.length > 0) {
                 iceServersRef.current = iceServers;
-                console.log('ICE servers fetched from metered.ca');
             }
         } catch (err) {
             console.warn('Failed to fetch TURN servers, using fallback STUN:', err);
@@ -384,7 +383,7 @@ export function P2PTransfer() {
         return new Promise<void>(async (resolve) => {
             const MIN_CHUNK = 64 * 1024;
             const MAX_CHUNK = 256 * 1024;
-            const BUFFER_LIMIT = 1 * 1024 * 1024;
+            const BUFFER_LIMIT = 1024 * 1024;
             const ADAPT_INTERVAL = 20;
             const { file, id } = fileItem;
 
@@ -425,14 +424,11 @@ export function P2PTransfer() {
                 peer.on('data', handleAck);
             });
 
-            console.log(`Resuming ${file.name} from: ${startOffset}`);
-
             let offset = startOffset;
             let chunkCount = 0;
             let measureStart = performance.now();
             let measureBytes = 0;
 
-            // Speed/ETA tracking
             let speedMeasureStart = performance.now();
             let speedMeasureBytes = 0;
             let lastSpeedUpdate = 0;
@@ -470,7 +466,6 @@ export function P2PTransfer() {
                     speedMeasureBytes += chunkBuffer.byteLength;
                     chunkCount++;
 
-                    // Update speed/ETA every second
                     const now = performance.now();
                     if (now - lastSpeedUpdate > 1000) {
                         const elapsed = (now - speedMeasureStart) / 1000;
@@ -479,12 +474,10 @@ export function P2PTransfer() {
                             const remaining = file.size - offset;
                             const etaSeconds = remaining / bytesPerSec;
 
-                            // Format speed
                             const speedFormatted = bytesPerSec >= 1024 * 1024
                                 ? `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`
                                 : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
 
-                            // Format ETA
                             let etaFormatted = '';
                             if (etaSeconds < 60) {
                                 etaFormatted = `${Math.ceil(etaSeconds)}s`;
@@ -517,7 +510,6 @@ export function P2PTransfer() {
                         }
 
                         if (newChunkSize !== chunkSizeRef.current) {
-                            console.log(`Adapting chunk size: ${chunkSizeRef.current / 1024}KB → ${newChunkSize / 1024}KB (${(bytesPerSec / 1024 / 1024).toFixed(2)} MB/s)`);
                             chunkSizeRef.current = newChunkSize;
                         }
 
@@ -537,7 +529,6 @@ export function P2PTransfer() {
                 }
             }
 
-            // Reset speed/ETA after transfer
             setTransferSpeed('');
             setEstimatedTime('');
 
@@ -580,7 +571,6 @@ export function P2PTransfer() {
 
         let currentMetadata: any = {};
 
-        // Speed/ETA tracking for receiver
         let receiveSpeedStart = performance.now();
         let receiveSpeedBytes = 0;
         let lastReceiveSpeedUpdate = 0;
@@ -596,7 +586,6 @@ export function P2PTransfer() {
 
                         if (msg.type === 'metadata') {
                             currentMetadata = msg;
-                            // Reset speed tracking for new file
                             receiveSpeedStart = performance.now();
                             receiveSpeedBytes = 0;
                             lastReceiveSpeedUpdate = 0;
@@ -662,7 +651,6 @@ export function P2PTransfer() {
                 fileData.received += data.byteLength;
                 receiveSpeedBytes += data.byteLength;
 
-                // Update speed/ETA every second
                 const now = performance.now();
                 if (now - lastReceiveSpeedUpdate > 1000) {
                     const elapsed = (now - receiveSpeedStart) / 1000;
@@ -671,12 +659,10 @@ export function P2PTransfer() {
                         const remaining = currentMetadata.fileSize - fileData.received;
                         const etaSeconds = remaining / bytesPerSec;
 
-                        // Format speed
                         const speedFormatted = bytesPerSec >= 1024 * 1024
                             ? `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`
                             : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
 
-                        // Format ETA
                         let etaFormatted = '';
                         if (etaSeconds < 60) {
                             etaFormatted = `${Math.ceil(etaSeconds)}s`;
