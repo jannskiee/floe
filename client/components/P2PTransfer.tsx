@@ -215,10 +215,168 @@ export function P2PTransfer() {
         setTimeout(() => setCopied(false), 2000);
     };
 
+    const joinRoomAsReceiver = (roomId: string) => {
+        setStatus('Connecting...');
+        socket.emit('join-room', roomId);
+
+        socket.on('room-full', () => {
+            setError('Link Expired or Busy');
+            setStatus('Access Denied');
+            socket.disconnect();
+        });
+
+        const peer = new SimplePeer({
+            initiator: false,
+            trickle: true,
+            config: {
+                iceServers: iceServersRef.current,
+            },
+        });
+
+        peer.on('signal', (signal) =>
+            socket.emit('signal', { target: null, roomId, signal })
+        );
+        peer.on('connect', () => {
+            setIsConnected(true);
+            requestWakeLock();
+        });
+        peer.on('close', () => {
+            setIsConnected(false);
+            releaseWakeLock();
+        });
+
+        let currentMetadata: any = {};
+
+        let receiveSpeedStart = performance.now();
+        let receiveSpeedBytes = 0;
+        let lastReceiveSpeedUpdate = 0;
+
+        peer.on('data', (data) => {
+            const isFileChunk = data.byteLength > 1000;
+
+            if (!isFileChunk) {
+                try {
+                    const text = new TextDecoder().decode(data);
+                    if (text.startsWith('{')) {
+                        const msg = JSON.parse(text);
+
+                        if (msg.type === 'metadata') {
+                            currentMetadata = msg;
+                            receiveSpeedStart = performance.now();
+                            receiveSpeedBytes = 0;
+                            lastReceiveSpeedUpdate = 0;
+                            setTransferSpeed('');
+                            setEstimatedTime('');
+                            setStatus(
+                                `Receiving file ${msg.index} of ${msg.total}...`
+                            );
+
+                            let offset = 0;
+                            const existing = partialDownloads.current.get(
+                                msg.id
+                            );
+                            if (existing) {
+                                offset = existing.received;
+                            } else {
+                                partialDownloads.current.set(msg.id, {
+                                    chunks: [],
+                                    received: 0,
+                                });
+                            }
+                            peer.send(
+                                JSON.stringify({
+                                    type: 'ack',
+                                    id: msg.id,
+                                    offset: offset,
+                                })
+                            );
+                        } else if (msg.type === 'end') {
+                            const fileData = partialDownloads.current.get(
+                                currentMetadata.id
+                            );
+                            if (fileData) {
+                                const blob = new Blob(fileData.chunks);
+                                const url = URL.createObjectURL(blob);
+
+                                setReceivedFiles((prev) => [
+                                    ...prev,
+                                    {
+                                        id: uuidv4(),
+                                        fileName: currentMetadata.fileName,
+                                        fileSize: fileData.received,
+                                        downloadUrl: url,
+                                    },
+                                ]);
+                                partialDownloads.current.delete(
+                                    currentMetadata.id
+                                );
+                            }
+                            setStatus('File Received. Waiting for next...');
+                            setProgress(0);
+                            setTransferSpeed('');
+                            setEstimatedTime('');
+                        }
+                        return;
+                    }
+                } catch (e) { }
+            }
+
+            const fileData = partialDownloads.current.get(currentMetadata.id);
+            if (fileData) {
+                fileData.chunks.push(data);
+                fileData.received += data.byteLength;
+                receiveSpeedBytes += data.byteLength;
+
+                const now = performance.now();
+                if (now - lastReceiveSpeedUpdate > 1000) {
+                    const elapsed = (now - receiveSpeedStart) / 1000;
+                    if (elapsed > 0 && currentMetadata.fileSize) {
+                        const bytesPerSec = receiveSpeedBytes / elapsed;
+                        const remaining = currentMetadata.fileSize - fileData.received;
+                        const etaSeconds = remaining / bytesPerSec;
+
+                        const speedFormatted = bytesPerSec >= 1024 * 1024
+                            ? `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`
+                            : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
+
+                        let etaFormatted = '';
+                        if (etaSeconds < 60) {
+                            etaFormatted = `${Math.ceil(etaSeconds)}s`;
+                        } else if (etaSeconds < 3600) {
+                            etaFormatted = `${Math.floor(etaSeconds / 60)}m ${Math.ceil(etaSeconds % 60)}s`;
+                        } else {
+                            etaFormatted = `${Math.floor(etaSeconds / 3600)}h ${Math.floor((etaSeconds % 3600) / 60)}m`;
+                        }
+
+                        setTransferSpeed(speedFormatted);
+                        setEstimatedTime(etaFormatted);
+                    }
+
+                    receiveSpeedStart = now;
+                    receiveSpeedBytes = 0;
+                    lastReceiveSpeedUpdate = now;
+                }
+
+                if (
+                    currentMetadata.fileSize &&
+                    (fileData.received % (160 * 1024 * 10) === 0 ||
+                        fileData.received === currentMetadata.fileSize)
+                ) {
+                    setProgress(
+                        Math.round(
+                            (fileData.received / currentMetadata.fileSize) * 100
+                        )
+                    );
+                }
+            }
+        });
+        peerRef.current = peer;
+    };
+
     useEffect(() => {
         fetchIceServers();
 
-        if (socket.connected) setIsConnected(true);
+        if (socket.connected) queueMicrotask(() => setIsConnected(true));
         socket.on('connect', () => setIsConnected(true));
         socket.on('disconnect', () => {
             setIsConnected(false);
@@ -237,10 +395,12 @@ export function P2PTransfer() {
         const roomFromUrl = params.get('room');
 
         if (roomFromUrl) {
-            setIsSender(false);
-            joinRoomAsReceiver(roomFromUrl);
+            queueMicrotask(() => {
+                setIsSender(false);
+                joinRoomAsReceiver(roomFromUrl);
+            });
         } else {
-            setIsSender(true);
+            queueMicrotask(() => setIsSender(true));
         }
 
         socket.on('signal', (data: any) => {
@@ -435,7 +595,7 @@ export function P2PTransfer() {
 
             while (offset < file.size) {
                 const CHUNK_SIZE = chunkSizeRef.current;
-                const channel = peer._channel as RTCDataChannel | undefined;
+                const channel = (peer as any)._channel as RTCDataChannel | undefined;
 
                 if (channel && channel.bufferedAmount > BUFFER_LIMIT) {
                     await new Promise<void>((r) => {
@@ -537,164 +697,6 @@ export function P2PTransfer() {
             } catch (err) { }
             resolve();
         });
-    };
-
-    const joinRoomAsReceiver = (roomId: string) => {
-        setStatus('Connecting...');
-        socket.emit('join-room', roomId);
-
-        socket.on('room-full', () => {
-            setError('Link Expired or Busy');
-            setStatus('Access Denied');
-            socket.disconnect();
-        });
-
-        const peer = new SimplePeer({
-            initiator: false,
-            trickle: true,
-            config: {
-                iceServers: iceServersRef.current,
-            },
-        });
-
-        peer.on('signal', (signal) =>
-            socket.emit('signal', { target: null, roomId, signal })
-        );
-        peer.on('connect', () => {
-            setIsConnected(true);
-            requestWakeLock();
-        });
-        peer.on('close', () => {
-            setIsConnected(false);
-            releaseWakeLock();
-        });
-
-        let currentMetadata: any = {};
-
-        let receiveSpeedStart = performance.now();
-        let receiveSpeedBytes = 0;
-        let lastReceiveSpeedUpdate = 0;
-
-        peer.on('data', (data) => {
-            const isFileChunk = data.byteLength > 1000;
-
-            if (!isFileChunk) {
-                try {
-                    const text = new TextDecoder().decode(data);
-                    if (text.startsWith('{')) {
-                        const msg = JSON.parse(text);
-
-                        if (msg.type === 'metadata') {
-                            currentMetadata = msg;
-                            receiveSpeedStart = performance.now();
-                            receiveSpeedBytes = 0;
-                            lastReceiveSpeedUpdate = 0;
-                            setTransferSpeed('');
-                            setEstimatedTime('');
-                            setStatus(
-                                `Receiving file ${msg.index} of ${msg.total}...`
-                            );
-
-                            let offset = 0;
-                            const existing = partialDownloads.current.get(
-                                msg.id
-                            );
-                            if (existing) {
-                                offset = existing.received;
-                            } else {
-                                partialDownloads.current.set(msg.id, {
-                                    chunks: [],
-                                    received: 0,
-                                });
-                            }
-                            peer.send(
-                                JSON.stringify({
-                                    type: 'ack',
-                                    id: msg.id,
-                                    offset: offset,
-                                })
-                            );
-                        } else if (msg.type === 'end') {
-                            const fileData = partialDownloads.current.get(
-                                currentMetadata.id
-                            );
-                            if (fileData) {
-                                const blob = new Blob(fileData.chunks);
-                                const url = URL.createObjectURL(blob);
-
-                                setReceivedFiles((prev) => [
-                                    ...prev,
-                                    {
-                                        id: uuidv4(),
-                                        fileName: currentMetadata.fileName,
-                                        fileSize: fileData.received,
-                                        downloadUrl: url,
-                                    },
-                                ]);
-                                partialDownloads.current.delete(
-                                    currentMetadata.id
-                                );
-                            }
-                            setStatus('File Received. Waiting for next...');
-                            setProgress(0);
-                            setTransferSpeed('');
-                            setEstimatedTime('');
-                        }
-                        return;
-                    }
-                } catch (e) { }
-            }
-
-            const fileData = partialDownloads.current.get(currentMetadata.id);
-            if (fileData) {
-                fileData.chunks.push(data);
-                fileData.received += data.byteLength;
-                receiveSpeedBytes += data.byteLength;
-
-                const now = performance.now();
-                if (now - lastReceiveSpeedUpdate > 1000) {
-                    const elapsed = (now - receiveSpeedStart) / 1000;
-                    if (elapsed > 0 && currentMetadata.fileSize) {
-                        const bytesPerSec = receiveSpeedBytes / elapsed;
-                        const remaining = currentMetadata.fileSize - fileData.received;
-                        const etaSeconds = remaining / bytesPerSec;
-
-                        const speedFormatted = bytesPerSec >= 1024 * 1024
-                            ? `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`
-                            : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
-
-                        let etaFormatted = '';
-                        if (etaSeconds < 60) {
-                            etaFormatted = `${Math.ceil(etaSeconds)}s`;
-                        } else if (etaSeconds < 3600) {
-                            etaFormatted = `${Math.floor(etaSeconds / 60)}m ${Math.ceil(etaSeconds % 60)}s`;
-                        } else {
-                            etaFormatted = `${Math.floor(etaSeconds / 3600)}h ${Math.floor((etaSeconds % 3600) / 60)}m`;
-                        }
-
-                        setTransferSpeed(speedFormatted);
-                        setEstimatedTime(etaFormatted);
-                    }
-
-                    receiveSpeedStart = now;
-                    receiveSpeedBytes = 0;
-                    lastReceiveSpeedUpdate = now;
-                }
-
-                if (
-                    currentMetadata.fileSize &&
-                    (fileData.received % (160 * 1024 * 10) === 0 ||
-                        fileData.received === currentMetadata.fileSize)
-                ) {
-                    setProgress(
-                        Math.round(
-                            (fileData.received / currentMetadata.fileSize) * 100
-                        )
-                    );
-                }
-            }
-        });
-        peerRef.current = peer;
     };
 
     return (
