@@ -244,6 +244,10 @@ export function P2PTransfer() {
             setIsConnected(false);
             releaseWakeLock();
         });
+        peer.on('error', (err) => {
+            setError(`Connection error: ${err.message}`);
+            setStatus('Connection failed');
+        });
 
         let currentMetadata: any = {};
 
@@ -374,7 +378,19 @@ export function P2PTransfer() {
     };
 
     useEffect(() => {
-        fetchIceServers();
+        const initializeConnection = async () => {
+            await fetchIceServers();
+
+            const params = new URLSearchParams(window.location.search);
+            const roomFromUrl = params.get('room');
+
+            if (roomFromUrl) {
+                setIsSender(false);
+                joinRoomAsReceiver(roomFromUrl);
+            } else {
+                setIsSender(true);
+            }
+        };
 
         if (socket.connected) queueMicrotask(() => setIsConnected(true));
         socket.on('connect', () => setIsConnected(true));
@@ -391,17 +407,7 @@ export function P2PTransfer() {
             });
         }, 2000);
 
-        const params = new URLSearchParams(window.location.search);
-        const roomFromUrl = params.get('room');
-
-        if (roomFromUrl) {
-            queueMicrotask(() => {
-                setIsSender(false);
-                joinRoomAsReceiver(roomFromUrl);
-            });
-        } else {
-            queueMicrotask(() => setIsSender(true));
-        }
+        initializeConnection();
 
         socket.on('signal', (data: any) => {
             if (peerRef.current && !peerRef.current.destroyed) {
@@ -510,6 +516,10 @@ export function P2PTransfer() {
             peer.on('close', () => {
                 setIsConnected(false);
                 releaseWakeLock();
+            });
+            peer.on('error', (err) => {
+                setError(`Connection error: ${err.message}`);
+                setStatus('Connection failed');
             });
 
             peerRef.current = peer;
