@@ -34,6 +34,7 @@ import {
     Loader2,
     Radio,
     ShieldCheck,
+    Trash2,
     UploadCloud,
     Wifi,
     FileArchive,
@@ -72,6 +73,9 @@ export function P2PTransfer() {
     const [copied, setCopied] = useState(false);
     const [isZipping, setIsZipping] = useState(false);
     const [error, setError] = useState('');
+    const [transferSpeed, setTransferSpeed] = useState('');
+    const [estimatedTime, setEstimatedTime] = useState('');
+    const [isDragging, setIsDragging] = useState(false);
 
     const peerRef = useRef<PeerInstance | null>(null);
     const wakeLockRef = useRef<WakeLockSentinel | null>(null);
@@ -292,6 +296,32 @@ export function P2PTransfer() {
         }
     };
 
+    const handleDeleteFile = (fileId: string) => {
+        setFiles((prev) => prev.filter((f) => f.id !== fileId));
+    };
+
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(true);
+    };
+
+    const handleDragLeave = (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+    };
+
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            const droppedFiles = Array.from(e.dataTransfer.files).map((f) => ({
+                id: uuidv4(),
+                file: f,
+            }));
+            setFiles((prev) => [...prev, ...droppedFiles]);
+        }
+    };
+
     const handleCreateLink = () => {
         const newRoomId = uuidv4();
         const link = `${window.location.protocol}//${window.location.host}?room=${newRoomId}`;
@@ -402,6 +432,11 @@ export function P2PTransfer() {
             let measureStart = performance.now();
             let measureBytes = 0;
 
+            // Speed/ETA tracking
+            let speedMeasureStart = performance.now();
+            let speedMeasureBytes = 0;
+            let lastSpeedUpdate = 0;
+
             while (offset < file.size) {
                 const CHUNK_SIZE = chunkSizeRef.current;
                 const channel = peer._channel as RTCDataChannel | undefined;
@@ -432,7 +467,41 @@ export function P2PTransfer() {
                     peer.send(chunkBuffer);
                     offset += chunkBuffer.byteLength;
                     measureBytes += chunkBuffer.byteLength;
+                    speedMeasureBytes += chunkBuffer.byteLength;
                     chunkCount++;
+
+                    // Update speed/ETA every second
+                    const now = performance.now();
+                    if (now - lastSpeedUpdate > 1000) {
+                        const elapsed = (now - speedMeasureStart) / 1000;
+                        if (elapsed > 0) {
+                            const bytesPerSec = speedMeasureBytes / elapsed;
+                            const remaining = file.size - offset;
+                            const etaSeconds = remaining / bytesPerSec;
+
+                            // Format speed
+                            const speedFormatted = bytesPerSec >= 1024 * 1024
+                                ? `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`
+                                : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
+
+                            // Format ETA
+                            let etaFormatted = '';
+                            if (etaSeconds < 60) {
+                                etaFormatted = `${Math.ceil(etaSeconds)}s`;
+                            } else if (etaSeconds < 3600) {
+                                etaFormatted = `${Math.floor(etaSeconds / 60)}m ${Math.ceil(etaSeconds % 60)}s`;
+                            } else {
+                                etaFormatted = `${Math.floor(etaSeconds / 3600)}h ${Math.floor((etaSeconds % 3600) / 60)}m`;
+                            }
+
+                            setTransferSpeed(speedFormatted);
+                            setEstimatedTime(etaFormatted);
+                        }
+
+                        speedMeasureStart = now;
+                        speedMeasureBytes = 0;
+                        lastSpeedUpdate = now;
+                    }
 
                     if (chunkCount % ADAPT_INTERVAL === 0) {
                         const elapsed = (performance.now() - measureStart) / 1000;
@@ -467,6 +536,11 @@ export function P2PTransfer() {
                     continue;
                 }
             }
+
+            // Reset speed/ETA after transfer
+            setTransferSpeed('');
+            setEstimatedTime('');
+
             try {
                 peer.send(JSON.stringify({ type: 'end' }));
             } catch (err) { }
@@ -506,6 +580,11 @@ export function P2PTransfer() {
 
         let currentMetadata: any = {};
 
+        // Speed/ETA tracking for receiver
+        let receiveSpeedStart = performance.now();
+        let receiveSpeedBytes = 0;
+        let lastReceiveSpeedUpdate = 0;
+
         peer.on('data', (data) => {
             const isFileChunk = data.byteLength > 1000;
 
@@ -517,6 +596,12 @@ export function P2PTransfer() {
 
                         if (msg.type === 'metadata') {
                             currentMetadata = msg;
+                            // Reset speed tracking for new file
+                            receiveSpeedStart = performance.now();
+                            receiveSpeedBytes = 0;
+                            lastReceiveSpeedUpdate = 0;
+                            setTransferSpeed('');
+                            setEstimatedTime('');
                             setStatus(
                                 `Receiving file ${msg.index} of ${msg.total}...`
                             );
@@ -563,6 +648,8 @@ export function P2PTransfer() {
                             }
                             setStatus('File Received. Waiting for next...');
                             setProgress(0);
+                            setTransferSpeed('');
+                            setEstimatedTime('');
                         }
                         return;
                     }
@@ -573,6 +660,40 @@ export function P2PTransfer() {
             if (fileData) {
                 fileData.chunks.push(data);
                 fileData.received += data.byteLength;
+                receiveSpeedBytes += data.byteLength;
+
+                // Update speed/ETA every second
+                const now = performance.now();
+                if (now - lastReceiveSpeedUpdate > 1000) {
+                    const elapsed = (now - receiveSpeedStart) / 1000;
+                    if (elapsed > 0 && currentMetadata.fileSize) {
+                        const bytesPerSec = receiveSpeedBytes / elapsed;
+                        const remaining = currentMetadata.fileSize - fileData.received;
+                        const etaSeconds = remaining / bytesPerSec;
+
+                        // Format speed
+                        const speedFormatted = bytesPerSec >= 1024 * 1024
+                            ? `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`
+                            : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
+
+                        // Format ETA
+                        let etaFormatted = '';
+                        if (etaSeconds < 60) {
+                            etaFormatted = `${Math.ceil(etaSeconds)}s`;
+                        } else if (etaSeconds < 3600) {
+                            etaFormatted = `${Math.floor(etaSeconds / 60)}m ${Math.ceil(etaSeconds % 60)}s`;
+                        } else {
+                            etaFormatted = `${Math.floor(etaSeconds / 3600)}h ${Math.floor((etaSeconds % 3600) / 60)}m`;
+                        }
+
+                        setTransferSpeed(speedFormatted);
+                        setEstimatedTime(etaFormatted);
+                    }
+
+                    receiveSpeedStart = now;
+                    receiveSpeedBytes = 0;
+                    lastReceiveSpeedUpdate = now;
+                }
 
                 if (
                     currentMetadata.fileSize &&
@@ -689,7 +810,14 @@ export function P2PTransfer() {
                                                     ? status
                                                     : 'Receiving...'}
                                         </span>
-                                        <span>{progress}%</span>
+                                        <span className="flex items-center gap-2">
+                                            {transferSpeed && estimatedTime && progress < 100 && (
+                                                <span className="text-zinc-500">
+                                                    {transferSpeed} • {estimatedTime}
+                                                </span>
+                                            )}
+                                            <span>{progress}%</span>
+                                        </span>
                                     </div>
                                     <Progress
                                         value={progress}
@@ -699,12 +827,22 @@ export function P2PTransfer() {
                             )}
 
                             {isSender && !generatedLink && (
-                                <div className="group relative mt-2 flex flex-col items-center justify-center rounded-xl border border-dashed border-zinc-700 bg-zinc-900/50 p-10 transition-all hover:border-white/50 hover:bg-zinc-800">
-                                    <div className="mb-4 rounded-full bg-zinc-800 p-4 transition group-hover:bg-zinc-700">
-                                        <UploadCloud className="h-8 w-8 text-zinc-400 group-hover:text-white" />
+                                <div
+                                    onDragOver={handleDragOver}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={handleDrop}
+                                    className={`group relative mt-2 flex flex-col items-center justify-center rounded-xl border-2 border-dashed bg-zinc-900/50 p-10 transition-all ${isDragging
+                                        ? 'border-white bg-zinc-800/80'
+                                        : 'border-zinc-700 hover:border-white/50 hover:bg-zinc-800'
+                                        }`}
+                                >
+                                    <div className={`mb-4 rounded-full p-4 transition ${isDragging ? 'bg-white/20' : 'bg-zinc-800 group-hover:bg-zinc-700'
+                                        }`}>
+                                        <UploadCloud className={`h-8 w-8 transition ${isDragging ? 'text-white' : 'text-zinc-400 group-hover:text-white'
+                                            }`} />
                                     </div>
                                     <p className="mb-2 text-sm font-medium text-zinc-200">
-                                        Click or Drag files here
+                                        {isDragging ? 'Drop files here!' : 'Click or Drag files here'}
                                     </p>
                                     <p className="flex items-center gap-1 text-xs text-zinc-500">
                                         Max size: Unlimited{' '}
@@ -810,9 +948,15 @@ export function P2PTransfer() {
                                                             )}
                                                         </span>
                                                     </div>
-                                                    <div className="ml-auto">
+                                                    <div className="ml-auto flex items-center gap-2">
                                                         {!generatedLink ? (
-                                                            <div className="h-2 w-2 rounded-full bg-zinc-600"></div>
+                                                            <button
+                                                                onClick={() => handleDeleteFile(item.id)}
+                                                                className="p-1.5 rounded-md hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition-all"
+                                                                title="Remove file"
+                                                            >
+                                                                <Trash2 className="h-4 w-4" />
+                                                            </button>
                                                         ) : i <
                                                             currentFileIndex ||
                                                             status ===
@@ -838,6 +982,17 @@ export function P2PTransfer() {
                                                 Waiting for sender...
                                             </div>
                                         )}
+
+                                    {receivedFiles.length > 0 && (
+                                        <div className="flex items-center justify-between mb-3">
+                                            <div className="flex items-center gap-2 text-sm text-zinc-400">
+                                                <CheckCircle2 className="h-4 w-4 text-green-500" />
+                                                <span className="font-medium">
+                                                    {receivedFiles.length} {receivedFiles.length === 1 ? 'File' : 'Files'} Received
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
 
                                     {receivedFiles.length > 1 &&
                                         !status.includes('Receiving') && (
