@@ -34,10 +34,10 @@ import {
     Loader2,
     Radio,
     ShieldCheck,
-    Trash2,
     UploadCloud,
     Wifi,
     FileArchive,
+    X,
 } from 'lucide-react';
 import { formatBytes } from '@/lib/utils';
 import { FileIcon } from '@/components/FileIcon';
@@ -951,9 +951,8 @@ export function P2PTransfer() {
                                                             <button
                                                                 onClick={() => handleDeleteFile(item.id)}
                                                                 className="p-1.5 rounded-md hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition-all"
-                                                                title="Remove file"
                                                             >
-                                                                <Trash2 className="h-4 w-4" />
+                                                                <X className="h-4 w-4" strokeWidth={3} />
                                                             </button>
                                                         ) : i <
                                                             currentFileIndex ||
