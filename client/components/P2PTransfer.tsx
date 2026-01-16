@@ -916,7 +916,7 @@ export function P2PTransfer() {
 
                                         <div
                                             ref={fileListRef}
-                                            className="space-y-3 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar"
+                                            className="space-y-3 max-h-[300px] overflow-y-scroll pr-1 pb-12 custom-scrollbar"
                                         >
                                             {files.map((item, i) => (
                                                 <div
@@ -930,15 +930,16 @@ export function P2PTransfer() {
                                                             }
                                                         />
                                                     </div>
-                                                    <div className="flex flex-col min-w-0 relative group">
+                                                    <div className="flex flex-col min-w-0 relative">
                                                         <span
-                                                            className={`text-sm font-medium truncate cursor-help transition-colors ${i === currentFileIndex && progress > 0 && progress < 100 ? 'text-white' : 'text-zinc-400'}`}
+                                                            className={`peer text-sm font-medium truncate cursor-help transition-colors ${i === currentFileIndex && progress > 0 && progress < 100 ? 'text-white' : 'text-zinc-400'}`}
                                                         >
                                                             {item.file.name}
                                                         </span>
-                                                        <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block z-50 w-max max-w-[240px] px-3 py-2 text-xs font-medium text-white bg-zinc-950 rounded-lg border border-zinc-800 shadow-2xl break-all">
+                                                        <div className="absolute top-full left-0 mt-1 opacity-0 peer-hover:opacity-100 z-[9999] w-max max-w-[240px] px-3 py-2 text-xs font-medium text-white bg-zinc-950 rounded-lg border border-zinc-800 shadow-2xl break-all pointer-events-none">
                                                             {item.file.name}
-                                                            <div className="absolute top-full left-4 -mt-1 h-2 w-2 rotate-45 border-r border-b border-zinc-800 bg-zinc-950"></div>
+                                                            <div className="absolute bottom-full left-4 h-0 w-0 border-l-[7px] border-r-[7px] border-b-[7px] border-l-transparent border-r-transparent border-b-zinc-800"></div>
+                                                            <div className="absolute bottom-full left-[17px] mt-[1px] h-0 w-0 border-l-[6px] border-r-[6px] border-b-[6px] border-l-transparent border-r-transparent border-b-zinc-950"></div>
                                                         </div>
                                                         <span className="text-xs text-zinc-500 font-mono">
                                                             {formatBytes(
