@@ -638,7 +638,7 @@ export function P2PTransfer() {
                                     {
                                         id: uuidv4(),
                                         fileName: currentMetadata.fileName,
-                                        fileSize: currentMetadata.fileSize,
+                                        fileSize: fileData.received,
                                         downloadUrl: url,
                                     },
                                 ]);
@@ -983,15 +983,11 @@ export function P2PTransfer() {
                                             </div>
                                         )}
 
+
                                     {receivedFiles.length > 0 && (
-                                        <div className="flex items-center justify-between mb-3">
-                                            <div className="flex items-center gap-2 text-sm text-zinc-400">
-                                                <CheckCircle2 className="h-4 w-4 text-green-500" />
-                                                <span className="font-medium">
-                                                    {receivedFiles.length} {receivedFiles.length === 1 ? 'File' : 'Files'} Received
-                                                </span>
-                                            </div>
-                                        </div>
+                                        <p className="text-sm text-zinc-400 mb-3">
+                                            {receivedFiles.length} {receivedFiles.length === 1 ? 'file' : 'files'} received
+                                        </p>
                                     )}
 
                                     {receivedFiles.length > 1 &&
