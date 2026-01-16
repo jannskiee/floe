@@ -1028,13 +1028,14 @@ export function P2PTransfer() {
                                                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-500/10 text-green-500">
                                                         <CheckCircle2 className="h-5 w-5" />
                                                     </div>
-                                                    <div className="flex flex-col min-w-0 relative group">
-                                                        <span className="text-sm font-medium text-white truncate max-w-[250px] cursor-help">
+                                                    <div className="flex flex-col min-w-0 relative">
+                                                        <span className="peer text-sm font-medium text-white truncate max-w-[250px] cursor-help">
                                                             {file.fileName}
                                                         </span>
-                                                        <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block z-50 w-max max-w-[240px] px-3 py-2 text-xs font-medium text-white bg-zinc-950 rounded-lg border border-zinc-800 shadow-xl break-all">
+                                                        <div className="absolute top-full left-0 mt-1 opacity-0 peer-hover:opacity-100 z-[9999] w-max max-w-[240px] px-3 py-2 text-xs font-medium text-white bg-zinc-950 rounded-lg border border-zinc-800 shadow-2xl break-all pointer-events-none">
                                                             {file.fileName}
-                                                            <div className="absolute top-full left-4 -mt-1 h-2 w-2 rotate-45 border-r border-b border-zinc-800 bg-zinc-950"></div>
+                                                            <div className="absolute bottom-full left-4 h-0 w-0 border-l-[7px] border-r-[7px] border-b-[7px] border-l-transparent border-r-transparent border-b-zinc-800"></div>
+                                                            <div className="absolute bottom-full left-[17px] mt-[1px] h-0 w-0 border-l-[6px] border-r-[6px] border-b-[6px] border-l-transparent border-r-transparent border-b-zinc-950"></div>
                                                         </div>
                                                         <span className="text-xs text-zinc-500">
                                                             {formatBytes(
