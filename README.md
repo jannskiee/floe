@@ -39,8 +39,6 @@ Floe is an open-source, browser-based file transfer application that enables dir
 
 This approach provides unlimited file sizes, enhanced privacy, and faster transfers without the overhead of server storage.
 
----
-
 ## Features
 
 | Feature | Description |
@@ -53,8 +51,6 @@ This approach provides unlimited file sizes, enhanced privacy, and faster transf
 | ZIP Download | Download multiple files as a single archive |
 | Real-Time Progress | Live transfer speed, progress, and ETA display |
 | Mobile Responsive | Fully functional on all devices |
-
----
 
 ## How It Works
 
@@ -73,8 +69,6 @@ This approach provides unlimited file sizes, enhanced privacy, and faster transf
 ### Technical Overview
 The signaling server facilitates peer discovery and WebRTC negotiation. Once connected, all file data flows directly between browsers. No file data passes through or is stored on any server.
 
----
-
 ## Tech Stack
 
 ### Frontend
@@ -91,8 +85,6 @@ The signaling server facilitates peer discovery and WebRTC negotiation. Once con
 - Express
 - Socket.IO
 - Helmet (security headers)
-
----
 
 ## Installation
 
@@ -149,8 +141,6 @@ npm run dev
 
 Open `http://localhost:3000` in your browser.
 
----
-
 ## Project Structure
 
 ```
@@ -176,8 +166,6 @@ floe/
 └── README.md
 ```
 
----
-
 ## Deployment
 
 ### Client (Vercel)
@@ -196,8 +184,6 @@ floe/
 5. Start command: `node server.js`
 6. Add environment variable:
    - `CLIENT_URL`: Your deployed client URL (e.g., `https://floe.one`)
-
----
 
 ## Security
 
@@ -218,8 +204,6 @@ floe/
 - No user tracking or analytics
 - No registration or personal data collection
 - Connection data is ephemeral
-
----
 
 ## Contributing
 
@@ -247,8 +231,6 @@ Contributions are welcome from the community.
 
 If you encounter any bugs or have suggestions for improvements, please open an issue on GitHub. Any feedback is appreciated.
 
----
-
 ## Sponsorship
 
 Floe is a free and open-source project.
@@ -273,19 +255,13 @@ If you find Floe useful, please consider supporting its continued development:
 
 Your contribution helps keep Floe running and freely available to everyone.
 
----
-
 ## License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
----
-
 ## Acknowledgments
 
 Built with [Next.js](https://nextjs.org/), [React](https://react.dev/), [shadcn/ui](https://ui.shadcn.com/), [Radix UI](https://www.radix-ui.com/), [Tailwind CSS](https://tailwindcss.com/), [WebRTC](https://webrtc.org/), [Socket.IO](https://socket.io/), and [simple-peer](https://github.com/feross/simple-peer).
-
----
 
 <p align="center">
   <sub>Open source. Built for everyone.</sub>
