@@ -802,10 +802,8 @@ export function P2PTransfer() {
                                         <span>
                                             {isSender
                                                 ? status === 'All Files Sent!'
-                                                    ? `Upload Complete (${files.length} Files)`
-                                                    : files.length > 1
-                                                        ? `Sending File ${currentFileIndex + 1} of ${files.length}...`
-                                                        : 'Transferring 1 File...'
+                                                    ? `Upload Complete (${files.length} ${files.length === 1 ? 'File' : 'Files'})`
+                                                    : `Sending File ${currentFileIndex + 1} of ${files.length}...`
                                                 : status.includes('Receiving')
                                                     ? status
                                                     : 'Receiving...'}
