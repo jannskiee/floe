@@ -124,7 +124,8 @@ If you encounter any bugs or have suggestions, please open an issue on GitHub.
 
 Floe is a free and open-source project. All sponsorship contributions go toward backend hosting costs to ensure reliable service.
 
-**[Support on Ko-fi](https://ko-fi.com/jansskiee)**
+**[GitHub Sponsors](https://github.com/sponsors/jannskiee)**\
+**[Ko-fi](https://ko-fi.com/jannskiee)**
 
 ## License
 
