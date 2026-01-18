@@ -26,6 +26,4 @@ If you experience or witness unacceptable behavior, please open an issue or cont
 
 Project maintainers may remove, edit, or reject comments, commits, code, and other contributions that do not align with this Code of Conduct.
 
----
-
 This Code of Conduct applies to all project spaces, including the repository, issues, pull requests, and any community channels.

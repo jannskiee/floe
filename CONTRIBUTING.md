@@ -66,6 +66,4 @@ Feature suggestions are welcome! Open an issue and describe:
 
 If you have questions, feel free to open an issue. We're happy to help.
 
----
-
 Thank you for contributing!
