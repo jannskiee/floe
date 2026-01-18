@@ -33,12 +33,9 @@
 
 ## About
 
-Floe is an open-source, browser-based file transfer application that enables direct peer-to-peer connections between
-devices. Unlike traditional file sharing services, Floe does not upload files to any server. Files stream directly from
-the sender's device to the receiver's device using WebRTC technology.
+Floe is an open-source, browser-based file transfer application that enables direct peer-to-peer connections between devices. Unlike traditional file sharing services, Floe does not upload files to any server. Files stream directly from the sender's device to the receiver's device using WebRTC technology.
 
-This approach provides unlimited file sizes, enhanced privacy, and faster transfers without the overhead of server
-storage.
+This approach provides unlimited file sizes, enhanced privacy, and faster transfers without the overhead of server storage.
 
 ## Features
 
@@ -69,29 +66,13 @@ storage.
 2. Wait for the connection to establish
 3. Click "Download" to receive files directly from the sender
 
-### Technical Overview
-
-The signaling server facilitates peer discovery and WebRTC negotiation. Once connected, all file data flows directly
-between browsers. No file data passes through or is stored on any server.
+The signaling server only helps browsers find each other. Once connected, all file data flows directly between browsers with no server involvement.
 
 ## Tech Stack
 
-### Frontend
+**Frontend:** Next.js, TypeScript, Tailwind CSS, shadcn/ui, simple-peer (WebRTC), Socket.IO Client
 
-- Next.js 16
-- TypeScript
-- Tailwind CSS
-- shadcn/ui
-- simple-peer (WebRTC)
-- Socket.IO Client
-- fflate (ZIP compression)
-
-### Backend
-
-- Node.js
-- Express
-- Socket.IO
-- Helmet (security headers)
+**Backend:** Node.js, Express, Socket.IO, Helmet
 
 ## Installation
 
@@ -100,180 +81,50 @@ between browsers. No file data passes through or is stored on any server.
 - Node.js 18.x or higher
 - npm 9.x or higher
 
-### Clone Repository
+### Setup
 
 ```bash
+# Clone repository
 git clone https://github.com/jannskiee/floe.git
 cd floe
-```
 
-### Install Dependencies
-
-**Server:**
-
-```bash
+# Install and start server
 cd server
 npm install
-```
+npm start
 
-**Client:**
-
-```bash
+# In a new terminal, install and start client
 cd client
 npm install
+npm run dev
 ```
+
+Open `http://localhost:3000` in your browser.
 
 ### Environment Variables
 
 **Server** (`server/.env`):
-
 ```env
 PORT=3001
 CLIENT_URL=http://localhost:3000
 ```
 
 **Client** (`client/.env.local`):
-
 ```env
 NEXT_PUBLIC_SOCKET_URL=http://localhost:3001
 ```
 
-### Run Locally
-
-Start the server:
-
-```bash
-cd server
-npm start
-```
-
-Start the client (in a new terminal):
-
-```bash
-cd client
-npm run dev
-```
-
-Open `http://localhost:3000` in your browser.
-
-## Project Structure
-
-```
-floe/
-├── client/                   # Next.js frontend
-│   ├── app/                  # App Router pages
-│   │   ├── page.tsx          # Home page
-│   │   ├── layout.tsx        # Root layout
-│   │   ├── icon.svg          # Application icon
-│   │   ├── privacy/          # Privacy policy
-│   │   └── terms/            # Terms of service
-│   ├── components/           # React components
-│   │   ├── P2PTransfer.tsx   # Main transfer component
-│   │   ├── FileIcon.tsx      # File type icons
-│   │   ├── layout/           # Layout components
-│   │   └── ui/               # UI primitives
-│   └── lib/                  # Utilities
-│
-├── server/                   # Signaling server
-│   ├── server.js             # Main server
-│   └── package.json
-│
-└── README.md
-```
-
-## Deployment
-
-### Client (Vercel)
-
-1. Connect your GitHub repository to Vercel
-2. Set root directory to `client`
-3. Add environment variable:
-    - `NEXT_PUBLIC_SOCKET_URL`: Your deployed server URL
-
-### Server (Render)
-
-1. Create a Web Service on Render
-2. Connect your GitHub repository
-3. Set root directory to `server`
-4. Build command: `npm install`
-5. Start command: `node server.js`
-6. Add environment variable:
-    - `CLIENT_URL`: Your deployed client URL (e.g., `https://floe.one`)
-
-## Security
-
-### Transport Security
-
-- WebRTC data channels use DTLS encryption
-- All peer-to-peer traffic is encrypted end-to-end
-- File data never passes through servers
-
-### Server Security
-
-- Helmet.js for secure HTTP headers
-- CORS restricted to allowed origins
-- Rate limiting: 10 connections per IP per minute
-- UUID validation for room identifiers
-- Input validation on all socket events
-
-### Privacy
-
-- No file storage on any server
-- No user tracking or analytics
-- No registration or personal data collection
-- Connection data is ephemeral
-
 ## Contributing
 
-Contributions are welcome from the community.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-### How to Contribute
-
-1. Fork the repository
-2. Create a feature branch:
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
-3. Make your changes
-4. Commit with a descriptive message:
-   ```bash
-   git commit -m "Add: description of change"
-   ```
-5. Push to your fork:
-   ```bash
-   git push origin feature/your-feature-name
-   ```
-6. Open a Pull Request
-
-### Reporting Issues
-
-If you encounter any bugs or have suggestions for improvements, please open an issue on GitHub. Any feedback is
-appreciated.
+If you encounter any bugs or have suggestions, please open an issue on GitHub.
 
 ## Sponsorship
 
-Floe is a free and open-source project.
+Floe is a free and open-source project. All sponsorship contributions go toward backend hosting costs to ensure reliable service.
 
-### Fund Allocation
-
-All sponsorship contributions are directed toward infrastructure costs:
-
-**Primary Priority: Backend Hosting**
-
-Sponsorship funds will be used to upgrade to a paid hosting plan for the signaling server. This ensures:
-
-- Higher availability and uptime
-- Improved connection reliability
-- Support for increased concurrent users
-- Faster signaling for quicker peer connections
-
-### How to Sponsor
-
-If you find Floe useful, please consider supporting its continued development:
-
-**[Support on Ko-fi](https://ko-fi.com/jannskiee)**
-
-Your contribution helps keep Floe running and freely available to everyone.
+**[Support on Ko-fi](https://ko-fi.com/jansskiee)**
 
 ## License
 
@@ -281,9 +132,7 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE) for detai
 
 ## Acknowledgments
 
-Built
-with [Next.js](https://nextjs.org/), [React](https://react.dev/), [shadcn/ui](https://ui.shadcn.com/), [Radix UI](https://www.radix-ui.com/), [Tailwind CSS](https://tailwindcss.com/), [WebRTC](https://webrtc.org/), [Socket.IO](https://socket.io/),
-and [simple-peer](https://github.com/feross/simple-peer).
+Built with [Next.js](https://nextjs.org/), [React](https://react.dev/), [shadcn/ui](https://ui.shadcn.com/), [Radix UI](https://www.radix-ui.com/), [Tailwind CSS](https://tailwindcss.com/), [WebRTC](https://webrtc.org/), [Socket.IO](https://socket.io/), and [simple-peer](https://github.com/feross/simple-peer).
 
 <p align="center">
   <sub>Open source. Built for everyone.</sub>
