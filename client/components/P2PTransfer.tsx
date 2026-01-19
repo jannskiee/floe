@@ -1124,6 +1124,15 @@ export function P2PTransfer() {
                                                 </div>
                                             ))}
                                         </div>
+
+                                        {status.includes('Sending') && (
+                                            <div className="flex w-full items-center justify-center gap-2 text-xs text-zinc-400 animate-pulse pt-2">
+                                                <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                                                <span className="truncate max-w-[280px]">
+                                                    Sending file {currentFileIndex + 1} of {files.length}...
+                                                </span>
+                                            </div>
+                                        )}
                                     </div>
                                 )}
 
@@ -1136,12 +1145,6 @@ export function P2PTransfer() {
                                             </div>
                                         )}
 
-
-                                    {receivedFiles.length > 0 && (
-                                        <p className="text-sm text-zinc-400 mb-3">
-                                            {receivedFiles.length} {receivedFiles.length === 1 ? 'file' : 'files'} received
-                                        </p>
-                                    )}
 
                                     {receivedFiles.length > 1 &&
                                         !status.includes('Receiving') && (
@@ -1242,11 +1245,18 @@ export function P2PTransfer() {
                                         ))}
                                     </div>
 
-                                    {status.includes('Receiving') && (
+                                    {status.includes('Receiving') ? (
                                         <div className="flex w-full items-center justify-center gap-2 text-xs text-zinc-400 animate-pulse pt-2">
                                             <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
                                             <span className="truncate max-w-[280px]">
                                                 {status}
+                                            </span>
+                                        </div>
+                                    ) : receivedFiles.length > 0 && (
+                                        <div className="flex w-full items-center justify-center gap-2 text-xs text-zinc-400 pt-2">
+                                            <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500" />
+                                            <span>
+                                                {receivedFiles.length} {receivedFiles.length === 1 ? 'file' : 'files'} received
                                             </span>
                                         </div>
                                     )}
