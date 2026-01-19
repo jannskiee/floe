@@ -105,13 +105,22 @@ io.on('connection', (socket) => {
             return;
         }
 
+        // Leave any existing rooms first (except socket's own room)
+        socket.rooms.forEach((room) => {
+            if (room !== socket.id) {
+                socket.leave(room);
+            }
+        });
+
         const room = io.sockets.adapter.rooms.get(roomId);
         const numClients = room ? room.size : 0;
 
         if (numClients === 0) {
             socket.join(roomId);
+            socket.emit('room-joined', { role: 'sender' });
         } else if (numClients === 1) {
             socket.join(roomId);
+            socket.emit('room-joined', { role: 'receiver' });
             socket.to(roomId).emit('user-connected', socket.id);
         } else {
             socket.emit('room-full');

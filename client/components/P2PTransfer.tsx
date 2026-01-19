@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import {
+    AlertCircle,
     ArrowRight,
     Check,
     CheckCircle2,
@@ -61,7 +62,7 @@ interface ReceivedFile {
 
 
 export function P2PTransfer() {
-    const [isSender, setIsSender] = useState(false);
+    const [isSender, setIsSender] = useState<boolean | null>(null);
     const [status, setStatus] = useState('Idle');
     const [isConnected, setIsConnected] = useState(false);
     const [ping, setPing] = useState(0);
@@ -72,13 +73,26 @@ export function P2PTransfer() {
     const [receivedFiles, setReceivedFiles] = useState<ReceivedFile[]>([]);
     const [copied, setCopied] = useState(false);
     const [isZipping, setIsZipping] = useState(false);
-    const [error, setError] = useState('');
+    const [error, setErrorInternal] = useState('');
+
+    // Debug wrapper to trace all setError calls
+    const setError = (msg: string) => {
+        if (msg) {
+            console.log('[DEBUG] setError called with:', msg);
+            console.log('[DEBUG] Stack trace:', new Error().stack);
+        }
+        setErrorInternal(msg);
+    };
     const [transferSpeed, setTransferSpeed] = useState('');
     const [estimatedTime, setEstimatedTime] = useState('');
     const [isDragging, setIsDragging] = useState(false);
 
     const peerRef = useRef<PeerInstance | null>(null);
     const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+    const hasJoinedRef = useRef(false);
+    const receivedFilesRef = useRef<ReceivedFile[]>([]);
+    const transferCompleteRef = useRef(false);
+    const progressRef = useRef(0);
     const partialDownloads = useRef<
         Map<string, { chunks: ArrayBuffer[]; received: number }>
     >(new Map());
@@ -156,39 +170,62 @@ export function P2PTransfer() {
     };
 
     const handleDownloadZip = async () => {
+        console.log('[DEBUG] ZIP download clicked', {
+            receivedFilesCount: receivedFiles.length,
+            receivedFilesRefCount: receivedFilesRef.current.length,
+            transferComplete: transferCompleteRef.current,
+            socketConnected: socket.connected,
+            error: error
+        });
+
         if (receivedFiles.length === 0) return;
+
         setIsZipping(true);
+        setError('');
+
         try {
             const filesToZip: Zippable = {};
             const usedNames = new Set<string>();
+            let failedCount = 0;
 
             for (const file of receivedFiles) {
-                const response = await fetch(file.downloadUrl);
-                const blob = await response.blob();
-                const arrayBuffer = await blob.arrayBuffer();
+                try {
+                    const response = await fetch(file.downloadUrl);
+                    if (!response.ok) throw new Error('Fetch failed');
+                    const blob = await response.blob();
+                    const arrayBuffer = await blob.arrayBuffer();
 
-                let finalName = file.fileName;
-                let counter = 1;
+                    let finalName = file.fileName;
+                    let counter = 1;
 
-                while (usedNames.has(finalName)) {
-                    const dotIndex = file.fileName.lastIndexOf('.');
-                    if (dotIndex === -1) {
-                        finalName = `${file.fileName} (${counter})`;
-                    } else {
-                        const base = file.fileName.substring(0, dotIndex);
-                        const ext = file.fileName.substring(dotIndex);
-                        finalName = `${base} (${counter})${ext}`;
+                    while (usedNames.has(finalName)) {
+                        const dotIndex = file.fileName.lastIndexOf('.');
+                        if (dotIndex === -1) {
+                            finalName = `${file.fileName} (${counter})`;
+                        } else {
+                            const base = file.fileName.substring(0, dotIndex);
+                            const ext = file.fileName.substring(dotIndex);
+                            finalName = `${base} (${counter})${ext}`;
+                        }
+                        counter++;
                     }
-                    counter++;
-                }
 
-                usedNames.add(finalName);
-                filesToZip[finalName] = new Uint8Array(arrayBuffer);
+                    usedNames.add(finalName);
+                    filesToZip[finalName] = new Uint8Array(arrayBuffer);
+                } catch {
+                    failedCount++;
+                }
+            }
+
+            if (Object.keys(filesToZip).length === 0) {
+                setError('Could not prepare files for ZIP. Try "Download All" instead.');
+                setIsZipping(false);
+                return;
             }
 
             zip(filesToZip, (err, data) => {
                 if (err) {
-                    console.error('Zip error', err);
+                    setError('ZIP creation failed. Try "Download All" instead.');
                     setIsZipping(false);
                     return;
                 }
@@ -202,9 +239,12 @@ export function P2PTransfer() {
                 document.body.removeChild(link);
                 URL.revokeObjectURL(url);
                 setIsZipping(false);
+                if (failedCount > 0) {
+                    setError(`${failedCount} file(s) could not be included in ZIP.`);
+                }
             });
         } catch (error) {
-            console.error('Error preparing zip:', error);
+            setError('ZIP creation failed. Try "Download All" instead.');
             setIsZipping(false);
         }
     };
@@ -216,13 +256,32 @@ export function P2PTransfer() {
     };
 
     const joinRoomAsReceiver = (roomId: string) => {
+        // Prevent duplicate joins
+        if (hasJoinedRef.current) return;
+        hasJoinedRef.current = true;
+
         setStatus('Connecting...');
+
+        // Remove any existing room-full listener to prevent duplicates
+        socket.off('room-full');
+
         socket.emit('join-room', roomId);
 
         socket.on('room-full', () => {
+            console.log('[DEBUG] room-full event received', {
+                receivedFilesCount: receivedFilesRef.current.length,
+                transferComplete: transferCompleteRef.current,
+                isSender: !new URLSearchParams(window.location.search).get('room')
+            });
+            // Use ref to check current value, not stale closure value
+            if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
+                console.log('[DEBUG] room-full: Files exist, showing Transfer complete');
+                setStatus('Transfer complete');
+                return;
+            }
+            console.log('[DEBUG] room-full: Setting Link Expired error');
             setError('Link Expired or Busy');
             setStatus('Access Denied');
-            socket.disconnect();
         });
 
         const peer = new SimplePeer({
@@ -241,10 +300,21 @@ export function P2PTransfer() {
             requestWakeLock();
         });
         peer.on('close', () => {
-            setIsConnected(false);
+            // Don't set isConnected false - that's for socket connection, not peer
             releaseWakeLock();
         });
         peer.on('error', (err) => {
+            console.log('[DEBUG] Receiver peer error:', err.message, {
+                receivedFilesCount: receivedFilesRef.current.length,
+                transferComplete: transferCompleteRef.current
+            });
+            // Don't show Link Invalid if files have been received
+            if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
+                console.log('[DEBUG] Receiver peer error: Files exist, showing interrupted');
+                setStatus('Connection interrupted');
+                return;
+            }
+            console.log('[DEBUG] Receiver peer error: Setting Connection error');
             setError(`Connection error: ${err.message}`);
             setStatus('Connection failed');
         });
@@ -302,15 +372,19 @@ export function P2PTransfer() {
                                 const blob = new Blob(fileData.chunks);
                                 const url = URL.createObjectURL(blob);
 
-                                setReceivedFiles((prev) => [
-                                    ...prev,
-                                    {
-                                        id: uuidv4(),
-                                        fileName: currentMetadata.fileName,
-                                        fileSize: fileData.received,
-                                        downloadUrl: url,
-                                    },
-                                ]);
+                                const newFile = {
+                                    id: uuidv4(),
+                                    fileName: currentMetadata.fileName,
+                                    fileSize: fileData.received,
+                                    downloadUrl: url,
+                                };
+
+                                setReceivedFiles((prev) => {
+                                    const updated = [...prev, newFile];
+                                    receivedFilesRef.current = updated;
+                                    return updated;
+                                });
+                                transferCompleteRef.current = true;
                                 partialDownloads.current.delete(
                                     currentMetadata.id
                                 );
@@ -378,25 +452,36 @@ export function P2PTransfer() {
     };
 
     useEffect(() => {
-        const initializeConnection = async () => {
-            await fetchIceServers();
+        // Determine sender/receiver immediately (fast)
+        const params = new URLSearchParams(window.location.search);
+        const roomFromUrl = params.get('room');
 
-            const params = new URLSearchParams(window.location.search);
-            const roomFromUrl = params.get('room');
-
-            if (roomFromUrl) {
-                setIsSender(false);
-                joinRoomAsReceiver(roomFromUrl);
-            } else {
-                setIsSender(true);
-            }
-        };
+        if (roomFromUrl) {
+            setIsSender(false);
+            // Fetch ICE servers then join room
+            fetchIceServers().then(() => joinRoomAsReceiver(roomFromUrl));
+        } else {
+            setIsSender(true);
+            // Fetch ICE servers in background for when sender creates link
+            fetchIceServers();
+        }
 
         if (socket.connected) queueMicrotask(() => setIsConnected(true));
-        socket.on('connect', () => setIsConnected(true));
-        socket.on('disconnect', () => {
+        socket.on('connect', () => {
+            console.log('[DEBUG] Socket connected');
+            setIsConnected(true);
+        });
+        socket.on('disconnect', (reason) => {
+            console.log('[DEBUG] Socket disconnected, reason:', reason, {
+                receivedFilesCount: receivedFilesRef.current.length,
+                transferComplete: transferCompleteRef.current
+            });
             setIsConnected(false);
             setPing(0);
+            // Use refs to check current value, not stale closure
+            if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
+                setStatus('Transfer complete (disconnected)');
+            }
         });
 
         const pingInterval = setInterval(() => {
@@ -407,8 +492,6 @@ export function P2PTransfer() {
             });
         }, 2000);
 
-        initializeConnection();
-
         socket.on('signal', (data: any) => {
             if (peerRef.current && !peerRef.current.destroyed) {
                 peerRef.current.signal(data.signal);
@@ -416,8 +499,13 @@ export function P2PTransfer() {
         });
 
         socket.on('peer-disconnected', () => {
-            setStatus('Peer disconnected. Waiting for reconnection...');
-            setIsConnected(false);
+            // Use refs to check current value, not stale closure
+            if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
+                setStatus('Transfer complete');
+            } else {
+                setStatus('Peer disconnected. Waiting for reconnection...');
+            }
+            // Don't set isConnected false - that's for socket connection, not peer
             if (peerRef.current) peerRef.current.destroy();
             releaseWakeLock();
         });
@@ -514,10 +602,21 @@ export function P2PTransfer() {
                 sendAllFiles(peer, files);
             });
             peer.on('close', () => {
-                setIsConnected(false);
+                // Don't set isConnected false - that's for socket connection, not peer
                 releaseWakeLock();
             });
             peer.on('error', (err) => {
+                console.log('[DEBUG] Sender peer error:', err.message, {
+                    transferComplete: transferCompleteRef.current,
+                    progressRef: progressRef.current
+                });
+                // Don't show Link Invalid if transfer is in progress or completed
+                if (transferCompleteRef.current || progressRef.current > 0) {
+                    console.log('[DEBUG] Sender peer error: Transfer in progress, showing interrupted');
+                    setStatus('Connection interrupted');
+                    return;
+                }
+                console.log('[DEBUG] Sender peer error: Setting Connection error');
                 setError(`Connection error: ${err.message}`);
                 setStatus('Connection failed');
             });
@@ -540,6 +639,7 @@ export function P2PTransfer() {
         if (!peer.destroyed) {
             setStatus('All Files Sent!');
             setProgress(100);
+            transferCompleteRef.current = true; // Mark transfer complete for sender
             releaseWakeLock();
         }
     };
@@ -691,7 +791,9 @@ export function P2PTransfer() {
                         chunkCount % 10 === 0 ||
                         offset >= file.size
                     ) {
-                        setProgress(Math.round((offset / file.size) * 100));
+                        const prog = Math.round((offset / file.size) * 100);
+                        setProgress(prog);
+                        progressRef.current = prog;
                     }
                 } catch (error) {
                     await new Promise((r) => setTimeout(r, 100));
@@ -708,6 +810,18 @@ export function P2PTransfer() {
             resolve();
         });
     };
+
+    if (isSender === null) {
+        return (
+            <main className="w-full flex justify-center z-10 relative">
+                <Card className="w-full max-w-md border-zinc-800 bg-zinc-900/50 shadow-2xl backdrop-blur-xl ring-1 ring-white/5 overflow-visible">
+                    <CardContent className="flex items-center justify-center py-16">
+                        <Loader2 className="w-8 h-8 animate-spin text-zinc-500" />
+                    </CardContent>
+                </Card>
+            </main>
+        );
+    }
 
     return (
         <main className="w-full flex justify-center z-10 relative">
@@ -736,7 +850,7 @@ export function P2PTransfer() {
                 </CardHeader>
 
                 <CardContent className="space-y-4 pt-0">
-                    {error ? (
+                    {error && error.includes('Link Expired') ? (
                         <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
                             <div className="h-16 w-16 rounded-full bg-red-500/10 flex items-center justify-center mb-2">
                                 <ShieldCheck className="h-8 w-8 text-red-500" />
@@ -760,6 +874,19 @@ export function P2PTransfer() {
                         </div>
                     ) : (
                         <>
+                            {/* Show non-link errors as dismissable alert */}
+                            {error && !error.includes('Link Expired') && (
+                                <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 flex items-start gap-3">
+                                    <AlertCircle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
+                                    <div className="flex-1 text-sm text-red-300">{error}</div>
+                                    <button
+                                        onClick={() => setError('')}
+                                        className="text-red-400 hover:text-red-300"
+                                    >
+                                        <X className="h-4 w-4" />
+                                    </button>
+                                </div>
+                            )}
                             {isSender && (
                                 <div
                                     className={`flex justify-end items-center gap-3 text-[10px] uppercase font-bold tracking-widest text-zinc-500 mb-[-10px] pb-1.5 ${progress > 0 ? '' : 'pr-2'}`}
