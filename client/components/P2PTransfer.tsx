@@ -73,6 +73,8 @@ export function P2PTransfer() {
     const [receivedFiles, setReceivedFiles] = useState<ReceivedFile[]>([]);
     const [copied, setCopied] = useState(false);
     const [isZipping, setIsZipping] = useState(false);
+    const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0, label: '' });
+    const [isDownloading, setIsDownloading] = useState(false);
     const [error, setErrorInternal] = useState('');
 
     // Debug wrapper to trace all setError calls
@@ -156,17 +158,31 @@ export function P2PTransfer() {
         isSender,
     ]);
 
-    const handleDownloadAll = () => {
-        receivedFiles.forEach((file, index) => {
-            setTimeout(() => {
-                const link = document.createElement('a');
-                link.href = file.downloadUrl;
-                link.download = file.fileName;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-            }, index * 500);
-        });
+    const handleDownloadAll = async () => {
+        setIsDownloading(true);
+        setDownloadProgress({ current: 0, total: receivedFiles.length, label: 'Starting download...' });
+
+        for (let i = 0; i < receivedFiles.length; i++) {
+            const file = receivedFiles[i];
+            setDownloadProgress({
+                current: i + 1,
+                total: receivedFiles.length,
+                label: `Downloading: ${file.fileName}`
+            });
+
+            const link = document.createElement('a');
+            link.href = file.downloadUrl;
+            link.download = file.fileName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            // Wait between downloads to avoid browser blocking
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
+
+        setIsDownloading(false);
+        setDownloadProgress({ current: 0, total: 0, label: '' });
     };
 
     const handleDownloadZip = async () => {
@@ -182,13 +198,21 @@ export function P2PTransfer() {
 
         setIsZipping(true);
         setError('');
+        setDownloadProgress({ current: 0, total: receivedFiles.length, label: 'Preparing files...' });
 
         try {
             const filesToZip: Zippable = {};
             const usedNames = new Set<string>();
             let failedCount = 0;
 
-            for (const file of receivedFiles) {
+            for (let i = 0; i < receivedFiles.length; i++) {
+                const file = receivedFiles[i];
+                setDownloadProgress({
+                    current: i + 1,
+                    total: receivedFiles.length,
+                    label: `Processing: ${file.fileName}`
+                });
+
                 try {
                     const response = await fetch(file.downloadUrl);
                     if (!response.ok) throw new Error('Fetch failed');
@@ -220,13 +244,17 @@ export function P2PTransfer() {
             if (Object.keys(filesToZip).length === 0) {
                 setError('Could not prepare files for ZIP. Try "Download All" instead.');
                 setIsZipping(false);
+                setDownloadProgress({ current: 0, total: 0, label: '' });
                 return;
             }
+
+            setDownloadProgress({ current: receivedFiles.length, total: receivedFiles.length, label: 'Creating ZIP archive...' });
 
             zip(filesToZip, (err, data) => {
                 if (err) {
                     setError('ZIP creation failed. Try "Download All" instead.');
                     setIsZipping(false);
+                    setDownloadProgress({ current: 0, total: 0, label: '' });
                     return;
                 }
                 const blob = new Blob([data as unknown as BlobPart], { type: 'application/zip' });
@@ -239,6 +267,7 @@ export function P2PTransfer() {
                 document.body.removeChild(link);
                 URL.revokeObjectURL(url);
                 setIsZipping(false);
+                setDownloadProgress({ current: 0, total: 0, label: '' });
                 if (failedCount > 0) {
                     setError(`${failedCount} file(s) could not be included in ZIP.`);
                 }
@@ -246,6 +275,7 @@ export function P2PTransfer() {
         } catch (error) {
             setError('ZIP creation failed. Try "Download All" instead.');
             setIsZipping(false);
+            setDownloadProgress({ current: 0, total: 0, label: '' });
         }
     };
 
@@ -1118,14 +1148,19 @@ export function P2PTransfer() {
                                             <div className="grid grid-cols-2 gap-2 mb-3 animate-in fade-in slide-in-from-top-2 duration-300">
                                                 <Button
                                                     onClick={handleDownloadAll}
+                                                    disabled={isDownloading || isZipping}
                                                     className="w-full bg-white text-black hover:bg-zinc-200 font-medium transition-colors border-none"
                                                 >
-                                                    <Download className="w-4 h-4 mr-2" />{' '}
-                                                    Download All
+                                                    {isDownloading ? (
+                                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                                    ) : (
+                                                        <Download className="w-4 h-4 mr-2" />
+                                                    )}
+                                                    {isDownloading ? 'Downloading...' : 'Download All'}
                                                 </Button>
                                                 <Button
                                                     onClick={handleDownloadZip}
-                                                    disabled={isZipping}
+                                                    disabled={isZipping || isDownloading}
                                                     className="w-full bg-zinc-800 text-white hover:bg-zinc-700 font-medium transition-colors border border-zinc-700"
                                                 >
                                                     {isZipping ? (
@@ -1140,6 +1175,28 @@ export function P2PTransfer() {
                                             </div>
                                         )}
 
+                                    {/* Download/ZIP Progress Indicator */}
+                                    {(isZipping || isDownloading) && downloadProgress.total > 0 && (
+                                        <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700 space-y-2">
+                                            <div className="flex items-center justify-between text-xs">
+                                                <span className="text-zinc-400 truncate max-w-[180px]">
+                                                    {downloadProgress.label}
+                                                </span>
+                                                <span className="text-white font-mono">
+                                                    {downloadProgress.current}/{downloadProgress.total}
+                                                </span>
+                                            </div>
+                                            <div className="bg-white/20 relative h-2 w-full overflow-hidden rounded-full">
+                                                <div
+                                                    className="bg-white h-full transition-all"
+                                                    style={{ width: `${(downloadProgress.current / downloadProgress.total) * 100}%` }}
+                                                />
+                                            </div>
+                                            <div className="text-xs text-zinc-500 text-center">
+                                                {Math.round((downloadProgress.current / downloadProgress.total) * 100)}% complete
+                                            </div>
+                                        </div>
+                                    )}
                                     <div
                                         ref={fileListRef}
                                         className="space-y-3 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar"
