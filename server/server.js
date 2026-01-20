@@ -105,7 +105,6 @@ io.on('connection', (socket) => {
             return;
         }
 
-        // Leave any existing rooms first (except socket's own room)
         socket.rooms.forEach((room) => {
             if (room !== socket.id) {
                 socket.leave(room);

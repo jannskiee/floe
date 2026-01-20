@@ -35,7 +35,7 @@ export const FAQSection = () => {
                     question="How do I use Floe? (Step-by-step)"
                     answer={
                         <div className="space-y-4">
-                            <p>It's simple! Here's how it works:</p>
+                            <p>It&apos;s simple! Here&apos;s how it works:</p>
 
                             <div className="space-y-2">
                                 <p className="font-semibold text-zinc-200">For Senders:</p>
@@ -51,12 +51,12 @@ export const FAQSection = () => {
                                 <p className="font-semibold text-zinc-200">For Receivers:</p>
                                 <ol className="list-decimal list-inside space-y-1 pl-2">
                                     <li>Open the link your friend sent you</li>
-                                    <li>Wait for the connection (you'll see "Connected")</li>
-                                    <li>Click "Download" — the file comes directly from your friend's device</li>
+                                    <li>Wait for the connection (you&apos;ll see &quot;Connected&quot;)</li>
+                                    <li>Click &quot;Download&quot; — the file comes directly from your friend&apos;s device</li>
                                 </ol>
                             </div>
 
-                            <p className="text-zinc-500 italic">That's it! No accounts needed, no waiting for uploads.</p>
+                            <p className="text-zinc-500 italic">That&apos;s it! No accounts needed, no waiting for uploads.</p>
                         </div>
                     }
                 />

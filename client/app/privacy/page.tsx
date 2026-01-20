@@ -31,14 +31,14 @@ export default function PrivacyPolicy() {
                     <p className="text-zinc-300 leading-relaxed">
                         Floe is a <strong>Peer-to-Peer (P2P)</strong> file
                         transfer service. This means your files are streamed
-                        directly from the sender's device to the receiver's
+                        directly from the sender&apos;s device to the receiver&apos;s
                         device.
                         <br />
                         <br />
                         <strong>
                             We do not store, view, or process your files.
                         </strong>{' '}
-                        They never touch our servers/databases (because we don't
+                        They never touch our servers/databases (because we don&apos;t
                         have a database).
                     </p>
                 </div>
@@ -51,7 +51,7 @@ export default function PrivacyPolicy() {
                         <p>
                             When you send a file, we use <strong>WebRTC</strong>{' '}
                             to establish a direct connection between you and the
-                            recipient. Our server is only used for "Signaling"
+                            recipient. Our server is only used for &quot;Signaling&quot;
                             (introducing the two devices). Once connected, the
                             server steps aside, and data flows directly between
                             peers.

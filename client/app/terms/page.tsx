@@ -27,7 +27,7 @@ export default function TermsOfUse() {
                         <h2 className="text-lg font-semibold">Disclaimer</h2>
                     </div>
                     <p className="text-zinc-300 leading-relaxed">
-                        Floe is provided "as is" without any warranties. As an
+                        Floe is provided &quot;as is&quot; without any warranties. As an
                         open-source project, we do not guarantee uptime, data
                         integrity, or fitness for a particular purpose. Use this
                         service at your own risk.
