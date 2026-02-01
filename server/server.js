@@ -34,6 +34,62 @@ app.get('/health', (req, res) => {
     res.json({ status: 'healthy', uptime: process.uptime() });
 });
 
+const STUN_FALLBACK = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+];
+
+let cachedCredentials = null;
+let cacheExpiry = 0;
+const CACHE_TTL = 5 * 60 * 1000;
+
+const turnRateLimits = new Map();
+const TURN_RATE_WINDOW = 60000;
+const TURN_MAX_REQUESTS = 20;
+
+app.get('/api/turn-credentials', async (req, res) => {
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const now = Date.now();
+
+    if (!turnRateLimits.has(ip)) {
+        turnRateLimits.set(ip, []);
+    }
+    const timestamps = turnRateLimits.get(ip).filter(t => now - t < TURN_RATE_WINDOW);
+    if (timestamps.length >= TURN_MAX_REQUESTS) {
+        return res.status(429).json({ error: 'Too many requests' });
+    }
+    timestamps.push(now);
+    turnRateLimits.set(ip, timestamps);
+
+    if (cachedCredentials && now < cacheExpiry) {
+        return res.json(cachedCredentials);
+    }
+
+    const meteredDomain = process.env.METERED_DOMAIN;
+    const meteredApiKey = process.env.METERED_API_KEY;
+
+    if (!meteredDomain || !meteredApiKey) {
+        return res.json(STUN_FALLBACK);
+    }
+
+    try {
+        const response = await fetch(
+            `https://${meteredDomain}/api/v1/turn/credentials?apiKey=${meteredApiKey}`
+        );
+
+        if (!response.ok) {
+            throw new Error('Failed to fetch TURN credentials');
+        }
+
+        const iceServers = await response.json();
+        cachedCredentials = iceServers;
+        cacheExpiry = now + CACHE_TTL;
+        res.json(iceServers);
+    } catch (error) {
+        res.json(STUN_FALLBACK);
+    }
+});
+
 const server = http.createServer(app);
 
 const io = new Server(server, {
