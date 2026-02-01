@@ -101,7 +101,7 @@ export function P2PTransfer() {
     const fetchIceServers = async () => {
         try {
             const response = await fetch(
-                `https://${process.env.NEXT_PUBLIC_METERED_DOMAIN}/api/v1/turn/credentials?apiKey=${process.env.NEXT_PUBLIC_METERED_API_KEY}`
+                `${process.env.NEXT_PUBLIC_SOCKET_URL}/api/turn-credentials`
             );
             const iceServers = await response.json();
             if (Array.isArray(iceServers) && iceServers.length > 0) {
