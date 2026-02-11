@@ -107,6 +107,8 @@ Open `http://localhost:3000` in your browser.
 ```env
 PORT=3001
 CLIENT_URL=http://localhost:3000
+METERED_DOMAIN=your-app.metered.live
+METERED_API_KEY=your-metered-api-key
 ```
 
 **Client** (`client/.env.local`):
