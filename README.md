@@ -68,54 +68,6 @@ This approach provides unlimited file sizes, enhanced privacy, and faster transf
 
 The signaling server only helps browsers find each other. Once connected, all file data flows directly between browsers with no server involvement.
 
-## Tech Stack
-
-**Frontend:** Next.js, TypeScript, Tailwind CSS, shadcn/ui, simple-peer (WebRTC), Socket.IO Client
-
-**Backend:** Node.js, Express, Socket.IO, Helmet
-
-## Installation
-
-### Prerequisites
-
-- Node.js 18.x or higher
-- npm 9.x or higher
-
-### Setup
-
-```bash
-# Clone repository
-git clone https://github.com/jannskiee/floe.git
-cd floe
-
-# Install and start server
-cd server
-npm install
-npm start
-
-# In a new terminal, install and start client
-cd client
-npm install
-npm run dev
-```
-
-Open `http://localhost:3000` in your browser.
-
-### Environment Variables
-
-**Server** (`server/.env`):
-```env
-PORT=3001
-CLIENT_URL=http://localhost:3000
-METERED_DOMAIN=your-app.metered.live
-METERED_API_KEY=your-metered-api-key
-```
-
-**Client** (`client/.env.local`):
-```env
-NEXT_PUBLIC_SOCKET_URL=http://localhost:3001
-```
-
 ## Contributing
 
 Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
@@ -132,10 +84,6 @@ Floe is a free and open-source project. All sponsorship contributions go toward 
 ## License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
-
-## Acknowledgments
-
-Built with [Next.js](https://nextjs.org/), [React](https://react.dev/), [shadcn/ui](https://ui.shadcn.com/), [Radix UI](https://www.radix-ui.com/), [Tailwind CSS](https://tailwindcss.com/), [WebRTC](https://webrtc.org/), [Socket.IO](https://socket.io/), and [simple-peer](https://github.com/feross/simple-peer).
 
 <p align="center">
   <sub>Open source. Built for everyone.</sub>
