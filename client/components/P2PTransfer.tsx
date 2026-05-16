@@ -327,6 +327,8 @@ export function P2PTransfer() {
         });
         peer.on('close', () => {
             releaseWakeLock();
+            setConnectionType(null);
+            if (connTypeIntervalRef.current) clearInterval(connTypeIntervalRef.current);
         });
         peer.on('error', (err) => {
             if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
@@ -614,6 +616,8 @@ export function P2PTransfer() {
             });
             peer.on('close', () => {
                 releaseWakeLock();
+                setConnectionType(null);
+                if (connTypeIntervalRef.current) clearInterval(connTypeIntervalRef.current);
             });
             peer.on('error', (err) => {
                 if (transferCompleteRef.current || progressRef.current > 0) {
@@ -891,10 +895,10 @@ export function P2PTransfer() {
                                     </button>
                                 </div>
                             )}
-                            {isSender && (
-                                <div
-                                    className={`flex justify-end items-center gap-3 text-[10px] uppercase font-bold tracking-widest text-zinc-500 mb-[-10px] pb-1.5 ${progress > 0 ? '' : 'pr-2'}`}
-                                >
+                            <div
+                                className={`flex justify-end items-center gap-3 text-[10px] uppercase font-bold tracking-widest text-zinc-500 mb-[-10px] pb-1.5 ${progress > 0 ? '' : 'pr-2'}`}
+                            >
+                                {isSender && (
                                     <div className="flex items-center gap-1">
                                         <Wifi className="w-3 h-3" />
                                         <span className="font-mono">
@@ -903,37 +907,33 @@ export function P2PTransfer() {
                                                 : '--'}
                                         </span>
                                     </div>
-                                    {isConnected && connectionType && (
-                                        <div
-                                            className="flex items-center gap-1"
-                                            title={connectionType === 'relay' ? 'Traffic is relayed via TURN server. Your IP is protected but speed may vary.' : 'Direct peer-to-peer connection. Fastest possible speed.'}
-                                        >
-                                            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border ${
-                                                connectionType === 'relay'
-                                                    ? 'text-amber-400 border-amber-500/30 bg-amber-500/10'
-                                                    : 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
-                                            }`}>
-                                                {connectionType === 'relay' ? '⇄ Relayed' : '⚡ Direct'}
-                                            </span>
-                                        </div>
-                                    )}
-                                    <div className="flex items-center gap-1.5">
-                                        <span className="relative flex h-2 w-2">
-                                            <span
-                                                className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isConnected ? 'bg-green-400' : 'bg-red-500'}`}
-                                            ></span>
-                                            <span
-                                                className={`relative inline-flex rounded-full h-2 w-2 ${isConnected ? 'bg-green-500' : 'bg-red-600'}`}
-                                            ></span>
-                                        </span>
-                                        <span>
-                                            {isConnected
-                                                ? 'Connected'
-                                                : 'Offline'}
-                                        </span>
-                                    </div>
+                                )}
+                                <div className="flex items-center gap-1.5">
+                                    <span className="relative flex h-2 w-2">
+                                        <span
+                                            className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                                                connectionType === 'direct' ? 'bg-green-400' :
+                                                connectionType === 'relay' ? 'bg-amber-400' :
+                                                'bg-zinc-600'
+                                            }`}
+                                        ></span>
+                                        <span
+                                            className={`relative inline-flex rounded-full h-2 w-2 ${
+                                                connectionType === 'direct' ? 'bg-green-500' :
+                                                connectionType === 'relay' ? 'bg-amber-500' :
+                                                'bg-zinc-600'
+                                            }`}
+                                        ></span>
+                                    </span>
+                                    <span>
+                                        {connectionType === 'direct'
+                                            ? 'Direct Connection'
+                                            : connectionType === 'relay'
+                                            ? 'Relayed Connection'
+                                            : 'Offline'}
+                                    </span>
                                 </div>
-                            )}
+                            </div>
 
                             {isSender && progress > 0 && (
                                 <hr className="border-white/5 my-2" />

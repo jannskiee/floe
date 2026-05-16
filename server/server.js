@@ -11,6 +11,8 @@ app.use(helmet());
 
 const allowedOrigins = [
     process.env.CLIENT_URL,
+    'https://www.floe.one',
+    'https://floe.one',
     'http://localhost:3000',
 ].filter(Boolean);
 
