@@ -81,6 +81,7 @@ export function P2PTransfer() {
     const [transferSpeed, setTransferSpeed] = useState('');
     const [estimatedTime, setEstimatedTime] = useState('');
     const [isDragging, setIsDragging] = useState(false);
+    const [connectionType, setConnectionType] = useState<'direct' | 'relay' | null>(null);
 
     const peerRef = useRef<PeerInstance | null>(null);
     const wakeLockRef = useRef<WakeLockSentinel | null>(null);
@@ -97,6 +98,7 @@ export function P2PTransfer() {
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
     ]);
+    const connTypeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const fetchIceServers = async () => {
         try {
@@ -110,6 +112,23 @@ export function P2PTransfer() {
         } catch {
 
         }
+    };
+
+    const checkConnectionType = async (peer: PeerInstance) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const pc = (peer as any)._pc as RTCPeerConnection | undefined;
+        if (!pc) return;
+        try {
+            const stats = await pc.getStats();
+            stats.forEach((report) => {
+                if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.nominated) {
+                    const localCandidate = stats.get(report.localCandidateId);
+                    if (localCandidate) {
+                        setConnectionType(localCandidate.candidateType === 'relay' ? 'relay' : 'direct');
+                    }
+                }
+            });
+        } catch { }
     };
 
     const requestWakeLock = async () => {
@@ -302,6 +321,9 @@ export function P2PTransfer() {
         peer.on('connect', () => {
             setIsConnected(true);
             requestWakeLock();
+            checkConnectionType(peer);
+            if (connTypeIntervalRef.current) clearInterval(connTypeIntervalRef.current);
+            connTypeIntervalRef.current = setInterval(() => checkConnectionType(peer), 5000);
         });
         peer.on('close', () => {
             releaseWakeLock();
@@ -497,6 +519,7 @@ export function P2PTransfer() {
 
         return () => {
             clearInterval(pingInterval);
+            if (connTypeIntervalRef.current) clearInterval(connTypeIntervalRef.current);
             socket.off('signal');
             socket.off('user-connected');
             socket.off('connect');
@@ -585,6 +608,9 @@ export function P2PTransfer() {
             peer.on('connect', () => {
                 setIsConnected(true);
                 sendAllFiles(peer, files);
+                checkConnectionType(peer);
+                if (connTypeIntervalRef.current) clearInterval(connTypeIntervalRef.current);
+                connTypeIntervalRef.current = setInterval(() => checkConnectionType(peer), 5000);
             });
             peer.on('close', () => {
                 releaseWakeLock();
@@ -877,6 +903,20 @@ export function P2PTransfer() {
                                                 : '--'}
                                         </span>
                                     </div>
+                                    {isConnected && connectionType && (
+                                        <div
+                                            className="flex items-center gap-1"
+                                            title={connectionType === 'relay' ? 'Traffic is relayed via TURN server. Your IP is protected but speed may vary.' : 'Direct peer-to-peer connection. Fastest possible speed.'}
+                                        >
+                                            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border ${
+                                                connectionType === 'relay'
+                                                    ? 'text-amber-400 border-amber-500/30 bg-amber-500/10'
+                                                    : 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
+                                            }`}>
+                                                {connectionType === 'relay' ? '⇄ Relayed' : '⚡ Direct'}
+                                            </span>
+                                        </div>
+                                    )}
                                     <div className="flex items-center gap-1.5">
                                         <span className="relative flex h-2 w-2">
                                             <span
