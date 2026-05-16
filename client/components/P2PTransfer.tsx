@@ -547,6 +547,15 @@ export function P2PTransfer() {
             );
     }, [isConnected]);
 
+    useEffect(() => {
+        const status =
+            connectionType === 'direct' ? 'direct' :
+            connectionType === 'relay' ? 'relay' :
+            isConnected ? 'connected' :
+            'offline';
+        window.dispatchEvent(new CustomEvent('floe-connection-status', { detail: status }));
+    }, [isConnected, connectionType]);
+
     const handleFileSelection = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files.length > 0) {
             const newFilesRaw = Array.from(e.target.files);
@@ -914,14 +923,16 @@ export function P2PTransfer() {
                                             className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
                                                 connectionType === 'direct' ? 'bg-green-400' :
                                                 connectionType === 'relay' ? 'bg-amber-400' :
-                                                'bg-zinc-600'
+                                                isConnected ? 'bg-green-400' :
+                                                'bg-red-500'
                                             }`}
                                         ></span>
                                         <span
                                             className={`relative inline-flex rounded-full h-2 w-2 ${
                                                 connectionType === 'direct' ? 'bg-green-500' :
                                                 connectionType === 'relay' ? 'bg-amber-500' :
-                                                'bg-zinc-600'
+                                                isConnected ? 'bg-green-500' :
+                                                'bg-red-600'
                                             }`}
                                         ></span>
                                     </span>
@@ -930,6 +941,8 @@ export function P2PTransfer() {
                                             ? 'Direct Connection'
                                             : connectionType === 'relay'
                                             ? 'Relayed Connection'
+                                            : isConnected
+                                            ? 'Connected'
                                             : 'Offline'}
                                     </span>
                                 </div>
