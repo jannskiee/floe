@@ -16,8 +16,37 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-    title: 'Floe',
-    description: 'Secure, encrypted P2P file transfer. No accounts, no file storage, end-to-end encrypted.',
+    title: 'Floe — Secure P2P File Transfer',
+    description:
+        'Send files directly to anyone. No uploads, no accounts, end-to-end encrypted. Works on any device, any browser.',
+    metadataBase: new URL('https://floe.one'),
+    alternates: {
+        canonical: '/',
+    },
+    openGraph: {
+        title: 'Floe — Secure P2P File Transfer',
+        description:
+            'Send files directly to anyone. No uploads, no accounts, end-to-end encrypted.',
+        url: 'https://floe.one',
+        siteName: 'Floe',
+        images: [
+            {
+                url: '/og.png',
+                width: 1200,
+                height: 630,
+                alt: 'Floe — Secure peer-to-peer file transfer',
+            },
+        ],
+        type: 'website',
+        locale: 'en_US',
+    },
+    twitter: {
+        card: 'summary_large_image',
+        title: 'Floe — Secure P2P File Transfer',
+        description:
+            'Send files directly to anyone. No uploads, no accounts, end-to-end encrypted.',
+        images: ['/og.png'],
+    },
 };
 
 export default function RootLayout({
