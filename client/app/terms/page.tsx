@@ -18,7 +18,7 @@ export default function TermsOfUse() {
                     <h1 className="text-4xl font-bold tracking-tight text-white">
                         Terms of Use
                     </h1>
-                    <p className="text-zinc-400">Effective Date: </p>
+                    <p className="text-zinc-400">Effective Date: May 2026</p>
                 </div>
 
                 <div className="p-6 rounded-2xl bg-orange-500/10 border border-orange-500/20 space-y-4">
@@ -50,8 +50,8 @@ export default function TermsOfUse() {
                                 engineering attacks.
                             </li>
                             <li>
-                                Attempt to disrupt or reverse-engineer the
-                                signaling server.
+                                Attempt to disrupt, abuse, or reverse-engineer the
+                                signaling or relay servers.
                             </li>
                         </ul>
                     </section>
@@ -71,7 +71,7 @@ export default function TermsOfUse() {
 
                     <section className="space-y-3">
                         <h3 className="text-xl font-semibold text-white">
-                            3. Copyright & License
+                            3. Copyright &amp; License
                         </h3>
                         <p>
                             The source code for Floe is available under the{' '}
@@ -80,6 +80,26 @@ export default function TermsOfUse() {
                             software, subject to the terms of the license.
                         </p>
                     </section>
+
+                    <section className="space-y-3">
+                        <h3 className="text-xl font-semibold text-white">
+                            4. Relay Usage
+                        </h3>
+                        <p>
+                            When your connection uses the TURN relay server, transfers
+                            are limited to 2 GB per session. Excessive or automated
+                            abuse of relay bandwidth may result in rate limiting or
+                            temporary access restrictions. These limits exist to keep
+                            Floe free for all users.
+                        </p>
+                    </section>
+                </div>
+
+                {/* Footer nav */}
+                <div className="pt-4 border-t border-white/5 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10px] text-zinc-500 uppercase tracking-wide">
+                    <Link href="/how-it-works" className="whitespace-nowrap hover:text-white transition-colors">How It Works</Link>
+                    <span>•</span>
+                    <Link href="/privacy" className="whitespace-nowrap hover:text-white transition-colors">Privacy Policy</Link>
                 </div>
             </div>
         </div>

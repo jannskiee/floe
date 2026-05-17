@@ -99,7 +99,8 @@ const io = new Server(server, {
         methods: ['GET', 'POST'],
         credentials: true,
     },
-    maxHttpBufferSize: 1e8,
+    // Signaling only exchanges small SDP/ICE payloads (<10 KB). 1 MB is generous.
+    maxHttpBufferSize: 1e6,
 });
 
 const UUID_REGEX =
@@ -141,6 +142,15 @@ setInterval(() => {
             connectionCounts.delete(ip);
         } else {
             connectionCounts.set(ip, validTimestamps);
+        }
+    }
+    // Also clean up TURN rate limit map to prevent unbounded memory growth.
+    for (const [ip, timestamps] of turnRateLimits.entries()) {
+        const valid = timestamps.filter((t) => now - t < TURN_RATE_WINDOW);
+        if (valid.length === 0) {
+            turnRateLimits.delete(ip);
+        } else {
+            turnRateLimits.set(ip, valid);
         }
     }
 }, 60000);

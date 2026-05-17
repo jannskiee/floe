@@ -1,6 +1,7 @@
 const CACHE_NAME = 'floe-cache-v1';
 const STATIC_ASSETS = [
     '/',
+    '/how-it-works',
     '/privacy',
     '/terms',
     '/github-mark-white.png',

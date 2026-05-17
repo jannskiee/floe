@@ -35,6 +35,19 @@ cd client
 npm run dev
 ```
 
+## Environment Variables
+
+The server requires the following environment variables for full functionality:
+
+| Variable | Description |
+|---|---|
+| `CLIENT_URL` | Frontend origin URL (e.g., `https://floe.one`) |
+| `TURN_SECRET` | Shared secret for coturn HMAC credential generation |
+| `TURN_DOMAIN` | Domain of the TURN relay server (e.g., `turn.floe.one`) |
+| `PORT` | Port for the signaling server (default: `3001`) |
+
+See `server/.env.example` for reference. If `TURN_SECRET` or `TURN_DOMAIN` are not set, the server falls back to Google public STUN servers (no relay support).
+
 ## Pull Request Process
 
 1. Create a new branch for your feature or fix
