@@ -1,5 +1,7 @@
+'use client';
+
 import React from 'react';
-import { ShieldCheck, Zap, Globe } from 'lucide-react';
+import { ShieldCheck, Zap, Server } from 'lucide-react';
 
 export const AboutSection = () => {
     return (
@@ -9,21 +11,21 @@ export const AboutSection = () => {
                     <ShieldCheck className="h-6 w-6" />
                 </div>
                 <h3 className="text-lg font-semibold text-white">End-to-End Encrypted</h3>
-                <p className="text-sm text-zinc-500 max-w-xs">Your data never touches our servers. It flows directly from your device to your peer&apos;s device.</p>
+                <p className="text-sm text-zinc-500 max-w-xs">Encrypted end-to-end on every transfer. Direct or relayed, only you and your recipient can read your files.</p>
             </div>
             <div className="flex flex-col items-center space-y-3 p-4">
                 <div className="h-12 w-12 rounded-full bg-zinc-900 flex items-center justify-center border border-zinc-800 text-white">
                     <Zap className="h-6 w-6" />
                 </div>
                 <h3 className="text-lg font-semibold text-white">Blazing Fast</h3>
-                <p className="text-sm text-zinc-500 max-w-xs">No upload limits or bandwidth throttling. Transfer speed is only limited by your local network.</p>
+                <p className="text-sm text-zinc-500 max-w-xs">No throttling, no upload queues. Transfer speed is limited only by your connection.</p>
             </div>
             <div className="flex flex-col items-center space-y-3 p-4">
                 <div className="h-12 w-12 rounded-full bg-zinc-900 flex items-center justify-center border border-zinc-800 text-white">
-                    <Globe className="h-6 w-6" />
+                    <Server className="h-6 w-6" />
                 </div>
-                <h3 className="text-lg font-semibold text-white">Unlimited Size</h3>
-                <p className="text-sm text-zinc-500 max-w-xs">Send terabytes of data if you want. Since we don&apos;t store it, we don&apos;t care how big it is.</p>
+                <h3 className="text-lg font-semibold text-white">No File Storage</h3>
+                <p className="text-sm text-zinc-500 max-w-xs">Files are never stored on any server. Direct transfers have no size limit. Relay transfers are capped at 2 GB per session.</p>
             </div>
         </section>
     );

@@ -5,7 +5,7 @@
 <h1 align="center">Floe</h1>
 
 <p align="center">
-  <strong>Secure, serverless peer-to-peer file transfer</strong>
+  <strong>Secure, encrypted peer-to-peer file transfer</strong>
 </p>
 
 <p align="center">
@@ -26,29 +26,25 @@
 <p align="center">
   <a href="https://floe.one">Live Demo</a> |
   <a href="#features">Features</a> |
-  <a href="#installation">Installation</a> |
   <a href="#contributing">Contributing</a> |
   <a href="#sponsorship">Sponsor</a>
 </p>
 
 ## About
 
-Floe is an open-source, browser-based file transfer application that enables direct peer-to-peer connections between devices. Unlike traditional file sharing services, Floe does not upload files to any server. Files stream directly from the sender's device to the receiver's device using WebRTC technology.
+Floe is an open-source, browser-based file transfer application built on WebRTC. It does not upload or store files on any server. In most cases, files stream directly between browsers. When a direct path is unavailable due to network restrictions, a TURN relay server bridges the connection with end-to-end encryption.
 
-This approach provides unlimited file sizes, enhanced privacy, and faster transfers without the overhead of server storage.
+A signaling server (`api.floe.one`) handles WebRTC negotiation and issues short-lived TURN credentials. It does not handle file data. A TURN relay server (`turn.floe.one`) routes encrypted data when a direct connection cannot be established. No component in Floe's infrastructure stores, decrypts, or inspects transferred files.
 
 ## Features
 
-| Feature               | Description                                                    |
-|-----------------------|----------------------------------------------------------------|
-| Peer-to-Peer Transfer | Files transfer directly between devices without server storage |
-| Unlimited File Size   | No restrictions on file size, limited only by device capacity  |
-| End-to-End Encryption | All transfers are encrypted using WebRTC DTLS                  |
-| No Registration       | No account creation required                                   |
-| Multi-File Support    | Send multiple files in a single session                        |
-| ZIP Download          | Download multiple files as a single archive                    |
-| Real-Time Progress    | Live transfer speed, progress, and ETA display                 |
-| Mobile Responsive     | Fully functional on all devices                                |
+| Feature | Description |
+|-----------------------|--------------------------------------------------------------------------------------|
+| P2P Transfer | Files stream directly between devices with no server storage. |
+| Relay Fallback | Automatic encrypted relay when a direct connection is unavailable. |
+| End-to-End Encryption | All transfers use DTLS-SRTP encryption, whether direct or relayed. |
+| No Registration | No account or sign-up required. |
+| Multi-File + ZIP | Send multiple files and download them as a single archive. |
 
 ## How It Works
 
@@ -56,9 +52,8 @@ This approach provides unlimited file sizes, enhanced privacy, and faster transf
 
 1. Open Floe in your browser
 2. Drag and drop files or click to select
-3. Click "Create Link" to generate a shareable URL
-4. Share the link with your recipient
-5. Keep your browser tab open until the transfer completes
+3. Copy the generated link and share it with the recipient
+4. Keep your browser tab open until the transfer completes
 
 ### Receiver
 
@@ -66,7 +61,11 @@ This approach provides unlimited file sizes, enhanced privacy, and faster transf
 2. Wait for the connection to establish
 3. Click "Download" to receive files directly from the sender
 
-The signaling server only helps browsers find each other. Once connected, all file data flows directly between browsers with no server involvement.
+### Connection Types
+
+**Direct:** The signaling server introduces both browsers via WebRTC. Once connected, it steps aside and file data flows directly between devices. No size limits. No relay.
+
+**Relay:** When a direct path cannot be established (e.g., strict corporate firewalls, Carrier-Grade NAT), Floe automatically falls back to a TURN relay server. File data passes through the relay in encrypted form and is never stored. Relay transfers are capped at 2 GB per session.
 
 ## Contributing
 
@@ -76,7 +75,7 @@ If you encounter any bugs or have suggestions, please open an issue on GitHub.
 
 ## Sponsorship
 
-Floe is a free and open-source project. All sponsorship contributions go toward backend hosting costs to ensure reliable service.
+Floe is a free and open-source project. Sponsorship contributions go toward hosting costs for the signaling server and TURN relay infrastructure, which are required to keep the service reliable and accessible.
 
 **[GitHub Sponsors](https://github.com/sponsors/jannskiee)**\
 **[Ko-fi](https://ko-fi.com/jannskiee)**

@@ -15,6 +15,8 @@ import SimplePeer, { Instance as PeerInstance } from 'simple-peer';
 import { v4 as uuidv4 } from 'uuid';
 import { zip, Zippable } from 'fflate';
 
+import { QRCodeSVG } from 'qrcode.react';
+
 import {
     Card,
     CardContent,
@@ -28,13 +30,16 @@ import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import {
     AlertCircle,
+    AlertTriangle,
     ArrowRight,
     Check,
     CheckCircle2,
     Copy,
     Download,
+    Info,
     Infinity,
     Loader2,
+    QrCode,
     Radio,
     ShieldCheck,
     UploadCloud,
@@ -46,7 +51,10 @@ import { formatBytes } from '@/lib/utils';
 import { FileIcon } from '@/components/FileIcon';
 
 const socket: Socket = io(
-    process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001'
+    process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001',
+    {
+        reconnectionDelayMax: 5000, // cap max backoff at 5s (default is ~5 minutes)
+    }
 );
 
 interface FileWithId {
@@ -82,6 +90,12 @@ export function P2PTransfer() {
     const [estimatedTime, setEstimatedTime] = useState('');
     const [isDragging, setIsDragging] = useState(false);
     const [connectionType, setConnectionType] = useState<'direct' | 'relay' | null>(null);
+    const [showQr, setShowQr] = useState(false);
+    const [showInfoTooltip, setShowInfoTooltip] = useState(false);
+
+    const RELAY_SIZE_LIMIT = 2 * 1024 * 1024 * 1024; // 2 GB
+    const totalBytes = files.reduce((sum, f) => sum + f.file.size, 0);
+    const isRelayOverLimit = connectionType === 'relay' && totalBytes > RELAY_SIZE_LIMIT;
 
     const peerRef = useRef<PeerInstance | null>(null);
     const wakeLockRef = useRef<WakeLockSentinel | null>(null);
@@ -170,6 +184,15 @@ export function P2PTransfer() {
         isSender,
     ]);
 
+
+    useEffect(() => { setShowInfoTooltip(false); }, [connectionType]);
+
+    useEffect(() => {
+        if (!showInfoTooltip) return;
+        const close = () => setShowInfoTooltip(false);
+        document.addEventListener('click', close);
+        return () => document.removeEventListener('click', close);
+    }, [showInfoTooltip]);
     const handleDownloadAll = async () => {
         setIsDownloading(true);
         setDownloadProgress({ current: 0, total: receivedFiles.length, label: 'Starting download...' });
@@ -531,6 +554,8 @@ export function P2PTransfer() {
             releaseWakeLock();
             peerRef.current?.destroy();
         };
+        // joinRoomAsReceiver is intentionally excluded: this effect must run once on mount only.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useEffect(() => {
@@ -618,10 +643,33 @@ export function P2PTransfer() {
             );
             peer.on('connect', () => {
                 setIsConnected(true);
-                sendAllFiles(peer, files);
                 checkConnectionType(peer);
                 if (connTypeIntervalRef.current) clearInterval(connTypeIntervalRef.current);
                 connTypeIntervalRef.current = setInterval(() => checkConnectionType(peer), 5000);
+
+                // Wait briefly for ICE to resolve connection type before starting transfer
+                setTimeout(async () => {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const pc = (peer as any)._pc as RTCPeerConnection | undefined;
+                    let isRelay = false;
+                    if (pc) {
+                        try {
+                            const stats = await pc.getStats();
+                            stats.forEach((report) => {
+                                if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.nominated) {
+                                    const lc = stats.get(report.localCandidateId);
+                                    if (lc && lc.candidateType === 'relay') isRelay = true;
+                                }
+                            });
+                        } catch { }
+                    }
+                    const totalSize = files.reduce((s, f) => s + f.file.size, 0);
+                    if (isRelay && totalSize > 2 * 1024 * 1024 * 1024) {
+                        setStatus('Transfer blocked. Relay limit exceeded.');
+                        return;
+                    }
+                    sendAllFiles(peer, files);
+                }, 2000);
             });
             peer.on('close', () => {
                 releaseWakeLock();
@@ -905,7 +953,7 @@ export function P2PTransfer() {
                                 </div>
                             )}
                             <div
-                                className={`flex justify-end items-center gap-3 text-[10px] uppercase font-bold tracking-widest text-zinc-500 mb-[-10px] pb-1.5 ${progress > 0 ? '' : 'pr-2'}`}
+                                className={`flex justify-end items-center gap-3 text-[10px] uppercase font-bold tracking-widest text-zinc-500 mb-1 ${progress > 0 ? '' : 'pr-2'}`}
                             >
                                 {isSender && (
                                     <div className="flex items-center gap-1">
@@ -938,17 +986,67 @@ export function P2PTransfer() {
                                     </span>
                                     <span>
                                         {connectionType === 'direct'
-                                            ? 'Direct Connection'
+                                            ? 'Direct'
                                             : connectionType === 'relay'
-                                            ? 'Relayed Connection'
+                                            ? 'Relay'
                                             : isConnected
-                                            ? 'Connected'
+                                            ? 'Ready'
                                             : 'Offline'}
                                     </span>
+                                    {(connectionType === 'direct' || connectionType === 'relay') && (
+                                        <div className="relative group/info inline-flex items-center p-0.5 cursor-help"
+                                        onClick={(e) => { e.stopPropagation(); setShowInfoTooltip(v => !v); }}
+                                    >
+                                            <Info className="w-2.5 h-2.5 text-zinc-600 group-hover/info:text-zinc-400 transition-colors" />
+                                            <div className={`absolute z-[9999] w-52 transition-opacity duration-150 top-full right-0 mt-2 sm:top-1/2 sm:right-full sm:left-auto sm:-translate-y-1/2 sm:mt-0 sm:mr-2 ${showInfoTooltip ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'} group-hover/info:opacity-100 group-hover/info:pointer-events-auto`}>
+                                                {/* invisible bridge above to prevent hover gap */}
+                                                <div className="hidden sm:block absolute top-0 bottom-0 left-full w-3" />
+                                                <div className="relative bg-zinc-950 border border-zinc-800 rounded-xl p-3 shadow-2xl text-left">
+                                                    {/* caret: up on mobile, right on desktop */}
+                                                    <div className="sm:hidden absolute bottom-full right-3 h-0 w-0 border-l-[6px] border-r-[6px] border-b-[6px] border-l-transparent border-r-transparent border-b-zinc-800" />
+                                                    <div className="hidden sm:block absolute left-full top-1/2 -translate-y-1/2 h-0 w-0 border-t-[6px] border-b-[6px] border-l-[6px] border-t-transparent border-b-transparent border-l-zinc-800" />
+                                                    {connectionType === 'direct' ? (
+                                                        <>
+                                                            <p className="text-[10px] font-bold text-green-400 uppercase tracking-wider mb-1">Direct Connection</p>
+                                                            <p className="text-[10px] font-normal normal-case tracking-normal text-zinc-400 leading-relaxed">
+                                                                Your files go directly to the other device. No servers involved. Unlimited speed and size.{' '}
+                                                                <a href="/how-it-works" target="_blank" rel="noreferrer" className="text-zinc-500 hover:text-white underline underline-offset-2 transition-colors">
+                                                                    Learn more
+                                                                </a>
+                                                            </p>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider mb-1">Relay Connection</p>
+                                                            <p className="text-[10px] font-normal normal-case tracking-normal text-zinc-400 leading-relaxed">
+                                                                A server bridges the connection when a direct path is unavailable. Your files stay encrypted. 2 GB limit per session.{' '}
+                                                                <a href="/how-it-works" target="_blank" rel="noreferrer" className="text-zinc-500 hover:text-white underline underline-offset-2 transition-colors">
+                                                                    Learn more
+                                                                </a>
+                                                            </p>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
-                            {isSender && progress > 0 && (
+                            {/* Relay over-limit warning banner */}
+                            {isSender && isRelayOverLimit && (
+                                <div className="mt-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 flex items-start gap-3">
+                                    <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                                    <div className="flex-1 text-xs text-amber-300 leading-relaxed">
+                                        Transfer limit exceeded. Relay connections are capped at 2 GB. Remove files to proceed, or switch to a network that supports a direct connection.{' '}
+                                        <a href="/how-it-works" target="_blank" rel="noreferrer" className="underline underline-offset-2 text-amber-400 hover:text-white transition-colors">
+                                            Learn more
+                                        </a>
+                                    </div>
+                                </div>
+                            )}
+
+                            {progress > 0 && (
                                 <hr className="border-white/5 my-2" />
                             )}
 
@@ -999,11 +1097,10 @@ export function P2PTransfer() {
                                         {isDragging ? 'Drop files here!' : 'Click or Drag files here'}
                                     </p>
                                     <p className="flex items-center gap-1 text-xs text-zinc-500">
-                                        Max size: Unlimited{' '}
-                                        <Infinity
-                                            className="w-3 h-3"
-                                            strokeWidth={1.5}
-                                        />
+                                        {connectionType === 'relay'
+                                            ? 'Max size: 2 GB (relay)'
+                                            : <>Max size: Unlimited{' '}<Infinity className="w-3 h-3" strokeWidth={1.5} /></>
+                                        }
                                     </p>
                                     <Input
                                         type="file"
@@ -1020,11 +1117,10 @@ export function P2PTransfer() {
                                         {files.length > 0 && !generatedLink && (
                                             <Button
                                                 onClick={handleCreateLink}
-                                                className="w-full mb-4 bg-white text-black hover:bg-zinc-200 font-bold"
+                                                className="w-full mb-4 bg-white text-black hover:bg-zinc-200 font-bold text-xs sm:text-sm"
                                             >
-                                                Create Secure Link & Share (
-                                                {files.length} Files){' '}
-                                                <ArrowRight className="w-4 h-4 ml-2" />
+                                                Create Secure Link &amp; Share ({files.length} {files.length === 1 ? 'File' : 'Files'})
+                                                <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 ml-1.5 sm:ml-2 shrink-0" />
                                             </Button>
                                         )}
 
@@ -1054,7 +1150,33 @@ export function P2PTransfer() {
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div className="mt-4 flex w-full items-center justify-center gap-2 text-xs transition-colors duration-300">
+
+                                                {/* QR Code toggle */}
+                                                <div className="mt-3 flex flex-col items-center">
+                                                    <button
+                                                        onClick={() => setShowQr((v) => !v)}
+                                                        className="flex items-center gap-1.5 text-[10px] uppercase font-bold tracking-widest text-zinc-600 hover:text-zinc-400 transition-colors"
+                                                    >
+                                                        <QrCode className="h-3 w-3" />
+                                                        {showQr ? 'Hide QR Code' : 'Show QR Code'}
+                                                    </button>
+                                                    {showQr && (
+                                                        <div className="mt-3 flex flex-col items-center gap-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                                                            <div className="rounded-2xl bg-white p-4 shadow-lg ring-1 ring-white/10">
+                                                                <QRCodeSVG
+                                                                    value={generatedLink}
+                                                                    size={156}
+                                                                    bgColor="#ffffff"
+                                                                    fgColor="#09090b"
+                                                                    level="M"
+                                                                />
+                                                            </div>
+                                                            <p className="text-[10px] uppercase tracking-widest text-zinc-600 font-bold">Scan to receive files</p>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                <div className="mt-3 flex w-full items-center justify-center gap-2 text-xs transition-colors duration-300">
                                                     {status ===
                                                         'All Files Sent!' ? (
                                                         <CheckCircle2 className="h-3 w-3 shrink-0 text-green-400" />
@@ -1062,7 +1184,7 @@ export function P2PTransfer() {
                                                         <Loader2 className="h-3 w-3 shrink-0 animate-spin text-zinc-500" />
                                                     )}
                                                     <span
-                                                        className={`truncate max-w-[280px] ${status === 'All Files Sent!' ? 'text-green-400 font-medium' : 'text-zinc-500'}`}
+                                                        className={`truncate max-w-[200px] sm:max-w-[280px] ${status === 'All Files Sent!' ? 'text-green-400 font-medium' : 'text-zinc-500'}`}
                                                     >
                                                         {status}
                                                     </span>
@@ -1072,7 +1194,7 @@ export function P2PTransfer() {
 
                                         <div
                                             ref={fileListRef}
-                                            className="space-y-3 max-h-[300px] overflow-y-scroll pr-1 pb-12 custom-scrollbar"
+                                            className="space-y-3 max-h-[300px] overflow-y-auto pr-1 pb-12 custom-scrollbar"
                                         >
                                             {files.map((item, i) => (
                                                 <div
@@ -1126,6 +1248,17 @@ export function P2PTransfer() {
                                             ))}
                                         </div>
 
+                                        {/* Total file size indicator */}
+                                        {files.length > 0 && (
+                                            <div className="pt-1 pb-0.5 px-0.5">
+                                                <span className={`text-[10px] uppercase font-bold tracking-widest font-mono ${
+                                                    isRelayOverLimit ? 'text-amber-500' : 'text-zinc-600'
+                                                }`}>
+                                                    {files.length} {files.length === 1 ? 'file' : 'files'} ({formatBytes(totalBytes)}{connectionType === 'relay' ? ' / 2.0 GB' : ''})
+                                                </span>
+                                            </div>
+                                        )}
+
                                         {status.includes('Sending') && (
                                             <div className="flex w-full items-center justify-center gap-2 text-xs text-zinc-400 animate-pulse pt-2">
                                                 <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
@@ -1149,7 +1282,7 @@ export function P2PTransfer() {
 
                                     {receivedFiles.length > 1 &&
                                         !status.includes('Receiving') && (
-                                            <div className="grid grid-cols-2 gap-2 mb-3 animate-in fade-in slide-in-from-top-2 duration-300">
+                                            <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 gap-2 mb-3 animate-in fade-in slide-in-from-top-2 duration-300">
                                                 <Button
                                                     onClick={handleDownloadAll}
                                                     disabled={isDownloading || isZipping}
@@ -1182,7 +1315,7 @@ export function P2PTransfer() {
                                     {(isZipping || isDownloading) && downloadProgress.total > 0 && (
                                         <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700 space-y-2">
                                             <div className="flex items-center justify-between text-xs">
-                                                <span className="text-zinc-400 truncate max-w-[180px]">
+                                                <span className="text-zinc-400 truncate max-w-[120px] sm:max-w-[180px]">
                                                     {downloadProgress.label}
                                                 </span>
                                                 <span className="text-white font-mono">
@@ -1207,17 +1340,17 @@ export function P2PTransfer() {
                                         {receivedFiles.map((file) => (
                                             <div
                                                 key={file.id}
-                                                className="flex items-center justify-between rounded-lg bg-zinc-900 p-3 border border-zinc-800"
+                                                className="relative group/fname flex items-center justify-between rounded-lg bg-zinc-900 p-3 border border-zinc-800"
                                             >
                                                 <div className="flex items-center gap-3 min-w-0">
                                                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-500/10 text-green-500">
                                                         <CheckCircle2 className="h-5 w-5" />
                                                     </div>
                                                     <div className="flex flex-col min-w-0 relative">
-                                                        <span className="peer text-sm font-medium text-white truncate max-w-[250px] cursor-help">
+                                                        <span className="text-sm font-medium text-white truncate max-w-[140px] sm:max-w-[250px] cursor-help">
                                                             {file.fileName}
                                                         </span>
-                                                        <div className="absolute top-full left-0 mt-1 opacity-0 peer-hover:opacity-100 z-[9999] w-max max-w-[240px] px-3 py-2 text-xs font-medium text-white bg-zinc-950 rounded-lg border border-zinc-800 shadow-2xl break-all pointer-events-none">
+                                                        <div className="absolute top-full left-0 mt-1 opacity-0 group-hover/fname:opacity-100 z-[9999] w-max max-w-[240px] px-3 py-2 text-xs font-medium text-white bg-zinc-950 rounded-lg border border-zinc-800 shadow-2xl break-all pointer-events-none">
                                                             {file.fileName}
                                                             <div className="absolute bottom-full left-4 h-0 w-0 border-l-[7px] border-r-[7px] border-b-[7px] border-l-transparent border-r-transparent border-b-zinc-800"></div>
                                                             <div className="absolute bottom-full left-[17px] mt-[1px] h-0 w-0 border-l-[6px] border-r-[6px] border-b-[6px] border-l-transparent border-r-transparent border-b-zinc-950"></div>
@@ -1245,10 +1378,22 @@ export function P2PTransfer() {
                                         ))}
                                     </div>
 
+                                    {receivedFiles.length > 0 && (
+                                        <div className="pt-1 pb-0.5 px-0.5">
+                                            <span className="text-[10px] uppercase font-bold tracking-widest font-mono text-zinc-600">
+                                                {receivedFiles.length} {receivedFiles.length === 1 ? 'file' : 'files'} ({formatBytes(receivedFiles.reduce((s, f) => s + f.fileSize, 0))})
+                                            </span>
+                                        </div>
+                                    )}
+
+                                    {typeof navigator !== 'undefined' && /iPhone|iPad|iPod/.test(navigator.userAgent) && receivedFiles.length > 0 && (
+                                        <p className="text-[10px] text-zinc-600 text-center mt-1">Tip: Use &quot;Download ZIP&quot; for the best experience on iOS.</p>
+                                    )}
+
                                     {status.includes('Receiving') ? (
                                         <div className="flex w-full items-center justify-center gap-2 text-xs text-zinc-400 animate-pulse pt-2">
                                             <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
-                                            <span className="truncate max-w-[280px]">
+                                            <span className="truncate max-w-[200px] sm:max-w-[280px]">
                                                 {status}
                                             </span>
                                         </div>
@@ -1267,7 +1412,7 @@ export function P2PTransfer() {
                 </CardContent>
 
                 <CardFooter className="flex-col justify-center border-t border-white/5 py-4 gap-2">
-                    <p className="text-[10px] text-zinc-500 uppercase tracking-widest text-center">
+                    <p className="text-[10px] text-zinc-500 uppercase tracking-wide text-center leading-relaxed">
                         {isSender
                             ? 'Do not close this tab. Closing it will cancel the transfer.'
                             : 'Do not close this tab. Closing it will interrupt the download.'}

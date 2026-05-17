@@ -18,7 +18,7 @@ export default function PrivacyPolicy() {
                     <h1 className="text-4xl font-bold tracking-tight text-white">
                         Privacy Policy
                     </h1>
-                    <p className="text-zinc-400">Last updated: </p>
+                    <p className="text-zinc-400">Last updated: May 2026</p>
                 </div>
 
                 <div className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800 space-y-4">
@@ -30,16 +30,18 @@ export default function PrivacyPolicy() {
                     </div>
                     <p className="text-zinc-300 leading-relaxed">
                         Floe is a <strong>Peer-to-Peer (P2P)</strong> file
-                        transfer service. This means your files are streamed
+                        transfer service. This means your files stream
                         directly from the sender&apos;s device to the receiver&apos;s
-                        device.
+                        device whenever possible.
                         <br />
                         <br />
                         <strong>
                             We do not store, view, or process your files.
                         </strong>{' '}
-                        They never touch our servers/databases (because we don&apos;t
-                        have a database).
+                        In direct connections, files never touch our servers. In relay
+                        connections, encrypted file data passes through our TURN server
+                        in transit but is never stored or inspected. We do not operate
+                        a database.
                     </p>
                 </div>
 
@@ -50,11 +52,12 @@ export default function PrivacyPolicy() {
                         </h3>
                         <p>
                             When you send a file, we use <strong>WebRTC</strong>{' '}
-                            to establish a direct connection between you and the
-                            recipient. Our server is only used for &quot;Signaling&quot;
-                            (introducing the two devices). Once connected, the
-                            server steps aside, and data flows directly between
-                            peers.
+                            to establish a connection between you and the recipient.
+                            Our signaling server introduces the two devices and then
+                            steps aside. In most cases, data flows directly between
+                            browsers. When a direct path is not available, our TURN
+                            relay server bridges the connection. Even through the relay,
+                            files remain encrypted and are never stored.
                         </p>
                     </section>
 
@@ -88,12 +91,37 @@ export default function PrivacyPolicy() {
                             3. Third-Party Services
                         </h3>
                         <p>
-                            This project is open-source and hosted on Vercel
-                            (Frontend) and Render/Railway (Backend). Please
-                            refer to their respective privacy policies regarding
-                            server access logs.
+                            Floe is hosted on Vercel (frontend) and DigitalOcean
+                            (signaling server and TURN relay). Please refer to
+                            their respective privacy policies regarding server
+                            access logs.
                         </p>
                     </section>
+
+                    <section className="space-y-3">
+                        <h3 className="text-xl font-semibold text-white">
+                            4. Relay Server
+                        </h3>
+                        <p>
+                            When a direct connection cannot be established, file data
+                            is routed through our TURN relay server (
+                            <code className="text-xs bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-300">
+                                turn.floe.one
+                            </code>
+                            ). This server processes encrypted data packets in transit
+                            and does not store, decrypt, or inspect any file contents.
+                            Relay sessions are limited to 2 GB per session. Connection
+                            metadata (timestamps, IP addresses) may be logged by the
+                            hosting provider for security purposes.
+                        </p>
+                    </section>
+                </div>
+
+                {/* Footer nav */}
+                <div className="pt-4 border-t border-white/5 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10px] text-zinc-500 uppercase tracking-wide">
+                    <Link href="/how-it-works" className="whitespace-nowrap hover:text-white transition-colors">How It Works</Link>
+                    <span>•</span>
+                    <Link href="/terms" className="whitespace-nowrap hover:text-white transition-colors">Terms of Use</Link>
                 </div>
             </div>
         </div>

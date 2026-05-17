@@ -25,11 +25,11 @@ export const FAQSection = () => {
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 px-6 backdrop-blur-sm">
                 <FAQItem
                     question="What is Floe?"
-                    answer="Floe is a free file-sharing website that lets you send files directly to another person — no sign-up, no app download, and no file size limits. Think of it like handing a USB drive to someone, but over the internet."
+                    answer="Floe is a free file-sharing tool that lets you send files directly to another person, with no sign-up, no app download, and no files stored on any server. Think of it like handing a USB drive to someone, but over the internet. Direct connections have no size limit; relay connections are capped at 2 GB per session."
                 />
                 <FAQItem
                     question="What does 'Peer-to-Peer' (P2P) mean?"
-                    answer="Normally when you share a file online, it gets uploaded to a company's server first, then the other person downloads it from there. With peer-to-peer (P2P), your file goes directly from your device to the other person's device — no middleman. It's like a direct phone call instead of leaving a voicemail."
+                    answer="Normally when you share a file online, it gets uploaded to a company's server first, then the other person downloads it from there. With peer-to-peer (P2P), your file travels straight from your device to the recipient's device. In some network environments, a secure relay server acts as a bridge, but your files remain encrypted end-to-end and are never stored."
                 />
                 <FAQItem
                     question="How do I use Floe? (Step-by-step)"
@@ -62,19 +62,19 @@ export const FAQSection = () => {
                 />
                 <FAQItem
                     question="Where are my files stored?"
-                    answer="Nowhere! Your files are never uploaded to any server. They stream directly from the sender's device to the receiver's device. Once you close the browser tab, there's nothing left behind — no copies, no traces."
+                    answer="Your files are never stored on any server. In direct connections, data flows straight between devices. In relay connections, encrypted data passes through our TURN relay server in transit but is never saved or inspected. Once the transfer is complete and both tabs are closed, nothing is retained."
                 />
                 <FAQItem
                     question="Is there a file size limit?"
-                    answer="Technically, no. Because we don't store your files, there's no storage limit. You can send files of any size. However, very large files (like 10GB+) might need a stable internet connection and patience while both devices stay connected."
+                    answer="It depends on your connection type. Direct connections have no file size limit. If your connection uses a relay, transfers are capped at 2 GB per session. The app shows your connection type in real time, so you will always know which applies."
                 />
                 <FAQItem
                     question="Why do I need to keep the tab open?"
-                    answer="Since there's no server storing your file, your browser IS the server. Your device sends the file directly. If you close the tab or lose internet, the connection breaks and the transfer stops. Think of it like a phone call — both people need to stay on the line."
+                    answer="Because files are never uploaded to a storage server, your browser must remain open to send the data. If you close the tab or lose your connection, the transfer will stop. Think of it like a live video call — both sides need to stay connected for it to work."
                 />
                 <FAQItem
                     question="Is this secure?"
-                    answer="Yes! Your files are encrypted during transfer using the same technology that secures video calls (WebRTC). No one — not even us — can see what you're sending. It goes directly from you to your recipient, with no copies made anywhere."
+                    answer="Yes. All transfers use DTLS-SRTP encryption, the same standard used to secure video calls. Whether your connection is direct or relayed, only you and your recipient can read the data. Even our own relay server handles only encrypted packets and cannot access your files."
                 />
             </div>
         </section>

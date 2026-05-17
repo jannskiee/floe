@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
     title: 'Floe',
-    description: 'Secure, serverless P2P file transfer. No size limits, no registration, end-to-end encrypted.',
+    description: 'Secure, encrypted P2P file transfer. No accounts, no file storage, end-to-end encrypted.',
 };
 
 export default function RootLayout({
