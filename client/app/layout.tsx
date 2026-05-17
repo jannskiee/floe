@@ -19,7 +19,7 @@ export const metadata: Metadata = {
     title: 'Floe',
     description:
         'Send files directly to anyone. No uploads, no accounts, end-to-end encrypted. Works on any device, any browser.',
-    metadataBase: new URL('https://floe.one'),
+    metadataBase: new URL('https://www.floe.one'),
     alternates: {
         canonical: '/',
     },
@@ -27,11 +27,11 @@ export const metadata: Metadata = {
         title: 'Floe — Encrypted P2P File Transfer. No Uploads.',
         description:
             'Send files directly from your device to anyone in the world. No accounts, no file storage, no size limits on direct transfers. Fully end-to-end encrypted with WebRTC.',
-        url: 'https://floe.one',
+        url: 'https://www.floe.one',
         siteName: 'Floe',
         images: [
             {
-                url: 'https://floe.one/og.png?v=3',
+                url: 'https://www.floe.one/og.png?v=3',
                 width: 1200,
                 height: 630,
                 alt: 'Floe — Encrypted peer-to-peer file transfer',
@@ -45,7 +45,7 @@ export const metadata: Metadata = {
         title: 'Floe \u2014 Encrypted P2P File Transfer. No Uploads.',
         description:
             'Send files directly from your device to anyone in the world. No accounts, no file storage, fully end-to-end encrypted.',
-        images: ['https://floe.one/og.png?v=3'],
+        images: ['https://www.floe.one/og.png?v=3'],
     },
 };
 
