@@ -1160,7 +1160,7 @@ export function P2PTransfer() {
                                                         <div className="space-y-1.5">
                                                             <p className="text-sm font-medium text-zinc-200 leading-none">Network Relay Fallback</p>
                                                             <p className="text-xs text-zinc-500 leading-relaxed">
-                                                                Bridges the connection via a secure server when a direct path is unavailable. Recommended for mobile data and private networks. Relay transfers are capped at 2 GB per session.{' '}
+                                                                Uses a relay server when a direct connection is unavailable. Recommended for mobile data and private networks. 2 GB limit per session.{' '}
                                                                 <a
                                                                     href="/how-it-works"
                                                                     target="_blank"
