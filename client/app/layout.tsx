@@ -27,7 +27,6 @@ export const metadata: Metadata = {
         title: 'Floe — Encrypted P2P File Transfer. No Uploads.',
         description:
             'Send files directly from your device to anyone in the world. No accounts, no file storage, no size limits on direct transfers. Fully end-to-end encrypted with WebRTC.',
-        url: 'https://www.floe.one',
         siteName: 'Floe',
         images: [
             {
