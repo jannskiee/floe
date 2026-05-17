@@ -31,7 +31,7 @@ export const metadata: Metadata = {
         siteName: 'Floe',
         images: [
             {
-                url: '/og.png',
+                url: 'https://floe.one/og.png',
                 width: 1200,
                 height: 630,
                 alt: 'Floe — Secure peer-to-peer file transfer',
@@ -45,7 +45,7 @@ export const metadata: Metadata = {
         title: 'Floe — Secure P2P File Transfer',
         description:
             'Send files directly to anyone. No uploads, no accounts, end-to-end encrypted.',
-        images: ['/og.png'],
+        images: ['https://floe.one/og.png'],
     },
 };
 
