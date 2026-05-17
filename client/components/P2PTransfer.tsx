@@ -92,6 +92,7 @@ export function P2PTransfer() {
     const [connectionType, setConnectionType] = useState<'direct' | 'relay' | null>(null);
     const [showQr, setShowQr] = useState(false);
     const [showInfoTooltip, setShowInfoTooltip] = useState(false);
+    const [relayEnabled, setRelayEnabled] = useState(true);
 
     const RELAY_SIZE_LIMIT = 2 * 1024 * 1024 * 1024; // 2 GB
     const totalBytes = files.reduce((sum, f) => sum + f.file.size, 0);
@@ -137,9 +138,12 @@ export function P2PTransfer() {
             stats.forEach((report) => {
                 if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.nominated) {
                     const localCandidate = stats.get(report.localCandidateId);
-                    if (localCandidate) {
-                        setConnectionType(localCandidate.candidateType === 'relay' ? 'relay' : 'direct');
-                    }
+                    const remoteCandidate = stats.get(report.remoteCandidateId);
+                    // If either side uses a relay candidate, the full data path goes through TURN
+                    const isRelay =
+                        localCandidate?.candidateType === 'relay' ||
+                        remoteCandidate?.candidateType === 'relay';
+                    setConnectionType(isRelay ? 'relay' : 'direct');
                 }
             });
         } catch { }
@@ -630,11 +634,19 @@ export function P2PTransfer() {
             setStatus('Peer joined! Starting...');
             requestWakeLock();
 
+            // Strip TURN servers from ICE config if relay fallback is disabled by the user
+            const iceConfig = relayEnabled
+                ? iceServersRef.current
+                : iceServersRef.current.filter((s) => {
+                    const urls = Array.isArray(s.urls) ? s.urls : [s.urls as string];
+                    return !urls.some((u) => u.startsWith('turn:') || u.startsWith('turns:'));
+                });
+
             const peer = new SimplePeer({
                 initiator: true,
                 trickle: true,
                 config: {
-                    iceServers: iceServersRef.current,
+                    iceServers: iceConfig,
                 },
             });
 
@@ -658,7 +670,10 @@ export function P2PTransfer() {
                             stats.forEach((report) => {
                                 if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.nominated) {
                                     const lc = stats.get(report.localCandidateId);
-                                    if (lc && lc.candidateType === 'relay') isRelay = true;
+                                    const rc = stats.get(report.remoteCandidateId);
+                                    if ((lc && lc.candidateType === 'relay') || (rc && rc.candidateType === 'relay')) {
+                                        isRelay = true;
+                                    }
                                 }
                             });
                         } catch { }
@@ -681,7 +696,11 @@ export function P2PTransfer() {
                     setStatus('Connection interrupted');
                     return;
                 }
-                setError(`Connection error: ${err.message}`);
+                if (!relayEnabled) {
+                    setError('Connection failed. Enable "Network Relay" to connect across restrictive networks, or ensure both devices are on the same network.');
+                } else {
+                    setError(`Connection error: ${err.message}`);
+                }
                 setStatus('Connection failed');
             });
 
@@ -1115,14 +1134,67 @@ export function P2PTransfer() {
                                 (files.length > 0 || generatedLink) && (
                                     <div className="mt-4">
                                         {files.length > 0 && !generatedLink && (
-                                            <Button
-                                                onClick={handleCreateLink}
-                                                className="w-full mb-4 bg-white text-black hover:bg-zinc-200 font-bold text-xs sm:text-sm"
-                                            >
-                                                Create Secure Link &amp; Share ({files.length} {files.length === 1 ? 'File' : 'Files'})
-                                                <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 ml-1.5 sm:ml-2 shrink-0" />
-                                            </Button>
+                                            <>
+                                                {/* Network Relay Fallback toggle */}
+                                                <div className="mb-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+                                                    <label className="flex items-start gap-3 cursor-pointer group/relay select-none">
+                                                        <div className="relative flex-shrink-0 mt-0.5">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={relayEnabled}
+                                                                onChange={(e) => setRelayEnabled(e.target.checked)}
+                                                                className="sr-only"
+                                                            />
+                                                            <div className={`h-4 w-4 rounded-sm border transition-all duration-150 flex items-center justify-center ${
+                                                                relayEnabled
+                                                                    ? 'bg-white border-white'
+                                                                    : 'bg-transparent border-zinc-600 group-hover/relay:border-zinc-400'
+                                                            }`}>
+                                                                {relayEnabled && (
+                                                                    <svg viewBox="0 0 10 8" fill="none" className="h-2.5 w-2.5">
+                                                                        <path d="M1 4l2.5 2.5L9 1" stroke="#09090b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                                                                    </svg>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <div className="space-y-1.5">
+                                                            <p className="text-sm font-medium text-zinc-200 leading-none">Network Relay Fallback</p>
+                                                            <p className="text-xs text-zinc-500 leading-relaxed">
+                                                                Routes traffic through a secure relay server when a direct connection cannot be established.
+                                                                Required on mobile data and most private or corporate networks.
+                                                                Transfers via relay are limited to 2 GB per session.{' '}
+                                                                <a
+                                                                    href="/how-it-works"
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                    className="text-zinc-400 hover:text-white underline underline-offset-2 transition-colors"
+                                                                >
+                                                                    Learn more
+                                                                </a>
+                                                            </p>
+                                                        </div>
+                                                    </label>
+                                                    {!relayEnabled && (
+                                                        <div className="mt-3 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 flex items-start gap-2.5">
+                                                            <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                                                            <p className="text-xs text-amber-300 leading-relaxed">
+                                                                Relay fallback is disabled. If a direct connection cannot be established — for example, when either device is on mobile data or a private network — the transfer will fail.
+                                                            </p>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                <Button
+                                                    onClick={handleCreateLink}
+                                                    className="w-full mb-4 bg-white text-black hover:bg-zinc-200 font-bold text-xs sm:text-sm"
+                                                >
+                                                    Create Secure Link &amp; Share ({files.length} {files.length === 1 ? 'File' : 'Files'})
+                                                    <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 ml-1.5 sm:ml-2 shrink-0" />
+                                                </Button>
+                                            </>
                                         )}
+
 
                                         {generatedLink && (
                                             <div className="rounded-lg bg-black/40 p-4 border border-zinc-800 mb-4">
