@@ -24,7 +24,7 @@ export const metadata: Metadata = {
         canonical: '/',
     },
     openGraph: {
-        title: 'Floe | Encrypted P2P File Transfer. No Uploads.',
+        title: 'Floe — Encrypted P2P File Transfer. No Uploads.',
         description:
             'Send files directly from your device to anyone in the world. No accounts, no file storage, no size limits on direct transfers. Fully end-to-end encrypted with WebRTC.',
         url: 'https://floe.one',
@@ -34,7 +34,7 @@ export const metadata: Metadata = {
                 url: 'https://floe.one/og.png',
                 width: 1200,
                 height: 630,
-                alt: 'Floe | Encrypted peer-to-peer file transfer',
+                alt: 'Floe — Encrypted peer-to-peer file transfer',
             },
         ],
         type: 'website',
@@ -42,7 +42,7 @@ export const metadata: Metadata = {
     },
     twitter: {
         card: 'summary_large_image',
-        title: 'Floe | Encrypted P2P File Transfer. No Uploads.',
+        title: 'Floe \u2014 Encrypted P2P File Transfer. No Uploads.',
         description:
             'Send files directly from your device to anyone in the world. No accounts, no file storage, fully end-to-end encrypted.',
         images: ['https://floe.one/og.png'],
