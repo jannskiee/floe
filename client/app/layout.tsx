@@ -23,6 +23,8 @@ export const metadata: Metadata = {
     alternates: {
         canonical: '/',
     },
+    // Add your Google Search Console verification code below when prompted
+    // verification: { google: 'YOUR_CODE_HERE' },
     openGraph: {
         title: 'Floe — Encrypted P2P File Transfer. No Uploads.',
         description:
@@ -41,7 +43,7 @@ export const metadata: Metadata = {
     },
     twitter: {
         card: 'summary_large_image',
-        title: 'Floe \u2014 Encrypted P2P File Transfer. No Uploads.',
+        title: 'Floe — Encrypted P2P File Transfer. No Uploads.',
         description:
             'Send files directly from your device to anyone in the world. No accounts, no file storage, fully end-to-end encrypted.',
         images: ['https://www.floe.one/og.png?v=3'],
@@ -63,6 +65,23 @@ export default function RootLayout({
                 {children}
                 <Analytics />
                 <SpeedInsights />
+                {/* JSON-LD structured data: tells Google this is a free web application */}
+                <script
+                    type="application/ld+json"
+                    dangerouslySetInnerHTML={{
+                        __html: JSON.stringify({
+                            '@context': 'https://schema.org',
+                            '@type': 'WebApplication',
+                            name: 'Floe',
+                            url: 'https://www.floe.one',
+                            description: 'Secure, encrypted P2P file transfer. No accounts, no file storage, no registration required.',
+                            applicationCategory: 'UtilitiesApplication',
+                            operatingSystem: 'Any',
+                            offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+                            browserRequirements: 'Requires a modern browser with WebRTC support',
+                        }),
+                    }}
+                />
             </body>
         </html>
     );
