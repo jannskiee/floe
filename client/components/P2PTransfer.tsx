@@ -1160,9 +1160,7 @@ export function P2PTransfer() {
                                                         <div className="space-y-1.5">
                                                             <p className="text-sm font-medium text-zinc-200 leading-none">Network Relay Fallback</p>
                                                             <p className="text-xs text-zinc-500 leading-relaxed">
-                                                                Routes traffic through a secure relay server when a direct connection cannot be established.
-                                                                Required on mobile data and most private or corporate networks.
-                                                                Transfers via relay are limited to 2 GB per session.{' '}
+                                                                Bridges the connection via a secure server when a direct path is unavailable. Recommended for mobile data and private networks. Relay transfers are capped at 2 GB per session.{' '}
                                                                 <a
                                                                     href="/how-it-works"
                                                                     target="_blank"
@@ -1179,7 +1177,7 @@ export function P2PTransfer() {
                                                         <div className="mt-3 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 flex items-start gap-2.5">
                                                             <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
                                                             <p className="text-xs text-amber-300 leading-relaxed">
-                                                                Relay fallback is disabled. If a direct connection cannot be established — for example, when either device is on mobile data or a private network — the transfer will fail.
+                                                                Relay fallback is disabled. Transfers may fail if either device is on mobile data or a restricted network and a direct connection cannot be established.
                                                             </p>
                                                         </div>
                                                     )}
