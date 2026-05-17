@@ -23,8 +23,6 @@ export const metadata: Metadata = {
     alternates: {
         canonical: '/',
     },
-    // Add your Google Search Console verification code below when prompted
-    // verification: { google: 'YOUR_CODE_HERE' },
     openGraph: {
         title: 'Floe — Encrypted P2P File Transfer. No Uploads.',
         description:
