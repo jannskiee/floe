@@ -20,6 +20,3 @@ Sentry.init({
 
     debug: false,
 });
-
-// TEMPORARY: verify Sentry pipeline is working — remove after first event is confirmed
-Sentry.captureMessage('Sentry is alive on floe.one ✓', 'info');
