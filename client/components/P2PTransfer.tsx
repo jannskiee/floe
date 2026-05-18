@@ -374,16 +374,37 @@ export function P2PTransfer() {
                 setStatus('Connection interrupted');
                 return;
             }
-            Sentry.withScope((scope) => {
-                scope.setContext('webrtc', {
-                    role: 'receiver',
-                    connectionType,
-                    filesReceived: receivedFilesRef.current.length,
-                    progressPercent: progressRef.current,
+
+            // Known expected outcomes — not application bugs:
+            // "Ice connection failed." / "Connection failed." — relay likely disabled on sender
+            // "User-Initiated Abort" — sender closed the tab or peer was destroyed
+            // Log a breadcrumb but do NOT send to Sentry.
+            const isExpected =
+                err.message === 'Ice connection failed.' ||
+                err.message === 'Connection failed.' ||
+                (err.message?.includes('User-Initiated Abort') ?? false);
+
+            if (isExpected) {
+                Sentry.addBreadcrumb({
+                    category: 'webrtc',
+                    message: `Receiver: expected connection error — ${err.message}`,
+                    level: 'warning',
+                    data: { errorMessage: err.message },
                 });
-                Sentry.captureException(err);
-            });
-            setError(`Connection error: ${err.message}`);
+                setError('Could not connect. Ask the sender to enable "Network Relay" and try again, or ensure both devices are on the same network.');
+            } else {
+                // Unexpected error — capture for investigation.
+                Sentry.withScope((scope) => {
+                    scope.setContext('webrtc', {
+                        role: 'receiver',
+                        connectionType,
+                        filesReceived: receivedFilesRef.current.length,
+                        progressPercent: progressRef.current,
+                    });
+                    Sentry.captureException(err);
+                });
+                setError(`Connection error: ${err.message}`);
+            }
             setStatus('Connection failed');
         });
 
@@ -761,20 +782,43 @@ export function P2PTransfer() {
                     setStatus('Connection interrupted');
                     return;
                 }
-                Sentry.withScope((scope) => {
-                    scope.setContext('webrtc', {
-                        role: 'sender',
-                        relayEnabled,
-                        connectionType,
-                        filesCount: files.length,
-                        totalBytes,
-                        progressPercent: progressRef.current,
+
+                // Known expected outcomes — not application bugs:
+                // 1. Relay disabled → ICE has no TURN candidates → connection fails
+                // 2. "Ice connection failed." / "Connection failed." — SimplePeer ICE errors
+                // 3. "User-Initiated Abort" — other side closed the tab or peer.destroy() called
+                // Log a breadcrumb for context but do NOT send to Sentry.
+                const isExpected =
+                    !relayEnabled ||
+                    err.message === 'Ice connection failed.' ||
+                    err.message === 'Connection failed.' ||
+                    (err.message?.includes('User-Initiated Abort') ?? false);
+
+                if (isExpected) {
+                    Sentry.addBreadcrumb({
+                        category: 'webrtc',
+                        message: `Sender: expected connection error — ${err.message}`,
+                        level: 'warning',
+                        data: { relayEnabled, errorMessage: err.message },
                     });
-                    Sentry.captureException(err);
-                });
-                if (!relayEnabled) {
-                    setError('Connection failed. Enable "Network Relay" to connect across restrictive networks, or ensure both devices are on the same network.');
+                    setError(
+                        !relayEnabled
+                            ? 'Connection failed. Enable "Network Relay" to connect across restrictive networks, or ensure both devices are on the same network.'
+                            : 'Connection lost. The other device may have closed the tab.'
+                    );
                 } else {
+                    // Relay was enabled and connection still failed — genuinely unexpected.
+                    Sentry.withScope((scope) => {
+                        scope.setContext('webrtc', {
+                            role: 'sender',
+                            relayEnabled,
+                            connectionType,
+                            filesCount: files.length,
+                            totalBytes,
+                            progressPercent: progressRef.current,
+                        });
+                        Sentry.captureException(err);
+                    });
                     setError(`Connection error: ${err.message}`);
                 }
                 setStatus('Connection failed');
