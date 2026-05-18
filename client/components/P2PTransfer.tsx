@@ -391,7 +391,7 @@ export function P2PTransfer() {
                     level: 'warning',
                     data: { errorMessage: err.message },
                 });
-                setError('Could not connect. Ask the sender to enable "Network Relay" and try again, or ensure both devices are on the same network.');
+                setError('Could not connect. Ask the sender to enable "Network Relay" and try again.');
             } else {
                 // Unexpected error — capture for investigation.
                 Sentry.withScope((scope) => {
@@ -740,7 +740,7 @@ export function P2PTransfer() {
                     // This catches all cases regardless of which side generated
                     // relay candidates during ICE negotiation.
                     if (isRelay && !relayEnabled) {
-                        setError('Connection failed. Enable "Network Relay" to connect across restrictive networks, or ensure both devices are on the same network.');
+                        setError('Connection failed. Enable "Network Relay" to connect across restrictive networks.');
                         setStatus('Connection failed');
                         Sentry.addBreadcrumb({
                             category: 'transfer',
@@ -803,7 +803,7 @@ export function P2PTransfer() {
                     });
                     setError(
                         !relayEnabled
-                            ? 'Connection failed. Enable "Network Relay" to connect across restrictive networks, or ensure both devices are on the same network.'
+                            ? 'Connection failed. Enable "Network Relay" to connect across restrictive networks.'
                             : 'Connection lost. The other device may have closed the tab.'
                     );
                 } else {
