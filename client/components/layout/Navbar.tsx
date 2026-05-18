@@ -32,11 +32,14 @@ export const Navbar = () => {
     return (
         <nav className="fixed top-0 left-0 right-0 z-50 flex justify-center py-6 pointer-events-none">
             <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-white/10 bg-zinc-900/80 p-1.5 shadow-2xl backdrop-blur-md transition-all hover:border-white/20">
-                {/* Plain <a> forces full page reload — clears all peer/transfer state */}
-                <a href="/" className="flex items-center gap-1.5 rounded-full px-2.5 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-semibold text-white transition hover:bg-white/10">
+                {/* Button with hard-nav: forces full reload, clearing all peer/transfer state */}
+                <button
+                    onClick={() => { window.location.href = '/'; }}
+                    className="flex items-center gap-1.5 rounded-full px-2.5 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-semibold text-white transition hover:bg-white/10"
+                >
                     <div className={`h-2 w-2 rounded-full ${dotColor} animate-pulse transition-colors duration-500`} />
                     Floe.
-                </a>
+                </button>
                 <div className="h-4 w-px bg-white/10 mx-1" />
                 <div className="flex items-center gap-0.5 sm:gap-1">
                     <button onClick={() => scrollToSection('about')} className="rounded-full px-2.5 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-zinc-400 transition hover:bg-white/10 hover:text-white">About</button>
