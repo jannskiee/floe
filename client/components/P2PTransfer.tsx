@@ -714,6 +714,23 @@ export function P2PTransfer() {
                         data: { isRelay, totalBytes },
                     });
 
+                    // Relay enforcement: if the actual negotiated path is relay
+                    // but the user disabled relay fallback, block the transfer.
+                    // This catches all cases regardless of which side generated
+                    // relay candidates during ICE negotiation.
+                    if (isRelay && !relayEnabled) {
+                        setError('Connection failed. Enable "Network Relay" to connect across restrictive networks, or ensure both devices are on the same network.');
+                        setStatus('Connection failed');
+                        Sentry.addBreadcrumb({
+                            category: 'transfer',
+                            message: 'Transfer blocked: relay detected but relay fallback disabled by user',
+                            level: 'warning',
+                            data: { isRelay, relayEnabled },
+                        });
+                        peer.destroy();
+                        return;
+                    }
+
                     const totalSize = files.reduce((s, f) => s + f.file.size, 0);
                     if (isRelay && totalSize > 2 * 1024 * 1024 * 1024) {
                         setStatus('Transfer blocked. Relay limit exceeded.');

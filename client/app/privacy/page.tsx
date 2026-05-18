@@ -92,9 +92,10 @@ export default function PrivacyPolicy() {
                         </h3>
                         <p>
                             Floe is hosted on Vercel (frontend) and DigitalOcean
-                            (signaling server and TURN relay). Please refer to
-                            their respective privacy policies regarding server
-                            access logs.
+                            (signaling server and TURN relay). We also use{' '}
+                            <strong>Sentry</strong> for error monitoring and performance
+                            tracking. Please refer to their respective privacy policies
+                            regarding data handling.
                         </p>
                     </section>
 
@@ -113,6 +114,39 @@ export default function PrivacyPolicy() {
                             Relay sessions are limited to 2 GB per session. Connection
                             metadata (timestamps, IP addresses) may be logged by the
                             hosting provider for security purposes.
+                        </p>
+                    </section>
+
+                    <section className="space-y-3">
+                        <h3 className="text-xl font-semibold text-white">
+                            5. Error Monitoring &amp; Session Replay
+                        </h3>
+                        <p>
+                            Floe uses <strong>Sentry</strong> to monitor application errors
+                            and performance. When an error occurs, Sentry may capture:
+                        </p>
+                        <ul className="list-disc list-inside space-y-2 ml-2 text-zinc-400">
+                            <li>Error stack traces and browser metadata (browser version, OS, device type)</li>
+                            <li>Connection type (direct or relay) and transfer progress at time of error</li>
+                            <li>
+                                <strong>Session Replay:</strong> An anonymized video-like recording of
+                                your browser session may be captured when an error occurs. Text inputs
+                                are masked. File contents are never captured.
+                            </li>
+                        </ul>
+                        <p>
+                            Sentry does <strong>not</strong> capture file names, file contents,
+                            or any personally identifiable information. Session recordings are
+                            used solely for debugging technical issues.{' '}
+                            <a
+                                href="https://sentry.io/privacy/"
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-zinc-400 hover:text-white underline underline-offset-2 transition-colors"
+                            >
+                                Sentry Privacy Policy
+                            </a>
+                            .
                         </p>
                     </section>
                 </div>
