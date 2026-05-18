@@ -14,6 +14,7 @@ import io, { Socket } from 'socket.io-client';
 import SimplePeer, { Instance as PeerInstance } from 'simple-peer';
 import { v4 as uuidv4 } from 'uuid';
 import { zip, Zippable } from 'fflate';
+import * as Sentry from '@sentry/nextjs';
 
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -351,17 +352,37 @@ export function P2PTransfer() {
             checkConnectionType(peer);
             if (connTypeIntervalRef.current) clearInterval(connTypeIntervalRef.current);
             connTypeIntervalRef.current = setInterval(() => checkConnectionType(peer), 5000);
+            Sentry.addBreadcrumb({
+                category: 'webrtc',
+                message: 'Receiver peer connected',
+                level: 'info',
+            });
         });
         peer.on('close', () => {
             releaseWakeLock();
             setConnectionType(null);
             if (connTypeIntervalRef.current) clearInterval(connTypeIntervalRef.current);
+            Sentry.addBreadcrumb({
+                category: 'webrtc',
+                message: 'Receiver peer connection closed',
+                level: 'info',
+                data: { filesReceived: receivedFilesRef.current.length, transferComplete: transferCompleteRef.current },
+            });
         });
         peer.on('error', (err) => {
             if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
                 setStatus('Connection interrupted');
                 return;
             }
+            Sentry.withScope((scope) => {
+                scope.setContext('webrtc', {
+                    role: 'receiver',
+                    connectionType,
+                    filesReceived: receivedFilesRef.current.length,
+                    progressPercent: progressRef.current,
+                });
+                Sentry.captureException(err);
+            });
             setError(`Connection error: ${err.message}`);
             setStatus('Connection failed');
         });
@@ -659,6 +680,13 @@ export function P2PTransfer() {
                 if (connTypeIntervalRef.current) clearInterval(connTypeIntervalRef.current);
                 connTypeIntervalRef.current = setInterval(() => checkConnectionType(peer), 5000);
 
+                Sentry.addBreadcrumb({
+                    category: 'webrtc',
+                    message: 'Sender peer connected',
+                    level: 'info',
+                    data: { relayEnabled, filesCount: files.length, totalBytes },
+                });
+
                 // Wait briefly for ICE to resolve connection type before starting transfer
                 setTimeout(async () => {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -678,9 +706,23 @@ export function P2PTransfer() {
                             });
                         } catch { }
                     }
+
+                    Sentry.addBreadcrumb({
+                        category: 'webrtc',
+                        message: `ICE resolved: ${isRelay ? 'relay' : 'direct'}`,
+                        level: 'info',
+                        data: { isRelay, totalBytes },
+                    });
+
                     const totalSize = files.reduce((s, f) => s + f.file.size, 0);
                     if (isRelay && totalSize > 2 * 1024 * 1024 * 1024) {
                         setStatus('Transfer blocked. Relay limit exceeded.');
+                        Sentry.addBreadcrumb({
+                            category: 'transfer',
+                            message: 'Transfer blocked: relay size limit exceeded',
+                            level: 'warning',
+                            data: { totalSize, limitBytes: 2 * 1024 * 1024 * 1024 },
+                        });
                         return;
                     }
                     sendAllFiles(peer, files);
@@ -690,12 +732,29 @@ export function P2PTransfer() {
                 releaseWakeLock();
                 setConnectionType(null);
                 if (connTypeIntervalRef.current) clearInterval(connTypeIntervalRef.current);
+                Sentry.addBreadcrumb({
+                    category: 'webrtc',
+                    message: 'Sender peer connection closed',
+                    level: 'info',
+                    data: { progress: progressRef.current, transferComplete: transferCompleteRef.current },
+                });
             });
             peer.on('error', (err) => {
                 if (transferCompleteRef.current || progressRef.current > 0) {
                     setStatus('Connection interrupted');
                     return;
                 }
+                Sentry.withScope((scope) => {
+                    scope.setContext('webrtc', {
+                        role: 'sender',
+                        relayEnabled,
+                        connectionType,
+                        filesCount: files.length,
+                        totalBytes,
+                        progressPercent: progressRef.current,
+                    });
+                    Sentry.captureException(err);
+                });
                 if (!relayEnabled) {
                     setError('Connection failed. Enable "Network Relay" to connect across restrictive networks, or ensure both devices are on the same network.');
                 } else {
