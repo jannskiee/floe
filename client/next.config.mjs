@@ -1,3 +1,5 @@
+import { withSentryConfig } from '@sentry/nextjs';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
     // React Strict Mode intentionally double-mounts components in development
@@ -8,4 +10,30 @@ const nextConfig = {
     reactStrictMode: false,
 };
 
-export default nextConfig;
+export default withSentryConfig(nextConfig, {
+    org: 'jannskiee',
+    project: 'floe',
+
+    // Suppress non-error logs during build
+    silent: !process.env.CI,
+
+    // Annotate React components with their names for clearer error reports
+    webpack: {
+        reactComponentAnnotation: {
+            enabled: true,
+        },
+    },
+
+    // Hide Sentry source maps from the browser bundle
+    hideSourceMaps: true,
+
+    // Remove Sentry debug logging from the production bundle
+    disableLogger: true,
+
+    // Source map uploads require SENTRY_AUTH_TOKEN env var.
+    // Add it to Vercel project settings to enable detailed stack traces.
+    // Left disabled by default — works without it, stack traces still function.
+    sourcemaps: {
+        disable: true,
+    },
+});
