@@ -93,7 +93,7 @@ export default function PrivacyPolicy() {
                         <p>
                             Floe is hosted on Vercel (frontend) and DigitalOcean
                             (signaling server and TURN relay). We also use{' '}
-                            <strong>Sentry</strong> for error monitoring and performance
+                            Sentry for error monitoring and performance
                             tracking. Please refer to their respective privacy policies
                             regarding data handling.
                         </p>
@@ -122,7 +122,7 @@ export default function PrivacyPolicy() {
                             5. Error Monitoring &amp; Session Replay
                         </h3>
                         <p>
-                            Floe uses <strong>Sentry</strong> to monitor application errors
+                            Floe uses Sentry to monitor application errors
                             and performance. When an error occurs, Sentry may capture:
                         </p>
                         <ul className="list-disc list-inside space-y-2 ml-2 text-zinc-400">
