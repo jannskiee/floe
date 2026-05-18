@@ -19,22 +19,35 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: client/package-lock.json
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
         working-directory: client
 
       - name: Lint
-        run: npm run lint
+        run: pnpm lint
         working-directory: client
 
       - name: Build
-        run: npm run build
+        run: pnpm build
         working-directory: client
         env:
-          # Sentry auth token not required for CI builds (source maps disabled)
-          SENTRY_SUPPRESS_TURBOPACK_WARNING: 1
-          # Provide dummy values so Next.js doesn't fail on missing env vars
+          # Provide dummy value so Next.js does not fail on missing env var
           NEXT_PUBLIC_SOCKET_URL: https://api.floe.one
