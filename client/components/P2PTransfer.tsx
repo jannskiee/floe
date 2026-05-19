@@ -405,6 +405,16 @@ export function P2PTransfer() {
                 });
                 setError(`Connection error: ${err.message}`);
             }
+            // Track failed connection attempt
+            if (typeof window !== 'undefined' && (window as any).umami) {
+                (window as any).umami.track('transfer-failed', {
+                    reason: err.message?.includes('User-Initiated Abort') ? 'abort'
+                        : err.message === 'Ice connection failed.' ? 'ice-failed'
+                        : err.message === 'Connection failed.' ? 'conn-failed'
+                        : 'unknown',
+                    role: 'receiver',
+                });
+            }
             setStatus('Connection failed');
         });
 
@@ -478,6 +488,15 @@ export function P2PTransfer() {
                                 partialDownloads.current.delete(
                                     currentMetadata.id
                                 );
+                                // Track received file (aggregate only)
+                                if (typeof window !== 'undefined' && (window as any).umami) {
+                                    (window as any).umami.track('transfer-received', {
+                                        files: receivedFilesRef.current.length,
+                                        bytes: fileData.received,
+                                        connection: connectionType ?? 'unknown',
+                                        role: 'receiver',
+                                    });
+                                }
                             }
                             setStatus('File Received. Waiting for next...');
                             setProgress(0);
@@ -821,6 +840,19 @@ export function P2PTransfer() {
                     });
                     setError(`Connection error: ${err.message}`);
                 }
+                // Track failed connection attempt
+                if (typeof window !== 'undefined' && (window as any).umami) {
+                    (window as any).umami.track('transfer-failed', {
+                        reason: !relayEnabled ? 'relay-disabled'
+                            : err.message?.includes('User-Initiated Abort') ? 'abort'
+                            : err.message === 'Ice connection failed.' ? 'ice-failed'
+                            : err.message === 'Connection failed.' ? 'conn-failed'
+                            : 'unknown',
+                        role: 'sender',
+                        files: files.length,
+                        bytes: totalBytes,
+                    });
+                }
                 setStatus('Connection failed');
             });
 
@@ -844,6 +876,15 @@ export function P2PTransfer() {
             setProgress(100);
             transferCompleteRef.current = true;
             releaseWakeLock();
+            // Track successful transfer (aggregate only — no file names, no identifiers)
+            if (typeof window !== 'undefined' && (window as any).umami) {
+                (window as any).umami.track('transfer-complete', {
+                    files: fileList.length,
+                    bytes: fileList.reduce((s, f) => s + f.file.size, 0),
+                    connection: connectionType ?? 'unknown',
+                    role: 'sender',
+                });
+            }
         }
     };
 
