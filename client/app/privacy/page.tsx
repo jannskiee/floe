@@ -91,11 +91,12 @@ export default function PrivacyPolicy() {
                             3. Third-Party Services
                         </h3>
                         <p>
-                            Floe is hosted on Vercel (frontend) and DigitalOcean
-                            (signaling server and TURN relay). We also use{' '}
-                            Sentry for error monitoring and performance
-                            tracking. Please refer to their respective privacy policies
-                            regarding data handling.
+                            Floe uses third-party infrastructure providers for
+                            hosting and network relay services. We also use
+                            Sentry for error monitoring and Umami for
+                            privacy-respecting usage analytics. Please refer to
+                            their respective privacy policies regarding data
+                            handling.
                         </p>
                     </section>
 
@@ -145,6 +146,36 @@ export default function PrivacyPolicy() {
                                 className="text-zinc-400 hover:text-white underline underline-offset-2 transition-colors"
                             >
                                 Sentry Privacy Policy
+                            </a>
+                            .
+                        </p>
+                    </section>
+
+                    <section className="space-y-3">
+                        <h3 className="text-xl font-semibold text-white">
+                            6. Usage Analytics
+                        </h3>
+                        <p>
+                            Floe uses Umami, a privacy-focused analytics tool, to
+                            understand how the service is used. Umami collects:
+                        </p>
+                        <ul className="list-disc list-inside space-y-2 ml-2 text-zinc-400">
+                            <li>Aggregate transfer metrics: number of files and total bytes transferred per session</li>
+                            <li>Connection type (direct or relay) and whether a transfer succeeded or failed</li>
+                            <li>Standard page view data: pages visited, browser type, country (not city)</li>
+                        </ul>
+                        <p>
+                            Umami does <strong>not</strong> use cookies, does not collect
+                            personally identifiable information, and does not track
+                            individuals across sessions or websites. File names and file
+                            contents are never recorded.{' '}
+                            <a
+                                href="https://umami.is/privacy"
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-zinc-400 hover:text-white underline underline-offset-2 transition-colors"
+                            >
+                                Umami Privacy Policy
                             </a>
                             .
                         </p>

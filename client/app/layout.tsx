@@ -4,6 +4,7 @@ import './globals.css';
 import { ServiceWorkerRegistration } from '@/components/ServiceWorkerRegistration';
 import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from '@vercel/speed-insights/next';
+import Script from 'next/script';
 
 const geistSans = Geist({
     variable: '--font-geist-sans',
@@ -63,6 +64,12 @@ export default function RootLayout({
                 {children}
                 <Analytics />
                 <SpeedInsights />
+                <Script
+                    defer
+                    src="https://cloud.umami.is/script.js"
+                    data-website-id="48515832-b19f-49ad-a82d-9a4018d0ad96"
+                    strategy="afterInteractive"
+                />
                 {/* JSON-LD structured data: tells Google this is a free web application */}
                 <script
                     type="application/ld+json"
