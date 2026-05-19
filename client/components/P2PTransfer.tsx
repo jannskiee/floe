@@ -18,6 +18,12 @@ import * as Sentry from '@sentry/nextjs';
 
 import { QRCodeSVG } from 'qrcode.react';
 
+interface UmamiWindow extends Window {
+    umami?: {
+        track: (event: string, data?: Record<string, unknown>) => void;
+    };
+}
+
 import {
     Card,
     CardContent,
@@ -406,8 +412,8 @@ export function P2PTransfer() {
                 setError(`Connection error: ${err.message}`);
             }
             // Track failed connection attempt
-            if (typeof window !== 'undefined' && (window as any).umami) {
-                (window as any).umami.track('transfer-failed', {
+            if (typeof window !== 'undefined' && (window as UmamiWindow).umami) {
+                (window as UmamiWindow).umami.track('transfer-failed', {
                     reason: err.message?.includes('User-Initiated Abort') ? 'abort'
                         : err.message === 'Ice connection failed.' ? 'ice-failed'
                         : err.message === 'Connection failed.' ? 'conn-failed'
@@ -489,8 +495,8 @@ export function P2PTransfer() {
                                     currentMetadata.id
                                 );
                                 // Track received file (aggregate only)
-                                if (typeof window !== 'undefined' && (window as any).umami) {
-                                    (window as any).umami.track('transfer-received', {
+                                if (typeof window !== 'undefined' && (window as UmamiWindow).umami) {
+                                    (window as UmamiWindow).umami.track('transfer-received', {
                                         files: receivedFilesRef.current.length,
                                         bytes: fileData.received,
                                         connection: connectionType ?? 'unknown',
@@ -841,8 +847,8 @@ export function P2PTransfer() {
                     setError(`Connection error: ${err.message}`);
                 }
                 // Track failed connection attempt
-                if (typeof window !== 'undefined' && (window as any).umami) {
-                    (window as any).umami.track('transfer-failed', {
+                if (typeof window !== 'undefined' && (window as UmamiWindow).umami) {
+                    (window as UmamiWindow).umami.track('transfer-failed', {
                         reason: !relayEnabled ? 'relay-disabled'
                             : err.message?.includes('User-Initiated Abort') ? 'abort'
                             : err.message === 'Ice connection failed.' ? 'ice-failed'
@@ -877,8 +883,8 @@ export function P2PTransfer() {
             transferCompleteRef.current = true;
             releaseWakeLock();
             // Track successful transfer (aggregate only — no file names, no identifiers)
-            if (typeof window !== 'undefined' && (window as any).umami) {
-                (window as any).umami.track('transfer-complete', {
+            if (typeof window !== 'undefined' && (window as UmamiWindow).umami) {
+                (window as UmamiWindow).umami.track('transfer-complete', {
                     files: fileList.length,
                     bytes: fileList.reduce((s, f) => s + f.file.size, 0),
                     connection: connectionType ?? 'unknown',
