@@ -1403,19 +1403,9 @@ export function P2PTransfer() {
                                                             {generatedLink}
                                                         </code>
                                                         <div className="flex items-center justify-center gap-2 mt-2.5">
-                                                            {typeof navigator !== 'undefined' && !!navigator.share && (
-                                                                <button
-                                                                    onClick={handleShare}
-                                                                    className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700 text-zinc-400 hover:text-white text-xs font-medium transition-all"
-                                                                    aria-label="Share link"
-                                                                >
-                                                                    <Share2 className="h-3.5 w-3.5" />
-                                                                    Share
-                                                                </button>
-                                                            )}
                                                             <button
                                                                 onClick={handleCopy}
-                                                                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700 text-zinc-400 hover:text-white text-xs font-medium transition-all"
+                                                                className="w-20 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-md bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700 text-zinc-400 hover:text-white text-xs font-medium transition-all"
                                                                 aria-label="Copy link"
                                                             >
                                                                 {copied ? (
@@ -1426,38 +1416,50 @@ export function P2PTransfer() {
                                                                 ) : (
                                                                     <>
                                                                         <Copy className="h-3.5 w-3.5" />
-                                                                        Copy Link
+                                                                        Copy
                                                                     </>
                                                                 )}
                                                             </button>
+                                                            <button
+                                                                onClick={() => setShowQr((v) => !v)}
+                                                                className={`w-20 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-md border text-xs font-medium transition-all ${
+                                                                    showQr
+                                                                        ? 'bg-zinc-700 border-zinc-600 text-white'
+                                                                        : 'bg-zinc-800/80 hover:bg-zinc-700 border-zinc-700 text-zinc-400 hover:text-white'
+                                                                }`}
+                                                                aria-label="Toggle QR code"
+                                                            >
+                                                                <QrCode className="h-3.5 w-3.5" />
+                                                                QR
+                                                            </button>
+                                                            {typeof navigator !== 'undefined' && !!navigator.share && (
+                                                                <button
+                                                                    onClick={handleShare}
+                                                                    className="w-20 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-md bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700 text-zinc-400 hover:text-white text-xs font-medium transition-all"
+                                                                    aria-label="Share link"
+                                                                >
+                                                                    <Share2 className="h-3.5 w-3.5" />
+                                                                    Share
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </div>
 
-                                                {/* QR Code toggle */}
-                                                <div className="mt-3 flex flex-col items-center">
-                                                    <button
-                                                        onClick={() => setShowQr((v) => !v)}
-                                                        className="flex items-center gap-1.5 text-[10px] uppercase font-bold tracking-widest text-zinc-600 hover:text-zinc-400 transition-colors"
-                                                    >
-                                                        <QrCode className="h-3 w-3" />
-                                                        {showQr ? 'Hide QR Code' : 'Show QR Code'}
-                                                    </button>
-                                                    {showQr && (
-                                                        <div className="mt-3 flex flex-col items-center gap-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                                                            <div className="rounded-2xl bg-white p-4 shadow-lg ring-1 ring-white/10">
-                                                                <QRCodeSVG
-                                                                    value={generatedLink}
-                                                                    size={156}
-                                                                    bgColor="#ffffff"
-                                                                    fgColor="#09090b"
-                                                                    level="M"
-                                                                />
-                                                            </div>
-                                                            <p className="text-[10px] uppercase tracking-widest text-zinc-600 font-bold">Scan to receive files</p>
+                                                {showQr && (
+                                                    <div className="mt-3 flex flex-col items-center gap-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                                                        <div className="rounded-2xl bg-white p-4 shadow-lg ring-1 ring-white/10">
+                                                            <QRCodeSVG
+                                                                value={generatedLink}
+                                                                size={156}
+                                                                bgColor="#ffffff"
+                                                                fgColor="#09090b"
+                                                                level="M"
+                                                            />
                                                         </div>
-                                                    )}
-                                                </div>
+                                                        <p className="text-[10px] uppercase tracking-widest text-zinc-600 font-bold">Scan to receive files</p>
+                                                    </div>
+                                                )}
 
                                                 <div className="mt-3 flex w-full items-center justify-center gap-2 text-xs transition-colors duration-300">
                                                     {status ===
