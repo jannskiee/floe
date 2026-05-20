@@ -1406,7 +1406,7 @@ export function P2PTransfer() {
                                                             {typeof navigator !== 'undefined' && !!navigator.share && (
                                                                 <button
                                                                     onClick={handleShare}
-                                                                    className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700 text-zinc-400 hover:text-white text-xs font-medium transition-all"
+                                                                    className="w-24 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-md bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700 text-zinc-400 hover:text-white text-xs font-medium transition-all"
                                                                     aria-label="Share link"
                                                                 >
                                                                     <Share2 className="h-3.5 w-3.5" />
@@ -1415,18 +1415,18 @@ export function P2PTransfer() {
                                                             )}
                                                             <button
                                                                 onClick={handleCopy}
-                                                                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700 text-zinc-400 hover:text-white text-xs font-medium transition-all"
+                                                                className="w-24 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-md bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700 text-zinc-400 hover:text-white text-xs font-medium transition-all"
                                                                 aria-label="Copy link"
                                                             >
                                                                 {copied ? (
                                                                     <>
                                                                         <Check className="h-3.5 w-3.5 text-green-500" />
-                                                                        <span className="text-green-500">Copied</span>
+                                                                        <span className="text-green-500">Copy</span>
                                                                     </>
                                                                 ) : (
                                                                     <>
                                                                         <Copy className="h-3.5 w-3.5" />
-                                                                        Copy Link
+                                                                        Copy
                                                                     </>
                                                                 )}
                                                             </button>
