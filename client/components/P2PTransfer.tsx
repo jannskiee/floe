@@ -1422,7 +1422,7 @@ export function P2PTransfer() {
                                                             </button>
                                                             <button
                                                                 onClick={() => setShowQr((v) => !v)}
-                                                                className={`w-20 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-md border text-xs font-medium transition-all ${
+                                                                className={`w-24 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-md border text-xs font-medium transition-all ${
                                                                     showQr
                                                                         ? 'bg-zinc-700 border-zinc-600 text-white'
                                                                         : 'bg-zinc-800/80 hover:bg-zinc-700 border-zinc-700 text-zinc-400 hover:text-white'
@@ -1430,7 +1430,7 @@ export function P2PTransfer() {
                                                                 aria-label="Toggle QR code"
                                                             >
                                                                 <QrCode className="h-3.5 w-3.5" />
-                                                                QR
+                                                                {showQr ? 'Hide QR' : 'Show QR'}
                                                             </button>
                                                             {typeof navigator !== 'undefined' && !!navigator.share && (
                                                                 <button
