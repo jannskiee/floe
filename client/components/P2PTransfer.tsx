@@ -48,6 +48,7 @@ import {
     Loader2,
     QrCode,
     Radio,
+    Share2,
     ShieldCheck,
     UploadCloud,
     Wifi,
@@ -320,6 +321,24 @@ export function P2PTransfer() {
         navigator.clipboard.writeText(generatedLink);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
+    };
+
+    const handleShare = async () => {
+        if (navigator.share) {
+            try {
+                await navigator.share({
+                    title: 'Floe — Secure File Transfer',
+                    text: 'Receive files via encrypted P2P transfer',
+                    url: generatedLink,
+                });
+            } catch (err) {
+                if ((err as Error).name !== 'AbortError') {
+                    handleCopy();
+                }
+            }
+        } else {
+            handleCopy();
+        }
     };
 
     const joinRoomAsReceiver = (roomId: string) => {
@@ -1368,14 +1387,20 @@ export function P2PTransfer() {
                                                         Share Link
                                                     </p>
                                                     <div className="relative">
-                                                        <code className="block break-all rounded bg-zinc-950 p-3 pr-12 text-xs text-zinc-300 font-mono border border-zinc-800 group-hover:border-zinc-600 transition">
+                                                        <code className="block break-all rounded bg-zinc-950 p-3 pr-16 text-xs text-zinc-300 font-mono border border-zinc-800 group-hover:border-zinc-600 transition">
                                                             {generatedLink}
                                                         </code>
-                                                        <div className="absolute top-2 right-2 flex flex-col items-center group/btn">
+                                                        <div className="absolute top-2 right-2 flex items-center gap-1">
+                                                            {typeof navigator !== 'undefined' && !!navigator.share && (
+                                                                <button
+                                                                    onClick={handleShare}
+                                                                    className="p-1.5 rounded-md bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white transition-all"
+                                                                >
+                                                                    <Share2 className="h-3.5 w-3.5" />
+                                                                </button>
+                                                            )}
                                                             <button
-                                                                onClick={
-                                                                    handleCopy
-                                                                }
+                                                                onClick={handleCopy}
                                                                 className="p-1.5 rounded-md bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white transition-all"
                                                             >
                                                                 {copied ? (
