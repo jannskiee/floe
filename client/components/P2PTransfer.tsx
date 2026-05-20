@@ -607,6 +607,17 @@ export function P2PTransfer() {
             }
         });
 
+        socket.on('connect_error', (err) => {
+            setIsConnected(false);
+            if (err.message === 'Rate limit exceeded') {
+                setError('Too many refreshes \u2014 reconnecting automatically...');
+            }
+        });
+
+        socket.io.on('reconnect', () => {
+            setError('');
+        });
+
         const pingInterval = setInterval(() => {
             const start = performance.now();
             socket.emit('ping', () => {
@@ -641,6 +652,8 @@ export function P2PTransfer() {
             socket.off('disconnect');
             socket.off('room-full');
             socket.off('peer-disconnected');
+            socket.off('connect_error');
+            socket.io.off('reconnect');
             releaseWakeLock();
             peerRef.current?.destroy();
         };

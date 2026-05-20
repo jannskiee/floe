@@ -108,7 +108,7 @@ const UUID_REGEX =
 
 const connectionCounts = new Map();
 const RATE_LIMIT_WINDOW = 60000;
-const MAX_CONNECTIONS_PER_IP = 10;
+const MAX_CONNECTIONS_PER_IP = 30;
 
 io.use((socket, next) => {
     const ip =
