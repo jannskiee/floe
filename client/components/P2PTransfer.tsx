@@ -328,8 +328,6 @@ export function P2PTransfer() {
         if (navigator.share) {
             try {
                 await navigator.share({
-                    title: 'Floe — Secure File Transfer',
-                    text: 'Receive files via encrypted P2P transfer',
                     url: generatedLink,
                 });
             } catch (err) {
@@ -1404,25 +1402,32 @@ export function P2PTransfer() {
                                                         <code className="block break-all rounded bg-zinc-950 p-3 text-xs text-zinc-300 font-mono border border-zinc-800 group-hover:border-zinc-600 transition leading-relaxed">
                                                             {generatedLink}
                                                         </code>
-                                                        <div className="flex items-center justify-end gap-1.5 mt-2">
+                                                        <div className="flex items-center justify-center gap-2 mt-2.5">
                                                             {typeof navigator !== 'undefined' && !!navigator.share && (
                                                                 <button
                                                                     onClick={handleShare}
-                                                                    className="p-1.5 rounded-md bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700 text-zinc-400 hover:text-white transition-all"
+                                                                    className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700 text-zinc-400 hover:text-white text-xs font-medium transition-all"
                                                                     aria-label="Share link"
                                                                 >
                                                                     <Share2 className="h-3.5 w-3.5" />
+                                                                    Share
                                                                 </button>
                                                             )}
                                                             <button
                                                                 onClick={handleCopy}
-                                                                className="p-1.5 rounded-md bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700 text-zinc-400 hover:text-white transition-all"
+                                                                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700 text-zinc-400 hover:text-white text-xs font-medium transition-all"
                                                                 aria-label="Copy link"
                                                             >
                                                                 {copied ? (
-                                                                    <Check className="h-3.5 w-3.5 text-green-500" />
+                                                                    <>
+                                                                        <Check className="h-3.5 w-3.5 text-green-500" />
+                                                                        <span className="text-green-500">Copied</span>
+                                                                    </>
                                                                 ) : (
-                                                                    <Copy className="h-3.5 w-3.5" />
+                                                                    <>
+                                                                        <Copy className="h-3.5 w-3.5" />
+                                                                        Copy Link
+                                                                    </>
                                                                 )}
                                                             </button>
                                                         </div>
