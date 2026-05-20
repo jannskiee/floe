@@ -61,7 +61,8 @@ import { FileIcon } from '@/components/FileIcon';
 const socket: Socket = io(
     process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001',
     {
-        reconnectionDelayMax: 5000, // cap max backoff at 5s (default is ~5 minutes)
+        reconnectionDelay: 500,
+        reconnectionDelayMax: 3000,
     }
 );
 
@@ -345,7 +346,7 @@ export function P2PTransfer() {
         if (hasJoinedRef.current) return;
         hasJoinedRef.current = true;
 
-        setStatus('Connecting...');
+        setStatus('Connecting');
 
         socket.off('room-full');
 
@@ -467,7 +468,7 @@ export function P2PTransfer() {
                             setTransferSpeed('');
                             setEstimatedTime('');
                             setStatus(
-                                `Receiving file ${msg.index} of ${msg.total}...`
+                                `Receiving file ${msg.index} of ${msg.total}`
                             );
 
                             let offset = 0;
@@ -523,7 +524,7 @@ export function P2PTransfer() {
                                     });
                                 }
                             }
-                            setStatus('File Received. Waiting for next...');
+                            setStatus('File received. Waiting for next file');
                             setProgress(0);
                             setTransferSpeed('');
                             setEstimatedTime('');
@@ -603,14 +604,14 @@ export function P2PTransfer() {
             setIsConnected(false);
             setPing(0);
             if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
-                setStatus('Transfer complete (disconnected)');
+                setStatus('Transfer complete');
             }
         });
 
         socket.on('connect_error', (err) => {
             setIsConnected(false);
             if (err.message === 'Rate limit exceeded') {
-                setError('Too many refreshes \u2014 reconnecting automatically...');
+                setError('Too many refreshes. Reconnecting');
             }
         });
 
@@ -637,7 +638,7 @@ export function P2PTransfer() {
             if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
                 setStatus('Transfer complete');
             } else {
-                setStatus('Peer disconnected. Waiting for reconnection...');
+                setStatus('Peer disconnected. Waiting for reconnection');
             }
             if (peerRef.current) peerRef.current.destroy();
             releaseWakeLock();
@@ -727,10 +728,10 @@ export function P2PTransfer() {
         const link = `${window.location.protocol}//${window.location.host}?room=${newRoomId}`;
         setGeneratedLink(link);
         socket.emit('join-room', newRoomId);
-        setStatus('Waiting for peer...');
+        setStatus('Waiting for peer');
 
         socket.on('user-connected', (userId: string) => {
-            setStatus('Peer joined! Starting...');
+            setStatus('Peer joined. Starting transfer');
             requestWakeLock();
 
             // Strip TURN servers from ICE config if relay fallback is disabled by the user
@@ -1399,22 +1400,24 @@ export function P2PTransfer() {
                                                     <p className="text-[10px] uppercase text-zinc-500 mb-1 font-bold tracking-wider">
                                                         Share Link
                                                     </p>
-                                                    <div className="relative">
-                                                        <code className="block break-all rounded bg-zinc-950 p-3 pr-16 text-xs text-zinc-300 font-mono border border-zinc-800 group-hover:border-zinc-600 transition">
+                                                    <div>
+                                                        <code className="block break-all rounded bg-zinc-950 p-3 text-xs text-zinc-300 font-mono border border-zinc-800 group-hover:border-zinc-600 transition leading-relaxed">
                                                             {generatedLink}
                                                         </code>
-                                                        <div className="absolute top-2 right-2 flex items-center gap-1">
+                                                        <div className="flex items-center justify-end gap-1.5 mt-2">
                                                             {typeof navigator !== 'undefined' && !!navigator.share && (
                                                                 <button
                                                                     onClick={handleShare}
-                                                                    className="p-1.5 rounded-md bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white transition-all"
+                                                                    className="p-1.5 rounded-md bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700 text-zinc-400 hover:text-white transition-all"
+                                                                    aria-label="Share link"
                                                                 >
                                                                     <Share2 className="h-3.5 w-3.5" />
                                                                 </button>
                                                             )}
                                                             <button
                                                                 onClick={handleCopy}
-                                                                className="p-1.5 rounded-md bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white transition-all"
+                                                                className="p-1.5 rounded-md bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700 text-zinc-400 hover:text-white transition-all"
+                                                                aria-label="Copy link"
                                                             >
                                                                 {copied ? (
                                                                     <Check className="h-3.5 w-3.5 text-green-500" />
