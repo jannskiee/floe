@@ -11,8 +11,10 @@ const nextConfig = {
 };
 
 export default withSentryConfig(nextConfig, {
-    org: 'jannskiee',
-    project: 'floe',
+    // Set SENTRY_ORG and SENTRY_PROJECT in your environment for source map uploads.
+    // Leave empty to skip (the app still works; you just won't get annotated stack traces).
+    org: process.env.SENTRY_ORG || '',
+    project: process.env.SENTRY_PROJECT || '',
 
     // Suppress non-error logs during build
     silent: !process.env.CI,

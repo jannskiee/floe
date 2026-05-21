@@ -64,12 +64,14 @@ export default function RootLayout({
                 {children}
                 <Analytics />
                 <SpeedInsights />
-                <Script
-                    defer
-                    src="https://cloud.umami.is/script.js"
-                    data-website-id="48515832-b19f-49ad-a82d-9a4018d0ad96"
-                    strategy="afterInteractive"
-                />
+                {process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID && (
+                    <Script
+                        defer
+                        src="https://cloud.umami.is/script.js"
+                        data-website-id={process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID}
+                        strategy="afterInteractive"
+                    />
+                )}
                 {/* JSON-LD structured data: tells Google this is a free web application */}
                 <script
                     type="application/ld+json"

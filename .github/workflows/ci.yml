@@ -49,5 +49,5 @@ jobs:
         run: pnpm build
         working-directory: client
         env:
-          # Provide dummy value so Next.js does not fail on missing env var
+          # Use the live signaling server — matches the default in client/.env.example
           NEXT_PUBLIC_SOCKET_URL: https://api.floe.one

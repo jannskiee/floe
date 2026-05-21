@@ -1,7 +1,9 @@
 import * as Sentry from '@sentry/nextjs';
 
 Sentry.init({
-    dsn: 'https://9b833210196a72eee96c035c0926ed09@o4511410609192960.ingest.us.sentry.io/4511410652708864',
+    // Set NEXT_PUBLIC_SENTRY_DSN in your environment to enable error tracking.
+    // Leave empty (or omit) to disable Sentry — safe for local development and forks.
+    dsn: process.env.NEXT_PUBLIC_SENTRY_DSN || '',
 
     // Capture 100% of transactions in production — adjust to 0.1 at scale
     tracesSampleRate: 1.0,
