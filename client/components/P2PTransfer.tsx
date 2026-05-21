@@ -15,6 +15,8 @@ import SimplePeer, { Instance as PeerInstance } from 'simple-peer';
 import { v4 as uuidv4 } from 'uuid';
 import { zip, Zippable } from 'fflate';
 import * as Sentry from '@sentry/nextjs';
+import { formatSpeed, formatETA } from '@/lib/transferUtils';
+import { useWakeLock } from '@/hooks/useWakeLock';
 
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -108,7 +110,6 @@ export function P2PTransfer() {
     const isRelayOverLimit = connectionType === 'relay' && totalBytes > RELAY_SIZE_LIMIT;
 
     const peerRef = useRef<PeerInstance | null>(null);
-    const wakeLockRef = useRef<WakeLockSentinel | null>(null);
     const hasJoinedRef = useRef(false);
     const receivedFilesRef = useRef<ReceivedFile[]>([]);
     const transferCompleteRef = useRef(false);
@@ -123,6 +124,8 @@ export function P2PTransfer() {
         { urls: 'stun:stun1.l.google.com:19302' },
     ]);
     const connTypeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    const { requestWakeLock, releaseWakeLock } = useWakeLock();
 
     const fetchIceServers = async () => {
         try {
@@ -156,26 +159,6 @@ export function P2PTransfer() {
                 }
             });
         } catch { }
-    };
-
-    const requestWakeLock = async () => {
-        if ('wakeLock' in navigator) {
-            if (document.visibilityState === 'visible') {
-                try {
-                    wakeLockRef.current =
-                        await navigator.wakeLock.request('screen');
-                } catch {
-
-                }
-            }
-        }
-    };
-
-    const releaseWakeLock = () => {
-        if (wakeLockRef.current) {
-            wakeLockRef.current.release().catch(() => { });
-            wakeLockRef.current = null;
-        }
     };
 
     useEffect(() => {
@@ -546,18 +529,8 @@ export function P2PTransfer() {
                         const remaining = currentMetadata.fileSize - fileData.received;
                         const etaSeconds = remaining / bytesPerSec;
 
-                        const speedFormatted = bytesPerSec >= 1024 * 1024
-                            ? `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`
-                            : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
-
-                        let etaFormatted = '';
-                        if (etaSeconds < 60) {
-                            etaFormatted = `${Math.ceil(etaSeconds)}s`;
-                        } else if (etaSeconds < 3600) {
-                            etaFormatted = `${Math.floor(etaSeconds / 60)}m ${Math.ceil(etaSeconds % 60)}s`;
-                        } else {
-                            etaFormatted = `${Math.floor(etaSeconds / 3600)}h ${Math.floor((etaSeconds % 3600) / 60)}m`;
-                        }
+                        const speedFormatted = formatSpeed(bytesPerSec);
+                        const etaFormatted = formatETA(etaSeconds);
 
                         setTransferSpeed(speedFormatted);
                         setEstimatedTime(etaFormatted);
@@ -672,7 +645,7 @@ export function P2PTransfer() {
                 'visibilitychange',
                 handleVisibilityChange
             );
-    }, [isConnected]);
+    }, [isConnected, requestWakeLock]);
 
     useEffect(() => {
         const status =
@@ -1027,18 +1000,8 @@ export function P2PTransfer() {
                             const remaining = file.size - offset;
                             const etaSeconds = remaining / bytesPerSec;
 
-                            const speedFormatted = bytesPerSec >= 1024 * 1024
-                                ? `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`
-                                : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
-
-                            let etaFormatted = '';
-                            if (etaSeconds < 60) {
-                                etaFormatted = `${Math.ceil(etaSeconds)}s`;
-                            } else if (etaSeconds < 3600) {
-                                etaFormatted = `${Math.floor(etaSeconds / 60)}m ${Math.ceil(etaSeconds % 60)}s`;
-                            } else {
-                                etaFormatted = `${Math.floor(etaSeconds / 3600)}h ${Math.floor((etaSeconds % 3600) / 60)}m`;
-                            }
+                            const speedFormatted = formatSpeed(bytesPerSec);
+                            const etaFormatted = formatETA(etaSeconds);
 
                             setTransferSpeed(speedFormatted);
                             setEstimatedTime(etaFormatted);
