@@ -107,6 +107,6 @@ Open an issue and describe what you'd like and why it would be useful.
 
 ## Questions
 
-Feel free to open an issue — we're happy to help.
+Feel free to open an issue. We are happy to help.
 
 Thank you for contributing!
