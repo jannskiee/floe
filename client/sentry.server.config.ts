@@ -1,7 +1,9 @@
 import * as Sentry from '@sentry/nextjs';
 
 Sentry.init({
-    dsn: 'https://9b833210196a72eee96c035c0926ed09@o4511410609192960.ingest.us.sentry.io/4511410652708864',
+    // Set SENTRY_DSN in your environment to enable server-side error tracking.
+    // Leave empty (or omit) to disable Sentry.
+    dsn: process.env.SENTRY_DSN || '',
     tracesSampleRate: 1.0,
     debug: false,
 });

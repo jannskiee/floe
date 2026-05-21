@@ -22,6 +22,7 @@ Thumbs.db
 .env
 .env.local
 .env.*
+!.env.example
 
 # --- Build Outputs ---
 dist/
