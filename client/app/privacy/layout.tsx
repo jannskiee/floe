@@ -4,6 +4,9 @@ export const metadata: Metadata = {
     title: 'Privacy Policy | Floe',
     description:
         'Floe privacy policy. No data collection, no tracking, no file storage. Your files never touch our servers.',
+    alternates: {
+        canonical: '/privacy',
+    },
 };
 
 export default function PrivacyLayout({ children }: { children: React.ReactNode }) {
