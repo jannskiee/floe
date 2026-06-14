@@ -6,9 +6,10 @@ description: "Day-to-day operations for a self-hosted Floe instance."
 ## Common commands
 
 ```bash
-docker compose logs -f                 # tail logs for all services
-docker compose ps                      # check status (server has a health check)
-docker compose down                    # stop and remove the stack
+docker compose logs -f                  # tail logs for all services
+docker compose ps                       # check container status and health
+docker compose down                     # stop and remove the stack
+docker compose restart server           # restart only the signaling server
 ```
 
 ## Update to the latest code
@@ -18,11 +19,15 @@ git pull
 docker compose pull && docker compose up -d --build
 ```
 
+<Note>
+  After updating, run `docker compose build client` and `docker compose up -d` if you changed any environment variables. The client image must be rebuilt when `NEXT_PUBLIC_SOCKET_URL` changes. See [Build-Time URL Caveat](/self-hosting/build-time-url).
+</Note>
+
 ## Health endpoints
 
-The signaling server exposes two health endpoints:
+The signaling server exposes two health endpoints you can use in load balancers or uptime monitors:
 
-| Endpoint | Purpose |
-|----------|---------|
-| `GET /health` | Liveness check |
-| `GET /` | Status (returns server info) |
+| Endpoint | Purpose | Response |
+|----------|---------|---------|
+| `GET /health` | Liveness check | `{ "status": "healthy", "uptime": <seconds> }` |
+| `GET /` | Status and version info | `{ "status": "ok", "timestamp": "..." }` |

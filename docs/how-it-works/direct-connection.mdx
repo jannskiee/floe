@@ -3,21 +3,31 @@ title: "Direct Connection"
 description: "How Floe establishes a direct peer-to-peer path using STUN."
 ---
 
-A direct connection means your files travel straight from your device to the recipient's device, like a private tunnel between two computers with no stops in between.
+A direct connection means your files travel straight from your device to the recipient's device. No server sits in between. Speed is limited only by the slower of your two internet connections.
 
 ## STUN
 
-To find this direct path, WebRTC uses a **STUN server**. Think of a STUN server like asking a friend outside your house "what does my address look like from out there?" It helps each browser discover its public internet address so they can reach each other.
+To find a direct path, WebRTC uses a **STUN server**. Think of it like asking someone outside your house "what is my address from out there?" STUN helps each device discover its public IP address and port so the two peers can reach each other.
 
 ## What direct connections mean for you
 
-- Maximum speed, limited only by your internet connection
-- No file size limits
-- Zero bandwidth cost to Floe
-- Your files never touch a server
+- Transfer speed limited only by your internet connection.
+- No file size limit.
+- Zero bandwidth cost to Floe's servers.
+- Files never touch any server after the connection is established.
 
 ## When to expect a direct connection
 
-Most home and mobile networks support direct connections. You are most likely to get one on standard home Wi-Fi or a personal mobile hotspot.
+Most home Wi-Fi and personal mobile hotspots support direct connections. You are most likely to connect directly on standard consumer networks.
 
-Strict corporate firewalls, university networks, and carrier-grade NAT may prevent a direct path. In those cases, Floe automatically falls back to a [relay connection](/how-it-works/relay-connection).
+Strict corporate firewalls, university networks, and carrier-grade NAT can block direct paths. In those cases, Floe automatically tries a [relay connection](/how-it-works/relay-connection) if relay fallback is enabled.
+
+<Accordion title="Technical details">
+  **ICE (Interactive Connectivity Establishment):** WebRTC uses the ICE protocol to find a usable network path. Each peer gathers a list of "candidates" (IP/port combinations it might be reachable on), including local addresses, server-reflexive addresses from STUN, and relay addresses from TURN. Peers exchange their candidates via the signaling server and try each pair until one works.
+
+  **STUN servers used:** `stun.l.google.com:19302` and `stun1.l.google.com:19302` as fallbacks. When connected to a self-hosted instance with TURN configured, the signaling server's TURN endpoints also double as STUN.
+
+  **Trickle ICE:** Candidates are sent incrementally as they are gathered rather than waiting for the full list. This reduces connection time significantly.
+
+  **Candidate types that produce direct connections:** `host` (same network) or `srflx` (server-reflexive, NAT traversal via STUN). If only `relay` candidates succeed, the connection uses TURN instead.
+</Accordion>

@@ -3,17 +3,25 @@ title: "The 2 GB Relay Limit"
 description: "Why relay transfers are capped at 2 GB per session."
 ---
 
-When your files go through the Floe TURN relay server, every byte of data passes through the infrastructure. That costs real money in server bandwidth. Direct connections cost nothing.
+When your files go through the Floe TURN relay server, every byte of data passes through the infrastructure. That costs real money in server bandwidth. Direct connections cost nothing because files travel entirely between the two devices.
 
 To keep Floe free and running for everyone, relay transfers are capped at **2 GB per session**. This limit applies only to relay connections. Direct connections have no limit.
 
 ## How to get a direct connection
 
-<Tip>
-  These steps increase the chance of a direct connection, which has no size limit.
-</Tip>
+These steps increase the likelihood of a direct connection, which has no size limit:
 
-- Use a standard home or personal Wi-Fi network
-- Disconnect from any VPN
-- Avoid transferring from strict corporate or university networks
-- Try using a personal mobile hotspot
+- Use a standard home or personal Wi-Fi network.
+- Disconnect from any VPN.
+- Avoid transferring from strict corporate or university networks.
+- Try using a personal mobile hotspot if you are on a restricted network.
+
+If both peers are on typical consumer networks, a direct connection will almost always succeed.
+
+## What counts as one session
+
+The 2 GB cap resets if the relay connection drops and reconnects. Each new WebRTC session starts with a fresh counter. However, intentionally cycling sessions to exceed the cap goes against the spirit of the free service.
+
+<Accordion title="Technical details">
+  The 2 GB cap is enforced in the browser client. When the total bytes sent via a relay connection reaches the limit, the transfer is stopped and an error is displayed. The limit applies per sender session, not per file. Direct connections bypass this check entirely, as no relay bandwidth is consumed.
+</Accordion>

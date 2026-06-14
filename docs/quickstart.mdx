@@ -5,37 +5,101 @@ description: "Send your first file in under a minute."
 
 ## Browser
 
+### Sender
+
 1. Open [floe.one](https://floe.one) in your browser.
-2. Drop a file (or click to select one).
-3. Share the short code or link with your recipient.
-4. The recipient opens the link or enters the code at [floe.one](https://floe.one).
-5. The transfer starts automatically once both sides connect.
+2. Drop files onto the page or click to open the file picker. Multiple files are supported.
+3. (Optional) Toggle **Network Relay Fallback** on or off. It is on by default and recommended. When disabled, only direct connections are attempted; transfers may fail on mobile data or restricted networks.
+4. Click **Create Secure Link & Share**.
+5. Floe displays a shareable link and a QR code. Share either with your recipient.
+6. A connection indicator appears in the corner showing the connection state. Once the recipient opens the link, it turns green (Direct) or amber (Relay) and the transfer begins automatically.
+
+### Receiver
+
+1. Open the shared link in any modern browser.
+2. The transfer starts automatically once the connection is established.
+3. When all files arrive, download options appear:
+   - **Download** each file individually.
+   - **Download All** triggers individual downloads for every file.
+   - **Download ZIP** bundles everything into a single archive.
+
+<Tip>
+  On iOS, use Download ZIP for the most reliable experience.
+</Tip>
+
+<Note>
+  The sender must keep their browser tab open for the entire duration of the transfer.
+</Note>
+
+---
 
 ## CLI
 
 <Steps>
   <Step title="Install">
-    Download the binary for your platform from [GitHub Releases](https://github.com/jannskiee/floe/releases). See [Installation](/cli/installation) for details.
+    Download the binary for your platform from [GitHub Releases](https://github.com/jannskiee/floe/releases). See [Installation](/cli/installation) for platform-specific steps.
   </Step>
   <Step title="Send">
     ```bash
     floe send photo.jpg
     ```
-    Floe prints a short code and a browser link. Share either one with your recipient.
+
+    Floe connects, registers a short code, and prints a sharing panel:
+
     ```
+    ─────────────────────────────────────────────────
     Code:  olive-tiger-castle
     Link:  https://floe.one?room=...
+    ─────────────────────────────────────────────────
+
+    Waiting for peer...
     ```
+
+    Share the **code** (CLI recipients) or the **link** (browser recipients). The short code is valid for 10 minutes.
   </Step>
   <Step title="Receive">
     The recipient runs:
+
     ```bash
     floe receive olive-tiger-castle
     ```
-    Or they can open the link in any browser. CLI and browser peers are fully compatible.
+
+    Or they can open the link in any browser. Once connected, the CLI shows a confirmation prompt and then a live progress bar:
+
+    ```
+    Connecting...
+    Connected
+
+      Incoming: 1 file(s)
+
+      Accept? [Y/n] y
+
+      [1/1] photo.jpg  [████████░░░░░░░] 4.2 MB/6.0 MB
+
+      Done. 1 file(s) received in .
+    ```
+
+    Pass `-y` to auto-accept without the prompt. Pass `-o <dir>` to save files to a specific directory.
   </Step>
 </Steps>
 
+---
+
 ## Cross-platform transfers
 
-CLI and browser peers work together transparently. The sender can use the CLI while the recipient opens the link in a browser, and vice versa.
+The browser and CLI clients are fully interoperable. Any combination of sender and receiver works.
+
+| Sender | Receiver | How the receiver joins |
+|--------|----------|------------------------|
+| Browser | Browser | Opens the shared link or scans the QR code |
+| Browser | CLI | `floe receive <link>` (paste the full URL) |
+| CLI | Browser | Opens the shared link or scans the QR code |
+| CLI | CLI | `floe receive <code>` or `floe receive <link>` |
+
+**How it works:** The browser connects via Socket.IO and the CLI connects via WebSocket, but both share the same room on the signaling server. Signals (WebRTC offer, answer, ICE candidates) are routed between them automatically. Neither side needs to know which client the other is using.
+
+**Key difference:** The browser can only join a transfer by opening the link directly. There is no short-code entry field in the web UI. The CLI accepts either the short code or the full link.
+
+<Note>
+  Folder transfers are a CLI feature. When you `floe send ./folder`, all files are transferred recursively and the directory structure is preserved on the receiver's end. A browser receiver gets the same files but sees them as a flat list.
+</Note>

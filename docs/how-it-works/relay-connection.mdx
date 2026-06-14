@@ -3,19 +3,39 @@ title: "Relay Connection"
 description: "How Floe uses a TURN server as an encrypted bridge when a direct connection is not possible."
 ---
 
-Some networks make it impossible to connect two browsers directly. This happens on strict corporate firewalls, university networks, or when your mobile carrier places many users behind a single shared IP address (called **Carrier-Grade NAT**). In these cases, a direct path cannot be found.
+Some networks make it impossible for two devices to connect directly. This happens on strict corporate firewalls, university networks, and when a mobile carrier places many users behind a single shared IP address (carrier-grade NAT). In these cases, a direct path cannot be found and Floe falls back to a relay.
 
 ## TURN fallback
 
-Floe automatically falls back to a **TURN server** (`turn.floe.one`). A TURN server acts as a secure bridge. Your data passes through it on its way to the recipient, like a trusted courier who picks up a sealed, locked box from you and delivers it to the recipient without being able to open it.
+When a direct connection fails, Floe automatically routes through a **TURN server** (`turn.floe.one`). A TURN server acts as a secure bridge. Your data travels through it on the way to the recipient, like a courier carrying a locked box it cannot open.
 
 ## Encryption
 
-Even through a relay, your files are protected by **DTLS encryption** (the same standard used by HTTPS). The relay server sees encrypted data packets, not your actual files.
+Even through a relay, your files are protected by **DTLS encryption** built into WebRTC. The relay server sees only encrypted data packets. It cannot read, inspect, or store your files.
 
 ## What relay connections mean for you
 
-- Transfer still works even on strict networks
-- Your files remain encrypted in transit
-- Speeds may be slower depending on server load
-- Limited to 2 GB per transfer (see [the 2 GB limit](/how-it-works/2gb-limit))
+- Transfer works even on networks that block direct connections.
+- Files remain encrypted end-to-end in transit.
+- Speeds may be slower depending on relay server load and network conditions.
+- Relay transfers are capped at **2 GB per session**. See [The 2 GB Relay Limit](/how-it-works/2gb-limit).
+
+## Disabling relay fallback
+
+If you need to ensure files never pass through a relay, you can disable it. In the browser, toggle off **Network Relay Fallback** before creating the link. In the CLI, pass `--no-relay`:
+
+```bash
+floe send photo.jpg --no-relay
+```
+
+With relay disabled, the transfer fails if a direct path cannot be established.
+
+<Accordion title="Technical details">
+  **TURN (Traversal Using Relays around NAT):** When ICE negotiation produces only `relay` candidates, both peers connect to the TURN server and the server forwards packets between them. The data is still DTLS-encrypted end-to-end before it reaches the TURN server.
+
+  **Credentials:** The signaling server issues time-limited HMAC-SHA1 credentials for coturn (`username: {expiry}:floeuser`, `password: base64(HMAC-SHA1(secret, username))`). Credentials are valid for 24 hours.
+
+  **Endpoints:** `turn:turn.floe.one:3478` (STUN/TURN over UDP and TCP) and `turns:turn.floe.one:5349` (TURN over TLS).
+
+  **Relay detection:** The browser polls `RTCStatsReport` every 5 seconds and examines the nominated candidate pair. If either candidate is of type `relay`, the connection indicator shows amber.
+</Accordion>

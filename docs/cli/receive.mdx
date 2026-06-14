@@ -7,7 +7,7 @@ description: "Receive files from a peer."
 floe receive <code | link>
 ```
 
-Joins an existing transfer session as the receiver. Accepts either a short code (e.g. `olive-tiger-castle`) or the full browser link. Downloads incoming files to the current directory by default.
+Joins an existing transfer session as the receiver. Accepts either a short code (e.g. `olive-tiger-castle`) or the full browser link. After connecting, Floe prompts you to confirm the incoming transfer and then downloads the files.
 
 ## Examples
 
@@ -20,7 +20,7 @@ floe receive olive-tiger-castle
 Receive using a full link:
 
 ```bash
-floe receive "https://floe.one?room=abc123"
+floe receive "https://floe.one?room=abc123..."
 ```
 
 Save to a specific directory:
@@ -29,23 +29,56 @@ Save to a specific directory:
 floe receive olive-tiger-castle -o ~/Downloads
 ```
 
-Auto-accept without confirmation:
+Auto-accept without a confirmation prompt:
 
 ```bash
 floe receive olive-tiger-castle -y
 ```
 
+## Output
+
+```
+Connecting to sender...
+Connected
+
+  Incoming: 2 file(s)
+
+  Accept? [Y/n] y
+
+  [1/2] photo.jpg  [████████████████] 2.3 MB/2.3 MB
+
+  [2/2] notes.txt  [████████████████] 14 KB/14 KB
+
+  Done. 2 file(s) received in .
+```
+
+## Confirmation prompt
+
+When the first file's metadata arrives, Floe shows how many files are incoming and asks for confirmation:
+
+```
+  Incoming: N file(s)
+
+  Accept? [Y/n]
+```
+
+- Press **Enter**, `y`, or `Y` to accept and begin receiving.
+- Type `n` or `no` to decline. The transfer is cancelled and the connection closes.
+
+Pass `-y` to skip this prompt and accept automatically.
+
 ## Flags
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--output` | `-o` | `.` (current directory) | Directory to save received files |
-| `--yes` | `-y` | `false` | Auto-accept incoming files without confirmation |
+| `--output` | `-o` | `.` (current directory) | Directory to save received files. Created automatically if it does not exist. |
+| `--yes` | `-y` | `false` | Accept incoming files without the confirmation prompt. |
 
 See [Flags Reference](/cli/flags) for global flags (`--server`, `--no-relay`).
 
 ## Notes
 
-- The output directory is created automatically if it does not exist.
-- Without `-y`, Floe prompts you to confirm before saving each file.
-- Press `Ctrl+C` to cancel the transfer.
+- Received files are saved to the output directory. **Existing files with the same name are overwritten without warning.** Use `-o` to point to an empty directory if you want to avoid collisions.
+- Directory structure is preserved when the sender sends a folder. Files land at the same relative paths inside your output directory.
+- Press `Ctrl+C` to cancel the transfer at any time.
+- Short codes expire 10 minutes after the sender starts the session. After that, only the full link works (and only while the sender is still connected).

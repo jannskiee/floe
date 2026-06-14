@@ -3,35 +3,102 @@ title: "Installation"
 description: "Download and install the floe CLI binary."
 ---
 
-The `floe` CLI is a single self-contained binary with no runtime dependencies. Download the binary for your platform from the [GitHub Releases page](https://github.com/jannskiee/floe/releases).
+The `floe` CLI is a single self-contained binary with no runtime dependencies.
 
 ## Download
 
+Go to the [GitHub Releases page](https://github.com/jannskiee/floe/releases) and download the archive for your platform. Release archives follow this naming convention:
+
+```
+floe_<version>_<os>_<arch>.tar.gz    # macOS and Linux
+floe_<version>_<os>_<arch>.zip       # Windows
+```
+
+For example: `floe_v1.2.0_darwin_arm64.tar.gz` or `floe_v1.2.0_linux_amd64.tar.gz`.
+
 <Tabs>
   <Tab title="macOS (Apple Silicon)">
+    Find the latest version on the [releases page](https://github.com/jannskiee/floe/releases), then replace `vX.Y.Z` below:
+
     ```bash
-    curl -L https://github.com/jannskiee/floe/releases/latest/download/floe_Darwin_arm64.tar.gz | tar xz
+    curl -L "https://github.com/jannskiee/floe/releases/download/vX.Y.Z/floe_vX.Y.Z_darwin_arm64.tar.gz" | tar xz
+    sudo mv floe /usr/local/bin/
+    ```
+
+    Or fetch the latest version automatically:
+
+    ```bash
+    VERSION=$(curl -s https://api.github.com/repos/jannskiee/floe/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
+    curl -L "https://github.com/jannskiee/floe/releases/download/${VERSION}/floe_${VERSION}_darwin_arm64.tar.gz" | tar xz
     sudo mv floe /usr/local/bin/
     ```
   </Tab>
   <Tab title="macOS (Intel)">
+    Find the latest version on the [releases page](https://github.com/jannskiee/floe/releases), then replace `vX.Y.Z` below:
+
     ```bash
-    curl -L https://github.com/jannskiee/floe/releases/latest/download/floe_Darwin_x86_64.tar.gz | tar xz
+    curl -L "https://github.com/jannskiee/floe/releases/download/vX.Y.Z/floe_vX.Y.Z_darwin_amd64.tar.gz" | tar xz
+    sudo mv floe /usr/local/bin/
+    ```
+
+    Or fetch the latest version automatically:
+
+    ```bash
+    VERSION=$(curl -s https://api.github.com/repos/jannskiee/floe/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
+    curl -L "https://github.com/jannskiee/floe/releases/download/${VERSION}/floe_${VERSION}_darwin_amd64.tar.gz" | tar xz
     sudo mv floe /usr/local/bin/
     ```
   </Tab>
   <Tab title="Linux (amd64)">
+    Find the latest version on the [releases page](https://github.com/jannskiee/floe/releases), then replace `vX.Y.Z` below:
+
     ```bash
-    curl -L https://github.com/jannskiee/floe/releases/latest/download/floe_Linux_x86_64.tar.gz | tar xz
+    curl -L "https://github.com/jannskiee/floe/releases/download/vX.Y.Z/floe_vX.Y.Z_linux_amd64.tar.gz" | tar xz
+    sudo mv floe /usr/local/bin/
+    ```
+
+    Or fetch the latest version automatically:
+
+    ```bash
+    VERSION=$(curl -s https://api.github.com/repos/jannskiee/floe/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
+    curl -L "https://github.com/jannskiee/floe/releases/download/${VERSION}/floe_${VERSION}_linux_amd64.tar.gz" | tar xz
+    sudo mv floe /usr/local/bin/
+    ```
+  </Tab>
+  <Tab title="Linux (arm64)">
+    Find the latest version on the [releases page](https://github.com/jannskiee/floe/releases), then replace `vX.Y.Z` below:
+
+    ```bash
+    curl -L "https://github.com/jannskiee/floe/releases/download/vX.Y.Z/floe_vX.Y.Z_linux_arm64.tar.gz" | tar xz
     sudo mv floe /usr/local/bin/
     ```
   </Tab>
   <Tab title="Windows">
-    Download `floe_Windows_x86_64.zip` from the [releases page](https://github.com/jannskiee/floe/releases), extract it, and add the directory to your `PATH`.
+    Download `floe_vX.Y.Z_windows_amd64.zip` from the [releases page](https://github.com/jannskiee/floe/releases). Extract the archive, then add the folder containing `floe.exe` to your `PATH` environment variable:
+
+    1. Open **System Properties** and go to **Environment Variables**.
+    2. Under **User variables**, select `Path` and click **Edit**.
+    3. Click **New** and enter the full path to the folder containing `floe.exe`.
+    4. Click **OK** to close all dialogs, then open a new terminal to pick up the change.
   </Tab>
 </Tabs>
 
-## Verify
+## Verify the checksum (optional)
+
+Each release includes a `checksums.txt` file. To verify the integrity of your download, replace `vX.Y.Z` with your version:
+
+```bash
+# Download checksums
+curl -LO "https://github.com/jannskiee/floe/releases/download/vX.Y.Z/checksums.txt"
+
+# Verify (macOS)
+shasum -a 256 --check --ignore-missing checksums.txt
+
+# Verify (Linux)
+sha256sum --check --ignore-missing checksums.txt
+```
+
+## Verify the install
 
 ```bash
 floe version
@@ -53,3 +120,5 @@ git clone https://github.com/jannskiee/floe.git
 cd floe/cli
 go build ./cmd/floe
 ```
+
+Move the resulting `floe` binary to a directory on your `PATH` (e.g. `/usr/local/bin/` on macOS and Linux).

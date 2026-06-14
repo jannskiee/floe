@@ -5,11 +5,23 @@ description: "How Floe encrypts every transfer, direct or relayed."
 
 Every WebRTC connection, whether direct or relayed, is encrypted using **DTLS** (Datagram TLS). The encryption is built into WebRTC itself. Even Floe's own relay server cannot read your files.
 
-The encryption keys are generated uniquely for each transfer and exist only in the two browsers (or CLI processes) involved. There is no central key server.
+The encryption keys are generated uniquely for each transfer and exist only in the two devices involved. There is no central key server and no one else has access to them.
 
-## What this means
+## What this means in practice
 
-- The signaling server never sees file data
-- The relay server (when used) sees only encrypted packets
-- Floe has no database, stores no files, and retains no logs of what you transfer
-- Once the transfer is complete and both connections are closed, the data is gone
+- The signaling server brokers the connection but never sees file data.
+- The relay server (when used) sees only encrypted packets it cannot read.
+- Floe has no database of keys, stores no files, and retains no record of what you transfer.
+- Once both connections are closed, the keys are gone and the data cannot be recovered.
+
+## Self-hosted instances
+
+These properties hold on self-hosted instances as well. The signaling server and TURN relay never receive plaintext file data regardless of who operates them. If you run your own instance, you get the same encryption guarantees.
+
+<Accordion title="Technical details">
+  **DTLS for data channels:** WebRTC data channels are transported over SCTP (Stream Control Transmission Protocol) running on top of DTLS. This is distinct from DTLS-SRTP, which is used for audio/video media streams. Both provide strong encryption, but data channels specifically use SCTP over DTLS.
+
+  **Key exchange:** Each peer generates a certificate and key pair for the session. The fingerprints of these certificates are exchanged via the SDP offer and answer during signaling. DTLS verifies these fingerprints during the handshake, ensuring that even if the signaling channel is compromised, a man-in-the-middle cannot inject a different certificate.
+
+  **Per-session keys:** Keys are ephemeral. They are generated when the connection is created and discarded when it closes. There is no key escrow, no recovery mechanism, and no persistent storage of session keys.
+</Accordion>

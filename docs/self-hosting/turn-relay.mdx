@@ -3,11 +3,15 @@ title: "TURN Relay (coturn)"
 description: "Add a TURN server to support peers behind strict NAT or CGNAT."
 ---
 
-A TURN server relays the (still end-to-end encrypted) stream when two peers cannot reach each other directly. This is common with symmetric NAT or carrier-grade NAT. Without it, those specific transfers fail. Everything else still works.
+A TURN server relays the (still end-to-end encrypted) stream when two peers cannot reach each other directly. This is common with symmetric NAT or carrier-grade NAT. Without TURN, those specific transfers fail. All other transfers still work over direct connections.
 
 ## Infrastructure requirements
 
-TURN has real infrastructure requirements: a **public IP**, a **domain**, and **TLS certificates**. The bundled `coturn` service uses host networking and is intended for a Linux host with a public IP.
+TURN requires a **public IP address**, a **domain name**, and **TLS certificates**. The bundled `coturn` service uses host networking and is intended for a Linux host with a public IP.
+
+<Warning>
+  The coturn service uses host networking (`network_mode: host`). This only works on Linux. On macOS or Windows with Docker Desktop, you will need to run coturn separately or on a Linux VM.
+</Warning>
 
 ## Setup
 
@@ -16,23 +20,32 @@ TURN has real infrastructure requirements: a **public IP**, a **domain**, and **
     ```bash
     cp coturn/turnserver.conf.example coturn/turnserver.conf
     ```
-    Edit `coturn/turnserver.conf`:
-    - Set `static-auth-secret` to a strong random value
-    - Set `realm` to your TURN hostname
-    - Point `cert` and `pkey` at your TLS certificate and key (mount them into the container; see the volume hint in `docker-compose.yml`)
+
+    Edit `coturn/turnserver.conf` and set:
+    - `static-auth-secret` to a strong random value (e.g. `openssl rand -hex 32`)
+    - `realm` to your TURN hostname (e.g. `turn.your-domain.com`)
+    - `cert` and `pkey` to the paths of your TLS certificate and key
+
+    See the volume mounts in `docker-compose.yml` for how to make certificates available inside the container.
   </Step>
   <Step title="Match the server environment">
     In `.env`:
-    ```
+
+    ```env
     TURN_SECRET=<same value as static-auth-secret>
     TURN_DOMAIN=turn.your-domain.com
     ```
+
+    The signaling server uses these to issue time-limited HMAC-SHA1 credentials for coturn. Credentials expire after 24 hours.
   </Step>
   <Step title="Open firewall ports">
-    On the host, open:
-    - `3478` (STUN/TURN)
-    - `5349` (TURNS)
-    - `49152-65535` UDP (relay range, configurable in `turnserver.conf`)
+    On the host, open the following ports:
+
+    | Port | Protocol | Purpose |
+    |------|----------|---------|
+    | `3478` | UDP/TCP | STUN and TURN |
+    | `5349` | UDP/TCP | TURNS (TURN over TLS) |
+    | `49152-65535` | UDP | Relay data range (configurable in `turnserver.conf`) |
   </Step>
   <Step title="Start the stack with the TURN profile">
     ```bash
@@ -43,12 +56,22 @@ TURN has real infrastructure requirements: a **public IP**, a **domain**, and **
 
 ## Verify
 
+Check that the signaling server returns TURN credentials:
+
 ```bash
 curl http://localhost:3001/api/turn-credentials
 ```
 
-The response should include `turn:` and `turns:` entries in addition to STUN.
+The response should include `turn:` and `turns:` entries alongside STUN:
 
-## How it works
+```json
+[
+  { "urls": "stun:stun.l.google.com:19302" },
+  { "urls": "turn:turn.your-domain.com:3478", "username": "...", "credential": "..." },
+  { "urls": "turns:turn.your-domain.com:5349", "username": "...", "credential": "..." }
+]
+```
 
-The server generates time-limited HMAC-SHA1 credentials (24-hour TTL) that coturn validates against the shared secret. No per-user accounts are needed.
+## How credentials work
+
+The signaling server generates time-limited credentials using HMAC-SHA1. The username is `{expiry_unix_timestamp}:floeuser` and the password is `base64(HMAC-SHA1(TURN_SECRET, username))`. coturn validates these against the shared secret without needing a database of user accounts.

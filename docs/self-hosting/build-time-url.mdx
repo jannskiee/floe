@@ -3,7 +3,7 @@ title: "Build-Time URL Caveat"
 description: "Why NEXT_PUBLIC_SOCKET_URL must be set before building the client image."
 ---
 
-Next.js inlines `NEXT_PUBLIC_*` variables into the JavaScript bundle **at build time**, not at runtime. `NEXT_PUBLIC_SOCKET_URL` is therefore baked into the client image when it is built. Setting it only in the running container has no effect.
+Next.js inlines `NEXT_PUBLIC_*` variables into the JavaScript bundle **at build time**, not at runtime. `NEXT_PUBLIC_SOCKET_URL` is therefore baked into the client image when it is built. Setting or changing it in a running container has no effect.
 
 ## After changing the URL, rebuild the client
 
@@ -12,6 +12,10 @@ docker compose build client
 docker compose up -d
 ```
 
+<Warning>
+  Forgetting to rebuild after changing `NEXT_PUBLIC_SOCKET_URL` is the most common reason a self-hosted Floe instance cannot connect to the signaling server.
+</Warning>
+
 ## The URL must be reachable by end-users' browsers
 
-`http://localhost:3001` only works when the browser runs on the same machine as the server. For anything else, use the server's LAN IP or public URL (e.g. `https://api.your-domain.com`).
+`NEXT_PUBLIC_SOCKET_URL` is evaluated in the **browser**, not on the server. `http://localhost:3001` only works when the browser runs on the same machine as the server. For any other setup, use the server's LAN IP or public domain (e.g. `https://api.your-domain.com`).
