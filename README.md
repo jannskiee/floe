@@ -25,6 +25,7 @@
 
 <p align="center">
   <a href="https://floe.one">Quick Start</a> |
+  <a href="https://docs.floe.one">Documentation</a> |
   <a href="#cli">CLI</a> |
   <a href="#self-hosting">Self-Hosting</a> |
   <a href="#contributing">Contributing</a> |
@@ -41,11 +42,13 @@ A signaling server (`api.floe.one`) handles WebRTC negotiation and issues short-
 
 Visit [floe.one](https://floe.one) to transfer files directly in your browser. No account or installation required.
 
+New to Floe? The [Quick Start guide](https://docs.floe.one/quickstart) walks through sending and receiving your first file.
+
 ## How It Works
 
 Files transfer directly between devices using WebRTC. A signaling server handles connection setup, then steps aside once both peers are connected. When a direct path cannot be established, an optional TURN relay bridges the connection with encrypted data that is never stored.
 
-For a detailed explanation of the connection lifecycle, encryption model, and relay fallback, visit [floe.one/how-it-works](https://floe.one/how-it-works).
+For a plain-language overview, visit [floe.one/how-it-works](https://floe.one/how-it-works). For the full technical reference covering signaling, ICE and NAT traversal, encryption, and relay fallback, see the [documentation](https://docs.floe.one/how-it-works/signaling).
 
 ## CLI
 
@@ -53,7 +56,7 @@ Floe provides a command-line interface for transferring files from headless devi
 
 ### Install
 
-Download the latest binary for your platform from the [Releases](https://github.com/jannskiee/floe/releases) page. No runtime or dependencies required.
+Download the latest binary for your platform from the [Releases](https://github.com/jannskiee/floe/releases) page. No runtime or dependencies required. For package managers, checksum verification, and PATH setup, see the [installation guide](https://docs.floe.one/cli/installation).
 
 ### Usage
 
@@ -74,7 +77,7 @@ floe receive olive-tiger-castle
 
 The sender's terminal will display a room code and a browser link. The receiver can join using either the code (CLI) or the link (browser).
 
-For complete documentation, flags, and advanced usage, see the [CLI Documentation](https://docs.floe.one).
+For all commands, flags, and advanced usage, see the [documentation](https://docs.floe.one).
 
 ## Self-Hosting
 
