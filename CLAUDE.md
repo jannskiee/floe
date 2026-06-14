@@ -90,3 +90,7 @@ All under `cli/internal/`:
 - `transfer/sender.go` / `transfer/receiver.go` — binary protocol over the data channel
 - `ice/` — fetches STUN/TURN credentials from server
 - `code/` — registers and resolves short room codes
+
+## Writing Style
+
+Do not use em dashes (--) in any markdown files or documentation. Use periods, commas, hyphens, or parentheses instead.
