@@ -17,12 +17,12 @@
     "links": [
       {
         "label": "floe.one",
-        "href": "https://floe.one"
+        "href": "https://floe.one",
+        "icon": "arrow-up-right"
       }
     ],
     "primary": {
-      "type": "button",
-      "label": "GitHub",
+      "type": "github",
       "href": "https://github.com/jannskiee/floe"
     }
   },
