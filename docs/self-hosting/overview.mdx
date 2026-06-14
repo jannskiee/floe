@@ -3,18 +3,18 @@ title: "Overview"
 description: "Run your own Floe instance on your own infrastructure."
 ---
 
-You can self-host the entire Floe stack (web client and signaling server) independently of `floe.one`. The setup uses Docker Compose so the whole stack comes up with a single command.
+You can self-host the entire Floe stack independently of `floe.one`. The setup uses Docker Compose so the full stack comes up with a single command.
 
 ## What you are hosting
 
-The signaling server only brokers WebRTC connection setup (offer, answer, ICE candidates) and issues short-lived TURN credentials. **File data never passes through it.** Transfers go peer-to-peer over encrypted WebRTC data channels. TURN is optional and only relays (still encrypted) traffic for peers that cannot connect directly.
+The signaling server brokers WebRTC connection setup (offer, answer, ICE candidates) and issues short-lived TURN credentials. **File data never passes through it.** Transfers go peer-to-peer over encrypted WebRTC data channels. TURN is optional and only relays (still encrypted) traffic when a direct connection is not possible.
 
 ## Components
 
 | Component | Description |
 |-----------|-------------|
-| `client` | Next.js web app served on port 3000 |
-| `server` | Node.js signaling server on port 3001 |
+| `client` | Next.js web app, served on port 3000 |
+| `server` | Node.js signaling server, on port 3001 |
 | `coturn` | Optional TURN relay (profile-gated in Docker Compose) |
 
 ## Contents
@@ -30,6 +30,6 @@ The signaling server only brokers WebRTC connection setup (offer, answer, ICE ca
     HTTPS, reverse proxy, and domain setup.
   </Card>
   <Card title="TURN Relay" href="/self-hosting/turn-relay">
-    Add coturn to support peers behind strict NAT.
+    Add coturn to support peers behind strict NAT or CGNAT.
   </Card>
 </CardGroup>

@@ -3,23 +3,41 @@ title: "Without Docker"
 description: "Run Floe components directly with Node, pnpm, and Go."
 ---
 
-If you prefer to run the components directly without Docker, the manual setup steps and environment variable reference are in [CONTRIBUTING.md](https://github.com/jannskiee/floe/blob/main/CONTRIBUTING.md#development-setup).
+If you prefer to run the components without Docker, the complete manual setup steps are in [CONTRIBUTING.md](https://github.com/jannskiee/floe/blob/main/CONTRIBUTING.md#development-setup). The same environment variables documented in [Configuration](/self-hosting/configuration) apply.
 
-The same environment variables documented in [Configuration](/self-hosting/configuration) apply. Run each component with:
+## Running each component
 
 ```bash
-# Server
+# Signaling server (Node.js)
 cd server
 npm install
 npm start
 
-# Client
+# Web client (Next.js)
 cd client
 pnpm install
 pnpm build
 pnpm start
 
-# CLI (optional, for local testing)
+# CLI (optional, for local testing against your server)
 cd cli
 go build ./cmd/floe
+./floe send photo.jpg --server http://localhost:3001
 ```
+
+<Note>
+  The client requires a production build (`pnpm build` then `pnpm start`) to serve static files. Use `pnpm dev` only during development, as it enables Next.js hot-reloading and is not suitable for production.
+</Note>
+
+## Environment variables
+
+Copy and configure the environment files before starting:
+
+```bash
+cp server/.env.example server/.env
+cp client/.env.example client/.env.local
+```
+
+Set at minimum:
+- In `server/.env`: `CLIENT_URL=http://localhost:3000`
+- In `client/.env.local`: `NEXT_PUBLIC_SOCKET_URL=http://localhost:3001`

@@ -3,40 +3,47 @@ title: "Production Deployment"
 description: "HTTPS, reverse proxy, and domain configuration for a production Floe instance."
 ---
 
-For a real deployment beyond a single machine, follow these steps.
+For a deployment accessible beyond a single machine, follow these steps.
 
 ## Steps
 
 <Steps>
   <Step title="Put both services behind a reverse proxy with HTTPS">
-    Browsers require a secure context for the APIs Floe uses (WebRTC, screen wake lock). Use Nginx, Caddy, Traefik, or a platform like Render or Fly.
+    Browsers require a secure context (HTTPS) for WebRTC and the Screen Wake Lock API. Use Nginx, Caddy, Traefik, or a managed platform like Render or Fly.
 
-    Proxy the client (`:3000`) and the server (`:3001`) under hostnames you control:
-    - `app.your-domain.com` to the client
-    - `api.your-domain.com` to the server
+    Proxy each service to a hostname you control:
+    - `app.your-domain.com` to the client on `:3000`
+    - `api.your-domain.com` to the signaling server on `:3001`
+
+    The signaling server uses WebSockets. Make sure your proxy forwards the `Upgrade` and `Connection` headers.
   </Step>
   <Step title="Set NEXT_PUBLIC_SOCKET_URL and rebuild">
-    ```bash
-    # In .env
+    In `.env`:
+
+    ```env
     NEXT_PUBLIC_SOCKET_URL=https://api.your-domain.com
     ```
-    Then rebuild:
+
+    Then rebuild the client image (required because this value is inlined at build time):
+
     ```bash
     docker compose build client
     docker compose up -d
     ```
   </Step>
   <Step title="Set CLIENT_URL">
-    ```bash
-    # In .env
+    In `.env`:
+
+    ```env
     CLIENT_URL=https://app.your-domain.com
     ```
-    This allows CORS from your client origin.
+
+    This adds your client origin to the server's CORS allow-list. Without it, browser requests from your domain will be blocked.
   </Step>
   <Step title="Set TRUSTED_PROXY_COUNT">
-    Set this to the number of proxy hops in front of the server so per-IP rate limiting sees real client IPs.
-    ```bash
-    # In .env
+    Set this to the number of proxy hops in front of the signaling server so per-IP rate limiting reads real client IPs instead of proxy IPs:
+
+    ```env
     TRUSTED_PROXY_COUNT=1
     ```
   </Step>
@@ -44,4 +51,4 @@ For a real deployment beyond a single machine, follow these steps.
 
 ## CORS note
 
-The server's allow-list also includes the official `floe.one` origins. Your `CLIENT_URL` is honored alongside them, so this does not block anything. If you prefer a clean allow-list for your fork, remove the hard-coded entries from `server/server.js`.
+The server's allow-list also includes the official `floe.one` origins. Your `CLIENT_URL` is added on top of these, so browser clients on your domain and on floe.one can both reach your server. If you are running a private fork and want a strict allow-list, remove the hard-coded entries from `server/server.js`.

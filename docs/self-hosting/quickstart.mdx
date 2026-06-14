@@ -5,7 +5,7 @@ description: "Run Floe locally with Docker Compose."
 
 ## Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/) and Docker Compose v2 (`docker compose`, bundled with modern Docker Desktop and Engine).
+- [Docker](https://docs.docker.com/get-docker/) and Docker Compose v2 (`docker compose`, bundled with Docker Desktop and modern Docker Engine).
 
 ## Steps
 
@@ -20,18 +20,25 @@ description: "Run Floe locally with Docker Compose."
     ```bash
     cp .env.docker.example .env
     ```
-    The defaults work for a local single-machine run. No changes are needed to try it out.
+    The defaults work for a local single-machine setup. No changes are needed to try it out.
   </Step>
   <Step title="Start the stack">
     ```bash
     docker compose up -d --build
     ```
+    Docker builds and starts the client and server containers. The first build takes a few minutes.
   </Step>
   <Step title="Open the app">
-    Open [http://localhost:3000](http://localhost:3000) in your browser. Open it in a second tab (or on another device on your local network), start a transfer in one tab, and join with the room code in the other.
+    Open [http://localhost:3000](http://localhost:3000) in your browser. Open the same URL in a second tab (or on another device on the same network), start a transfer in one tab, and join with the room code in the other.
   </Step>
 </Steps>
 
 ## What this runs
 
-This starts the stack in **STUN-only** mode: direct peer-to-peer connections, which work on most home and mobile networks. To support peers behind strict or symmetric NAT or CGNAT, add a [TURN relay](/self-hosting/turn-relay).
+This starts the stack in **STUN-only** mode. Direct peer-to-peer connections are used, which work on most home and mobile networks. No files pass through the server.
+
+To support peers behind strict firewalls, symmetric NAT, or CGNAT, add a [TURN relay](/self-hosting/turn-relay).
+
+<Note>
+  `NEXT_PUBLIC_SOCKET_URL` defaults to `http://localhost:3001` in `.env.docker.example`, which works when both the browser and the server are on the same machine. If you want to access the app from another device on your network, update this to your machine's LAN IP (e.g. `http://192.168.1.x:3001`) and rebuild the client image. See [Build-Time URL Caveat](/self-hosting/build-time-url) for why.
+</Note>

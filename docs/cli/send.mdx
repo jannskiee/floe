@@ -7,7 +7,7 @@ description: "Send files or folders to a peer."
 floe send <file|folder> [file|folder...]
 ```
 
-Starts a transfer session as the sender. Prints a short code and a browser link; share either one with your recipient. Waits until the recipient connects, then streams the files over WebRTC.
+Starts a transfer session as the sender. Floe registers a short code with the signaling server, prints a sharing panel, then waits for a peer to connect. Once connected, it streams all files over an encrypted WebRTC data channel.
 
 ## Examples
 
@@ -17,13 +17,13 @@ Send a single file:
 floe send report.pdf
 ```
 
-Send multiple files:
+Send multiple files at once:
 
 ```bash
 floe send photo.jpg video.mp4 notes.txt
 ```
 
-Send an entire folder:
+Send an entire folder (transferred recursively):
 
 ```bash
 floe send ./project
@@ -31,15 +31,37 @@ floe send ./project
 
 ## Output
 
-```
-  ─────────────────────────────────────────────────
-  Code:  olive-tiger-castle
-  Link:  https://floe.one?room=...
-  ─────────────────────────────────────────────────
+After running `floe send`, you will see a sharing panel with a short code and a browser link:
 
-  Waiting for peer...
-  Connecting...
-  Connected
+```
+─────────────────────────────────────────────────
+Code:  olive-tiger-castle
+Link:  https://floe.one?room=...
+─────────────────────────────────────────────────
+
+Waiting for peer...
+Connecting...
+Connected
+
+  Sending 3 file(s)...
+
+  [1/3] report.pdf     [████████████░░░] 8.1 MB/9.5 MB
+  [2/3] photo.jpg      [████████████████] 2.3 MB/2.3 MB
+  [3/3] notes.txt      [████████████████] 14 KB/14 KB
+
+  All files sent.
+```
+
+Share the **code** with CLI recipients or the **link** with browser recipients. The short code is valid for 10 minutes. The room link stays active until the session ends or you press `Ctrl+C`.
+
+## Folder transfers
+
+When you send a folder, Floe walks it recursively and preserves the directory structure on the receiving end. The recipient gets the same relative paths inside their output directory.
+
+```bash
+floe send ./documents
+# Transfers documents/report.pdf, documents/images/photo.jpg, etc.
+# Receiver gets: ./documents/report.pdf, ./documents/images/photo.jpg
 ```
 
 ## Flags
@@ -48,6 +70,6 @@ See [Flags Reference](/cli/flags) for `--server`, `--no-relay`, and `--web`.
 
 ## Notes
 
-- The session stays open until the recipient connects and the transfer completes. Press `Ctrl+C` to cancel.
-- The short code is valid for 10 minutes. The room link works until the session ends.
-- Folders are transferred recursively.
+- Press `Ctrl+C` at any time to cancel the transfer and close the session.
+- If the short code cannot be registered (for example, the signaling server is unreachable), Floe prints a warning and continues with the link only.
+- Files are streamed in the order they are listed. For multiple files, progress is shown per file.

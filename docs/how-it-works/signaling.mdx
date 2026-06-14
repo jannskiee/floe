@@ -3,18 +3,37 @@ title: "Signaling"
 description: "How Floe brokers the initial connection between two peers."
 ---
 
-When you drop files into Floe, a unique one-time link is created. The Floe signaling server (`api.floe.one`) plays the role of a matchmaker. When the recipient opens your link, both browsers introduce themselves to each other through this server.
+When you create a transfer in Floe, a unique room is created on the signaling server. The sender shares a code or link. When the recipient joins, the two devices introduce themselves through the server and exchange the information they need to connect directly. Once that handshake is complete, the server steps aside.
 
-Once both sides have said hello, the signaling server steps completely out of the picture. It does not handle any file data, does not store anything, and does not participate in the transfer itself.
+The signaling server never touches file data, never stores anything about your transfer, and plays no part once the WebRTC connection is established.
 
-## What the server does
+## What the signaling server does
 
 - Assigns roles: the first peer to join a room becomes the **sender**, the second becomes the **receiver**.
-- Relays WebRTC signaling messages: the initial offer, the answer, and ICE candidates.
-- Issues short-lived TURN credentials (if a TURN server is configured).
+- Relays WebRTC negotiation messages: the initial offer, the answer, and ICE candidates.
+- Issues short-lived TURN credentials when a TURN server is configured.
+- Registers short human-readable codes (e.g. `olive-tiger-castle`) that map to room IDs.
 
-## What the server never does
+## What the signaling server never does
 
-- Touch file data
-- Store files or transfer content
-- Log what you send or receive
+- Handle file data of any kind.
+- Store files, transfer content, or logs of what you send or receive.
+- Persist room or peer information after the session ends.
+
+<Accordion title="Technical details">
+  **Transports:** Browser clients connect via Socket.IO. CLI clients connect via WebSocket at `/ws`. Both share a single in-memory `rooms` registry (`Map<roomId, [peer, peer]>`), so browser-to-CLI transfers are fully supported.
+
+  **WebRTC negotiation flow:**
+  1. Sender joins the room (`join-room` event) and receives the `sender` role.
+  2. When the receiver joins, the server emits `user-connected` to the sender.
+  3. Sender creates an SDP offer and sends it via the `signal` event.
+  4. Receiver sets the remote description, creates an SDP answer, and sends it back.
+  5. Both peers exchange ICE candidates via `signal` events (trickle ICE).
+  6. Once ICE negotiation completes, the WebRTC data channel opens directly between the peers.
+
+  **Short codes:** Registered via `POST /api/code` with a room UUID. The server picks three random words from a 384-word list and maps them to the room ID with a 10-minute TTL. `GET /api/code/:code` resolves a code back to its room UUID.
+
+  **TURN credentials:** Issued via `GET /api/turn-credentials`. Credentials use HMAC-SHA1 with a 24-hour expiry. If `TURN_SECRET` is not set, the endpoint returns STUN servers only.
+
+  **Rate limiting:** 30 connections per IP per 60 seconds for Socket.IO and WebSocket; 20 requests per IP per 60 seconds for the TURN credential endpoint.
+</Accordion>
