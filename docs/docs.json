@@ -8,6 +8,9 @@
     "href": "https://floe.one"
   },
   "favicon": "/favicon.svg",
+  "font": {
+    "family": "Geist"
+  },
   "colors": {
     "primary": "#18181b",
     "light": "#a1a1aa",
