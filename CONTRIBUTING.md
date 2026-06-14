@@ -34,13 +34,13 @@ Open [http://localhost:3000](http://localhost:3000). The client connects to `api
 ### Client + Server (Only needed if you're changing server code)
 
 ```bash
-# Terminal 1 — Server
+# Terminal 1 - Server
 cd floe/server
 cp .env.example .env
 npm install
 npm start
 
-# Terminal 2 — Client
+# Terminal 2 - Client
 cd floe/client
 cp .env.example .env.local
 # Change NEXT_PUBLIC_SOCKET_URL to http://localhost:3001
@@ -58,7 +58,7 @@ go test ./...
 
 ### Full stack with Docker (no local toolchain needed)
 
-To run the client and signaling server together in containers — without installing Node, pnpm, or Go locally — use the Docker Compose setup:
+To run the client and signaling server together in containers (without installing Node, pnpm, or Go locally), use the Docker Compose setup:
 
 ```bash
 cp .env.docker.example .env
@@ -75,7 +75,7 @@ This is aimed at **self-hosting** (running your own instance) rather than active
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `NEXT_PUBLIC_SOCKET_URL` | Yes | Signaling server URL. Defaults to `https://api.floe.one` — no changes needed for UI contributions. |
+| `NEXT_PUBLIC_SOCKET_URL` | Yes | Signaling server URL. Defaults to `https://api.floe.one`. No changes needed for UI contributions. |
 | `NEXT_PUBLIC_SENTRY_DSN` | No | Your Sentry DSN for client-side error tracking. Leave empty to disable. |
 | `SENTRY_DSN` | No | Your Sentry DSN for server-side error tracking. Leave empty to disable. |
 | `SENTRY_ORG` | No | Your Sentry organization slug. |
@@ -91,7 +91,7 @@ This is aimed at **self-hosting** (running your own instance) rather than active
 | `TURN_SECRET` | No | Shared secret for coturn HMAC credentials. Omit to use STUN-only (direct connections). |
 | `TURN_DOMAIN` | No | Your TURN relay server domain. |
 
-> **Note:** TURN is optional. Without it, only direct connections work — which is fine for local development and most home networks.
+> **Note:** TURN is optional. Without it, only direct connections work. This is fine for local development and most home networks.
 
 ---
 
