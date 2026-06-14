@@ -10,9 +10,9 @@
   "favicon": "/favicon.svg",
   "css": ["/custom.css"],
   "colors": {
-    "primary": "#000000",
+    "primary": "#111111",
     "light": "#ffffff",
-    "dark": "#000000"
+    "dark": "#111111"
   },
   "fonts": {
     "family": "Geist",
