@@ -1,0 +1,37 @@
+---
+title: "Quick Start"
+description: "Run Floe locally with Docker Compose."
+---
+
+## Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) and Docker Compose v2 (`docker compose`, bundled with modern Docker Desktop and Engine).
+
+## Steps
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/jannskiee/floe.git
+    cd floe
+    ```
+  </Step>
+  <Step title="Copy the environment file">
+    ```bash
+    cp .env.docker.example .env
+    ```
+    The defaults work for a local single-machine run. No changes are needed to try it out.
+  </Step>
+  <Step title="Start the stack">
+    ```bash
+    docker compose up -d --build
+    ```
+  </Step>
+  <Step title="Open the app">
+    Open [http://localhost:3000](http://localhost:3000) in your browser. Open it in a second tab (or on another device on your local network), start a transfer in one tab, and join with the room code in the other.
+  </Step>
+</Steps>
+
+## What this runs
+
+This starts the stack in **STUN-only** mode: direct peer-to-peer connections, which work on most home and mobile networks. To support peers behind strict or symmetric NAT or CGNAT, add a [TURN relay](/self-hosting/turn-relay).

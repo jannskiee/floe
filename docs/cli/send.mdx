@@ -1,0 +1,53 @@
+---
+title: "floe send"
+description: "Send files or folders to a peer."
+---
+
+```bash
+floe send <file|folder> [file|folder...]
+```
+
+Starts a transfer session as the sender. Prints a short code and a browser link; share either one with your recipient. Waits until the recipient connects, then streams the files over WebRTC.
+
+## Examples
+
+Send a single file:
+
+```bash
+floe send report.pdf
+```
+
+Send multiple files:
+
+```bash
+floe send photo.jpg video.mp4 notes.txt
+```
+
+Send an entire folder:
+
+```bash
+floe send ./project
+```
+
+## Output
+
+```
+  ─────────────────────────────────────────────────
+  Code:  olive-tiger-castle
+  Link:  https://floe.one?room=...
+  ─────────────────────────────────────────────────
+
+  Waiting for peer...
+  Connecting...
+  Connected
+```
+
+## Flags
+
+See [Flags Reference](/cli/flags) for `--server`, `--no-relay`, and `--web`.
+
+## Notes
+
+- The session stays open until the recipient connects and the transfer completes. Press `Ctrl+C` to cancel.
+- The short code is valid for 10 minutes. The room link works until the session ends.
+- Folders are transferred recursively.

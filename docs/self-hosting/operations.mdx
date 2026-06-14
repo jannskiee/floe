@@ -1,0 +1,28 @@
+---
+title: "Operations"
+description: "Day-to-day operations for a self-hosted Floe instance."
+---
+
+## Common commands
+
+```bash
+docker compose logs -f                 # tail logs for all services
+docker compose ps                      # check status (server has a health check)
+docker compose down                    # stop and remove the stack
+```
+
+## Update to the latest code
+
+```bash
+git pull
+docker compose pull && docker compose up -d --build
+```
+
+## Health endpoints
+
+The signaling server exposes two health endpoints:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /health` | Liveness check |
+| `GET /` | Status (returns server info) |

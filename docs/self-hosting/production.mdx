@@ -1,0 +1,47 @@
+---
+title: "Production Deployment"
+description: "HTTPS, reverse proxy, and domain configuration for a production Floe instance."
+---
+
+For a real deployment beyond a single machine, follow these steps.
+
+## Steps
+
+<Steps>
+  <Step title="Put both services behind a reverse proxy with HTTPS">
+    Browsers require a secure context for the APIs Floe uses (WebRTC, screen wake lock). Use Nginx, Caddy, Traefik, or a platform like Render or Fly.
+
+    Proxy the client (`:3000`) and the server (`:3001`) under hostnames you control:
+    - `app.your-domain.com` to the client
+    - `api.your-domain.com` to the server
+  </Step>
+  <Step title="Set NEXT_PUBLIC_SOCKET_URL and rebuild">
+    ```bash
+    # In .env
+    NEXT_PUBLIC_SOCKET_URL=https://api.your-domain.com
+    ```
+    Then rebuild:
+    ```bash
+    docker compose build client
+    docker compose up -d
+    ```
+  </Step>
+  <Step title="Set CLIENT_URL">
+    ```bash
+    # In .env
+    CLIENT_URL=https://app.your-domain.com
+    ```
+    This allows CORS from your client origin.
+  </Step>
+  <Step title="Set TRUSTED_PROXY_COUNT">
+    Set this to the number of proxy hops in front of the server so per-IP rate limiting sees real client IPs.
+    ```bash
+    # In .env
+    TRUSTED_PROXY_COUNT=1
+    ```
+  </Step>
+</Steps>
+
+## CORS note
+
+The server's allow-list also includes the official `floe.one` origins. Your `CLIENT_URL` is honored alongside them, so this does not block anything. If you prefer a clean allow-list for your fork, remove the hard-coded entries from `server/server.js`.

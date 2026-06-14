@@ -1,0 +1,44 @@
+---
+title: "Flags Reference"
+description: "Complete reference for all floe CLI flags."
+---
+
+## Global flags
+
+These flags are available on all commands (`send`, `receive`, `version`).
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--server <url>` | `https://api.floe.one` | Signaling server URL. Use `http://localhost:3001` for local testing or your self-hosted server URL. |
+| `--no-relay` | `false` | Disable TURN relay. Only direct (STUN) connections are attempted. The transfer fails if a direct path cannot be found. |
+| `--web <url>` | _(auto-detected)_ | Web app URL included in the browser link printed by `floe send`. Auto-detected from `--server`: production defaults to `https://floe.one`, `localhost:3001` defaults to `http://localhost:3000`. |
+
+## `floe receive` flags
+
+These flags are specific to the `receive` command.
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--output <dir>` | `-o` | `.` | Directory to save received files. Created automatically if it does not exist. |
+| `--yes` | `-y` | `false` | Auto-accept incoming files without prompting for confirmation. |
+
+## Examples
+
+Use a local dev server:
+
+```bash
+floe send photo.jpg --server http://localhost:3001
+floe receive olive-tiger-castle --server http://localhost:3001
+```
+
+Direct connection only (no relay fallback):
+
+```bash
+floe send photo.jpg --no-relay
+```
+
+Receive into a specific folder, auto-accept:
+
+```bash
+floe receive olive-tiger-castle -o ~/Downloads -y
+```

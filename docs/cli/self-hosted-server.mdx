@@ -1,0 +1,32 @@
+---
+title: "Against a Self-Hosted Server"
+description: "Use the floe CLI with your own Floe instance instead of floe.one."
+---
+
+The `floe` CLI connects to `https://api.floe.one` by default. You can point it at any Floe server instance using the `--server` flag.
+
+## Usage
+
+```bash
+floe send --server https://api.your-domain.com photo.jpg
+floe receive --server https://api.your-domain.com olive-tiger-castle
+```
+
+The `--server` value must be the URL of the signaling server (not the web client). Both sender and receiver must use the same server.
+
+## Web link
+
+When using `--server`, the browser link printed by `floe send` defaults to the same URL as the server. If your web client is on a different origin, override it with `--web`:
+
+```bash
+floe send --server https://api.your-domain.com --web https://app.your-domain.com photo.jpg
+```
+
+## Local testing
+
+```bash
+floe send photo.jpg --server http://localhost:3001
+floe receive olive-tiger-castle --server http://localhost:3001
+```
+
+See [Self-Hosting](/self-hosting/overview) for instructions on running your own Floe instance.

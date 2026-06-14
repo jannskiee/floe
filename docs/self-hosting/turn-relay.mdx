@@ -1,0 +1,54 @@
+---
+title: "TURN Relay (coturn)"
+description: "Add a TURN server to support peers behind strict NAT or CGNAT."
+---
+
+A TURN server relays the (still end-to-end encrypted) stream when two peers cannot reach each other directly. This is common with symmetric NAT or carrier-grade NAT. Without it, those specific transfers fail. Everything else still works.
+
+## Infrastructure requirements
+
+TURN has real infrastructure requirements: a **public IP**, a **domain**, and **TLS certificates**. The bundled `coturn` service uses host networking and is intended for a Linux host with a public IP.
+
+## Setup
+
+<Steps>
+  <Step title="Create the coturn config">
+    ```bash
+    cp coturn/turnserver.conf.example coturn/turnserver.conf
+    ```
+    Edit `coturn/turnserver.conf`:
+    - Set `static-auth-secret` to a strong random value
+    - Set `realm` to your TURN hostname
+    - Point `cert` and `pkey` at your TLS certificate and key (mount them into the container; see the volume hint in `docker-compose.yml`)
+  </Step>
+  <Step title="Match the server environment">
+    In `.env`:
+    ```
+    TURN_SECRET=<same value as static-auth-secret>
+    TURN_DOMAIN=turn.your-domain.com
+    ```
+  </Step>
+  <Step title="Open firewall ports">
+    On the host, open:
+    - `3478` (STUN/TURN)
+    - `5349` (TURNS)
+    - `49152-65535` UDP (relay range, configurable in `turnserver.conf`)
+  </Step>
+  <Step title="Start the stack with the TURN profile">
+    ```bash
+    docker compose --profile turn up -d --build
+    ```
+  </Step>
+</Steps>
+
+## Verify
+
+```bash
+curl http://localhost:3001/api/turn-credentials
+```
+
+The response should include `turn:` and `turns:` entries in addition to STUN.
+
+## How it works
+
+The server generates time-limited HMAC-SHA1 credentials (24-hour TTL) that coturn validates against the shared secret. No per-user accounts are needed.
