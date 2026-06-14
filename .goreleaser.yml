@@ -38,11 +38,26 @@ snapshot:
 changelog:
   use: github
   sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Other
+      order: 999
   filters:
     exclude:
       - "^docs:"
       - "^test:"
       - "^chore:"
+      - "^style:"
+      - "^refactor:"
+      - "^Merge pull request"
+      - "^Merge branch"
+      - "^Merge remote-tracking"
+      - "^initial commit"
 
 release:
   github:
