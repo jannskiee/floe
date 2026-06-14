@@ -74,7 +74,7 @@ export const FAQSection = () => {
                 />
                 <FAQItem
                     question="Is this secure?"
-                    answer="Yes. All transfers use DTLS-SRTP encryption, the same standard used to secure video calls. Whether your connection is direct or relayed, only you and your recipient can read the data. Even our own relay server handles only encrypted packets and cannot access your files."
+                    answer="Yes. All transfers use DTLS encryption built into WebRTC. Whether your connection is direct or relayed, only you and your recipient can read the data. Even our own relay server handles only encrypted packets and cannot access your files."
                 />
             </div>
         </section>

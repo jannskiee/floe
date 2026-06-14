@@ -7,6 +7,15 @@ When you create a transfer in Floe, a unique room is created on the signaling se
 
 The signaling server never touches file data, never stores anything about your transfer, and plays no part once the WebRTC connection is established.
 
+## Connection lifecycle
+
+1. You create a transfer and share the link or short code with the recipient.
+2. Both devices join the same room on the signaling server.
+3. The server assigns roles: the first peer to join is the **sender**, the second is the **receiver**.
+4. Peers exchange a WebRTC offer, answer, and ICE candidates through the server.
+5. Once a usable network path is found, a direct data channel opens between the two devices.
+6. The signaling server plays no further part. All file data flows over the data channel.
+
 ## What the signaling server does
 
 - Assigns roles: the first peer to join a room becomes the **sender**, the second becomes the **receiver**.
@@ -36,4 +45,12 @@ The signaling server never touches file data, never stores anything about your t
   **TURN credentials:** Issued via `GET /api/turn-credentials`. Credentials use HMAC-SHA1 with a 24-hour expiry. If `TURN_SECRET` is not set, the endpoint returns STUN servers only.
 
   **Rate limiting:** 30 connections per IP per 60 seconds for Socket.IO and WebSocket; 20 requests per IP per 60 seconds for the TURN credential endpoint.
+
+  **Data-channel transfer protocol:** Once the WebRTC data channel labeled `floe` opens, the sender runs this sequence for each file:
+  1. Sends a JSON `metadata` message containing the filename, size in bytes, and MIME type.
+  2. Waits for the receiver to reply with a JSON `ack` message.
+  3. Streams the file as binary chunks of up to 16 KB each until the full file is sent.
+  4. Sends a JSON `end` message to signal completion.
+
+  For multi-file transfers, this four-step sequence repeats for each file in order.
 </Accordion>

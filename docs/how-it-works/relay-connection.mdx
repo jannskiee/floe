@@ -5,6 +5,16 @@ description: "How Floe uses a TURN server as an encrypted bridge when a direct c
 
 Some networks make it impossible for two devices to connect directly. This happens on strict corporate firewalls, university networks, and when a mobile carrier places many users behind a single shared IP address (carrier-grade NAT). In these cases, a direct path cannot be found and Floe falls back to a relay.
 
+## Direct vs relay at a glance
+
+| | Direct | Relay |
+|---|---|---|
+| Speed | Limited only by your internet | Depends on relay server load |
+| File size limit | None | 2 GB per session |
+| When used | Most home and mobile networks | Strict firewalls, carrier-grade NAT |
+| Bandwidth cost | Zero (files never touch a server) | Uses Floe relay infrastructure |
+| Encryption | DTLS end-to-end | DTLS end-to-end |
+
 ## TURN fallback
 
 When a direct connection fails, Floe automatically routes through a **TURN server** (`turn.floe.one`). A TURN server acts as a secure bridge. Your data travels through it on the way to the recipient, like a courier carrying a locked box it cannot open.

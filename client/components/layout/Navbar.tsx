@@ -44,6 +44,7 @@ export const Navbar = () => {
                 <div className="flex items-center gap-0.5 sm:gap-1">
                     <button onClick={() => scrollToSection('about')} className="rounded-full px-2.5 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-zinc-400 transition hover:bg-white/10 hover:text-white">About</button>
                     <button onClick={() => scrollToSection('faq')} className="rounded-full px-2.5 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-zinc-400 transition hover:bg-white/10 hover:text-white">FAQs</button>
+                    <a href="https://docs.floe.one" target="_blank" rel="noreferrer" className="rounded-full px-2.5 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-zinc-400 transition hover:bg-white/10 hover:text-white">Docs</a>
                 </div>
                 <div className="h-4 w-px bg-white/10 mx-1" />
                 <a href="https://github.com/jannskiee/floe" target="_blank" rel="noreferrer" className="flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-bold text-black transition hover:bg-zinc-200">
