@@ -38,7 +38,7 @@ export const Navbar = () => {
                     className="flex items-center gap-1.5 rounded-full px-2.5 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-semibold text-white transition hover:bg-white/10"
                 >
                     <div className={`h-2 w-2 rounded-full ${dotColor} animate-pulse transition-colors duration-500`} />
-                    Floe.
+                    Floe
                 </button>
                 <div className="h-4 w-px bg-white/10 mx-1" />
                 <div className="flex items-center gap-0.5 sm:gap-1">
