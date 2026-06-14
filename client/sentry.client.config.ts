@@ -5,6 +5,19 @@ Sentry.init({
     // Leave empty (or omit) to disable Sentry — safe for local development and forks.
     dsn: process.env.NEXT_PUBLIC_SENTRY_DSN || '',
 
+    // Filter out non-actionable errors caused by browser extensions and restricted environments
+    ignoreErrors: [
+        // Browser extensions (Google Translate, Grammarly, ad blockers) modify the DOM
+        // directly, causing React's virtual DOM to desync. Not actionable.
+        "Failed to execute 'removeChild' on 'Node'",
+        "Failed to execute 'insertBefore' on 'Node'",
+        "The node to be removed is not a child of this node",
+        // Clipboard blocked in restricted browsers (already handled with fallback)
+        'Write permission denied',
+        // Safari/iOS ResizeObserver noise
+        'ResizeObserver loop',
+    ],
+
     // Capture 100% of transactions in production — adjust to 0.1 at scale
     tracesSampleRate: 1.0,
 

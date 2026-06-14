@@ -118,7 +118,7 @@ export function P2PTransfer() {
         Map<string, { chunks: ArrayBuffer[]; received: number }>
     >(new Map());
     const fileListRef = useRef<HTMLDivElement>(null);
-    const chunkSizeRef = useRef(160 * 1024);
+
     const iceServersRef = useRef<RTCIceServer[]>([
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
@@ -151,7 +151,6 @@ export function P2PTransfer() {
                 if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.nominated) {
                     const localCandidate = stats.get(report.localCandidateId);
                     const remoteCandidate = stats.get(report.remoteCandidateId);
-                    // If either side uses a relay candidate, the full data path goes through TURN
                     const isRelay =
                         localCandidate?.candidateType === 'relay' ||
                         remoteCandidate?.candidateType === 'relay';
@@ -301,8 +300,19 @@ export function P2PTransfer() {
         }
     };
 
-    const handleCopy = () => {
-        navigator.clipboard.writeText(generatedLink);
+    const handleCopy = async () => {
+        try {
+            await navigator.clipboard.writeText(generatedLink);
+        } catch {
+            const textarea = document.createElement('textarea');
+            textarea.value = generatedLink;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+        }
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
@@ -417,8 +427,8 @@ export function P2PTransfer() {
                 (window as UmamiWindow).umami?.track('transfer-failed', {
                     reason: err.message?.includes('User-Initiated Abort') ? 'abort'
                         : err.message === 'Ice connection failed.' ? 'ice-failed'
-                        : err.message === 'Connection failed.' ? 'conn-failed'
-                        : 'unknown',
+                            : err.message === 'Connection failed.' ? 'conn-failed'
+                                : 'unknown',
                     role: 'receiver',
                 });
             }
@@ -650,9 +660,9 @@ export function P2PTransfer() {
     useEffect(() => {
         const status =
             connectionType === 'direct' ? 'direct' :
-            connectionType === 'relay' ? 'relay' :
-            isConnected ? 'connected' :
-            'offline';
+                connectionType === 'relay' ? 'relay' :
+                    isConnected ? 'connected' :
+                        'offline';
         window.dispatchEvent(new CustomEvent('floe-connection-status', { detail: status }));
     }, [isConnected, connectionType]);
 
@@ -705,7 +715,6 @@ export function P2PTransfer() {
             setStatus('Peer joined. Starting transfer');
             requestWakeLock();
 
-            // Strip TURN servers from ICE config if relay fallback is disabled by the user
             const iceConfig = relayEnabled
                 ? iceServersRef.current
                 : iceServersRef.current.filter((s) => {
@@ -737,7 +746,6 @@ export function P2PTransfer() {
                     data: { relayEnabled, filesCount: files.length, totalBytes },
                 });
 
-                // Wait briefly for ICE to resolve connection type before starting transfer
                 setTimeout(async () => {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const pc = (peer as any)._pc as RTCPeerConnection | undefined;
@@ -764,10 +772,6 @@ export function P2PTransfer() {
                         data: { isRelay, totalBytes },
                     });
 
-                    // Relay enforcement: if the actual negotiated path is relay
-                    // but the user disabled relay fallback, block the transfer.
-                    // This catches all cases regardless of which side generated
-                    // relay candidates during ICE negotiation.
                     if (isRelay && !relayEnabled) {
                         setError('Connection failed. Enable "Network Relay" to connect across restrictive networks.');
                         setStatus('Connection failed');
@@ -812,11 +816,6 @@ export function P2PTransfer() {
                     return;
                 }
 
-                // Known expected outcomes — not application bugs:
-                // 1. Relay disabled → ICE has no TURN candidates → connection fails
-                // 2. "Ice connection failed." / "Connection failed." — SimplePeer ICE errors
-                // 3. "User-Initiated Abort" — other side closed the tab or peer.destroy() called
-                // Log a breadcrumb for context but do NOT send to Sentry.
                 const isExpected =
                     !relayEnabled ||
                     err.message === 'Ice connection failed.' ||
@@ -836,7 +835,6 @@ export function P2PTransfer() {
                             : 'Connection lost. The other device may have closed the tab.'
                     );
                 } else {
-                    // Relay was enabled and connection still failed — genuinely unexpected.
                     Sentry.withScope((scope) => {
                         scope.setContext('webrtc', {
                             role: 'sender',
@@ -850,14 +848,13 @@ export function P2PTransfer() {
                     });
                     setError(`Connection error: ${err.message}`);
                 }
-                // Track failed connection attempt
                 if (typeof window !== 'undefined') {
                     (window as UmamiWindow).umami?.track('transfer-failed', {
                         reason: !relayEnabled ? 'relay-disabled'
                             : err.message?.includes('User-Initiated Abort') ? 'abort'
-                            : err.message === 'Ice connection failed.' ? 'ice-failed'
-                            : err.message === 'Connection failed.' ? 'conn-failed'
-                            : 'unknown',
+                                : err.message === 'Ice connection failed.' ? 'ice-failed'
+                                    : err.message === 'Connection failed.' ? 'conn-failed'
+                                        : 'unknown',
                         role: 'sender',
                         files: files.length,
                         bytes: totalBytes,
@@ -905,10 +902,8 @@ export function P2PTransfer() {
         total: number
     ) => {
         return new Promise<void>(async (resolve) => {
-            const MIN_CHUNK = 64 * 1024;
-            const MAX_CHUNK = 256 * 1024;
+            const CHUNK_SIZE = 16 * 1024;
             const BUFFER_LIMIT = 1024 * 1024;
-            const ADAPT_INTERVAL = 20;
             const { file, id } = fileItem;
 
             if (!peer || peer.destroyed) {
@@ -951,15 +946,12 @@ export function P2PTransfer() {
 
             let offset = startOffset;
             let chunkCount = 0;
-            let measureStart = performance.now();
-            let measureBytes = 0;
 
             let speedMeasureStart = performance.now();
             let speedMeasureBytes = 0;
             let lastSpeedUpdate = 0;
 
             while (offset < file.size) {
-                const CHUNK_SIZE = chunkSizeRef.current;
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const channel = (peer as any)._channel as RTCDataChannel | undefined;
 
@@ -988,7 +980,6 @@ export function P2PTransfer() {
                 try {
                     peer.send(chunkBuffer);
                     offset += chunkBuffer.byteLength;
-                    measureBytes += chunkBuffer.byteLength;
                     speedMeasureBytes += chunkBuffer.byteLength;
                     chunkCount++;
 
@@ -1012,26 +1003,6 @@ export function P2PTransfer() {
                         lastSpeedUpdate = now;
                     }
 
-                    if (chunkCount % ADAPT_INTERVAL === 0) {
-                        const elapsed = (performance.now() - measureStart) / 1000;
-                        const bytesPerSec = measureBytes / elapsed;
-
-                        let newChunkSize: number;
-                        if (bytesPerSec > 2 * 1024 * 1024) {
-                            newChunkSize = MAX_CHUNK;
-                        } else if (bytesPerSec > 500 * 1024) {
-                            newChunkSize = 128 * 1024;
-                        } else {
-                            newChunkSize = MIN_CHUNK;
-                        }
-
-                        if (newChunkSize !== chunkSizeRef.current) {
-                            chunkSizeRef.current = newChunkSize;
-                        }
-
-                        measureStart = performance.now();
-                        measureBytes = 0;
-                    }
 
                     if (
                         chunkCount % 10 === 0 ||
@@ -1148,35 +1119,33 @@ export function P2PTransfer() {
                                 <div className="flex items-center gap-1.5">
                                     <span className="relative flex h-2 w-2">
                                         <span
-                                            className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                                                connectionType === 'direct' ? 'bg-green-400' :
-                                                connectionType === 'relay' ? 'bg-amber-400' :
-                                                isConnected ? 'bg-green-400' :
-                                                'bg-red-500'
-                                            }`}
+                                            className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${connectionType === 'direct' ? 'bg-green-400' :
+                                                    connectionType === 'relay' ? 'bg-amber-400' :
+                                                        isConnected ? 'bg-green-400' :
+                                                            'bg-red-500'
+                                                }`}
                                         ></span>
                                         <span
-                                            className={`relative inline-flex rounded-full h-2 w-2 ${
-                                                connectionType === 'direct' ? 'bg-green-500' :
-                                                connectionType === 'relay' ? 'bg-amber-500' :
-                                                isConnected ? 'bg-green-500' :
-                                                'bg-red-600'
-                                            }`}
+                                            className={`relative inline-flex rounded-full h-2 w-2 ${connectionType === 'direct' ? 'bg-green-500' :
+                                                    connectionType === 'relay' ? 'bg-amber-500' :
+                                                        isConnected ? 'bg-green-500' :
+                                                            'bg-red-600'
+                                                }`}
                                         ></span>
                                     </span>
                                     <span>
                                         {connectionType === 'direct'
                                             ? 'Direct'
                                             : connectionType === 'relay'
-                                            ? 'Relay'
-                                            : isConnected
-                                            ? 'Ready'
-                                            : 'Offline'}
+                                                ? 'Relay'
+                                                : isConnected
+                                                    ? 'Ready'
+                                                    : 'Offline'}
                                     </span>
                                     {(connectionType === 'direct' || connectionType === 'relay') && (
                                         <div className="relative group/info inline-flex items-center p-0.5 cursor-help"
-                                        onClick={(e) => { e.stopPropagation(); setShowInfoTooltip(v => !v); }}
-                                    >
+                                            onClick={(e) => { e.stopPropagation(); setShowInfoTooltip(v => !v); }}
+                                        >
                                             <Info className="w-2.5 h-2.5 text-zinc-600 group-hover/info:text-zinc-400 transition-colors" />
                                             <div className={`absolute z-[9999] w-52 transition-opacity duration-150 top-full right-0 mt-2 sm:top-1/2 sm:right-full sm:left-auto sm:-translate-y-1/2 sm:mt-0 sm:mr-2 ${showInfoTooltip ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'} group-hover/info:opacity-100 group-hover/info:pointer-events-auto`}>
                                                 {/* invisible bridge above to prevent hover gap */}
@@ -1213,7 +1182,6 @@ export function P2PTransfer() {
                                 </div>
                             </div>
 
-                            {/* Relay over-limit warning banner */}
                             {isSender && isRelayOverLimit && (
                                 <div className="mt-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 flex items-start gap-3">
                                     <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
@@ -1306,11 +1274,10 @@ export function P2PTransfer() {
                                                                 onChange={(e) => setRelayEnabled(e.target.checked)}
                                                                 className="sr-only"
                                                             />
-                                                            <div className={`h-4 w-4 rounded-sm border transition-all duration-150 flex items-center justify-center ${
-                                                                relayEnabled
+                                                            <div className={`h-4 w-4 rounded-sm border transition-all duration-150 flex items-center justify-center ${relayEnabled
                                                                     ? 'bg-white border-white'
                                                                     : 'bg-transparent border-zinc-600 group-hover/relay:border-zinc-400'
-                                                            }`}>
+                                                                }`}>
                                                                 {relayEnabled && (
                                                                     <svg viewBox="0 0 10 8" fill="none" className="h-2.5 w-2.5">
                                                                         <path d="M1 4l2.5 2.5L9 1" stroke="#09090b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -1385,11 +1352,10 @@ export function P2PTransfer() {
                                                             </button>
                                                             <button
                                                                 onClick={() => setShowQr((v) => !v)}
-                                                                className={`w-24 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-md border text-xs font-medium transition-all ${
-                                                                    showQr
+                                                                className={`w-24 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-md border text-xs font-medium transition-all ${showQr
                                                                         ? 'bg-zinc-700 border-zinc-600 text-white'
                                                                         : 'bg-zinc-800/80 hover:bg-zinc-700 border-zinc-700 text-zinc-400 hover:text-white'
-                                                                }`}
+                                                                    }`}
                                                                 aria-label="Toggle QR code"
                                                             >
                                                                 <QrCode className="h-3.5 w-3.5" />
@@ -1425,14 +1391,13 @@ export function P2PTransfer() {
                                                 )}
 
                                                 <div className="mt-3 flex w-full items-center justify-center gap-2 text-xs transition-colors duration-300">
-                                                    {status ===
-                                                        'All Files Sent!' ? (
+                                                    {status === 'All Files Sent!' || status.includes('Transfer complete') ? (
                                                         <CheckCircle2 className="h-3 w-3 shrink-0 text-green-400" />
                                                     ) : (
                                                         <Loader2 className="h-3 w-3 shrink-0 animate-spin text-zinc-500" />
                                                     )}
                                                     <span
-                                                        className={`truncate max-w-[200px] sm:max-w-[280px] ${status === 'All Files Sent!' ? 'text-green-400 font-medium' : 'text-zinc-500'}`}
+                                                        className={`truncate max-w-[200px] sm:max-w-[280px] ${status === 'All Files Sent!' || status.includes('Transfer complete') ? 'text-green-400 font-medium' : 'text-zinc-500'}`}
                                                     >
                                                         {status}
                                                     </span>
@@ -1499,9 +1464,8 @@ export function P2PTransfer() {
                                         {/* Total file size indicator */}
                                         {files.length > 0 && (
                                             <div className="pt-1 pb-0.5 px-0.5">
-                                                <span className={`text-[10px] uppercase font-bold tracking-widest font-mono ${
-                                                    isRelayOverLimit ? 'text-amber-500' : 'text-zinc-600'
-                                                }`}>
+                                                <span className={`text-[10px] uppercase font-bold tracking-widest font-mono ${isRelayOverLimit ? 'text-amber-500' : 'text-zinc-600'
+                                                    }`}>
                                                     {files.length} {files.length === 1 ? 'file' : 'files'} ({formatBytes(totalBytes)}{connectionType === 'relay' ? ' / 2.0 GB' : ''})
                                                 </span>
                                             </div>
