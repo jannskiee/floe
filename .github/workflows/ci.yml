@@ -52,6 +52,27 @@ jobs:
           # Use the live signaling server — matches the default in client/.env.example
           NEXT_PUBLIC_SOCKET_URL: https://api.floe.one
 
+  server:
+    name: Server (Node.js)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: server
+
+      - name: Test
+        run: npm test
+        working-directory: server
+
   cli:
     name: CLI (Go)
     runs-on: ubuntu-latest
