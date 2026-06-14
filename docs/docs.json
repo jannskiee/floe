@@ -13,57 +13,64 @@
     "light": "#60a5fa",
     "dark": "#2563eb"
   },
-  "topbarLinks": [
-    {
-      "name": "floe.one",
-      "url": "https://floe.one"
+  "navbar": {
+    "links": [
+      {
+        "label": "floe.one",
+        "href": "https://floe.one"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "GitHub",
+      "href": "https://github.com/jannskiee/floe"
     }
-  ],
-  "topbarCtaButton": {
-    "name": "GitHub",
-    "url": "https://github.com/jannskiee/floe"
   },
-  "navigation": [
-    {
-      "group": "Getting Started",
-      "pages": ["introduction", "quickstart"]
-    },
-    {
-      "group": "CLI",
-      "pages": [
-        "cli/installation",
-        "cli/send",
-        "cli/receive",
-        "cli/version",
-        "cli/flags",
-        "cli/self-hosted-server"
-      ]
-    },
-    {
-      "group": "Self-Hosting",
-      "pages": [
-        "self-hosting/overview",
-        "self-hosting/quickstart",
-        "self-hosting/configuration",
-        "self-hosting/build-time-url",
-        "self-hosting/production",
-        "self-hosting/turn-relay",
-        "self-hosting/operations",
-        "self-hosting/without-docker"
-      ]
-    },
-    {
-      "group": "How It Works",
-      "pages": [
-        "how-it-works/signaling",
-        "how-it-works/direct-connection",
-        "how-it-works/relay-connection",
-        "how-it-works/2gb-limit",
-        "how-it-works/encryption"
-      ]
+  "footer": {
+    "socials": {
+      "github": "https://github.com/jannskiee/floe"
     }
-  ],
-  "footerSocials": {
-    "github": "https://github.com/jannskiee/floe"
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Getting Started",
+        "pages": ["introduction", "quickstart"]
+      },
+      {
+        "group": "CLI",
+        "pages": [
+          "cli/installation",
+          "cli/send",
+          "cli/receive",
+          "cli/version",
+          "cli/flags",
+          "cli/self-hosted-server"
+        ]
+      },
+      {
+        "group": "Self-Hosting",
+        "pages": [
+          "self-hosting/overview",
+          "self-hosting/quickstart",
+          "self-hosting/configuration",
+          "self-hosting/build-time-url",
+          "self-hosting/production",
+          "self-hosting/turn-relay",
+          "self-hosting/operations",
+          "self-hosting/without-docker"
+        ]
+      },
+      {
+        "group": "How It Works",
+        "pages": [
+          "how-it-works/signaling",
+          "how-it-works/direct-connection",
+          "how-it-works/relay-connection",
+          "how-it-works/2gb-limit",
+          "how-it-works/encryption"
+        ]
+      }
+    ]
   }
 }
