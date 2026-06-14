@@ -1,0 +1,14 @@
+node_modules
+.next
+out
+.env
+.env.*
+!.env.example
+.git
+.gitignore
+Dockerfile
+.dockerignore
+.DS_Store
+Thumbs.db
+*.log
+.vercel

@@ -1,0 +1,12 @@
+node_modules
+npm-debug.log*
+.env
+.env.*
+!.env.example
+*.test.js
+Dockerfile
+.dockerignore
+.git
+.gitignore
+.DS_Store
+Thumbs.db

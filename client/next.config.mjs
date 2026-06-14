@@ -2,6 +2,11 @@ import { withSentryConfig } from '@sentry/nextjs';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+    // Emit a self-contained production server (.next/standalone) so the Docker
+    // image can run with only the built output — no full node_modules at runtime.
+    // Vercel ignores this flag, so the hosted deploy is unaffected.
+    output: 'standalone',
+
     // React Strict Mode intentionally double-mounts components in development
     // to surface side-effect bugs. This would create two Socket.io connections
     // and two WebRTC peer instances — breaking the transfer logic entirely.

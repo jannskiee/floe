@@ -23,6 +23,10 @@ Thumbs.db
 .env.local
 .env.*
 !.env.example
+!.env.docker.example
+
+# --- Self-hosting: generated coturn config holds a secret ---
+coturn/turnserver.conf
 
 # --- Build Outputs ---
 dist/

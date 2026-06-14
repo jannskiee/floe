@@ -56,6 +56,17 @@ go build ./cmd/floe
 go test ./...
 ```
 
+### Full stack with Docker (no local toolchain needed)
+
+To run the client and signaling server together in containers — without installing Node, pnpm, or Go locally — use the Docker Compose setup:
+
+```bash
+cp .env.docker.example .env
+docker compose up -d --build
+```
+
+This is aimed at **self-hosting** (running your own instance) rather than active development, since the client image is a production build. See [SELF_HOSTING.md](SELF_HOSTING.md) for configuration and deployment details.
+
 ---
 
 ## Environment Variables
