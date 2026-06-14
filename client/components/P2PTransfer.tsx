@@ -83,7 +83,10 @@ interface ReceivedFile {
 
 
 export function P2PTransfer() {
-    const [isSender, setIsSender] = useState<boolean | null>(null);
+    const [isSender] = useState<boolean | null>(() => {
+        if (typeof window === 'undefined') return null;
+        return !new URLSearchParams(window.location.search).has('room');
+    });
     const [status, setStatus] = useState('Idle');
     const [isConnected, setIsConnected] = useState(false);
     const [ping, setPing] = useState(0);
@@ -572,10 +575,8 @@ export function P2PTransfer() {
         const roomFromUrl = params.get('room');
 
         if (roomFromUrl) {
-            setIsSender(false);
             fetchIceServers().then(() => joinRoomAsReceiver(roomFromUrl));
         } else {
-            setIsSender(true);
             fetchIceServers();
         }
 

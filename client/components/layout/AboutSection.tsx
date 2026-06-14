@@ -1,5 +1,3 @@
-'use client';
-
 import React from 'react';
 import { ShieldCheck, Zap, Server } from 'lucide-react';
 
