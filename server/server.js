@@ -1,13 +1,18 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const { WebSocketServer, WebSocket } = require('ws');
 const cors = require('cors');
 const helmet = require('helmet');
 const crypto = require('crypto');
 
-const app = express();
+// ---------------------------------------------------------------------------
+// App setup
+// ---------------------------------------------------------------------------
 
+const app = express();
 app.use(helmet());
+app.use(express.json());
 
 const allowedOrigins = [
     process.env.CLIENT_URL,
@@ -20,22 +25,19 @@ app.use(
     cors({
         origin: (origin, callback) => {
             if (!origin) return callback(null, true);
-            if (allowedOrigins.includes(origin)) {
-                return callback(null, true);
-            }
+            if (allowedOrigins.includes(origin)) return callback(null, true);
             return callback(new Error('Not allowed by CORS'));
         },
         credentials: true,
     })
 );
 
-app.get('/', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
+app.get('/', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+app.get('/health', (_req, res) => res.json({ status: 'healthy', uptime: process.uptime() }));
 
-app.get('/health', (req, res) => {
-    res.json({ status: 'healthy', uptime: process.uptime() });
-});
+// ---------------------------------------------------------------------------
+// TURN credential generation
+// ---------------------------------------------------------------------------
 
 const STUN_FALLBACK = [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -49,18 +51,12 @@ const TURN_MAX_REQUESTS = 20;
 function generateCoturnCredentials() {
     const turnSecret = process.env.TURN_SECRET;
     const turnDomain = process.env.TURN_DOMAIN;
-
-    if (!turnSecret || !turnDomain) {
-        return null;
-    }
+    if (!turnSecret || !turnDomain) return null;
 
     const ttl = 24 * 3600;
     const expiry = Math.floor(Date.now() / 1000) + ttl;
     const username = `${expiry}:floeuser`;
-    const password = crypto
-        .createHmac('sha1', turnSecret)
-        .update(username)
-        .digest('base64');
+    const password = crypto.createHmac('sha1', turnSecret).update(username).digest('base64');
 
     return [
         { urls: `stun:${turnDomain}:3478` },
@@ -73,25 +69,219 @@ app.get('/api/turn-credentials', (req, res) => {
     const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
     const now = Date.now();
 
-    if (!turnRateLimits.has(ip)) {
-        turnRateLimits.set(ip, []);
-    }
+    if (!turnRateLimits.has(ip)) turnRateLimits.set(ip, []);
     const timestamps = turnRateLimits.get(ip).filter(t => now - t < TURN_RATE_WINDOW);
-    if (timestamps.length >= TURN_MAX_REQUESTS) {
-        return res.status(429).json({ error: 'Too many requests' });
-    }
+    if (timestamps.length >= TURN_MAX_REQUESTS) return res.status(429).json({ error: 'Too many requests' });
     timestamps.push(now);
     turnRateLimits.set(ip, timestamps);
 
     const credentials = generateCoturnCredentials();
-    if (!credentials) {
-        return res.json(STUN_FALLBACK);
-    }
-
-    res.json(credentials);
+    res.json(credentials || STUN_FALLBACK);
 });
 
+// ---------------------------------------------------------------------------
+// Code phrase API  (/api/code)
+// CLI callers use this to generate and resolve short human-readable codes.
+// ---------------------------------------------------------------------------
+
+const words = require('./words.json');
+const codeToRoom = new Map(); // code → { roomId, expires }
+
+function generateCode() {
+    const pick = () => words[Math.floor(Math.random() * words.length)];
+    return `${pick()}-${pick()}-${pick()}`;
+}
+
+// POST /api/code — register a code for a room ID (called by CLI sender)
+app.post('/api/code', (req, res) => {
+    const { roomId } = req.body || {};
+    if (!roomId || !UUID_REGEX.test(roomId)) {
+        return res.status(400).json({ error: 'Invalid room ID' });
+    }
+    const code = generateCode();
+    codeToRoom.set(code, { roomId, expires: Date.now() + 600000 }); // 10 min TTL
+    res.json({ code });
+});
+
+// GET /api/code/:code — resolve a code to a room ID (called by CLI receiver)
+app.get('/api/code/:code', (req, res) => {
+    const entry = codeToRoom.get(req.params.code);
+    if (!entry || Date.now() > entry.expires) {
+        codeToRoom.delete(req.params.code);
+        return res.status(404).json({ error: 'Code not found or expired' });
+    }
+    res.json({ roomId: entry.roomId });
+});
+
+// ---------------------------------------------------------------------------
+// Rate limiting (Socket.IO connections + WebSocket connections share this map)
+// ---------------------------------------------------------------------------
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const connectionCounts = new Map();
+const RATE_LIMIT_WINDOW = 60000;
+const MAX_CONNECTIONS_PER_IP = 30;
+
+function checkRateLimit(ip) {
+    const now = Date.now();
+    if (!connectionCounts.has(ip)) connectionCounts.set(ip, []);
+    const timestamps = connectionCounts.get(ip).filter(t => now - t < RATE_LIMIT_WINDOW);
+    timestamps.push(now);
+    connectionCounts.set(ip, timestamps);
+    return timestamps.length <= MAX_CONNECTIONS_PER_IP;
+}
+
+// Periodic cleanup of old rate limit entries and expired codes
+setInterval(() => {
+    const now = Date.now();
+    for (const [ip, timestamps] of connectionCounts.entries()) {
+        const valid = timestamps.filter(t => now - t < RATE_LIMIT_WINDOW);
+        if (valid.length === 0) connectionCounts.delete(ip);
+        else connectionCounts.set(ip, valid);
+    }
+    for (const [ip, timestamps] of turnRateLimits.entries()) {
+        const valid = timestamps.filter(t => now - t < TURN_RATE_WINDOW);
+        if (valid.length === 0) turnRateLimits.delete(ip);
+        else turnRateLimits.set(ip, valid);
+    }
+    for (const [code, entry] of codeToRoom.entries()) {
+        if (now > entry.expires) codeToRoom.delete(code);
+    }
+}, 60000);
+
+// ---------------------------------------------------------------------------
+// Unified room registry
+//
+// Both Socket.IO (browser) and WebSocket (CLI) peers share this registry.
+// Each "peer" is a plain object with:
+//   { id, type, roomId, send(type, data) }
+//
+// This means a browser and a CLI can be in the same room and exchange
+// WebRTC signals through the same routing logic.
+// ---------------------------------------------------------------------------
+
+const rooms = new Map(); // roomId → [peer, peer]
+
+function createSocketIOPeer(socket) {
+    return {
+        id: socket.id,
+        type: 'socketio',
+        roomId: null,
+        send(type, data) {
+            // 'user-connected' historically sent just the peer ID string in the
+            // Socket.IO version. Keep this for browser backward compatibility.
+            if (type === 'user-connected') {
+                socket.emit(type, typeof data === 'object' ? data.id : data);
+            } else {
+                socket.emit(type, data);
+            }
+        },
+    };
+}
+
+function createWSPeer(ws) {
+    return {
+        id: ws.peerId,
+        type: 'ws',
+        roomId: null,
+        send(type, data) {
+            if (ws.readyState !== WebSocket.OPEN) return;
+            // Spread data into the top-level object alongside "type"
+            ws.send(JSON.stringify({ type, ...data }));
+        },
+    };
+}
+
+function getPeerById(id) {
+    for (const peers of rooms.values()) {
+        const found = peers.find(p => p.id === id);
+        if (found) return found;
+    }
+    return null;
+}
+
+function handleJoinRoom(peer, roomId) {
+    if (!roomId || typeof roomId !== 'string' || !UUID_REGEX.test(roomId)) {
+        peer.send('error', { message: 'Invalid room ID' });
+        return;
+    }
+
+    // If already in a room, leave it first
+    if (peer.roomId) {
+        const oldRoom = rooms.get(peer.roomId);
+        if (oldRoom) {
+            const remaining = oldRoom.filter(p => p.id !== peer.id);
+            if (remaining.length === 0) rooms.delete(peer.roomId);
+            else rooms.set(peer.roomId, remaining);
+        }
+        peer.roomId = null;
+    }
+
+    const room = rooms.get(roomId) || [];
+
+    if (room.length === 0) {
+        room.push(peer);
+        rooms.set(roomId, room);
+        peer.roomId = roomId;
+        peer.send('room-joined', { role: 'sender' });
+    } else if (room.length === 1) {
+        room.push(peer);
+        rooms.set(roomId, room);
+        peer.roomId = roomId;
+        peer.send('room-joined', { role: 'receiver' });
+        // Tell the first peer that a second peer has joined
+        room[0].send('user-connected', { id: peer.id });
+    } else {
+        peer.send('room-full', {});
+    }
+}
+
+function handleSignal(senderPeer, signal, targetId, roomId) {
+    if (!signal) return;
+    let targetPeer = null;
+
+    if (targetId) {
+        // Browser receivers send signals with a specific target ID
+        targetPeer = getPeerById(targetId);
+    } else {
+        // CLI clients always use roomId for signaling
+        const lookupId = roomId || senderPeer.roomId;
+        const room = rooms.get(lookupId);
+        if (room) targetPeer = room.find(p => p.id !== senderPeer.id);
+    }
+
+    if (targetPeer) {
+        targetPeer.send('signal', { signal, sender: senderPeer.id });
+    }
+}
+
+function handleDisconnect(peer) {
+    if (!peer.roomId) return;
+    const room = rooms.get(peer.roomId);
+    if (!room) return;
+
+    // Notify the other peer in the room
+    room.forEach(p => {
+        if (p.id !== peer.id) {
+            p.send('peer-disconnected', {});
+            p.roomId = null;
+        }
+    });
+
+    rooms.delete(peer.roomId);
+    peer.roomId = null;
+}
+
+// ---------------------------------------------------------------------------
+// HTTP server
+// ---------------------------------------------------------------------------
+
 const server = http.createServer(app);
+
+// ---------------------------------------------------------------------------
+// Socket.IO (browser web app — unchanged protocol, new routing backend)
+// ---------------------------------------------------------------------------
 
 const io = new Server(server, {
     cors: {
@@ -99,127 +289,110 @@ const io = new Server(server, {
         methods: ['GET', 'POST'],
         credentials: true,
     },
-    // Signaling only exchanges small SDP/ICE payloads (<10 KB). 1 MB is generous.
-    maxHttpBufferSize: 1e6,
+    maxHttpBufferSize: 1e6, // Signaling only: SDP/ICE < 10 KB
 });
 
-const UUID_REGEX =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-const connectionCounts = new Map();
-const RATE_LIMIT_WINDOW = 60000;
-const MAX_CONNECTIONS_PER_IP = 30;
-
 io.use((socket, next) => {
-    const ip =
-        socket.handshake.headers['x-forwarded-for'] ||
-        socket.handshake.address;
-    const now = Date.now();
-
-    if (!connectionCounts.has(ip)) {
-        connectionCounts.set(ip, []);
-    }
-
-    const timestamps = connectionCounts.get(ip);
-    const validTimestamps = timestamps.filter((t) => now - t < RATE_LIMIT_WINDOW);
-    validTimestamps.push(now);
-    connectionCounts.set(ip, validTimestamps);
-
-    if (validTimestamps.length > MAX_CONNECTIONS_PER_IP) {
-        return next(new Error('Rate limit exceeded'));
-    }
-
+    const ip = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
+    if (!checkRateLimit(ip)) return next(new Error('Rate limit exceeded'));
     next();
 });
 
-setInterval(() => {
-    const now = Date.now();
-    for (const [ip, timestamps] of connectionCounts.entries()) {
-        const validTimestamps = timestamps.filter(
-            (t) => now - t < RATE_LIMIT_WINDOW
-        );
-        if (validTimestamps.length === 0) {
-            connectionCounts.delete(ip);
-        } else {
-            connectionCounts.set(ip, validTimestamps);
-        }
-    }
-    // Also clean up TURN rate limit map to prevent unbounded memory growth.
-    for (const [ip, timestamps] of turnRateLimits.entries()) {
-        const valid = timestamps.filter((t) => now - t < TURN_RATE_WINDOW);
-        if (valid.length === 0) {
-            turnRateLimits.delete(ip);
-        } else {
-            turnRateLimits.set(ip, valid);
-        }
-    }
-}, 60000);
-
 io.on('connection', (socket) => {
+    const peer = createSocketIOPeer(socket);
+
     socket.on('ping', (callback) => {
-        if (typeof callback === 'function') {
-            callback();
-        }
+        if (typeof callback === 'function') callback();
     });
 
     socket.on('join-room', (roomId) => {
-        if (
-            !roomId ||
-            typeof roomId !== 'string' ||
-            !UUID_REGEX.test(roomId)
-        ) {
-            socket.emit('error', 'Invalid room ID');
-            return;
-        }
-
-        socket.rooms.forEach((room) => {
-            if (room !== socket.id) {
-                socket.leave(room);
-            }
-        });
-
-        const room = io.sockets.adapter.rooms.get(roomId);
-        const numClients = room ? room.size : 0;
-
-        if (numClients === 0) {
-            socket.join(roomId);
-            socket.emit('room-joined', { role: 'sender' });
-        } else if (numClients === 1) {
-            socket.join(roomId);
-            socket.emit('room-joined', { role: 'receiver' });
-            socket.to(roomId).emit('user-connected', socket.id);
-        } else {
-            socket.emit('room-full');
-        }
+        handleJoinRoom(peer, roomId);
     });
 
     socket.on('signal', (data) => {
-        if (!data || typeof data !== 'object' || !data.signal) {
-            return;
-        }
-
-        if (data.target && typeof data.target === 'string') {
-            io.to(data.target).emit('signal', {
-                signal: data.signal,
-                sender: socket.id,
-            });
-        } else if (data.roomId && UUID_REGEX.test(data.roomId)) {
-            socket.to(data.roomId).emit('signal', {
-                signal: data.signal,
-                sender: socket.id,
-            });
-        }
+        if (!data || typeof data !== 'object' || !data.signal) return;
+        handleSignal(peer, data.signal, data.target || null, data.roomId || null);
     });
 
     socket.on('disconnecting', () => {
-        const rooms = socket.rooms;
-        rooms.forEach((roomId) => {
-            socket.to(roomId).emit('peer-disconnected');
-        });
+        handleDisconnect(peer);
     });
 
-    socket.on('disconnect', () => { });
+    socket.on('disconnect', () => {});
 });
+
+// ---------------------------------------------------------------------------
+// WebSocket server — used by CLI clients
+// Path: /ws
+// ---------------------------------------------------------------------------
+
+// maxPayload caps inbound frames at 1 MB to match Socket.IO's maxHttpBufferSize.
+// Signaling carries only SDP/ICE (< 10 KB); larger frames are rejected (close 1009).
+const wss = new WebSocketServer({ noServer: true, maxPayload: 1e6 });
+
+// Manually route WebSocket upgrades so the ws library does NOT interfere
+// with Socket.IO's own WebSocket upgrade on /socket.io/.
+// Without this, ws calls socket.destroy() for paths that don't match '/ws',
+// which kills Socket.IO's transport upgrade and forces unreliable long-polling.
+server.on('upgrade', (req, socket, head) => {
+    const pathname = new URL(req.url, 'http://x').pathname;
+    if (pathname === '/ws') {
+        wss.handleUpgrade(req, socket, head, (ws) => {
+            wss.emit('connection', ws, req);
+        });
+    }
+    // All other paths (e.g. /socket.io/) are left untouched for Socket.IO
+});
+
+wss.on('connection', (ws, req) => {
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    if (!checkRateLimit(ip)) {
+        ws.close(1008, 'Rate limit exceeded');
+        return;
+    }
+
+    ws.peerId = crypto.randomUUID();
+    ws.isAlive = true;
+
+    const peer = createWSPeer(ws);
+
+    ws.on('pong', () => { ws.isAlive = true; });
+
+    ws.on('message', (raw) => {
+        let msg;
+        try { msg = JSON.parse(raw); } catch { return; }
+
+        switch (msg.type) {
+            case 'join-room':
+                handleJoinRoom(peer, msg.roomId);
+                break;
+            case 'signal':
+                handleSignal(peer, msg.signal, msg.target || null, msg.roomId || null);
+                break;
+            case 'ping':
+                ws.send(JSON.stringify({ type: 'pong' }));
+                break;
+        }
+    });
+
+    ws.on('close', () => handleDisconnect(peer));
+    ws.on('error', () => handleDisconnect(peer));
+});
+
+// Heartbeat: detect and close dead WebSocket connections every 30 seconds
+const heartbeat = setInterval(() => {
+    wss.clients.forEach((ws) => {
+        if (!ws.isAlive) { ws.terminate(); return; }
+        ws.isAlive = false;
+        ws.ping();
+    });
+}, 30000);
+
+wss.on('close', () => clearInterval(heartbeat));
+
+// ---------------------------------------------------------------------------
+// Start
+// ---------------------------------------------------------------------------
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT);

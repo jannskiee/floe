@@ -24,58 +24,67 @@
 </p>
 
 <p align="center">
-  <a href="https://floe.one">Live Demo</a> |
-  <a href="#features">Features</a> |
+  <a href="https://floe.one">Quick Start</a> |
+  <a href="#cli">CLI</a> |
   <a href="#contributing">Contributing</a> |
-  <a href="#sponsorship">Sponsor</a>
+  <a href="#support">Support</a>
 </p>
 
 ## About
 
-Floe is an open-source, browser-based file transfer application built on WebRTC. It does not upload or store files on any server. In most cases, files stream directly between browsers. When a direct path is unavailable due to network restrictions, a TURN relay server bridges the connection with end-to-end encryption.
+Floe is an open-source peer-to-peer file transfer application built on WebRTC. Files stream directly between devices with no server storage, no accounts, and no registration required. When a direct path is unavailable due to network restrictions, a TURN relay server bridges the connection while maintaining end-to-end encryption.
 
-A signaling server (`api.floe.one`) handles WebRTC negotiation and issues short-lived TURN credentials. It does not handle file data. A TURN relay server (`turn.floe.one`) routes encrypted data when a direct connection cannot be established. No component in Floe's infrastructure stores, decrypts, or inspects transferred files.
+A signaling server (`api.floe.one`) handles WebRTC negotiation and issues short-lived TURN credentials. It does not handle file data. No component in Floe's infrastructure stores, decrypts, or inspects transferred files.
 
-## Features
+## Quick Start
 
-| Feature | Description |
-|-----------------------|--------------------------------------------------------------------------------------|
-| P2P Transfer | Files stream directly between devices with no server storage. |
-| Relay Fallback | Automatic encrypted relay when a direct connection is unavailable. |
-| End-to-End Encryption | All transfers use DTLS-SRTP encryption, whether direct or relayed. |
-| No Registration | No account or sign-up required. |
-| Multi-File + ZIP | Send multiple files and download them as a single archive. |
+Visit [floe.one](https://floe.one) to transfer files directly in your browser. No account or installation required.
 
 ## How It Works
 
-### Sender
+Files transfer directly between devices using WebRTC. A signaling server handles connection setup, then steps aside once both peers are connected. When a direct path cannot be established, an optional TURN relay bridges the connection with encrypted data that is never stored.
 
-1. Open Floe in your browser
-2. Drag and drop files or click to select
-3. Copy the generated link and share it with the recipient
-4. Keep your browser tab open until the transfer completes
+For a detailed explanation of the connection lifecycle, encryption model, and relay fallback, visit [floe.one/how-it-works](https://floe.one/how-it-works).
 
-### Receiver
+## CLI
 
-1. Open the shared link
-2. Wait for the connection to establish
-3. Click "Download" to receive files directly from the sender
+Floe provides a command-line interface for transferring files from headless devices, servers, and automated workflows. The CLI connects to the same signaling infrastructure as the web app. Browser-to-CLI and CLI-to-browser transfers are fully supported.
 
-### Connection Types
+### Install
 
-**Direct:** The signaling server introduces both browsers via WebRTC. Once connected, it steps aside and file data flows directly between devices. No size limits. No relay.
+Download the latest binary for your platform from the [Releases](https://github.com/jannskiee/floe/releases) page. No runtime or dependencies required.
 
-**Relay:** When a direct path cannot be established (e.g., strict corporate firewalls, Carrier-Grade NAT), Floe automatically falls back to a TURN relay server. File data passes through the relay in encrypted form and is never stored. Relay transfers are capped at 2 GB per session.
+### Usage
+
+**Send a file:**
+```sh
+floe send photo.jpg
+```
+
+**Send multiple files or a folder:**
+```sh
+floe send file1.txt file2.pdf folder/
+```
+
+**Receive:**
+```sh
+floe receive olive-tiger-castle
+```
+
+The sender's terminal will display a room code and a browser link. The receiver can join using either the code (CLI) or the link (browser).
+
+For complete documentation, flags, and advanced usage, see the [CLI Documentation](https://docs.floe.one).
+
 
 ## Contributing
 
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, environment variables, and the pull request process.
 
-If you encounter any bugs or have suggestions, please open an issue on GitHub.
+If you encounter a bug or have a feature suggestion, please open an [issue](https://github.com/jannskiee/floe/issues).
 
-## Sponsorship
+## Support
 
-Floe is a free and open-source project. Sponsorship contributions go toward hosting costs for the signaling server and TURN relay infrastructure, which are required to keep the service reliable and accessible.
+Floe is free and open source. Contributions help cover the ongoing costs of backend infrastructure that keeps the service accessible to everyone. This includes the signaling server for WebRTC connection negotiation and room management, and the TURN relay server for encrypted relay for users behind strict firewalls or Carrier-Grade NAT.
 
 **[GitHub Sponsors](https://github.com/sponsors/jannskiee)**\
 **[Ko-fi](https://ko-fi.com/jannskiee)**

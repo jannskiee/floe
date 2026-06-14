@@ -1,0 +1,50 @@
+# GoReleaser config for the Floe CLI.
+# Run `goreleaser check` to validate, `goreleaser release --snapshot --clean`
+# to test locally. Tag a release (e.g. v1.0.0) to trigger the real pipeline.
+version: 2
+
+project_name: floe
+
+builds:
+  - id: floe
+    dir: cli
+    main: ./cmd/floe
+    binary: floe
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: floe
+    name_template: "floe_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-dev"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+release:
+  github:
+    owner: jannskiee
+    name: floe

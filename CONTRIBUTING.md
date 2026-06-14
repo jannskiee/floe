@@ -14,7 +14,7 @@ Thank you for your interest in contributing! All contributions are welcome.
 
 ## Development Setup
 
-Floe has two parts: a **Next.js client** and a **Node.js signaling server**.
+Floe has three parts: a **Next.js client**, a **Node.js signaling server**, and a **Go CLI**.
 
 For most contributions (UI, pages, components), you only need to run the client. It connects to the live signaling server at `api.floe.one` by default.
 
@@ -25,8 +25,8 @@ git clone https://github.com/YOUR_USERNAME/floe.git
 cd floe/client
 
 cp .env.example .env.local
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000). The client connects to `api.floe.one` automatically.
@@ -44,8 +44,16 @@ npm start
 cd floe/client
 cp .env.example .env.local
 # Change NEXT_PUBLIC_SOCKET_URL to http://localhost:3001
-npm install
-npm run dev
+pnpm install
+pnpm dev
+```
+
+### CLI (Only needed if you're changing CLI code)
+
+```bash
+cd floe/cli
+go build ./cmd/floe
+go test ./...
 ```
 
 ---
@@ -80,8 +88,8 @@ npm run dev
 
 1. Create a new branch: `git checkout -b your-branch-name`
 2. Make your changes
-3. Ensure the build passes: `npm run build` (in `client/`)
-4. Run the linter: `npm run lint` (in `client/`)
+3. Ensure the build passes: `pnpm build` (in `client/`)
+4. Run the linter: `pnpm lint` (in `client/`)
 5. Submit a pull request with a clear title and description
 
 ---

@@ -8,6 +8,7 @@ import { Navbar } from '@/components/layout/Navbar';
 import { AboutSection } from '@/components/layout/AboutSection';
 import { FAQSection } from '@/components/layout/FAQSection';
 import { P2PTransfer } from '@/components/P2PTransfer';
+import { InAppBrowserGuard } from '@/components/InAppBrowserGuard';
 
 export default function Home() {
     return (
@@ -25,7 +26,9 @@ export default function Home() {
                 </p>
             </div>
 
-            <P2PTransfer />
+            <InAppBrowserGuard>
+                <P2PTransfer />
+            </InAppBrowserGuard>
             <AboutSection />
             <FAQSection />
 

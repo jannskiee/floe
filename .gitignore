@@ -32,3 +32,18 @@ build/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# --- CLI build artifacts ---
+cli/floe
+cli/floe.exe
+cli/floe-rpi
+cli/floe-*
+cli/cmd/floe/floe
+cli/cmd/floe/floe.exe
+cli/received*/
+cli/output/
+cli/*.txt
+cli/*.bin
+
+# --- Package managers (client uses pnpm; keep only pnpm-lock.yaml there) ---
+client/package-lock.json
