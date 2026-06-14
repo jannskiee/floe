@@ -1,0 +1,17 @@
+---
+title: "Build-Time URL Caveat"
+description: "Why NEXT_PUBLIC_SOCKET_URL must be set before building the client image."
+---
+
+Next.js inlines `NEXT_PUBLIC_*` variables into the JavaScript bundle **at build time**, not at runtime. `NEXT_PUBLIC_SOCKET_URL` is therefore baked into the client image when it is built. Setting it only in the running container has no effect.
+
+## After changing the URL, rebuild the client
+
+```bash
+docker compose build client
+docker compose up -d
+```
+
+## The URL must be reachable by end-users' browsers
+
+`http://localhost:3001` only works when the browser runs on the same machine as the server. For anything else, use the server's LAN IP or public URL (e.g. `https://api.your-domain.com`).

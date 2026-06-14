@@ -1,0 +1,41 @@
+---
+title: "Quick Start"
+description: "Send your first file in under a minute."
+---
+
+## Browser
+
+1. Open [floe.one](https://floe.one) in your browser.
+2. Drop a file (or click to select one).
+3. Share the short code or link with your recipient.
+4. The recipient opens the link or enters the code at [floe.one](https://floe.one).
+5. The transfer starts automatically once both sides connect.
+
+## CLI
+
+<Steps>
+  <Step title="Install">
+    Download the binary for your platform from [GitHub Releases](https://github.com/jannskiee/floe/releases). See [Installation](/cli/installation) for details.
+  </Step>
+  <Step title="Send">
+    ```bash
+    floe send photo.jpg
+    ```
+    Floe prints a short code and a browser link. Share either one with your recipient.
+    ```
+    Code:  olive-tiger-castle
+    Link:  https://floe.one?room=...
+    ```
+  </Step>
+  <Step title="Receive">
+    The recipient runs:
+    ```bash
+    floe receive olive-tiger-castle
+    ```
+    Or they can open the link in any browser. CLI and browser peers are fully compatible.
+  </Step>
+</Steps>
+
+## Cross-platform transfers
+
+CLI and browser peers work together transparently. The sender can use the CLI while the recipient opens the link in a browser, and vice versa.

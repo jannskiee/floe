@@ -1,0 +1,55 @@
+---
+title: "Installation"
+description: "Download and install the floe CLI binary."
+---
+
+The `floe` CLI is a single self-contained binary with no runtime dependencies. Download the binary for your platform from the [GitHub Releases page](https://github.com/jannskiee/floe/releases).
+
+## Download
+
+<Tabs>
+  <Tab title="macOS (Apple Silicon)">
+    ```bash
+    curl -L https://github.com/jannskiee/floe/releases/latest/download/floe_Darwin_arm64.tar.gz | tar xz
+    sudo mv floe /usr/local/bin/
+    ```
+  </Tab>
+  <Tab title="macOS (Intel)">
+    ```bash
+    curl -L https://github.com/jannskiee/floe/releases/latest/download/floe_Darwin_x86_64.tar.gz | tar xz
+    sudo mv floe /usr/local/bin/
+    ```
+  </Tab>
+  <Tab title="Linux (amd64)">
+    ```bash
+    curl -L https://github.com/jannskiee/floe/releases/latest/download/floe_Linux_x86_64.tar.gz | tar xz
+    sudo mv floe /usr/local/bin/
+    ```
+  </Tab>
+  <Tab title="Windows">
+    Download `floe_Windows_x86_64.zip` from the [releases page](https://github.com/jannskiee/floe/releases), extract it, and add the directory to your `PATH`.
+  </Tab>
+</Tabs>
+
+## Verify
+
+```bash
+floe version
+```
+
+Expected output:
+
+```
+floe v1.x.x
+Docs: https://docs.floe.one
+```
+
+## Build from source
+
+Requires Go 1.21 or later.
+
+```bash
+git clone https://github.com/jannskiee/floe.git
+cd floe/cli
+go build ./cmd/floe
+```

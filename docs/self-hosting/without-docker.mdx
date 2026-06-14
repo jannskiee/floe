@@ -1,0 +1,25 @@
+---
+title: "Without Docker"
+description: "Run Floe components directly with Node, pnpm, and Go."
+---
+
+If you prefer to run the components directly without Docker, the manual setup steps and environment variable reference are in [CONTRIBUTING.md](https://github.com/jannskiee/floe/blob/main/CONTRIBUTING.md#development-setup).
+
+The same environment variables documented in [Configuration](/self-hosting/configuration) apply. Run each component with:
+
+```bash
+# Server
+cd server
+npm install
+npm start
+
+# Client
+cd client
+pnpm install
+pnpm build
+pnpm start
+
+# CLI (optional, for local testing)
+cd cli
+go build ./cmd/floe
+```

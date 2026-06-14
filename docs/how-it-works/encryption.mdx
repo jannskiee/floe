@@ -1,0 +1,15 @@
+---
+title: "End-to-End Encryption"
+description: "How Floe encrypts every transfer, direct or relayed."
+---
+
+Every WebRTC connection, whether direct or relayed, is encrypted using **DTLS-SRTP**. This is the same encryption standard used by your bank's website. Even Floe's own relay server cannot read your files.
+
+The encryption keys are generated uniquely for each transfer and exist only in the two browsers (or CLI processes) involved. There is no central key server.
+
+## What this means
+
+- The signaling server never sees file data
+- The relay server (when used) sees only encrypted packets
+- Floe has no database, stores no files, and retains no logs of what you transfer
+- Once the transfer is complete and both connections are closed, the data is gone

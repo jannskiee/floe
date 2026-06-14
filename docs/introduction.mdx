@@ -1,0 +1,35 @@
+---
+title: "Introduction"
+description: "Secure, encrypted P2P file transfer with no accounts, no file storage, and no registration."
+---
+
+Floe transfers files directly between devices using WebRTC. Files are encrypted end-to-end and never stored on any server. The signaling server only brokers the initial connection setup. Once both peers connect, the server steps out of the picture.
+
+## Use Floe
+
+<CardGroup cols={2}>
+  <Card title="Browser" icon="globe" href="https://floe.one">
+    Open floe.one in any modern browser. No installation required.
+  </Card>
+  <Card title="CLI" icon="terminal" href="/cli/installation">
+    Install the `floe` binary for headless, scriptable transfers.
+  </Card>
+</CardGroup>
+
+## Three questions answered
+
+<AccordionGroup>
+  <Accordion title="Where do my files go?">
+    Your files go directly to the recipient. In most cases they never touch a server at all. When a direct path cannot be found (strict corporate firewalls, carrier-grade NAT), Floe uses an encrypted TURN relay as a bridge. Even then, the relay server sees only encrypted data and cannot read your files.
+  </Accordion>
+  <Accordion title="Is there a file size limit?">
+    Direct connections have no size limit. Relay connections are capped at 2 GB per session to keep the service free. See [Why the 2 GB Limit?](/how-it-works/2gb-limit) for details.
+  </Accordion>
+  <Accordion title="Do I need an account?">
+    No. Floe requires no account, no sign-up, and no registration. Open the site (or run the CLI) and share the code or link with your recipient.
+  </Accordion>
+</AccordionGroup>
+
+## Self-hosting
+
+You can run your own Floe instance on your own infrastructure using Docker Compose. See the [Self-Hosting](/self-hosting/overview) section.

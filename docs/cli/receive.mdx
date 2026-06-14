@@ -1,0 +1,51 @@
+---
+title: "floe receive"
+description: "Receive files from a peer."
+---
+
+```bash
+floe receive <code | link>
+```
+
+Joins an existing transfer session as the receiver. Accepts either a short code (e.g. `olive-tiger-castle`) or the full browser link. Downloads incoming files to the current directory by default.
+
+## Examples
+
+Receive using a short code:
+
+```bash
+floe receive olive-tiger-castle
+```
+
+Receive using a full link:
+
+```bash
+floe receive "https://floe.one?room=abc123"
+```
+
+Save to a specific directory:
+
+```bash
+floe receive olive-tiger-castle -o ~/Downloads
+```
+
+Auto-accept without confirmation:
+
+```bash
+floe receive olive-tiger-castle -y
+```
+
+## Flags
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--output` | `-o` | `.` (current directory) | Directory to save received files |
+| `--yes` | `-y` | `false` | Auto-accept incoming files without confirmation |
+
+See [Flags Reference](/cli/flags) for global flags (`--server`, `--no-relay`).
+
+## Notes
+
+- The output directory is created automatically if it does not exist.
+- Without `-y`, Floe prompts you to confirm before saving each file.
+- Press `Ctrl+C` to cancel the transfer.

@@ -1,0 +1,23 @@
+---
+title: "Direct Connection"
+description: "How Floe establishes a direct peer-to-peer path using STUN."
+---
+
+A direct connection means your files travel straight from your device to the recipient's device, like a private tunnel between two computers with no stops in between.
+
+## STUN
+
+To find this direct path, WebRTC uses a **STUN server**. Think of a STUN server like asking a friend outside your house "what does my address look like from out there?" It helps each browser discover its public internet address so they can reach each other.
+
+## What direct connections mean for you
+
+- Maximum speed, limited only by your internet connection
+- No file size limits
+- Zero bandwidth cost to Floe
+- Your files never touch a server
+
+## When to expect a direct connection
+
+Most home and mobile networks support direct connections. You are most likely to get one on standard home Wi-Fi or a personal mobile hotspot.
+
+Strict corporate firewalls, university networks, and carrier-grade NAT may prevent a direct path. In those cases, Floe automatically falls back to a [relay connection](/how-it-works/relay-connection).

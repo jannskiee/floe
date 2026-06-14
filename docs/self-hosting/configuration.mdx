@@ -1,0 +1,17 @@
+---
+title: "Configuration"
+description: "Environment variable reference for a self-hosted Floe instance."
+---
+
+All settings live in the `.env` file you copied from `.env.docker.example`.
+
+## Variables
+
+| Variable | Service | Required | Purpose |
+|----------|---------|----------|---------|
+| `NEXT_PUBLIC_SOCKET_URL` | client (build) | Yes | URL the **browser** uses to reach the signaling server. Inlined at build time. See [the build-time URL caveat](/self-hosting/build-time-url). |
+| `PORT` | server | No | Host port the server is published on (default `3001`; the container always listens on 3001 internally). |
+| `CLIENT_URL` | server | Yes (prod) | Frontend origin allowed by CORS. Set to your client's public URL. |
+| `TRUSTED_PROXY_COUNT` | server | No | Number of trusted reverse-proxy hops in front of the server (for correct `X-Forwarded-For` parsing and rate limiting). `0` = direct, `1` = behind one proxy. |
+| `TURN_SECRET` | server | No | Shared HMAC secret for coturn credentials. Empty = STUN-only. Must match coturn's `static-auth-secret`. |
+| `TURN_DOMAIN` | server | No | Public hostname of your TURN server. Must match coturn's `realm`. |

@@ -1,0 +1,20 @@
+---
+title: "Signaling"
+description: "How Floe brokers the initial connection between two peers."
+---
+
+When you drop files into Floe, a unique one-time link is created. The Floe signaling server (`api.floe.one`) plays the role of a matchmaker. When the recipient opens your link, both browsers introduce themselves to each other through this server.
+
+Once both sides have said hello, the signaling server steps completely out of the picture. It does not handle any file data, does not store anything, and does not participate in the transfer itself.
+
+## What the server does
+
+- Assigns roles: the first peer to join a room becomes the **sender**, the second becomes the **receiver**.
+- Relays WebRTC signaling messages: the initial offer, the answer, and ICE candidates.
+- Issues short-lived TURN credentials (if a TURN server is configured).
+
+## What the server never does
+
+- Touch file data
+- Store files or transfer content
+- Log what you send or receive
