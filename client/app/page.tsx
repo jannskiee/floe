@@ -15,7 +15,7 @@ export default function Home() {
 
             <div className="mx-auto max-w-3xl text-center mb-8 space-y-4">
                 <h1 className="text-5xl sm:text-7xl font-extrabold tracking-tighter text-white lg:text-9xl drop-shadow-2xl">
-                    Floe.
+                    Floe
                 </h1>
                 <p className="mt-4 text-lg leading-8 text-zinc-400 max-w-lg mx-auto">
                     Secure, encrypted P2P file transfer.{' '}
