@@ -26,6 +26,7 @@
 <p align="center">
   <a href="https://floe.one">Quick Start</a> |
   <a href="#cli">CLI</a> |
+  <a href="#self-hosting">Self-Hosting</a> |
   <a href="#contributing">Contributing</a> |
   <a href="#support">Support</a>
 </p>
@@ -45,6 +46,17 @@ Visit [floe.one](https://floe.one) to transfer files directly in your browser. N
 Files transfer directly between devices using WebRTC. A signaling server handles connection setup, then steps aside once both peers are connected. When a direct path cannot be established, an optional TURN relay bridges the connection with encrypted data that is never stored.
 
 For a detailed explanation of the connection lifecycle, encryption model, and relay fallback, visit [floe.one/how-it-works](https://floe.one/how-it-works).
+
+## Self-Hosting
+
+Prefer to run your own instance instead of using `floe.one`? The web client and signaling server ship with Docker support, so the full stack comes up with one command:
+
+```sh
+cp .env.docker.example .env
+docker compose up -d --build
+```
+
+This runs the client on `:3000` and the signaling server on `:3001` (STUN-only, which works on most networks). See **[SELF_HOSTING.md](SELF_HOSTING.md)** for configuration, production deployment behind HTTPS, and the optional TURN relay.
 
 ## CLI
 

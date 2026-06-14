@@ -1,0 +1,35 @@
+# Example coturn configuration for Floe's TURN relay.
+# Copy to coturn/turnserver.conf and edit before enabling the `turn` profile.
+#   cp coturn/turnserver.conf.example coturn/turnserver.conf
+#
+# Floe issues time-limited HMAC-SHA1 credentials, so coturn must run in
+# shared-secret mode. The secret below MUST equal the server's TURN_SECRET, and
+# `realm` MUST equal the server's TURN_DOMAIN.
+
+# Time-limited credential mode (matches the server's generateCoturnCredentials()).
+use-auth-secret
+static-auth-secret=CHANGE_ME_TO_MATCH_TURN_SECRET
+
+# Must match TURN_DOMAIN passed to the Floe server.
+realm=turn.your-domain.com
+
+# Listening ports. 3478 = STUN/TURN, 5349 = TURNS (TLS).
+listening-port=3478
+tls-listening-port=5349
+listening-ip=0.0.0.0
+
+# Advertise your server's PUBLIC IP so relayed candidates are reachable.
+# external-ip=203.0.113.10
+
+# Relay port range — open these UDP ports on your firewall as well.
+min-port=49152
+max-port=65535
+
+# TLS for turns:5349. Mount your certificate/key into the container and point here.
+# cert=/etc/coturn/certs/fullchain.pem
+# pkey=/etc/coturn/certs/privkey.pem
+
+# Hardening.
+no-cli
+no-tcp-relay
+fingerprint

@@ -1,0 +1,55 @@
+# Floe — self-hosting stack.
+#
+# Quick start:
+#   cp .env.docker.example .env
+#   docker compose up -d --build
+#   open http://localhost:3000
+#
+# The `client` and `server` services run out of the box (STUN-only, which works on
+# most home and mobile networks). The optional `coturn` relay is only started with
+# the `turn` profile and requires a public IP, domain, and TLS certificates — see
+# SELF_HOSTING.md.
+
+services:
+  server:
+    build: ./server
+    image: floe-server
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3001}:3001"
+    environment:
+      # The server always listens on 3001 inside the container; the host port above
+      # is what changes. CLIENT_URL / TRUSTED_PROXY_COUNT / TURN_* come from .env.
+      PORT: 3001
+      CLIENT_URL: ${CLIENT_URL:-http://localhost:3000}
+      TRUSTED_PROXY_COUNT: ${TRUSTED_PROXY_COUNT:-1}
+      TURN_SECRET: ${TURN_SECRET:-}
+      TURN_DOMAIN: ${TURN_DOMAIN:-}
+
+  client:
+    build:
+      context: ./client
+      args:
+        # Baked into the bundle at build time — must point at the server URL that
+        # browsers can reach. Rebuild this service after changing it.
+        NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL:-http://localhost:3001}
+    image: floe-client
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - server
+
+  # Optional TURN relay. Start with: docker compose --profile turn up -d
+  # Uses host networking because relaying needs a wide UDP port range and the
+  # client's real public IP. Linux hosts with a public IP only.
+  coturn:
+    image: coturn/coturn:latest
+    profiles: ["turn"]
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+      # Mount your TLS cert/key here and reference them in turnserver.conf, e.g.:
+      # - ./coturn/certs:/etc/coturn/certs:ro
+    command: ["-c", "/etc/coturn/turnserver.conf"]
