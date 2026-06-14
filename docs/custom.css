@@ -1,64 +1,137 @@
-/* 1. Font rendering — fixes the blurry/soft look */
+/* 1. Font rendering — fixes blurry/soft text */
 *, *::before, *::after {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
 }
 
-/* 2. Pure white body text in dark mode */
-html.dark body,
-html[data-appearance="dark"] body {
-  color: #ffffff;
-}
-
-html.dark p,
-html[data-appearance="dark"] p,
-html.dark li,
-html[data-appearance="dark"] li {
-  color: rgba(255, 255, 255, 0.88);
-}
-
-/* 3. Headings — bold, tight letter-spacing, pure white */
+/* 2. Headings — pure white, bold, tight letter-spacing */
 html.dark h1,
 html.dark h2,
 html.dark h3,
-html.dark h4 {
-  color: #ffffff;
-  font-weight: 700;
-  letter-spacing: -0.025em;
+html.dark h4,
+html.dark h5,
+html.dark h6 {
+  color: #ffffff !important;
+  font-weight: 700 !important;
 }
 
-h1 { letter-spacing: -0.03em; }
-h2 { letter-spacing: -0.02em; }
+h1 { letter-spacing: -0.03em !important; }
+h2 { letter-spacing: -0.02em !important; }
+h3 { letter-spacing: -0.015em !important; }
 
-/* 4. Sidebar active item — clean border instead of filled box */
+/* 3. Body text — pure white in dark mode */
+html.dark p,
+html.dark li,
+html.dark td,
+html.dark th {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+/* 4. Sidebar active item — remove filled background, use left border */
+/* Target every plausible Mintlify selector */
+html.dark [aria-current="page"],
 html.dark [data-active="true"],
-html.dark .active-nav-item,
-html.dark nav a[aria-current="page"] {
+html.dark nav a[aria-current="page"],
+html.dark aside a[aria-current="page"],
+html.dark nav li[data-active="true"] > a,
+html.dark nav a.active {
+  background-color: transparent !important;
   background: transparent !important;
-  border-left: 2px solid #ffffff;
-  padding-left: calc(1rem - 2px);
-  font-weight: 600;
-  color: #ffffff;
+  border-left: 2px solid #ffffff !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  border-radius: 0 !important;
 }
 
-/* 5. Code blocks — sharper border */
-html.dark pre,
-html.dark code {
-  border: 1px solid rgba(255, 255, 255, 0.1);
+/* Also clear any parent wrapper that may carry the background */
+html.dark nav li:has(> a[aria-current="page"]),
+html.dark nav div:has(> a[aria-current="page"]) {
+  background-color: transparent !important;
+  background: transparent !important;
+  border-radius: 0 !important;
 }
 
-/* 6. Light mode — bold headings, dark text */
+/* 5. Sidebar all items — legible white */
+html.dark nav a,
+html.dark aside nav a {
+  color: rgba(255, 255, 255, 0.55) !important;
+}
+
+html.dark nav a:hover {
+  color: rgba(255, 255, 255, 0.85) !important;
+  background-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* 6. Sidebar section group labels */
+html.dark nav [class*="group-label"],
+html.dark nav [class*="section-label"],
+html.dark aside [class*="group"] > span,
+html.dark aside [class*="group"] > p {
+  color: rgba(255, 255, 255, 0.4) !important;
+  font-size: 0.7rem !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+}
+
+/* 7. TOC (On this page) */
+html.dark [class*="toc"] a,
+html.dark [class*="table-of-content"] a {
+  color: rgba(255, 255, 255, 0.5) !important;
+}
+
+html.dark [class*="toc"] a[aria-current],
+html.dark [class*="toc"] a.active,
+html.dark [class*="toc"] [data-active="true"] {
+  color: #ffffff !important;
+  font-weight: 500 !important;
+}
+
+/* 8. Code blocks */
+html.dark pre {
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background-color: rgba(255, 255, 255, 0.04) !important;
+}
+
+html.dark code:not(pre code) {
+  color: rgba(255, 255, 255, 0.9) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 4px !important;
+}
+
+/* 9. Inline links */
+html.dark a:not(nav a):not(aside a) {
+  color: #ffffff !important;
+  text-decoration-color: rgba(255, 255, 255, 0.4) !important;
+}
+
+html.dark a:not(nav a):not(aside a):hover {
+  text-decoration-color: #ffffff !important;
+}
+
+/* 10. Light mode */
 html:not(.dark) h1,
 html:not(.dark) h2,
 html:not(.dark) h3,
 html:not(.dark) h4 {
-  color: #000000;
-  font-weight: 700;
-  letter-spacing: -0.025em;
+  color: #000000 !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.025em !important;
 }
 
 html:not(.dark) p,
 html:not(.dark) li {
-  color: rgba(0, 0, 0, 0.8);
+  color: rgba(0, 0, 0, 0.8) !important;
+}
+
+html:not(.dark) [aria-current="page"],
+html:not(.dark) [data-active="true"],
+html:not(.dark) nav a[aria-current="page"] {
+  background-color: transparent !important;
+  background: transparent !important;
+  border-left: 2px solid #000000 !important;
+  color: #000000 !important;
+  font-weight: 600 !important;
+  border-radius: 0 !important;
 }
