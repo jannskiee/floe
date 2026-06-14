@@ -1,12 +1,12 @@
 # Self-Hosting Floe
 
-Run your own Floe instance — the web client and the signaling server — on your own
+Run your own Floe instance (the web client and the signaling server) on your own
 infrastructure, independent of `floe.one`. This guide uses Docker Compose so the whole
 stack comes up with a single command.
 
 > **What you're hosting.** The signaling server only brokers WebRTC connection setup
 > (offer/answer/ICE) and issues short-lived TURN credentials. **File data never passes
-> through it** — transfers go peer-to-peer over encrypted WebRTC data channels. TURN is
+> through it. Transfers go peer-to-peer over encrypted WebRTC data channels. TURN is
 > optional and only relays (still encrypted) traffic for peers that can't connect directly.
 
 ## Contents
@@ -50,7 +50,7 @@ All settings live in the `.env` file you copied from `.env.docker.example`.
 
 | Variable | Service | Required | Purpose |
 |----------|---------|----------|---------|
-| `NEXT_PUBLIC_SOCKET_URL` | client (build) | Yes | URL the **browser** uses to reach the signaling server. Inlined at build time — see [the caveat below](#the-build-time-url-caveat). |
+| `NEXT_PUBLIC_SOCKET_URL` | client (build) | Yes | URL the **browser** uses to reach the signaling server. Inlined at build time. See [the caveat below](#the-build-time-url-caveat). |
 | `PORT` | server | No | Host port the server is published on (default `3001`; the container always listens on 3001 internally). |
 | `CLIENT_URL` | server | Yes (prod) | Frontend origin allowed by CORS. Set to your client's public URL. |
 | `TRUSTED_PROXY_COUNT` | server | No | Number of trusted reverse-proxy hops in front of the server (for correct `X-Forwarded-For` parsing / rate limiting). `0` = direct, `1` = behind one proxy. |
@@ -61,7 +61,7 @@ All settings live in the `.env` file you copied from `.env.docker.example`.
 
 Next.js inlines `NEXT_PUBLIC_*` variables into the JavaScript bundle **at build time**, not
 at runtime. `NEXT_PUBLIC_SOCKET_URL` is therefore baked into the client image when it's
-built — setting it only in the running container has no effect.
+built. Setting it only in the running container has no effect.
 
 **After changing `NEXT_PUBLIC_SOCKET_URL`, rebuild the client:**
 
@@ -70,7 +70,7 @@ docker compose build client
 docker compose up -d
 ```
 
-It must be a URL that **end-users' browsers** can reach — `http://localhost:3001` only works
+It must be a URL that **end-users' browsers** can reach. `http://localhost:3001` only works
 when the browser runs on the same machine as the server. For anything else, use the server's
 LAN IP or public URL (e.g. `https://api.your-domain.com`).
 
@@ -91,13 +91,13 @@ For a real deployment beyond a single machine:
 
 > **CORS note.** The server's allow-list also hard-codes the official `floe.one` origins
 > (`server/server.js`). Your `CLIENT_URL` is honored alongside them, so this doesn't block
-> anything — but if you'd prefer a clean allow-list for your fork, you can remove those
+> anything, but if you'd prefer a clean allow-list for your fork, you can remove those
 > hard-coded entries.
 
 ## Optional: TURN relay (coturn)
 
 A TURN server relays the (still end-to-end encrypted) stream when two peers can't reach each
-other directly — common with symmetric NAT or carrier-grade NAT. Without it, those specific
+other directly, which is common with symmetric NAT or carrier-grade NAT. Without it, those specific
 transfers fail; everything else still works.
 
 TURN has real infrastructure requirements: a **public IP**, a **domain**, and **TLS
@@ -110,7 +110,7 @@ Linux host with a public IP.
    ```
    Edit it: set `static-auth-secret` to a strong random value, set `realm` to your TURN
    hostname, and point `cert`/`pkey` at your TLS certificate and key (mount them into the
-   container — see the volume hint in `docker-compose.yml`).
+   container; see the volume hint in `docker-compose.yml`).
 
 2. **Match the server's env** in `.env`:
    ```
@@ -126,7 +126,7 @@ Linux host with a public IP.
    docker compose --profile turn up -d --build
    ```
 
-Verify with `curl http://localhost:3001/api/turn-credentials` — the response should now
+Verify with `curl http://localhost:3001/api/turn-credentials`. The response should now
 include `turn:` / `turns:` entries in addition to STUN.
 
 The server generates time-limited HMAC-SHA1 credentials (24-hour TTL) that coturn validates
