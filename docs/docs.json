@@ -37,7 +37,23 @@
   "footer": {
     "socials": {
       "github": "https://github.com/jannskiee/floe"
-    }
+    },
+    "links": [
+      {
+        "header": "Floe",
+        "items": [
+          { "label": "Home", "href": "https://floe.one" },
+          { "label": "How It Works", "href": "https://floe.one/how-it-works" }
+        ]
+      },
+      {
+        "header": "Legal",
+        "items": [
+          { "label": "Privacy Policy", "href": "https://floe.one/privacy" },
+          { "label": "Terms of Use", "href": "https://floe.one/terms" }
+        ]
+      }
+    ]
   },
   "navigation": {
     "groups": [

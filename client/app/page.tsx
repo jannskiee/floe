@@ -60,6 +60,8 @@ export default function Home() {
                 <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10px] text-zinc-500 uppercase tracking-wide">
                     <Link href="/how-it-works" className="whitespace-nowrap hover:text-white transition-colors">How It Works</Link>
                     <span>•</span>
+                    <a href="https://docs.floe.one" target="_blank" rel="noreferrer" className="whitespace-nowrap hover:text-white transition-colors">Docs</a>
+                    <span>•</span>
                     <Link href="/privacy" className="whitespace-nowrap hover:text-white transition-colors">Privacy Policy</Link>
                     <span>•</span>
                     <Link href="/terms" className="whitespace-nowrap hover:text-white transition-colors">Terms of Use</Link>
