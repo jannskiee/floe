@@ -8,11 +8,10 @@
     "href": "https://floe.one"
   },
   "favicon": "/favicon.svg",
-  "css": ["/custom.css"],
   "colors": {
-    "primary": "#111111",
-    "light": "#ffffff",
-    "dark": "#111111"
+    "primary": "#3B82F6",
+    "light": "#60A5FA",
+    "dark": "#2563EB"
   },
   "fonts": {
     "family": "Geist",
@@ -21,12 +20,6 @@
   },
   "appearance": {
     "default": "dark"
-  },
-  "background": {
-    "color": {
-      "light": "#ffffff",
-      "dark": "#000000"
-    }
   },
   "navbar": {
     "links": [
