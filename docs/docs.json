@@ -8,6 +8,7 @@
     "href": "https://floe.one"
   },
   "favicon": "/favicon.svg",
+  "css": ["/custom.css"],
   "colors": {
     "primary": "#000000",
     "light": "#ffffff",

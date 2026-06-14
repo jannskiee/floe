@@ -1,0 +1,64 @@
+/* 1. Font rendering — fixes the blurry/soft look */
+*, *::before, *::after {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* 2. Pure white body text in dark mode */
+html.dark body,
+html[data-appearance="dark"] body {
+  color: #ffffff;
+}
+
+html.dark p,
+html[data-appearance="dark"] p,
+html.dark li,
+html[data-appearance="dark"] li {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+/* 3. Headings — bold, tight letter-spacing, pure white */
+html.dark h1,
+html.dark h2,
+html.dark h3,
+html.dark h4 {
+  color: #ffffff;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+h1 { letter-spacing: -0.03em; }
+h2 { letter-spacing: -0.02em; }
+
+/* 4. Sidebar active item — clean border instead of filled box */
+html.dark [data-active="true"],
+html.dark .active-nav-item,
+html.dark nav a[aria-current="page"] {
+  background: transparent !important;
+  border-left: 2px solid #ffffff;
+  padding-left: calc(1rem - 2px);
+  font-weight: 600;
+  color: #ffffff;
+}
+
+/* 5. Code blocks — sharper border */
+html.dark pre,
+html.dark code {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* 6. Light mode — bold headings, dark text */
+html:not(.dark) h1,
+html:not(.dark) h2,
+html:not(.dark) h3,
+html:not(.dark) h4 {
+  color: #000000;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+html:not(.dark) p,
+html:not(.dark) li {
+  color: rgba(0, 0, 0, 0.8);
+}
