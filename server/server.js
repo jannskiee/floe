@@ -14,6 +14,23 @@ const app = express();
 app.use(helmet());
 app.use(express.json());
 
+// Trust N proxy hops so req.ip resolves to the real client IP.
+// Set TRUSTED_PROXY_COUNT=0 for direct exposure, 1 (default) behind one proxy (Render/Fly/Vercel).
+const TRUSTED_PROXY_COUNT = parseInt(process.env.TRUSTED_PROXY_COUNT || '1', 10);
+app.set('trust proxy', TRUSTED_PROXY_COUNT);
+
+// Extract the real client IP from an X-Forwarded-For header, discarding
+// client-supplied spoofed entries by only trusting the rightmost N hops.
+function getClientIp(xffHeader, socketAddr) {
+    if (!xffHeader) return socketAddr || 'unknown';
+    const hops = String(xffHeader).split(',').map(s => s.trim()).filter(Boolean);
+    if (hops.length === 0) return socketAddr || 'unknown';
+    // The rightmost TRUSTED_PROXY_COUNT entries were appended by trusted proxies;
+    // the entry just before them is the genuine client.
+    const idx = Math.max(0, hops.length - TRUSTED_PROXY_COUNT);
+    return hops[idx] || socketAddr || 'unknown';
+}
+
 const allowedOrigins = [
     process.env.CLIENT_URL,
     'https://www.floe.one',
@@ -66,7 +83,7 @@ function generateCoturnCredentials() {
 }
 
 app.get('/api/turn-credentials', (req, res) => {
-    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const ip = req.ip;  // Express resolves this correctly via trust proxy
     const now = Date.now();
 
     if (!turnRateLimits.has(ip)) turnRateLimits.set(ip, []);
@@ -89,7 +106,13 @@ const codeToRoom = new Map(); // code → { roomId, expires }
 
 function generateCode() {
     const pick = () => words[Math.floor(Math.random() * words.length)];
-    return `${pick()}-${pick()}-${pick()}`;
+    for (let i = 0; i < 10; i++) {
+        const code = `${pick()}-${pick()}-${pick()}`;
+        const existing = codeToRoom.get(code);
+        if (!existing || Date.now() > existing.expires) return code;
+    }
+    // Extremely unlikely collision after 10 attempts; add a 4th word to widen the space.
+    return `${pick()}-${pick()}-${pick()}-${pick()}`;
 }
 
 // POST /api/code — register a code for a room ID (called by CLI sender)
@@ -133,7 +156,8 @@ function checkRateLimit(ip) {
 }
 
 // Periodic cleanup of old rate limit entries and expired codes
-setInterval(() => {
+// .unref() so the interval doesn't prevent the process from exiting (e.g. in tests).
+const cleanupInterval = setInterval(() => {
     const now = Date.now();
     for (const [ip, timestamps] of connectionCounts.entries()) {
         const valid = timestamps.filter(t => now - t < RATE_LIMIT_WINDOW);
@@ -148,7 +172,7 @@ setInterval(() => {
     for (const [code, entry] of codeToRoom.entries()) {
         if (now > entry.expires) codeToRoom.delete(code);
     }
-}, 60000);
+}, 60000).unref();
 
 // ---------------------------------------------------------------------------
 // Unified room registry
@@ -293,7 +317,7 @@ const io = new Server(server, {
 });
 
 io.use((socket, next) => {
-    const ip = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
+    const ip = getClientIp(socket.handshake.headers['x-forwarded-for'], socket.handshake.address);
     if (!checkRateLimit(ip)) return next(new Error('Rate limit exceeded'));
     next();
 });
@@ -345,7 +369,7 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 wss.on('connection', (ws, req) => {
-    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const ip = getClientIp(req.headers['x-forwarded-for'], req.socket.remoteAddress);
     if (!checkRateLimit(ip)) {
         ws.close(1008, 'Rate limit exceeded');
         return;
@@ -386,7 +410,7 @@ const heartbeat = setInterval(() => {
         ws.isAlive = false;
         ws.ping();
     });
-}, 30000);
+}, 30000).unref();
 
 wss.on('close', () => clearInterval(heartbeat));
 
@@ -395,4 +419,41 @@ wss.on('close', () => clearInterval(heartbeat));
 // ---------------------------------------------------------------------------
 
 const PORT = process.env.PORT || 3001;
-server.listen(PORT);
+
+// ---------------------------------------------------------------------------
+// Graceful shutdown (SIGTERM from platform, SIGINT from Ctrl-C)
+// ---------------------------------------------------------------------------
+
+function shutdown() {
+    clearInterval(cleanupInterval);
+    clearInterval(heartbeat);
+    for (const ws of wss.clients) ws.close(1001, 'Server shutting down');
+    io.close();
+    server.close(() => process.exit(0));
+    // Force-exit after 10 s if connections don't drain in time.
+    setTimeout(() => process.exit(1), 10_000).unref();
+}
+
+// ---------------------------------------------------------------------------
+// Entry point — only bind / register OS signals when run directly (not in tests)
+// ---------------------------------------------------------------------------
+
+if (require.main === module) {
+    server.listen(PORT);
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
+}
+
+// Exported for unit tests — not part of the public API.
+module.exports = {
+    getClientIp,
+    generateCode,
+    checkRateLimit,
+    handleJoinRoom,
+    handleSignal,
+    handleDisconnect,
+    rooms,
+    codeToRoom,
+    connectionCounts,
+    turnRateLimits,
+};
