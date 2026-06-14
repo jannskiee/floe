@@ -8,13 +8,24 @@
     "href": "https://floe.one"
   },
   "favicon": "/favicon.svg",
-  "font": {
-    "family": "Geist"
-  },
   "colors": {
-    "primary": "#18181b",
-    "light": "#a1a1aa",
-    "dark": "#18181b"
+    "primary": "#000000",
+    "light": "#ffffff",
+    "dark": "#000000"
+  },
+  "fonts": {
+    "family": "Geist",
+    "heading": { "family": "Geist" },
+    "body": { "family": "Geist" }
+  },
+  "appearance": {
+    "default": "dark"
+  },
+  "background": {
+    "color": {
+      "light": "#ffffff",
+      "dark": "#000000"
+    }
   },
   "navbar": {
     "links": [
