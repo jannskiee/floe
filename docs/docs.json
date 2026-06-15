@@ -21,6 +21,15 @@
   "appearance": {
     "default": "dark"
   },
+  "seo": {
+    "metatags": {
+      "og:type": "website",
+      "og:site_name": "Floe",
+      "og:image": "https://floe.one/og.png",
+      "twitter:card": "summary_large_image",
+      "twitter:image": "https://floe.one/og.png"
+    }
+  },
   "navbar": {
     "links": [
       {
@@ -59,7 +68,7 @@
     "groups": [
       {
         "group": "Getting Started",
-        "pages": ["introduction", "quickstart"]
+        "pages": ["introduction", "quickstart", "troubleshooting"]
       },
       {
         "group": "CLI",
