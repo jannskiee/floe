@@ -98,7 +98,7 @@ If you encounter a bug or have a feature suggestion, please open an [issue](http
 
 ## Support
 
-Floe is free and open source. Contributions help cover the ongoing costs of backend infrastructure that keeps the service accessible to everyone. This includes the signaling server for WebRTC connection negotiation and room management, and the TURN relay server for encrypted relay for users behind strict firewalls or Carrier-Grade NAT.
+Floe is free and open source. Contributions help cover the ongoing costs of backend infrastructure that keeps the service accessible to everyone. This includes the signaling server for WebRTC connection negotiation and room management, and the TURN relay server that provides encrypted relay for users behind strict firewalls or Carrier-Grade NAT.
 
 **[GitHub Sponsors](https://github.com/sponsors/jannskiee)**\
 **[Ko-fi](https://ko-fi.com/jannskiee)**

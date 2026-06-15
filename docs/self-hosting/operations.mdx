@@ -30,4 +30,4 @@ The signaling server exposes two health endpoints you can use in load balancers 
 | Endpoint | Purpose | Response |
 |----------|---------|---------|
 | `GET /health` | Liveness check | `{ "status": "healthy", "uptime": <seconds> }` |
-| `GET /` | Status and version info | `{ "status": "ok", "timestamp": "..." }` |
+| `GET /` | Status and timestamp | `{ "status": "ok", "timestamp": "..." }` |

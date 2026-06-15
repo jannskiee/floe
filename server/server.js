@@ -1,3 +1,8 @@
+// Load server/.env into process.env for direct (non-Docker) runs. dotenv does not
+// override variables already set in the environment, so Docker/platform-injected
+// values take precedence and containers without a .env file are unaffected.
+require('dotenv').config();
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
