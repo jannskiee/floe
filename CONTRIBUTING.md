@@ -86,8 +86,10 @@ This is aimed at **self-hosting** (running your own instance) rather than active
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `CLIENT_URL` | Yes | Frontend origin for CORS (default: `http://localhost:3000`) |
+| `CLIENT_URL` | Prod | Frontend origin added to the CORS allow-list. `http://localhost:3000` is already allowed by default, so this is only needed for other origins (production). |
 | `PORT` | No | Signaling server port (default: `3001`) |
+| `NODE_ENV` | No | Runtime environment (default: `production`). Set to `development` for verbose logging. |
+| `TRUSTED_PROXY_COUNT` | No | Trusted reverse-proxy hop count for correct client-IP parsing and rate limiting (default: `1`). Set to `0` for direct exposure with no proxy. |
 | `TURN_SECRET` | No | Shared secret for coturn HMAC credentials. Omit to use STUN-only (direct connections). |
 | `TURN_DOMAIN` | No | Your TURN relay server domain. |
 

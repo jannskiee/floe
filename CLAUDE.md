@@ -73,7 +73,7 @@ Browser peers communicate via **Socket.IO**; CLI peers communicate via **WebSock
 `GET /api/turn-credentials` issues short-lived (24h) Coturn HMAC-SHA1 credentials. Called by both client and CLI before connecting. If `TURN_SECRET` is unset, only STUN is returned.
 
 ### Rate Limiting
-30 connections per IP per 60s — shared across Socket.IO, WebSocket, and the TURN endpoint. Tracked in a plain `Map`; cleaned every 60s.
+Two independent per-IP limiters, each over a 60s window, tracked in plain `Map`s and cleaned every 60s. Connection limiter: 30 per IP, shared across Socket.IO and WebSocket connections (`checkRateLimit`). TURN endpoint: a separate 20 requests per IP for `GET /api/turn-credentials` (`turnRateLimits`).
 
 ### React Strict Mode is intentionally disabled
 `next.config.mjs` sets `reactStrictMode: false`. Strict Mode's double-mount breaks Socket.IO connections and `simple-peer` instances. All socket/peer logic uses refs and cleanup functions to handle component lifecycle correctly.
