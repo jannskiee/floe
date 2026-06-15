@@ -57,11 +57,12 @@ interface Props {
 }
 
 export function InAppBrowserGuard({ children }: Props) {
-    const [{ detectedApp, android, currentUrl }, setInit] = useState<{
+    const [{ detectedApp, android, currentUrl, ready }, setInit] = useState<{
         detectedApp: DetectedApp | null;
         android: boolean;
         currentUrl: string;
-    }>({ detectedApp: null, android: false, currentUrl: '' });
+        ready: boolean;
+    }>({ detectedApp: null, android: false, currentUrl: '', ready: false });
     const [dismissed, setDismissed] = useState(false);
     const [copied, setCopied] = useState(false);
 
@@ -69,7 +70,7 @@ export function InAppBrowserGuard({ children }: Props) {
         const ua = navigator.userAgent;
         const app = detectInAppBrowser(ua);
         // eslint-disable-next-line react-hooks/set-state-in-effect
-        setInit({ detectedApp: app, android: isAndroid(ua), currentUrl: window.location.href });
+        setInit({ detectedApp: app, android: isAndroid(ua), currentUrl: window.location.href, ready: true });
         if (app) {
             try {
                 (window as UmamiWindow).umami?.track('in-app-browser-detected', {
@@ -92,20 +93,19 @@ export function InAppBrowserGuard({ children }: Props) {
         setTimeout(() => setCopied(false), 2000);
     };
 
-    if (!detectedApp || dismissed) {
-        return <>{children}</>;
-    }
+    // Wait for the one-tick detection effect before mounting children.
+    // If we render children immediately (before detection), P2PTransfer's
+    // mount effect will emit join-room and steal the receiver slot even
+    // while the in-app browser overlay is showing.
+    if (!ready) return null;
+    if (!detectedApp || dismissed) return <>{children}</>;
 
     const appName = detectedApp === 'InAppBrowser' ? 'this app' : detectedApp;
 
     return (
         <>
-            {/* Blurred background content */}
-            <div className="pointer-events-none select-none blur-sm opacity-30" aria-hidden>
-                {children}
-            </div>
-
-            {/* Full-screen overlay */}
+            {/* Full-screen overlay — children are intentionally NOT rendered
+                so P2PTransfer cannot join the room from the in-app browser */}
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/90 p-5 backdrop-blur-md">
                 <div className="w-full max-w-sm overflow-hidden rounded-2xl border border-white/[0.08] bg-zinc-900 shadow-[0_32px_64px_-12px_rgba(0,0,0,0.8)]">
 
