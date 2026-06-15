@@ -45,6 +45,10 @@ jobs:
         run: pnpm lint
         working-directory: client
 
+      - name: Unit tests
+        run: pnpm test
+        working-directory: client
+
       - name: Build
         run: pnpm build
         working-directory: client
@@ -99,8 +103,8 @@ jobs:
         run: go build ./cmd/floe
         working-directory: cli
 
-  cli-interop:
-    name: CLI↔Browser Interop (Go + Node)
+  e2e:
+    name: E2E (browser + CLI interop)
     runs-on: ubuntu-latest
     # Requires both Go (CLI binary) and Node (server + client + Playwright)
     needs: [cli, build-and-lint, server]
@@ -149,8 +153,8 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
         working-directory: client
 
-      - name: Run CLI↔browser interop tests
-        run: pnpm exec playwright test cli-interop.spec.ts
+      - name: Run E2E tests (browser + CLI interop)
+        run: pnpm exec playwright test
         working-directory: client
         env:
           NEXT_PUBLIC_SOCKET_URL: http://localhost:3001
