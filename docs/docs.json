@@ -19,7 +19,17 @@
     "body": { "family": "Geist" }
   },
   "appearance": {
-    "default": "dark"
+    "default": "dark",
+    "strict": true
+  },
+  "seo": {
+    "metatags": {
+      "og:type": "website",
+      "og:site_name": "Floe",
+      "og:image": "https://floe.one/og.png",
+      "twitter:card": "summary_large_image",
+      "twitter:image": "https://floe.one/og.png"
+    }
   },
   "navbar": {
     "links": [
@@ -47,14 +57,6 @@
         ]
       },
       {
-        "header": "Documentation",
-        "items": [
-          { "label": "Quick Start", "href": "/quickstart" },
-          { "label": "CLI", "href": "/cli/installation" },
-          { "label": "Self-Hosting", "href": "/self-hosting/overview" }
-        ]
-      },
-      {
         "header": "Legal",
         "items": [
           { "label": "Privacy Policy", "href": "https://floe.one/privacy" },
@@ -67,7 +69,7 @@
     "groups": [
       {
         "group": "Getting Started",
-        "pages": ["introduction", "quickstart"]
+        "pages": ["introduction", "quickstart", "troubleshooting"]
       },
       {
         "group": "CLI",

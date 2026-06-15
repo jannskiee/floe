@@ -1,0 +1,88 @@
+---
+title: "Troubleshooting"
+description: "Fixes for the most common issues when sending, receiving, or self-hosting Floe."
+---
+
+Most Floe transfers just work. When something goes wrong, it is almost always one of the cases below.
+
+## Sending and receiving
+
+<AccordionGroup>
+  <Accordion title="The page says my browser is not supported">
+    Floe needs WebRTC, which is unavailable in some in-app browsers (the web views embedded in Facebook, Instagram, TikTok, and similar apps). Open the link in a real browser instead: Chrome, Safari, Edge, or Firefox. Floe detects these in-app browsers and prompts you to switch.
+  </Accordion>
+
+  <Accordion title="The transfer never starts or is stuck connecting">
+    Both peers must be present at the same time, and the connection is direct, so a few things can hold it up:
+
+    - The sender must keep their browser tab open for the entire transfer. If the sender closes the tab, the session ends.
+    - The recipient must actually open the shared link (or run `floe receive`). The transfer begins automatically once both sides connect.
+    - On strict networks, a direct path may not be possible. Make sure **Network Relay Fallback** is enabled (it is on by default) so Floe can route through the encrypted relay.
+  </Accordion>
+
+  <Accordion title="Transfer blocked: relay limit exceeded">
+    Relay connections are capped at **2 GB per session** to keep the service free. Direct connections have no size limit. To get a direct connection:
+
+    - Use a standard home or personal Wi-Fi network.
+    - Disconnect from any VPN.
+    - Avoid strict corporate or university networks.
+    - Try a personal mobile hotspot.
+
+    See [The 2 GB Relay Limit](/how-it-works/2gb-limit) for the details.
+  </Accordion>
+
+  <Accordion title="The transfer is slow">
+    Check the connection indicator. **Green (Direct)** is as fast as the slower of the two connections. **Amber (Relay)** routes through a TURN server, so speed depends on relay load and network conditions. To force the faster direct path, follow the steps above to obtain a direct connection.
+  </Accordion>
+
+  <Accordion title="Downloads fail or behave oddly on iOS">
+    On iOS, use **Download ZIP** rather than downloading files individually. It is the most reliable option on Safari and iOS web views.
+  </Accordion>
+
+  <Accordion title="My short code does not work">
+    Short codes expire **10 minutes** after the sender starts the session. After that, only the full link works, and only while the sender is still connected. Ask the sender to start a new session for a fresh code.
+  </Accordion>
+</AccordionGroup>
+
+## CLI
+
+<AccordionGroup>
+  <Accordion title="The CLI cannot reach the server">
+    The CLI connects to `https://api.floe.one` by default. If you are using a self-hosted instance, pass `--server` with your signaling server URL, and make sure **both** the sender and receiver use the same value. See [Against a Self-Hosted Server](/cli/self-hosted-server).
+  </Accordion>
+
+  <Accordion title="A browser recipient cannot join my CLI transfer">
+    A browser can only join by opening the link, not by entering a short code (there is no code field in the web UI). Share the **link** printed by `floe send` with browser recipients, and the **code** with CLI recipients.
+  </Accordion>
+</AccordionGroup>
+
+## Self-hosting
+
+<AccordionGroup>
+  <Accordion title="The browser cannot connect to my signaling server">
+    This is the most common self-hosting issue. `NEXT_PUBLIC_SOCKET_URL` is inlined into the client **at build time**, so changing it on a running container has no effect. After changing it, rebuild the client image:
+
+    ```bash
+    docker compose build client
+    docker compose up -d
+    ```
+
+    Also confirm the URL is reachable from the end user's browser. `http://localhost:3001` only works when the browser runs on the same machine as the server. See [Build-Time URL Caveat](/self-hosting/build-time-url).
+  </Accordion>
+
+  <Accordion title="Browser requests are blocked by CORS">
+    Set `CLIENT_URL` to your client's public origin (e.g. `https://app.your-domain.com`). It is added to the server's CORS allow-list. `http://localhost:3000` is already allowed by default. See [Production Deployment](/self-hosting/production).
+  </Accordion>
+
+  <Accordion title="I am being rate limited (429 or Rate limit exceeded)">
+    The server allows 30 connections per IP per 60 seconds (Socket.IO and WebSocket) and 20 requests per IP per 60 seconds for TURN credentials. Behind a reverse proxy, set `TRUSTED_PROXY_COUNT` to the number of proxy hops so the server reads real client IPs instead of the proxy IP. See [Configuration](/self-hosting/configuration).
+  </Accordion>
+
+  <Accordion title="The TURN relay is not working">
+    The bundled coturn service uses host networking, so it runs on a **Linux host** with a public IP, a domain, and TLS certificates. On macOS or Windows with Docker Desktop, run coturn separately or on a Linux VM. Confirm that `TURN_SECRET` and `TURN_DOMAIN` in `.env` match coturn's `static-auth-secret` and `realm`, then start the stack with `docker compose --profile turn up -d --build`. See [TURN Relay](/self-hosting/turn-relay).
+  </Accordion>
+</AccordionGroup>
+
+## Still stuck?
+
+If none of the above helps, open an issue on [GitHub](https://github.com/jannskiee/floe/issues) with your browser and OS, whether the connection was direct or relay, and any error message you saw.
