@@ -19,7 +19,8 @@
     "body": { "family": "Geist" }
   },
   "appearance": {
-    "default": "dark"
+    "default": "dark",
+    "strict": true
   },
   "seo": {
     "metatags": {
