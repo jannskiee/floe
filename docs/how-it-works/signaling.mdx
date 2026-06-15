@@ -40,7 +40,7 @@ The signaling server never touches file data, never stores anything about your t
   5. Both peers exchange ICE candidates via `signal` events (trickle ICE).
   6. Once ICE negotiation completes, the WebRTC data channel opens directly between the peers.
 
-  **Short codes:** Registered via `POST /api/code` with a room UUID. The server picks three random words from a 384-word list and maps them to the room ID with a 10-minute TTL. `GET /api/code/:code` resolves a code back to its room UUID.
+  **Short codes:** Registered via `POST /api/code` with a room UUID. The server picks three random words from a 288-word list and maps them to the room ID with a 10-minute TTL. `GET /api/code/:code` resolves a code back to its room UUID.
 
   **TURN credentials:** Issued via `GET /api/turn-credentials`. Credentials use HMAC-SHA1 with a 24-hour expiry. If `TURN_SECRET` is not set, the endpoint returns STUN servers only.
 
@@ -49,7 +49,7 @@ The signaling server never touches file data, never stores anything about your t
   **Data-channel transfer protocol:** Once the WebRTC data channel labeled `floe` opens, the sender runs this sequence for each file:
   1. Sends a JSON `metadata` message containing the filename, size in bytes, and MIME type.
   2. Waits for the receiver to reply with a JSON `ack` message.
-  3. Streams the file as binary chunks of up to 16 KB each until the full file is sent.
+  3. Streams the file as binary chunks until the whole file is sent. The CLI uses 16 KB chunks; the browser sender uses larger adaptive chunks.
   4. Sends a JSON `end` message to signal completion.
 
   For multi-file transfers, this four-step sequence repeats for each file in order.

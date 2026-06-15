@@ -13,7 +13,7 @@ All settings live in the `.env` file you copied from `.env.docker.example`.
 | `PORT` | server | No | `3001` | Port the signaling server listens on inside the container. The host port is set separately in `docker-compose.yml`. |
 | `NODE_ENV` | server | No | `production` | Runtime environment. Set to `development` to enable verbose logging. |
 | `CLIENT_URL` | server | Yes (prod) | _(none)_ | Frontend origin allowed by CORS. Set to your client's public URL (e.g. `https://app.your-domain.com`). |
-| `TRUSTED_PROXY_COUNT` | server | No | `0` | Number of trusted reverse-proxy hops in front of the server. Used for correct `X-Forwarded-For` parsing and per-IP rate limiting. Set to `1` if you are behind a single proxy. |
+| `TRUSTED_PROXY_COUNT` | server | No | `1` | Number of trusted reverse-proxy hops in front of the server, used for correct `X-Forwarded-For` parsing and per-IP rate limiting. Defaults to `1` (behind one proxy such as Render, Fly, or Vercel). Set to `0` only for direct exposure with no proxy. |
 | `TURN_SECRET` | server | No | _(none)_ | Shared HMAC secret for coturn credentials. If empty, the server returns STUN-only and no TURN is offered. Must match coturn's `static-auth-secret`. |
 | `TURN_DOMAIN` | server | No | _(none)_ | Public hostname of your TURN server (e.g. `turn.your-domain.com`). Must match coturn's `realm`. |
 

@@ -61,7 +61,7 @@ description: "Send your first file in under a minute."
     The recipient runs:
 
     ```bash
-    floe receive olive-tiger-castle
+    floe receive olive-tiger-castle -o ~/Downloads
     ```
 
     Or they can open the link in any browser. Once connected, the CLI shows a confirmation prompt and then a live progress bar:
@@ -76,10 +76,10 @@ description: "Send your first file in under a minute."
 
       [1/1] photo.jpg  [████████░░░░░░░] 4.2 MB/6.0 MB
 
-      Done. 1 file(s) received in .
+      Done. 1 file(s) received in ~/Downloads
     ```
 
-    Pass `-y` to auto-accept without the prompt. Pass `-o <dir>` to save files to a specific directory.
+    Pass `-y` to auto-accept without the prompt. Omit `-o` to save to the current directory instead.
   </Step>
 </Steps>
 
