@@ -183,6 +183,7 @@ export function P2PTransfer() {
     ]);
 
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     useEffect(() => { setShowInfoTooltip(false); }, [connectionType]);
 
     useEffect(() => {

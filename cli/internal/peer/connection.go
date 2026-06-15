@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	"github.com/jannskiee/floe/cli/internal/signaling"
-	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v4"
 )
 
 // signalPayload is the JSON structure for WebRTC signals sent over the
