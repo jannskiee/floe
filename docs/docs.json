@@ -47,14 +47,6 @@
         ]
       },
       {
-        "header": "Documentation",
-        "items": [
-          { "label": "Quick Start", "href": "/quickstart" },
-          { "label": "CLI", "href": "/cli/installation" },
-          { "label": "Self-Hosting", "href": "/self-hosting/overview" }
-        ]
-      },
-      {
         "header": "Legal",
         "items": [
           { "label": "Privacy Policy", "href": "https://floe.one/privacy" },
