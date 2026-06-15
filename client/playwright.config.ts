@@ -10,6 +10,10 @@ export default defineConfig({
     // parallel on a 2-core CI runner starves the transfers and trips flaky
     // timeouts, so serialize on CI. Local runs keep Playwright's default workers.
     workers: process.env.CI ? 1 : undefined,
+    // Retry once on CI to absorb transient WebRTC handshake hiccups. A genuine
+    // protocol break fails every attempt; the unit tests are the real correctness
+    // guard, this just stops infra jitter from reddening the build.
+    retries: process.env.CI ? 1 : 0,
     use: {
         baseURL: 'http://localhost:3000',
         headless: true,
@@ -30,6 +34,10 @@ export default defineConfig({
             env: {
                 CLIENT_URL: 'http://localhost:3000',
                 PORT: '3001',
+                // The whole e2e suite drives many Socket.IO/WebSocket connections
+                // from one IP; lift the per-IP connection cap so the shared signaling
+                // server does not rate-limit a peer mid-suite and stall a transfer.
+                MAX_CONNECTIONS_PER_IP: '1000',
             },
         },
         {

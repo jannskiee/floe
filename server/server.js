@@ -149,7 +149,9 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 const connectionCounts = new Map();
 const RATE_LIMIT_WINDOW = 60000;
-const MAX_CONNECTIONS_PER_IP = 30;
+// Configurable so test/staging environments (which drive many connections from a
+// single IP) can raise the ceiling. Production keeps the default of 30.
+const MAX_CONNECTIONS_PER_IP = parseInt(process.env.MAX_CONNECTIONS_PER_IP, 10) || 30;
 
 function checkRateLimit(ip) {
     const now = Date.now();
