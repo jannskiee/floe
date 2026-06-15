@@ -83,10 +83,7 @@ interface ReceivedFile {
 
 
 export function P2PTransfer() {
-    const [isSender] = useState<boolean | null>(() => {
-        if (typeof window === 'undefined') return null;
-        return !new URLSearchParams(window.location.search).has('room');
-    });
+    const [isSender, setIsSender] = useState<boolean | null>(null);
     const [status, setStatus] = useState('Idle');
     const [isConnected, setIsConnected] = useState(false);
     const [ping, setPing] = useState(0);
@@ -162,6 +159,11 @@ export function P2PTransfer() {
             });
         } catch { }
     };
+
+    useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setIsSender(!new URLSearchParams(window.location.search).has('room'));
+    }, []);
 
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -611,8 +613,28 @@ export function P2PTransfer() {
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         socket.on('signal', (data: any) => {
-            if (peerRef.current && !peerRef.current.destroyed) {
-                peerRef.current.signal(data.signal);
+            const peer = peerRef.current;
+            if (!peer || peer.destroyed) return;
+            const sig = data?.signal;
+            if (!sig) return;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const pc = (peer as any)._pc as RTCPeerConnection | undefined;
+            if (pc && pc.signalingState === 'stable' && (sig.type === 'answer' || sig.type === 'offer')) {
+                Sentry.addBreadcrumb({
+                    category: 'webrtc',
+                    level: 'warning',
+                    message: `Skipped ${sig.type} signal: peer already in stable state`,
+                });
+                return;
+            }
+            try {
+                peer.signal(sig);
+            } catch (err) {
+                Sentry.addBreadcrumb({
+                    category: 'webrtc',
+                    level: 'warning',
+                    message: `Ignored signal in state ${pc?.signalingState}: ${(err as Error).message}`,
+                });
             }
         });
 
@@ -715,6 +737,9 @@ export function P2PTransfer() {
 
         socket.off('user-connected');
         socket.on('user-connected', (userId: string) => {
+            if (peerRef.current && !peerRef.current.destroyed) {
+                peerRef.current.destroy();
+            }
             setStatus('Peer joined. Starting transfer');
             requestWakeLock();
 
