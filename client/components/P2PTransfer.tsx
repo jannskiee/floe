@@ -446,9 +446,7 @@ export function P2PTransfer() {
         let lastReceiveSpeedUpdate = 0;
 
         peer.on('data', (data) => {
-            const isFileChunk = data.byteLength > 1000;
-
-            if (!isFileChunk) {
+            if (data.byteLength <= 1000) {
                 try {
                     const text = new TextDecoder().decode(data);
                     if (text.startsWith('{')) {
@@ -484,6 +482,7 @@ export function P2PTransfer() {
                                     offset: offset,
                                 })
                             );
+                            return;
                         } else if (msg.type === 'end') {
                             const fileData = partialDownloads.current.get(
                                 currentMetadata.id
@@ -522,8 +521,8 @@ export function P2PTransfer() {
                             setProgress(0);
                             setTransferSpeed('');
                             setEstimatedTime('');
+                            return;
                         }
-                        return;
                     }
                 } catch { }
             }
@@ -639,6 +638,7 @@ export function P2PTransfer() {
             socket.io.off('reconnect');
             releaseWakeLock();
             peerRef.current?.destroy();
+            receivedFilesRef.current.forEach((f) => URL.revokeObjectURL(f.downloadUrl));
         };
         // joinRoomAsReceiver is intentionally excluded: this effect must run once on mount only.
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -712,6 +712,7 @@ export function P2PTransfer() {
         socket.emit('join-room', newRoomId);
         setStatus('Waiting for peer');
 
+        socket.off('user-connected');
         socket.on('user-connected', (userId: string) => {
             setStatus('Peer joined. Starting transfer');
             requestWakeLock();
@@ -903,14 +904,31 @@ export function P2PTransfer() {
         total: number
     ) => {
         return new Promise<void>(async (resolve) => {
-            const CHUNK_SIZE = 16 * 1024;
-            const BUFFER_LIMIT = 1024 * 1024;
             const { file, id } = fileItem;
 
             if (!peer || peer.destroyed) {
                 resolve();
                 return;
             }
+
+            // Adaptive chunk size: use the negotiated SCTP max, capped at 256 KB.
+            // sctp.maxMessageSize is the negotiated minimum of both peers, so this is
+            // automatically safe for browser<->CLI (Pion's limit clamps it down).
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const pc = (peer as any)._pc as RTCPeerConnection | undefined;
+            const sctpMax = pc?.sctp?.maxMessageSize;
+            const CHUNK_SIZE = (sctpMax && Number.isFinite(sctpMax) && sctpMax > 0)
+                ? Math.min(256 * 1024, sctpMax)
+                : 64 * 1024;
+
+            // Keep the send buffer oscillating between 4 MB and 8 MB so the link
+            // stays saturated instead of draining to ~0 before refilling.
+            const HIGH_WATER = 8 * 1024 * 1024;
+            const LOW_WATER = 4 * 1024 * 1024;
+
+            // Read from disk in 4 MB slabs to cut await round-trips by ~256x vs
+            // the old per-16-KB arrayBuffer() call.
+            const READ_SLAB = 4 * 1024 * 1024;
 
             try {
                 peer.send(
@@ -928,60 +946,104 @@ export function P2PTransfer() {
                 return;
             }
 
-            const startOffset = await new Promise<number>((resolveAck) => {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const handleAck = (data: any) => {
-                    if (data.byteLength < 1000) {
-                        try {
-                            const text = new TextDecoder().decode(data);
-                            const msg = JSON.parse(text);
-                            if (msg.type === 'ack' && msg.id === id) {
-                                peer.off('data', handleAck);
-                                resolveAck(msg.offset);
-                            }
-                        } catch { }
-                    }
-                };
-                peer.on('data', handleAck);
+            // Set the low-water threshold once; bufferedamountlow fires at LOW_WATER from here on.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const channel = (peer as any)._channel as RTCDataChannel | undefined;
+            if (channel) {
+                channel.bufferedAmountLowThreshold = LOW_WATER;
+            }
+
+            // Wait for receiver ACK with a 15 s timeout to avoid hanging indefinitely
+            // if the receiver crashes or stalls after receiving metadata.
+            const ackResult = await Promise.race([
+                new Promise<number>((resolveAck) => {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const handleAck = (data: any) => {
+                        if (data.byteLength < 1000) {
+                            try {
+                                const text = new TextDecoder().decode(data);
+                                const msg = JSON.parse(text);
+                                if (msg.type === 'ack' && msg.id === id) {
+                                    peer.off('data', handleAck);
+                                    resolveAck(msg.offset);
+                                }
+                            } catch { }
+                        }
+                    };
+                    peer.on('data', handleAck);
+                }),
+                new Promise<number>((_, reject) =>
+                    setTimeout(() => reject(new Error('ack-timeout')), 15_000)
+                ),
+            ]).catch(() => {
+                setError('Transfer timed out waiting for receiver. Please try again.');
+                setStatus('Transfer failed');
+                return -1;
             });
 
-            let offset = startOffset;
+            if (ackResult === -1) {
+                resolve();
+                return;
+            }
+
+            let offset = ackResult;
             let chunkCount = 0;
 
             let speedMeasureStart = performance.now();
             let speedMeasureBytes = 0;
             let lastSpeedUpdate = 0;
 
+            const waitForBuffer = (ch: RTCDataChannel) =>
+                new Promise<void>((r) => {
+                    const onLow = () => {
+                        ch.removeEventListener('bufferedamountlow', onLow);
+                        r();
+                    };
+                    if (ch.bufferedAmount < LOW_WATER) {
+                        r();
+                    } else {
+                        ch.addEventListener('bufferedamountlow', onLow);
+                    }
+                });
+
             while (offset < file.size) {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const channel = (peer as any)._channel as RTCDataChannel | undefined;
-
-                if (channel && channel.bufferedAmount > BUFFER_LIMIT) {
-                    await new Promise<void>((r) => {
-                        const lowThreshold = CHUNK_SIZE;
-                        channel.bufferedAmountLowThreshold = lowThreshold;
-
-                        const onBufferLow = () => {
-                            channel.removeEventListener('bufferedamountlow', onBufferLow);
-                            r();
-                        };
-
-                        if (channel.bufferedAmount < lowThreshold) {
-                            r();
-                        } else {
-                            channel.addEventListener('bufferedamountlow', onBufferLow);
-                        }
-                    });
-                }
-
-                const chunkBlob = file.slice(offset, offset + CHUNK_SIZE);
-                const chunkBuffer = await chunkBlob.arrayBuffer();
                 if (peer.destroyed) break;
 
+                // Read a 4 MB slab from disk (one await per 4 MB instead of per chunk)
+                const slabEnd = Math.min(offset + READ_SLAB, file.size);
+                let slabBuffer: ArrayBuffer;
                 try {
-                    peer.send(chunkBuffer);
-                    offset += chunkBuffer.byteLength;
-                    speedMeasureBytes += chunkBuffer.byteLength;
+                    slabBuffer = await file.slice(offset, slabEnd).arrayBuffer();
+                } catch {
+                    break;
+                }
+
+                // Send the slab as CHUNK_SIZE typed-array views (zero-copy)
+                let slabOffset = 0;
+                while (slabOffset < slabBuffer.byteLength) {
+                    if (peer.destroyed) break;
+
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const ch = (peer as any)._channel as RTCDataChannel | undefined;
+                    if (ch && ch.bufferedAmount >= HIGH_WATER) {
+                        await waitForBuffer(ch);
+                    }
+
+                    if (peer.destroyed) break;
+
+                    const chunkLen = Math.min(CHUNK_SIZE, slabBuffer.byteLength - slabOffset);
+                    const chunk = new Uint8Array(slabBuffer, slabOffset, chunkLen);
+
+                    try {
+                        peer.send(chunk);
+                    } catch {
+                        await new Promise((r) => setTimeout(r, 100));
+                        continue;
+                    }
+
+                    slabOffset += chunkLen;
+                    offset += chunkLen;
+                    speedMeasureBytes += chunkLen;
                     chunkCount++;
 
                     const now = performance.now();
@@ -992,11 +1054,8 @@ export function P2PTransfer() {
                             const remaining = file.size - offset;
                             const etaSeconds = remaining / bytesPerSec;
 
-                            const speedFormatted = formatSpeed(bytesPerSec);
-                            const etaFormatted = formatETA(etaSeconds);
-
-                            setTransferSpeed(speedFormatted);
-                            setEstimatedTime(etaFormatted);
+                            setTransferSpeed(formatSpeed(bytesPerSec));
+                            setEstimatedTime(formatETA(etaSeconds));
                         }
 
                         speedMeasureStart = now;
@@ -1004,18 +1063,11 @@ export function P2PTransfer() {
                         lastSpeedUpdate = now;
                     }
 
-
-                    if (
-                        chunkCount % 10 === 0 ||
-                        offset >= file.size
-                    ) {
+                    if (chunkCount % 10 === 0 || offset >= file.size) {
                         const prog = Math.round((offset / file.size) * 100);
                         setProgress(prog);
                         progressRef.current = prog;
                     }
-                } catch {
-                    await new Promise((r) => setTimeout(r, 100));
-                    continue;
                 }
             }
 

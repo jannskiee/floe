@@ -50,4 +50,10 @@ cli/*.txt
 cli/*.bin
 
 # --- Package managers (client uses pnpm; keep only pnpm-lock.yaml there) ---
-client/package-lock.json
+client/package-lock.json
+
+# --- Playwright (e2e test artifacts) ---
+client/test-results/
+client/playwright-report/
+client/blob-report/
+client/.playwright/
