@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/pion/webrtc/v4"
 	"github.com/schollz/progressbar/v3"
@@ -51,7 +52,9 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool) err
 	var currentFile *os.File
 	var currentInfo FileInfo
 	var bytesReceived int64
+	var totalReceived int64
 	var bar *progressbar.ProgressBar
+	var start time.Time
 	filesReceived := 0
 	waitingForFirst := true
 
@@ -103,7 +106,8 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool) err
 				// On first file: show summary and optionally prompt
 				if waitingForFirst {
 					waitingForFirst = false
-					fmt.Printf("\n  Incoming: %d file(s)\n\n", info.Total)
+					start = time.Now()
+					fmt.Printf("\n  Incoming: %s\n\n", pluralize(info.Total, "file"))
 					if !autoAccept {
 						fmt.Print("  Accept? [Y/n] ")
 						var answer string
@@ -127,20 +131,7 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool) err
 				}
 
 				// Progress bar for this file
-				bar = progressbar.NewOptions64(
-					info.FileSize,
-					progressbar.OptionSetDescription(
-						fmt.Sprintf("  [%d/%d] %s", info.Index, info.Total, truncateName(info.FileName, 30)),
-					),
-					progressbar.OptionSetWidth(30),
-					progressbar.OptionShowBytes(true),
-					progressbar.OptionSetTheme(progressbar.Theme{
-						Saucer:        "█",
-						SaucerPadding: "░",
-						BarStart:      "[",
-						BarEnd:        "]",
-					}),
-				)
+				bar = newProgressBar(info.FileSize, info.Index, info.Total, info.FileName)
 
 				// Send ack as BINARY — the browser checks data.byteLength before
 				// decoding, which is only defined on ArrayBuffer/Buffer, not strings.
@@ -169,7 +160,16 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool) err
 
 					filesReceived++
 					if filesReceived >= currentInfo.Total {
-						fmt.Printf("  Done. %d file(s) received in %s\n", filesReceived, outputDir)
+						elapsed := time.Since(start)
+						timeVal := formatDuration(elapsed)
+						if spd := formatSpeed(float64(totalReceived) / elapsed.Seconds()); spd != "" {
+							timeVal += " · avg " + spd
+						}
+						printSummary([][2]string{
+							{"Received", fmt.Sprintf("%s (%s)", pluralize(filesReceived, "file"), formatBytes(totalReceived))},
+							{"Time", timeVal},
+							{"Saved to", outputDir},
+						})
 						return nil
 					}
 				}
@@ -191,6 +191,7 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool) err
 			return fmt.Errorf("write error: %w", err)
 		}
 		bytesReceived += int64(n)
+		totalReceived += int64(n)
 		bar.Add(n)
 	}
 }

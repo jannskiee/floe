@@ -18,7 +18,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pion/webrtc/v4"
-	"github.com/schollz/progressbar/v3"
 )
 
 const chunkSize = 16 * 1024
@@ -33,13 +32,6 @@ const (
 	bufferedAmountHighWater = 8 * 1024 * 1024 // pause sending at/above 8 MB buffered
 	bufferedAmountLowWater  = 4 * 1024 * 1024 // resume sending below 4 MB buffered
 )
-
-func truncateName(name string, maxLen int) string {
-	if len(name) <= maxLen {
-		return name
-	}
-	return name[:maxLen-1] + "…"
-}
 
 // metadataMsg is sent before each file to describe it.
 type metadataMsg struct {
@@ -75,7 +67,13 @@ func SendFiles(dc *webrtc.DataChannel, paths []string) error {
 		return fmt.Errorf("no files to send")
 	}
 
-	fmt.Printf("  Sending %d file(s)...\n\n", len(files))
+	var totalBytes int64
+	for _, e := range files {
+		totalBytes += e.size
+	}
+	fmt.Printf("  Sending %s (%s)\n\n", pluralize(len(files), "file"), formatBytes(totalBytes))
+
+	start := time.Now()
 
 	// ackCh receives JSON ack messages from the receiver
 	ackCh := make(chan []byte, 4)
@@ -108,8 +106,6 @@ func SendFiles(dc *webrtc.DataChannel, paths []string) error {
 		}
 	}
 
-	fmt.Println("\n  All files sent.")
-
 	// Flush: wait for pion to push every buffered byte (including the final end
 	// marker) onto the wire before the caller closes the connection. Closing
 	// while data is still buffered truncates the transfer. Capped so a dead peer
@@ -124,6 +120,16 @@ func SendFiles(dc *webrtc.DataChannel, paths []string) error {
 	// Brief grace period so the receiver can process the final end marker
 	// before the data channel is torn down.
 	time.Sleep(250 * time.Millisecond)
+
+	elapsed := time.Since(start)
+	timeVal := formatDuration(elapsed)
+	if spd := formatSpeed(float64(totalBytes) / elapsed.Seconds()); spd != "" {
+		timeVal += " · avg " + spd
+	}
+	printSummary([][2]string{
+		{"Sent", fmt.Sprintf("%s (%s)", pluralize(len(files), "file"), formatBytes(totalBytes))},
+		{"Time", timeVal},
+	})
 	return nil
 }
 
@@ -131,6 +137,7 @@ func SendFiles(dc *webrtc.DataChannel, paths []string) error {
 type fileEntry struct {
 	absPath     string // absolute path on disk
 	displayName string // shown in the UI (basename or relative path for folders)
+	size        int64  // file size in bytes
 }
 
 // collectFiles expands all paths: plain files are added directly,
@@ -147,6 +154,7 @@ func collectFiles(paths []string) ([]fileEntry, error) {
 			entries = append(entries, fileEntry{
 				absPath:     p,
 				displayName: filepath.Base(p),
+				size:        info.Size(),
 			})
 			continue
 		}
@@ -161,6 +169,7 @@ func collectFiles(paths []string) ([]fileEntry, error) {
 			entries = append(entries, fileEntry{
 				absPath:     path,
 				displayName: filepath.ToSlash(rel), // use forward slashes in metadata
+				size:        fi.Size(),
 			})
 			return nil
 		})
@@ -232,18 +241,7 @@ ackLoop:
 	}
 
 	// Step 3: Send binary chunks with progress bar
-	bar := progressbar.NewOptions64(
-		fileSize,
-		progressbar.OptionSetDescription(fmt.Sprintf("  [%d/%d] %s", index, total, truncateName(entry.displayName, 30))),
-		progressbar.OptionSetWidth(30),
-		progressbar.OptionShowBytes(true),
-		progressbar.OptionSetTheme(progressbar.Theme{
-			Saucer:        "█",
-			SaucerPadding: "░",
-			BarStart:      "[",
-			BarEnd:        "]",
-		}),
-	)
+	bar := newProgressBar(fileSize, index, total, entry.displayName)
 	bar.Set64(offset)
 
 	buf := make([]byte, chunkSize)
