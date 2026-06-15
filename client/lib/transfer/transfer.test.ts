@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { sendFiles, type SenderDeps, type FileEntry } from './sender';
 import { createReceiver } from './receiver';
+import { metadataMessage, endMessage } from './protocol';
 
 const enc = new TextEncoder();
 
@@ -134,6 +135,43 @@ describe('loopback: chunked transfer', () => {
         // Check first and last 512 bytes
         expect(result[0].bytes.slice(0, 512)).toEqual(expected.slice(0, 512));
         expect(result[0].bytes.slice(SIZE - 512)).toEqual(expected.slice(SIZE - 512));
+    });
+});
+
+describe('receiver: stores tight copies of chunk bytes', () => {
+    // Regression guard: simple-peer delivers data channel chunks as a Node Buffer,
+    // whose `.slice()` is a non-copying VIEW over the (often larger/shared) backing
+    // buffer. The receiver must copy out exactly each chunk's bytes, not retain the
+    // whole backing buffer. This test feeds Buffer subarray views — exactly the
+    // browser-runtime shape — which the old `buf.slice().buffer` code mishandled.
+    it('reassembles chunks delivered as Buffer subarray views over a larger buffer', async () => {
+        let completedBlob: Blob | null = null;
+        const rx = createReceiver({
+            send: () => { /* ack — ignored here */ },
+            onFileComplete: (f) => { completedBlob = f.blob; },
+        });
+
+        const SIZE = 48;
+        const fileBytes = new Uint8Array(SIZE);
+        for (let i = 0; i < SIZE; i++) fileBytes[i] = i + 1; // never 0x7B at index 0
+
+        // Metadata first so the receiver opens a partial download.
+        rx.handleMessage(enc.encode(metadataMessage('rid', 'r.bin', SIZE, 1, 1)));
+
+        // Place the payload inside a larger backing Buffer at a non-zero offset and
+        // hand the receiver subarray VIEWS (16 bytes each) — sharing one backing AB.
+        const backing = Buffer.alloc(200);
+        for (let i = 0; i < SIZE; i++) backing[20 + i] = fileBytes[i];
+        rx.handleMessage(backing.subarray(20, 36));
+        rx.handleMessage(backing.subarray(36, 52));
+        rx.handleMessage(backing.subarray(52, 68));
+
+        rx.handleMessage(enc.encode(endMessage()));
+
+        expect(completedBlob).not.toBeNull();
+        const got = new Uint8Array(await completedBlob!.arrayBuffer());
+        expect(got.byteLength).toBe(SIZE);
+        expect(got).toEqual(fileBytes);
     });
 });
 

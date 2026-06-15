@@ -104,8 +104,13 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: U
         const fileData = partialDownloads.get(currentMetadata.id);
         if (!fileData) return;
 
-        // Copy only the view's bytes into a new buffer (buf may be a view over a larger slab).
-        fileData.chunks.push(buf.slice().buffer as ArrayBuffer);
+        // Copy the chunk's bytes into a fresh, tightly-fit ArrayBuffer. `buf` may be a
+        // view over a much larger (or pooled/shared) ArrayBuffer — notably simple-peer
+        // delivers a Node Buffer whose `.slice()` is a non-copying view, so storing
+        // `buf.slice().buffer` would pin (and later mis-read) the whole backing buffer.
+        // `new Uint8Array(buf)` copies exactly buf.byteLength bytes; `.buffer` is then
+        // a tight ArrayBuffer of that length.
+        fileData.chunks.push(new Uint8Array(buf).buffer);
         fileData.received += buf.byteLength;
         receiveSpeedBytes += buf.byteLength;
 

@@ -5,6 +5,11 @@ export default defineConfig({
     testDir: './e2e',
     timeout: 90_000,
     expect: { timeout: 60_000 },
+    // These are heavy WebRTC integration tests that share one signaling server
+    // (which is per-IP rate limited) and move tens of MB each. Running them in
+    // parallel on a 2-core CI runner starves the transfers and trips flaky
+    // timeouts, so serialize on CI. Local runs keep Playwright's default workers.
+    workers: process.env.CI ? 1 : undefined,
     use: {
         baseURL: 'http://localhost:3000',
         headless: true,
