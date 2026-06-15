@@ -16,6 +16,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { zip, Zippable } from 'fflate';
 import * as Sentry from '@sentry/nextjs';
 import { formatSpeed, formatETA } from '@/lib/transferUtils';
+import { createReceiver } from '@/lib/transfer/receiver';
+import { sendFiles as sendFilesEngine } from '@/lib/transfer/sender';
+import { dedupeFileName } from '@/lib/download';
 import { useWakeLock } from '@/hooks/useWakeLock';
 
 import { QRCodeSVG } from 'qrcode.react';
@@ -114,9 +117,6 @@ export function P2PTransfer() {
     const receivedFilesRef = useRef<ReceivedFile[]>([]);
     const transferCompleteRef = useRef(false);
     const progressRef = useRef(0);
-    const partialDownloads = useRef<
-        Map<string, { chunks: ArrayBuffer[]; received: number }>
-    >(new Map());
     const fileListRef = useRef<HTMLDivElement>(null);
 
     const iceServersRef = useRef<RTCIceServer[]>([
@@ -246,22 +246,7 @@ export function P2PTransfer() {
                     const blob = await response.blob();
                     const arrayBuffer = await blob.arrayBuffer();
 
-                    let finalName = file.fileName;
-                    let counter = 1;
-
-                    while (usedNames.has(finalName)) {
-                        const dotIndex = file.fileName.lastIndexOf('.');
-                        if (dotIndex === -1) {
-                            finalName = `${file.fileName} (${counter})`;
-                        } else {
-                            const base = file.fileName.substring(0, dotIndex);
-                            const ext = file.fileName.substring(dotIndex);
-                            finalName = `${base} (${counter})${ext}`;
-                        }
-                        counter++;
-                    }
-
-                    usedNames.add(finalName);
+                    const finalName = dedupeFileName(file.fileName, usedNames);
                     filesToZip[finalName] = new Uint8Array(arrayBuffer);
                 } catch {
                     failedCount++;
@@ -441,134 +426,48 @@ export function P2PTransfer() {
             setStatus('Connection failed');
         });
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let currentMetadata: any = {};
-
-        let receiveSpeedStart = performance.now();
-        let receiveSpeedBytes = 0;
-        let lastReceiveSpeedUpdate = 0;
-
-        peer.on('data', (data) => {
-            if (data.byteLength <= 1000) {
-                try {
-                    const text = new TextDecoder().decode(data);
-                    if (text.startsWith('{')) {
-                        const msg = JSON.parse(text);
-
-                        if (msg.type === 'metadata') {
-                            currentMetadata = msg;
-                            receiveSpeedStart = performance.now();
-                            receiveSpeedBytes = 0;
-                            lastReceiveSpeedUpdate = 0;
-                            setTransferSpeed('');
-                            setEstimatedTime('');
-                            setStatus(
-                                `Receiving file ${msg.index} of ${msg.total}`
-                            );
-
-                            let offset = 0;
-                            const existing = partialDownloads.current.get(
-                                msg.id
-                            );
-                            if (existing) {
-                                offset = existing.received;
-                            } else {
-                                partialDownloads.current.set(msg.id, {
-                                    chunks: [],
-                                    received: 0,
-                                });
-                            }
-                            peer.send(
-                                JSON.stringify({
-                                    type: 'ack',
-                                    id: msg.id,
-                                    offset: offset,
-                                })
-                            );
-                            return;
-                        } else if (msg.type === 'end') {
-                            const fileData = partialDownloads.current.get(
-                                currentMetadata.id
-                            );
-                            if (fileData) {
-                                const blob = new Blob(fileData.chunks);
-                                const url = URL.createObjectURL(blob);
-
-                                const newFile = {
-                                    id: uuidv4(),
-                                    fileName: currentMetadata.fileName,
-                                    fileSize: fileData.received,
-                                    downloadUrl: url,
-                                };
-
-                                setReceivedFiles((prev) => {
-                                    const updated = [...prev, newFile];
-                                    receivedFilesRef.current = updated;
-                                    return updated;
-                                });
-                                transferCompleteRef.current = true;
-                                partialDownloads.current.delete(
-                                    currentMetadata.id
-                                );
-                                // Track received file (aggregate only)
-                                if (typeof window !== 'undefined') {
-                                    (window as UmamiWindow).umami?.track('transfer-received', {
-                                        files: receivedFilesRef.current.length,
-                                        bytes: fileData.received,
-                                        connection: connectionType ?? 'unknown',
-                                        role: 'receiver',
-                                    });
-                                }
-                            }
-                            setStatus('File received. Waiting for next file');
-                            setProgress(0);
-                            setTransferSpeed('');
-                            setEstimatedTime('');
-                            return;
-                        }
-                    }
-                } catch { }
-            }
-
-            const fileData = partialDownloads.current.get(currentMetadata.id);
-            if (fileData) {
-                fileData.chunks.push(data);
-                fileData.received += data.byteLength;
-                receiveSpeedBytes += data.byteLength;
-
-                const now = performance.now();
-                if (now - lastReceiveSpeedUpdate > 1000) {
-                    const elapsed = (now - receiveSpeedStart) / 1000;
-                    if (elapsed > 0 && currentMetadata.fileSize) {
-                        const bytesPerSec = receiveSpeedBytes / elapsed;
-                        const remaining = currentMetadata.fileSize - fileData.received;
-                        const etaSeconds = remaining / bytesPerSec;
-
-                        const speedFormatted = formatSpeed(bytesPerSec);
-                        const etaFormatted = formatETA(etaSeconds);
-
-                        setTransferSpeed(speedFormatted);
-                        setEstimatedTime(etaFormatted);
-                    }
-
-                    receiveSpeedStart = now;
-                    receiveSpeedBytes = 0;
-                    lastReceiveSpeedUpdate = now;
+        const rx = createReceiver({
+            send: (d) => peer.send(d),
+            onFileStart: (index, total) => {
+                setTransferSpeed('');
+                setEstimatedTime('');
+                setStatus(`Receiving file ${index} of ${total}`);
+            },
+            onProgress: (pct) => setProgress(pct),
+            onSpeed: (bps, eta) => {
+                setTransferSpeed(formatSpeed(bps));
+                setEstimatedTime(formatETA(eta));
+            },
+            onSpeedReset: () => {
+                setTransferSpeed('');
+                setEstimatedTime('');
+            },
+            onFileComplete: (file) => {
+                const url = URL.createObjectURL(file.blob);
+                const newFile = {
+                    id: uuidv4(),
+                    fileName: file.fileName,
+                    fileSize: file.fileSize,
+                    downloadUrl: url,
+                };
+                setReceivedFiles((prev) => {
+                    const updated = [...prev, newFile];
+                    receivedFilesRef.current = updated;
+                    return updated;
+                });
+                transferCompleteRef.current = true;
+                if (typeof window !== 'undefined') {
+                    (window as UmamiWindow).umami?.track('transfer-received', {
+                        files: receivedFilesRef.current.length,
+                        bytes: file.fileSize,
+                        connection: connectionType ?? 'unknown',
+                        role: 'receiver',
+                    });
                 }
-
-                if (
-                    currentMetadata.fileSize &&
-                    (fileData.received % (160 * 1024 * 10) === 0 ||
-                        fileData.received === currentMetadata.fileSize)
-                ) {
-                    setProgress(
-                        Math.round(
-                            (fileData.received / currentMetadata.fileSize) * 100
-                        )
-                    );
-                }
-            }
+            },
+            onWaiting: () => setStatus('File received. Waiting for next file'),
         });
+        peer.on('data', rx.handleMessage);
         peerRef.current = peer;
     };
 
@@ -899,215 +798,63 @@ export function P2PTransfer() {
     };
 
     const sendAllFiles = async (peer: PeerInstance, fileList: FileWithId[]) => {
-        for (let i = 0; i < fileList.length; i++) {
-            if (peer.destroyed) break;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const channel = (peer as any)._channel as RTCDataChannel | undefined;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const pc = (peer as any)._pc as RTCPeerConnection | undefined;
 
-            setCurrentFileIndex(i);
-            const fileItem = fileList[i];
-            setStatus(`Sending: ${fileItem.file.name}`);
-            setProgress(0);
+        if (!channel) return;
 
-            await sendSingleFile(peer, fileItem, i + 1, fileList.length);
-        }
-        if (!peer.destroyed) {
-            setStatus('All Files Sent!');
-            setProgress(100);
-            transferCompleteRef.current = true;
-            releaseWakeLock();
-            // Track successful transfer (aggregate only — no file names, no identifiers)
-            if (typeof window !== 'undefined') {
-                (window as UmamiWindow).umami?.track('transfer-complete', {
-                    files: fileList.length,
-                    bytes: fileList.reduce((s, f) => s + f.file.size, 0),
-                    connection: connectionType ?? 'unknown',
-                    role: 'sender',
-                });
-            }
-        }
-    };
-
-    const sendSingleFile = async (
-        peer: PeerInstance,
-        fileItem: FileWithId,
-        index: number,
-        total: number
-    ) => {
-        return new Promise<void>(async (resolve) => {
-            const { file, id } = fileItem;
-
-            if (!peer || peer.destroyed) {
-                resolve();
-                return;
-            }
-
-            // Adaptive chunk size: use the negotiated SCTP max, capped at 256 KB.
-            // sctp.maxMessageSize is the negotiated minimum of both peers, so this is
-            // automatically safe for browser<->CLI (Pion's limit clamps it down).
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const pc = (peer as any)._pc as RTCPeerConnection | undefined;
-            const sctpMax = pc?.sctp?.maxMessageSize;
-            const CHUNK_SIZE = (sctpMax && Number.isFinite(sctpMax) && sctpMax > 0)
-                ? Math.min(256 * 1024, sctpMax)
-                : 64 * 1024;
-
-            // Keep the send buffer oscillating between 4 MB and 8 MB so the link
-            // stays saturated instead of draining to ~0 before refilling.
-            const HIGH_WATER = 8 * 1024 * 1024;
-            const LOW_WATER = 4 * 1024 * 1024;
-
-            // Read from disk in 4 MB slabs to cut await round-trips by ~256x vs
-            // the old per-16-KB arrayBuffer() call.
-            const READ_SLAB = 4 * 1024 * 1024;
-
-            try {
-                peer.send(
-                    JSON.stringify({
-                        id: id,
-                        fileName: file.name,
-                        fileSize: file.size,
-                        type: 'metadata',
-                        index: index,
-                        total: total,
-                    })
-                );
-            } catch {
-                resolve();
-                return;
-            }
-
-            // Set the low-water threshold once; bufferedamountlow fires at LOW_WATER from here on.
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const channel = (peer as any)._channel as RTCDataChannel | undefined;
-            if (channel) {
-                channel.bufferedAmountLowThreshold = LOW_WATER;
-            }
-
-            // Wait for receiver ACK with a 15 s timeout to avoid hanging indefinitely
-            // if the receiver crashes or stalls after receiving metadata.
-            const ackResult = await Promise.race([
-                new Promise<number>((resolveAck) => {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const handleAck = (data: any) => {
-                        if (data.byteLength < 1000) {
-                            try {
-                                const text = new TextDecoder().decode(data);
-                                const msg = JSON.parse(text);
-                                if (msg.type === 'ack' && msg.id === id) {
-                                    peer.off('data', handleAck);
-                                    resolveAck(msg.offset);
-                                }
-                            } catch { }
-                        }
-                    };
-                    peer.on('data', handleAck);
-                }),
-                new Promise<number>((_, reject) =>
-                    setTimeout(() => reject(new Error('ack-timeout')), 15_000)
-                ),
-            ]).catch(() => {
-                setError('Transfer timed out waiting for receiver. Please try again.');
-                setStatus('Transfer failed');
-                return -1;
-            });
-
-            if (ackResult === -1) {
-                resolve();
-                return;
-            }
-
-            let offset = ackResult;
-            let chunkCount = 0;
-
-            let speedMeasureStart = performance.now();
-            let speedMeasureBytes = 0;
-            let lastSpeedUpdate = 0;
-
-            const waitForBuffer = (ch: RTCDataChannel) =>
-                new Promise<void>((r) => {
-                    const onLow = () => {
-                        ch.removeEventListener('bufferedamountlow', onLow);
-                        r();
-                    };
-                    if (ch.bufferedAmount < LOW_WATER) {
-                        r();
-                    } else {
-                        ch.addEventListener('bufferedamountlow', onLow);
+        await sendFilesEngine(
+            {
+                send: (d) => peer.send(d),
+                onData: (handler) => {
+                    peer.on('data', handler);
+                    return () => peer.off('data', handler);
+                },
+                channel,
+                sctpMaxMessageSize: pc?.sctp?.maxMessageSize,
+            },
+            fileList.map((f) => ({ id: f.id, file: f.file })),
+            {
+                isDestroyed: () => peer.destroyed,
+                onFileStart: (i, _total, name) => {
+                    setCurrentFileIndex(i);
+                    setStatus(`Sending: ${name}`);
+                    setProgress(0);
+                },
+                onProgress: (pct) => {
+                    setProgress(pct);
+                    progressRef.current = pct;
+                },
+                onSpeed: (bps, eta) => {
+                    setTransferSpeed(formatSpeed(bps));
+                    setEstimatedTime(formatETA(eta));
+                },
+                onSpeedReset: () => {
+                    setTransferSpeed('');
+                    setEstimatedTime('');
+                },
+                onError: (msg) => {
+                    setError(msg);
+                    setStatus('Transfer failed');
+                },
+                onAllSent: () => {
+                    setStatus('All Files Sent!');
+                    setProgress(100);
+                    transferCompleteRef.current = true;
+                    releaseWakeLock();
+                    if (typeof window !== 'undefined') {
+                        (window as UmamiWindow).umami?.track('transfer-complete', {
+                            files: fileList.length,
+                            bytes: fileList.reduce((s, f) => s + f.file.size, 0),
+                            connection: connectionType ?? 'unknown',
+                            role: 'sender',
+                        });
                     }
-                });
-
-            while (offset < file.size) {
-                if (peer.destroyed) break;
-
-                // Read a 4 MB slab from disk (one await per 4 MB instead of per chunk)
-                const slabEnd = Math.min(offset + READ_SLAB, file.size);
-                let slabBuffer: ArrayBuffer;
-                try {
-                    slabBuffer = await file.slice(offset, slabEnd).arrayBuffer();
-                } catch {
-                    break;
-                }
-
-                // Send the slab as CHUNK_SIZE typed-array views (zero-copy)
-                let slabOffset = 0;
-                while (slabOffset < slabBuffer.byteLength) {
-                    if (peer.destroyed) break;
-
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const ch = (peer as any)._channel as RTCDataChannel | undefined;
-                    if (ch && ch.bufferedAmount >= HIGH_WATER) {
-                        await waitForBuffer(ch);
-                    }
-
-                    if (peer.destroyed) break;
-
-                    const chunkLen = Math.min(CHUNK_SIZE, slabBuffer.byteLength - slabOffset);
-                    const chunk = new Uint8Array(slabBuffer, slabOffset, chunkLen);
-
-                    try {
-                        peer.send(chunk);
-                    } catch {
-                        await new Promise((r) => setTimeout(r, 100));
-                        continue;
-                    }
-
-                    slabOffset += chunkLen;
-                    offset += chunkLen;
-                    speedMeasureBytes += chunkLen;
-                    chunkCount++;
-
-                    const now = performance.now();
-                    if (now - lastSpeedUpdate > 1000) {
-                        const elapsed = (now - speedMeasureStart) / 1000;
-                        if (elapsed > 0) {
-                            const bytesPerSec = speedMeasureBytes / elapsed;
-                            const remaining = file.size - offset;
-                            const etaSeconds = remaining / bytesPerSec;
-
-                            setTransferSpeed(formatSpeed(bytesPerSec));
-                            setEstimatedTime(formatETA(etaSeconds));
-                        }
-
-                        speedMeasureStart = now;
-                        speedMeasureBytes = 0;
-                        lastSpeedUpdate = now;
-                    }
-
-                    if (chunkCount % 10 === 0 || offset >= file.size) {
-                        const prog = Math.round((offset / file.size) * 100);
-                        setProgress(prog);
-                        progressRef.current = prog;
-                    }
-                }
+                },
             }
-
-            setTransferSpeed('');
-            setEstimatedTime('');
-
-            try {
-                peer.send(JSON.stringify({ type: 'end' }));
-            } catch { }
-            resolve();
-        });
+        );
     };
 
     if (isSender === null) {
