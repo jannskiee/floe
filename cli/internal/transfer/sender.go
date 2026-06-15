@@ -23,6 +23,17 @@ import (
 
 const chunkSize = 16 * 1024
 
+// Backpressure watermarks mirror the browser sender (P2PTransfer.tsx): pause
+// sending once pion's SCTP send buffer reaches the high-water mark, resume once
+// it drains back below the low-water mark. Without this the sender enqueues the
+// whole file as fast as the disk reads it — the progress bar races to 100% while
+// the receiver is still mid-transfer, and large files overflow pion's buffer and
+// stall the connection.
+const (
+	bufferedAmountHighWater = 8 * 1024 * 1024 // pause sending at/above 8 MB buffered
+	bufferedAmountLowWater  = 4 * 1024 * 1024 // resume sending below 4 MB buffered
+)
+
 func truncateName(name string, maxLen int) string {
 	if len(name) <= maxLen {
 		return name
@@ -71,21 +82,48 @@ func SendFiles(dc *webrtc.DataChannel, paths []string) error {
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
 		// Accept ack as either string or binary — the CLI receiver sends
 		// binary for browser compatibility, CLI-to-CLI also works.
-		ackCh <- msg.Data
+		// Non-blocking: a full buffer means a stray/duplicate message arrived;
+		// dropping it is safe because the ack loop already matched its ID.
+		select {
+		case ackCh <- msg.Data:
+		default:
+		}
+	})
+
+	// Backpressure: pion calls OnBufferedAmountLow once the send buffer drains
+	// to bufferedAmountLowWater. The send loop blocks on sendMore whenever the
+	// buffer is full so we never enqueue faster than the peer can drain.
+	sendMore := make(chan struct{}, 1)
+	dc.SetBufferedAmountLowThreshold(bufferedAmountLowWater)
+	dc.OnBufferedAmountLow(func() {
+		select {
+		case sendMore <- struct{}{}:
+		default:
+		}
 	})
 
 	for i, entry := range files {
-		if err := sendFile(dc, ackCh, entry, i+1, len(files)); err != nil {
+		if err := sendFile(dc, ackCh, sendMore, entry, i+1, len(files)); err != nil {
 			return fmt.Errorf("error sending %s: %w", entry.displayName, err)
 		}
 	}
 
 	fmt.Println("\n  All files sent.")
 
-	// Allow SCTP to flush buffered data before the caller closes the connection.
-	// Without this pause, conn.Close() fires immediately and the receiver may
-	// not receive the last chunks / end markers.
-	time.Sleep(2 * time.Second)
+	// Flush: wait for pion to push every buffered byte (including the final end
+	// marker) onto the wire before the caller closes the connection. Closing
+	// while data is still buffered truncates the transfer. Capped so a dead peer
+	// can't hang the process forever.
+	drainDeadline := time.Now().Add(30 * time.Second)
+	for dc.BufferedAmount() > 0 {
+		if time.Now().After(drainDeadline) {
+			return fmt.Errorf("timed out flushing %d buffered bytes to peer", dc.BufferedAmount())
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	// Brief grace period so the receiver can process the final end marker
+	// before the data channel is torn down.
+	time.Sleep(250 * time.Millisecond)
 	return nil
 }
 
@@ -134,7 +172,7 @@ func collectFiles(paths []string) ([]fileEntry, error) {
 }
 
 // sendFile handles the full send sequence for a single file.
-func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, entry fileEntry, index, total int) error {
+func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, entry fileEntry, index, total int) error {
 	f, err := os.Open(entry.absPath)
 	if err != nil {
 		return err
@@ -163,16 +201,27 @@ func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, entry fileEntry, inde
 		return fmt.Errorf("failed to send metadata: %w", err)
 	}
 
-	// Step 2: Wait for ack (with 30-second timeout)
+	// Step 2: Wait for this file's ack (with 30-second timeout).
+	// Discard any stray or stale message until we see the ack whose ID matches
+	// this file — otherwise an out-of-order message could be misread as the ack
+	// (sending from offset 0) or leak into the next file's handshake.
 	var offset int64
-	select {
-	case raw := <-ackCh:
-		var ack ackMsg
-		if err := json.Unmarshal(raw, &ack); err == nil && ack.Type == "ack" && ack.ID == fileID {
-			offset = ack.Offset
+	// 120 s lets a human at the interactive [Y/n] receiver prompt accept without
+	// triggering a spurious timeout on the sender.
+	ackDeadline := time.After(120 * time.Second)
+ackLoop:
+	for {
+		select {
+		case raw := <-ackCh:
+			var ack ackMsg
+			if err := json.Unmarshal(raw, &ack); err == nil && ack.Type == "ack" && ack.ID == fileID {
+				offset = ack.Offset
+				break ackLoop
+			}
+			// Not our ack — keep waiting.
+		case <-ackDeadline:
+			return fmt.Errorf("timed out waiting for ack")
 		}
-	case <-time.After(30 * time.Second):
-		return fmt.Errorf("timed out waiting for ack")
 	}
 
 	// Seek to resume offset (normally 0)
@@ -201,6 +250,16 @@ func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, entry fileEntry, inde
 	for {
 		n, err := f.Read(buf)
 		if n > 0 {
+			// Backpressure: block until pion's buffer drains below the low-water
+			// mark before queuing more. The loop re-checks after each wakeup so a
+			// stale signal can't let us run away from the receiver.
+			for dc.BufferedAmount() >= bufferedAmountHighWater {
+				select {
+				case <-sendMore:
+				case <-time.After(60 * time.Second):
+					return fmt.Errorf("backpressure stall: peer not draining (%d bytes buffered)", dc.BufferedAmount())
+				}
+			}
 			if sendErr := dc.Send(buf[:n]); sendErr != nil {
 				return fmt.Errorf("failed to send chunk: %w", sendErr)
 			}

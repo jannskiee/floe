@@ -67,7 +67,7 @@ func Connect(serverURL string) (*Client, error) {
 		conn:          conn,
 		Role:          make(chan string, 1),
 		PeerConnected: make(chan string, 1),
-		Signal:        make(chan json.RawMessage, 32),
+		Signal:        make(chan json.RawMessage, 128),
 		PeerLeft:      make(chan struct{}, 1),
 		RoomFull:      make(chan struct{}, 1),
 		Errors:        make(chan string, 4),

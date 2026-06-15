@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/pion/webrtc/v4"
 	"github.com/schollz/progressbar/v3"
@@ -30,12 +31,20 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool) err
 	// We use a channel so the OnMessage callback (goroutine) feeds a sequential loop.
 	msgCh := make(chan webrtc.DataChannelMessage, 256)
 
+	// done is closed when the data channel closes. We signal via a separate
+	// channel instead of closing msgCh from OnClose: closing msgCh while the
+	// OnMessage callback might still push would panic ("send on closed channel").
+	// The OnMessage send selects on done so it can never block or panic after close.
+	done := make(chan struct{})
+	var closeOnce sync.Once
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-		msgCh <- msg
+		select {
+		case msgCh <- msg:
+		case <-done:
+		}
 	})
-
 	dc.OnClose(func() {
-		close(msgCh)
+		closeOnce.Do(func() { close(done) })
 	})
 
 	// Process messages sequentially
@@ -54,100 +63,123 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool) err
 		}
 	}()
 
-	for msg := range msgCh {
-		// Try to parse as a JSON control message.
-		// Browser (SimplePeer) sends metadata/end as strings, but they may
-		// arrive as binary depending on SCTP framing. We attempt JSON parsing
-		// on any string message OR any small binary message (< 1 KB).
-		if msg.IsString || len(msg.Data) < 1024 {
-			var base map[string]interface{}
-			if err := json.Unmarshal(msg.Data, &base); err == nil {
-				msgType, _ := base["type"].(string)
+	for {
+		// Prefer draining buffered messages over reacting to a close: a normal
+		// transfer ends with the final "end" marker already queued in msgCh,
+		// which must be processed even if OnClose has fired alongside it.
+		var msg webrtc.DataChannelMessage
+		select {
+		case msg = <-msgCh:
+		default:
+			select {
+			case msg = <-msgCh:
+			case <-done:
+				// Channel closed before the transfer finished normally.
+				if currentFile != nil {
+					return fmt.Errorf("connection closed mid-transfer: %s (%d of %d bytes)",
+						currentInfo.FileName, bytesReceived, currentInfo.FileSize)
+				}
+				return nil
+			}
+		}
 
-				switch msgType {
+		// Decide whether this is a Floe control message (metadata/end) or file
+		// data. Only recognized control types are consumed as control — a small
+		// binary chunk that merely happens to be a JSON object is file data and
+		// must be written, never dropped.
+		msgType, isControl := classifyControl(msg.Data, msg.IsString)
+		if isControl {
+			switch msgType {
 
-				case "metadata":
-					// A new file is starting
-					info, err := parseMetadata(string(msg.Data))
-					if err != nil {
-						continue
-					}
-					currentInfo = info
-					bytesReceived = 0
+			case "metadata":
+				// A new file is starting
+				info, err := parseMetadata(string(msg.Data))
+				if err != nil {
+					continue
+				}
+				currentInfo = info
+				bytesReceived = 0
 
-					// On first file: show summary and optionally prompt
-					if waitingForFirst {
-						waitingForFirst = false
-						fmt.Printf("\n  Incoming: %d file(s)\n\n", info.Total)
-						if !autoAccept {
-							fmt.Print("  Accept? [Y/n] ")
-							var answer string
-							fmt.Scanln(&answer)
-							answer = strings.TrimSpace(strings.ToLower(answer))
-							if answer == "n" || answer == "no" {
-								dc.Close()
-								return fmt.Errorf("transfer declined")
-							}
-						}
-					}
-
-					// Create destination file (create parent dirs for folder transfers)
-					destPath := safeJoin(outputDir, info.FileName)
-					if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-						return fmt.Errorf("cannot create directory: %w", err)
-					}
-					currentFile, err = os.Create(destPath)
-					if err != nil {
-						return fmt.Errorf("cannot create file %s: %w", destPath, err)
-					}
-
-					// Progress bar for this file
-					bar = progressbar.NewOptions64(
-						info.FileSize,
-						progressbar.OptionSetDescription(
-							fmt.Sprintf("  [%d/%d] %s", info.Index, info.Total, truncateName(info.FileName, 30)),
-						),
-						progressbar.OptionSetWidth(30),
-						progressbar.OptionShowBytes(true),
-						progressbar.OptionSetTheme(progressbar.Theme{
-							Saucer:        "█",
-							SaucerPadding: "░",
-							BarStart:      "[",
-							BarEnd:        "]",
-						}),
-					)
-
-					// Send ack as BINARY — the browser checks data.byteLength before
-					// decoding, which is only defined on ArrayBuffer/Buffer, not strings.
-					ack := map[string]interface{}{
-						"type":   "ack",
-						"id":     info.ID,
-						"offset": 0,
-					}
-					ackJSON, _ := json.Marshal(ack)
-					dc.Send([]byte(ackJSON))
-
-				case "end":
-					// Current file is complete
-					if currentFile != nil {
-						currentFile.Close()
-						currentFile = nil
-						fmt.Println()
-						filesReceived++
-
-						if filesReceived >= currentInfo.Total {
-							fmt.Printf("  Done. %d file(s) received in %s\n", filesReceived, outputDir)
-							return nil
+				// On first file: show summary and optionally prompt
+				if waitingForFirst {
+					waitingForFirst = false
+					fmt.Printf("\n  Incoming: %d file(s)\n\n", info.Total)
+					if !autoAccept {
+						fmt.Print("  Accept? [Y/n] ")
+						var answer string
+						fmt.Scanln(&answer)
+						answer = strings.TrimSpace(strings.ToLower(answer))
+						if answer == "n" || answer == "no" {
+							dc.Close()
+							return fmt.Errorf("transfer declined")
 						}
 					}
 				}
-				continue // successfully parsed JSON — skip binary write
+
+				// Create destination file (create parent dirs for folder transfers)
+				destPath := safeJoin(outputDir, info.FileName)
+				if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+					return fmt.Errorf("cannot create directory: %w", err)
+				}
+				currentFile, err = os.Create(destPath)
+				if err != nil {
+					return fmt.Errorf("cannot create file %s: %w", destPath, err)
+				}
+
+				// Progress bar for this file
+				bar = progressbar.NewOptions64(
+					info.FileSize,
+					progressbar.OptionSetDescription(
+						fmt.Sprintf("  [%d/%d] %s", info.Index, info.Total, truncateName(info.FileName, 30)),
+					),
+					progressbar.OptionSetWidth(30),
+					progressbar.OptionShowBytes(true),
+					progressbar.OptionSetTheme(progressbar.Theme{
+						Saucer:        "█",
+						SaucerPadding: "░",
+						BarStart:      "[",
+						BarEnd:        "]",
+					}),
+				)
+
+				// Send ack as BINARY — the browser checks data.byteLength before
+				// decoding, which is only defined on ArrayBuffer/Buffer, not strings.
+				ack := map[string]interface{}{
+					"type":   "ack",
+					"id":     info.ID,
+					"offset": 0,
+				}
+				ackJSON, _ := json.Marshal(ack)
+				dc.Send([]byte(ackJSON))
+
+			case "end":
+				// Current file is complete
+				if currentFile != nil {
+					currentFile.Close()
+					currentFile = nil
+					fmt.Println()
+
+					// Integrity guard: a short byte count means the transfer was
+					// truncated (e.g. the sender closed early). Fail loudly rather
+					// than leave a corrupt file that looks complete.
+					if bytesReceived != currentInfo.FileSize {
+						return fmt.Errorf("incomplete file %q: received %d of %d bytes",
+							currentInfo.FileName, bytesReceived, currentInfo.FileSize)
+					}
+
+					filesReceived++
+					if filesReceived >= currentInfo.Total {
+						fmt.Printf("  Done. %d file(s) received in %s\n", filesReceived, outputDir)
+						return nil
+					}
+				}
 			}
-			// JSON parse failed on a string message — skip it
-			if msg.IsString {
-				continue
-			}
-			// JSON parse failed on a small binary message — fall through to chunk write
+			continue
+		}
+
+		// A string that wasn't a recognized control message is never file data.
+		if msg.IsString {
+			continue
 		}
 
 		// Binary chunk — write directly to disk
@@ -161,8 +193,51 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool) err
 		bytesReceived += int64(n)
 		bar.Add(n)
 	}
+}
 
-	return nil
+// classifyControl reports whether a data channel message is a Floe control
+// message and, if so, its type ("metadata" or "end").
+//
+// Control messages are JSON objects. The browser (SimplePeer) sends them as
+// strings, but depending on SCTP framing they can also arrive as small binary
+// messages, so binary payloads up to 1000 bytes are probed too (matching the
+// browser's `data.byteLength <= 1000` guard). Crucially, a message is treated
+// as control ONLY when it parses as a JSON object whose "type" is a known
+// control type. Anything else — including a small file whose bytes happen to be
+// a JSON object — is file data and must be written, not dropped.
+func classifyControl(data []byte, isString bool) (msgType string, isControl bool) {
+	if !isString && len(data) > 1000 {
+		return "", false
+	}
+	if !looksLikeJSONObject(data) {
+		return "", false
+	}
+	var base map[string]interface{}
+	if err := json.Unmarshal(data, &base); err != nil {
+		return "", false
+	}
+	t, _ := base["type"].(string)
+	if t == "metadata" || t == "end" {
+		return t, true
+	}
+	return "", false
+}
+
+// looksLikeJSONObject reports whether data's first non-whitespace byte is '{',
+// a cheap pre-check (mirroring the browser's `text.startsWith('{')`) that avoids
+// a full JSON parse attempt on raw binary chunks.
+func looksLikeJSONObject(data []byte) bool {
+	for _, b := range data {
+		switch b {
+		case ' ', '\t', '\r', '\n':
+			continue
+		case '{':
+			return true
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 // parseMetadata extracts FileInfo from a raw metadata JSON string.
