@@ -62,15 +62,17 @@ Check that the signaling server returns TURN credentials:
 curl http://localhost:3001/api/turn-credentials
 ```
 
-The response should include `turn:` and `turns:` entries alongside STUN:
+When TURN is configured, the response contains `turn:` and `turns:` entries, plus a `stun:` entry pointing at your TURN host:
 
 ```json
 [
-  { "urls": "stun:stun.l.google.com:19302" },
+  { "urls": "stun:turn.your-domain.com:3478" },
   { "urls": "turn:turn.your-domain.com:3478", "username": "...", "credential": "..." },
   { "urls": "turns:turn.your-domain.com:5349", "username": "...", "credential": "..." }
 ]
 ```
+
+When `TURN_SECRET` and `TURN_DOMAIN` are unset, the endpoint instead returns the Google public STUN servers only.
 
 ## How credentials work
 
