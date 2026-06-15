@@ -98,3 +98,59 @@ jobs:
       - name: Build
         run: go build ./cmd/floe
         working-directory: cli
+
+  cli-interop:
+    name: CLI↔Browser Interop (Go + Node)
+    runs-on: ubuntu-latest
+    # Requires both Go (CLI binary) and Node (server + client + Playwright)
+    needs: [cli, build-and-lint, server]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: cli/go.sum
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.2
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install client dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: client
+
+      - name: Install server dependencies
+        run: npm install
+        working-directory: server
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+        working-directory: client
+
+      - name: Run CLI↔browser interop tests
+        run: pnpm exec playwright test cli-interop.spec.ts
+        working-directory: client
+        env:
+          NEXT_PUBLIC_SOCKET_URL: http://localhost:3001

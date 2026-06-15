@@ -71,3 +71,65 @@ func TestParseMetadata(t *testing.T) {
 		t.Error("parseMetadata(invalid json) should error")
 	}
 }
+
+// TestLooksLikeJSONObject covers the cheap pre-check used before JSON parsing.
+func TestLooksLikeJSONObject(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{`{"type":"end"}`, true},
+		{"  \r\n\t{\"a\":1}", true}, // leading whitespace tolerated
+		{`[1,2,3]`, false},         // array, not object
+		{`"a string"`, false},
+		{`123`, false},
+		{"", false},
+		{"\x00\x01\x02binary", false},
+	}
+	for _, tc := range cases {
+		if got := looksLikeJSONObject([]byte(tc.in)); got != tc.want {
+			t.Errorf("looksLikeJSONObject(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestClassifyControl is the regression guard for the framing bug: only genuine
+// metadata/end JSON objects are control messages. A small file whose bytes are a
+// JSON object must be classified as DATA (isControl=false) so it is never dropped.
+func TestClassifyControl(t *testing.T) {
+	cases := []struct {
+		name        string
+		data        string
+		isString    bool
+		wantType    string
+		wantControl bool
+	}{
+		{"metadata string", `{"type":"metadata","id":"x","fileName":"a","fileSize":1,"index":1,"total":1}`, true, "metadata", true},
+		{"end string", `{"type":"end"}`, true, "end", true},
+		{"metadata as small binary", `{"type":"metadata","id":"x"}`, false, "metadata", true},
+		// A tiny JSON file (its own content) must be treated as DATA, not dropped.
+		{"json file content under 1KB", `{"hello":"world","n":42}`, false, "", false},
+		// A JSON object whose type is unknown is still data, not control.
+		{"unknown type", `{"type":"chat","msg":"hi"}`, false, "", false},
+		// Raw binary that isn't JSON is data.
+		{"raw binary", "\x89PNG\r\n\x1a\n....", false, "", false},
+		// A string that isn't a control message is skipped (not control, not data).
+		{"non-control string", "just some text", true, "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotType, gotControl := classifyControl([]byte(tc.data), tc.isString)
+			if gotType != tc.wantType || gotControl != tc.wantControl {
+				t.Errorf("classifyControl(%q, isString=%v) = (%q, %v), want (%q, %v)",
+					tc.data, tc.isString, gotType, gotControl, tc.wantType, tc.wantControl)
+			}
+		})
+	}
+
+	// A binary JSON object LARGER than 1000 bytes must be data (control probe is
+	// capped at 1000 bytes for binary, matching the browser guard).
+	big := `{"type":"metadata",` + `"pad":"` + strings.Repeat("x", 1100) + `"}`
+	if _, isControl := classifyControl([]byte(big), false); isControl {
+		t.Errorf("classifyControl on >1000-byte binary should be data, got control")
+	}
+}
