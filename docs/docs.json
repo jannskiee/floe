@@ -40,10 +40,18 @@
     },
     "links": [
       {
-        "header": "Floe",
+        "header": "Product",
         "items": [
-          { "label": "Home", "href": "https://floe.one" },
+          { "label": "Floe App", "href": "https://floe.one" },
           { "label": "How It Works", "href": "https://floe.one/how-it-works" }
+        ]
+      },
+      {
+        "header": "Documentation",
+        "items": [
+          { "label": "Quick Start", "href": "/quickstart" },
+          { "label": "CLI", "href": "/cli/installation" },
+          { "label": "Self-Hosting", "href": "/self-hosting/overview" }
         ]
       },
       {
