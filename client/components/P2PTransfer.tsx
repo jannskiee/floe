@@ -619,11 +619,14 @@ export function P2PTransfer() {
             if (!sig) return;
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const pc = (peer as any)._pc as RTCPeerConnection | undefined;
-            if (pc && pc.signalingState === 'stable' && (sig.type === 'answer' || sig.type === 'offer')) {
+            // A duplicate/late SDP answer applied after negotiation completes throws
+            // InvalidStateError ("Called in wrong state: stable"). Skip only answers.
+            // Applying an offer in `stable` is the receiver's normal first step.
+            if (pc && pc.signalingState === 'stable' && sig.type === 'answer') {
                 Sentry.addBreadcrumb({
                     category: 'webrtc',
                     level: 'warning',
-                    message: `Skipped ${sig.type} signal: peer already in stable state`,
+                    message: 'Skipped duplicate answer signal: peer already in stable state',
                 });
                 return;
             }
