@@ -1,101 +1,90 @@
 ---
 title: "Installation"
-description: "Download and install the floe CLI binary."
+description: "Install the floe CLI in one command on macOS, Windows, or Linux."
 ---
 
 The `floe` CLI is a single self-contained binary with no runtime dependencies.
 
-## Download
+## Package managers
 
-Go to the [GitHub Releases page](https://github.com/jannskiee/floe/releases) and download the archive for your platform. Release archives follow this naming convention:
-
-```
-floe_<version>_<os>_<arch>.tar.gz    # macOS and Linux
-floe_<version>_<os>_<arch>.zip       # Windows
-```
-
-For example: `floe_v1.2.0_darwin_arm64.tar.gz` or `floe_v1.2.0_linux_amd64.tar.gz`.
+The fastest way to install floe. Package manager installs also get updates via the
+standard upgrade command for that tool.
 
 <Tabs>
-  <Tab title="macOS (Apple Silicon)">
-    Find the latest version on the [releases page](https://github.com/jannskiee/floe/releases), then replace `vX.Y.Z` below:
-
+  <Tab title="macOS">
     ```bash
-    curl -L "https://github.com/jannskiee/floe/releases/download/vX.Y.Z/floe_vX.Y.Z_darwin_arm64.tar.gz" | tar xz
-    sudo mv floe /usr/local/bin/
+    brew install --cask jannskiee/tap/floe
     ```
 
-    Or fetch the latest version automatically:
+    Update: `brew upgrade floe`
 
-    ```bash
-    VERSION=$(curl -s https://api.github.com/repos/jannskiee/floe/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
-    curl -L "https://github.com/jannskiee/floe/releases/download/${VERSION}/floe_${VERSION}_darwin_arm64.tar.gz" | tar xz
-    sudo mv floe /usr/local/bin/
-    ```
+    First run: if macOS blocks the binary (Gatekeeper), right-click the `floe` binary in Finder
+    and choose Open, or run `xattr -dr com.apple.quarantine $(which floe)`.
   </Tab>
-  <Tab title="macOS (Intel)">
-    Find the latest version on the [releases page](https://github.com/jannskiee/floe/releases), then replace `vX.Y.Z` below:
-
-    ```bash
-    curl -L "https://github.com/jannskiee/floe/releases/download/vX.Y.Z/floe_vX.Y.Z_darwin_amd64.tar.gz" | tar xz
-    sudo mv floe /usr/local/bin/
+  <Tab title="Windows (winget)">
+    ```powershell
+    winget install jannskiee.floe
     ```
 
-    Or fetch the latest version automatically:
+    Update: `winget upgrade jannskiee.floe`
 
-    ```bash
-    VERSION=$(curl -s https://api.github.com/repos/jannskiee/floe/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
-    curl -L "https://github.com/jannskiee/floe/releases/download/${VERSION}/floe_${VERSION}_darwin_amd64.tar.gz" | tar xz
-    sudo mv floe /usr/local/bin/
-    ```
+    Winget is built into Windows 10/11. The package is available after each release once
+    Microsoft's automated PR review completes (usually a few hours after the tag).
   </Tab>
-  <Tab title="Linux (amd64)">
-    Find the latest version on the [releases page](https://github.com/jannskiee/floe/releases), then replace `vX.Y.Z` below:
-
-    ```bash
-    curl -L "https://github.com/jannskiee/floe/releases/download/vX.Y.Z/floe_vX.Y.Z_linux_amd64.tar.gz" | tar xz
-    sudo mv floe /usr/local/bin/
+  <Tab title="Windows (scoop)">
+    ```powershell
+    scoop bucket add jannskiee https://github.com/jannskiee/scoop-bucket
+    scoop install floe
     ```
 
-    Or fetch the latest version automatically:
+    Update: `scoop update floe`
 
-    ```bash
-    VERSION=$(curl -s https://api.github.com/repos/jannskiee/floe/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
-    curl -L "https://github.com/jannskiee/floe/releases/download/${VERSION}/floe_${VERSION}_linux_amd64.tar.gz" | tar xz
-    sudo mv floe /usr/local/bin/
-    ```
-  </Tab>
-  <Tab title="Linux (arm64)">
-    Find the latest version on the [releases page](https://github.com/jannskiee/floe/releases), then replace `vX.Y.Z` below:
-
-    ```bash
-    curl -L "https://github.com/jannskiee/floe/releases/download/vX.Y.Z/floe_vX.Y.Z_linux_arm64.tar.gz" | tar xz
-    sudo mv floe /usr/local/bin/
-    ```
-  </Tab>
-  <Tab title="Windows">
-    Download `floe_vX.Y.Z_windows_amd64.zip` from the [releases page](https://github.com/jannskiee/floe/releases). Extract the archive, then add the folder containing `floe.exe` to your `PATH` environment variable:
-
-    1. Open **System Properties** and go to **Environment Variables**.
-    2. Under **User variables**, select `Path` and click **Edit**.
-    3. Click **New** and enter the full path to the folder containing `floe.exe`.
-    4. Click **OK** to close all dialogs, then open a new terminal to pick up the change.
+    [Scoop](https://scoop.sh) can be installed with `irm get.scoop.sh | iex`.
   </Tab>
 </Tabs>
 
-## Verify the checksum (optional)
+## One-line installer
 
-Each release includes a `checksums.txt` file. To verify the integrity of your download, replace `vX.Y.Z` with your version:
+Works on macOS, Linux, and Windows without a package manager. Re-running the script
+upgrades an existing install in place.
+
+<Tabs>
+  <Tab title="macOS / Linux">
+    ```bash
+    curl -fsSL https://floe.one/install.sh | sh
+    ```
+
+    To install a specific version:
+    ```bash
+    FLOE_VERSION=v1.2.0 curl -fsSL https://floe.one/install.sh | sh
+    ```
+
+    The script detects your OS and architecture, downloads the correct archive, verifies the
+    SHA-256 checksum, and installs `floe` to `/usr/local/bin` (or `~/.local/bin` when
+    `/usr/local/bin` is not writable and `sudo` is unavailable).
+  </Tab>
+  <Tab title="Windows (PowerShell)">
+    ```powershell
+    irm https://floe.one/install.ps1 | iex
+    ```
+
+    To install a specific version:
+    ```powershell
+    $env:FLOE_VERSION = "v1.2.0"; irm https://floe.one/install.ps1 | iex
+    ```
+
+    The script downloads the correct `.zip` for your architecture, verifies the SHA-256 checksum,
+    extracts to `%LOCALAPPDATA%\Programs\floe`, and adds that directory to your user `PATH`.
+    Open a new terminal after running it.
+  </Tab>
+</Tabs>
+
+## Go install
+
+If you have Go 1.25 or later installed:
 
 ```bash
-# Download checksums
-curl -LO "https://github.com/jannskiee/floe/releases/download/vX.Y.Z/checksums.txt"
-
-# Verify (macOS)
-shasum -a 256 --check --ignore-missing checksums.txt
-
-# Verify (Linux)
-sha256sum --check --ignore-missing checksums.txt
+go install github.com/jannskiee/floe/cli/cmd/floe@latest
 ```
 
 ## Verify the install
@@ -111,6 +100,35 @@ floe v1.x.x
 Docs: https://docs.floe.one
 ```
 
+## Verify the checksum (manual download)
+
+If you downloaded an archive directly from the [GitHub Releases page](https://github.com/jannskiee/floe/releases),
+each release includes a `checksums.txt` file. To verify:
+
+```bash
+# Download checksums
+curl -LO "https://github.com/jannskiee/floe/releases/download/vX.Y.Z/checksums.txt"
+
+# Verify (macOS)
+shasum -a 256 --check --ignore-missing checksums.txt
+
+# Verify (Linux)
+sha256sum --check --ignore-missing checksums.txt
+```
+
+## Update
+
+For package manager installs, use the standard upgrade command (`brew upgrade floe`,
+`winget upgrade jannskiee.floe`, `scoop update floe`).
+
+For script or manual installs, run:
+
+```bash
+floe update
+```
+
+See [Updating floe](/cli/update) for details.
+
 ## Build from source
 
 Requires Go 1.25 or later.
@@ -121,4 +139,5 @@ cd floe/cli
 go build ./cmd/floe
 ```
 
-Move the resulting `floe` binary to a directory on your `PATH` (e.g. `/usr/local/bin/` on macOS and Linux).
+Move the resulting `floe` binary to a directory on your `PATH` (e.g. `/usr/local/bin` on
+macOS and Linux).

@@ -59,6 +59,82 @@ changelog:
       - "^Merge remote-tracking"
       - "^initial commit"
 
+# Homebrew Cask (macOS) — published into the shared jannskiee/homebrew-tap.
+# This tap is reused across projects; floe is one cask inside it.
+# Requires: create jannskiee/homebrew-tap repo and add TAP_GITHUB_TOKEN secret.
+# Install: brew install --cask jannskiee/tap/floe
+# Update:  brew upgrade floe
+homebrew_casks:
+  - name: floe
+    repository:
+      owner: jannskiee
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    homepage: "https://floe.one"
+    description: "Secure peer-to-peer file transfer CLI"
+    license: "MIT"
+
+# Scoop (Windows) — published into the shared jannskiee/scoop-bucket.
+# This bucket is reused across projects; floe is one manifest inside it.
+# Requires: create jannskiee/scoop-bucket repo (same TAP_GITHUB_TOKEN).
+# Install: scoop bucket add jannskiee https://github.com/jannskiee/scoop-bucket && scoop install floe
+# Update:  scoop update floe
+scoops:
+  - repository:
+      owner: jannskiee
+      name: scoop-bucket
+      branch: main
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    homepage: "https://floe.one"
+    description: "Secure peer-to-peer file transfer CLI"
+    license: MIT
+
+# Winget (Windows, official Microsoft store).
+# Requires: fork microsoft/winget-pkgs to jannskiee/winget-pkgs (same PAT).
+# PRs are auto-validated and typically merged within a few hours.
+# Install: winget install jannskiee.floe
+# Update:  winget upgrade jannskiee.floe
+winget:
+  - name: floe
+    publisher: jannskiee
+    package_identifier: jannskiee.floe
+    license: MIT
+    homepage: "https://floe.one"
+    short_description: "Secure peer-to-peer file transfer CLI"
+    repository:
+      owner: jannskiee
+      name: winget-pkgs
+      branch: "floe-{{ .Version }}"
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+      pull_request:
+        enabled: true
+        base:
+          owner: microsoft
+          name: winget-pkgs
+          branch: master
+
+# Optional Tier 2: Linux native packages (.deb, .rpm, .apk).
+# Uncomment and set maintainer email to enable. No extra token needed.
+# nfpms:
+#   - package_name: floe
+#     maintainer: "jannskiee <paredesjancarlo99@gmail.com>"
+#     homepage: "https://floe.one"
+#     description: "Secure peer-to-peer file transfer CLI"
+#     license: MIT
+#     formats: [deb, rpm, apk]
+
+# Optional Tier 2: Arch Linux AUR (floe-bin).
+# Requires: AUR account, AUR_KEY secret (SSH private key registered with AUR).
+# aurs:
+#   - name: floe-bin
+#     homepage: "https://floe.one"
+#     description: "Secure peer-to-peer file transfer CLI"
+#     license: MIT
+#     maintainers: ["jannskiee <paredesjancarlo99@gmail.com>"]
+#     private_key: "{{ .Env.AUR_KEY }}"
+#     git_url: "ssh://aur@aur.archlinux.org/floe-bin.git"
+
 release:
   github:
     owner: jannskiee
