@@ -170,6 +170,22 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool) err
 							{"Time", timeVal},
 							{"Saved to", outputDir},
 						})
+
+						// Tell the sender all bytes are written and verified so it
+						// can close cleanly without relying on SCTP buffer accounting.
+						// Sent as binary so the browser (which checks byteLength) can
+						// classify it and ignore it; CLI senders consume it explicitly.
+						receivedMsg, _ := json.Marshal(map[string]string{"type": "received"})
+						dc.Send([]byte(receivedMsg))
+
+						// Wait for the sender to close the channel (or a short grace
+						// period) before returning. This keeps our SCTP/DTLS alive
+						// long enough for the "received" SACK to reach the sender —
+						// tearing down immediately would race it.
+						select {
+						case <-done:
+						case <-time.After(5 * time.Second):
+						}
 						return nil
 					}
 				}

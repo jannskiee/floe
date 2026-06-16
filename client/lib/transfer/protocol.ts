@@ -37,7 +37,14 @@ export interface End {
     type: 'end';
 }
 
-export type ControlMessage = Metadata | Ack | End;
+// Sent by the CLI receiver after all files are written and verified.
+// Tells the CLI sender delivery is confirmed so it can close cleanly.
+// Browser receivers never send this; the protocol handles both cases.
+export interface Received {
+    type: 'received';
+}
+
+export type ControlMessage = Metadata | Ack | End | Received;
 
 // --- Message builders ---
 
@@ -97,5 +104,6 @@ export function classifyControl(data: ArrayBuffer | Uint8Array): ControlMessage 
     if (t === 'metadata') return msg as unknown as Metadata;
     if (t === 'ack') return msg as unknown as Ack;
     if (t === 'end') return msg as unknown as End;
+    if (t === 'received') return msg as unknown as Received;
     return null;
 }
