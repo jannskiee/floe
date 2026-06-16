@@ -75,6 +75,7 @@
         "group": "CLI",
         "pages": [
           "cli/installation",
+          "cli/update",
           "cli/send",
           "cli/receive",
           "cli/version",

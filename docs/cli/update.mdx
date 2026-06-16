@@ -1,0 +1,43 @@
+---
+title: "Updating"
+description: "Keep the floe CLI up to date."
+---
+
+## Package manager installs
+
+If you installed floe via a package manager, use the standard upgrade command for that tool.
+
+| Install method | Upgrade command |
+| -------------- | --------------- |
+| Homebrew (macOS) | `brew upgrade floe` |
+| Winget (Windows) | `winget upgrade jannskiee.floe` |
+| Scoop (Windows) | `scoop update floe` |
+
+## Script and manual installs
+
+Run the built-in update command:
+
+```bash
+floe update
+```
+
+This checks the latest release on GitHub, downloads the correct archive for your OS and
+architecture, verifies the SHA-256 checksum, and replaces the running binary in place.
+
+To check for an update without installing:
+
+```bash
+floe update --check
+```
+
+To suppress the update hint shown by `floe version`, set `FLOE_NO_UPDATE_CHECK=1`.
+
+You can also re-run the original install script at any time to upgrade:
+
+```bash
+# macOS / Linux
+curl -fsSL https://floe.one/install.sh | sh
+
+# Windows
+irm https://floe.one/install.ps1 | iex
+```

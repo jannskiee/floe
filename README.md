@@ -56,7 +56,33 @@ Floe provides a command-line interface for transferring files from headless devi
 
 ### Install
 
-Download the latest binary for your platform from the [Releases](https://github.com/jannskiee/floe/releases) page. No runtime or dependencies required. For package managers, checksum verification, and PATH setup, see the [installation guide](https://docs.floe.one/cli/installation).
+**macOS**
+```sh
+brew install --cask jannskiee/tap/floe
+```
+
+**Windows**
+```powershell
+winget install jannskiee.floe
+# or: scoop bucket add jannskiee https://github.com/jannskiee/scoop-bucket && scoop install floe
+```
+
+**Linux / any OS**
+```sh
+curl -fsSL https://floe.one/install.sh | sh
+# Windows PowerShell: irm https://floe.one/install.ps1 | iex
+```
+
+No runtime or dependencies required. For Go devs: `go install github.com/jannskiee/floe/cli/cmd/floe@latest`. For all install options, checksum verification, and PATH setup, see the [installation guide](https://docs.floe.one/cli/installation).
+
+### Update
+
+```sh
+floe update              # for script / manual installs
+brew upgrade floe        # Homebrew
+winget upgrade jannskiee.floe  # Winget
+scoop update floe        # Scoop
+```
 
 ### Usage
 
