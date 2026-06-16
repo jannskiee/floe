@@ -153,6 +153,61 @@ func TestLoopbackLargeFile(t *testing.T) {
 	}
 }
 
+// TestLoopbackImmediateReceiverClose reproduces the CLI-to-CLI race where the
+// receiver closes its PeerConnection immediately after ReceiveFiles returns.
+// Before the fix the sender's SCTP buffer stalled at a non-zero value because
+// the final SACKs never arrived, causing "timed out flushing" errors even
+// though the file was fully received.
+func TestLoopbackImmediateReceiverClose(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ICE loopback transfer in -short mode")
+	}
+
+	srcDir := t.TempDir()
+	srcPath := filepath.Join(srcDir, "blob.bin")
+	data := make([]byte, 5*1024*1024) // 5 MB — enough to exercise backpressure
+	if _, err := rand.Read(data); err != nil {
+		t.Fatalf("generate random data: %v", err)
+	}
+	if err := os.WriteFile(srcPath, data, 0644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	senderDC, recvCh, closeFn := newConnectedPair(t)
+	// Do NOT defer closeFn — we close the receiver PC ourselves immediately
+	// after ReceiveFiles returns to reproduce the race.
+
+	outDir := t.TempDir()
+	recvDone := make(chan error, 1)
+
+	go func() {
+		dc := <-recvCh
+		err := ReceiveFiles(dc, outDir, true)
+		// Close receiver immediately — this is what `defer conn.Close()` does
+		// in `runReceive`. The SCTP teardown races the final SACK to the sender.
+		dc.Close()
+		recvDone <- err
+	}()
+
+	time.Sleep(300 * time.Millisecond)
+
+	sendErr := SendFiles(senderDC, []string{srcPath})
+	closeFn() // clean up sender PC after SendFiles returns
+
+	if sendErr != nil {
+		t.Fatalf("SendFiles returned error after receiver closed immediately: %v", sendErr)
+	}
+
+	select {
+	case err := <-recvDone:
+		if err != nil {
+			t.Fatalf("ReceiveFiles: %v", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("ReceiveFiles did not complete")
+	}
+}
+
 // TestLoopbackSmallJSONFile guards the framing fix end to end: a file whose
 // bytes are a sub-1 KB JSON object must arrive byte-identical, not be mistaken
 // for a control message and dropped.

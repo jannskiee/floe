@@ -106,20 +106,38 @@ func SendFiles(dc *webrtc.DataChannel, paths []string) error {
 		}
 	}
 
-	// Flush: wait for pion to push every buffered byte (including the final end
-	// marker) onto the wire before the caller closes the connection. Closing
-	// while data is still buffered truncates the transfer. Capped so a dead peer
-	// can't hang the process forever.
-	drainDeadline := time.Now().Add(30 * time.Second)
-	for dc.BufferedAmount() > 0 {
-		if time.Now().After(drainDeadline) {
-			return fmt.Errorf("timed out flushing %d buffered bytes to peer", dc.BufferedAmount())
+	// Wait for delivery confirmation before closing.
+	//
+	// CLI receivers send {"type":"received"} after writing and verifying every
+	// byte, which is the authoritative signal. Browser receivers don't send it,
+	// but they keep their connection alive so the SCTP buffer naturally drains
+	// to zero — that's the fallback. A 30s deadline guards against a dead peer.
+	//
+	// We cannot rely solely on dc.BufferedAmount()==0: when the receiver closes
+	// its connection immediately after the last write (which the CLI does), the
+	// final SACKs may never arrive and the buffer stalls at a non-zero value
+	// even though all bytes were delivered successfully.
+	drainDeadline := time.After(30 * time.Second)
+	drainTick := time.NewTicker(50 * time.Millisecond)
+	defer drainTick.Stop()
+drainLoop:
+	for {
+		select {
+		case raw := <-ackCh:
+			var msg struct {
+				Type string `json:"type"`
+			}
+			if json.Unmarshal(raw, &msg) == nil && msg.Type == "received" {
+				break drainLoop
+			}
+		case <-drainTick.C:
+			if dc.BufferedAmount() == 0 {
+				break drainLoop
+			}
+		case <-drainDeadline:
+			return fmt.Errorf("timed out waiting for delivery confirmation from peer")
 		}
-		time.Sleep(50 * time.Millisecond)
 	}
-	// Brief grace period so the receiver can process the final end marker
-	// before the data channel is torn down.
-	time.Sleep(250 * time.Millisecond)
 
 	elapsed := time.Since(start)
 	timeVal := formatDuration(elapsed)
