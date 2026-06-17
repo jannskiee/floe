@@ -1,0 +1,188 @@
+---
+title: "Architecture Reference"
+description: "Signaling protocol, HTTP endpoints, WebSocket events, and the data-channel binary protocol."
+---
+
+This page is a technical reference for contributors and advanced self-hosters. For a plain-language overview, see [How It Works](/how-it-works/signaling).
+
+## Components
+
+| Component | Runtime | Port | Purpose |
+|-----------|---------|------|---------|
+| Client | Next.js 16 (React 19) | 3000 | Browser UI, WebRTC peer (via simple-peer) |
+| Server | Node.js (Express 5, Socket.IO 4, ws 8) | 3001 | Signaling broker, TURN credential issuer |
+| CLI | Go 1.25 (Pion WebRTC v4) | - | Headless sender/receiver |
+| coturn | coturn (optional) | 3478, 5349 | TURN relay server |
+
+File data never passes through the server or coturn. All file bytes travel over encrypted WebRTC data channels between peers.
+
+## Signaling transports
+
+The server exposes two transports. Both share the same `rooms` registry (`Map<roomId, [peer, peer]>`) so browser-to-CLI transfers work transparently.
+
+| Transport | Path | Used by |
+|-----------|------|---------|
+| Socket.IO | `/socket.io/` | Browser (web app) |
+| WebSocket | `/ws` | CLI |
+
+## HTTP endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | Status check. Returns `{ "status": "ok", "timestamp": "..." }`. |
+| `GET` | `/health` | Liveness probe. Returns `{ "status": "healthy", "uptime": <seconds> }`. |
+| `GET` | `/api/turn-credentials` | Returns ICE server list. With `TURN_SECRET` set, includes coturn credentials. Without it, returns Google STUN servers only. Rate-limited to 20 requests per IP per 60 s. |
+| `POST` | `/api/code` | Registers a short code for a room ID. Body: `{ "roomId": "<uuid>" }`. Response: `{ "code": "word-word-word" }`. TTL: 10 minutes. |
+| `GET` | `/api/code/:code` | Resolves a short code to a room ID. Response: `{ "roomId": "<uuid>" }`. Returns 404 if expired or not found. |
+
+### TURN credentials response
+
+When `TURN_SECRET` and `TURN_DOMAIN` are set:
+
+```json
+[
+  { "urls": "stun:turn.your-domain.com:3478" },
+  { "urls": "turn:turn.your-domain.com:3478", "username": "...", "credential": "..." },
+  { "urls": "turns:turn.your-domain.com:5349", "username": "...", "credential": "..." }
+]
+```
+
+When `TURN_SECRET` is unset:
+
+```json
+[
+  { "urls": "stun:stun.l.google.com:19302" },
+  { "urls": "stun:stun1.l.google.com:19302" }
+]
+```
+
+Credentials use HMAC-SHA1: `username = "{expiry_unix}:floeuser"`, `credential = base64(HMAC-SHA1(TURN_SECRET, username))`. Expiry is 24 hours from issuance.
+
+## Socket.IO events (browser)
+
+### Client to server
+
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `join-room` | `roomId: string` | Join a room. UUID format required. |
+| `signal` | `{ signal, target?, roomId? }` | Forward a WebRTC signal (SDP or ICE candidate) to the other peer. |
+| `ping` | callback function | Keepalive. Server invokes the callback immediately. |
+
+### Server to client
+
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `room-joined` | `{ role: "sender" \| "receiver" }` | Confirms room join and assigns role. |
+| `user-connected` | `peerId: string` | Notifies the sender that the receiver joined. |
+| `signal` | `{ signal, sender: peerId }` | Delivers a WebRTC signal from the other peer. |
+| `peer-disconnected` | `{}` | The other peer left the room. |
+| `room-full` | `{}` | Room already has two peers. |
+| `error` | `{ message: string }` | Server error. |
+
+## WebSocket messages (CLI, path `/ws`)
+
+All messages are JSON objects with a `type` field.
+
+### Client to server
+
+| `type` | Other fields | Description |
+|--------|-------------|-------------|
+| `join-room` | `roomId: string` | Join a room. |
+| `signal` | `signal, roomId: string` | Forward a WebRTC signal. |
+| `ping` | - | Keepalive. Server responds with `{ "type": "pong" }`. |
+
+### Server to client
+
+| `type` | Other fields | Description |
+|--------|-------------|-------------|
+| `room-joined` | `role: "sender" \| "receiver"` | Role assignment. |
+| `user-connected` | `id: string` | Receiver joined. |
+| `signal` | `signal, sender: string` | WebRTC signal from the other peer. |
+| `peer-disconnected` | - | Other peer disconnected. |
+| `room-full` | - | Room already full. |
+| `pong` | - | Response to client `ping`. |
+| `error` | `message: string` | Server error. |
+
+## Rate limiting
+
+| Limit | Value | Applies to |
+|-------|-------|-----------|
+| Connection rate | 30 per IP per 60 s (configurable via `MAX_CONNECTIONS_PER_IP`) | Socket.IO connections and WebSocket `/ws` connections, shared |
+| TURN credential rate | 20 per IP per 60 s | `GET /api/turn-credentials` |
+
+Counters are tracked in memory (`Map<ip, timestamp[]>`) and cleaned every 60 seconds.
+
+## Signaling flow
+
+1. Sender calls `POST /api/code` with a UUID room ID to register a short code.
+2. Sender joins the room via `join-room`. Server assigns role `sender`.
+3. Sender prints the code and link and waits.
+4. Receiver joins the same room via `join-room`. Server assigns role `receiver` and emits `user-connected` to the sender.
+5. Sender creates a WebRTC offer and sends it via `signal`.
+6. Receiver receives the offer, creates an answer, and sends it back via `signal`.
+7. Both peers exchange ICE candidates via `signal` (trickle ICE).
+8. WebRTC data channel opens. Signaling server plays no further part.
+
+## Data-channel transfer protocol
+
+Once the WebRTC data channel is open, the sender runs the following sequence for each file. The CLI and browser use the same protocol and are fully interoperable.
+
+### Message types
+
+**Metadata (JSON, sender to receiver)**
+
+```json
+{
+  "type": "metadata",
+  "id": "<uuid>",
+  "fileName": "photo.jpg",
+  "fileSize": 6291456,
+  "index": 1,
+  "total": 3,
+  "totalBytes": 11800000
+}
+```
+
+**Ack (JSON, receiver to sender)**
+
+```json
+{
+  "type": "ack",
+  "id": "<uuid>",
+  "offset": 0
+}
+```
+
+`offset` supports mid-file resume. In normal operation it is always 0.
+
+**Binary chunks (raw bytes)**
+
+The CLI sends 16 KB chunks. The browser sender sends larger adaptive chunks.
+
+**End marker (JSON, sender to receiver)**
+
+```json
+{ "type": "end" }
+```
+
+**Received confirmation (JSON, receiver to sender)**
+
+After all files are complete, the CLI receiver sends:
+
+```json
+{ "type": "received" }
+```
+
+This lets the sender exit cleanly instead of polling the SCTP buffer. Browser receivers do not send this; the sender waits for the data channel buffer to drain to zero.
+
+### Backpressure
+
+The sender pauses when the SCTP send buffer reaches the high-water mark (8 MB) and resumes when it drains below the low-water mark (4 MB). This prevents buffer overflow on large or slow transfers.
+
+### Multi-file transfers
+
+The four-step sequence (metadata, ack, binary chunks, end) repeats for each file in order. The receiver processes files sequentially.
+
+## Room codes
+
+Codes are three random words joined by hyphens (e.g. `olive-tiger-castle`), sampled from a 288-word corpus in `server/words.json`. On collision (extremely rare), a fourth word is appended. Codes expire 10 minutes after registration.

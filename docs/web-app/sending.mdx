@@ -1,0 +1,70 @@
+---
+title: "Sending Files"
+description: "How to send files from the Floe web app at floe.one."
+---
+
+Open [floe.one](https://floe.one) in any modern browser. No account or installation required.
+
+## Add files
+
+Drop files directly onto the page, or click the drop zone to open the file picker. You can add:
+- A single file of any type.
+- Multiple files at once (the picker accepts multi-select).
+
+There is no file size limit on direct connections. Relay connections are capped at 2 GB per session. See [The 2 GB Relay Limit](/how-it-works/2gb-limit).
+
+<Note>
+  Folder transfers are a CLI-only feature. To send a folder from the browser, either zip it first or use `floe send ./folder` from the terminal.
+</Note>
+
+## Network Relay Fallback toggle
+
+Below the drop zone is a **Network Relay Fallback** toggle. It is on by default and recommended for most users.
+
+| Setting | Behavior |
+|---------|----------|
+| On (default) | Floe attempts a direct connection first. If that fails, it automatically falls back to the encrypted TURN relay. |
+| Off | Only direct connections are attempted. If a direct path cannot be established, the transfer fails. |
+
+Turn relay off only if you need to ensure files never pass through a relay (for example, for compliance reasons or to transfer very large files over a direct connection).
+
+## Create the link
+
+Click **Create Secure Link and Share**. Floe connects to the signaling server, assigns a room, and generates two ways to share:
+
+- **Link** - a URL containing the room ID (e.g. `https://floe.one?room=...`). Send this via any messaging app, email, or chat.
+- **QR code** - scan it with a phone camera to open the link instantly. Useful for nearby transfers.
+
+The link is valid for as long as your browser tab stays open.
+
+## Connection indicator
+
+Once you share the link, a small connection indicator appears in the corner of the page. Its color tells you what is happening:
+
+| Color | Meaning |
+|-------|---------|
+| Pulsing (no color) | Waiting for the recipient to open the link. |
+| Green - Direct | Connected directly. Files travel peer-to-peer, no server involved. No size limit. |
+| Amber - Relay | Connected via the encrypted TURN relay. The 2 GB cap applies. |
+
+## Transfer
+
+The transfer starts automatically the moment the recipient opens the link. You do not need to click anything.
+
+Keep the browser tab open and active for the entire transfer. If you close or navigate away from the tab, the session ends immediately and the recipient loses the connection.
+
+## Short code
+
+The sender always sees a short code in the share panel (e.g. `olive-tiger-castle`). This code can be used by a **CLI recipient** to join without opening the link:
+
+```bash
+floe receive olive-tiger-castle
+```
+
+The code expires 10 minutes after the link is created. Browser recipients must use the full link.
+
+## Tips
+
+- On mobile, keep the browser in the foreground. Background tabs may be throttled and slow the transfer.
+- If the connection indicator stays in "Connecting" for more than 30 seconds, see [Troubleshooting](/troubleshooting).
+- For large files on a corporate or university network, try a personal mobile hotspot to get a direct connection instead of relay.

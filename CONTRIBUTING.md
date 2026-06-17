@@ -56,6 +56,17 @@ go build ./cmd/floe
 go test ./...
 ```
 
+### Documentation (Only needed if you're changing docs)
+
+The documentation site lives in `docs/` and is built with [Mintlify](https://mintlify.com).
+
+```bash
+cd floe/docs
+npx mintlify dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) to preview the docs locally.
+
 ### Full stack with Docker (no local toolchain needed)
 
 To run the client and signaling server together in containers (without installing Node, pnpm, or Go locally), use the Docker Compose setup:
@@ -90,6 +101,7 @@ This is aimed at **self-hosting** (running your own instance) rather than active
 | `PORT` | No | Signaling server port (default: `3001`) |
 | `NODE_ENV` | No | Standard Node.js runtime flag (`development` or `production`). |
 | `TRUSTED_PROXY_COUNT` | No | Trusted reverse-proxy hop count for correct client-IP parsing and rate limiting (default: `1`). Set to `0` for direct exposure with no proxy. |
+| `MAX_CONNECTIONS_PER_IP` | No | Connection rate limit ceiling per IP per 60 seconds (default: `30`). Raise in staging or test environments. |
 | `TURN_SECRET` | No | Shared secret for coturn HMAC credentials. Omit to use STUN-only (direct connections). |
 | `TURN_DOMAIN` | No | Your TURN relay server domain. |
 
@@ -103,7 +115,9 @@ This is aimed at **self-hosting** (running your own instance) rather than active
 2. Make your changes
 3. Ensure the build passes: `pnpm build` (in `client/`)
 4. Run the linter: `pnpm lint` (in `client/`)
-5. Submit a pull request with a clear title and description
+5. Run client tests: `pnpm test` (in `client/`)
+6. Run CLI tests: `go test ./...` (in `cli/`)
+7. Submit a pull request with a clear title and description
 
 ---
 

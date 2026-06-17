@@ -40,28 +40,34 @@ floe receive olive-tiger-castle -y
 Running `floe receive olive-tiger-castle -o ~/Downloads`:
 
 ```
-Connecting to sender...
-Connected
-
-  Incoming: 2 file(s)
+  Connecting to sender...
+  Connected
+  ─────────────────────────────────────────────────
+  Incoming   2 files · 2.3 MB
+  ─────────────────────────────────────────────────
 
   Accept? [Y/n] y
 
   [1/2] photo.jpg  [████████████████] 2.3 MB/2.3 MB
-
   [2/2] notes.txt  [████████████████] 14 KB/14 KB
 
-  Done. 2 file(s) received in ~/Downloads
+  ─────────────────────────────────────────────────
+  Received   2 files (2.3 MB)
+  Time       5s · avg 468.0 KB/s
+  Saved to   /home/user/Downloads
+  ─────────────────────────────────────────────────
 ```
 
 With no `-o` flag, files save to the current directory.
 
 ## Confirmation prompt
 
-When the first file's metadata arrives, Floe shows how many files are incoming and asks for confirmation:
+When the first file's metadata arrives, Floe shows a summary of what is incoming and asks for confirmation:
 
 ```
-  Incoming: N file(s)
+  ─────────────────────────────────────────────────
+  Incoming   N files · X MB
+  ─────────────────────────────────────────────────
 
   Accept? [Y/n]
 ```

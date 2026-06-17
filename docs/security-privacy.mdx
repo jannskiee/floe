@@ -1,0 +1,57 @@
+---
+title: "Security and Privacy"
+description: "What Floe's servers can and cannot see, and how your files are protected."
+---
+
+## The short version
+
+Your files travel directly between devices, encrypted end-to-end. Floe's servers broker the connection but never see your file data. The relay server (when used) forwards encrypted packets it cannot read.
+
+## What the signaling server does
+
+The signaling server at `api.floe.one` handles one task: helping two devices find each other so they can connect directly.
+
+It:
+- Assigns each peer a role (sender or receiver) within a room.
+- Relays the WebRTC offer, answer, and ICE candidates that the two devices exchange to establish a connection.
+- Issues short-lived TURN credentials when a TURN server is configured.
+- Registers short codes (e.g. `olive-tiger-castle`) that map to room IDs with a 10-minute TTL.
+
+It never:
+- Receives, stores, or inspects file data.
+- Persist room or peer information after the session ends.
+- Log what you transfer or to whom.
+
+Once the WebRTC data channel is established, the signaling server plays no further part.
+
+## What the TURN relay sees
+
+When a direct connection cannot be established (strict firewalls, carrier-grade NAT), Floe routes traffic through a TURN relay server. The relay server acts as a forwarding intermediary.
+
+The relay sees: encrypted DTLS packets.
+
+It does not see: the plaintext contents of those packets. File data is encrypted before it reaches the relay, and decrypted only on the recipient's device. The relay cannot read, store, or inspect your files.
+
+See [Relay Connection](/how-it-works/relay-connection) for more detail.
+
+## End-to-end encryption
+
+Every WebRTC data channel is encrypted using **DTLS** (Datagram TLS), which is built into the WebRTC standard.
+
+Key properties:
+- Encryption keys are generated uniquely for each transfer session.
+- Keys exist only on the two devices involved. There is no central key server.
+- Keys are ephemeral. They are discarded when the connection closes and cannot be recovered.
+- The signaling server exchanges certificate fingerprints during negotiation, so a compromised signaling channel cannot inject a different certificate (man-in-the-middle protection).
+
+See [End-to-End Encryption](/how-it-works/encryption) for a deeper technical explanation.
+
+## Self-hosted instances
+
+All of the above applies to self-hosted instances as well. The signaling server and TURN relay are architecturally incapable of receiving plaintext file data regardless of who operates them. If you run your own instance, you get the same encryption guarantees, and you control the infrastructure entirely.
+
+See [Self-Hosting](/self-hosting/overview) to run your own instance.
+
+## Reporting a vulnerability
+
+If you discover a security issue in Floe, please report it privately via [GitHub Security Advisories](https://github.com/jannskiee/floe/security/advisories/new) or the contact listed in [SECURITY.md](https://github.com/jannskiee/floe/blob/main/SECURITY.md). Do not open a public issue, as that may expose the vulnerability before a fix is available.
