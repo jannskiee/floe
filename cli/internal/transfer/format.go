@@ -81,23 +81,59 @@ func newProgressBar(size int64, index, total int, name string) *progressbar.Prog
 
 const divider = "  ─────────────────────────────────────────────────"
 
-// printSummary prints a boxed block with aligned label/value rows.
-// rows is a slice of [2]string{label, value} pairs.
-func printSummary(rows [][2]string) {
-	// Find longest label for alignment
+// PrintBox prints a divider-bordered block of aligned label/value rows.
+// It does NOT print a leading blank line — callers add spacing as needed.
+func PrintBox(rows [][2]string) {
 	maxLabel := 0
 	for _, r := range rows {
 		if len(r[0]) > maxLabel {
 			maxLabel = len(r[0])
 		}
 	}
-	fmt.Println()
 	fmt.Println(divider)
 	for _, r := range rows {
 		pad := strings.Repeat(" ", maxLabel-len(r[0]))
 		fmt.Printf("  %s%s   %s\n", r[0], pad, r[1])
 	}
 	fmt.Println(divider)
+}
+
+// printSummary prints a boxed block with aligned label/value rows, preceded by
+// a blank line. Used for the "Sent" / "Received" summaries at transfer end.
+func printSummary(rows [][2]string) {
+	fmt.Println()
+	PrintBox(rows)
+}
+
+// Summary holds pre-computed file-list metadata for display before a send.
+type Summary struct {
+	Files      int
+	TotalBytes int64
+	Label      string // e.g. "report.pdf · 2.1 MB" or "5 files · 127.3 MB"
+}
+
+// Summarize walks paths (same logic as SendFiles) and returns a Summary for
+// pre-transfer display. Single files show their name; multiple files show the
+// count.
+func Summarize(paths []string) (Summary, error) {
+	files, err := collectFiles(paths)
+	if err != nil {
+		return Summary{}, err
+	}
+	if len(files) == 0 {
+		return Summary{}, fmt.Errorf("no files to send")
+	}
+	var total int64
+	for _, f := range files {
+		total += f.size
+	}
+	var label string
+	if len(files) == 1 {
+		label = files[0].displayName + " · " + formatBytes(total)
+	} else {
+		label = pluralize(len(files), "file") + " · " + formatBytes(total)
+	}
+	return Summary{Files: len(files), TotalBytes: total, Label: label}, nil
 }
 
 func isFinitePositive(f float64) bool {
