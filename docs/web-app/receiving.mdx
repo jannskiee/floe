@@ -1,0 +1,67 @@
+---
+title: "Receiving Files"
+description: "How to receive files in the Floe web app."
+---
+
+When someone sends you files via Floe, they share a link (e.g. `https://floe.one?room=...`) or a QR code. Open it in any modern browser to receive.
+
+## Open the link
+
+Click the link or scan the QR code. The page connects to the signaling server and joins the sender's room automatically. No account or installation is needed.
+
+<Note>
+  Some in-app browsers (embedded in Facebook, Instagram, TikTok, and similar apps) do not support WebRTC. If you open the link inside one of these, Floe detects it and prompts you to open the page in Chrome, Safari, or your default browser instead.
+</Note>
+
+## Connection
+
+Once the page opens, Floe negotiates the WebRTC connection. A connection indicator appears in the corner:
+
+| Color | Meaning |
+|-------|---------|
+| Connecting | Establishing the WebRTC connection (usually a few seconds). |
+| Green - Direct | Connected directly, peer-to-peer. No server involved. |
+| Amber - Relay | Connected via the encrypted TURN relay. |
+
+The transfer begins automatically once the connection is established. You do not need to click anything.
+
+## Download options
+
+When all files arrive, download options appear:
+
+| Option | Behavior |
+|--------|---------|
+| **Download** (per file) | Downloads each file individually. Available for every file. |
+| **Download All** | Triggers individual downloads for every file in the batch. |
+| **Download ZIP** | Bundles all files into a single `.zip` archive and downloads it. |
+
+<Tip>
+  On iOS, use **Download ZIP**. Individual file downloads can behave inconsistently on Safari and iOS web views due to browser sandboxing.
+</Tip>
+
+## The sender must stay connected
+
+Files stream directly from the sender's device. If the sender closes their browser tab or the CLI process before the transfer completes, the connection drops and you will need to ask them to start a new session.
+
+## Receiving with the CLI instead
+
+If you prefer the terminal, paste the full link into `floe receive`:
+
+```bash
+floe receive "https://floe.one?room=abc123..."
+```
+
+Or use the short code if the sender shares one:
+
+```bash
+floe receive olive-tiger-castle
+```
+
+See [floe receive](/cli/receive) for details and flags.
+
+## If the link does not work
+
+- **"Room not found" or "expired":** Short codes expire after 10 minutes. Full links stay valid as long as the sender's tab is open. Ask the sender to start a new session.
+- **Stuck connecting:** The sender may be behind a strict network. Both peers need to be on compatible networks for a direct connection. Make sure relay fallback is enabled on the sender's side.
+
+See [Troubleshooting](/troubleshooting) for more help.

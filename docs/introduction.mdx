@@ -27,29 +27,7 @@ Floe transfers files directly between devices using WebRTC. Files are end-to-end
 
 ## Common questions
 
-<AccordionGroup>
-  <Accordion title="Where do my files go?">
-    Your files go directly to the recipient's device. In most cases they never touch a server at all. When a direct path cannot be found (strict corporate firewalls, carrier-grade NAT), Floe automatically falls back to an encrypted TURN relay. Even then, the relay server sees only encrypted packets and cannot read your files.
-  </Accordion>
-  <Accordion title="Is there a file size limit?">
-    Direct connections have no size limit. Relay connections are capped at 2 GB per session to keep the service free. See [Why the 2 GB Limit?](/how-it-works/2gb-limit) for details. Most home and mobile network transfers connect directly and have no limit.
-  </Accordion>
-  <Accordion title="Do I need an account?">
-    No. Floe requires no account, no sign-up, and no registration. Open the site or run the CLI and share the link or short code with your recipient.
-  </Accordion>
-  <Accordion title="How fast is it?">
-    Transfer speed is limited only by the slower of the two connections involved. There is no artificial throttling. Direct transfers are as fast as your internet connection allows. Relay transfers may be slightly slower depending on server load, but encryption overhead is minimal.
-  </Accordion>
-  <Accordion title="Which browsers are supported?">
-    Any modern browser with WebRTC support works: Chrome, Firefox, Safari, Edge, and most Chromium-based browsers. A secure context (HTTPS or localhost) is required. WebRTC is not available in some in-app browsers (such as those embedded in Facebook, Instagram, or TikTok). If this affects you, Floe will prompt you to open the page in Chrome or Safari instead.
-  </Accordion>
-  <Accordion title="Can I use the terminal instead of the browser?">
-    Yes. The `floe` CLI is a self-contained binary for macOS, Linux, and Windows. It connects to the same infrastructure as the web app, and is fully compatible with browser clients. A CLI sender can transfer to a browser receiver, and vice versa. See [CLI Installation](/cli/installation) to get started.
-  </Accordion>
-  <Accordion title="Is Floe open source?">
-    Yes. The full source for the client, server, and CLI is available on [GitHub](https://github.com/jannskiee/floe) under the MIT license. You can also [self-host](/self-hosting/overview) your own instance.
-  </Accordion>
-</AccordionGroup>
+Common questions about file size, browser support, in-app browsers, iOS, speed, and accounts are answered in the [FAQ](/faq).
 
 ## Self-hosting
 

@@ -1,0 +1,75 @@
+---
+title: "Changelog"
+description: "Release history for Floe."
+---
+
+<Update label="v1.5.2" description="2026-06-17">
+  **CLI stability fix**
+
+  - Fixed a rare concurrent-write panic in the CLI signaling client. Rapid ICE candidate negotiation could trigger simultaneous WebSocket writes from separate goroutines; all writes are now serialized.
+</Update>
+
+<Update label="v1.5.1" description="2026-06-17">
+  **CLI output improvement**
+
+  - The `Sending` summary line (file name and total size) now appears above the sharing box, so you can see what is being sent before the peer connects.
+</Update>
+
+<Update label="v1.5.0" description="2026-06-17">
+  **File summary on both sides**
+
+  - Both the sender and the receiver now see a file count and total size before and after the transfer. Example: `Sending   3 files · 11.8 MB` on the sender side and `Incoming   3 files · 11.8 MB` on the receiver side.
+</Update>
+
+<Update label="v1.4.0" description="2026-06-17">
+  **CLI-to-CLI transfer fix**
+
+  - Fixed an error reported by the CLI sender after a successful CLI-to-CLI transfer. The transfer completed correctly but the sender exited with an error code. It now exits cleanly.
+</Update>
+
+<Update label="v1.3.0" description="2026-06-17">
+  **One-command install and self-update**
+
+  - `floe update` now works on all platforms (script installs, manual installs). It downloads, verifies, and replaces the running binary in one step.
+  - Re-running the install script (`curl -fsSL https://floe.one/install.sh | sh` or `irm https://floe.one/install.ps1 | iex`) also upgrades an existing install in place.
+  - If floe was installed via Homebrew, Scoop, or Winget, `floe update` detects this and prints the correct package manager command instead.
+  - Security: updated `ws`, `esbuild`, and `postcss` transitive dependencies to address published advisories.
+</Update>
+
+<Update label="v1.2.0" description="2026-06-16">
+  **Rich transfer summary**
+
+  - At the end of each transfer, the CLI now prints a boxed summary with the total data transferred, elapsed time, and average speed. Example:
+
+    ```
+      ─────────────────────────────────────────────────
+      Sent   3 files (11.8 MB)
+      Time   8s · avg 1.4 MB/s
+      ─────────────────────────────────────────────────
+    ```
+
+  - The receiver summary also includes the `Saved to` path.
+</Update>
+
+<Update label="v1.1.0" description="2026-06-16">
+  **Transfer reliability and browser fixes**
+
+  - Fixed several CLI transfer sync bugs that could cause stalled or incomplete transfers, especially in CLI-to-CLI sessions. Added cross-implementation loopback tests to prevent regressions.
+  - Fixed a browser receiver bug where a `Buffer` view was retained across chunk boundaries instead of being copied, which could corrupt received data.
+  - Fixed an issue where the in-app browser detection could steal the receiver slot from a legitimate peer, preventing the transfer from starting.
+  - Fixed duplicate WebRTC signal handling that could break transfers after a reconnect.
+  - Redesigned the in-app browser warning page for clarity.
+  - Upgraded the CLI to Pion WebRTC v4 (includes Pion DTLS v3).
+  - Performance: improved browser-to-browser transfer throughput with better backpressure tuning.
+</Update>
+
+<Update label="v1.0.0" description="2026-06-14">
+  **Initial public release**
+
+  - Browser-based peer-to-peer file transfer at [floe.one](https://floe.one). No account, no installation, no file storage.
+  - `floe` CLI for macOS, Linux, and Windows. Fully interoperable with the browser client.
+  - End-to-end DTLS encryption on all transfers, direct and relayed.
+  - Optional TURN relay fallback for peers behind strict firewalls or carrier-grade NAT (capped at 2 GB per session).
+  - Self-hosting support via Docker Compose. See [Self-Hosting](/self-hosting/overview).
+  - Mintlify documentation site at [docs.floe.one](https://docs.floe.one).
+</Update>

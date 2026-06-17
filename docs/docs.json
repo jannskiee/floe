@@ -69,7 +69,14 @@
     "groups": [
       {
         "group": "Getting Started",
-        "pages": ["introduction", "quickstart", "troubleshooting"]
+        "pages": ["introduction", "quickstart", "faq", "troubleshooting"]
+      },
+      {
+        "group": "Web App",
+        "pages": [
+          "web-app/sending",
+          "web-app/receiving"
+        ]
       },
       {
         "group": "CLI",
@@ -104,6 +111,14 @@
           "how-it-works/relay-connection",
           "how-it-works/2gb-limit",
           "how-it-works/encryption"
+        ]
+      },
+      {
+        "group": "Reference",
+        "pages": [
+          "changelog",
+          "security-privacy",
+          "reference/architecture"
         ]
       }
     ]

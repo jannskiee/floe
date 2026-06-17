@@ -14,6 +14,7 @@ All settings live in the `.env` file you copied from `.env.docker.example`.
 | `NODE_ENV` | server | No | `production` | Standard Node.js runtime flag. The server Docker image sets this to `production`. |
 | `CLIENT_URL` | server | Yes (prod) | _(none)_ | Frontend origin allowed by CORS. Set to your client's public URL (e.g. `https://app.your-domain.com`). |
 | `TRUSTED_PROXY_COUNT` | server | No | `1` | Number of trusted reverse-proxy hops in front of the server, used for correct `X-Forwarded-For` parsing and per-IP rate limiting. Defaults to `1` (behind one proxy such as Render, Fly, or Vercel). Set to `0` only for direct exposure with no proxy. |
+| `MAX_CONNECTIONS_PER_IP` | server | No | `30` | Maximum new connections allowed per IP per 60-second window, shared across Socket.IO and WebSocket. Raise this in staging or test environments that drive many connections from a single IP. |
 | `TURN_SECRET` | server | No | _(none)_ | Shared HMAC secret for coturn credentials. If empty, the server returns STUN-only and no TURN is offered. Must match coturn's `static-auth-secret`. |
 | `TURN_DOMAIN` | server | No | _(none)_ | Public hostname of your TURN server (e.g. `turn.your-domain.com`). Must match coturn's `realm`. |
 
