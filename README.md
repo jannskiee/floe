@@ -129,6 +129,16 @@ Floe is free and open source. Contributions help cover the ongoing costs of back
 **[GitHub Sponsors](https://github.com/sponsors/jannskiee)**\
 **[Ko-fi](https://ko-fi.com/jannskiee)**
 
+## Acknowledgments
+
+Error monitoring for Floe is generously provided by [Sentry](https://sentry.io) through their [Sentry for Good](https://sentry.io/for/good/) open source sponsorship program.
+
+<p align="center">
+  <a href="https://sentry.io">
+    <img src="https://img.shields.io/badge/Monitored%20by-Sentry-362D59?logo=sentry&logoColor=white" alt="Monitored by Sentry" />
+  </a>
+</p>
+
 ## License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
