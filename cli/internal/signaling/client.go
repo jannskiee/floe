@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -30,6 +31,13 @@ type Message struct {
 type Client struct {
 	conn   *websocket.Conn
 	roomId string
+
+	// writeMu serializes all writes to the WebSocket. gorilla/websocket permits
+	// only one concurrent writer; without this, an ICE candidate sent from pion's
+	// OnICECandidate callback can race the offer/answer sent from the main
+	// goroutine, tripping gorilla's "concurrent write" panic or corrupting a
+	// frame (which silently breaks ICE and aborts the transfer).
+	writeMu sync.Mutex
 
 	// Role receives "sender" or "receiver" after joining a room.
 	Role chan string
@@ -99,16 +107,27 @@ func (c *Client) SendSignal(signal interface{}) error {
 
 // Close gracefully closes the WebSocket connection.
 func (c *Client) Close() {
+	// WriteControl shares the write path with writeJSON, so hold writeMu to
+	// avoid racing an in-flight signal write (e.g. a late trickle-ICE candidate).
+	c.writeMu.Lock()
 	c.conn.WriteControl(
 		websocket.CloseMessage,
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
 		time.Now().Add(time.Second),
 	)
+	c.writeMu.Unlock()
 	c.conn.Close()
 }
 
 // writeJSON marshals v to JSON and writes it to the WebSocket.
+//
+// All writes funnel through here so writeMu is the single serialization point
+// for the connection: the main goroutine (join-room, offer/answer) and pion's
+// OnICECandidate callback goroutine (trickle ICE) both reach the socket via
+// writeJSON, and gorilla/websocket only allows one writer at a time.
 func (c *Client) writeJSON(v interface{}) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 	c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	return c.conn.WriteJSON(v)
 }
