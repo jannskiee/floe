@@ -17,11 +17,12 @@ import (
 
 // FileInfo describes an incoming file (parsed from metadata message).
 type FileInfo struct {
-	ID       string
-	FileName string
-	FileSize int64
-	Index    int
-	Total    int
+	ID         string
+	FileName   string
+	FileSize   int64
+	Index      int
+	Total      int
+	TotalBytes int64
 }
 
 // ReceiveFiles handles the full receiving side of the Floe protocol.
@@ -107,7 +108,20 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool) err
 				if waitingForFirst {
 					waitingForFirst = false
 					start = time.Now()
-					fmt.Printf("\n  Incoming: %s\n\n", pluralize(info.Total, "file"))
+
+					var incomingLabel string
+					switch {
+					case info.Total == 1:
+						incomingLabel = info.FileName + " · " + formatBytes(info.FileSize)
+					case info.TotalBytes > 0:
+						incomingLabel = pluralize(info.Total, "file") + " · " + formatBytes(info.TotalBytes)
+					default:
+						incomingLabel = pluralize(info.Total, "file")
+					}
+					fmt.Println()
+					PrintBox([][2]string{{"Incoming", incomingLabel}})
+					fmt.Println()
+
 					if !autoAccept {
 						fmt.Print("  Accept? [Y/n] ")
 						var answer string
@@ -260,12 +274,13 @@ func looksLikeJSONObject(data []byte) bool {
 // parseMetadata extracts FileInfo from a raw metadata JSON string.
 func parseMetadata(text string) (FileInfo, error) {
 	var m struct {
-		Type     string  `json:"type"`
-		ID       string  `json:"id"`
-		FileName string  `json:"fileName"`
-		FileSize float64 `json:"fileSize"` // JSON numbers decode as float64
-		Index    int     `json:"index"`
-		Total    int     `json:"total"`
+		Type       string  `json:"type"`
+		ID         string  `json:"id"`
+		FileName   string  `json:"fileName"`
+		FileSize   float64 `json:"fileSize"`   // JSON numbers decode as float64
+		Index      int     `json:"index"`
+		Total      int     `json:"total"`
+		TotalBytes float64 `json:"totalBytes"` // absent from older senders → 0
 	}
 	if err := json.Unmarshal([]byte(text), &m); err != nil {
 		return FileInfo{}, err
@@ -274,11 +289,12 @@ func parseMetadata(text string) (FileInfo, error) {
 		return FileInfo{}, fmt.Errorf("not a metadata message")
 	}
 	return FileInfo{
-		ID:       m.ID,
-		FileName: m.FileName,
-		FileSize: int64(m.FileSize),
-		Index:    m.Index,
-		Total:    m.Total,
+		ID:         m.ID,
+		FileName:   m.FileName,
+		FileSize:   int64(m.FileSize),
+		Index:      m.Index,
+		Total:      m.Total,
+		TotalBytes: int64(m.TotalBytes),
 	}, nil
 }
 

@@ -35,12 +35,13 @@ const (
 
 // metadataMsg is sent before each file to describe it.
 type metadataMsg struct {
-	Type     string `json:"type"`
-	ID       string `json:"id"`
-	FileName string `json:"fileName"`
-	FileSize int64  `json:"fileSize"`
-	Index    int    `json:"index"`
-	Total    int    `json:"total"`
+	Type       string `json:"type"`
+	ID         string `json:"id"`
+	FileName   string `json:"fileName"`
+	FileSize   int64  `json:"fileSize"`
+	Index      int    `json:"index"`
+	Total      int    `json:"total"`
+	TotalBytes int64  `json:"totalBytes"`
 }
 
 // ackMsg is received from the receiver confirming readiness.
@@ -71,7 +72,6 @@ func SendFiles(dc *webrtc.DataChannel, paths []string) error {
 	for _, e := range files {
 		totalBytes += e.size
 	}
-	fmt.Printf("  Sending %s (%s)\n\n", pluralize(len(files), "file"), formatBytes(totalBytes))
 
 	start := time.Now()
 
@@ -101,7 +101,7 @@ func SendFiles(dc *webrtc.DataChannel, paths []string) error {
 	})
 
 	for i, entry := range files {
-		if err := sendFile(dc, ackCh, sendMore, entry, i+1, len(files)); err != nil {
+		if err := sendFile(dc, ackCh, sendMore, entry, i+1, len(files), totalBytes); err != nil {
 			return fmt.Errorf("error sending %s: %w", entry.displayName, err)
 		}
 	}
@@ -199,7 +199,7 @@ func collectFiles(paths []string) ([]fileEntry, error) {
 }
 
 // sendFile handles the full send sequence for a single file.
-func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, entry fileEntry, index, total int) error {
+func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, entry fileEntry, index, total int, totalBytes int64) error {
 	f, err := os.Open(entry.absPath)
 	if err != nil {
 		return err
@@ -216,12 +216,13 @@ func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struc
 
 	// Step 1: Send metadata
 	meta := metadataMsg{
-		Type:     "metadata",
-		ID:       fileID,
-		FileName: entry.displayName,
-		FileSize: fileSize,
-		Index:    index,
-		Total:    total,
+		Type:       "metadata",
+		ID:         fileID,
+		FileName:   entry.displayName,
+		FileSize:   fileSize,
+		Index:      index,
+		Total:      total,
+		TotalBytes: totalBytes,
 	}
 	metaJSON, _ := json.Marshal(meta)
 	if err := dc.SendText(string(metaJSON)); err != nil {

@@ -25,6 +25,7 @@ export interface Metadata {
     fileSize: number;
     index: number;
     total: number;
+    totalBytes: number;
 }
 
 export interface Ack {
@@ -53,9 +54,10 @@ export function metadataMessage(
     fileName: string,
     fileSize: number,
     index: number,
-    total: number
+    total: number,
+    totalBytes: number
 ): string {
-    return JSON.stringify({ type: 'metadata', id, fileName, fileSize, index, total } satisfies Metadata);
+    return JSON.stringify({ type: 'metadata', id, fileName, fileSize, index, total, totalBytes } satisfies Metadata);
 }
 
 export function ackMessage(id: string, offset: number): string {

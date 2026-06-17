@@ -1,6 +1,7 @@
 package transfer
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -55,12 +56,12 @@ func TestSafeJoinEmptyFallback(t *testing.T) {
 
 // TestParseMetadata covers valid and invalid metadata payloads.
 func TestParseMetadata(t *testing.T) {
-	valid := `{"type":"metadata","id":"abc","fileName":"a.txt","fileSize":1234,"index":1,"total":3}`
+	valid := `{"type":"metadata","id":"abc","fileName":"a.txt","fileSize":1234,"index":1,"total":3,"totalBytes":98765}`
 	info, err := parseMetadata(valid)
 	if err != nil {
 		t.Fatalf("parseMetadata(valid) error: %v", err)
 	}
-	if info.ID != "abc" || info.FileName != "a.txt" || info.FileSize != 1234 || info.Index != 1 || info.Total != 3 {
+	if info.ID != "abc" || info.FileName != "a.txt" || info.FileSize != 1234 || info.Index != 1 || info.Total != 3 || info.TotalBytes != 98765 {
 		t.Errorf("parseMetadata(valid) = %+v, unexpected fields", info)
 	}
 
@@ -69,6 +70,68 @@ func TestParseMetadata(t *testing.T) {
 	}
 	if _, err := parseMetadata(`not json`); err == nil {
 		t.Error("parseMetadata(invalid json) should error")
+	}
+}
+
+// TestParseMetadataNoTotalBytes verifies backward compat: a metadata message
+// from an older CLI or browser sender (no totalBytes field) parses cleanly
+// with TotalBytes == 0, which triggers the graceful "count only" fallback in
+// the receiver display.
+func TestParseMetadataNoTotalBytes(t *testing.T) {
+	old := `{"type":"metadata","id":"x","fileName":"file.txt","fileSize":500,"index":1,"total":2}`
+	info, err := parseMetadata(old)
+	if err != nil {
+		t.Fatalf("parseMetadata(old) error: %v", err)
+	}
+	if info.TotalBytes != 0 {
+		t.Errorf("expected TotalBytes=0 when field absent, got %d", info.TotalBytes)
+	}
+}
+
+// TestSummarizeSingleFile covers the single-file label format ("name · size").
+func TestSummarizeSingleFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "report.pdf")
+	if err := os.WriteFile(path, make([]byte, 1024*512), 0644); err != nil { // 512 KB
+		t.Fatal(err)
+	}
+	s, err := Summarize([]string{path})
+	if err != nil {
+		t.Fatalf("Summarize error: %v", err)
+	}
+	if s.Files != 1 {
+		t.Errorf("Files = %d, want 1", s.Files)
+	}
+	if s.TotalBytes != 1024*512 {
+		t.Errorf("TotalBytes = %d, want %d", s.TotalBytes, 1024*512)
+	}
+	// Label must contain the filename and a size component.
+	if !strings.Contains(s.Label, "report.pdf") {
+		t.Errorf("Label %q does not contain filename", s.Label)
+	}
+	if !strings.Contains(s.Label, "KB") && !strings.Contains(s.Label, "MB") {
+		t.Errorf("Label %q has no size unit", s.Label)
+	}
+}
+
+// TestSummarizeMultiFile covers the multi-file label format ("N files · size").
+func TestSummarizeMultiFile(t *testing.T) {
+	dir := t.TempDir()
+	for i, name := range []string{"a.txt", "b.txt"} {
+		data := make([]byte, (i+1)*1024)
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s, err := Summarize([]string{filepath.Join(dir, "a.txt"), filepath.Join(dir, "b.txt")})
+	if err != nil {
+		t.Fatalf("Summarize error: %v", err)
+	}
+	if s.Files != 2 {
+		t.Errorf("Files = %d, want 2", s.Files)
+	}
+	if !strings.Contains(s.Label, "2 files") {
+		t.Errorf("Label %q does not contain '2 files'", s.Label)
 	}
 }
 

@@ -83,6 +83,12 @@ func runSend(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Pre-compute file summary for the share box (same walk as SendFiles).
+	summary, err := transfer.Summarize(args)
+	if err != nil {
+		return err
+	}
+
 	fmt.Println()
 
 	// 1. Generate a UUID room ID for this session
@@ -154,12 +160,12 @@ func runSend(cmd *cobra.Command, args []string) error {
 	}
 	link := webURL + "?room=" + roomId
 
-	fmt.Println("  ─────────────────────────────────────────────────")
+	rows := [][2]string{{"Sending", summary.Label}}
 	if codePhrase != "" {
-		fmt.Printf("  Code:  %s\n", codePhrase)
+		rows = append(rows, [2]string{"Code", codePhrase})
 	}
-	fmt.Printf("  Link:  %s\n", link)
-	fmt.Println("  ─────────────────────────────────────────────────")
+	rows = append(rows, [2]string{"Link", link})
+	transfer.PrintBox(rows)
 	fmt.Println()
 	fmt.Println("  Waiting for peer...")
 
