@@ -52,7 +52,7 @@ describe('chunkSize', () => {
 
 describe('message builders round-trip', () => {
     it('metadataMessage parses back correctly', () => {
-        const raw = metadataMessage('abc', 'file.txt', 1024, 1, 3);
+        const raw = metadataMessage('abc', 'file.txt', 1024, 1, 3, 3072);
         const msg = JSON.parse(raw);
         expect(msg).toMatchObject({ type: 'metadata', id: 'abc', fileName: 'file.txt', fileSize: 1024, index: 1, total: 3 });
     });
@@ -72,7 +72,7 @@ describe('message builders round-trip', () => {
 
 describe('classifyControl', () => {
     it('classifies metadata', () => {
-        const raw = metadataMessage('id1', 'a.txt', 100, 1, 1);
+        const raw = metadataMessage('id1', 'a.txt', 100, 1, 1, 100);
         const result = classifyControl(toUint8(raw));
         expect(result?.type).toBe('metadata');
     });

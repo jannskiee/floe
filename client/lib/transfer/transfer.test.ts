@@ -156,7 +156,7 @@ describe('receiver: stores tight copies of chunk bytes', () => {
         for (let i = 0; i < SIZE; i++) fileBytes[i] = i + 1; // never 0x7B at index 0
 
         // Metadata first so the receiver opens a partial download.
-        rx.handleMessage(enc.encode(metadataMessage('rid', 'r.bin', SIZE, 1, 1)));
+        rx.handleMessage(enc.encode(metadataMessage('rid', 'r.bin', SIZE, 1, 1, SIZE)));
 
         // Place the payload inside a larger backing Buffer at a non-zero offset and
         // hand the receiver subarray VIEWS (16 bytes each) — sharing one backing AB.

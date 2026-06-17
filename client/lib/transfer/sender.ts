@@ -63,12 +63,13 @@ export async function sendFiles(
     cb: SenderCallbacks = {}
 ): Promise<void> {
     const destroyed = cb.isDestroyed ?? (() => false);
+    const totalBytes = files.reduce((s, e) => s + e.file.size, 0);
 
     for (let i = 0; i < files.length; i++) {
         if (destroyed()) break;
         const entry = files[i];
         cb.onFileStart?.(i, files.length, entry.file.name);
-        await sendSingleFile(deps, entry, i + 1, files.length, cb);
+        await sendSingleFile(deps, entry, i + 1, files.length, totalBytes, cb);
     }
 
     if (!destroyed()) {
@@ -81,6 +82,7 @@ async function sendSingleFile(
     entry: FileEntry,
     index: number,
     total: number,
+    totalBytes: number,
     cb: SenderCallbacks
 ): Promise<void> {
     const { file, id } = entry;
@@ -95,7 +97,7 @@ async function sendSingleFile(
 
     // 1. Send metadata
     try {
-        send(metadataMessage(id, file.name, file.size, index, total));
+        send(metadataMessage(id, file.name, file.size, index, total, totalBytes));
     } catch {
         return;
     }
