@@ -160,7 +160,8 @@ func runSend(cmd *cobra.Command, args []string) error {
 	}
 	link := webURL + "?room=" + roomId
 
-	rows := [][2]string{{"Sending", summary.Label}}
+	fmt.Printf("  Sending   %s\n", summary.Label)
+	var rows [][2]string
 	if codePhrase != "" {
 		rows = append(rows, [2]string{"Code", codePhrase})
 	}
