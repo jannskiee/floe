@@ -29,13 +29,16 @@ export default withSentryConfig(nextConfig, {
         reactComponentAnnotation: {
             enabled: true,
         },
+        // Strip Sentry debug logging from the production bundle. Replaces the
+        // deprecated top-level `disableLogger`. This is webpack-only; Turbopack
+        // builds ignore it, which is fine as debug logging is already disabled.
+        treeshake: {
+            removeDebugLogging: true,
+        },
     },
 
     // Hide Sentry source maps from the browser bundle
     hideSourceMaps: true,
-
-    // Remove Sentry debug logging from the production bundle
-    disableLogger: true,
 
     // Source map uploads require SENTRY_AUTH_TOKEN env var.
     // Add it to Vercel project settings to enable detailed stack traces.
