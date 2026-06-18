@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/nextjs';
+import { isStaleBundleError } from './lib/staleBundle';
 
 Sentry.init({
     // Set NEXT_PUBLIC_SENTRY_DSN in your environment to enable error tracking.
@@ -18,8 +19,29 @@ Sentry.init({
         'ResizeObserver loop',
     ],
 
-    // Capture 100% of transactions in production — adjust to 0.1 at scale
-    tracesSampleRate: 1.0,
+    // Sample 10% of transactions. Tracing every page load (1.0) flooded the
+    // performance detectors with low-signal "Degraded HTTP Operation" issues on
+    // slow first/cold loads and added per-session overhead. 10% keeps enough
+    // signal to spot real regressions without the noise.
+    tracesSampleRate: 0.1,
+
+    // Stale-bundle/chunk-load errors are expected deploy churn, not bugs: an old
+    // tab requests chunks a new deploy removed. The browser auto-reloads onto the
+    // current bundle (see lib/staleBundle.ts). Collapse every wording variant into
+    // one warning-level issue instead of a flood of distinct, non-actionable errors.
+    beforeSend(event, hint) {
+        const message =
+            (hint?.originalException as Error | undefined)?.message ??
+            event.exception?.values?.[0]?.value;
+
+        if (isStaleBundleError(message)) {
+            event.level = 'warning';
+            event.fingerprint = ['stale-bundle-chunk-load'];
+            event.tags = { ...event.tags, stale_bundle: true, auto_recovered: true };
+        }
+
+        return event;
+    },
 
     // Session replay: capture 10% of sessions, 100% of sessions with errors
     replaysSessionSampleRate: 0.1,
