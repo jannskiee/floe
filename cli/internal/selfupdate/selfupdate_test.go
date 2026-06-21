@@ -29,12 +29,14 @@ func TestAssetName(t *testing.T) {
 		wantName              string
 		wantFmt               string
 	}{
-		{"linux", "amd64", "v1.2.0", "floe_v1.2.0_linux_amd64.tar.gz", "tar.gz"},
-		{"linux", "arm64", "v1.2.0", "floe_v1.2.0_linux_arm64.tar.gz", "tar.gz"},
-		{"darwin", "amd64", "v1.2.0", "floe_v1.2.0_darwin_amd64.tar.gz", "tar.gz"},
-		{"darwin", "arm64", "v1.2.0", "floe_v1.2.0_darwin_arm64.tar.gz", "tar.gz"},
-		{"windows", "amd64", "v1.2.0", "floe_v1.2.0_windows_amd64.zip", "zip"},
-		{"windows", "arm64", "v1.2.0", "floe_v1.2.0_windows_arm64.zip", "zip"},
+		{"linux", "amd64", "v1.2.0", "floe_1.2.0_linux_amd64.tar.gz", "tar.gz"},
+		{"linux", "arm64", "v1.2.0", "floe_1.2.0_linux_arm64.tar.gz", "tar.gz"},
+		{"darwin", "amd64", "v1.2.0", "floe_1.2.0_darwin_amd64.tar.gz", "tar.gz"},
+		{"darwin", "arm64", "v1.2.0", "floe_1.2.0_darwin_arm64.tar.gz", "tar.gz"},
+		{"windows", "amd64", "v1.2.0", "floe_1.2.0_windows_amd64.zip", "zip"},
+		{"windows", "arm64", "v1.2.0", "floe_1.2.0_windows_arm64.zip", "zip"},
+		// A bare version (no leading "v") must produce the same asset name.
+		{"linux", "amd64", "1.2.0", "floe_1.2.0_linux_amd64.tar.gz", "tar.gz"},
 	}
 	for _, tt := range tests {
 		gotName, gotFmt := AssetName(tt.version, tt.goos, tt.goarch)

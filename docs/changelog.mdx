@@ -3,6 +3,12 @@ title: "Changelog"
 description: "Release history for Floe."
 ---
 
+<Update label="v1.5.3" description="2026-06-21">
+  **Installer and self-update download fix**
+
+  - Fixed a 404 when installing or updating floe. The install scripts (`install.sh`, `install.ps1`) and the built-in `floe update` requested the release archive with a leading "v" in the version (for example `floe_v1.5.2_linux_arm64.tar.gz`), but the published asset name omits it (`floe_1.5.2_linux_arm64.tar.gz`). All download paths now use the correct filename. This affected every platform and architecture, including Raspberry Pi (linux/arm64).
+</Update>
+
 <Update label="v1.5.2" description="2026-06-17">
   **CLI stability fix**
 

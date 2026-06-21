@@ -48,9 +48,17 @@ if [ -z "${FLOE_VERSION}" ]; then
   exit 1
 fi
 
-ARCHIVE="floe_${FLOE_VERSION}_${GOOS}_${GOARCH}.tar.gz"
-DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${FLOE_VERSION}/${ARCHIVE}"
-CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${FLOE_VERSION}/checksums.txt"
+# The release tag carries a leading "v" (e.g. v1.5.2), but GoReleaser strips it
+# from the archive name ({{ .Version }} -> 1.5.2). Normalize both forms so the
+# download path uses the tag and the filename uses the bare version number.
+case "${FLOE_VERSION}" in
+  v*) TAG="${FLOE_VERSION}"; VERSION_NUM="${FLOE_VERSION#v}" ;;
+  *)  TAG="v${FLOE_VERSION}"; VERSION_NUM="${FLOE_VERSION}" ;;
+esac
+
+ARCHIVE="floe_${VERSION_NUM}_${GOOS}_${GOARCH}.tar.gz"
+DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/${ARCHIVE}"
+CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${TAG}/checksums.txt"
 
 # Work in a temp directory; clean up on exit
 TMP_DIR="$(mktemp -d)"

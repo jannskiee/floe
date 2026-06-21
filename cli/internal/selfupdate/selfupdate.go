@@ -158,10 +158,13 @@ func PMHint(pm string) string {
 // AssetName returns (archive filename, format string) for the given platform.
 // Exported for testing; callers within this package use assetName().
 func AssetName(version, goos, goarch string) (string, string) {
+	// Release tags carry a leading "v" (e.g. v1.2.0), but GoReleaser strips it
+	// from the archive name (floe_1.2.0_...). Match the published asset name.
+	v := strings.TrimPrefix(version, "v")
 	if goos == "windows" {
-		return fmt.Sprintf("floe_%s_%s_%s.zip", version, goos, goarch), "zip"
+		return fmt.Sprintf("floe_%s_%s_%s.zip", v, goos, goarch), "zip"
 	}
-	return fmt.Sprintf("floe_%s_%s_%s.tar.gz", version, goos, goarch), "tar.gz"
+	return fmt.Sprintf("floe_%s_%s_%s.tar.gz", v, goos, goarch), "tar.gz"
 }
 
 func assetName(version string) (string, string) {
