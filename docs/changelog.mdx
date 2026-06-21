@@ -3,6 +3,14 @@ title: "Changelog"
 description: "Release history for Floe."
 ---
 
+<Update label="v1.6.0" description="2026-06-22">
+  **Protocol version negotiation**
+
+  - Added a wire protocol version that the sender and receiver exchange when a transfer starts. It is separate from the release version (1.6.x), so peers on different releases still transfer normally. A patch or minor difference such as v1.5.4 and v1.5.5 is never a conflict and is never blocked.
+  - If a future release ever changes the wire format in a breaking way, the two sides now detect it before any file data moves and print a clear "your floe is too old, run `floe update`" message (or "ask the other side to update") instead of failing with a confusing error or a corrupt file.
+  - Works in every direction: CLI-to-CLI, browser-to-CLI, and CLI-to-browser. Older peers that predate this change are treated as the baseline protocol and stay fully compatible.
+</Update>
+
 <Update label="v1.5.5" description="2026-06-21">
   **`floe update` permission fix**
 

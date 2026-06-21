@@ -66,6 +66,9 @@ NEXT_PUBLIC_SENTRY_DSN=    # optional
 
 Browser peers communicate via **Socket.IO**; CLI peers communicate via **WebSocket at `/ws`**. Both share the same `rooms` registry on the server (`Map<roomId, [peer, peer]>`), so browser-to-CLI transfers work transparently.
 
+### Transfer Protocol Versioning
+The data-channel transfer protocol carries its own version, independent of the release version (1.x.y). Peers exchange `pv` (highest protocol version), `pvMin` (lowest supported), and `ver` (release string) inside the existing `metadata` and `ack` messages. Compatibility is a range-overlap check; if the ranges miss, the receiver sends an `incompatible` message before any file bytes move and both sides print a "run `floe update`" hint. Constants: `ProtocolVersion` / `MinProtocolVersion` in `cli/internal/transfer/protocol.go`, mirrored as `PROTOCOL_VERSION` / `MIN_PROTOCOL_VERSION` in `client/lib/transfer/protocol.ts`. Both are 1 today. Bump `ProtocolVersion` only on a breaking wire change; keep the two implementations in sync. Peers omitting the fields (pre-1.6.0) are treated as protocol 1.
+
 ### Room Codes
 `POST /api/code` registers a short human-readable phrase (e.g. `olive-tiger-castle`) mapping to a room ID with 10-min TTL. `GET /api/code/:code` resolves it. Words come from `server/words.json`.
 

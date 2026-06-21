@@ -139,9 +139,14 @@ Once the WebRTC data channel is open, the sender runs the following sequence for
   "fileSize": 6291456,
   "index": 1,
   "total": 3,
-  "totalBytes": 11800000
+  "totalBytes": 11800000,
+  "pv": 1,
+  "pvMin": 1,
+  "ver": "v1.6.0"
 }
 ```
+
+`pv`, `pvMin`, and `ver` carry the protocol version range and release string (see [Protocol versioning](#protocol-versioning)). They were added in v1.6.0 and are absent on older peers, which are treated as protocol version 1.
 
 **Ack (JSON, receiver to sender)**
 
@@ -149,11 +154,14 @@ Once the WebRTC data channel is open, the sender runs the following sequence for
 {
   "type": "ack",
   "id": "<uuid>",
-  "offset": 0
+  "offset": 0,
+  "pv": 1,
+  "pvMin": 1,
+  "ver": "v1.6.0"
 }
 ```
 
-`offset` supports mid-file resume. In normal operation it is always 0.
+`offset` supports mid-file resume. In normal operation it is always 0. The ack carries the receiver's own `pv`, `pvMin`, and `ver` so the sender can verify compatibility from its side.
 
 **Binary chunks (raw bytes)**
 
@@ -174,6 +182,33 @@ After all files are complete, the CLI receiver sends:
 ```
 
 This lets the sender exit cleanly instead of polling the SCTP buffer. Browser receivers do not send this; the sender waits for the data channel buffer to drain to zero.
+
+**Incompatible (JSON, receiver to sender)**
+
+Sent in place of the ack when the two peers' protocol version ranges do not overlap (see [Protocol versioning](#protocol-versioning)). It carries a human-readable `reason` plus the receiver's own version range:
+
+```json
+{
+  "type": "incompatible",
+  "reason": "Cannot transfer: your floe is too old for this peer. ...",
+  "pv": 1,
+  "pvMin": 1
+}
+```
+
+The receiver sends this and aborts before creating any file, so the sender fails fast with a clear message instead of waiting for an ack that never arrives. Older senders that predate this message type ignore it safely.
+
+### Protocol versioning
+
+The transfer protocol carries its own version, independent of the floe release version (1.6.x). This lets peers on different releases interoperate, while still detecting a genuine breaking wire-format change cleanly.
+
+- Each peer advertises `pv` (the highest protocol version it speaks) and `pvMin` (the lowest it still supports) in its metadata and ack. Both are 1 today.
+- Two peers are compatible when their ranges overlap: `max(localMin, remoteMin) <= min(localMax, remoteMax)`. They operate at the highest common version.
+- A peer that omits the fields (any release before v1.6.0) is treated as protocol version 1, so all existing peers stay compatible.
+- When the ranges do not overlap, the receiver sends an `incompatible` message and both sides print an actionable message: the older peer is told to run `floe update`, or to ask the other side to update.
+- `ver` is the human release string (for example `v1.6.0`). It is informational only, used for the optional peer-version note, and never gates a transfer.
+
+The constants live in `cli/internal/transfer/protocol.go` (`ProtocolVersion`, `MinProtocolVersion`) and `client/lib/transfer/protocol.ts` (`PROTOCOL_VERSION`, `MIN_PROTOCOL_VERSION`). Bump `ProtocolVersion` only on a breaking wire change; raise `MinProtocolVersion` only when deliberately dropping support for an old wire format.
 
 ### Backpressure
 
