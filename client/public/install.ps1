@@ -32,9 +32,21 @@ if (-not $Version) {
     exit 1
 }
 
-$Archive = "floe_${Version}_windows_${Arch}.zip"
-$DownloadUrl = "https://github.com/$Repo/releases/download/$Version/$Archive"
-$ChecksumsUrl = "https://github.com/$Repo/releases/download/$Version/checksums.txt"
+# The release tag carries a leading "v" (e.g. v1.5.2), but GoReleaser strips it
+# from the archive name (floe_1.5.2_...). Use the tag for the download path and
+# the bare version number for the filename. Tolerate FLOE_VERSION set with or
+# without the leading "v".
+if ($Version.StartsWith("v")) {
+    $Tag = $Version
+    $VersionNum = $Version.Substring(1)
+} else {
+    $Tag = "v$Version"
+    $VersionNum = $Version
+}
+
+$Archive = "floe_${VersionNum}_windows_${Arch}.zip"
+$DownloadUrl = "https://github.com/$Repo/releases/download/$Tag/$Archive"
+$ChecksumsUrl = "https://github.com/$Repo/releases/download/$Tag/checksums.txt"
 
 $TmpDir = New-Item -ItemType Directory -Path "$env:TEMP\floe-install-$(Get-Random)"
 
