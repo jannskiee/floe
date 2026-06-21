@@ -20,7 +20,7 @@
   },
   "appearance": {
     "default": "dark",
-    "strict": true
+    "strict": false
   },
   "seo": {
     "metatags": {
