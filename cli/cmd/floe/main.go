@@ -198,7 +198,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 
 	// 9. Send files
-	return transfer.SendFiles(dc, args)
+	return transfer.SendFiles(dc, args, version)
 }
 
 // ── floe receive ─────────────────────────────────────────────────────────────
@@ -298,7 +298,7 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	fmt.Println("  Connected")
 
 	// 7. Receive files
-	return transfer.ReceiveFiles(dc, absOutput, flagAutoAccept)
+	return transfer.ReceiveFiles(dc, absOutput, flagAutoAccept, version)
 }
 
 // ── floe version ─────────────────────────────────────────────────────────────

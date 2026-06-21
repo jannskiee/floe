@@ -8,7 +8,12 @@ import {
     classifyControl,
     metadataMessage,
     endMessage,
+    checkCompat,
+    compatErrorMessage,
+    PROTOCOL_VERSION,
+    MIN_PROTOCOL_VERSION,
     type Ack,
+    type Incompatible,
 } from './protocol';
 
 export interface SenderCallbacks {
@@ -77,6 +82,12 @@ export async function sendFiles(
     }
 }
 
+// Result of waiting for the receiver's ack.
+type AckResult =
+    | { type: 'ack'; offset: number; pv?: number; pvMin?: number; ver?: string }
+    | { type: 'incompatible'; reason: string }
+    | { type: 'timeout' };
+
 async function sendSingleFile(
     deps: SenderDeps,
     entry: FileEntry,
@@ -95,21 +106,44 @@ async function sendSingleFile(
 
     channel.bufferedAmountLowThreshold = LOW_WATER;
 
-    // 1. Send metadata
+    // 1. Send metadata with protocol version fields
     try {
         send(metadataMessage(id, file.name, file.size, index, total, totalBytes));
     } catch {
         return;
     }
 
-    // 2. Wait for ack (15 s timeout)
-    const ackOffset = await waitForAck(onData, id);
-    if (ackOffset === null) {
+    // 2. Wait for ack (15 s timeout), handling incompatible responses
+    const ackResult = await waitForAck(onData, id);
+    if (ackResult.type === 'timeout') {
         cb.onError?.('Transfer timed out waiting for receiver. Please try again.');
         return;
     }
+    if (ackResult.type === 'incompatible') {
+        cb.onError?.(ackResult.reason);
+        return;
+    }
 
-    let offset = ackOffset;
+    // Defense in depth: verify protocol compat from the receiver's pv fields on
+    // the first file. The receiver already checked from its side; this catches
+    // the case where an old receiver (no pv field, treated as v1) connects to a
+    // future sender that dropped support for v1.
+    if (index === 1 && (ackResult.pv !== undefined || ackResult.pvMin !== undefined)) {
+        const { ok, localTooOld } = checkCompat(
+            MIN_PROTOCOL_VERSION, PROTOCOL_VERSION,
+            ackResult.pvMin ?? 0, ackResult.pv ?? 0
+        );
+        if (!ok) {
+            cb.onError?.(compatErrorMessage(
+                localTooOld, '', ackResult.ver ?? '',
+                MIN_PROTOCOL_VERSION, PROTOCOL_VERSION,
+                ackResult.pvMin ?? 1, ackResult.pv ?? 1
+            ));
+            return;
+        }
+    }
+
+    let offset = ackResult.offset;
     let speedMeasureStart = performance.now();
     let speedMeasureBytes = 0;
     let lastSpeedUpdate = 0;
@@ -195,19 +229,23 @@ async function sendSingleFile(
 function waitForAck(
     onData: (handler: (data: Uint8Array | ArrayBuffer) => void) => () => void,
     fileId: string
-): Promise<number | null> {
+): Promise<AckResult> {
     return Promise.race([
-        new Promise<number | null>((resolve) => {
+        new Promise<AckResult>((resolve) => {
             const off = onData((raw) => {
-                const msg = classifyControl(
-                    raw instanceof Uint8Array ? raw : new Uint8Array(raw)
-                );
-                if (msg && msg.type === 'ack' && (msg as Ack).id === fileId) {
+                const buf = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+                const msg = classifyControl(buf);
+                if (!msg) return;
+                if (msg.type === 'ack' && (msg as Ack).id === fileId) {
                     off();
-                    resolve((msg as Ack).offset);
+                    const ack = msg as Ack;
+                    resolve({ type: 'ack', offset: ack.offset, pv: ack.pv, pvMin: ack.pvMin, ver: ack.ver });
+                } else if (msg.type === 'incompatible') {
+                    off();
+                    resolve({ type: 'incompatible', reason: (msg as Incompatible).reason });
                 }
             });
         }),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000)),
+        new Promise<AckResult>((resolve) => setTimeout(() => resolve({ type: 'timeout' }), 15_000)),
     ]);
 }

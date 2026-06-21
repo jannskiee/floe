@@ -170,6 +170,10 @@ func TestClassifyControl(t *testing.T) {
 		{"metadata string", `{"type":"metadata","id":"x","fileName":"a","fileSize":1,"index":1,"total":1}`, true, "metadata", true},
 		{"end string", `{"type":"end"}`, true, "end", true},
 		{"metadata as small binary", `{"type":"metadata","id":"x"}`, false, "metadata", true},
+		// Protocol-direction messages are control so they are never written as file data.
+		{"ack type is control", `{"type":"ack","id":"x","offset":0}`, false, "ack", true},
+		{"received type is control", `{"type":"received"}`, false, "received", true},
+		{"incompatible type is control", `{"type":"incompatible","reason":"too old"}`, false, "incompatible", true},
 		// A tiny JSON file (its own content) must be treated as DATA, not dropped.
 		{"json file content under 1KB", `{"hello":"world","n":42}`, false, "", false},
 		// A JSON object whose type is unknown is still data, not control.
@@ -194,5 +198,87 @@ func TestClassifyControl(t *testing.T) {
 	big := `{"type":"metadata",` + `"pad":"` + strings.Repeat("x", 1100) + `"}`
 	if _, isControl := classifyControl([]byte(big), false); isControl {
 		t.Errorf("classifyControl on >1000-byte binary should be data, got control")
+	}
+}
+
+// TestCheckCompat covers the full matrix of protocol version range comparisons.
+func TestCheckCompat(t *testing.T) {
+	cases := []struct {
+		name                    string
+		localMin, localMax      int
+		remoteMin, remoteMax    int
+		wantOk                  bool
+		wantLocalTooOld         bool
+	}{
+		{"equal v1", 1, 1, 1, 1, true, false},
+		{"legacy remote (zeros treated as v1)", 1, 1, 0, 0, true, false},
+		{"overlap: local 1-2 remote 2-3", 1, 2, 2, 3, true, false},
+		{"local too old: local 1-1 remote 2-2", 1, 1, 2, 2, false, true},
+		{"remote too old: local 2-2 remote 1-1", 2, 2, 1, 1, false, false},
+		{"no overlap: local 3-4 remote 1-2", 3, 4, 1, 2, false, false},
+		{"wide local range", 1, 5, 3, 3, true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ok, localTooOld := CheckCompat(tc.localMin, tc.localMax, tc.remoteMin, tc.remoteMax)
+			if ok != tc.wantOk || localTooOld != tc.wantLocalTooOld {
+				t.Errorf("CheckCompat(%d,%d,%d,%d) = (ok=%v,localTooOld=%v), want (ok=%v,localTooOld=%v)",
+					tc.localMin, tc.localMax, tc.remoteMin, tc.remoteMax,
+					ok, localTooOld, tc.wantOk, tc.wantLocalTooOld)
+			}
+		})
+	}
+}
+
+// TestCompatErrorMessage verifies the user-facing error strings.
+func TestCompatErrorMessage(t *testing.T) {
+	// Local too old: should suggest running floe update locally
+	msg := CompatErrorMessage(true, "v1.5.5", "v2.0.0", 1, 1, 2, 2)
+	if !strings.Contains(msg, "floe update") {
+		t.Errorf("local-too-old message should mention 'floe update', got: %s", msg)
+	}
+	if !strings.Contains(msg, "v1.5.5") || !strings.Contains(msg, "v2.0.0") {
+		t.Errorf("message should contain both version strings, got: %s", msg)
+	}
+
+	// Remote too old: should ask the other side to update
+	msg2 := CompatErrorMessage(false, "v2.0.0", "v1.5.5", 2, 2, 1, 1)
+	if !strings.Contains(msg2, "other side") {
+		t.Errorf("remote-too-old message should mention 'other side', got: %s", msg2)
+	}
+
+	// Empty ver strings omitted from ranges
+	msg3 := CompatErrorMessage(true, "", "", 1, 1, 2, 2)
+	if strings.Contains(msg3, "()") {
+		t.Errorf("empty ver should not produce '()' in message, got: %s", msg3)
+	}
+}
+
+// TestParseMetadataProtocolFields verifies that pv/pvMin/ver are parsed from
+// new-format metadata, and that legacy metadata (no such fields) returns zeros.
+func TestParseMetadataProtocolFields(t *testing.T) {
+	// New sender with pv/pvMin/ver
+	withProto := `{"type":"metadata","id":"a","fileName":"f.txt","fileSize":1,"index":1,"total":1,"totalBytes":1,"pv":2,"pvMin":1,"ver":"v1.6.0"}`
+	info, err := parseMetadata(withProto)
+	if err != nil {
+		t.Fatalf("parseMetadata with proto fields error: %v", err)
+	}
+	if info.Pv != 2 || info.PvMin != 1 || info.Ver != "v1.6.0" {
+		t.Errorf("got Pv=%d PvMin=%d Ver=%q, want Pv=2 PvMin=1 Ver=v1.6.0", info.Pv, info.PvMin, info.Ver)
+	}
+
+	// Legacy sender without pv/pvMin/ver — fields default to zero/empty
+	legacy := `{"type":"metadata","id":"b","fileName":"old.txt","fileSize":10,"index":1,"total":1}`
+	info2, err := parseMetadata(legacy)
+	if err != nil {
+		t.Fatalf("parseMetadata legacy error: %v", err)
+	}
+	if info2.Pv != 0 || info2.PvMin != 0 || info2.Ver != "" {
+		t.Errorf("legacy metadata should have zero pv fields, got Pv=%d PvMin=%d Ver=%q", info2.Pv, info2.PvMin, info2.Ver)
+	}
+	// And CheckCompat treats zero as v1 — must be compatible with current build
+	ok, _ := CheckCompat(MinProtocolVersion, ProtocolVersion, info2.PvMin, info2.Pv)
+	if !ok {
+		t.Error("legacy peer (zero pv fields) must be compatible with current protocol")
 	}
 }
