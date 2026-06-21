@@ -68,7 +68,16 @@ func newProgressBar(size int64, index, total int, name string) *progressbar.Prog
 		progressbar.OptionSetDescription(
 			fmt.Sprintf("  [%d/%d] %s", index, total, truncateName(name, 30)),
 		),
-		progressbar.OptionSetWidth(30),
+		// Size the bar to the terminal width so the whole line always fits.
+		// A fixed width could overflow a narrow window; on Windows the library
+		// clears with a bare "\r", so a wrapped line scrolls a new row on every
+		// redraw (one line per percentage). Full width keeps it on one line and
+		// falls back to an 80-column layout when stdout is not a TTY.
+		progressbar.OptionFullWidth(),
+		// Default throttle is 0, so the bar re-renders (and fsyncs) on every
+		// chunk. Cap redraws to keep the display smooth and cut I/O; the final
+		// 100% still renders because render() bypasses the throttle at max.
+		progressbar.OptionThrottle(65*time.Millisecond),
 		progressbar.OptionShowBytes(true),
 		progressbar.OptionSetTheme(progressbar.Theme{
 			Saucer:        "█",
