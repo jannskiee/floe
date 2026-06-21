@@ -204,11 +204,11 @@ func TestClassifyControl(t *testing.T) {
 // TestCheckCompat covers the full matrix of protocol version range comparisons.
 func TestCheckCompat(t *testing.T) {
 	cases := []struct {
-		name                    string
-		localMin, localMax      int
-		remoteMin, remoteMax    int
-		wantOk                  bool
-		wantLocalTooOld         bool
+		name                 string
+		localMin, localMax   int
+		remoteMin, remoteMax int
+		wantOk               bool
+		wantLocalTooOld      bool
 	}{
 		{"equal v1", 1, 1, 1, 1, true, false},
 		{"legacy remote (zeros treated as v1)", 1, 1, 0, 0, true, false},

@@ -181,11 +181,11 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, loc
 				// note. The browser checks data.byteLength before decoding, which is
 				// only defined on ArrayBuffer/Buffer, not strings.
 				ack := map[string]interface{}{
-					"type":  "ack",
-					"id":    info.ID,
+					"type":   "ack",
+					"id":     info.ID,
 					"offset": 0,
-					"pv":    ProtocolVersion,
-					"pvMin": MinProtocolVersion,
+					"pv":     ProtocolVersion,
+					"pvMin":  MinProtocolVersion,
 				}
 				if localVer != "" {
 					ack["ver"] = localVer
@@ -319,7 +319,7 @@ func parseMetadata(text string) (FileInfo, error) {
 		Type       string  `json:"type"`
 		ID         string  `json:"id"`
 		FileName   string  `json:"fileName"`
-		FileSize   float64 `json:"fileSize"`   // JSON numbers decode as float64
+		FileSize   float64 `json:"fileSize"` // JSON numbers decode as float64
 		Index      int     `json:"index"`
 		Total      int     `json:"total"`
 		TotalBytes float64 `json:"totalBytes"` // absent from older senders → 0

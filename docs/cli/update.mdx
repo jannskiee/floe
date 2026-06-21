@@ -41,3 +41,7 @@ curl -fsSL https://floe.one/install.sh | sh
 # Windows
 irm https://floe.one/install.ps1 | iex
 ```
+
+## Version compatibility
+
+You do not need to match versions with the person on the other end. Floe peers on different releases interoperate, so a small version difference is never a problem. In the rare case a release changes the transfer protocol in a breaking way, Floe detects it before any data moves and tells whichever side is older to update. See [Protocol versioning](/reference/architecture#protocol-versioning) for the details.

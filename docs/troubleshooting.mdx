@@ -54,6 +54,19 @@ Most Floe transfers just work. When something goes wrong, it is almost always on
   <Accordion title="A browser recipient cannot join my CLI transfer">
     A browser can only join by opening the link, not by entering a short code (there is no code field in the web UI). Share the **link** printed by `floe send` with browser recipients, and the **code** with CLI recipients.
   </Accordion>
+
+  <Accordion title="The CLI says the version is incompatible">
+    Peers on different floe versions normally transfer fine, so a small version difference (for example v1.5.4 and v1.5.5) is never a problem. This message only appears if a release changed the transfer protocol in a way the two versions cannot bridge. Whichever side is older should update:
+
+    ```bash
+    floe update              # script / manual installs
+    brew upgrade floe        # Homebrew
+    winget upgrade jannskiee.floe  # Winget
+    scoop update floe        # Scoop
+    ```
+
+    If you are receiving from a browser, refresh the page to load the latest web client. See [Updating](/cli/update).
+  </Accordion>
 </AccordionGroup>
 
 ## Self-hosting
