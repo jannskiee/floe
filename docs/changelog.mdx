@@ -3,6 +3,12 @@ title: "Changelog"
 description: "Release history for Floe."
 ---
 
+<Update label="v1.5.5" description="2026-06-21">
+  **`floe update` permission fix**
+
+  - Fixed `floe update` failing with "permission denied" when floe is installed in a root-owned directory such as `/usr/local/bin` on Linux and macOS. The updater now downloads and extracts as the current user, installs directly when the location is user-writable (for example `~/.local/bin`), and automatically requests sudo only for the final atomic swap when it is not. To upgrade from an older version one time, run `sudo floe update`; after that plain `floe update` works.
+</Update>
+
 <Update label="v1.5.4" description="2026-06-21">
   **CLI progress bar fix**
 

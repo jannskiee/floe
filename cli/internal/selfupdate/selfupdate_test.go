@@ -1,6 +1,11 @@
 package selfupdate
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"runtime"
+	"testing"
+)
 
 func TestCompareVersions(t *testing.T) {
 	tests := []struct {
@@ -85,6 +90,79 @@ func TestPMHint(t *testing.T) {
 	for _, tt := range tests {
 		if got := PMHint(tt.pm); got != tt.want {
 			t.Errorf("PMHint(%q) = %q, want %q", tt.pm, got, tt.want)
+		}
+	}
+}
+
+func TestInstallBinaryReplacesInPlace(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "floe")
+	if runtime.GOOS == "windows" {
+		exe += ".exe"
+	}
+	if err := os.WriteFile(exe, []byte("OLD BINARY"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// The new binary is staged in the OS temp dir, exactly like Apply does.
+	newBin := filepath.Join(t.TempDir(), "floe-update")
+	if err := os.WriteFile(newBin, []byte("NEW BINARY"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installBinary(exe, newBin); err != nil {
+		t.Fatalf("installBinary: %v", err)
+	}
+
+	got, err := os.ReadFile(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "NEW BINARY" {
+		t.Errorf("installed content = %q, want %q", got, "NEW BINARY")
+	}
+
+	// The installed binary must be executable, even though the source was 0644.
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(exe)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm()&0o111 == 0 {
+			t.Errorf("installed binary not executable: mode %v", info.Mode().Perm())
+		}
+	}
+
+	// No staging leftovers should remain in the install dir.
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if e.Name() != filepath.Base(exe) {
+			t.Errorf("unexpected leftover in install dir: %s", e.Name())
+		}
+	}
+}
+
+func TestCopyFileSetsMode(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	dst := filepath.Join(dir, "dst")
+	if err := os.WriteFile(src, []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyFile(src, dst, 0o755); err != nil {
+		t.Fatalf("copyFile: %v", err)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "data" {
+		t.Errorf("content = %q, want %q", got, "data")
+	}
+	if runtime.GOOS != "windows" {
+		info, _ := os.Stat(dst)
+		if info.Mode().Perm() != 0o755 {
+			t.Errorf("mode = %v, want 0755", info.Mode().Perm())
 		}
 	}
 }
