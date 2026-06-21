@@ -3,6 +3,11 @@
 import {
     classifyControl,
     ackMessage,
+    incompatibleMessage,
+    checkCompat,
+    compatErrorMessage,
+    PROTOCOL_VERSION,
+    MIN_PROTOCOL_VERSION,
     type Metadata,
 } from './protocol';
 
@@ -21,6 +26,7 @@ export interface ReceiverCallbacks {
     onSpeedReset?: () => void;
     onFileComplete?: (file: ReceivedFile, index: number, total: number) => void;
     onWaiting?: () => void;
+    onError?: (msg: string) => void;
 }
 
 interface PartialDownload {
@@ -44,23 +50,54 @@ interface PartialDownload {
  *       setReceivedFiles(prev => [...prev, { ...file, downloadUrl: url }]);
  *     },
  *     onWaiting: () => setStatus('File received. Waiting for next file'),
+ *     onError: (msg) => { setError(msg); setStatus('Transfer failed'); },
  *   });
  *   peer.on('data', rx.handleMessage);
  */
 export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: Uint8Array | ArrayBuffer) => void } {
     const partialDownloads = new Map<string, PartialDownload>();
     let currentMetadata: Metadata | null = null;
+    let hasCheckedCompat = false;
+    let incompatibleDetected = false;
 
     let receiveSpeedStart = performance.now();
     let receiveSpeedBytes = 0;
     let lastReceiveSpeedUpdate = 0;
 
     function handleMessage(data: Uint8Array | ArrayBuffer): void {
+        if (incompatibleDetected) return;
+
         const buf = data instanceof Uint8Array ? data : new Uint8Array(data);
         const msg = classifyControl(buf);
 
         if (msg) {
             if (msg.type === 'metadata') {
+                // Protocol compatibility check on first file, before sending ack
+                // or accepting any file bytes.
+                if (!hasCheckedCompat) {
+                    hasCheckedCompat = true;
+                    const remotePv = msg.pv ?? 0;
+                    const remotePvMin = msg.pvMin ?? 0;
+                    const { ok, localTooOld } = checkCompat(
+                        MIN_PROTOCOL_VERSION, PROTOCOL_VERSION,
+                        remotePvMin, remotePv
+                    );
+                    if (!ok) {
+                        incompatibleDetected = true;
+                        const errMsg = compatErrorMessage(
+                            localTooOld, '', msg.ver ?? '',
+                            MIN_PROTOCOL_VERSION, PROTOCOL_VERSION,
+                            remotePvMin || 1, remotePv || 1
+                        );
+                        // Send incompatible as binary so the CLI sender's ack loop
+                        // can handle it; old senders drop unrecognized control types.
+                        const enc = new TextEncoder().encode(incompatibleMessage(errMsg));
+                        cb.send(new Uint8Array(enc));
+                        cb.onError?.(errMsg);
+                        return;
+                    }
+                }
+
                 currentMetadata = msg;
                 receiveSpeedStart = performance.now();
                 receiveSpeedBytes = 0;
@@ -76,6 +113,8 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: U
                     partialDownloads.set(msg.id, { chunks: [], received: 0 });
                 }
 
+                // Send ack with protocol version fields so the sender can verify
+                // compat from its side and show the optional peer-version note.
                 cb.send(ackMessage(msg.id, offset));
             } else if (msg.type === 'end') {
                 if (!currentMetadata) return;

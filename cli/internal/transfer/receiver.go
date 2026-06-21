@@ -23,12 +23,17 @@ type FileInfo struct {
 	Index      int
 	Total      int
 	TotalBytes int64
+	Pv         int    // sender's highest protocol version (0 = legacy, treat as 1)
+	PvMin      int    // sender's minimum protocol version (0 = legacy, treat as 1)
+	Ver        string // sender's human release string, e.g. "v1.5.5"
 }
 
 // ReceiveFiles handles the full receiving side of the Floe protocol.
 // It blocks until all files are received. Files are written to outputDir.
 // If autoAccept is false, the user is prompted before receiving begins.
-func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool) error {
+// localVer is the human release string (e.g. "v1.5.5") embedded in the ack
+// for the optional peer-version note; pass "" for dev builds or tests.
+func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, localVer string) error {
 	// msgCh collects ALL incoming data channel messages.
 	// We use a channel so the OnMessage callback (goroutine) feeds a sequential loop.
 	msgCh := make(chan webrtc.DataChannelMessage, 256)
@@ -104,10 +109,34 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool) err
 				currentInfo = info
 				bytesReceived = 0
 
-				// On first file: show summary and optionally prompt
+				// On first file: check compat, show summary, and optionally prompt
 				if waitingForFirst {
 					waitingForFirst = false
 					start = time.Now()
+
+					// Protocol compatibility check - before creating any files or
+					// prompting the user. Send "incompatible" so the sender fails
+					// fast with a clear message rather than waiting for an ack.
+					ok, localTooOld := CheckCompat(MinProtocolVersion, ProtocolVersion, info.PvMin, info.Pv)
+					if !ok {
+						errMsg := CompatErrorMessage(localTooOld, localVer, info.Ver,
+							MinProtocolVersion, ProtocolVersion, info.PvMin, info.Pv)
+						incompat := incompatibleMsg{
+							Type:   "incompatible",
+							Reason: errMsg,
+							Pv:     ProtocolVersion,
+							PvMin:  MinProtocolVersion,
+							Ver:    localVer,
+						}
+						incompatJSON, _ := json.Marshal(incompat)
+						dc.Send([]byte(incompatJSON))
+						return fmt.Errorf("%s", errMsg)
+					}
+
+					// Optional informational note when release versions differ
+					if info.Ver != "" && localVer != "" && info.Ver != localVer {
+						fmt.Printf("  Peer version: %s\n", info.Ver)
+					}
 
 					var incomingLabel string
 					switch {
@@ -147,12 +176,19 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool) err
 				// Progress bar for this file
 				bar = newProgressBar(info.FileSize, info.Index, info.Total, info.FileName)
 
-				// Send ack as BINARY — the browser checks data.byteLength before
-				// decoding, which is only defined on ArrayBuffer/Buffer, not strings.
+				// Send ack as BINARY with protocol version fields so the sender
+				// can verify compat from its side and show the optional peer-version
+				// note. The browser checks data.byteLength before decoding, which is
+				// only defined on ArrayBuffer/Buffer, not strings.
 				ack := map[string]interface{}{
-					"type":   "ack",
-					"id":     info.ID,
+					"type":  "ack",
+					"id":    info.ID,
 					"offset": 0,
+					"pv":    ProtocolVersion,
+					"pvMin": MinProtocolVersion,
+				}
+				if localVer != "" {
+					ack["ver"] = localVer
 				}
 				ackJSON, _ := json.Marshal(ack)
 				dc.Send([]byte(ackJSON))
@@ -227,7 +263,7 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool) err
 }
 
 // classifyControl reports whether a data channel message is a Floe control
-// message and, if so, its type ("metadata" or "end").
+// message and, if so, its type.
 //
 // Control messages are JSON objects. The browser (SimplePeer) sends them as
 // strings, but depending on SCTP framing they can also arrive as small binary
@@ -236,6 +272,11 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool) err
 // as control ONLY when it parses as a JSON object whose "type" is a known
 // control type. Anything else — including a small file whose bytes happen to be
 // a JSON object — is file data and must be written, not dropped.
+//
+// The receiver only acts on "metadata" and "end". The other recognized types
+// ("ack", "received", "incompatible") flow in the opposite direction; they are
+// classified as control so they are never mistakenly written as file data if
+// they somehow arrive on this side.
 func classifyControl(data []byte, isString bool) (msgType string, isControl bool) {
 	if !isString && len(data) > 1000 {
 		return "", false
@@ -248,7 +289,8 @@ func classifyControl(data []byte, isString bool) (msgType string, isControl bool
 		return "", false
 	}
 	t, _ := base["type"].(string)
-	if t == "metadata" || t == "end" {
+	switch t {
+	case "metadata", "end", "ack", "received", "incompatible":
 		return t, true
 	}
 	return "", false
@@ -281,6 +323,9 @@ func parseMetadata(text string) (FileInfo, error) {
 		Index      int     `json:"index"`
 		Total      int     `json:"total"`
 		TotalBytes float64 `json:"totalBytes"` // absent from older senders → 0
+		Pv         int     `json:"pv"`         // absent from older senders → 0 (treated as 1)
+		PvMin      int     `json:"pvMin"`      // absent from older senders → 0 (treated as 1)
+		Ver        string  `json:"ver"`        // absent from older senders → ""
 	}
 	if err := json.Unmarshal([]byte(text), &m); err != nil {
 		return FileInfo{}, err
@@ -295,6 +340,9 @@ func parseMetadata(text string) (FileInfo, error) {
 		Index:      m.Index,
 		Total:      m.Total,
 		TotalBytes: int64(m.TotalBytes),
+		Pv:         m.Pv,
+		PvMin:      m.PvMin,
+		Ver:        m.Ver,
 	}, nil
 }
 

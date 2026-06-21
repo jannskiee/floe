@@ -466,6 +466,10 @@ export function P2PTransfer() {
                 }
             },
             onWaiting: () => setStatus('File received. Waiting for next file'),
+            onError: (msg) => {
+                setError(msg);
+                setStatus('Transfer failed');
+            },
         });
         peer.on('data', rx.handleMessage);
         peerRef.current = peer;

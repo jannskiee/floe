@@ -1,11 +1,17 @@
 // Package transfer implements the Floe data channel protocol for sending files.
 //
 // Protocol (same as the web app — must stay compatible for CLI↔Browser):
-//   1. Sender → Receiver: metadata JSON  (file name, size, index, total)
-//   2. Receiver → Sender: ack JSON       (confirms ready, offset for resume)
+//   1. Sender → Receiver: metadata JSON  (file name, size, index, total, pv, pvMin, ver)
+//   2. Receiver → Sender: ack JSON       (confirms ready, offset for resume, pv, pvMin, ver)
+//      OR:       incompatible JSON       (sent instead of ack when protocol ranges do not overlap)
 //   3. Sender → Receiver: binary chunks  (raw file bytes, 16 KB each)
 //   4. Sender → Receiver: end JSON       (signals end of this file)
 //   Repeat for each file.
+//
+// pv/pvMin are the protocol version range (see protocol.go). ver is the human
+// release string (e.g. "v1.5.5") used only for the optional informational note;
+// it never gates the transfer. Fields are omitted by legacy peers and default to
+// protocol version 1.
 package transfer
 
 import (
@@ -42,6 +48,9 @@ type metadataMsg struct {
 	Index      int    `json:"index"`
 	Total      int    `json:"total"`
 	TotalBytes int64  `json:"totalBytes"`
+	Pv         int    `json:"pv,omitempty"`
+	PvMin      int    `json:"pvMin,omitempty"`
+	Ver        string `json:"ver,omitempty"`
 }
 
 // ackMsg is received from the receiver confirming readiness.
@@ -49,6 +58,9 @@ type ackMsg struct {
 	Type   string `json:"type"`
 	ID     string `json:"id"`
 	Offset int64  `json:"offset"`
+	Pv     int    `json:"pv"`
+	PvMin  int    `json:"pvMin"`
+	Ver    string `json:"ver"`
 }
 
 // endMsg is sent after the last chunk of each file.
@@ -58,7 +70,9 @@ type endMsg struct {
 
 // SendFiles sends all given file paths over the open data channel.
 // Folders are walked recursively. The receiver gets each file in order.
-func SendFiles(dc *webrtc.DataChannel, paths []string) error {
+// localVer is the human release string (e.g. "v1.5.5") embedded in metadata
+// for the optional peer-version note; pass "" for dev builds or tests.
+func SendFiles(dc *webrtc.DataChannel, paths []string, localVer string) error {
 	// Expand paths: collect all files (walk directories)
 	files, err := collectFiles(paths)
 	if err != nil {
@@ -101,7 +115,7 @@ func SendFiles(dc *webrtc.DataChannel, paths []string) error {
 	})
 
 	for i, entry := range files {
-		if err := sendFile(dc, ackCh, sendMore, entry, i+1, len(files), totalBytes); err != nil {
+		if err := sendFile(dc, ackCh, sendMore, entry, i+1, len(files), totalBytes, localVer); err != nil {
 			return fmt.Errorf("error sending %s: %w", entry.displayName, err)
 		}
 	}
@@ -199,7 +213,7 @@ func collectFiles(paths []string) ([]fileEntry, error) {
 }
 
 // sendFile handles the full send sequence for a single file.
-func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, entry fileEntry, index, total int, totalBytes int64) error {
+func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string) error {
 	f, err := os.Open(entry.absPath)
 	if err != nil {
 		return err
@@ -223,28 +237,66 @@ func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struc
 		Index:      index,
 		Total:      total,
 		TotalBytes: totalBytes,
+		Pv:         ProtocolVersion,
+		PvMin:      MinProtocolVersion,
+		Ver:        localVer,
 	}
 	metaJSON, _ := json.Marshal(meta)
 	if err := dc.SendText(string(metaJSON)); err != nil {
 		return fmt.Errorf("failed to send metadata: %w", err)
 	}
 
-	// Step 2: Wait for this file's ack (with 30-second timeout).
+	// Step 2: Wait for this file's ack (with 120-second timeout).
 	// Discard any stray or stale message until we see the ack whose ID matches
 	// this file — otherwise an out-of-order message could be misread as the ack
 	// (sending from offset 0) or leak into the next file's handshake.
-	var offset int64
 	// 120 s lets a human at the interactive [Y/n] receiver prompt accept without
 	// triggering a spurious timeout on the sender.
+	var offset int64
 	ackDeadline := time.After(120 * time.Second)
 ackLoop:
 	for {
 		select {
 		case raw := <-ackCh:
-			var ack ackMsg
-			if err := json.Unmarshal(raw, &ack); err == nil && ack.Type == "ack" && ack.ID == fileID {
-				offset = ack.Offset
-				break ackLoop
+			var base struct {
+				Type string `json:"type"`
+			}
+			if json.Unmarshal(raw, &base) != nil {
+				continue
+			}
+			// If the receiver found the protocol ranges incompatible it sends
+			// an "incompatible" message instead of an ack.
+			if base.Type == "incompatible" {
+				var incompat struct {
+					Reason string `json:"reason"`
+				}
+				json.Unmarshal(raw, &incompat) //nolint:errcheck
+				if incompat.Reason != "" {
+					return fmt.Errorf("%s", incompat.Reason)
+				}
+				return fmt.Errorf("peer rejected transfer: protocol incompatible")
+			}
+			if base.Type == "ack" {
+				var ack ackMsg
+				if err := json.Unmarshal(raw, &ack); err == nil && ack.ID == fileID {
+					// Defense in depth: verify protocol compat from the receiver's
+					// pv fields on the first file. The receiver already checked from
+					// its side; this catches the case where an old receiver (no pv
+					// field, treated as v1) connects to a future sender that dropped
+					// support for v1.
+					if index == 1 {
+						ok, localTooOld := CheckCompat(MinProtocolVersion, ProtocolVersion, ack.PvMin, ack.Pv)
+						if !ok {
+							return fmt.Errorf("%s", CompatErrorMessage(localTooOld, localVer, ack.Ver,
+								MinProtocolVersion, ProtocolVersion, ack.PvMin, ack.Pv))
+						}
+						if ack.Ver != "" && localVer != "" && ack.Ver != localVer {
+							fmt.Printf("  Peer version: %s\n", ack.Ver)
+						}
+					}
+					offset = ack.Offset
+					break ackLoop
+				}
 			}
 			// Not our ack — keep waiting.
 		case <-ackDeadline:

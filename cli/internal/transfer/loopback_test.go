@@ -99,13 +99,13 @@ func runTransfer(t *testing.T, srcPaths []string) string {
 	recvErr := make(chan error, 1)
 	go func() {
 		dc := <-recvCh
-		recvErr <- ReceiveFiles(dc, outDir, true)
+		recvErr <- ReceiveFiles(dc, outDir, true, "")
 	}()
 
 	// Let the receiver register its OnMessage handler before any data is sent.
 	time.Sleep(300 * time.Millisecond)
 
-	if err := SendFiles(sender, srcPaths); err != nil {
+	if err := SendFiles(sender, srcPaths, ""); err != nil {
 		t.Fatalf("SendFiles: %v", err)
 	}
 
@@ -182,7 +182,7 @@ func TestLoopbackImmediateReceiverClose(t *testing.T) {
 
 	go func() {
 		dc := <-recvCh
-		err := ReceiveFiles(dc, outDir, true)
+		err := ReceiveFiles(dc, outDir, true, "")
 		// Close receiver immediately — this is what `defer conn.Close()` does
 		// in `runReceive`. The SCTP teardown races the final SACK to the sender.
 		dc.Close()
@@ -191,7 +191,7 @@ func TestLoopbackImmediateReceiverClose(t *testing.T) {
 
 	time.Sleep(300 * time.Millisecond)
 
-	sendErr := SendFiles(senderDC, []string{srcPath})
+	sendErr := SendFiles(senderDC, []string{srcPath}, "")
 	closeFn() // clean up sender PC after SendFiles returns
 
 	if sendErr != nil {
