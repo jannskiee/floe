@@ -6,7 +6,7 @@ import Link from 'next/link';
 
 export default function TermsOfUse() {
     return (
-        <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans p-6 md:p-12">
+        <div className="min-h-dvh bg-zinc-950 text-zinc-100 font-sans p-6 md:p-12">
             <div className="max-w-3xl mx-auto space-y-8">
                 <div className="space-y-4">
                     <Link

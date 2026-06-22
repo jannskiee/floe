@@ -9,7 +9,7 @@ import { InAppBrowserGuard } from '@/components/InAppBrowserGuard';
 
 export default function Home() {
     return (
-        <div className="flex min-h-screen flex-col items-center bg-zinc-950 font-sans text-zinc-100 p-4 sm:p-6 pt-28 sm:pt-32">
+        <div className="flex min-h-dvh flex-col items-center bg-zinc-950 font-sans text-zinc-100 p-4 sm:p-6 pt-28 sm:pt-32">
             <Navbar />
 
             <div className="mx-auto max-w-3xl text-center mb-8 space-y-4">
