@@ -49,9 +49,11 @@ Sentry.init({
 
     integrations: [
         Sentry.replayIntegration({
-            // Mask text and inputs to protect user privacy
-            maskAllText: false,
-            blockAllMedia: false,
+            // Mask all text and block media so replays never capture file names,
+            // on-screen content, or previews. This upholds the Privacy Policy
+            // (Section 5): file names and file contents are never captured.
+            maskAllText: true,
+            blockAllMedia: true,
         }),
     ],
 

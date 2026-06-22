@@ -111,11 +111,13 @@ export default function PrivacyPolicy() {
                         </h3>
                         <p>
                             Floe uses third-party infrastructure providers for
-                            hosting and network relay services. We also use
-                            Sentry for error monitoring and Umami for
-                            privacy-respecting usage analytics. Please refer to
-                            their respective privacy policies regarding data
-                            handling.
+                            hosting and network relay services. The web app is
+                            hosted on Vercel, which collects aggregate, anonymous
+                            traffic and performance metrics through Vercel Analytics
+                            and Speed Insights. We also use Sentry for error
+                            monitoring and Umami for privacy-respecting usage
+                            analytics. Please refer to their respective privacy
+                            policies regarding data handling.
                         </p>
                     </section>
 
@@ -143,15 +145,16 @@ export default function PrivacyPolicy() {
                         </h3>
                         <p>
                             Floe uses Sentry to monitor application errors
-                            and performance. When an error occurs, Sentry may capture:
+                            and performance. Sentry may capture:
                         </p>
                         <ul className="list-disc list-inside space-y-2 ml-2 text-zinc-400">
                             <li>Error stack traces and browser metadata (browser version, OS, device type)</li>
                             <li>Connection type (direct or relay) and transfer progress at time of error</li>
                             <li>
-                                <strong>Session Replay:</strong> An anonymized video-like recording of
-                                your browser session may be captured when an error occurs. Text inputs
-                                are masked. File contents are never captured.
+                                <strong>Session Replay:</strong> An anonymized, video-like recording of
+                                a small sample of browser sessions, plus any session where an error
+                                occurs. All on-screen text and media are masked, so file names and file
+                                contents are never captured.
                             </li>
                         </ul>
                         <p>
