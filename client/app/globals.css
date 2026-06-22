@@ -4,6 +4,8 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+    /* Custom breakpoint: enables xs: variants (e.g. xs:grid-cols-2) for larger phones */
+    --breakpoint-xs: 30rem;
     --color-background: var(--background);
     --color-foreground: var(--foreground);
     --font-sans: var(--font-geist-sans);
