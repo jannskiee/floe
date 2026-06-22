@@ -175,6 +175,56 @@ describe('receiver: stores tight copies of chunk bytes', () => {
     });
 });
 
+describe('receiver: onAllComplete fires once per transfer', () => {
+    // Guards the global-counter fix: per-transfer side effects (stats report,
+    // analytics, optimistic footer bump) must run exactly once with the summed
+    // bytes — never once per file — so multi-file transfers are counted correctly
+    // and are not partially dropped by the server's per-IP report rate limit.
+    function feedFile(
+        rx: { handleMessage: (d: Uint8Array | ArrayBuffer) => void },
+        id: string,
+        size: number,
+        index: number,
+        total: number,
+    ) {
+        rx.handleMessage(enc.encode(metadataMessage(id, `${id}.bin`, size, index, total, 0)));
+        const chunk = new Uint8Array(size);
+        for (let i = 0; i < size; i++) chunk[i] = (i + 1) % 256; // never starts with '{'
+        if (size > 0) rx.handleMessage(chunk);
+        rx.handleMessage(enc.encode(endMessage()));
+    }
+
+    it('fires a single time with the total bytes and file count for a 3-file transfer', () => {
+        const calls: { totalBytes: number; fileCount: number }[] = [];
+        const rx = createReceiver({
+            send: () => { /* ack — ignored */ },
+            onAllComplete: (totalBytes, fileCount) => calls.push({ totalBytes, fileCount }),
+        });
+
+        feedFile(rx, 'a', 100, 1, 3);
+        expect(calls).toHaveLength(0); // not after the first file
+        feedFile(rx, 'b', 200, 2, 3);
+        expect(calls).toHaveLength(0); // not after the second file
+        feedFile(rx, 'c', 300, 3, 3);
+
+        expect(calls).toHaveLength(1);
+        expect(calls[0]).toEqual({ totalBytes: 600, fileCount: 3 });
+    });
+
+    it('fires once for a single-file transfer (index === total === 1)', () => {
+        const calls: { totalBytes: number; fileCount: number }[] = [];
+        const rx = createReceiver({
+            send: () => {},
+            onAllComplete: (totalBytes, fileCount) => calls.push({ totalBytes, fileCount }),
+        });
+
+        feedFile(rx, 'only', 512, 1, 1);
+
+        expect(calls).toHaveLength(1);
+        expect(calls[0]).toEqual({ totalBytes: 512, fileCount: 1 });
+    });
+});
+
 describe('loopback: small binary framing guard', () => {
     it('does not misclassify a 999-byte binary chunk starting with 0x7B ({) as a control message', async () => {
         // Build a file whose first 999 bytes start with '{' — the byteLength guard must

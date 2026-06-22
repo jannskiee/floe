@@ -25,6 +25,13 @@ export interface ReceiverCallbacks {
     onSpeed?: (bytesPerSec: number, etaSeconds: number) => void;
     onSpeedReset?: () => void;
     onFileComplete?: (file: ReceivedFile, index: number, total: number) => void;
+    /**
+     * Fires exactly once when the final file of a transfer completes (index === total),
+     * carrying the summed bytes and file count for the whole transfer. Use this for
+     * per-transfer side effects (analytics, the global byte counter) so they run once
+     * instead of once per file. Mirrors the sender's `onAllSent`.
+     */
+    onAllComplete?: (totalBytes: number, fileCount: number) => void;
     onWaiting?: () => void;
     onError?: (msg: string) => void;
 }
@@ -59,6 +66,7 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: U
     let currentMetadata: Metadata | null = null;
     let hasCheckedCompat = false;
     let incompatibleDetected = false;
+    let sessionBytes = 0; // accumulated across all files of the current transfer
 
     let receiveSpeedStart = performance.now();
     let receiveSpeedBytes = 0;
@@ -131,6 +139,15 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: U
 
                 partialDownloads.delete(currentMetadata.id);
                 cb.onFileComplete?.(completed, currentMetadata.index, currentMetadata.total);
+
+                // Accumulate for the per-transfer callback, then fire once on the
+                // last file so reporting happens a single time per transfer.
+                sessionBytes += fileData.received;
+                if (currentMetadata.index === currentMetadata.total) {
+                    cb.onAllComplete?.(sessionBytes, currentMetadata.total);
+                    sessionBytes = 0; // reset for a possible subsequent transfer
+                }
+
                 cb.onWaiting?.();
                 cb.onProgress?.(0, 0, 0);
                 cb.onSpeedReset?.();

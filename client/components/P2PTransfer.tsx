@@ -456,25 +456,32 @@ export function P2PTransfer() {
                     return updated;
                 });
                 transferCompleteRef.current = true;
-                if (typeof window !== 'undefined') {
-                    (window as UmamiWindow).umami?.track('transfer-received', {
-                        files: receivedFilesRef.current.length,
-                        bytes: file.fileSize,
-                        connection: connectionType ?? 'unknown',
-                        role: 'receiver',
-                    });
-                    // Report bytes to global counter — fire-and-forget
-                    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
-                    fetch(`${socketUrl}/api/stats/report`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ bytes: file.fileSize }),
-                    }).catch(() => {});
-                    // Optimistic local bump for instant footer animation
-                    window.dispatchEvent(
-                        new CustomEvent('floe:bytes-reported', { detail: { bytes: file.fileSize } })
-                    );
-                }
+            },
+            onAllComplete: (totalBytes, fileCount) => {
+                // Per-transfer side effects: fire once for the whole transfer (not per
+                // file) so analytics and the global counter stay accurate and the footer
+                // animates a single time. Mirrors the sender's onAllSent.
+                if (typeof window === 'undefined') return;
+                (window as UmamiWindow).umami?.track('transfer-received', {
+                    files: fileCount,
+                    bytes: totalBytes,
+                    connection: connectionType ?? 'unknown',
+                    role: 'receiver',
+                });
+                // Report the transfer's total bytes to the global counter (fire-and-forget).
+                // keepalive lets the report survive if the tab closes right after the
+                // last file lands.
+                const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
+                fetch(`${socketUrl}/api/stats/report`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ bytes: totalBytes }),
+                    keepalive: true,
+                }).catch(() => {});
+                // Optimistic local bump for an instant, single footer animation.
+                window.dispatchEvent(
+                    new CustomEvent('floe:bytes-reported', { detail: { bytes: totalBytes } })
+                );
             },
             onWaiting: () => setStatus('File received. Waiting for next file'),
             onError: (msg) => {
