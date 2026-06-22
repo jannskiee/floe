@@ -70,6 +70,11 @@ const turnRateLimits = new Map();
 const TURN_RATE_WINDOW = 60000;
 const TURN_MAX_REQUESTS = 20;
 
+const statsRateLimits = new Map();
+const STATS_RATE_WINDOW = 60000;
+const STATS_MAX_REPORTS = 60; // per IP per minute
+const MAX_REPORT_BYTES = parseInt(process.env.MAX_REPORT_BYTES || '', 10) || (5 * 1024 * 1024 * 1024 * 1024); // 5 TB
+
 function generateCoturnCredentials() {
     const turnSecret = process.env.TURN_SECRET;
     const turnDomain = process.env.TURN_DOMAIN;
@@ -142,6 +147,76 @@ app.get('/api/code/:code', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Global stats — Upstash Redis (durable) + fast in-memory read cache
+//
+// GET /api/stats  — served from cachedTotal; zero Redis reads per poll request.
+// POST /api/stats/report — receiver peers report bytes after a completed transfer.
+//   Validates, increments cachedTotal, then fires INCRBY to Upstash (no-await).
+//   Gracefully degrades to in-memory-only when UPSTASH_* env vars are absent.
+// ---------------------------------------------------------------------------
+
+const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
+const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+const STATS_KEY = 'floe:bytes_total';
+
+let cachedTotal = 0;
+
+async function upstashPost(command) {
+    if (!UPSTASH_URL || !UPSTASH_TOKEN) return null;
+    try {
+        const resp = await fetch(UPSTASH_URL, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${UPSTASH_TOKEN}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(command),
+        });
+        if (!resp.ok) return null;
+        const { result } = await resp.json();
+        return result;
+    } catch {
+        return null;
+    }
+}
+
+async function initStats() {
+    const val = await upstashPost(['GET', STATS_KEY]);
+    if (val !== null) cachedTotal = Number(val) || 0;
+}
+
+function validateReportBytes(bytes, maxBytes) {
+    return Number.isInteger(bytes) && bytes > 0 && bytes <= maxBytes;
+}
+
+app.get('/api/stats', (_req, res) => {
+    res.json({ totalBytes: cachedTotal });
+});
+
+app.post('/api/stats/report', (req, res) => {
+    const ip = req.ip;
+    const now = Date.now();
+
+    if (!statsRateLimits.has(ip)) statsRateLimits.set(ip, []);
+    const timestamps = statsRateLimits.get(ip).filter(t => now - t < STATS_RATE_WINDOW);
+    if (timestamps.length >= STATS_MAX_REPORTS) {
+        return res.status(429).json({ error: 'Too many reports' });
+    }
+    timestamps.push(now);
+    statsRateLimits.set(ip, timestamps);
+
+    const { bytes } = req.body || {};
+    if (!validateReportBytes(bytes, MAX_REPORT_BYTES)) {
+        return res.status(400).json({ error: 'Invalid byte count' });
+    }
+
+    cachedTotal += bytes;
+    upstashPost(['INCRBY', STATS_KEY, bytes]);
+
+    res.json({ totalBytes: cachedTotal });
+});
+
+// ---------------------------------------------------------------------------
 // Rate limiting (Socket.IO connections + WebSocket connections share this map)
 // ---------------------------------------------------------------------------
 
@@ -175,6 +250,11 @@ const cleanupInterval = setInterval(() => {
         const valid = timestamps.filter(t => now - t < TURN_RATE_WINDOW);
         if (valid.length === 0) turnRateLimits.delete(ip);
         else turnRateLimits.set(ip, valid);
+    }
+    for (const [ip, timestamps] of statsRateLimits.entries()) {
+        const valid = timestamps.filter(t => now - t < STATS_RATE_WINDOW);
+        if (valid.length === 0) statsRateLimits.delete(ip);
+        else statsRateLimits.set(ip, valid);
     }
     for (const [code, entry] of codeToRoom.entries()) {
         if (now > entry.expires) codeToRoom.delete(code);
@@ -447,6 +527,7 @@ function shutdown() {
 
 if (require.main === module) {
     server.listen(PORT);
+    initStats().catch(() => {}); // seed cachedTotal from Redis on startup
     process.on('SIGTERM', shutdown);
     process.on('SIGINT', shutdown);
 }
@@ -463,4 +544,6 @@ module.exports = {
     codeToRoom,
     connectionCounts,
     turnRateLimits,
+    validateReportBytes,
+    statsRateLimits,
 };

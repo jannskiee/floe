@@ -463,6 +463,17 @@ export function P2PTransfer() {
                         connection: connectionType ?? 'unknown',
                         role: 'receiver',
                     });
+                    // Report bytes to global counter — fire-and-forget
+                    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
+                    fetch(`${socketUrl}/api/stats/report`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ bytes: file.fileSize }),
+                    }).catch(() => {});
+                    // Optimistic local bump for instant footer animation
+                    window.dispatchEvent(
+                        new CustomEvent('floe:bytes-reported', { detail: { bytes: file.fileSize } })
+                    );
                 }
             },
             onWaiting: () => setStatus('File received. Waiting for next file'),
