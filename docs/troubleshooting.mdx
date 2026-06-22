@@ -88,7 +88,7 @@ Most Floe transfers just work. When something goes wrong, it is almost always on
   </Accordion>
 
   <Accordion title="I am being rate limited (429 or Rate limit exceeded)">
-    The server allows 30 connections per IP per 60 seconds (Socket.IO and WebSocket) and 20 requests per IP per 60 seconds for TURN credentials. Behind a reverse proxy, set `TRUSTED_PROXY_COUNT` to the number of proxy hops so the server reads real client IPs instead of the proxy IP. See [Configuration](/self-hosting/configuration).
+    The server allows 30 connections per IP per 60 seconds (Socket.IO and WebSocket), 20 requests per IP per 60 seconds for TURN credentials, and 60 reports per IP per 60 seconds for the global stats counter. Behind a reverse proxy, set `TRUSTED_PROXY_COUNT` to the number of proxy hops so the server reads real client IPs instead of the proxy IP. See [Configuration](/self-hosting/configuration).
   </Accordion>
 
   <Accordion title="The TURN relay is not working">

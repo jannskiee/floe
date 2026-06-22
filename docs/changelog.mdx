@@ -3,6 +3,14 @@ title: "Changelog"
 description: "Release history for Floe."
 ---
 
+<Update label="v1.7.1" description="2026-06-22">
+  **Reliable global-counter reporting for the CLI**
+
+  - Fixed CLI transfers not always being counted in the global homepage counter. The receiver's byte-count report was sent in the background and could be cut short when the sender closed the connection and the process exited, so larger transfers (several GB and up) were frequently missed and smaller ones counted only intermittently.
+  - The report now completes before the program exits, so a successful CLI transfer of any size contributes exactly once. The report still carries only the byte count (never file names or contents), still never blocks or slows the transfer, and opting out with `--no-report` or `FLOE_NO_STATS=1` is unaffected.
+  - Browser transfers were never affected by this issue.
+</Update>
+
 <Update label="v1.7.0" description="2026-06-22">
   **Global transfer counter with opt-out**
 

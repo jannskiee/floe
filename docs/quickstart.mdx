@@ -28,6 +28,10 @@ description: "Send your first file in under a minute."
 </Tip>
 
 <Note>
+  The receiver view has a **Contribute to global stats** checkbox (on by default) that adds only this transfer's byte count to Floe's public homepage counter. Uncheck it to opt out. File names and contents are never sent. See [Receiving Files](/web-app/receiving#contribute-to-global-stats).
+</Note>
+
+<Note>
   The sender must keep their browser tab open for the entire duration of the transfer.
 </Note>
 
@@ -85,7 +89,7 @@ description: "Send your first file in under a minute."
       ─────────────────────────────────────────────────
     ```
 
-    Pass `-y` to auto-accept without the prompt. Omit `-o` to save to the current directory instead.
+    Pass `-y` to auto-accept without the prompt. Omit `-o` to save to the current directory instead. Pass `--no-report` (or set `FLOE_NO_STATS=1`) to skip contributing the byte count to Floe's public counter.
   </Step>
 </Steps>
 
