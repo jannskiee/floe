@@ -34,6 +34,8 @@ The server exposes two transports. Both share the same `rooms` registry (`Map<ro
 | `GET` | `/api/turn-credentials` | Returns ICE server list. With `TURN_SECRET` set, includes coturn credentials. Without it, returns Google STUN servers only. Rate-limited to 20 requests per IP per 60 s. |
 | `POST` | `/api/code` | Registers a short code for a room ID. Body: `{ "roomId": "<uuid>" }`. Response: `{ "code": "word-word-word" }`. TTL: 10 minutes. |
 | `GET` | `/api/code/:code` | Resolves a short code to a room ID. Response: `{ "roomId": "<uuid>" }`. Returns 404 if expired or not found. |
+| `GET` | `/api/stats` | Returns the all-time global transfer counter: `{ "totalBytes": <integer> }`. Served from an in-memory cache (no Redis read per request). |
+| `POST` | `/api/stats/report` | Receiver peers report bytes after a completed transfer. Body: `{ "bytes": <positive integer> }`. Response: `{ "totalBytes": <integer> }`. Rate-limited to 60 requests per IP per 60 s; rejects values that are not positive integers or exceed `MAX_REPORT_BYTES` (default 5 TB). |
 
 ### TURN credentials response
 
@@ -109,6 +111,7 @@ All messages are JSON objects with a `type` field.
 |-------|-------|-----------|
 | Connection rate | 30 per IP per 60 s (configurable via `MAX_CONNECTIONS_PER_IP`) | Socket.IO connections and WebSocket `/ws` connections, shared |
 | TURN credential rate | 20 per IP per 60 s | `GET /api/turn-credentials` |
+| Stats report rate | 60 per IP per 60 s | `POST /api/stats/report` |
 
 Counters are tracked in memory (`Map<ip, timestamp[]>`) and cleaned every 60 seconds.
 
@@ -221,3 +224,16 @@ The four-step sequence (metadata, ack, binary chunks, end) repeats for each file
 ## Room codes
 
 Codes are three random words joined by hyphens (e.g. `olive-tiger-castle`), sampled from a 288-word corpus in `server/words.json`. On collision (extremely rare), a fourth word is appended. Codes expire 10 minutes after registration.
+
+## Global statistics counter
+
+The homepage shows a public, all-time counter of total bytes transferred across every Floe user. Because file data never reaches the server, the counter is fed out-of-band: after a transfer completes, the **receiver** reports the number of bytes it received via `POST /api/stats/report`. Only the receiver reports (the browser receiver and the CLI receiver), so each transfer is counted exactly once. The sender never reports, and the data-channel protocol is unchanged.
+
+The server keeps the running total in two places:
+
+- **In-memory cache (`cachedTotal`).** Every `GET /api/stats` is answered from this value, so homepage polling never incurs a Redis read.
+- **Upstash Redis (durable).** Each accepted report fires an atomic `INCRBY floe:bytes_total` over the Upstash REST API. On startup the server seeds `cachedTotal` from this key, so the total survives restarts and redeploys.
+
+If `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` are not configured, the counter runs in memory only and resets to 0 on restart. The endpoint never blocks a transfer: reports are fire-and-forget on the client, and a Redis write failure is swallowed rather than surfaced.
+
+Guardrails are deliberately lightweight. A per-IP rate limit (60 reports per 60 s) and a per-report cap (`MAX_REPORT_BYTES`, default 5 TB) reject abuse and implausible values, but the figure is an honest best-effort metric, not a tamper-proof audited count. The stored value is a single anonymous integer: it carries no file names, no per-transfer records, and no link to any user or IP.

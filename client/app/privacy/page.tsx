@@ -18,7 +18,7 @@ export default function PrivacyPolicy() {
                     <h1 className="text-4xl font-bold tracking-tight text-white">
                         Privacy Policy
                     </h1>
-                    <p className="text-zinc-400">Last updated: May 2026</p>
+                    <p className="text-zinc-400">Last updated: June 2026</p>
                 </div>
 
                 <div className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800 space-y-4">
@@ -40,8 +40,10 @@ export default function PrivacyPolicy() {
                         </strong>{' '}
                         In direct connections, files never touch our servers. In relay
                         connections, encrypted file data passes through our TURN server
-                        in transit but is never stored or inspected. We do not operate
-                        a database.
+                        in transit but is never stored or inspected. The only thing we
+                        keep is a single anonymous number: the running total of bytes
+                        transferred across all users, shown by the counter on our
+                        homepage.
                     </p>
                 </div>
 
@@ -75,6 +77,15 @@ export default function PrivacyPolicy() {
                                 process filenames and sizes during the signaling
                                 phase to display them to the receiver. This data
                                 is not stored permanently.
+                            </li>
+                            <li>
+                                <strong>Aggregate Transfer Total:</strong> When a
+                                transfer completes, the receiving side reports only
+                                the number of bytes it received. We add this to one
+                                shared, all-time counter of total bytes transferred,
+                                shown on our homepage. We do not store file names,
+                                file contents, individual transfer records, or any
+                                link between this number and you.
                             </li>
                             <li>
                                 <strong>IP Addresses:</strong> Like all web

@@ -77,7 +77,13 @@ description: "Answers to the most common questions about Floe."
   </Accordion>
 
   <Accordion title="Does Floe collect any data?">
-    The signaling server tracks room IDs and connection metadata only for the duration of the session. No file content, file names, or transfer records are stored. Room state is discarded once both peers disconnect. See [Security and Privacy](/security-privacy) for details.
+    The signaling server tracks room IDs and connection metadata only for the duration of the session. No file content, file names, or transfer records are stored. Room state is discarded once both peers disconnect.
+
+    The one persistent value Floe keeps is a single anonymous total of bytes transferred across all users, shown by the counter on the homepage. It is a plain running number with no file names, no per-transfer records, and no link to you. See [Security and Privacy](/security-privacy) for details.
+  </Accordion>
+
+  <Accordion title="What is the counter on the homepage?">
+    It is a public, all-time total of how many bytes Floe has helped move across all users. When a transfer finishes, the receiving side reports just the size (never the file name or contents), and that size is added to one shared total. The figure is an honest best-effort metric, not an audited count, and reporting it never slows or blocks your transfer.
   </Accordion>
 
   <Accordion title="Is Floe open source?">
