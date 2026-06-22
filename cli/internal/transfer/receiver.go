@@ -3,8 +3,10 @@
 package transfer
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,12 +30,30 @@ type FileInfo struct {
 	Ver        string // sender's human release string, e.g. "v1.5.5"
 }
 
+// reportBytesToServer posts the received byte count to the server's stats
+// endpoint after a successful transfer. Fire-and-forget: errors are silently
+// ignored so a network hiccup never affects the transfer outcome.
+func reportBytesToServer(serverURL string, byteCount int64) {
+	if serverURL == "" {
+		return
+	}
+	payload, _ := json.Marshal(map[string]int64{"bytes": byteCount})
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Post(serverURL+"/api/stats/report", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return
+	}
+	resp.Body.Close()
+}
+
 // ReceiveFiles handles the full receiving side of the Floe protocol.
 // It blocks until all files are received. Files are written to outputDir.
 // If autoAccept is false, the user is prompted before receiving begins.
 // localVer is the human release string (e.g. "v1.5.5") embedded in the ack
 // for the optional peer-version note; pass "" for dev builds or tests.
-func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, localVer string) error {
+// serverURL is the signaling server base URL used to report transfer stats;
+// pass "" to skip reporting (e.g. in tests).
+func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, localVer string, serverURL string) error {
 	// msgCh collects ALL incoming data channel messages.
 	// We use a channel so the OnMessage callback (goroutine) feeds a sequential loop.
 	msgCh := make(chan webrtc.DataChannelMessage, 256)
@@ -227,6 +247,9 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, loc
 						// classify it and ignore it; CLI senders consume it explicitly.
 						receivedMsg, _ := json.Marshal(map[string]string{"type": "received"})
 						dc.Send([]byte(receivedMsg))
+
+						// Report total bytes to the global stats counter.
+						go reportBytesToServer(serverURL, totalReceived)
 
 						// Wait for the sender to close the channel (or a short grace
 						// period) before returning. This keeps our SCTP/DTLS alive

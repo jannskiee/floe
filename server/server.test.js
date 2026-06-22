@@ -17,6 +17,8 @@ const {
     rooms,
     codeToRoom,
     connectionCounts,
+    validateReportBytes,
+    statsRateLimits,
 } = require('./server');
 
 // ---------------------------------------------------------------------------
@@ -274,6 +276,56 @@ describe('handleDisconnect', () => {
         const p = makePeer('lone');
         handleDisconnect(p); // should not throw
         assert.equal(p.msgs.length, 0);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Stats reporting — validateReportBytes
+// ---------------------------------------------------------------------------
+
+describe('validateReportBytes', () => {
+    const MAX = 5 * 1024 ** 4; // 5 TB
+
+    it('accepts a valid byte count', () => {
+        assert.equal(validateReportBytes(1024, MAX), true);
+    });
+
+    it('accepts exactly the maximum', () => {
+        assert.equal(validateReportBytes(MAX, MAX), true);
+    });
+
+    it('rejects zero', () => {
+        assert.equal(validateReportBytes(0, MAX), false);
+    });
+
+    it('rejects a negative number', () => {
+        assert.equal(validateReportBytes(-1, MAX), false);
+    });
+
+    it('rejects a float', () => {
+        assert.equal(validateReportBytes(1.5, MAX), false);
+    });
+
+    it('rejects a value above the cap', () => {
+        assert.equal(validateReportBytes(MAX + 1, MAX), false);
+    });
+
+    it('rejects non-numeric input', () => {
+        assert.equal(validateReportBytes('1000', MAX), false);
+        assert.equal(validateReportBytes(null, MAX), false);
+        assert.equal(validateReportBytes(undefined, MAX), false);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Stats rate limiter cleanup
+// ---------------------------------------------------------------------------
+
+describe('statsRateLimits', () => {
+    beforeEach(() => { statsRateLimits.clear(); });
+
+    it('is exported and starts empty', () => {
+        assert.equal(statsRateLimits.size, 0);
     });
 });
 

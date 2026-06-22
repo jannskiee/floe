@@ -298,7 +298,7 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	fmt.Println("  Connected")
 
 	// 7. Receive files
-	return transfer.ReceiveFiles(dc, absOutput, flagAutoAccept, version)
+	return transfer.ReceiveFiles(dc, absOutput, flagAutoAccept, version, flagServer)
 }
 
 // ── floe version ─────────────────────────────────────────────────────────────
