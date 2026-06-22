@@ -248,9 +248,6 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, loc
 						receivedMsg, _ := json.Marshal(map[string]string{"type": "received"})
 						dc.Send([]byte(receivedMsg))
 
-						// Report total bytes to the global stats counter.
-						go reportBytesToServer(serverURL, totalReceived)
-
 						// Wait for the sender to close the channel (or a short grace
 						// period) before returning. This keeps our SCTP/DTLS alive
 						// long enough for the "received" SACK to reach the sender —
@@ -259,6 +256,12 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, loc
 						case <-done:
 						case <-time.After(5 * time.Second):
 						}
+
+						// Report total bytes to the global stats counter. Called
+						// synchronously AFTER the grace wait so the program does not
+						// exit before the HTTP POST completes. reportBytesToServer
+						// has its own 5 s timeout and is fire-and-forget on error.
+						reportBytesToServer(serverURL, totalReceived)
 						return nil
 					}
 				}
