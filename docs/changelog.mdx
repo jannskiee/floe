@@ -4,10 +4,12 @@ description: "Release history for Floe."
 ---
 
 <Update label="v1.7.0" description="2026-06-22">
-  **Global transfer counter**
+  **Global transfer counter with opt-out**
 
   - Added a public, all-time counter of total bytes transferred across every Floe user, shown on the homepage with a rolling-number animation. The number rolls up from zero on each visit and ticks higher as transfers complete worldwide.
-  - The counter is fed without ever touching your files. After a transfer finishes, the receiving side reports only the byte count (never file names or contents). The stored value is a single anonymous total, not linked to any user, transfer, or IP address. See [Security and Privacy](/security-privacy) for the full data-handling note.
+  - The counter is fed without ever touching your files. After a transfer finishes, only the receiving side reports the byte count (never file names or contents). The sender never reports. The stored value is a single anonymous total, not linked to any user, transfer, or IP address. See [Security and Privacy](/security-privacy) for the full data-handling note.
+  - The CLI receiver now contributes to the global counter. The total is viewable only in the browser; the CLI never fetches or displays it.
+  - Both the browser receiver and the CLI receiver support opting out. Browser: uncheck "Contribute to global stats" on the receiver view (saved to your browser). CLI: pass `--no-report` to `floe receive`, or set `FLOE_NO_STATS=1` in your environment for a permanent opt-out. The transfer is unaffected either way.
   - Self-hosters can opt in by pointing the server at a free [Upstash Redis](https://upstash.com) database (`UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`). Without it, the counter still works but resets on restart. See [Configuration](/self-hosting/configuration).
 </Update>
 

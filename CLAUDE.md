@@ -79,11 +79,17 @@ The data-channel transfer protocol carries its own version, independent of the r
 `GET /api/turn-credentials` issues short-lived (24h) Coturn HMAC-SHA1 credentials. Called by both client and CLI before connecting. If `TURN_SECRET` is unset, only STUN is returned.
 
 ### Global Stats Counter
-A public, all-time counter of total bytes transferred across every Floe user, shown on the homepage (`client/components/GlobalStats.tsx`) with a NumberFlow odometer animation. Because Floe is P2P and file bytes never reach the server, the **receiver** peer reports the byte count out-of-band over HTTP after a completed transfer. Only the receiver reports (browser receiver in `P2PTransfer.tsx`, CLI receiver in `cli/internal/transfer/receiver.go`), so each transfer is counted exactly once. The data-channel protocol is unchanged, so no `ProtocolVersion` bump is needed.
+A public, all-time counter of total bytes transferred across every Floe user, shown on the homepage (`client/components/GlobalStats.tsx`) with a NumberFlow odometer animation. Because Floe is P2P and file bytes never reach the server, the **receiver** peer reports the byte count out-of-band over HTTP after a completed transfer. Only the receiver reports (browser receiver in `P2PTransfer.tsx`, CLI receiver in `cli/internal/transfer/receiver.go`), so each transfer is counted exactly once. The sender never reports. The data-channel protocol is unchanged, so no `ProtocolVersion` bump is needed.
+
+The global total is viewable only in the browser (the `GlobalStats` component on the homepage). The CLI receiver contributes to the counter but never fetches or displays it.
 
 - `GET /api/stats` returns `{ totalBytes }` straight from an in-memory `cachedTotal`, so homepage polling (every 10s) never touches Redis.
 - `POST /api/stats/report` body `{ bytes }`: validates a positive integer `<= MAX_REPORT_BYTES` (`validateReportBytes`), rate-limits per IP (`statsRateLimits`, 60/min), increments `cachedTotal`, then fires `INCRBY floe:bytes_total` to Upstash without awaiting (a Redis hiccup never fails the response).
 - Durability is Upstash Redis over its REST API via native `fetch` (no SDK). `initStats()` seeds `cachedTotal` from Redis on startup. If `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` are unset, the counter degrades gracefully to in-memory only (resets to 0 on restart). This is a best-effort vanity metric with lightweight guardrails, not a tamper-proof figure.
+
+**Opt-out:** Both the browser and the CLI receiver support opting out of reporting.
+- Browser: a "Contribute to global stats" toggle on the receiver view (persisted in `localStorage['floe:report-stats']`). When unchecked, neither the `POST /api/stats/report` call nor the optimistic `floe:bytes-reported` event fires.
+- CLI: pass `--no-report` to `floe receive`, or set `FLOE_NO_STATS=1` in the environment. Both gate the report by passing an empty `statsURL` to `ReceiveFiles`, which hits the existing `if serverURL == "" { return }` guard in `reportBytesToServer` (`receiver.go:36-39`). No change to `ReceiveFiles` signature or `receiver.go` logic.
 
 ### Rate Limiting
 Three independent per-IP limiters, each over a 60s window, tracked in plain `Map`s and cleaned every 60s. Connection limiter: 30 per IP (configurable via `MAX_CONNECTIONS_PER_IP`), shared across Socket.IO and WebSocket connections (`checkRateLimit`). TURN endpoint: a separate 20 requests per IP for `GET /api/turn-credentials` (`turnRateLimits`). Stats endpoint: a separate 60 reports per IP for `POST /api/stats/report` (`statsRateLimits`).

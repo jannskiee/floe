@@ -84,6 +84,26 @@ description: "Answers to the most common questions about Floe."
 
   <Accordion title="What is the counter on the homepage?">
     It is a public, all-time total of how many bytes Floe has helped move across all users. When a transfer finishes, the receiving side reports just the size (never the file name or contents), and that size is added to one shared total. The figure is an honest best-effort metric, not an audited count, and reporting it never slows or blocks your transfer.
+
+    The counter is viewable only in the browser. The CLI receiver contributes to it but never fetches or displays the total. The sender (browser or CLI) never reports.
+  </Accordion>
+
+  <Accordion title="Can I opt out of the transfer counter?">
+    Yes. The byte-count report is on by default but can be turned off on the receiving side.
+
+    **Browser:** Uncheck "Contribute to global stats" on the receiver view before the transfer completes. The preference is saved in your browser and applies to all future transfers from that device.
+
+    **CLI - single transfer:**
+    ```bash
+    floe receive olive-tiger-castle --no-report
+    ```
+
+    **CLI - permanent (add to your shell profile):**
+    ```bash
+    export FLOE_NO_STATS=1
+    ```
+
+    When opted out, no request is sent to Floe's server and the global counter is not incremented for that transfer. The transfer itself is unaffected.
   </Accordion>
 
   <Accordion title="Is Floe open source?">

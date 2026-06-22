@@ -21,6 +21,26 @@ Specific to the `receive` command.
 |------|-------|---------|-------------|
 | `--output <dir>` | `-o` | `.` | Directory to save received files. Created automatically if it does not exist. |
 | `--yes` | `-y` | `false` | Accept incoming files without the confirmation prompt. |
+| `--no-report` | | `false` | Do not report the transferred byte count to Floe's public global counter. See [Opting out of the global counter](#opting-out-of-the-global-counter) below. |
+
+## Opting out of the global counter
+
+After a successful transfer, the **receiver** sends only the total byte count to Floe's signaling server to power the public "transferred globally" counter on the homepage. No file names, contents, or identity are included, and reporting is always fire-and-forget (it never blocks or slows a transfer). The **sender** never reports.
+
+To opt out for a single transfer, pass `--no-report`:
+
+```bash
+floe receive olive-tiger-castle --no-report
+```
+
+To opt out permanently, set `FLOE_NO_STATS=1` in your environment (for example in your shell profile):
+
+```bash
+export FLOE_NO_STATS=1
+floe receive olive-tiger-castle
+```
+
+When opted out, no request is sent to the server and the global counter is not incremented for that transfer. The transfer itself is unaffected.
 
 ## Examples
 

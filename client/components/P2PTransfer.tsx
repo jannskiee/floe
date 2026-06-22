@@ -107,6 +107,8 @@ export function P2PTransfer() {
     const [showQr, setShowQr] = useState(false);
     const [showInfoTooltip, setShowInfoTooltip] = useState(false);
     const [relayEnabled, setRelayEnabled] = useState(true);
+    const [reportStatsEnabled, setReportStatsEnabled] = useState(true);
+    const reportStatsEnabledRef = useRef(true);
 
     const RELAY_SIZE_LIMIT = 2 * 1024 * 1024 * 1024; // 2 GB
     const totalBytes = files.reduce((sum, f) => sum + f.file.size, 0);
@@ -164,6 +166,25 @@ export function P2PTransfer() {
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setIsSender(!new URLSearchParams(window.location.search).has('room'));
     }, []);
+
+    useEffect(() => {
+        try {
+            const stored = localStorage.getItem('floe:report-stats');
+            if (stored !== null) {
+                const val = stored !== 'false';
+                // eslint-disable-next-line react-hooks/set-state-in-effect
+                setReportStatsEnabled(val);
+                reportStatsEnabledRef.current = val;
+            }
+        } catch { }
+    }, []);
+
+    useEffect(() => {
+        reportStatsEnabledRef.current = reportStatsEnabled;
+        try {
+            localStorage.setItem('floe:report-stats', String(reportStatsEnabled));
+        } catch { }
+    }, [reportStatsEnabled]);
 
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -470,18 +491,20 @@ export function P2PTransfer() {
                 });
                 // Report the transfer's total bytes to the global counter (fire-and-forget).
                 // keepalive lets the report survive if the tab closes right after the
-                // last file lands.
-                const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
-                fetch(`${socketUrl}/api/stats/report`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ bytes: totalBytes }),
-                    keepalive: true,
-                }).catch(() => {});
-                // Optimistic local bump for an instant, single footer animation.
-                window.dispatchEvent(
-                    new CustomEvent('floe:bytes-reported', { detail: { bytes: totalBytes } })
-                );
+                // last file lands. Skipped when the user has opted out.
+                if (reportStatsEnabledRef.current) {
+                    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
+                    fetch(`${socketUrl}/api/stats/report`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ bytes: totalBytes }),
+                        keepalive: true,
+                    }).catch(() => {});
+                    // Optimistic local bump for an instant, single footer animation.
+                    window.dispatchEvent(
+                        new CustomEvent('floe:bytes-reported', { detail: { bytes: totalBytes } })
+                    );
+                }
             },
             onWaiting: () => setStatus('File received. Waiting for next file'),
             onError: (msg) => {
@@ -1335,6 +1358,47 @@ export function P2PTransfer() {
 
                             {!isSender && (
                                 <div className="space-y-3 pt-2">
+                                    {/* Contribute to global stats toggle — visible while waiting, before any file arrives */}
+                                    {receivedFiles.length === 0 && (
+                                        <div className="mb-1 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+                                            <label className="flex items-start gap-3 cursor-pointer group/report select-none">
+                                                <div className="relative flex-shrink-0 mt-0.5">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={reportStatsEnabled}
+                                                        onChange={(e) => setReportStatsEnabled(e.target.checked)}
+                                                        className="sr-only"
+                                                    />
+                                                    <div className={`h-4 w-4 rounded-sm border transition-all duration-150 flex items-center justify-center ${reportStatsEnabled
+                                                            ? 'bg-white border-white'
+                                                            : 'bg-transparent border-zinc-600 group-hover/report:border-zinc-400'
+                                                        }`}>
+                                                        {reportStatsEnabled && (
+                                                            <svg viewBox="0 0 10 8" fill="none" className="h-2.5 w-2.5">
+                                                                <path d="M1 4l2.5 2.5L9 1" stroke="#09090b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                                                            </svg>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-1.5">
+                                                    <p className="text-sm font-medium text-zinc-200 leading-none">Contribute to global stats</p>
+                                                    <p className="text-xs text-zinc-500 leading-relaxed">
+                                                        Adds only this transfer&apos;s byte count to Floe&apos;s public total. File names and contents are never sent.{' '}
+                                                        <a
+                                                            href="/privacy"
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            className="text-zinc-400 hover:text-white underline underline-offset-2 transition-colors"
+                                                        >
+                                                            Learn more
+                                                        </a>
+                                                    </p>
+                                                </div>
+                                            </label>
+                                        </div>
+                                    )}
+
                                     {receivedFiles.length === 0 &&
                                         !status.includes('Receiving') && (
                                             <div className="text-center text-sm text-zinc-500 py-8">

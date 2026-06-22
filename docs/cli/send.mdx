@@ -80,3 +80,4 @@ See [Flags Reference](/cli/flags) for `--server`, `--no-relay`, and `--web`.
 - Press `Ctrl+C` at any time to cancel the transfer and close the session.
 - If the short code cannot be registered (for example, the signaling server is unreachable), Floe prints a warning and continues with the link only.
 - Files are streamed in the order they are listed. For multiple files, progress is shown per file.
+- The sender never reports to the global transfer counter. Only the receiver does. To opt out on the receiving side, the receiver uses `--no-report` or sets `FLOE_NO_STATS=1`.

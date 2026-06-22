@@ -27,13 +27,18 @@ Once the WebRTC data channel is established, the signaling server plays no furth
 
 ## Aggregate statistics
 
-Floe's homepage shows a public, all-time counter of total bytes transferred across all users. To feed it, the receiving side reports the number of bytes it received after a transfer completes.
+Floe's homepage shows a public, all-time counter of total bytes transferred across all users. To feed it, the receiving side reports the number of bytes it received after a transfer completes. The sender never reports. The global total is shown only in the browser; the CLI receiver contributes to it but never fetches or displays it.
 
 What is recorded: a single cumulative integer (total bytes, the sum across everyone). Nothing else.
 
 What is not recorded: file names, file contents, per-transfer records, who sent or received, or any link to your identity or IP address. The reported figure is just a size, added to one global running total.
 
 The counter is an honest best-effort metric protected by lightweight guardrails (a per-IP rate limit and a per-report size cap). It is not a tamper-proof audited figure, and reporting never blocks or slows a transfer. Self-hosted instances can leave this disabled, in which case nothing is recorded at all.
+
+**Opting out:** Both the browser receiver and the CLI receiver support opting out.
+
+- Browser: uncheck "Contribute to global stats" on the receiver view before the transfer completes. The preference is saved in your browser and applies to all future transfers from that device.
+- CLI: pass `--no-report` to `floe receive` for a single transfer, or set `FLOE_NO_STATS=1` in your environment to opt out permanently. When opted out, no request is made to the server and the counter is not incremented.
 
 ## What the TURN relay sees
 

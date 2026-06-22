@@ -229,6 +229,8 @@ Codes are three random words joined by hyphens (e.g. `olive-tiger-castle`), samp
 
 The homepage shows a public, all-time counter of total bytes transferred across every Floe user. Because file data never reaches the server, the counter is fed out-of-band: after a transfer completes, the **receiver** reports the number of bytes it received via `POST /api/stats/report`. Only the receiver reports (the browser receiver and the CLI receiver), so each transfer is counted exactly once. The sender never reports, and the data-channel protocol is unchanged.
 
+The global total is **viewable only in the browser** (`GlobalStats.tsx` on the homepage, polling `GET /api/stats` every 10 seconds). The CLI receiver contributes to the counter but never fetches or displays it.
+
 The server keeps the running total in two places:
 
 - **In-memory cache (`cachedTotal`).** Every `GET /api/stats` is answered from this value, so homepage polling never incurs a Redis read.
@@ -237,3 +239,8 @@ The server keeps the running total in two places:
 If `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` are not configured, the counter runs in memory only and resets to 0 on restart. The endpoint never blocks a transfer: reports are fire-and-forget on the client, and a Redis write failure is swallowed rather than surfaced.
 
 Guardrails are deliberately lightweight. A per-IP rate limit (60 reports per 60 s) and a per-report cap (`MAX_REPORT_BYTES`, default 5 TB) reject abuse and implausible values, but the figure is an honest best-effort metric, not a tamper-proof audited count. The stored value is a single anonymous integer: it carries no file names, no per-transfer records, and no link to any user or IP.
+
+**Opt-out:** Both clients support opting out of the byte-count report. The opt-out is enforced on the receiver side before the HTTP request is made; the server has no role in it.
+
+- Browser: a "Contribute to global stats" toggle on the receiver view, persisted in `localStorage['floe:report-stats']`. When unchecked, the `fetch` to `/api/stats/report` and the optimistic `floe:bytes-reported` event are both skipped.
+- CLI: `--no-report` flag on `floe receive`, or `FLOE_NO_STATS=1` environment variable. Both gate the report by passing an empty `statsURL` into `ReceiveFiles`, which hits the existing `if serverURL == "" { return }` guard in `reportBytesToServer`.
