@@ -25,6 +25,19 @@ Once the page opens, Floe negotiates the WebRTC connection. A connection indicat
 
 The transfer begins automatically once the connection is established. You do not need to click anything.
 
+## Contribute to global stats
+
+While you wait for the transfer, the receiver view shows a **Contribute to global stats** checkbox. It is on by default.
+
+Floe's homepage has a public, all-time counter of total bytes transferred across every user. When a transfer finishes, the receiving side adds only this transfer's byte count to that shared total. File names, file contents, and identifying information are never sent, and the report never slows or blocks the transfer.
+
+| Setting | Behavior |
+|---------|----------|
+| On (default) | After the transfer completes, only the byte count is added to Floe's public counter. |
+| Off | Nothing is reported. No request is made to the server. |
+
+Your choice is saved in your browser and applies to all future transfers from that device. The sender never reports, and the counter is viewable only on the homepage. See [Security and Privacy](/security-privacy#aggregate-statistics) for the full data-handling note.
+
 ## Download options
 
 When all files arrive, download options appear:
