@@ -39,29 +39,23 @@ export function GlobalStats() {
         };
     }, []);
 
+    // Render at 0 until loaded so NumberFlow rolls up from 0 on every refresh
+    // (it only animates on value *changes* after mount, not on its first paint).
     const { value, unit } = splitBytes(totalBytes ?? 0);
 
     return (
-        <div className="mt-6 mb-2 w-full max-w-sm mx-auto">
-            <div className="flex flex-col items-center gap-2 px-6 py-4 rounded-2xl border border-white/[0.06] bg-white/[0.02] backdrop-blur-sm">
-                <p className="text-[10px] text-zinc-600 uppercase tracking-[0.2em] font-medium select-none">
-                    Transferred globally
-                </p>
-                {totalBytes === null ? (
-                    <div className="h-8 w-40 rounded-lg bg-white/5 animate-pulse" />
-                ) : (
-                    <NumberFlow
-                        value={value}
-                        format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }}
-                        suffix={' ' + unit}
-                        plugins={[continuous]}
-                        className="text-[1.75rem] leading-none font-mono font-semibold text-white tracking-tight tabular-nums"
-                    />
-                )}
-                <p className="text-[10px] text-zinc-700 select-none">
-                    across all users, all time
-                </p>
-            </div>
+        <div className="mt-6 mb-2 flex items-center justify-center gap-2 text-sm select-none">
+            <NumberFlow
+                value={value}
+                format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }}
+                suffix={' ' + unit}
+                plugins={[continuous]}
+                spinTiming={{ duration: 900, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }}
+                transformTiming={{ duration: 750, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }}
+                opacityTiming={{ duration: 350, easing: 'ease-out' }}
+                className="font-mono font-medium text-zinc-300 tabular-nums"
+            />
+            <span className="text-zinc-600">transferred globally</span>
         </div>
     );
 }
