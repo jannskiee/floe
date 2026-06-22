@@ -18,7 +18,7 @@ All settings live in the `.env` file you copied from `.env.docker.example`.
 | `TURN_SECRET` | server | No | _(none)_ | Shared HMAC secret for coturn credentials. If empty, the server returns STUN-only and no TURN is offered. Must match coturn's `static-auth-secret`. |
 | `TURN_DOMAIN` | server | No | _(none)_ | Public hostname of your TURN server (e.g. `turn.your-domain.com`). Must match coturn's `realm`. |
 | `UPSTASH_REDIS_REST_URL` | server | No | _(none)_ | REST URL of an [Upstash Redis](https://upstash.com) database, used to durably persist the global transfer counter shown on the homepage. If empty, the counter runs in memory only and resets to 0 on every restart. |
-| `UPSTASH_REDIS_REST_TOKEN` | server | No | _(none)_ | REST token that pairs with `UPSTASH_REDIS_REST_URL`. Both must be set together for durable stats. |
+| `UPSTASH_REDIS_REST_TOKEN` | server | No | _(none)_ | REST token that pairs with `UPSTASH_REDIS_REST_URL`. Both must be set together for durable stats. Use the **read+write** token (the default one in the Upstash console), not the read-only token. The server needs write access to increment the counter; with a read-only token, writes are silently rejected and the total never persists. |
 | `MAX_REPORT_BYTES` | server | No | `5497558138880` (5 TB) | Maximum bytes accepted in a single `POST /api/stats/report` request. Rejects implausibly large single-transfer reports. |
 
 ## Minimal local configuration
