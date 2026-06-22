@@ -5,7 +5,7 @@ description: "How Floe brokers the initial connection between two peers."
 
 When you create a transfer in Floe, a unique room is created on the signaling server. The sender shares a code or link. When the recipient joins, the two devices introduce themselves through the server and exchange the information they need to connect directly. Once that handshake is complete, the server steps aside.
 
-The signaling server never touches file data, never stores anything about your transfer, and plays no part once the WebRTC connection is established.
+The signaling server never touches file data, never stores your files or any record of what you send, and plays no part once the WebRTC connection is established. The only thing it keeps is a single anonymous running total of bytes transferred, used for the public counter on the homepage (see below).
 
 ## Connection lifecycle
 
@@ -22,11 +22,13 @@ The signaling server never touches file data, never stores anything about your t
 - Relays WebRTC negotiation messages: the initial offer, the answer, and ICE candidates.
 - Issues short-lived TURN credentials when a TURN server is configured.
 - Registers short human-readable codes (e.g. `olive-tiger-castle`) that map to room IDs.
+- Adds the size of each completed transfer to one anonymous global byte total, for the public homepage counter.
 
 ## What the signaling server never does
 
 - Handle file data of any kind.
-- Store files, transfer content, or logs of what you send or receive.
+- Store files, file names, transfer content, or logs of what you send or receive.
+- Link the byte total to you. The counter is a single shared number with no per-user or per-transfer records.
 - Persist room or peer information after the session ends.
 
 <Accordion title="Technical details">
@@ -44,7 +46,9 @@ The signaling server never touches file data, never stores anything about your t
 
   **TURN credentials:** Issued via `GET /api/turn-credentials`. Credentials use HMAC-SHA1 with a 24-hour expiry. If `TURN_SECRET` is not set, the endpoint returns STUN servers only.
 
-  **Rate limiting:** 30 connections per IP per 60 seconds for Socket.IO and WebSocket; 20 requests per IP per 60 seconds for the TURN credential endpoint.
+  **Rate limiting:** 30 connections per IP per 60 seconds for Socket.IO and WebSocket; 20 requests per IP per 60 seconds for the TURN credential endpoint; 60 reports per IP per 60 seconds for the stats endpoint.
+
+  **Global stats counter:** After a transfer completes, the receiver sends `POST /api/stats/report` with just the byte count. The server keeps a single anonymous running total (cached in memory, optionally persisted to Upstash Redis) and serves it from `GET /api/stats` for the homepage counter. No file names, contents, or per-transfer records are stored. See the [architecture reference](/reference/architecture#global-statistics-counter) for details.
 
   **Data-channel transfer protocol:** Once the WebRTC data channel opens, the sender runs this sequence for each file:
   1. Sends a JSON `metadata` message with the filename, size in bytes, and the file's index and total count in the batch.

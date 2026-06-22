@@ -16,13 +16,24 @@ It:
 - Relays the WebRTC offer, answer, and ICE candidates that the two devices exchange to establish a connection.
 - Issues short-lived TURN credentials when a TURN server is configured.
 - Registers short codes (e.g. `olive-tiger-castle`) that map to room IDs with a 10-minute TTL.
+- Keeps a single anonymous running total of bytes transferred, for the public counter on the homepage (see [Aggregate statistics](#aggregate-statistics) below).
 
 It never:
 - Receives, stores, or inspects file data.
-- Persist room or peer information after the session ends.
-- Log what you transfer or to whom.
+- Persists room or peer information after the session ends.
+- Logs what you transfer, your file names, or to whom.
 
 Once the WebRTC data channel is established, the signaling server plays no further part.
+
+## Aggregate statistics
+
+Floe's homepage shows a public, all-time counter of total bytes transferred across all users. To feed it, the receiving side reports the number of bytes it received after a transfer completes.
+
+What is recorded: a single cumulative integer (total bytes, the sum across everyone). Nothing else.
+
+What is not recorded: file names, file contents, per-transfer records, who sent or received, or any link to your identity or IP address. The reported figure is just a size, added to one global running total.
+
+The counter is an honest best-effort metric protected by lightweight guardrails (a per-IP rate limit and a per-report size cap). It is not a tamper-proof audited figure, and reporting never blocks or slows a transfer. Self-hosted instances can leave this disabled, in which case nothing is recorded at all.
 
 ## What the TURN relay sees
 

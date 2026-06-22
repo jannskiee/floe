@@ -104,6 +104,9 @@ This is aimed at **self-hosting** (running your own instance) rather than active
 | `MAX_CONNECTIONS_PER_IP` | No | Connection rate limit ceiling per IP per 60 seconds (default: `30`). Raise in staging or test environments. |
 | `TURN_SECRET` | No | Shared secret for coturn HMAC credentials. Omit to use STUN-only (direct connections). |
 | `TURN_DOMAIN` | No | Your TURN relay server domain. |
+| `UPSTASH_REDIS_REST_URL` | No | Upstash Redis REST URL for the durable global transfer counter. Omit to run the counter in memory only (resets on restart). |
+| `UPSTASH_REDIS_REST_TOKEN` | No | Upstash Redis REST token, paired with the URL above. |
+| `MAX_REPORT_BYTES` | No | Max bytes accepted per `/api/stats/report` call (default: 5 TB). |
 
 > **Note:** TURN is optional. Without it, only direct connections work. This is fine for local development and most home networks.
 

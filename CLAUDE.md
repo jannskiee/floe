@@ -46,8 +46,11 @@ The CLI uses GoReleaser for cross-platform distribution; version is injected via
 ```
 CLIENT_URL=http://localhost:3000
 PORT=3001
-TURN_SECRET=       # optional Coturn HMAC secret
-TURN_DOMAIN=       # optional TURN server hostname
+TURN_SECRET=                 # optional Coturn HMAC secret
+TURN_DOMAIN=                 # optional TURN server hostname
+UPSTASH_REDIS_REST_URL=      # optional, durable global stats counter
+UPSTASH_REDIS_REST_TOKEN=    # optional, pairs with the URL above
+MAX_REPORT_BYTES=            # optional, per-report cap (default 5 TB)
 ```
 
 **Client** - copy `client/.env.example` to `client/.env.local`:
@@ -75,8 +78,15 @@ The data-channel transfer protocol carries its own version, independent of the r
 ### TURN Credentials
 `GET /api/turn-credentials` issues short-lived (24h) Coturn HMAC-SHA1 credentials. Called by both client and CLI before connecting. If `TURN_SECRET` is unset, only STUN is returned.
 
+### Global Stats Counter
+A public, all-time counter of total bytes transferred across every Floe user, shown on the homepage (`client/components/GlobalStats.tsx`) with a NumberFlow odometer animation. Because Floe is P2P and file bytes never reach the server, the **receiver** peer reports the byte count out-of-band over HTTP after a completed transfer. Only the receiver reports (browser receiver in `P2PTransfer.tsx`, CLI receiver in `cli/internal/transfer/receiver.go`), so each transfer is counted exactly once. The data-channel protocol is unchanged, so no `ProtocolVersion` bump is needed.
+
+- `GET /api/stats` returns `{ totalBytes }` straight from an in-memory `cachedTotal`, so homepage polling (every 10s) never touches Redis.
+- `POST /api/stats/report` body `{ bytes }`: validates a positive integer `<= MAX_REPORT_BYTES` (`validateReportBytes`), rate-limits per IP (`statsRateLimits`, 60/min), increments `cachedTotal`, then fires `INCRBY floe:bytes_total` to Upstash without awaiting (a Redis hiccup never fails the response).
+- Durability is Upstash Redis over its REST API via native `fetch` (no SDK). `initStats()` seeds `cachedTotal` from Redis on startup. If `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` are unset, the counter degrades gracefully to in-memory only (resets to 0 on restart). This is a best-effort vanity metric with lightweight guardrails, not a tamper-proof figure.
+
 ### Rate Limiting
-Two independent per-IP limiters, each over a 60s window, tracked in plain `Map`s and cleaned every 60s. Connection limiter: 30 per IP, shared across Socket.IO and WebSocket connections (`checkRateLimit`). TURN endpoint: a separate 20 requests per IP for `GET /api/turn-credentials` (`turnRateLimits`).
+Three independent per-IP limiters, each over a 60s window, tracked in plain `Map`s and cleaned every 60s. Connection limiter: 30 per IP (configurable via `MAX_CONNECTIONS_PER_IP`), shared across Socket.IO and WebSocket connections (`checkRateLimit`). TURN endpoint: a separate 20 requests per IP for `GET /api/turn-credentials` (`turnRateLimits`). Stats endpoint: a separate 60 reports per IP for `POST /api/stats/report` (`statsRateLimits`).
 
 ### React Strict Mode is intentionally disabled
 `next.config.mjs` sets `reactStrictMode: false`. Strict Mode's double-mount breaks Socket.IO connections and `simple-peer` instances. All socket/peer logic uses refs and cleanup functions to handle component lifecycle correctly.
