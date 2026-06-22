@@ -48,7 +48,7 @@ The signaling server never touches file data, never stores your files or any rec
 
   **Rate limiting:** 30 connections per IP per 60 seconds for Socket.IO and WebSocket; 20 requests per IP per 60 seconds for the TURN credential endpoint; 60 reports per IP per 60 seconds for the stats endpoint.
 
-  **Global stats counter:** After a transfer completes, the receiver sends `POST /api/stats/report` with just the byte count. The server keeps a single anonymous running total (cached in memory, optionally persisted to Upstash Redis) and serves it from `GET /api/stats` for the homepage counter. No file names, contents, or per-transfer records are stored. See the [architecture reference](/reference/architecture#global-statistics-counter) for details.
+  **Global stats counter:** After a transfer completes, the receiver sends `POST /api/stats/report` with just the byte count. The sender never reports. The server keeps a single anonymous running total (cached in memory, optionally persisted to Upstash Redis) and serves it from `GET /api/stats` for the homepage counter. No file names, contents, or per-transfer records are stored. The total is viewable only in the browser; the CLI receiver contributes but never displays it. Both the browser receiver and CLI receiver can opt out (browser: "Contribute to global stats" toggle; CLI: `--no-report` flag or `FLOE_NO_STATS=1`). See the [architecture reference](/reference/architecture#global-statistics-counter) for details.
 
   **Data-channel transfer protocol:** Once the WebRTC data channel opens, the sender runs this sequence for each file:
   1. Sends a JSON `metadata` message with the filename, size in bytes, and the file's index and total count in the batch.

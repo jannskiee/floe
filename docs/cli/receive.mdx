@@ -83,8 +83,9 @@ Pass `-y` to skip this prompt and accept automatically.
 |------|-------|---------|-------------|
 | `--output` | `-o` | `.` (current directory) | Directory to save received files. Created automatically if it does not exist. |
 | `--yes` | `-y` | `false` | Accept incoming files without the confirmation prompt. |
+| `--no-report` | | `false` | Do not report the transferred byte count to Floe's public global counter. Set `FLOE_NO_STATS=1` to opt out permanently. |
 
-See [Flags Reference](/cli/flags) for global flags (`--server`, `--no-relay`).
+See [Flags Reference](/cli/flags) for global flags (`--server`, `--no-relay`) and full opt-out documentation.
 
 ## Notes
 
@@ -92,3 +93,4 @@ See [Flags Reference](/cli/flags) for global flags (`--server`, `--no-relay`).
 - Directory structure is preserved when the sender sends a folder. Files land at the same relative paths inside your output directory.
 - Press `Ctrl+C` to cancel the transfer at any time.
 - Short codes expire 10 minutes after the sender starts the session. After that, only the full link works (and only while the sender is still connected).
+- After the transfer completes, the receiver posts only the total byte count to the signaling server for the public global counter. No file names or contents are included. Use `--no-report` or `FLOE_NO_STATS=1` to skip this. The sender never reports.

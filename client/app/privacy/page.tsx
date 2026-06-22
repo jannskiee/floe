@@ -43,7 +43,8 @@ export default function PrivacyPolicy() {
                         in transit but is never stored or inspected. The only thing we
                         keep is a single anonymous number: the running total of bytes
                         transferred across all users, shown by the counter on our
-                        homepage.
+                        homepage. You can opt out of contributing to this counter at
+                        any time.
                     </p>
                 </div>
 
@@ -83,9 +84,16 @@ export default function PrivacyPolicy() {
                                 transfer completes, the receiving side reports only
                                 the number of bytes it received. We add this to one
                                 shared, all-time counter of total bytes transferred,
-                                shown on our homepage. We do not store file names,
-                                file contents, individual transfer records, or any
-                                link between this number and you.
+                                shown on our homepage. The sender never reports.
+                                We do not store file names, file contents, individual
+                                transfer records, or any link between this number and
+                                you. You can opt out of this report: uncheck
+                                &quot;Contribute to global stats&quot; on the receiver
+                                view in the browser, or use{' '}
+                                <code className="text-xs bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-300">--no-report</code>
+                                {' '}(or set{' '}
+                                <code className="text-xs bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-300">FLOE_NO_STATS=1</code>
+                                ) when using the CLI.
                             </li>
                             <li>
                                 <strong>IP Addresses:</strong> Like all web

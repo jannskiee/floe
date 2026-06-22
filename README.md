@@ -103,6 +103,15 @@ floe receive olive-tiger-castle
 
 The sender's terminal will display a room code and a browser link. The receiver can join using either the code (CLI) or the link (browser).
 
+After a successful transfer, the receiver reports only the total byte count to Floe's signaling server to power the public "transferred globally" counter on the homepage. No file names or contents are included. The sender never reports. To opt out:
+
+```sh
+floe receive olive-tiger-castle --no-report   # single transfer
+FLOE_NO_STATS=1 floe receive ...              # permanent (add to shell profile)
+```
+
+The global total is visible only in the browser. The CLI contributes to it but never displays it.
+
 For all commands, flags, and advanced usage, see the [documentation](https://docs.floe.one).
 
 ## Self-Hosting

@@ -206,13 +206,20 @@ func runSend(cmd *cobra.Command, args []string) error {
 var (
 	flagOutput     string
 	flagAutoAccept bool
+	flagNoReport   bool
 )
 
 var receiveCmd = &cobra.Command{
 	Use:   "receive <code | link>",
 	Short: "Receive files from a peer",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runReceive,
+	Long: `Receive files from a peer using a code or link.
+
+After a successful transfer the receiver posts only the total byte count to
+Floe's signaling server to power the public global-transfer counter. No file
+names, contents, or identities are included. To opt out of this report, use
+--no-report or set FLOE_NO_STATS=1 in your environment.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runReceive,
 }
 
 func init() {
@@ -220,6 +227,8 @@ func init() {
 		"directory to save received files")
 	receiveCmd.Flags().BoolVarP(&flagAutoAccept, "yes", "y", false,
 		"auto-accept incoming files without confirmation")
+	receiveCmd.Flags().BoolVar(&flagNoReport, "no-report", false,
+		"do not report transferred bytes to Floe's public global counter")
 }
 
 func runReceive(cmd *cobra.Command, args []string) error {
@@ -298,7 +307,11 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	fmt.Println("  Connected")
 
 	// 7. Receive files
-	return transfer.ReceiveFiles(dc, absOutput, flagAutoAccept, version, flagServer)
+	statsURL := flagServer
+	if flagNoReport || os.Getenv("FLOE_NO_STATS") == "1" {
+		statsURL = "" // reportBytesToServer no-ops on empty URL
+	}
+	return transfer.ReceiveFiles(dc, absOutput, flagAutoAccept, version, statsURL)
 }
 
 // ── floe version ─────────────────────────────────────────────────────────────
