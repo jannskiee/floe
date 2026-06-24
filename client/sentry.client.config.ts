@@ -13,6 +13,10 @@ Sentry.init({
         "Failed to execute 'removeChild' on 'Node'",
         "Failed to execute 'insertBefore' on 'Node'",
         "The node to be removed is not a child of this node",
+        // Privacy/anti-fingerprint extensions bridge to native desktop software and
+        // reject a promise with a plain object when that bridge is not ready. Surfaces
+        // as "Object Not Found Matching Id:N, MethodName:..., ParamCount:N". Not our code.
+        'Object Not Found Matching Id',
         // Clipboard blocked in restricted browsers (already handled with fallback)
         'Write permission denied',
         // Safari/iOS ResizeObserver noise
