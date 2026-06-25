@@ -19,12 +19,18 @@ services:
       - "${PORT:-3001}:3001"
     environment:
       # The server always listens on 3001 inside the container; the host port above
-      # is what changes. CLIENT_URL / TRUSTED_PROXY_COUNT / TURN_* come from .env.
+      # is what changes. Everything else is interpolated from .env.
       PORT: 3001
       CLIENT_URL: ${CLIENT_URL:-http://localhost:3000}
       TRUSTED_PROXY_COUNT: ${TRUSTED_PROXY_COUNT:-1}
+      MAX_CONNECTIONS_PER_IP: ${MAX_CONNECTIONS_PER_IP:-30}
       TURN_SECRET: ${TURN_SECRET:-}
       TURN_DOMAIN: ${TURN_DOMAIN:-}
+      # Durable global-stats counter (optional). Without these the counter is
+      # in-memory only and resets on restart. MAX_REPORT_BYTES caps one report.
+      UPSTASH_REDIS_REST_URL: ${UPSTASH_REDIS_REST_URL:-}
+      UPSTASH_REDIS_REST_TOKEN: ${UPSTASH_REDIS_REST_TOKEN:-}
+      MAX_REPORT_BYTES: ${MAX_REPORT_BYTES:-}
 
   client:
     build:
