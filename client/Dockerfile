@@ -8,7 +8,7 @@
 # ---- Builder ---------------------------------------------------------------
 FROM node:20-alpine AS builder
 
-RUN npm install -g pnpm@10
+RUN npm install -g pnpm@11
 WORKDIR /app
 
 # Install dependencies first for layer caching.

@@ -51,4 +51,4 @@ For a deployment accessible beyond a single machine, follow these steps.
 
 ## CORS note
 
-The server's allow-list also includes the official `floe.one` origins. Your `CLIENT_URL` is added on top of these, so browser clients on your domain and on floe.one can both reach your server. If you are running a private fork and want a strict allow-list, remove the hard-coded entries from `server/server.js`.
+The server's allow-list also includes the official `floe.one` origins (`https://floe.one` and `https://www.floe.one`) plus `http://localhost:3000` for local development. Your `CLIENT_URL` is added on top of these, so browser clients on your domain and on floe.one can both reach your server. If you are running a private fork and want a strict allow-list, remove the hard-coded entries from `server/server.js`.
