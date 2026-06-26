@@ -110,24 +110,14 @@ All under `cli/internal/`:
 - `ice/` - fetches STUN/TURN credentials from server
 - `code/` - registers and resolves short room codes
 
-## Documentation Site and Automations
+## Documentation Site
 
-The docs live in `docs/` (Mintlify), git-synced to `main`, and deploy to docs.floe.one. The site runs on the Mintlify OSS sponsorship (10,250 credits/month). Overages are OFF and a usage alert fires at 80%, so the plan can never incur a charge.
+The docs live in `docs/` (Mintlify), git-synced to `main`, and deploy to docs.floe.one.
 
-Four "require review" automations are configured in the Mintlify dashboard. Each one opens a pull request against `main`, only edits `docs/**`, and never auto-merges:
+- `docs/changelog.mdx` is written by hand; do not auto-generate or restructure it.
+- CI on docs-only changes is skipped via `paths-ignore: docs/**` in `.github/workflows/ci.yml`, so doc-only PRs do not run the client/server/CLI/e2e suite.
 
-| When | Automation | Job |
-|---|---|---|
-| Every Monday | Update from code changes | Keep docs accurate to merged PRs |
-| Every Friday | Apply style guide | Enforce no em dashes and voice consistency |
-| 1st of month | Fix broken links | Catch external link rot |
-| 15th of month | Audit SEO metadata | Titles, descriptions, headings, canonical tags |
-
-`docs/changelog.mdx` is written by hand. The automations are instructed (via their additional prompts) not to touch it.
-
-Intentionally OFF: Draft changelog, Draft improvements from assistant conversations, Draft improvements from user feedback (enable later once the docs have real traffic), Translate content (English only), and Fix grammar & typos (the style-guide automation already covers it).
-
-CI on docs-only changes is skipped via `paths-ignore: docs/**` in `.github/workflows/ci.yml`, so bot doc PRs do not run the client/server/CLI/e2e suite.
+Automated doc-maintenance PRs (style, links, SEO) are managed in the Mintlify dashboard. They open PRs against `main`, only edit `docs/**`, and never auto-merge.
 
 ## Writing Style
 
