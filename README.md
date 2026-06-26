@@ -140,11 +140,17 @@ Floe is free and open source. Contributions help cover the ongoing costs of back
 
 ## Acknowledgments
 
-Error monitoring for Floe is generously provided by [Sentry](https://sentry.io) through their [Sentry for Good](https://sentry.io/for/good/) open source sponsorship program.
+Floe is supported by open source sponsorship programs that donate the infrastructure behind it:
+
+- **Error monitoring** is generously provided by [Sentry](https://sentry.io) through [Sentry for Good](https://sentry.io/for/good/).
+- **Documentation** is generously hosted by [Mintlify](https://mintlify.com) through the [Mintlify OSS Program](https://mintlify.com/oss-program).
 
 <p align="center">
   <a href="https://sentry.io">
     <img src="https://img.shields.io/badge/Monitored%20by-Sentry-362D59?logo=sentry&logoColor=white" alt="Monitored by Sentry" />
+  </a>
+  <a href="https://mintlify.com">
+    <img src="https://img.shields.io/badge/Docs%20by-Mintlify-18E299?logo=mintlify&logoColor=white" alt="Documentation by Mintlify" />
   </a>
 </p>
 

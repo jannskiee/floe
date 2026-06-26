@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import { ServiceWorkerRegistration } from '@/components/ServiceWorkerRegistration';
@@ -47,6 +47,10 @@ export const metadata: Metadata = {
             'Send files directly from your device to anyone in the world. No accounts, no file storage, fully end-to-end encrypted.',
         images: ['https://www.floe.one/og.png?v=3'],
     },
+};
+
+export const viewport: Viewport = {
+    themeColor: '#0a0a0a',
 };
 
 export default function RootLayout({
