@@ -132,3 +132,12 @@ CI on docs-only changes is skipped via `paths-ignore: docs/**` in `.github/workf
 ## Writing Style
 
 Do not use em dashes (--) in any markdown files or documentation. Use periods, commas, hyphens, or parentheses instead. In `docs/`, this is enforced deterministically by Vale (`docs/.vale.ini` plus the `docs/styles/Floe/EmDash.yml` rule, surfaced as the Mintlify Grammar linter CI check) and reinforced by the weekly Apply style guide automation.
+
+## Git Conventions
+
+Do not credit Claude or any AI assistant as an author. Specifically:
+
+- Omit the `Co-Authored-By: Claude ...` trailer from commit messages.
+- Omit the `🤖 Generated with Claude Code` footer from pull request descriptions.
+
+Commit messages and PR bodies stay attribution-free. PR Summary and Test plan sections are fine, just leave out any AI footer or co-author line.
