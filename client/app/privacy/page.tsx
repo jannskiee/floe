@@ -80,7 +80,8 @@ export default function PrivacyPolicy() {
                                 is not stored permanently.
                             </li>
                             <li>
-                                <strong>Aggregate Transfer Total:</strong> When a
+                                <strong>Aggregate Transfer Total:</strong>{' '}
+                                When a
                                 transfer completes, the receiving side reports only
                                 the number of bytes it received. We add this to one
                                 shared, all-time counter of total bytes transferred,
