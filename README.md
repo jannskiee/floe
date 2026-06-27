@@ -9,27 +9,21 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/jannskiee/floe/blob/main/LICENSE">
-    <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" />
-  </a>
-  <a href="https://github.com/jannskiee/floe/stargazers">
-    <img src="https://img.shields.io/github/stars/jannskiee/floe?style=social" alt="Stars" />
-  </a>
-  <a href="https://github.com/jannskiee/floe/network/members">
-    <img src="https://img.shields.io/github/forks/jannskiee/floe?style=social" alt="Forks" />
-  </a>
-  <a href="https://github.com/jannskiee/floe/issues">
-    <img src="https://img.shields.io/github/issues/jannskiee/floe" alt="Issues" />
-  </a>
+  <a href="https://github.com/jannskiee/floe/releases/latest"><img src="https://img.shields.io/github/v/release/jannskiee/floe" alt="Latest release" /></a>
+  <a href="https://github.com/jannskiee/floe/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jannskiee/floe/ci.yml?branch=main&label=build" alt="Build status" /></a>
+  <a href="https://github.com/jannskiee/floe/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" /></a>
+  <a href="https://github.com/jannskiee/floe/issues"><img src="https://img.shields.io/github/issues/jannskiee/floe" alt="Issues" /></a>
+  <a href="https://github.com/jannskiee/floe/stargazers"><img src="https://img.shields.io/github/stars/jannskiee/floe?style=social" alt="Stars" /></a>
+  <a href="https://github.com/jannskiee/floe/network/members"><img src="https://img.shields.io/github/forks/jannskiee/floe?style=social" alt="Forks" /></a>
 </p>
 
 <p align="center">
-  <a href="https://floe.one">Quick Start</a> |
-  <a href="https://docs.floe.one">Documentation</a> |
-  <a href="#cli">CLI</a> |
-  <a href="#self-hosting">Self-Hosting</a> |
-  <a href="#contributing">Contributing</a> |
-  <a href="#support">Support</a>
+  <a href="https://floe.one">Try Floe</a> ·
+  <a href="https://floe.one/how-it-works">How It Works</a> ·
+  <a href="https://docs.floe.one">Documentation</a> ·
+  <a href="#cli">CLI</a> ·
+  <a href="#self-hosting">Self-Hosting</a> ·
+  <a href="#contributing">Contributing</a>
 </p>
 
 ## About
@@ -40,7 +34,7 @@ A signaling server (`api.floe.one`) handles WebRTC negotiation and issues short-
 
 ## Quick Start
 
-Visit [floe.one](https://floe.one) to transfer files directly in your browser. No account or installation required.
+[floe.one](https://floe.one) runs entirely in your browser. Open it, pick a file, and share the code or link. No account or installation required.
 
 New to Floe? The [Quick Start guide](https://docs.floe.one/quickstart) walks through sending and receiving your first file.
 
@@ -146,12 +140,8 @@ Floe is supported by open source sponsorship programs that donate the infrastruc
 - **Documentation** is generously hosted by [Mintlify](https://mintlify.com) through the [Mintlify OSS Program](https://mintlify.com/oss-program).
 
 <p align="center">
-  <a href="https://sentry.io">
-    <img src="https://img.shields.io/badge/Monitored%20by-Sentry-362D59?logo=sentry&logoColor=white" alt="Monitored by Sentry" />
-  </a>
-  <a href="https://mintlify.com">
-    <img src="https://img.shields.io/badge/Docs%20by-Mintlify-18E299?logo=mintlify&logoColor=white" alt="Documentation by Mintlify" />
-  </a>
+  <a href="https://sentry.io"><img src="https://img.shields.io/badge/Monitored%20by-Sentry-362D59?logo=sentry&logoColor=white" alt="Monitored by Sentry" /></a>
+  <a href="https://mintlify.com"><img src="https://img.shields.io/badge/Docs%20by-Mintlify-18E299?logo=mintlify&logoColor=white" alt="Documentation by Mintlify" /></a>
 </p>
 
 ## License
