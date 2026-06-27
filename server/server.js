@@ -75,6 +75,34 @@ const STATS_RATE_WINDOW = 60000;
 const STATS_MAX_REPORTS = 60; // per IP per minute
 const MAX_REPORT_BYTES = parseInt(process.env.MAX_REPORT_BYTES || '', 10) || (5 * 1024 * 1024 * 1024 * 1024); // 5 TB
 
+// Per-IP limiter for the code endpoints (register + resolve). These were the
+// only unauthenticated HTTP routes without a limiter: unbounded POSTs grow
+// codeToRoom (a memory-exhaustion vector) and unbounded GETs allow brute-force
+// enumeration of active codes. Default 60/min is far above the 1-2 requests a
+// real transfer makes; raise via MAX_CODE_REQUESTS_PER_IP for CI/staging.
+const codeRateLimits = new Map();
+const CODE_RATE_WINDOW = 60000;
+const CODE_MAX_REQUESTS = parseInt(process.env.MAX_CODE_REQUESTS_PER_IP, 10) || 60;
+// Hard ceiling on simultaneously-live codes, bounding memory regardless of how
+// requests are spread across IPs.
+const MAX_ACTIVE_CODES = parseInt(process.env.MAX_ACTIVE_CODES, 10) || 10000;
+
+// Generic per-IP sliding-window limiter as Express middleware. req.ip resolves
+// correctly via the `trust proxy` setting above, matching the turn/stats logic.
+function makeRateLimiter(map, windowMs, max) {
+    return (req, res, next) => {
+        const now = Date.now();
+        const timestamps = (map.get(req.ip) || []).filter(t => now - t < windowMs);
+        if (timestamps.length >= max) {
+            return res.status(429).json({ error: 'Too many requests' });
+        }
+        timestamps.push(now);
+        map.set(req.ip, timestamps);
+        next();
+    };
+}
+const codeRateLimiter = makeRateLimiter(codeRateLimits, CODE_RATE_WINDOW, CODE_MAX_REQUESTS);
+
 function generateCoturnCredentials() {
     const turnSecret = process.env.TURN_SECRET;
     const turnDomain = process.env.TURN_DOMAIN;
@@ -114,8 +142,10 @@ app.get('/api/turn-credentials', (req, res) => {
 const words = require('./words.json');
 const codeToRoom = new Map(); // code → { roomId, expires }
 
-function generateCode() {
-    const pick = () => words[Math.floor(Math.random() * words.length)];
+// `pick` is injectable so tests can force deterministic collisions; production
+// uses crypto.randomInt (a CSPRNG, and free of modulo bias) because the code
+// phrase is the only secret guarding a transfer.
+function generateCode(pick = () => words[crypto.randomInt(words.length)]) {
     for (let i = 0; i < 10; i++) {
         const code = `${pick()}-${pick()}-${pick()}`;
         const existing = codeToRoom.get(code);
@@ -126,10 +156,13 @@ function generateCode() {
 }
 
 // POST /api/code — register a code for a room ID (called by CLI sender)
-app.post('/api/code', (req, res) => {
+app.post('/api/code', codeRateLimiter, (req, res) => {
     const { roomId } = req.body || {};
     if (!roomId || !UUID_REGEX.test(roomId)) {
         return res.status(400).json({ error: 'Invalid room ID' });
+    }
+    if (codeToRoom.size >= MAX_ACTIVE_CODES) {
+        return res.status(503).json({ error: 'Server busy, try again shortly' });
     }
     const code = generateCode();
     codeToRoom.set(code, { roomId, expires: Date.now() + 600000 }); // 10 min TTL
@@ -137,7 +170,7 @@ app.post('/api/code', (req, res) => {
 });
 
 // GET /api/code/:code — resolve a code to a room ID (called by CLI receiver)
-app.get('/api/code/:code', (req, res) => {
+app.get('/api/code/:code', codeRateLimiter, (req, res) => {
     const entry = codeToRoom.get(req.params.code);
     if (!entry || Date.now() > entry.expires) {
         codeToRoom.delete(req.params.code);
@@ -256,6 +289,11 @@ const cleanupInterval = setInterval(() => {
         if (valid.length === 0) statsRateLimits.delete(ip);
         else statsRateLimits.set(ip, valid);
     }
+    for (const [ip, timestamps] of codeRateLimits.entries()) {
+        const valid = timestamps.filter(t => now - t < CODE_RATE_WINDOW);
+        if (valid.length === 0) codeRateLimits.delete(ip);
+        else codeRateLimits.set(ip, valid);
+    }
     for (const [code, entry] of codeToRoom.entries()) {
         if (now > entry.expires) codeToRoom.delete(code);
     }
@@ -304,14 +342,6 @@ function createWSPeer(ws) {
     };
 }
 
-function getPeerById(id) {
-    for (const peers of rooms.values()) {
-        const found = peers.find(p => p.id === id);
-        if (found) return found;
-    }
-    return null;
-}
-
 function handleJoinRoom(peer, roomId) {
     if (!roomId || typeof roomId !== 'string' || !UUID_REGEX.test(roomId)) {
         peer.send('error', { message: 'Invalid room ID' });
@@ -348,23 +378,24 @@ function handleJoinRoom(peer, roomId) {
     }
 }
 
-function handleSignal(senderPeer, signal, targetId, roomId) {
+function handleSignal(senderPeer, signal, targetId) {
     if (!signal) return;
-    let targetPeer = null;
 
-    if (targetId) {
-        // Browser receivers send signals with a specific target ID
-        targetPeer = getPeerById(targetId);
-    } else {
-        // CLI clients always use roomId for signaling
-        const lookupId = roomId || senderPeer.roomId;
-        const room = rooms.get(lookupId);
-        if (room) targetPeer = room.find(p => p.id !== senderPeer.id);
-    }
+    // A peer may only signal within the room it has actually joined. Use the
+    // server-tracked roomId (never a client-supplied one) so a peer cannot
+    // route signals into a room it is not a member of.
+    if (!senderPeer.roomId) return;
+    const room = rooms.get(senderPeer.roomId);
+    if (!room) return;
 
-    if (targetPeer) {
-        targetPeer.send('signal', { signal, sender: senderPeer.id });
-    }
+    // Every room holds exactly two peers, so the target is always "the other
+    // peer in my room". If the client named a specific target, it must match
+    // that peer; otherwise the signal is dropped.
+    const targetPeer = room.find(p => p.id !== senderPeer.id);
+    if (!targetPeer) return;
+    if (targetId && targetPeer.id !== targetId) return;
+
+    targetPeer.send('signal', { signal, sender: senderPeer.id });
 }
 
 function handleDisconnect(peer) {
@@ -422,7 +453,7 @@ io.on('connection', (socket) => {
 
     socket.on('signal', (data) => {
         if (!data || typeof data !== 'object' || !data.signal) return;
-        handleSignal(peer, data.signal, data.target || null, data.roomId || null);
+        handleSignal(peer, data.signal, data.target || null);
     });
 
     socket.on('disconnecting', () => {
@@ -478,7 +509,7 @@ wss.on('connection', (ws, req) => {
                 handleJoinRoom(peer, msg.roomId);
                 break;
             case 'signal':
-                handleSignal(peer, msg.signal, msg.target || null, msg.roomId || null);
+                handleSignal(peer, msg.signal, msg.target || null);
                 break;
             case 'ping':
                 ws.send(JSON.stringify({ type: 'pong' }));
@@ -546,4 +577,6 @@ module.exports = {
     turnRateLimits,
     validateReportBytes,
     statsRateLimits,
+    makeRateLimiter,
+    codeRateLimits,
 };

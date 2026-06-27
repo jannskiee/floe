@@ -38,6 +38,9 @@ export default defineConfig({
                 // from one IP; lift the per-IP connection cap so the shared signaling
                 // server does not rate-limit a peer mid-suite and stall a transfer.
                 MAX_CONNECTIONS_PER_IP: '1000',
+                // Same reasoning for the code endpoint limiter: keep it well clear of
+                // the suite's /api/code traffic so a growing suite can never trip it.
+                MAX_CODE_REQUESTS_PER_IP: '1000',
             },
         },
         {

@@ -19,6 +19,8 @@ const {
     connectionCounts,
     validateReportBytes,
     statsRateLimits,
+    makeRateLimiter,
+    codeRateLimits,
 } = require('./server');
 
 // ---------------------------------------------------------------------------
@@ -86,31 +88,19 @@ describe('generateCode', () => {
     });
 
     it('falls back to a 4-word code after 10 collisions with active entries', () => {
-        // Force Math.random to always return 0 so every attempt generates the same code.
-        const orig = Math.random;
-        Math.random = () => 0;
-        try {
-            const fixed = generateCode();                           // e.g. "apple-apple-apple"
-            codeToRoom.set(fixed, { roomId: ROOM_ID, expires: Date.now() + 60_000 });
-            const next = generateCode();
-            assert.equal(next.split('-').length, 4, `expected 4-word fallback, got: ${next}`);
-        } finally {
-            Math.random = orig;
-        }
+        // Inject a fixed picker so every attempt generates the same code.
+        const fixed = generateCode(() => 'apple');                 // "apple-apple-apple"
+        codeToRoom.set(fixed, { roomId: ROOM_ID, expires: Date.now() + 60_000 });
+        const next = generateCode(() => 'apple');
+        assert.equal(next.split('-').length, 4, `expected 4-word fallback, got: ${next}`);
     });
 
     it('treats an expired entry as a free slot and reuses the same 3-word code', () => {
-        const orig = Math.random;
-        Math.random = () => 0;
-        try {
-            const fixed = generateCode();
-            codeToRoom.set(fixed, { roomId: ROOM_ID, expires: Date.now() - 1 }); // already expired
-            const next = generateCode();
-            assert.equal(next, fixed, 'expired slot should be reused');
-            assert.equal(next.split('-').length, 3, 'should return the 3-word form');
-        } finally {
-            Math.random = orig;
-        }
+        const fixed = generateCode(() => 'apple');
+        codeToRoom.set(fixed, { roomId: ROOM_ID, expires: Date.now() - 1 }); // already expired
+        const next = generateCode(() => 'apple');
+        assert.equal(next, fixed, 'expired slot should be reused');
+        assert.equal(next.split('-').length, 3, 'should return the 3-word form');
     });
 });
 
@@ -238,6 +228,18 @@ describe('handleSignal', () => {
         handleSignal(pA, null, 'peer-B', null);
         assert.equal(pB.msgs.length, 0);
     });
+
+    it('does not route a signal to a peer in a different room', () => {
+        const pA = makePeer('peer-A');
+        const pB = makePeer('peer-B');
+        handleJoinRoom(pA, ROOM_ID);
+        handleJoinRoom(pB, '22222222-2222-2222-2222-222222222222');
+        pB.msgs.length = 0;
+
+        // pA targets pB by id, but pB is in a different room — must be dropped.
+        handleSignal(pA, { type: 'offer' }, 'peer-B');
+        assert.equal(pB.msgs.length, 0, 'must not receive a cross-room signal');
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -350,5 +352,62 @@ describe('checkRateLimit', () => {
     it('tracks different IPs independently', () => {
         for (let i = 0; i < 30; i++) checkRateLimit('1.1.1.1');
         assert.equal(checkRateLimit('2.2.2.2'), true);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Generic per-IP rate limiter middleware — makeRateLimiter
+// ---------------------------------------------------------------------------
+
+describe('makeRateLimiter', () => {
+    function fakeRes() {
+        return {
+            statusCode: 200,
+            body: null,
+            status(code) { this.statusCode = code; return this; },
+            json(payload) { this.body = payload; return this; },
+        };
+    }
+
+    it('allows up to max requests then returns 429', () => {
+        const map = new Map();
+        const limiter = makeRateLimiter(map, 60000, 3);
+        let allowed = 0;
+        for (let i = 0; i < 3; i++) {
+            const res = fakeRes();
+            limiter({ ip: '1.2.3.4' }, res, () => { allowed++; });
+            assert.equal(res.statusCode, 200, `request ${i + 1} should pass`);
+        }
+        assert.equal(allowed, 3);
+
+        const res = fakeRes();
+        let nextCalled = false;
+        limiter({ ip: '1.2.3.4' }, res, () => { nextCalled = true; });
+        assert.equal(nextCalled, false, 'over-limit request must not call next()');
+        assert.equal(res.statusCode, 429);
+    });
+
+    it('tracks different IPs independently', () => {
+        const map = new Map();
+        const limiter = makeRateLimiter(map, 60000, 1);
+        limiter({ ip: '1.1.1.1' }, fakeRes(), () => {}); // exhaust IP 1's budget
+
+        const res = fakeRes();
+        let allowed = false;
+        limiter({ ip: '2.2.2.2' }, res, () => { allowed = true; });
+        assert.equal(allowed, true, 'a different IP must still be allowed');
+        assert.equal(res.statusCode, 200);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Code endpoint rate limiter map
+// ---------------------------------------------------------------------------
+
+describe('codeRateLimits', () => {
+    beforeEach(() => { codeRateLimits.clear(); });
+
+    it('is exported and starts empty', () => {
+        assert.equal(codeRateLimits.size, 0);
     });
 });
