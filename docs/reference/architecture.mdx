@@ -203,7 +203,7 @@ The receiver sends this and aborts before creating any file, so the sender fails
 
 ### Protocol versioning
 
-The transfer protocol carries its own version, independent of the floe release version (1.6.x). This lets peers on different releases interoperate, while still detecting a genuine breaking wire-format change cleanly.
+The transfer protocol carries its own version, independent of the floe release version (the 1.x line). This lets peers on different releases interoperate, while still detecting a genuine breaking wire-format change cleanly.
 
 - Each peer advertises `pv` (the highest protocol version it speaks) and `pvMin` (the lowest it still supports) in its metadata and ack. Both are 1 today.
 - Two peers are compatible when their ranges overlap: `max(localMin, remoteMin) <= min(localMax, remoteMax)`. They operate at the highest common version.
