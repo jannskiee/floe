@@ -17,12 +17,12 @@ import (
 	"syscall"
 
 	"github.com/google/uuid"
-	"github.com/jannskiee/floe/cli/internal/code"
-	"github.com/jannskiee/floe/cli/internal/ice"
-	"github.com/jannskiee/floe/cli/internal/peer"
+	"github.com/jannskiee/floe/cli/engine/code"
+	"github.com/jannskiee/floe/cli/engine/ice"
+	"github.com/jannskiee/floe/cli/engine/peer"
+	"github.com/jannskiee/floe/cli/engine/signaling"
+	"github.com/jannskiee/floe/cli/engine/transfer"
 	"github.com/jannskiee/floe/cli/internal/selfupdate"
-	"github.com/jannskiee/floe/cli/internal/signaling"
-	"github.com/jannskiee/floe/cli/internal/transfer"
 	"github.com/spf13/cobra"
 )
 

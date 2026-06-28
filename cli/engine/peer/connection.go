@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/jannskiee/floe/cli/internal/signaling"
+	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/pion/webrtc/v4"
 )
 
