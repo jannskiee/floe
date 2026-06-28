@@ -83,7 +83,20 @@ interface ReceivedFile {
     downloadUrl: string;
 }
 
-
+// The room id is the transfer's only secret: anyone holding it can join as the
+// receiver. It lives in the URL fragment (#room=<id>) so it never leaves the
+// browser. Fragments are not sent to the server, are stripped from the Referer
+// header, and are ignored by pageview analytics. Older links used the
+// ?room=<id> query param (which leaked into those places); we still read them
+// for backward compatibility.
+function getRoomFromUrl(): string | null {
+    if (typeof window === 'undefined') return null;
+    const fromHash = new URLSearchParams(
+        window.location.hash.replace(/^#/, '')
+    ).get('room');
+    if (fromHash) return fromHash;
+    return new URLSearchParams(window.location.search).get('room');
+}
 
 export function P2PTransfer() {
     const [isSender, setIsSender] = useState<boolean | null>(null);
@@ -164,7 +177,7 @@ export function P2PTransfer() {
 
     useEffect(() => {
         // eslint-disable-next-line react-hooks/set-state-in-effect
-        setIsSender(!new URLSearchParams(window.location.search).has('room'));
+        setIsSender(!getRoomFromUrl());
     }, []);
 
     useEffect(() => {
@@ -517,8 +530,7 @@ export function P2PTransfer() {
     };
 
     useEffect(() => {
-        const params = new URLSearchParams(window.location.search);
-        const roomFromUrl = params.get('room');
+        const roomFromUrl = getRoomFromUrl();
 
         if (roomFromUrl) {
             fetchIceServers().then(() => joinRoomAsReceiver(roomFromUrl));
@@ -677,7 +689,7 @@ export function P2PTransfer() {
 
     const handleCreateLink = () => {
         const newRoomId = uuidv4();
-        const link = `${window.location.protocol}//${window.location.host}?room=${newRoomId}`;
+        const link = `${window.location.protocol}//${window.location.host}/#room=${newRoomId}`;
         setGeneratedLink(link);
         socket.emit('join-room', newRoomId);
         setStatus('Waiting for peer');

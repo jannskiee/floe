@@ -1,7 +1,8 @@
 import { MetadataRoute } from 'next';
 
 export default function sitemap(): MetadataRoute.Sitemap {
-    const baseUrl = 'https://www.floe.one';
+    // Mirrors siteUrl in app/layout.tsx; set NEXT_PUBLIC_SITE_URL when self-hosting.
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.floe.one';
 
     return [
         {
