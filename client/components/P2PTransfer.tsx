@@ -9,7 +9,7 @@ if (typeof window !== 'undefined') {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import io, { Socket } from 'socket.io-client';
 import SimplePeer, { Instance as PeerInstance } from 'simple-peer';
 import { v4 as uuidv4 } from 'uuid';
@@ -20,6 +20,7 @@ import { createReceiver } from '@/lib/transfer/receiver';
 import { sendFiles as sendFilesEngine } from '@/lib/transfer/sender';
 import { dedupeFileName } from '@/lib/download';
 import { useWakeLock } from '@/hooks/useWakeLock';
+import { useFileManagement, type FileWithId } from '@/hooks/useFileManagement';
 
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -71,11 +72,6 @@ const socket: Socket = io(
     }
 );
 
-interface FileWithId {
-    id: string;
-    file: File;
-}
-
 interface ReceivedFile {
     id: string;
     fileName: string;
@@ -104,7 +100,6 @@ export function P2PTransfer() {
     const [isConnected, setIsConnected] = useState(false);
     const [ping, setPing] = useState(0);
     const [generatedLink, setGeneratedLink] = useState('');
-    const [files, setFiles] = useState<FileWithId[]>([]);
     const [currentFileIndex, setCurrentFileIndex] = useState(0);
     const [progress, setProgress] = useState(0);
     const [receivedFiles, setReceivedFiles] = useState<ReceivedFile[]>([]);
@@ -115,7 +110,6 @@ export function P2PTransfer() {
     const [error, setError] = useState('');
     const [transferSpeed, setTransferSpeed] = useState('');
     const [estimatedTime, setEstimatedTime] = useState('');
-    const [isDragging, setIsDragging] = useState(false);
     const [connectionType, setConnectionType] = useState<'direct' | 'relay' | null>(null);
     const [showQr, setShowQr] = useState(false);
     const [showInfoTooltip, setShowInfoTooltip] = useState(false);
@@ -123,8 +117,18 @@ export function P2PTransfer() {
     const [reportStatsEnabled, setReportStatsEnabled] = useState(true);
     const reportStatsEnabledRef = useRef(true);
 
+    const {
+        files,
+        isDragging,
+        totalBytes,
+        handleFileSelection,
+        handleDeleteFile,
+        handleDragOver,
+        handleDragLeave,
+        handleDrop,
+    } = useFileManagement();
+
     const RELAY_SIZE_LIMIT = 2 * 1024 * 1024 * 1024; // 2 GB
-    const totalBytes = files.reduce((sum, f) => sum + f.file.size, 0);
     const isRelayOverLimit = connectionType === 'relay' && totalBytes > RELAY_SIZE_LIMIT;
 
     const peerRef = useRef<PeerInstance | null>(null);
@@ -648,44 +652,6 @@ export function P2PTransfer() {
                         'offline';
         window.dispatchEvent(new CustomEvent('floe-connection-status', { detail: status }));
     }, [isConnected, connectionType]);
-
-    const handleFileSelection = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files.length > 0) {
-            const newFilesRaw = Array.from(e.target.files);
-            const newFiles = newFilesRaw.map((f) => ({
-                id: uuidv4(),
-                file: f,
-            }));
-            setFiles((prev) => [...prev, ...newFiles]);
-            e.target.value = '';
-        }
-    };
-
-    const handleDeleteFile = (fileId: string) => {
-        setFiles((prev) => prev.filter((f) => f.id !== fileId));
-    };
-
-    const handleDragOver = (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragging(true);
-    };
-
-    const handleDragLeave = (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragging(false);
-    };
-
-    const handleDrop = (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragging(false);
-        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            const droppedFiles = Array.from(e.dataTransfer.files).map((f) => ({
-                id: uuidv4(),
-                file: f,
-            }));
-            setFiles((prev) => [...prev, ...droppedFiles]);
-        }
-    };
 
     const handleCreateLink = () => {
         const newRoomId = uuidv4();
