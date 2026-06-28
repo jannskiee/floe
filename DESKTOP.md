@@ -61,12 +61,12 @@ go.work                ties cli + desktop for local dev (to be added)
 - [x] Keep `selfupdate` private in `cli/internal/`
 - [x] Update imports; CLI builds, vets, and passes all tests
 
-### Phase 1 - Walking skeleton  [NEXT]
-- [ ] Scaffold the Wails app in `desktop/`, depending on the `cli` module
-- [ ] Add `go.work` (use ./cli and ./desktop)
-- [ ] Bind a minimal "receive by code" Go method that uses the engine
-- [ ] Receive one file to disk from a peer
-- [ ] Prove interop: receive a file sent from floe.one (browser) and from `floe` (CLI)
+### Phase 1 - Walking skeleton  [IN PROGRESS]
+- [x] Scaffold the Wails app in `desktop/`, depending on the `cli` module
+- [x] Add `go.work` (use ./cli and ./desktop) plus a replace in desktop/go.mod
+- [x] Bind a minimal "receive by code" Go method that uses the engine (`ReceiveByCode`)
+- [x] Full app builds: `wails build` produces a 16.5 MB `desktop.exe`, engine linked
+- [ ] Prove interop: receive a file sent from floe.one (browser) and from `floe` (CLI)  [live test, pending]
 
 ### Phase 2 - Real app
 - [ ] Send and receive UI sharing the web app's design
