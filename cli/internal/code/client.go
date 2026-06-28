@@ -36,20 +36,28 @@ func Register(serverURL, roomId string) (string, error) {
 }
 
 // Resolve converts a code phrase or URL to a room UUID.
-//   - "olive-tiger-castle"             → calls GET /api/code/olive-tiger-castle
-//   - "https://floe.one?room=uuid"      → extracts the room query parameter
+//   - "olive-tiger-castle"              → calls GET /api/code/olive-tiger-castle
+//   - "https://floe.one/#room=uuid"     → extracts the room from the URL fragment
+//   - "https://floe.one/?room=uuid"     → extracts the room query parameter
 func Resolve(serverURL, input string) (string, error) {
 	input = strings.TrimSpace(input)
 
-	// If input contains "://" it is a URL — extract the room query param
+	// If input contains "://" it is a URL — extract the room id from it.
 	if strings.Contains(input, "://") {
 		u, err := url.Parse(input)
 		if err != nil {
 			return "", fmt.Errorf("invalid URL: %w", err)
 		}
+		// Newer links keep the room id in the fragment (#room=uuid) so it never
+		// leaks to servers or analytics; older links use the ?room= query param.
 		roomId := u.Query().Get("room")
+		if roomId == "" && u.Fragment != "" {
+			if frag, err := url.ParseQuery(u.Fragment); err == nil {
+				roomId = frag.Get("room")
+			}
+		}
 		if roomId == "" {
-			return "", fmt.Errorf("URL does not contain a ?room= parameter")
+			return "", fmt.Errorf("URL does not contain a room id (#room= or ?room=)")
 		}
 		return roomId, nil
 	}

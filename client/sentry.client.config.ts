@@ -1,10 +1,15 @@
 import * as Sentry from '@sentry/nextjs';
 import { isStaleBundleError } from './lib/staleBundle';
+import { scrubUrl } from './lib/scrubUrl';
 
 Sentry.init({
     // Set NEXT_PUBLIC_SENTRY_DSN in your environment to enable error tracking.
     // Leave empty (or omit) to disable Sentry — safe for local development and forks.
     dsn: process.env.NEXT_PUBLIC_SENTRY_DSN || '',
+
+    // Never attach cookies/headers/user IP by default. The room secret travels
+    // in the URL, which we additionally scrub below.
+    sendDefaultPii: false,
 
     // Filter out non-actionable errors caused by browser extensions and restricted environments
     ignoreErrors: [
@@ -44,7 +49,24 @@ Sentry.init({
             event.tags = { ...event.tags, stale_bundle: true, auto_recovered: true };
         }
 
+        // Strip the room secret from the request URL before the event is sent.
+        if (event.request?.url) {
+            event.request.url = scrubUrl(event.request.url);
+        }
+
         return event;
+    },
+
+    // Breadcrumbs (navigation, fetch, xhr) record URLs as they happen; scrub the
+    // room secret out of each one before it's attached to any event.
+    beforeBreadcrumb(breadcrumb) {
+        const data = breadcrumb.data;
+        if (data) {
+            if (typeof data.url === 'string') data.url = scrubUrl(data.url);
+            if (typeof data.to === 'string') data.to = scrubUrl(data.to);
+            if (typeof data.from === 'string') data.from = scrubUrl(data.from);
+        }
+        return breadcrumb;
     },
 
     // Session replay: capture 10% of sessions, 100% of sessions with errors

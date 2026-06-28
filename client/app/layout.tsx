@@ -2,9 +2,12 @@ import type { Metadata, Viewport } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import { ServiceWorkerRegistration } from '@/components/ServiceWorkerRegistration';
-import { Analytics } from '@vercel/analytics/react';
-import { SpeedInsights } from '@vercel/speed-insights/next';
 import Script from 'next/script';
+
+// Public-facing base URL. Defaults to floe.one for the canonical deploy; set
+// NEXT_PUBLIC_SITE_URL when self-hosting so canonical/OG/sitemap point at your
+// own domain instead.
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.floe.one';
 
 const geistSans = Geist({
     variable: '--font-geist-sans',
@@ -20,7 +23,7 @@ export const metadata: Metadata = {
     title: 'Floe',
     description:
         'Send files directly to anyone. No uploads, no accounts, end-to-end encrypted. Works on any device, any browser.',
-    metadataBase: new URL('https://www.floe.one'),
+    metadataBase: new URL(siteUrl),
     alternates: {
         canonical: '/',
     },
@@ -31,7 +34,8 @@ export const metadata: Metadata = {
         siteName: 'Floe',
         images: [
             {
-                url: 'https://www.floe.one/og.png?v=3',
+                // Relative path resolves against metadataBase (siteUrl above).
+                url: '/og.png?v=3',
                 width: 1200,
                 height: 630,
                 alt: 'Floe — Encrypted peer-to-peer file transfer',
@@ -45,7 +49,7 @@ export const metadata: Metadata = {
         title: 'Floe — Encrypted P2P File Transfer. No Uploads.',
         description:
             'Send files directly from your device to anyone in the world. No accounts, no file storage, fully end-to-end encrypted.',
-        images: ['https://www.floe.one/og.png?v=3'],
+        images: ['/og.png?v=3'],
     },
 };
 
@@ -66,8 +70,6 @@ export default function RootLayout({
             >
                 <ServiceWorkerRegistration />
                 {children}
-                <Analytics />
-                <SpeedInsights />
                 {process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID && (
                     <Script
                         defer
@@ -84,7 +86,7 @@ export default function RootLayout({
                             '@context': 'https://schema.org',
                             '@type': 'WebApplication',
                             name: 'Floe',
-                            url: 'https://www.floe.one',
+                            url: siteUrl,
                             description: 'Secure, encrypted P2P file transfer. No accounts, no file storage, no registration required.',
                             applicationCategory: 'UtilitiesApplication',
                             operatingSystem: 'Any',

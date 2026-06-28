@@ -52,7 +52,7 @@ async function senderSetup(
     await senderPage.locator('button', { hasText: 'Create Secure Link' }).click();
 
     // Generated link appears in the <code> element
-    const linkEl = senderPage.locator('code').filter({ hasText: '?room=' });
+    const linkEl = senderPage.locator('code').filter({ hasText: '#room=' });
     await expect(linkEl).toBeVisible({ timeout: 10_000 });
     return (await linkEl.textContent())!.trim();
 }
@@ -80,7 +80,7 @@ test('transfers a 50 MB binary file with SHA-256 integrity check', async ({ brow
 
     try {
         const link = await senderSetup(senderPage, fixturePath);
-        expect(link).toContain('?room=');
+        expect(link).toContain('#room=');
 
         await receiverPage.goto(link);
 

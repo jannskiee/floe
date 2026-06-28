@@ -113,12 +113,18 @@ export default function PrivacyPolicy() {
                         <p>
                             Floe uses third-party infrastructure providers for
                             hosting and network relay services. The web app is
-                            hosted on Vercel, which collects aggregate, anonymous
-                            traffic and performance metrics through Vercel Analytics
-                            and Speed Insights. We also use Sentry for error
-                            monitoring and Umami for privacy-respecting usage
-                            analytics. Please refer to their respective privacy
-                            policies regarding data handling.
+                            hosted on Vercel. For usage analytics we use only
+                            Umami, which is cookieless and does not track you
+                            across sites, and we optionally use Sentry for error
+                            monitoring. The link you share carries its room id in
+                            the URL fragment (the part after the
+                            <code className="text-xs bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-300">
+                                #
+                            </code>
+                            ), which browsers never send to any server or
+                            analytics provider, so the transfer secret stays
+                            between you and the recipient. Please refer to each
+                            provider&apos;s privacy policy regarding data handling.
                         </p>
                     </section>
 
