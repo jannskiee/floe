@@ -100,7 +100,7 @@ async function browserSenderSetup(page: Page, fixturePath: string): Promise<stri
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(fixturePath);
     await page.locator('button', { hasText: 'Create Secure Link' }).click();
-    const linkEl = page.locator('code').filter({ hasText: '?room=' });
+    const linkEl = page.locator('code').filter({ hasText: '#room=' });
     await expect(linkEl).toBeVisible({ timeout: 10_000 });
     return (await linkEl.textContent())!.trim();
 }
@@ -133,8 +133,8 @@ function spawnSend(fixturePath: string): {
 
         proc.stdout?.on('data', (chunk: Buffer) => {
             stdout += chunk.toString();
-            // Room link always contains ?room=
-            const match = stdout.match(/https?:\/\/\S*\?room=[^\s]+/);
+            // Room link always contains #room=
+            const match = stdout.match(/https?:\/\/\S*#room=[^\s]+/);
             if (match) {
                 clearTimeout(timer);
                 resolve(match[0].trim());

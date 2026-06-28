@@ -158,7 +158,9 @@ func runSend(cmd *cobra.Command, args []string) error {
 			webURL = flagServer // self-hosted: same origin
 		}
 	}
-	link := webURL + "?room=" + roomId
+	// The room id goes in the URL fragment (#room=) so it never reaches the
+	// web server or its analytics when a browser opens this link.
+	link := webURL + "/#room=" + roomId
 
 	fmt.Printf("  Sending   %s\n", summary.Label)
 	var rows [][2]string
