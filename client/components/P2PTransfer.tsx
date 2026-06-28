@@ -13,14 +13,13 @@ import { useEffect, useRef, useState } from 'react';
 import io, { Socket } from 'socket.io-client';
 import SimplePeer, { Instance as PeerInstance } from 'simple-peer';
 import { v4 as uuidv4 } from 'uuid';
-import { zip, Zippable } from 'fflate';
 import * as Sentry from '@sentry/nextjs';
 import { formatSpeed, formatETA } from '@/lib/transferUtils';
 import { createReceiver } from '@/lib/transfer/receiver';
 import { sendFiles as sendFilesEngine } from '@/lib/transfer/sender';
-import { dedupeFileName } from '@/lib/download';
 import { useWakeLock } from '@/hooks/useWakeLock';
 import { useFileManagement, type FileWithId } from '@/hooks/useFileManagement';
+import { useDownloadManager, type ReceivedFile } from '@/hooks/useDownloadManager';
 
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -72,13 +71,6 @@ const socket: Socket = io(
     }
 );
 
-interface ReceivedFile {
-    id: string;
-    fileName: string;
-    fileSize: number;
-    downloadUrl: string;
-}
-
 // The room id is the transfer's only secret: anyone holding it can join as the
 // receiver. It lives in the URL fragment (#room=<id>) so it never leaves the
 // browser. Fragments are not sent to the server, are stripped from the Referer
@@ -104,9 +96,6 @@ export function P2PTransfer() {
     const [progress, setProgress] = useState(0);
     const [receivedFiles, setReceivedFiles] = useState<ReceivedFile[]>([]);
     const [copied, setCopied] = useState(false);
-    const [isZipping, setIsZipping] = useState(false);
-    const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0, label: '' });
-    const [isDownloading, setIsDownloading] = useState(false);
     const [error, setError] = useState('');
     const [transferSpeed, setTransferSpeed] = useState('');
     const [estimatedTime, setEstimatedTime] = useState('');
@@ -127,6 +116,14 @@ export function P2PTransfer() {
         handleDragLeave,
         handleDrop,
     } = useFileManagement();
+
+    const {
+        isZipping,
+        isDownloading,
+        downloadProgress,
+        handleDownloadAll,
+        handleDownloadZip,
+    } = useDownloadManager(receivedFiles, setError);
 
     const RELAY_SIZE_LIMIT = 2 * 1024 * 1024 * 1024; // 2 GB
     const isRelayOverLimit = connectionType === 'relay' && totalBytes > RELAY_SIZE_LIMIT;
@@ -232,103 +229,6 @@ export function P2PTransfer() {
         document.addEventListener('click', close);
         return () => document.removeEventListener('click', close);
     }, [showInfoTooltip]);
-    const handleDownloadAll = async () => {
-        setIsDownloading(true);
-        setDownloadProgress({ current: 0, total: receivedFiles.length, label: 'Starting download...' });
-
-        for (let i = 0; i < receivedFiles.length; i++) {
-            const file = receivedFiles[i];
-            setDownloadProgress({
-                current: i + 1,
-                total: receivedFiles.length,
-                label: `Downloading: ${file.fileName}`
-            });
-
-            const link = document.createElement('a');
-            link.href = file.downloadUrl;
-            link.download = file.fileName;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-
-            await new Promise(resolve => setTimeout(resolve, 300));
-        }
-
-        setIsDownloading(false);
-        setDownloadProgress({ current: 0, total: 0, label: '' });
-    };
-
-    const handleDownloadZip = async () => {
-        if (receivedFiles.length === 0) return;
-
-        setIsZipping(true);
-        setError('');
-        setDownloadProgress({ current: 0, total: receivedFiles.length, label: 'Preparing files...' });
-
-        try {
-            const filesToZip: Zippable = {};
-            const usedNames = new Set<string>();
-            let failedCount = 0;
-
-            for (let i = 0; i < receivedFiles.length; i++) {
-                const file = receivedFiles[i];
-                setDownloadProgress({
-                    current: i + 1,
-                    total: receivedFiles.length,
-                    label: `Processing: ${file.fileName}`
-                });
-
-                try {
-                    const response = await fetch(file.downloadUrl);
-                    if (!response.ok) throw new Error('Fetch failed');
-                    const blob = await response.blob();
-                    const arrayBuffer = await blob.arrayBuffer();
-
-                    const finalName = dedupeFileName(file.fileName, usedNames);
-                    filesToZip[finalName] = new Uint8Array(arrayBuffer);
-                } catch {
-                    failedCount++;
-                }
-            }
-
-            if (Object.keys(filesToZip).length === 0) {
-                setError('Could not prepare files for ZIP. Try "Download All" instead.');
-                setIsZipping(false);
-                setDownloadProgress({ current: 0, total: 0, label: '' });
-                return;
-            }
-
-            setDownloadProgress({ current: receivedFiles.length, total: receivedFiles.length, label: 'Creating ZIP archive...' });
-
-            zip(filesToZip, (err, data) => {
-                if (err) {
-                    setError('ZIP creation failed. Try "Download All" instead.');
-                    setIsZipping(false);
-                    setDownloadProgress({ current: 0, total: 0, label: '' });
-                    return;
-                }
-                const blob = new Blob([data as unknown as BlobPart], { type: 'application/zip' });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = `floe_transfer_${new Date().getTime()}.zip`;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                URL.revokeObjectURL(url);
-                setIsZipping(false);
-                setDownloadProgress({ current: 0, total: 0, label: '' });
-                if (failedCount > 0) {
-                    setError(`${failedCount} file(s) could not be included in ZIP.`);
-                }
-            });
-        } catch {
-            setError('ZIP creation failed. Try "Download All" instead.');
-            setIsZipping(false);
-            setDownloadProgress({ current: 0, total: 0, label: '' });
-        }
-    };
-
     const handleCopy = async () => {
         try {
             await navigator.clipboard.writeText(generatedLink);
