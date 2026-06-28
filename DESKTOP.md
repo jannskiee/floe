@@ -68,10 +68,12 @@ go.work                ties cli + desktop for local dev (to be added)
 - [x] Full app builds: `wails build` produces a 16.5 MB `desktop.exe`, engine linked
 - [x] Proved interop: desktop received files sent from floe.one (browser) AND the `floe` CLI
 
-### Phase 2 - Real app
-- [ ] Send and receive UI sharing the web app's design
-- [ ] Live progress, speed, and ETA via Go-to-UI events
-- [ ] Drag and drop, folder sends, "show in folder"
+### Phase 2 - Real app  [IN PROGRESS]
+- [x] Send from desktop: native file picker (`SelectFiles`) + code/link via the engine sender, reported through Wails events (`send:code/status/done/error`)
+- [x] Basic Send / Receive two-mode UI
+- [ ] Live progress, speed, and ETA via Go-to-UI events (needs an engine progress callback)
+- [ ] Polished UI sharing the web app's design (drag and drop, QR code)
+- [ ] Folder sends and "show in folder"
 - [ ] System tray, background receive, OS notifications, dark mode
 - [ ] App auto-update (Sparkle on macOS, WinSparkle on Windows)
 

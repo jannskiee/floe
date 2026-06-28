@@ -9,3 +9,11 @@ export function EngineProtocolVersion() {
 export function ReceiveByCode(arg1, arg2) {
   return window['go']['main']['App']['ReceiveByCode'](arg1, arg2);
 }
+
+export function SelectFiles() {
+  return window['go']['main']['App']['SelectFiles']();
+}
+
+export function StartSend(arg1) {
+  return window['go']['main']['App']['StartSend'](arg1);
+}
