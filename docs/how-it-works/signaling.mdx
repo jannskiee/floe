@@ -42,7 +42,7 @@ The signaling server never touches file data, never stores your files or any rec
   5. Both peers exchange ICE candidates via `signal` events (trickle ICE).
   6. Once ICE negotiation completes, the WebRTC data channel opens directly between the peers.
 
-  **Short codes:** Registered via `POST /api/code` with a room UUID. The server picks three random words from a 288-word list using a cryptographically secure random source (`crypto.randomInt`, not `Math.random`) — the code phrase is the only secret guarding a transfer — and maps them to the room ID with a 10-minute TTL. `GET /api/code/:code` resolves a code back to its room UUID.
+  **Short codes:** Registered via `POST /api/code` with a room UUID. The server picks three random words from a 288-word list using a cryptographically secure random source (`crypto.randomInt`, not `Math.random`), because the code phrase is the only secret guarding a transfer, and maps them to the room ID with a 10-minute TTL. `GET /api/code/:code` resolves a code back to its room UUID.
 
   **TURN credentials:** Issued via `GET /api/turn-credentials`. Credentials use HMAC-SHA1 with a 24-hour expiry. If `TURN_SECRET` is not set, the endpoint returns STUN servers only.
 

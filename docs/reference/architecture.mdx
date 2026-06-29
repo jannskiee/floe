@@ -112,7 +112,7 @@ All messages are JSON objects with a `type` field.
 | Connection rate | 30 per IP per 60 s (configurable via `MAX_CONNECTIONS_PER_IP`) | Socket.IO connections and WebSocket `/ws` connections, shared |
 | TURN credential rate | 20 per IP per 60 s | `GET /api/turn-credentials` |
 | Code endpoint rate | 60 per IP per 60 s (configurable via `MAX_CODE_REQUESTS_PER_IP`) | `POST /api/code` and `GET /api/code/:code`, shared |
-| Active code cap | 10000 simultaneously-live codes (configurable via `MAX_ACTIVE_CODES`) | `POST /api/code` — returns `503` when the registry is full |
+| Active code cap | 10000 simultaneously-live codes (configurable via `MAX_ACTIVE_CODES`) | `POST /api/code`. Returns `503` when the registry is full. |
 | Stats report rate | 60 per IP per 60 s | `POST /api/stats/report` |
 
 Counters are tracked in memory (`Map<ip, timestamp[]>`) and cleaned every 60 seconds. Per-IP limits respond with `429`. The active-code cap responds with `503` and applies globally, not per-IP, because it guards the size of the in-memory code registry.
