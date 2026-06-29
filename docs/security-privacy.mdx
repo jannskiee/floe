@@ -40,6 +40,10 @@ The counter is an honest best-effort metric protected by lightweight guardrails 
 - Browser: uncheck "Contribute to global stats" on the receiver view before the transfer completes. The preference is saved in your browser and applies to all future transfers from that device.
 - CLI: pass `--no-report` to `floe receive` for a single transfer, or set `FLOE_NO_STATS=1` in your environment to opt out permanently. When opted out, no request is made to the server and the counter is not incremented.
 
+## The room secret stays in the URL fragment
+
+Share links use a URL fragment (`https://floe.one/#room=...`), not a query string. The fragment portion of a URL is handled entirely by the browser and is never sent to any server in HTTP requests. This means the room secret is not included in `Referer` headers when you click outbound links, is not visible to server access logs, and is not captured by pageview analytics or third-party trackers. The signaling server only sees the room ID after the browser explicitly joins the room over the WebSocket — and even then, file bytes never reach the server.
+
 ## What the TURN relay sees
 
 When a direct connection cannot be established (strict firewalls, carrier-grade NAT), Floe routes traffic through a TURN relay server. The relay server acts as a forwarding intermediary.
