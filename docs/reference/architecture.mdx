@@ -32,8 +32,8 @@ The server exposes two transports. Both share the same `rooms` registry (`Map<ro
 | `GET` | `/` | Status check. Returns `{ "status": "ok", "timestamp": "..." }`. |
 | `GET` | `/health` | Liveness probe. Returns `{ "status": "healthy", "uptime": <seconds> }`. |
 | `GET` | `/api/turn-credentials` | Returns ICE server list. With `TURN_SECRET` set, includes coturn credentials. Without it, returns Google STUN servers only. Rate-limited to 20 requests per IP per 60 s. |
-| `POST` | `/api/code` | Registers a short code for a room ID. Body: `{ "roomId": "<uuid>" }`. Response: `{ "code": "word-word-word" }`. TTL: 10 minutes. |
-| `GET` | `/api/code/:code` | Resolves a short code to a room ID. Response: `{ "roomId": "<uuid>" }`. Returns 404 if expired or not found. |
+| `POST` | `/api/code` | Registers a short code for a room ID. Body: `{ "roomId": "<uuid>" }`. Response: `{ "code": "word-word-word" }`. TTL: 10 minutes. Rate-limited to 60 requests per IP per 60 s (shared with `GET /api/code/:code`, configurable via `MAX_CODE_REQUESTS_PER_IP`). Returns `503` when the live-code count hits `MAX_ACTIVE_CODES` (default 10000). |
+| `GET` | `/api/code/:code` | Resolves a short code to a room ID. Response: `{ "roomId": "<uuid>" }`. Returns 404 if expired or not found. Rate-limited to 60 requests per IP per 60 s (shared with `POST /api/code`, configurable via `MAX_CODE_REQUESTS_PER_IP`). |
 | `GET` | `/api/stats` | Returns the all-time global transfer counter: `{ "totalBytes": <integer> }`. Served from an in-memory cache (no Redis read per request). |
 | `POST` | `/api/stats/report` | Receiver peers report bytes after a completed transfer. Body: `{ "bytes": <positive integer> }`. Response: `{ "totalBytes": <integer> }`. Rate-limited to 60 requests per IP per 60 s; rejects values that are not positive integers or exceed `MAX_REPORT_BYTES` (default 5 TB). |
 
@@ -111,9 +111,11 @@ All messages are JSON objects with a `type` field.
 |-------|-------|-----------|
 | Connection rate | 30 per IP per 60 s (configurable via `MAX_CONNECTIONS_PER_IP`) | Socket.IO connections and WebSocket `/ws` connections, shared |
 | TURN credential rate | 20 per IP per 60 s | `GET /api/turn-credentials` |
+| Code endpoint rate | 60 per IP per 60 s (configurable via `MAX_CODE_REQUESTS_PER_IP`) | `POST /api/code` and `GET /api/code/:code`, shared |
+| Active code cap | 10000 simultaneously-live codes (configurable via `MAX_ACTIVE_CODES`) | `POST /api/code` — returns `503` when the registry is full |
 | Stats report rate | 60 per IP per 60 s | `POST /api/stats/report` |
 
-Counters are tracked in memory (`Map<ip, timestamp[]>`) and cleaned every 60 seconds.
+Counters are tracked in memory (`Map<ip, timestamp[]>`) and cleaned every 60 seconds. Per-IP limits respond with `429`. The active-code cap responds with `503` and applies globally, not per-IP, because it guards the size of the in-memory code registry.
 
 ## Signaling flow
 
@@ -223,7 +225,7 @@ The four-step sequence (metadata, ack, binary chunks, end) repeats for each file
 
 ## Room codes
 
-Codes are three random words joined by hyphens (e.g. `olive-tiger-castle`), sampled from a 288-word corpus in `server/words.json`. On collision (extremely rare), a fourth word is appended. Codes expire 10 minutes after registration.
+Codes are three random words joined by hyphens (e.g. `olive-tiger-castle`), sampled from a 288-word corpus in `server/words.json` using `crypto.randomInt` (a CSPRNG, bias-free), since the code phrase is the only secret guarding a transfer. On collision (extremely rare), a fourth word is appended. Codes expire 10 minutes after registration. The number of simultaneously-live codes is capped by `MAX_ACTIVE_CODES` (default 10000); `POST /api/code` returns `503` when the cap is reached.
 
 ## Global statistics counter
 
