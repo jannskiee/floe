@@ -10,7 +10,6 @@ if (typeof window !== 'undefined') {
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 import { useEffect, useRef, useState } from 'react';
-import io, { Socket } from 'socket.io-client';
 import SimplePeer, { Instance as PeerInstance } from 'simple-peer';
 import { v4 as uuidv4 } from 'uuid';
 import * as Sentry from '@sentry/nextjs';
@@ -20,6 +19,7 @@ import { sendFiles as sendFilesEngine } from '@/lib/transfer/sender';
 import { useWakeLock } from '@/hooks/useWakeLock';
 import { useFileManagement, type FileWithId } from '@/hooks/useFileManagement';
 import { useDownloadManager, type ReceivedFile } from '@/hooks/useDownloadManager';
+import { useSignaling } from '@/hooks/useSignaling';
 
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -63,14 +63,6 @@ import {
 import { formatBytes } from '@/lib/utils';
 import { FileIcon } from '@/components/FileIcon';
 
-const socket: Socket = io(
-    process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001',
-    {
-        reconnectionDelay: 500,
-        reconnectionDelayMax: 3000,
-    }
-);
-
 // The room id is the transfer's only secret: anyone holding it can join as the
 // receiver. It lives in the URL fragment (#room=<id>) so it never leaves the
 // browser. Fragments are not sent to the server, are stripped from the Referer
@@ -89,8 +81,6 @@ function getRoomFromUrl(): string | null {
 export function P2PTransfer() {
     const [isSender, setIsSender] = useState<boolean | null>(null);
     const [status, setStatus] = useState('Idle');
-    const [isConnected, setIsConnected] = useState(false);
-    const [ping, setPing] = useState(0);
     const [generatedLink, setGeneratedLink] = useState('');
     const [currentFileIndex, setCurrentFileIndex] = useState(0);
     const [progress, setProgress] = useState(0);
@@ -142,6 +132,65 @@ export function P2PTransfer() {
     const connTypeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const { requestWakeLock, releaseWakeLock } = useWakeLock();
+
+    const {
+        isConnected,
+        setIsConnected,
+        ping,
+        joinRoom,
+        sendSignal,
+        onUserConnected,
+        onRoomFull,
+    } = useSignaling({
+        onSignal: (data) => {
+            const peer = peerRef.current;
+            if (!peer || peer.destroyed) return;
+            const sig = data?.signal;
+            if (!sig) return;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const pc = (peer as any)._pc as RTCPeerConnection | undefined;
+            // A duplicate/late SDP answer applied after negotiation completes throws
+            // InvalidStateError ("Called in wrong state: stable"). Skip only answers.
+            // Applying an offer in `stable` is the receiver's normal first step.
+            if (pc && pc.signalingState === 'stable' && sig.type === 'answer') {
+                Sentry.addBreadcrumb({
+                    category: 'webrtc',
+                    level: 'warning',
+                    message: 'Skipped duplicate answer signal: peer already in stable state',
+                });
+                return;
+            }
+            try {
+                peer.signal(sig);
+            } catch (err) {
+                Sentry.addBreadcrumb({
+                    category: 'webrtc',
+                    level: 'warning',
+                    message: `Ignored signal in state ${pc?.signalingState}: ${(err as Error).message}`,
+                });
+            }
+        },
+        onPeerDisconnected: () => {
+            if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
+                setStatus('Transfer complete');
+            } else {
+                setStatus('Peer disconnected. Waiting for reconnection');
+            }
+            if (peerRef.current) peerRef.current.destroy();
+            releaseWakeLock();
+        },
+        onDisconnect: () => {
+            if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
+                setStatus('Transfer complete');
+            }
+        },
+        onConnectError: (err) => {
+            if (err.message === 'Rate limit exceeded') {
+                setError('Too many refreshes. Reconnecting');
+            }
+        },
+        onReconnect: () => setError(''),
+    });
 
     const fetchIceServers = async () => {
         try {
@@ -268,11 +317,7 @@ export function P2PTransfer() {
 
         setStatus('Connecting');
 
-        socket.off('room-full');
-
-        socket.emit('join-room', roomId);
-
-        socket.on('room-full', () => {
+        onRoomFull(() => {
             if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
                 setStatus('Transfer complete');
                 return;
@@ -280,6 +325,8 @@ export function P2PTransfer() {
             setError('Link Expired or Busy');
             setStatus('Access Denied');
         });
+
+        joinRoom(roomId);
 
         const peer = new SimplePeer({
             initiator: false,
@@ -290,7 +337,7 @@ export function P2PTransfer() {
         });
 
         peer.on('signal', (signal) =>
-            socket.emit('signal', { target: null, roomId, signal })
+            sendSignal({ target: null, roomId, signal })
         );
         peer.on('connect', () => {
             setIsConnected(true);
@@ -442,86 +489,8 @@ export function P2PTransfer() {
             fetchIceServers();
         }
 
-        if (socket.connected) queueMicrotask(() => setIsConnected(true));
-        socket.on('connect', () => setIsConnected(true));
-        socket.on('disconnect', () => {
-            setIsConnected(false);
-            setPing(0);
-            if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
-                setStatus('Transfer complete');
-            }
-        });
-
-        socket.on('connect_error', (err) => {
-            setIsConnected(false);
-            if (err.message === 'Rate limit exceeded') {
-                setError('Too many refreshes. Reconnecting');
-            }
-        });
-
-        socket.io.on('reconnect', () => {
-            setError('');
-        });
-
-        const pingInterval = setInterval(() => {
-            const start = performance.now();
-            socket.emit('ping', () => {
-                const duration = performance.now() - start;
-                setPing(Number(duration.toFixed(2)));
-            });
-        }, 2000);
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        socket.on('signal', (data: any) => {
-            const peer = peerRef.current;
-            if (!peer || peer.destroyed) return;
-            const sig = data?.signal;
-            if (!sig) return;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const pc = (peer as any)._pc as RTCPeerConnection | undefined;
-            // A duplicate/late SDP answer applied after negotiation completes throws
-            // InvalidStateError ("Called in wrong state: stable"). Skip only answers.
-            // Applying an offer in `stable` is the receiver's normal first step.
-            if (pc && pc.signalingState === 'stable' && sig.type === 'answer') {
-                Sentry.addBreadcrumb({
-                    category: 'webrtc',
-                    level: 'warning',
-                    message: 'Skipped duplicate answer signal: peer already in stable state',
-                });
-                return;
-            }
-            try {
-                peer.signal(sig);
-            } catch (err) {
-                Sentry.addBreadcrumb({
-                    category: 'webrtc',
-                    level: 'warning',
-                    message: `Ignored signal in state ${pc?.signalingState}: ${(err as Error).message}`,
-                });
-            }
-        });
-
-        socket.on('peer-disconnected', () => {
-            if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
-                setStatus('Transfer complete');
-            } else {
-                setStatus('Peer disconnected. Waiting for reconnection');
-            }
-            if (peerRef.current) peerRef.current.destroy();
-            releaseWakeLock();
-        });
-
         return () => {
-            clearInterval(pingInterval);
             if (connTypeIntervalRef.current) clearInterval(connTypeIntervalRef.current);
-            socket.off('signal');
-            socket.off('user-connected');
-            socket.off('connect');
-            socket.off('disconnect');
-            socket.off('room-full');
-            socket.off('peer-disconnected');
-            socket.off('connect_error');
-            socket.io.off('reconnect');
             releaseWakeLock();
             peerRef.current?.destroy();
             receivedFilesRef.current.forEach((f) => URL.revokeObjectURL(f.downloadUrl));
@@ -557,11 +526,10 @@ export function P2PTransfer() {
         const newRoomId = uuidv4();
         const link = `${window.location.protocol}//${window.location.host}/#room=${newRoomId}`;
         setGeneratedLink(link);
-        socket.emit('join-room', newRoomId);
+        joinRoom(newRoomId);
         setStatus('Waiting for peer');
 
-        socket.off('user-connected');
-        socket.on('user-connected', (userId: string) => {
+        onUserConnected((userId: string) => {
             if (peerRef.current && !peerRef.current.destroyed) {
                 peerRef.current.destroy();
             }
@@ -584,7 +552,7 @@ export function P2PTransfer() {
             });
 
             peer.on('signal', (signal) =>
-                socket.emit('signal', { target: userId, signal })
+                sendSignal({ target: userId, signal })
             );
             peer.on('connect', () => {
                 setIsConnected(true);
