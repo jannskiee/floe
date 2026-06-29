@@ -1,6 +1,6 @@
 ---
 title: "Security and Privacy"
-description: "What Floe's servers can and cannot see, and how your files are protected."
+description: "Learn what Floe's signaling server and TURN relay can see, how end-to-end DTLS encryption protects file bytes, and how to opt out of stats."
 ---
 
 ## The short version
@@ -42,7 +42,7 @@ The counter is an honest best-effort metric protected by lightweight guardrails 
 
 ## The room secret stays in the URL fragment
 
-Share links use a URL fragment (`https://floe.one/#room=...`), not a query string. The fragment portion of a URL is handled entirely by the browser and is never sent to any server in HTTP requests. This means the room secret is not included in `Referer` headers when you click outbound links, is not visible to server access logs, and is not captured by pageview analytics or third-party trackers. The signaling server only sees the room ID after the browser explicitly joins the room over the WebSocket — and even then, file bytes never reach the server.
+Share links use a URL fragment (`https://floe.one/#room=...`), not a query string. The fragment portion of a URL is handled entirely by the browser and is never sent to any server in HTTP requests. As a result, the room secret is not included in `Referer` headers when you click outbound links, is not visible to server access logs, and is not captured by pageview analytics or third-party trackers. The signaling server only sees the room ID after the browser explicitly joins the room over the WebSocket, and even then, file bytes never reach the server.
 
 ## What the TURN relay sees
 
