@@ -20,6 +20,7 @@ import { useWakeLock } from '@/hooks/useWakeLock';
 import { useFileManagement, type FileWithId } from '@/hooks/useFileManagement';
 import { useDownloadManager, type ReceivedFile } from '@/hooks/useDownloadManager';
 import { useSignaling } from '@/hooks/useSignaling';
+import { useConnectionType } from '@/hooks/useConnectionType';
 
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -89,7 +90,6 @@ export function P2PTransfer() {
     const [error, setError] = useState('');
     const [transferSpeed, setTransferSpeed] = useState('');
     const [estimatedTime, setEstimatedTime] = useState('');
-    const [connectionType, setConnectionType] = useState<'direct' | 'relay' | null>(null);
     const [showQr, setShowQr] = useState(false);
     const [showInfoTooltip, setShowInfoTooltip] = useState(false);
     const [relayEnabled, setRelayEnabled] = useState(true);
@@ -115,6 +115,13 @@ export function P2PTransfer() {
         handleDownloadZip,
     } = useDownloadManager(receivedFiles, setError);
 
+    const {
+        connectionType,
+        startPolling: startConnectionTypePolling,
+        stopPolling: stopConnectionTypePolling,
+        reset: resetConnectionType,
+    } = useConnectionType();
+
     const RELAY_SIZE_LIMIT = 2 * 1024 * 1024 * 1024; // 2 GB
     const isRelayOverLimit = connectionType === 'relay' && totalBytes > RELAY_SIZE_LIMIT;
 
@@ -129,7 +136,6 @@ export function P2PTransfer() {
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
     ]);
-    const connTypeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const { requestWakeLock, releaseWakeLock } = useWakeLock();
 
@@ -204,25 +210,6 @@ export function P2PTransfer() {
         } catch {
 
         }
-    };
-
-    const checkConnectionType = async (peer: PeerInstance) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const pc = (peer as any)._pc as RTCPeerConnection | undefined;
-        if (!pc) return;
-        try {
-            const stats = await pc.getStats();
-            stats.forEach((report) => {
-                if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.nominated) {
-                    const localCandidate = stats.get(report.localCandidateId);
-                    const remoteCandidate = stats.get(report.remoteCandidateId);
-                    const isRelay =
-                        localCandidate?.candidateType === 'relay' ||
-                        remoteCandidate?.candidateType === 'relay';
-                    setConnectionType(isRelay ? 'relay' : 'direct');
-                }
-            });
-        } catch { }
     };
 
     useEffect(() => {
@@ -342,9 +329,7 @@ export function P2PTransfer() {
         peer.on('connect', () => {
             setIsConnected(true);
             requestWakeLock();
-            checkConnectionType(peer);
-            if (connTypeIntervalRef.current) clearInterval(connTypeIntervalRef.current);
-            connTypeIntervalRef.current = setInterval(() => checkConnectionType(peer), 5000);
+            startConnectionTypePolling(peer);
             Sentry.addBreadcrumb({
                 category: 'webrtc',
                 message: 'Receiver peer connected',
@@ -353,8 +338,8 @@ export function P2PTransfer() {
         });
         peer.on('close', () => {
             releaseWakeLock();
-            setConnectionType(null);
-            if (connTypeIntervalRef.current) clearInterval(connTypeIntervalRef.current);
+            resetConnectionType();
+            stopConnectionTypePolling();
             Sentry.addBreadcrumb({
                 category: 'webrtc',
                 message: 'Receiver peer connection closed',
@@ -490,7 +475,7 @@ export function P2PTransfer() {
         }
 
         return () => {
-            if (connTypeIntervalRef.current) clearInterval(connTypeIntervalRef.current);
+            stopConnectionTypePolling();
             releaseWakeLock();
             peerRef.current?.destroy();
             receivedFilesRef.current.forEach((f) => URL.revokeObjectURL(f.downloadUrl));
@@ -556,9 +541,7 @@ export function P2PTransfer() {
             );
             peer.on('connect', () => {
                 setIsConnected(true);
-                checkConnectionType(peer);
-                if (connTypeIntervalRef.current) clearInterval(connTypeIntervalRef.current);
-                connTypeIntervalRef.current = setInterval(() => checkConnectionType(peer), 5000);
+                startConnectionTypePolling(peer);
 
                 Sentry.addBreadcrumb({
                     category: 'webrtc',
@@ -622,8 +605,8 @@ export function P2PTransfer() {
             });
             peer.on('close', () => {
                 releaseWakeLock();
-                setConnectionType(null);
-                if (connTypeIntervalRef.current) clearInterval(connTypeIntervalRef.current);
+                resetConnectionType();
+                stopConnectionTypePolling();
                 Sentry.addBreadcrumb({
                     category: 'webrtc',
                     message: 'Sender peer connection closed',
