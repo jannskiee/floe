@@ -22,6 +22,8 @@ import { useDownloadManager, type ReceivedFile } from '@/hooks/useDownloadManage
 import { useSignaling } from '@/hooks/useSignaling';
 import { useConnectionType } from '@/hooks/useConnectionType';
 import { useTransferAnalytics } from '@/hooks/useTransferAnalytics';
+import { useRelayConfiguration } from '@/hooks/useRelayConfiguration';
+import { RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate } from '@/lib/relay';
 
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -87,7 +89,6 @@ export function P2PTransfer() {
     const [estimatedTime, setEstimatedTime] = useState('');
     const [showQr, setShowQr] = useState(false);
     const [showInfoTooltip, setShowInfoTooltip] = useState(false);
-    const [relayEnabled, setRelayEnabled] = useState(true);
 
     const {
         files,
@@ -117,7 +118,8 @@ export function P2PTransfer() {
 
     const { reportStatsEnabled, setReportStatsEnabled, track, reportBytes } = useTransferAnalytics();
 
-    const RELAY_SIZE_LIMIT = 2 * 1024 * 1024 * 1024; // 2 GB
+    const { relayEnabled, setRelayEnabled } = useRelayConfiguration();
+
     const isRelayOverLimit = connectionType === 'relay' && totalBytes > RELAY_SIZE_LIMIT;
 
     const peerRef = useRef<PeerInstance | null>(null);
@@ -476,12 +478,7 @@ export function P2PTransfer() {
             setStatus('Peer joined. Starting transfer');
             requestWakeLock();
 
-            const iceConfig = relayEnabled
-                ? iceServersRef.current
-                : iceServersRef.current.filter((s) => {
-                    const urls = Array.isArray(s.urls) ? s.urls : [s.urls as string];
-                    return !urls.some((u) => u.startsWith('turn:') || u.startsWith('turns:'));
-                });
+            const iceConfig = filterIceServers(iceServersRef.current, relayEnabled);
 
             const peer = new SimplePeer({
                 initiator: true,
@@ -531,7 +528,10 @@ export function P2PTransfer() {
                         data: { isRelay, totalBytes },
                     });
 
-                    if (isRelay && !relayEnabled) {
+                    const totalSize = files.reduce((s, f) => s + f.file.size, 0);
+                    const verdict = evaluateRelayGate({ isRelay, relayEnabled, totalSize });
+
+                    if (verdict.action === 'block-relay-disabled') {
                         setError('Connection failed. Enable "Network Relay" to connect across restrictive networks.');
                         setStatus('Connection failed');
                         Sentry.addBreadcrumb({
@@ -544,17 +544,17 @@ export function P2PTransfer() {
                         return;
                     }
 
-                    const totalSize = files.reduce((s, f) => s + f.file.size, 0);
-                    if (isRelay && totalSize > 2 * 1024 * 1024 * 1024) {
+                    if (verdict.action === 'block-over-limit') {
                         setStatus('Transfer blocked. Relay limit exceeded.');
                         Sentry.addBreadcrumb({
                             category: 'transfer',
                             message: 'Transfer blocked: relay size limit exceeded',
                             level: 'warning',
-                            data: { totalSize, limitBytes: 2 * 1024 * 1024 * 1024 },
+                            data: { totalSize: verdict.totalSize, limitBytes: RELAY_SIZE_LIMIT },
                         });
                         return;
                     }
+
                     sendAllFiles(peer, files);
                 }, 2000);
             });
