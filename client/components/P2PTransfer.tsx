@@ -36,7 +36,6 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Progress } from '@/components/ui/progress';
 import {
     AlertCircle,
     AlertTriangle,
@@ -57,6 +56,7 @@ import { ConnectionStatusBadge } from '@/components/ConnectionStatusBadge';
 import { RelayFallbackToggle } from '@/components/RelayFallbackToggle';
 import { StatsContributionToggle } from '@/components/StatsContributionToggle';
 import { ShareLinkPanel } from '@/components/ShareLinkPanel';
+import { TransferProgressBar } from '@/components/TransferProgressBar';
 
 // The room id is the transfer's only secret: anyone holding it can join as the
 // receiver. It lives in the URL fragment (#room=<id>) so it never leaves the
@@ -751,31 +751,15 @@ export function P2PTransfer() {
                             )}
 
                             {progress > 0 && (
-                                <div className="space-y-2">
-                                    <div className="flex justify-between text-xs text-zinc-400 font-mono">
-                                        <span>
-                                            {isSender
-                                                ? status === 'All Files Sent!'
-                                                    ? `Upload Complete (${files.length} ${files.length === 1 ? 'File' : 'Files'})`
-                                                    : `Sending File ${currentFileIndex + 1} of ${files.length}...`
-                                                : status.includes('Receiving')
-                                                    ? status
-                                                    : 'Receiving...'}
-                                        </span>
-                                        <span className="flex items-center gap-2">
-                                            {transferSpeed && estimatedTime && progress < 100 && (
-                                                <span className="text-zinc-500">
-                                                    {transferSpeed} • {estimatedTime}
-                                                </span>
-                                            )}
-                                            <span>{progress}%</span>
-                                        </span>
-                                    </div>
-                                    <Progress
-                                        value={progress}
-                                        className="h-1 bg-zinc-800 [&>div]:bg-zinc-200"
-                                    />
-                                </div>
+                                <TransferProgressBar
+                                    isSender={isSender}
+                                    status={status}
+                                    currentFileIndex={currentFileIndex}
+                                    filesCount={files.length}
+                                    transferSpeed={transferSpeed}
+                                    estimatedTime={estimatedTime}
+                                    progress={progress}
+                                />
                             )}
 
                             {isSender && !generatedLink && (
