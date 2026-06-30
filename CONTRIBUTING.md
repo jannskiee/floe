@@ -87,6 +87,7 @@ This is aimed at **self-hosting** (running your own instance) rather than active
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `NEXT_PUBLIC_SOCKET_URL` | Yes | Signaling server URL. Defaults to `https://api.floe.one`. No changes needed for UI contributions. |
+| `NEXT_PUBLIC_SITE_URL` | No | Public base URL for canonical links, Open Graph tags, and the sitemap. Defaults to `https://www.floe.one`. Set to your own domain when self-hosting. |
 | `NEXT_PUBLIC_SENTRY_DSN` | No | Your Sentry DSN for client-side error tracking. Leave empty to disable. |
 | `SENTRY_DSN` | No | Your Sentry DSN for server-side error tracking. Leave empty to disable. |
 | `SENTRY_ORG` | No | Your Sentry organization slug. |
@@ -102,6 +103,8 @@ This is aimed at **self-hosting** (running your own instance) rather than active
 | `NODE_ENV` | No | Standard Node.js runtime flag (`development` or `production`). |
 | `TRUSTED_PROXY_COUNT` | No | Trusted reverse-proxy hop count for correct client-IP parsing and rate limiting (default: `1`). Set to `0` for direct exposure with no proxy. |
 | `MAX_CONNECTIONS_PER_IP` | No | Connection rate limit ceiling per IP per 60 seconds (default: `30`). Raise in staging or test environments. |
+| `MAX_CODE_REQUESTS_PER_IP` | No | Rate limit for the `/api/code` endpoints per IP per 60 seconds (default: `60`), shared across registering and resolving codes. Raise in CI or staging. |
+| `MAX_ACTIVE_CODES` | No | Maximum number of simultaneously-live room codes (default: `10000`). `POST /api/code` returns `503` when the cap is reached. |
 | `TURN_SECRET` | No | Shared secret for coturn HMAC credentials. Omit to use STUN-only (direct connections). |
 | `TURN_DOMAIN` | No | Your TURN relay server domain. |
 | `UPSTASH_REDIS_REST_URL` | No | Upstash Redis REST URL for the durable global transfer counter. Omit to run the counter in memory only (resets on restart). |
