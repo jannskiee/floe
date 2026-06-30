@@ -61,6 +61,7 @@ import { formatBytes } from '@/lib/utils';
 import { FileIcon } from '@/components/FileIcon';
 import { ConnectionStatusBadge } from '@/components/ConnectionStatusBadge';
 import { RelayFallbackToggle } from '@/components/RelayFallbackToggle';
+import { StatsContributionToggle } from '@/components/StatsContributionToggle';
 
 // The room id is the transfer's only secret: anyone holding it can join as the
 // receiver. It lives in the URL fragment (#room=<id>) so it never leaves the
@@ -997,43 +998,7 @@ export function P2PTransfer() {
                                 <div className="space-y-3 pt-2">
                                     {/* Contribute to global stats toggle — visible while waiting, before any file arrives */}
                                     {receivedFiles.length === 0 && (
-                                        <div className="mb-1 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
-                                            <label className="flex items-start gap-3 cursor-pointer group/report select-none">
-                                                <div className="relative flex-shrink-0 mt-0.5">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={reportStatsEnabled}
-                                                        onChange={(e) => setReportStatsEnabled(e.target.checked)}
-                                                        className="sr-only"
-                                                    />
-                                                    <div className={`h-4 w-4 rounded-sm border transition-all duration-150 flex items-center justify-center ${reportStatsEnabled
-                                                            ? 'bg-white border-white'
-                                                            : 'bg-transparent border-zinc-600 group-hover/report:border-zinc-400'
-                                                        }`}>
-                                                        {reportStatsEnabled && (
-                                                            <svg viewBox="0 0 10 8" fill="none" className="h-2.5 w-2.5">
-                                                                <path d="M1 4l2.5 2.5L9 1" stroke="#09090b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                                                            </svg>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                                <div className="space-y-1.5">
-                                                    <p className="text-sm font-medium text-zinc-200 leading-none">Contribute to global stats</p>
-                                                    <p className="text-xs text-zinc-500 leading-relaxed">
-                                                        Adds only this transfer&apos;s byte count to Floe&apos;s public total. File names and contents are never sent.{' '}
-                                                        <a
-                                                            href="/privacy"
-                                                            target="_blank"
-                                                            rel="noreferrer"
-                                                            onClick={(e) => e.stopPropagation()}
-                                                            className="text-zinc-400 hover:text-white underline underline-offset-2 transition-colors"
-                                                        >
-                                                            Learn more
-                                                        </a>
-                                                    </p>
-                                                </div>
-                                            </label>
-                                        </div>
+                                        <StatsContributionToggle enabled={reportStatsEnabled} onChange={setReportStatsEnabled} />
                                     )}
 
                                     {receivedFiles.length === 0 &&
