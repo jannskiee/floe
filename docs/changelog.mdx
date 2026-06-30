@@ -3,6 +3,14 @@ title: "Changelog"
 description: "Release history for Floe."
 ---
 
+<Update label="v1.7.2" description="2026-06-30">
+  **CLI: share links keep the room secret in the URL fragment**
+
+  - `floe send` now prints a `https://floe.one/#room=<id>` link. The room id sits in the URL fragment (after the `#`), which a browser never sends to the web server, never puts in the `Referer` header, and never exposes to pageview analytics. Previously it was a `?room=` query parameter that could reach those places when a recipient opened the link in a browser. This brings the CLI in line with the web app.
+  - `floe receive` resolves a `#room=` link, a legacy `?room=` link, or a short code, so links shared by any version keep working.
+  - No transfer-protocol change, so v1.7.2 interoperates with older CLI and browser peers in every direction.
+</Update>
+
 <Update label="v1.7.1" description="2026-06-22">
   **Reliable global-counter reporting for the CLI**
 
