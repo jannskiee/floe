@@ -6,13 +6,18 @@
 # image (`docker compose build client`).
 
 # ---- Builder ---------------------------------------------------------------
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
-RUN npm install -g pnpm@11
+# Pin pnpm to package.json's `packageManager` version so `--frozen-lockfile`
+# matches the lockfile exactly. pnpm 11.x requires Node 22+ (it uses the
+# node:sqlite builtin), which is why the base image is node:22, not node:20.
+RUN npm install -g pnpm@11.1.2
 WORKDIR /app
 
-# Install dependencies first for layer caching.
-COPY package.json pnpm-lock.yaml ./
+# Install dependencies first for layer caching. pnpm-workspace.yaml carries the
+# dependency `overrides` (security pins) baked into the lockfile; without it,
+# `--frozen-lockfile` aborts with ERR_PNPM_LOCKFILE_CONFIG_MISMATCH.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 # Build the standalone server. Sentry source-map upload stays disabled unless you
@@ -24,7 +29,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 
 # ---- Runner ----------------------------------------------------------------
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
