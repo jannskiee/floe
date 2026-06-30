@@ -24,6 +24,7 @@ import { useConnectionType } from '@/hooks/useConnectionType';
 import { useTransferAnalytics } from '@/hooks/useTransferAnalytics';
 import { useRelayConfiguration } from '@/hooks/useRelayConfiguration';
 import { RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate } from '@/lib/relay';
+import { classifyPeerError } from '@/lib/peerErrors';
 
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -335,10 +336,7 @@ export function P2PTransfer() {
             // "Ice connection failed." / "Connection failed." — relay likely disabled on sender
             // "User-Initiated Abort" — sender closed the tab or peer was destroyed
             // Log a breadcrumb but do NOT send to Sentry.
-            const isExpected =
-                err.message === 'Ice connection failed.' ||
-                err.message === 'Connection failed.' ||
-                (err.message?.includes('User-Initiated Abort') ?? false);
+            const { isExpected, reason } = classifyPeerError(err.message);
 
             if (isExpected) {
                 Sentry.addBreadcrumb({
@@ -362,13 +360,7 @@ export function P2PTransfer() {
                 setError(`Connection error: ${err.message}`);
             }
             // Track failed connection attempt
-            track('transfer-failed', {
-                reason: err.message?.includes('User-Initiated Abort') ? 'abort'
-                    : err.message === 'Ice connection failed.' ? 'ice-failed'
-                        : err.message === 'Connection failed.' ? 'conn-failed'
-                            : 'unknown',
-                role: 'receiver',
-            });
+            track('transfer-failed', { reason, role: 'receiver' });
             setStatus('Connection failed');
         });
 
@@ -575,11 +567,7 @@ export function P2PTransfer() {
                     return;
                 }
 
-                const isExpected =
-                    !relayEnabled ||
-                    err.message === 'Ice connection failed.' ||
-                    err.message === 'Connection failed.' ||
-                    (err.message?.includes('User-Initiated Abort') ?? false);
+                const { isExpected, reason } = classifyPeerError(err.message, { relayEnabled });
 
                 if (isExpected) {
                     Sentry.addBreadcrumb({
@@ -608,11 +596,7 @@ export function P2PTransfer() {
                     setError(`Connection error: ${err.message}`);
                 }
                 track('transfer-failed', {
-                    reason: !relayEnabled ? 'relay-disabled'
-                        : err.message?.includes('User-Initiated Abort') ? 'abort'
-                            : err.message === 'Ice connection failed.' ? 'ice-failed'
-                                : err.message === 'Connection failed.' ? 'conn-failed'
-                                    : 'unknown',
+                    reason,
                     role: 'sender',
                     files: files.length,
                     bytes: totalBytes,
