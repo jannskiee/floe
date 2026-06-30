@@ -16,7 +16,7 @@ Thank you for your interest in contributing! All contributions are welcome.
 
 Floe has three parts: a **Next.js client**, a **Node.js signaling server**, and a **Go CLI**.
 
-For most contributions (UI, pages, components), you only need to run the client. It connects to the live signaling server at `api.floe.one` by default.
+For most contributions (UI, pages, components), you only need to run the client. Point it at the live signaling server at `api.floe.one` so you do not need to run a server locally.
 
 ### Client Only (Recommended for most contributors)
 
@@ -25,11 +25,12 @@ git clone https://github.com/YOUR_USERNAME/floe.git
 cd floe/client
 
 cp .env.example .env.local
+# In .env.local, set NEXT_PUBLIC_SOCKET_URL=https://api.floe.one
 pnpm install
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The client connects to `api.floe.one` automatically.
+Open [http://localhost:3000](http://localhost:3000). With `NEXT_PUBLIC_SOCKET_URL` set to `https://api.floe.one`, the client uses the live signaling server, so you do not need to run one locally.
 
 ### Client + Server (Only needed if you're changing server code)
 
@@ -43,7 +44,7 @@ npm start
 # Terminal 2 - Client
 cd floe/client
 cp .env.example .env.local
-# Change NEXT_PUBLIC_SOCKET_URL to http://localhost:3001
+# NEXT_PUBLIC_SOCKET_URL is already http://localhost:3001 (the .env.example default)
 pnpm install
 pnpm dev
 ```
@@ -86,7 +87,7 @@ This is aimed at **self-hosting** (running your own instance) rather than active
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `NEXT_PUBLIC_SOCKET_URL` | Yes | Signaling server URL. Defaults to `https://api.floe.one`. No changes needed for UI contributions. |
+| `NEXT_PUBLIC_SOCKET_URL` | Yes | Signaling server URL the browser connects to. `client/.env.example` ships `http://localhost:3001`; for UI-only work set it to `https://api.floe.one` to use the live server without running one locally. |
 | `NEXT_PUBLIC_SITE_URL` | No | Public base URL for canonical links, Open Graph tags, and the sitemap. Defaults to `https://www.floe.one`. Set to your own domain when self-hosting. |
 | `NEXT_PUBLIC_SENTRY_DSN` | No | Your Sentry DSN for client-side error tracking. Leave empty to disable. |
 | `SENTRY_DSN` | No | Your Sentry DSN for server-side error tracking. Leave empty to disable. |
