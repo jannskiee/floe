@@ -21,14 +21,9 @@ import { useFileManagement, type FileWithId } from '@/hooks/useFileManagement';
 import { useDownloadManager, type ReceivedFile } from '@/hooks/useDownloadManager';
 import { useSignaling } from '@/hooks/useSignaling';
 import { useConnectionType } from '@/hooks/useConnectionType';
+import { useTransferAnalytics } from '@/hooks/useTransferAnalytics';
 
 import { QRCodeSVG } from 'qrcode.react';
-
-interface UmamiWindow extends Window {
-    umami?: {
-        track: (event: string, data?: Record<string, unknown>) => void;
-    };
-}
 
 import {
     Card,
@@ -93,8 +88,6 @@ export function P2PTransfer() {
     const [showQr, setShowQr] = useState(false);
     const [showInfoTooltip, setShowInfoTooltip] = useState(false);
     const [relayEnabled, setRelayEnabled] = useState(true);
-    const [reportStatsEnabled, setReportStatsEnabled] = useState(true);
-    const reportStatsEnabledRef = useRef(true);
 
     const {
         files,
@@ -121,6 +114,8 @@ export function P2PTransfer() {
         stopPolling: stopConnectionTypePolling,
         reset: resetConnectionType,
     } = useConnectionType();
+
+    const { reportStatsEnabled, setReportStatsEnabled, track, reportBytes } = useTransferAnalytics();
 
     const RELAY_SIZE_LIMIT = 2 * 1024 * 1024 * 1024; // 2 GB
     const isRelayOverLimit = connectionType === 'relay' && totalBytes > RELAY_SIZE_LIMIT;
@@ -216,25 +211,6 @@ export function P2PTransfer() {
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setIsSender(!getRoomFromUrl());
     }, []);
-
-    useEffect(() => {
-        try {
-            const stored = localStorage.getItem('floe:report-stats');
-            if (stored !== null) {
-                const val = stored !== 'false';
-                // eslint-disable-next-line react-hooks/set-state-in-effect
-                setReportStatsEnabled(val);
-                reportStatsEnabledRef.current = val;
-            }
-        } catch { }
-    }, []);
-
-    useEffect(() => {
-        reportStatsEnabledRef.current = reportStatsEnabled;
-        try {
-            localStorage.setItem('floe:report-stats', String(reportStatsEnabled));
-        } catch { }
-    }, [reportStatsEnabled]);
 
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -384,15 +360,13 @@ export function P2PTransfer() {
                 setError(`Connection error: ${err.message}`);
             }
             // Track failed connection attempt
-            if (typeof window !== 'undefined') {
-                (window as UmamiWindow).umami?.track('transfer-failed', {
-                    reason: err.message?.includes('User-Initiated Abort') ? 'abort'
-                        : err.message === 'Ice connection failed.' ? 'ice-failed'
-                            : err.message === 'Connection failed.' ? 'conn-failed'
-                                : 'unknown',
-                    role: 'receiver',
-                });
-            }
+            track('transfer-failed', {
+                reason: err.message?.includes('User-Initiated Abort') ? 'abort'
+                    : err.message === 'Ice connection failed.' ? 'ice-failed'
+                        : err.message === 'Connection failed.' ? 'conn-failed'
+                            : 'unknown',
+                role: 'receiver',
+            });
             setStatus('Connection failed');
         });
 
@@ -428,32 +402,13 @@ export function P2PTransfer() {
                 transferCompleteRef.current = true;
             },
             onAllComplete: (totalBytes, fileCount) => {
-                // Per-transfer side effects: fire once for the whole transfer (not per
-                // file) so analytics and the global counter stay accurate and the footer
-                // animates a single time. Mirrors the sender's onAllSent.
-                if (typeof window === 'undefined') return;
-                (window as UmamiWindow).umami?.track('transfer-received', {
+                track('transfer-received', {
                     files: fileCount,
                     bytes: totalBytes,
                     connection: connectionType ?? 'unknown',
                     role: 'receiver',
                 });
-                // Report the transfer's total bytes to the global counter (fire-and-forget).
-                // keepalive lets the report survive if the tab closes right after the
-                // last file lands. Skipped when the user has opted out.
-                if (reportStatsEnabledRef.current) {
-                    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
-                    fetch(`${socketUrl}/api/stats/report`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ bytes: totalBytes }),
-                        keepalive: true,
-                    }).catch(() => {});
-                    // Optimistic local bump for an instant, single footer animation.
-                    window.dispatchEvent(
-                        new CustomEvent('floe:bytes-reported', { detail: { bytes: totalBytes } })
-                    );
-                }
+                reportBytes(totalBytes);
             },
             onWaiting: () => setStatus('File received. Waiting for next file'),
             onError: (msg) => {
@@ -652,18 +607,16 @@ export function P2PTransfer() {
                     });
                     setError(`Connection error: ${err.message}`);
                 }
-                if (typeof window !== 'undefined') {
-                    (window as UmamiWindow).umami?.track('transfer-failed', {
-                        reason: !relayEnabled ? 'relay-disabled'
-                            : err.message?.includes('User-Initiated Abort') ? 'abort'
-                                : err.message === 'Ice connection failed.' ? 'ice-failed'
-                                    : err.message === 'Connection failed.' ? 'conn-failed'
-                                        : 'unknown',
-                        role: 'sender',
-                        files: files.length,
-                        bytes: totalBytes,
-                    });
-                }
+                track('transfer-failed', {
+                    reason: !relayEnabled ? 'relay-disabled'
+                        : err.message?.includes('User-Initiated Abort') ? 'abort'
+                            : err.message === 'Ice connection failed.' ? 'ice-failed'
+                                : err.message === 'Connection failed.' ? 'conn-failed'
+                                    : 'unknown',
+                    role: 'sender',
+                    files: files.length,
+                    bytes: totalBytes,
+                });
                 setStatus('Connection failed');
             });
 
@@ -718,14 +671,12 @@ export function P2PTransfer() {
                     setProgress(100);
                     transferCompleteRef.current = true;
                     releaseWakeLock();
-                    if (typeof window !== 'undefined') {
-                        (window as UmamiWindow).umami?.track('transfer-complete', {
-                            files: fileList.length,
-                            bytes: fileList.reduce((s, f) => s + f.file.size, 0),
-                            connection: connectionType ?? 'unknown',
-                            role: 'sender',
-                        });
-                    }
+                    track('transfer-complete', {
+                        files: fileList.length,
+                        bytes: fileList.reduce((s, f) => s + f.file.size, 0),
+                        connection: connectionType ?? 'unknown',
+                        role: 'sender',
+                    });
                 },
             }
         );
