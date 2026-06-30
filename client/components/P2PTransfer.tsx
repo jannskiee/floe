@@ -51,12 +51,12 @@ import {
     X,
 } from 'lucide-react';
 import { formatBytes } from '@/lib/utils';
-import { FileIcon } from '@/components/FileIcon';
 import { ConnectionStatusBadge } from '@/components/ConnectionStatusBadge';
 import { RelayFallbackToggle } from '@/components/RelayFallbackToggle';
 import { StatsContributionToggle } from '@/components/StatsContributionToggle';
 import { ShareLinkPanel } from '@/components/ShareLinkPanel';
 import { TransferProgressBar } from '@/components/TransferProgressBar';
+import { SelectedFilesList } from '@/components/SelectedFilesList';
 
 // The room id is the transfer's only secret: anyone holding it can join as the
 // receiver. It lives in the URL fragment (#room=<id>) so it never leaves the
@@ -825,61 +825,15 @@ export function P2PTransfer() {
                                             />
                                         )}
 
-                                        <div
-                                            ref={fileListRef}
-                                            className="space-y-3 max-h-[300px] overflow-y-auto pr-1 pb-12 custom-scrollbar"
-                                        >
-                                            {files.map((item, i) => (
-                                                <div
-                                                    key={i}
-                                                    className="flex items-center gap-3 bg-zinc-900/30 p-2 rounded-lg border border-white/5"
-                                                >
-                                                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-800/50 ring-1 ring-inset ring-white/10">
-                                                        <FileIcon
-                                                            fileName={
-                                                                item.file.name
-                                                            }
-                                                        />
-                                                    </div>
-                                                    <div className="flex flex-col min-w-0 relative">
-                                                        <span
-                                                            className={`peer text-sm font-medium truncate cursor-help transition-colors ${i === currentFileIndex && progress > 0 && progress < 100 ? 'text-white' : 'text-zinc-400'}`}
-                                                        >
-                                                            {item.file.name}
-                                                        </span>
-                                                        <div className="absolute top-full left-0 mt-1 opacity-0 peer-hover:opacity-100 z-[9999] w-max max-w-[240px] px-3 py-2 text-xs font-medium text-white bg-zinc-950 rounded-lg border border-zinc-800 shadow-2xl break-all pointer-events-none">
-                                                            {item.file.name}
-                                                            <div className="absolute bottom-full left-4 h-0 w-0 border-l-[7px] border-r-[7px] border-b-[7px] border-l-transparent border-r-transparent border-b-zinc-800"></div>
-                                                            <div className="absolute bottom-full left-[17px] mt-[1px] h-0 w-0 border-l-[6px] border-r-[6px] border-b-[6px] border-l-transparent border-r-transparent border-b-zinc-950"></div>
-                                                        </div>
-                                                        <span className="text-xs text-zinc-500 font-mono">
-                                                            {formatBytes(
-                                                                item.file.size
-                                                            )}
-                                                        </span>
-                                                    </div>
-                                                    <div className="ml-auto flex items-center gap-2">
-                                                        {!generatedLink ? (
-                                                            <button
-                                                                onClick={() => handleDeleteFile(item.id)}
-                                                                className="p-1.5 rounded-md hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition-all"
-                                                            >
-                                                                <X className="h-4 w-4" strokeWidth={3} />
-                                                            </button>
-                                                        ) : i <
-                                                            currentFileIndex ||
-                                                            status ===
-                                                            'All Files Sent!' ? (
-                                                            <CheckCircle2 className="h-4 w-4 text-green-500" />
-                                                        ) : i ===
-                                                            currentFileIndex &&
-                                                            progress > 0 ? (
-                                                            <Loader2 className="h-4 w-4 animate-spin text-white" />
-                                                        ) : null}
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
+                                        <SelectedFilesList
+                                            files={files}
+                                            currentFileIndex={currentFileIndex}
+                                            progress={progress}
+                                            generatedLink={generatedLink}
+                                            status={status}
+                                            onDeleteFile={handleDeleteFile}
+                                            listRef={fileListRef}
+                                        />
 
                                         {/* Total file size indicator */}
                                         {files.length > 0 && (
