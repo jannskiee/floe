@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jannskiee/floe/cli/engine/code"
@@ -141,7 +142,17 @@ func (a *App) runSend(paths []string) {
 		return
 	}
 
-	if err := transfer.SendFiles(dc, paths, "desktop-dev"); err != nil {
+	lastEmit := time.Now()
+	onProgress := func(p transfer.Progress) {
+		// Throttle UI events to ~10/sec, but always emit a file's final update
+		// so the bar reliably reaches 100%.
+		if time.Since(lastEmit) < 100*time.Millisecond && p.FileBytes < p.FileSize {
+			return
+		}
+		lastEmit = time.Now()
+		runtime.EventsEmit(a.ctx, "send:progress", p)
+	}
+	if err := transfer.SendFilesWithProgress(dc, paths, "desktop-dev", onProgress); err != nil {
 		fail(fmt.Errorf("transfer failed: %w", err))
 		return
 	}
@@ -211,7 +222,15 @@ func (a *App) ReceiveByCode(codeOrLink string, outputDir string) (string, error)
 
 	// autoAccept=true: a GUI cannot answer a terminal prompt. statsURL="" so the
 	// skeleton does not report to the global counter.
-	if err := transfer.ReceiveFiles(dc, absOutput, true, "desktop-dev", ""); err != nil {
+	lastEmit := time.Now()
+	onProgress := func(p transfer.Progress) {
+		if time.Since(lastEmit) < 100*time.Millisecond && p.FileBytes < p.FileSize {
+			return
+		}
+		lastEmit = time.Now()
+		runtime.EventsEmit(a.ctx, "recv:progress", p)
+	}
+	if err := transfer.ReceiveFilesWithProgress(dc, absOutput, true, "desktop-dev", "", onProgress); err != nil {
 		return "", fmt.Errorf("transfer failed: %w", err)
 	}
 
