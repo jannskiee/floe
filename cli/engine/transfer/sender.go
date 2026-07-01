@@ -24,6 +24,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pion/webrtc/v4"
+	"github.com/schollz/progressbar/v3"
 )
 
 const chunkSize = 16 * 1024
@@ -68,11 +69,17 @@ type endMsg struct {
 	Type string `json:"type"`
 }
 
-// SendFiles sends all given file paths over the open data channel.
-// Folders are walked recursively. The receiver gets each file in order.
-// localVer is the human release string (e.g. "v1.5.5") embedded in metadata
-// for the optional peer-version note; pass "" for dev builds or tests.
+// SendFiles sends all given file paths over the open data channel, rendering a
+// terminal progress bar. Folders are walked recursively. localVer is the human
+// release string (e.g. "v1.5.5") embedded in metadata; pass "" for dev/tests.
 func SendFiles(dc *webrtc.DataChannel, paths []string, localVer string) error {
+	return SendFilesWithProgress(dc, paths, localVer, nil)
+}
+
+// SendFilesWithProgress is SendFiles with a progress callback for GUI clients.
+// When onProgress is non-nil, per-chunk progress is reported through it and the
+// terminal progress bar is suppressed.
+func SendFilesWithProgress(dc *webrtc.DataChannel, paths []string, localVer string, onProgress ProgressFunc) error {
 	// Expand paths: collect all files (walk directories)
 	files, err := collectFiles(paths)
 	if err != nil {
@@ -114,10 +121,12 @@ func SendFiles(dc *webrtc.DataChannel, paths []string, localVer string) error {
 		}
 	})
 
+	var sentSoFar int64
 	for i, entry := range files {
-		if err := sendFile(dc, ackCh, sendMore, entry, i+1, len(files), totalBytes, localVer); err != nil {
+		if err := sendFile(dc, ackCh, sendMore, entry, i+1, len(files), totalBytes, localVer, onProgress, sentSoFar); err != nil {
 			return fmt.Errorf("error sending %s: %w", entry.displayName, err)
 		}
+		sentSoFar += entry.size
 	}
 
 	// Wait for delivery confirmation before closing.
@@ -213,7 +222,7 @@ func collectFiles(paths []string) ([]fileEntry, error) {
 }
 
 // sendFile handles the full send sequence for a single file.
-func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string) error {
+func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onProgress ProgressFunc, baseTotal int64) error {
 	f, err := os.Open(entry.absPath)
 	if err != nil {
 		return err
@@ -311,9 +320,33 @@ ackLoop:
 		}
 	}
 
-	// Step 3: Send binary chunks with progress bar
-	bar := newProgressBar(fileSize, index, total, entry.displayName)
-	bar.Set64(offset)
+	// Step 3: Send binary chunks, reporting progress through the terminal bar
+	// (CLI) or the callback (GUI, when onProgress is non-nil).
+	var bar *progressbar.ProgressBar
+	if onProgress == nil {
+		bar = newProgressBar(fileSize, index, total, entry.displayName)
+		bar.Set64(offset)
+	}
+	sentFile := offset
+	report := func(n int) {
+		sentFile += int64(n)
+		if bar != nil {
+			bar.Add(n)
+			return
+		}
+		onProgress(Progress{
+			FileName:   entry.displayName,
+			FileIndex:  index,
+			FileCount:  total,
+			FileBytes:  sentFile,
+			FileSize:   fileSize,
+			TotalBytes: baseTotal + sentFile,
+			GrandTotal: totalBytes,
+		})
+	}
+	if onProgress != nil {
+		report(0) // emit the starting point (handles resume offset and 0-byte files)
+	}
 
 	buf := make([]byte, chunkSize)
 	for {
@@ -332,7 +365,7 @@ ackLoop:
 			if sendErr := dc.Send(buf[:n]); sendErr != nil {
 				return fmt.Errorf("failed to send chunk: %w", sendErr)
 			}
-			bar.Add(n)
+			report(n)
 		}
 		if err == io.EOF {
 			break
@@ -341,7 +374,9 @@ ackLoop:
 			return fmt.Errorf("error reading file: %w", err)
 		}
 	}
-	fmt.Println()
+	if bar != nil {
+		fmt.Println()
+	}
 
 	// Step 4: Send end marker
 	end := endMsg{Type: "end"}

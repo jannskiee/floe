@@ -54,6 +54,13 @@ func reportBytesToServer(serverURL string, byteCount int64) {
 // serverURL is the signaling server base URL used to report transfer stats;
 // pass "" to skip reporting (e.g. in tests).
 func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, localVer string, serverURL string) error {
+	return ReceiveFilesWithProgress(dc, outputDir, autoAccept, localVer, serverURL, nil)
+}
+
+// ReceiveFilesWithProgress is ReceiveFiles with a progress callback for GUI
+// clients. When onProgress is non-nil, per-chunk progress is reported through it
+// and the terminal progress bar is suppressed.
+func ReceiveFilesWithProgress(dc *webrtc.DataChannel, outputDir string, autoAccept bool, localVer string, serverURL string, onProgress ProgressFunc) error {
 	// msgCh collects ALL incoming data channel messages.
 	// We use a channel so the OnMessage callback (goroutine) feeds a sequential loop.
 	msgCh := make(chan webrtc.DataChannelMessage, 256)
@@ -193,8 +200,10 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, loc
 					return fmt.Errorf("cannot create file %s: %w", destPath, err)
 				}
 
-				// Progress bar for this file
-				bar = newProgressBar(info.FileSize, info.Index, info.Total, info.FileName)
+				// Progress bar for this file (CLI). GUIs get callback updates instead.
+				if onProgress == nil {
+					bar = newProgressBar(info.FileSize, info.Index, info.Total, info.FileName)
+				}
 
 				// Send ack as BINARY with protocol version fields so the sender
 				// can verify compat from its side and show the optional peer-version
@@ -284,7 +293,19 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, loc
 		}
 		bytesReceived += int64(n)
 		totalReceived += int64(n)
-		bar.Add(n)
+		if bar != nil {
+			bar.Add(n)
+		} else {
+			onProgress(Progress{
+				FileName:   currentInfo.FileName,
+				FileIndex:  currentInfo.Index,
+				FileCount:  currentInfo.Total,
+				FileBytes:  bytesReceived,
+				FileSize:   currentInfo.FileSize,
+				TotalBytes: totalReceived,
+				GrandTotal: currentInfo.TotalBytes,
+			})
+		}
 	}
 }
 
