@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
 	"time"
 
 	"github.com/google/uuid"
@@ -50,6 +52,33 @@ func (a *App) SelectFiles() ([]string, error) {
 	return runtime.OpenMultipleFilesDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "Select files to send",
 	})
+}
+
+// SelectFolder opens a native folder picker and returns the chosen path.
+// Used both to choose a folder to send and to choose where to save received files.
+func (a *App) SelectFolder() (string, error) {
+	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Select a folder",
+	})
+}
+
+// OpenFolder reveals the given path in the OS file manager.
+func (a *App) OpenFolder(path string) error {
+	if path == "" {
+		return fmt.Errorf("no path to open")
+	}
+	var cmd *exec.Cmd
+	switch goruntime.GOOS {
+	case "windows":
+		cmd = exec.Command("explorer", path)
+	case "darwin":
+		cmd = exec.Command("open", path)
+	default:
+		cmd = exec.Command("xdg-open", path)
+	}
+	// Launch without waiting: explorer.exe in particular can return a non-zero
+	// exit code even on success, and we only care that it started.
+	return cmd.Start()
 }
 
 // StartSend validates the given paths and launches the send flow in the

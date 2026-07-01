@@ -1,7 +1,7 @@
 import {useState, useEffect, useRef} from 'react';
 import type {CSSProperties, MutableRefObject} from 'react';
 import './App.css';
-import {ReceiveByCode, SelectFiles, StartSend} from "../wailsjs/go/main/App";
+import {ReceiveByCode, SelectFiles, SelectFolder, OpenFolder, StartSend} from "../wailsjs/go/main/App";
 import {EventsOn, EventsOff, OnFileDrop, OnFileDropOff} from "../wailsjs/runtime/runtime";
 
 type Mode = 'send' | 'receive';
@@ -84,6 +84,7 @@ function App() {
     const [recvStatus, setRecvStatus] = useState('Enter a code or link, then click Receive.');
     const [receiving, setReceiving] = useState(false);
     const [recvProg, setRecvProg] = useState<{pct: number; label: string} | null>(null);
+    const [recvDir, setRecvDir] = useState('');
     const recvStart = useRef<Marker>(null);
 
     useEffect(() => {
@@ -137,6 +138,27 @@ function App() {
         }
     }
 
+    async function pickSendFolder() {
+        try {
+            const dir = await SelectFolder();
+            if (dir) {
+                setFiles([dir]);
+                setSendStatus('1 folder ready. Click Send.');
+            }
+        } catch {
+            // dialog cancelled
+        }
+    }
+
+    async function pickSaveFolder() {
+        try {
+            const dir = await SelectFolder();
+            if (dir) setOutput(dir);
+        } catch {
+            // dialog cancelled
+        }
+    }
+
     async function send() {
         if (!files.length) {
             setSendStatus('Select at least one file first.');
@@ -163,10 +185,12 @@ function App() {
         }
         setReceiving(true);
         setRecvProg(null);
+        setRecvDir('');
         recvStart.current = null;
         setRecvStatus('Connecting... keep this window open.');
         try {
             const dir = await ReceiveByCode(code.trim(), output.trim());
+            setRecvDir(dir);
             setRecvStatus('Done. Files saved to: ' + dir);
         } catch (e: any) {
             setRecvStatus('Error: ' + e);
@@ -185,7 +209,10 @@ function App() {
 
             {mode === 'send' ? (
                 <div style={col}>
-                    <button onClick={pickFiles} disabled={sending} style={btn}>Select files...</button>
+                    <div style={{display: 'flex', gap: 8}}>
+                        <button onClick={pickFiles} disabled={sending} style={{...btn, flex: 1}}>Select files...</button>
+                        <button onClick={pickSendFolder} disabled={sending} style={{...btn, flex: 1}}>Select folder...</button>
+                    </div>
                     <div style={{fontSize: 12, opacity: 0.6}}>or drag files onto the window</div>
                     {files.length > 0 && (
                         <ul style={listStyle}>
@@ -215,14 +242,17 @@ function App() {
                         autoComplete="off"
                         style={input}
                     />
-                    <input
-                        placeholder="save to folder (blank = current dir)"
-                        value={output}
-                        onChange={(e) => setOutput(e.target.value)}
-                        disabled={receiving}
-                        autoComplete="off"
-                        style={input}
-                    />
+                    <div style={{display: 'flex', gap: 8}}>
+                        <input
+                            placeholder="save to folder (blank = current dir)"
+                            value={output}
+                            onChange={(e) => setOutput(e.target.value)}
+                            disabled={receiving}
+                            autoComplete="off"
+                            style={{...input, flex: 1}}
+                        />
+                        <button onClick={pickSaveFolder} disabled={receiving} style={btn}>Browse...</button>
+                    </div>
                     <button onClick={receive} disabled={receiving} style={btn}>
                         {receiving ? 'Receiving...' : 'Receive'}
                     </button>
@@ -231,6 +261,9 @@ function App() {
                             <Bar pct={recvProg.pct}/>
                             <div style={progLabel}>{recvProg.label}</div>
                         </div>
+                    )}
+                    {recvDir && !receiving && (
+                        <button onClick={() => { OpenFolder(recvDir).catch(() => {}); }} style={btn}>Show in folder</button>
                     )}
                     <p style={statusStyle}>{recvStatus}</p>
                 </div>

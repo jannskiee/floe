@@ -75,7 +75,7 @@ go.work                ties cli + desktop for local dev (to be added)
 - [x] Speed and ETA readout on the progress bar
 - [x] Drag and drop files onto the window to send
 - [ ] Polished UI sharing the web app's design (QR code, matching styles)
-- [ ] Folder sends and "show in folder"
+- [x] Folder sends, a "Browse..." save-folder picker, and "Show in folder" after receive
 - [ ] System tray, background receive, OS notifications, dark mode
 - [ ] App auto-update (Sparkle on macOS, WinSparkle on Windows)
 
