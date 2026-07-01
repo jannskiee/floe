@@ -37,13 +37,6 @@ func NewApp() *App {
 // runtime methods (events, dialogs).
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	// Files dropped onto the window are treated as a send: forward the paths to
-	// the UI, which switches to the Send tab and pre-selects them.
-	runtime.OnFileDrop(ctx, func(_, _ int, paths []string) {
-		if len(paths) > 0 {
-			runtime.EventsEmit(ctx, "files:dropped", paths)
-		}
-	})
 }
 
 // EngineProtocolVersion returns the wire protocol version of the embedded engine.

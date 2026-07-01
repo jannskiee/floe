@@ -2,7 +2,7 @@ import {useState, useEffect, useRef} from 'react';
 import type {CSSProperties, MutableRefObject} from 'react';
 import './App.css';
 import {ReceiveByCode, SelectFiles, StartSend} from "../wailsjs/go/main/App";
-import {EventsOn, EventsOff} from "../wailsjs/runtime/runtime";
+import {EventsOn, EventsOff, OnFileDrop, OnFileDropOff} from "../wailsjs/runtime/runtime";
 
 type Mode = 'send' | 'receive';
 
@@ -104,13 +104,16 @@ function App() {
             setSending(false);
         });
         EventsOn('recv:progress', (p: Prog) => setRecvProg(track(recvStart, p)));
-        EventsOn('files:dropped', (paths: string[]) => {
+        // Native file drop on the whole window (useDropTarget=false, so no
+        // per-element CSS is needed). Paths arrive already resolved to absolute
+        // paths from the Go side.
+        OnFileDrop((_x, _y, paths) => {
             if (paths && paths.length) {
                 setMode('send');
                 setFiles(paths);
                 setSendStatus(`${paths.length} file(s) ready. Click Send.`);
             }
-        });
+        }, false);
         return () => {
             EventsOff('send:code');
             EventsOff('send:status');
@@ -118,7 +121,7 @@ function App() {
             EventsOff('send:done');
             EventsOff('send:error');
             EventsOff('recv:progress');
-            EventsOff('files:dropped');
+            OnFileDropOff();
         };
     }, []);
 
@@ -173,7 +176,7 @@ function App() {
     }
 
     return (
-        <div id="App" style={{...appStyle, ['--wails-drop-target']: 'drop'} as CSSProperties}>
+        <div id="App" style={appStyle}>
             <h1 style={{marginBottom: 4}}>Floe Desktop</h1>
             <div style={{display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 20}}>
                 <button onClick={() => setMode('send')} style={tabStyle(mode === 'send')}>Send</button>
