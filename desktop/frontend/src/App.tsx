@@ -1,5 +1,5 @@
-import {useState, useEffect} from 'react';
-import type {CSSProperties} from 'react';
+import {useState, useEffect, useRef} from 'react';
+import type {CSSProperties, MutableRefObject} from 'react';
 import './App.css';
 import {ReceiveByCode, SelectFiles, StartSend} from "../wailsjs/go/main/App";
 import {EventsOn, EventsOff} from "../wailsjs/runtime/runtime";
@@ -16,6 +16,8 @@ interface Prog {
     grandTotal: number;
 }
 
+type Marker = {t: number; bytes: number} | null;
+
 function fmtBytes(n: number): string {
     if (!n || n < 0) return '0 B';
     const u = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -23,12 +25,37 @@ function fmtBytes(n: number): string {
     return (n / Math.pow(1024, i)).toFixed(i ? 1 : 0) + ' ' + u[i];
 }
 
-function summarize(p: Prog): {pct: number; label: string} {
+function fmtSpeed(bps: number): string {
+    if (!isFinite(bps) || bps <= 0) return '';
+    return bps >= 1024 * 1024 ? (bps / 1048576).toFixed(1) + ' MB/s' : (bps / 1024).toFixed(0) + ' KB/s';
+}
+
+function fmtEta(sec: number): string {
+    if (!isFinite(sec) || sec < 0) return '';
+    if (sec < 60) return `${Math.ceil(sec)}s`;
+    return `${Math.floor(sec / 60)}m ${Math.ceil(sec % 60)}s`;
+}
+
+// track computes percent, speed, and ETA for a progress event. It uses an
+// average-since-start speed (stable) keyed off a per-transfer marker ref.
+function track(ref: MutableRefObject<Marker>, p: Prog): {pct: number; label: string} {
     const denom = p.grandTotal > 0 ? p.grandTotal : p.fileSize;
     const num = p.grandTotal > 0 ? p.totalBytes : p.fileBytes;
     const pct = denom > 0 ? Math.min(100, Math.round((num / denom) * 100)) : 0;
+
+    const now = Date.now();
+    if (!ref.current) ref.current = {t: now, bytes: num};
+    const dt = (now - ref.current.t) / 1000;
+    const speed = dt > 0.2 ? (num - ref.current.bytes) / dt : 0;
+    const eta = speed > 0 ? (denom - num) / speed : Infinity;
+
     const tag = p.fileCount > 1 ? `[${p.fileIndex}/${p.fileCount}] ` : '';
-    return {pct, label: `${tag}${p.fileName} - ${pct}%  (${fmtBytes(num)} / ${fmtBytes(denom)})`};
+    let label = `${tag}${p.fileName} - ${pct}%  (${fmtBytes(num)} / ${fmtBytes(denom)})`;
+    const s = fmtSpeed(speed);
+    const e = fmtEta(eta);
+    if (s) label += `  ·  ${s}`;
+    if (e && pct < 100) label += `  ·  ETA ${e}`;
+    return {pct, label};
 }
 
 function Bar({pct}: {pct: number}) {
@@ -46,9 +73,10 @@ function App() {
     const [files, setFiles] = useState<string[]>([]);
     const [sendCode, setSendCode] = useState('');
     const [sendLink, setSendLink] = useState('');
-    const [sendStatus, setSendStatus] = useState('Select files, then click Send.');
+    const [sendStatus, setSendStatus] = useState('Select or drag files, then click Send.');
     const [sending, setSending] = useState(false);
     const [sendProg, setSendProg] = useState<{pct: number; label: string} | null>(null);
+    const sendStart = useRef<Marker>(null);
 
     // Receive state
     const [code, setCode] = useState('');
@@ -56,6 +84,7 @@ function App() {
     const [recvStatus, setRecvStatus] = useState('Enter a code or link, then click Receive.');
     const [receiving, setReceiving] = useState(false);
     const [recvProg, setRecvProg] = useState<{pct: number; label: string} | null>(null);
+    const recvStart = useRef<Marker>(null);
 
     useEffect(() => {
         EventsOn('send:code', (data: {code: string; link: string}) => {
@@ -64,7 +93,7 @@ function App() {
             setSendStatus('Share this code or link, then wait for the receiver to connect...');
         });
         EventsOn('send:status', (msg: string) => setSendStatus(msg));
-        EventsOn('send:progress', (p: Prog) => setSendProg(summarize(p)));
+        EventsOn('send:progress', (p: Prog) => setSendProg(track(sendStart, p)));
         EventsOn('send:done', (msg: string) => {
             setSendStatus(msg);
             setSendProg({pct: 100, label: 'Complete.'});
@@ -74,7 +103,14 @@ function App() {
             setSendStatus('Error: ' + msg);
             setSending(false);
         });
-        EventsOn('recv:progress', (p: Prog) => setRecvProg(summarize(p)));
+        EventsOn('recv:progress', (p: Prog) => setRecvProg(track(recvStart, p)));
+        EventsOn('files:dropped', (paths: string[]) => {
+            if (paths && paths.length) {
+                setMode('send');
+                setFiles(paths);
+                setSendStatus(`${paths.length} file(s) ready. Click Send.`);
+            }
+        });
         return () => {
             EventsOff('send:code');
             EventsOff('send:status');
@@ -82,6 +118,7 @@ function App() {
             EventsOff('send:done');
             EventsOff('send:error');
             EventsOff('recv:progress');
+            EventsOff('files:dropped');
         };
     }, []);
 
@@ -106,6 +143,7 @@ function App() {
         setSendCode('');
         setSendLink('');
         setSendProg(null);
+        sendStart.current = null;
         setSendStatus('Setting up...');
         try {
             await StartSend(files);
@@ -122,6 +160,7 @@ function App() {
         }
         setReceiving(true);
         setRecvProg(null);
+        recvStart.current = null;
         setRecvStatus('Connecting... keep this window open.');
         try {
             const dir = await ReceiveByCode(code.trim(), output.trim());
@@ -134,7 +173,7 @@ function App() {
     }
 
     return (
-        <div id="App" style={appStyle}>
+        <div id="App" style={{...appStyle, ['--wails-drop-target']: 'drop'} as CSSProperties}>
             <h1 style={{marginBottom: 4}}>Floe Desktop</h1>
             <div style={{display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 20}}>
                 <button onClick={() => setMode('send')} style={tabStyle(mode === 'send')}>Send</button>
@@ -144,6 +183,7 @@ function App() {
             {mode === 'send' ? (
                 <div style={col}>
                     <button onClick={pickFiles} disabled={sending} style={btn}>Select files...</button>
+                    <div style={{fontSize: 12, opacity: 0.6}}>or drag files onto the window</div>
                     {files.length > 0 && (
                         <ul style={listStyle}>
                             {files.map((f) => <li key={f}>{f.split(/[\\/]/).pop()}</li>)}
@@ -196,7 +236,7 @@ function App() {
     );
 }
 
-const appStyle: CSSProperties = {padding: 24, fontFamily: 'sans-serif', textAlign: 'center'};
+const appStyle: CSSProperties = {padding: 24, fontFamily: 'sans-serif', textAlign: 'center', minHeight: '100vh', boxSizing: 'border-box'};
 const col: CSSProperties = {display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 460, margin: '0 auto'};
 const input: CSSProperties = {padding: 10, fontSize: 16};
 const btn: CSSProperties = {padding: 10, fontSize: 16, cursor: 'pointer'};

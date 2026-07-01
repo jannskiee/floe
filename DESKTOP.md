@@ -72,8 +72,9 @@ go.work                ties cli + desktop for local dev (to be added)
 - [x] Send from desktop: native file picker (`SelectFiles`) + code/link via the engine sender, reported through Wails events (`send:code/status/done/error`)
 - [x] Basic Send / Receive two-mode UI
 - [x] Live progress bar (percent + bytes) via an engine progress callback (`SendFilesWithProgress`/`ReceiveFilesWithProgress`) plus throttled `send:progress`/`recv:progress` Wails events
-- [ ] Speed and ETA readout on the progress bar
-- [ ] Polished UI sharing the web app's design (drag and drop, QR code)
+- [x] Speed and ETA readout on the progress bar
+- [x] Drag and drop files onto the window to send
+- [ ] Polished UI sharing the web app's design (QR code, matching styles)
 - [ ] Folder sends and "show in folder"
 - [ ] System tray, background receive, OS notifications, dark mode
 - [ ] App auto-update (Sparkle on macOS, WinSparkle on Windows)
