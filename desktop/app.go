@@ -110,13 +110,22 @@ func dirExists(p string) bool {
 	return err == nil && info.IsDir()
 }
 
+// relayOpts returns the peer options for a transfer: relay-only ("hide my IP")
+// when hideIP is set, otherwise none.
+func relayOpts(hideIP bool) []peer.Option {
+	if hideIP {
+		return []peer.Option{peer.WithRelayOnly()}
+	}
+	return nil
+}
+
 // StartSend validates the given paths and launches the send flow in the
 // background. Progress is reported to the UI via Wails events:
 //   - "send:code"   {code, link}  once the room code is registered
 //   - "send:status" string        status updates (peer connected, etc.)
 //   - "send:done"   string        transfer finished
 //   - "send:error"  string        any failure
-func (a *App) StartSend(paths []string) error {
+func (a *App) StartSend(paths []string, hideIP bool) error {
 	if len(paths) == 0 {
 		return fmt.Errorf("no files selected")
 	}
@@ -125,11 +134,11 @@ func (a *App) StartSend(paths []string) error {
 			return fmt.Errorf("cannot read %s: %w", p, err)
 		}
 	}
-	go a.runSend(paths)
+	go a.runSend(paths, hideIP)
 	return nil
 }
 
-func (a *App) runSend(paths []string) {
+func (a *App) runSend(paths []string, hideIP bool) {
 	fail := func(err error) {
 		runtime.EventsEmit(a.ctx, "send:error", err.Error())
 		a.notify("Floe - send failed", err.Error())
@@ -190,7 +199,7 @@ func (a *App) runSend(paths []string) {
 	runtime.EventsEmit(a.ctx, "send:status", "Peer connected. Sending...")
 
 	// Set up WebRTC as the initiator and send.
-	conn, err := peer.New(iceServers, sc)
+	conn, err := peer.New(iceServers, sc, relayOpts(hideIP)...)
 	if err != nil {
 		fail(fmt.Errorf("failed to create peer connection: %w", err))
 		return
@@ -233,7 +242,7 @@ func (a *App) runSend(paths []string) {
 // webview never touches the data channel.
 //
 // Returns the absolute output directory on success.
-func (a *App) ReceiveByCode(codeOrLink string, outputDir string) (string, error) {
+func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool) (string, error) {
 	if outputDir == "" {
 		outputDir = defaultReceiveDir()
 	}
@@ -276,7 +285,7 @@ func (a *App) ReceiveByCode(codeOrLink string, outputDir string) (string, error)
 		return "", fmt.Errorf("server error: %s", errMsg)
 	}
 
-	conn, err := peer.New(iceServers, sc)
+	conn, err := peer.New(iceServers, sc, relayOpts(hideIP)...)
 	if err != nil {
 		return "", fmt.Errorf("failed to create peer connection: %w", err)
 	}

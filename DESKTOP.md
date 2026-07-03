@@ -112,9 +112,9 @@ verify the connection independently of the server.
 **3d - Quick wins**
 - [x] Dedupe/expand `server/words.json` (was 275 unique with 13 dupes; now 288 unique)
 - [x] Shorten TURN credential TTL (24h -> 2h)
-- [ ] Optional feature (not a bug): a "hide my IP" mode that sets `iceTransportPolicy: 'relay'`.
-      The existing "Network Relay Fallback" toggle works as intended (relay on/off); it just
-      isn't an IP-hiding mode.
+- [x] "Hide my IP" mode in the engine (`peer.WithRelayOnly()` -> `iceTransportPolicy: 'relay'`) and desktop (checkbox)
+- [ ] "Hide my IP" toggle in the browser web app (pending). Separate from the existing "Network
+      Relay Fallback" toggle, which works as intended.
 
 ### Phase 4 - Release pipeline
 - [ ] `.goreleaser.desktop.yml` plus a native-runner matrix workflow

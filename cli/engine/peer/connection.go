@@ -42,10 +42,25 @@ type Connection struct {
 	connected chan error
 }
 
+// Option configures the underlying WebRTC connection.
+type Option func(*webrtc.Configuration)
+
+// WithRelayOnly forces all traffic through the TURN relay (ICE "relay" transport
+// policy) so the peer sees only the relay's IP, not this device's. Requires TURN
+// to be available; a direct connection is not attempted.
+func WithRelayOnly() Option {
+	return func(c *webrtc.Configuration) {
+		c.ICETransportPolicy = webrtc.ICETransportPolicyRelay
+	}
+}
+
 // New creates a pion RTCPeerConnection with the given ICE servers and starts
 // the signal dispatcher. Call SetupAsSender or SetupAsReceiver next.
-func New(iceServers []webrtc.ICEServer, sc *signaling.Client) (*Connection, error) {
+func New(iceServers []webrtc.ICEServer, sc *signaling.Client, opts ...Option) (*Connection, error) {
 	config := webrtc.Configuration{ICEServers: iceServers}
+	for _, o := range opts {
+		o(&config)
+	}
 
 	// Configure SCTP to accept large messages from browsers.
 	// Chrome sends data channel chunks of 160–256 KB. pion's defaults may

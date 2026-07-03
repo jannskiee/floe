@@ -68,6 +68,7 @@ function Bar({pct}: {pct: number}) {
 
 function App() {
     const [mode, setMode] = useState<Mode>('send');
+    const [hideIP, setHideIP] = useState(false);
 
     // Send state
     const [files, setFiles] = useState<string[]>([]);
@@ -178,7 +179,7 @@ function App() {
         sendStart.current = null;
         setSendStatus('Setting up...');
         try {
-            await StartSend(files);
+            await StartSend(files, hideIP);
         } catch (e: any) {
             setSendStatus('Error: ' + e);
             setSending(false);
@@ -197,7 +198,7 @@ function App() {
         recvStart.current = null;
         setRecvStatus('Connecting... keep this window open.');
         try {
-            const dir = await ReceiveByCode(code.trim(), output.trim());
+            const dir = await ReceiveByCode(code.trim(), output.trim(), hideIP);
             setRecvDir(dir);
             setRecvStatus('Done. Files saved to: ' + dir);
         } catch (e: any) {
@@ -214,6 +215,11 @@ function App() {
                 <button onClick={() => setMode('send')} style={tabStyle(mode === 'send')}>Send</button>
                 <button onClick={() => setMode('receive')} style={tabStyle(mode === 'receive')}>Receive</button>
             </div>
+
+            <label style={{display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center', marginBottom: 16, fontSize: 13, opacity: 0.85, cursor: 'pointer'}}>
+                <input type="checkbox" checked={hideIP} onChange={(e) => setHideIP(e.target.checked)}/>
+                Hide my IP (route through relay)
+            </label>
 
             {mode === 'send' ? (
                 <div style={col}>
