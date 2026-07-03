@@ -15,6 +15,7 @@ import (
 	"github.com/jannskiee/floe/cli/engine/peer"
 	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/jannskiee/floe/cli/engine/transfer"
+	"github.com/jannskiee/floe/cli/engine/verify"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -183,6 +184,10 @@ func (a *App) runSend(paths []string) {
 		return
 	}
 
+	if local, remote, fErr := conn.Fingerprints(); fErr == nil {
+		runtime.EventsEmit(a.ctx, "send:verify", verify.Code(local, remote))
+	}
+
 	lastEmit := time.Now()
 	onProgress := func(p transfer.Progress) {
 		// Throttle UI events to ~10/sec, but always emit a file's final update
@@ -260,6 +265,10 @@ func (a *App) ReceiveByCode(codeOrLink string, outputDir string) (string, error)
 	dc, err := conn.SetupAsReceiver()
 	if err != nil {
 		return "", fmt.Errorf("WebRTC setup failed: %w", err)
+	}
+
+	if local, remote, fErr := conn.Fingerprints(); fErr == nil {
+		runtime.EventsEmit(a.ctx, "recv:verify", verify.Code(local, remote))
 	}
 
 	// autoAccept=true: a GUI cannot answer a terminal prompt. statsURL="" so the

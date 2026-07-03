@@ -214,6 +214,36 @@ func (conn *Connection) Close() {
 	conn.pc.Close()
 }
 
+// Fingerprints returns the local and remote DTLS certificate fingerprints from
+// the negotiated SDPs (e.g. "sha-256 AB:CD:..."). Call after the data channel is
+// open, when both descriptions are set. These feed the connection verification
+// code (see engine/verify) so peers can detect a man-in-the-middle.
+func (conn *Connection) Fingerprints() (local, remote string, err error) {
+	ld := conn.pc.LocalDescription()
+	rd := conn.pc.RemoteDescription()
+	if ld == nil || rd == nil {
+		return "", "", fmt.Errorf("connection not established")
+	}
+	local = extractFingerprint(ld.SDP)
+	remote = extractFingerprint(rd.SDP)
+	if local == "" || remote == "" {
+		return "", "", fmt.Errorf("no DTLS fingerprint in SDP")
+	}
+	return local, remote, nil
+}
+
+// extractFingerprint returns the value of the first "a=fingerprint:" attribute
+// in an SDP (e.g. "sha-256 AB:CD:..."), or "" if absent.
+func extractFingerprint(sdp string) string {
+	for _, line := range strings.Split(sdp, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "a=fingerprint:") {
+			return strings.TrimSpace(line[len("a=fingerprint:"):])
+		}
+	}
+	return ""
+}
+
 // setRemoteDesc sets the remote SDP and flushes any buffered ICE candidates.
 func (conn *Connection) setRemoteDesc(desc webrtc.SessionDescription) error {
 	if err := conn.pc.SetRemoteDescription(desc); err != nil {

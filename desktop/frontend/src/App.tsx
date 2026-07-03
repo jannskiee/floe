@@ -76,6 +76,7 @@ function App() {
     const [sendStatus, setSendStatus] = useState('Select or drag files, then click Send.');
     const [sending, setSending] = useState(false);
     const [sendProg, setSendProg] = useState<{pct: number; label: string} | null>(null);
+    const [sendVerify, setSendVerify] = useState('');
     const sendStart = useRef<Marker>(null);
 
     // Receive state
@@ -85,6 +86,7 @@ function App() {
     const [receiving, setReceiving] = useState(false);
     const [recvProg, setRecvProg] = useState<{pct: number; label: string} | null>(null);
     const [recvDir, setRecvDir] = useState('');
+    const [recvVerify, setRecvVerify] = useState('');
     const recvStart = useRef<Marker>(null);
 
     useEffect(() => {
@@ -95,6 +97,7 @@ function App() {
         });
         EventsOn('send:status', (msg: string) => setSendStatus(msg));
         EventsOn('send:progress', (p: Prog) => setSendProg(track(sendStart, p)));
+        EventsOn('send:verify', (c: string) => setSendVerify(c));
         EventsOn('send:done', (msg: string) => {
             setSendStatus(msg);
             setSendProg({pct: 100, label: 'Complete.'});
@@ -105,6 +108,7 @@ function App() {
             setSending(false);
         });
         EventsOn('recv:progress', (p: Prog) => setRecvProg(track(recvStart, p)));
+        EventsOn('recv:verify', (c: string) => setRecvVerify(c));
         // Native file drop on the whole window (useDropTarget=false, so no
         // per-element CSS is needed). Paths arrive already resolved to absolute
         // paths from the Go side.
@@ -119,9 +123,11 @@ function App() {
             EventsOff('send:code');
             EventsOff('send:status');
             EventsOff('send:progress');
+            EventsOff('send:verify');
             EventsOff('send:done');
             EventsOff('send:error');
             EventsOff('recv:progress');
+            EventsOff('recv:verify');
             OnFileDropOff();
         };
     }, []);
@@ -168,6 +174,7 @@ function App() {
         setSendCode('');
         setSendLink('');
         setSendProg(null);
+        setSendVerify('');
         sendStart.current = null;
         setSendStatus('Setting up...');
         try {
@@ -186,6 +193,7 @@ function App() {
         setReceiving(true);
         setRecvProg(null);
         setRecvDir('');
+        setRecvVerify('');
         recvStart.current = null;
         setRecvStatus('Connecting... keep this window open.');
         try {
@@ -230,6 +238,7 @@ function App() {
                             <div style={progLabel}>{sendProg.label}</div>
                         </div>
                     )}
+                    {sendVerify && <div style={verifyStyle}>Verify: <b>{sendVerify}</b> · confirm it matches the receiver</div>}
                     <p style={statusStyle}>{sendStatus}</p>
                 </div>
             ) : (
@@ -262,6 +271,7 @@ function App() {
                             <div style={progLabel}>{recvProg.label}</div>
                         </div>
                     )}
+                    {recvVerify && <div style={verifyStyle}>Verify: <b>{recvVerify}</b> · confirm it matches the sender</div>}
                     {recvDir && !receiving && (
                         <button onClick={() => { OpenFolder(recvDir).catch(() => {}); }} style={btn}>Show in folder</button>
                     )}
@@ -281,6 +291,7 @@ const listStyle: CSSProperties = {margin: 0, paddingLeft: 18, textAlign: 'left',
 const codeStyle: CSSProperties = {fontSize: 22, fontWeight: 'bold', letterSpacing: 1};
 const linkStyle: CSSProperties = {fontSize: 12, opacity: 0.7, wordBreak: 'break-all'};
 const progLabel: CSSProperties = {fontSize: 12, opacity: 0.8, marginTop: 4};
+const verifyStyle: CSSProperties = {fontSize: 13, opacity: 0.9, background: 'rgba(255,255,255,0.08)', borderRadius: 6, padding: '6px 8px'};
 
 function tabStyle(active: boolean): CSSProperties {
     return {

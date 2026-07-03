@@ -81,12 +81,36 @@ go.work                ties cli + desktop for local dev (to be added)
 - [ ] Dark mode toggle (the app already ships dark by default)
 - [ ] App auto-update (Sparkle on macOS, WinSparkle on Windows)
 
-### Phase 3 - Security keystone (ecosystem wide)
-- [ ] PAKE keyed by the room code, bound to DTLS fingerprints (defeats a
-      malicious signaling server performing a man in the middle)
-- [ ] Move room-word generation to the client so the server never knows the code
-- [ ] Sign auto-updates and verify the signature before applying
+### Phase 3 - Security keystone (ecosystem wide)  [IN PROGRESS]
+
+Why: WebRTC encrypts the data channel with DTLS, but the fingerprints are
+exchanged through the signaling server, so a malicious/compromised server could
+swap them and man-in-the-middle the "peer to peer" link (RFC 8827). The fix is to
+verify the connection independently of the server.
+
+**3a - Connection verification code  [DONE in the Go engine]**
+- [x] `engine/verify` derives a short code from both DTLS fingerprints
+      (ZRTP / Signal "safety number" model); unit-tested (order-independent,
+      case-insensitive, and a swapped fingerprint changes the code)
+- [x] `engine/peer` exposes `Fingerprints()` parsed from the negotiated SDPs
+- [x] CLI prints "Verify NNNN NNNN" on send and receive; desktop shows it in the UI
+- [ ] Browser parity: compute the same code from the SDP fingerprints in the web app
+
+**3b - PAKE auto-verification (removes the human compare)**
+- [ ] PAKE (CPace or SPAKE2) keyed by the room code, bound to the DTLS fingerprints,
+      run over the data channel before any file bytes (magic-wormhole / croc model)
+- [ ] Move room-word generation to the client so the server never learns the code
+- [ ] Optional: wrap file bytes in AEAD under the PAKE key (defense in depth)
 - [ ] Bump the protocol version in Go and TS together
+
+**3c - Signed auto-updates**
+- [ ] Sign `checksums.txt` (minisign or cosign, Ed25519), embed the public key,
+      and verify the signature before applying in `internal/selfupdate`
+
+**3d - Quick wins**
+- [ ] Dedupe/expand `server/words.json` (13 duplicate words today)
+- [ ] Shorten TURN credential TTL toward session length
+- [ ] Make the "relay only" toggle actually set `iceTransportPolicy: 'relay'`
 
 ### Phase 4 - Release pipeline
 - [ ] `.goreleaser.desktop.yml` plus a native-runner matrix workflow
