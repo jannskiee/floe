@@ -253,7 +253,7 @@ function App() {
                     />
                     <div style={{display: 'flex', gap: 8}}>
                         <input
-                            placeholder="save to folder (blank = current dir)"
+                            placeholder="save to folder (blank = Downloads)"
                             value={output}
                             onChange={(e) => setOutput(e.target.value)}
                             disabled={receiving}

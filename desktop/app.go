@@ -91,6 +91,25 @@ func (a *App) OpenFolder(path string) error {
 	return cmd.Start()
 }
 
+// defaultReceiveDir returns a safe default save location (the user's Downloads
+// folder, or home) so a blank destination never writes into the app's working
+// directory and clobbers unrelated files.
+func defaultReceiveDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "."
+	}
+	if dl := filepath.Join(home, "Downloads"); dirExists(dl) {
+		return dl
+	}
+	return home
+}
+
+func dirExists(p string) bool {
+	info, err := os.Stat(p)
+	return err == nil && info.IsDir()
+}
+
 // StartSend validates the given paths and launches the send flow in the
 // background. Progress is reported to the UI via Wails events:
 //   - "send:code"   {code, link}  once the room code is registered
@@ -185,7 +204,8 @@ func (a *App) runSend(paths []string) {
 	}
 
 	if local, remote, fErr := conn.Fingerprints(); fErr == nil {
-		runtime.EventsEmit(a.ctx, "send:verify", verify.Code(local, remote))
+		vc := verify.Code(local, remote)
+		go runtime.EventsEmit(a.ctx, "send:verify", vc) // off the transfer critical path
 	}
 
 	lastEmit := time.Now()
@@ -215,7 +235,7 @@ func (a *App) runSend(paths []string) {
 // Returns the absolute output directory on success.
 func (a *App) ReceiveByCode(codeOrLink string, outputDir string) (string, error) {
 	if outputDir == "" {
-		outputDir = "."
+		outputDir = defaultReceiveDir()
 	}
 	absOutput, err := filepath.Abs(outputDir)
 	if err != nil {
@@ -268,7 +288,8 @@ func (a *App) ReceiveByCode(codeOrLink string, outputDir string) (string, error)
 	}
 
 	if local, remote, fErr := conn.Fingerprints(); fErr == nil {
-		runtime.EventsEmit(a.ctx, "recv:verify", verify.Code(local, remote))
+		vc := verify.Code(local, remote)
+		go runtime.EventsEmit(a.ctx, "recv:verify", vc) // off the transfer critical path
 	}
 
 	// autoAccept=true: a GUI cannot answer a terminal prompt. statsURL="" so the
