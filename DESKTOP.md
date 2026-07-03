@@ -76,7 +76,9 @@ go.work                ties cli + desktop for local dev (to be added)
 - [x] Drag and drop files onto the window to send
 - [ ] Polished UI sharing the web app's design (QR code, matching styles)
 - [x] Folder sends, a "Browse..." save-folder picker, and "Show in folder" after receive
-- [ ] System tray, background receive, OS notifications, dark mode
+- [x] OS notifications on transfer complete / failure (native Wails; auto toast AppUserModelID on Windows)
+- [ ] System tray / minimize-to-tray (NOT in Wails v2 - `onhold`, deferred to the v3 migration). Transfers already keep running while the window is minimized.
+- [ ] Dark mode toggle (the app already ships dark by default)
 - [ ] App auto-update (Sparkle on macOS, WinSparkle on Windows)
 
 ### Phase 3 - Security keystone (ecosystem wide)

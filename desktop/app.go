@@ -39,6 +39,15 @@ func NewApp() *App {
 // runtime methods (events, dialogs).
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	// Best-effort: register the app for OS notifications (sets up the toast
+	// AppUserModelID on Windows). Errors are non-fatal.
+	_ = runtime.InitializeNotifications(ctx)
+}
+
+// notify sends a best-effort OS notification. Failures are ignored so a transfer
+// outcome never depends on the notification succeeding.
+func (a *App) notify(title, body string) {
+	_ = runtime.SendNotification(a.ctx, runtime.NotificationOptions{Title: title, Body: body})
 }
 
 // EngineProtocolVersion returns the wire protocol version of the embedded engine.
@@ -101,7 +110,10 @@ func (a *App) StartSend(paths []string) error {
 }
 
 func (a *App) runSend(paths []string) {
-	fail := func(err error) { runtime.EventsEmit(a.ctx, "send:error", err.Error()) }
+	fail := func(err error) {
+		runtime.EventsEmit(a.ctx, "send:error", err.Error())
+		a.notify("Floe - send failed", err.Error())
+	}
 
 	roomID := uuid.New().String()
 
@@ -186,6 +198,7 @@ func (a *App) runSend(paths []string) {
 		return
 	}
 	runtime.EventsEmit(a.ctx, "send:done", "Files sent successfully.")
+	a.notify("Floe", "Files sent successfully.")
 }
 
 // ReceiveByCode connects to a peer using a Floe room code (or link) and receives
@@ -263,5 +276,6 @@ func (a *App) ReceiveByCode(codeOrLink string, outputDir string) (string, error)
 		return "", fmt.Errorf("transfer failed: %w", err)
 	}
 
+	a.notify("Floe", "Files received.")
 	return absOutput, nil
 }
