@@ -109,6 +109,7 @@ export function P2PTransfer() {
     const [showQr, setShowQr] = useState(false);
     const [showInfoTooltip, setShowInfoTooltip] = useState(false);
     const [relayEnabled, setRelayEnabled] = useState(true);
+    const [hideIP, setHideIP] = useState(false);
     const [reportStatsEnabled, setReportStatsEnabled] = useState(true);
     const reportStatsEnabledRef = useRef(true);
 
@@ -379,6 +380,7 @@ export function P2PTransfer() {
             trickle: true,
             config: {
                 iceServers: iceServersRef.current,
+                iceTransportPolicy: hideIP ? 'relay' : undefined,
             },
         });
 
@@ -701,7 +703,9 @@ export function P2PTransfer() {
             setStatus('Peer joined. Starting transfer');
             requestWakeLock();
 
-            const iceConfig = relayEnabled
+            // hideIP forces relay-only, which needs TURN present, so never filter
+            // out relay servers when hiding the IP.
+            const iceConfig = (relayEnabled || hideIP)
                 ? iceServersRef.current
                 : iceServersRef.current.filter((s) => {
                     const urls = Array.isArray(s.urls) ? s.urls : [s.urls as string];
@@ -713,6 +717,7 @@ export function P2PTransfer() {
                 trickle: true,
                 config: {
                     iceServers: iceConfig,
+                    iceTransportPolicy: hideIP ? 'relay' : undefined,
                 },
             });
 
@@ -1158,6 +1163,36 @@ export function P2PTransfer() {
                                     <div className="mt-4">
                                         {files.length > 0 && !generatedLink && (
                                             <>
+                                                {/* Hide my IP toggle */}
+                                                <div className="mb-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+                                                    <label className="flex items-start gap-3 cursor-pointer group/hideip select-none">
+                                                        <div className="relative flex-shrink-0 mt-0.5">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={hideIP}
+                                                                onChange={(e) => setHideIP(e.target.checked)}
+                                                                className="sr-only"
+                                                            />
+                                                            <div className={`h-4 w-4 rounded-sm border transition-all duration-150 flex items-center justify-center ${hideIP
+                                                                    ? 'bg-white border-white'
+                                                                    : 'bg-transparent border-zinc-600 group-hover/hideip:border-zinc-400'
+                                                                }`}>
+                                                                {hideIP && (
+                                                                    <svg viewBox="0 0 10 8" fill="none" className="h-2.5 w-2.5">
+                                                                        <path d="M1 4l2.5 2.5L9 1" stroke="#09090b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                                                                    </svg>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <div className="space-y-1.5">
+                                                            <p className="text-sm font-medium text-zinc-200 leading-none">Hide my IP</p>
+                                                            <p className="text-xs text-zinc-500 leading-relaxed">
+                                                                Routes the transfer through the relay so the other device never sees your IP address. Slower, and subject to the 2 GB relay limit.
+                                                            </p>
+                                                        </div>
+                                                    </label>
+                                                </div>
+
                                                 {/* Network Relay Fallback toggle */}
                                                 <div className="mb-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
                                                     <label className="flex items-start gap-3 cursor-pointer group/relay select-none">
