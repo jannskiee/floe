@@ -108,7 +108,7 @@ function generateCoturnCredentials() {
     const turnDomain = process.env.TURN_DOMAIN;
     if (!turnSecret || !turnDomain) return null;
 
-    const ttl = 24 * 3600;
+    const ttl = 2 * 3600; // 2h: ample for any transfer, but limits reuse of a leaked credential vs the old 24h
     const expiry = Math.floor(Date.now() / 1000) + ttl;
     const username = `${expiry}:floeuser`;
     const password = crypto.createHmac('sha1', turnSecret).update(username).digest('base64');

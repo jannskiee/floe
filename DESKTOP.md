@@ -108,9 +108,11 @@ verify the connection independently of the server.
       and verify the signature before applying in `internal/selfupdate`
 
 **3d - Quick wins**
-- [ ] Dedupe/expand `server/words.json` (13 duplicate words today)
-- [ ] Shorten TURN credential TTL toward session length
-- [ ] Make the "relay only" toggle actually set `iceTransportPolicy: 'relay'`
+- [x] Dedupe/expand `server/words.json` (was 275 unique with 13 dupes; now 288 unique)
+- [x] Shorten TURN credential TTL (24h -> 2h)
+- [ ] Optional feature (not a bug): a "hide my IP" mode that sets `iceTransportPolicy: 'relay'`.
+      The existing "Network Relay Fallback" toggle works as intended (relay on/off); it just
+      isn't an IP-hiding mode.
 
 ### Phase 4 - Release pipeline
 - [ ] `.goreleaser.desktop.yml` plus a native-runner matrix workflow
