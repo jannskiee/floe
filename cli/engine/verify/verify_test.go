@@ -42,3 +42,14 @@ func TestCodeDetectsChangedFingerprint(t *testing.T) {
 		t.Fatalf("unexpected code format: %q", got)
 	}
 }
+
+// TestCodeKnownVector pins a canonical value so the browser implementation
+// (client/lib/transfer/verify.ts) can be tested to produce the exact same code.
+func TestCodeKnownVector(t *testing.T) {
+	got := Code("sha-256 AA:BB:CC:DD", "sha-256 11:22:33:44")
+	if got != knownVector {
+		t.Fatalf("vector changed: got %q want %q (update client verify.test.ts too)", got, knownVector)
+	}
+}
+
+const knownVector = "1337 5359"

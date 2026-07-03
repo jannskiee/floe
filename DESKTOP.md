@@ -88,13 +88,15 @@ exchanged through the signaling server, so a malicious/compromised server could
 swap them and man-in-the-middle the "peer to peer" link (RFC 8827). The fix is to
 verify the connection independently of the server.
 
-**3a - Connection verification code  [DONE in the Go engine]**
+**3a - Connection verification code  [DONE - all surfaces]**
 - [x] `engine/verify` derives a short code from both DTLS fingerprints
       (ZRTP / Signal "safety number" model); unit-tested (order-independent,
       case-insensitive, and a swapped fingerprint changes the code)
 - [x] `engine/peer` exposes `Fingerprints()` parsed from the negotiated SDPs
 - [x] CLI prints "Verify NNNN NNNN" on send and receive; desktop shows it in the UI
-- [ ] Browser parity: compute the same code from the SDP fingerprints in the web app
+- [x] Browser parity: the web app computes the same code from the SDP fingerprints
+      (`client/lib/transfer/verify.ts`, unit-tested to match the Go canonical vector
+      `1337 5359`) and shows it after connecting. Verification now works browser <-> CLI <-> desktop.
 
 **3b - PAKE auto-verification (removes the human compare)**
 - [ ] PAKE (CPace or SPAKE2) keyed by the room code, bound to the DTLS fingerprints,

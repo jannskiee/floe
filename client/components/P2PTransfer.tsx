@@ -19,6 +19,7 @@ import { formatSpeed, formatETA } from '@/lib/transferUtils';
 import { createReceiver } from '@/lib/transfer/receiver';
 import { sendFiles as sendFilesEngine } from '@/lib/transfer/sender';
 import { dedupeFileName } from '@/lib/download';
+import { verifyCode as deriveVerifyCode, extractFingerprint } from '@/lib/transfer/verify';
 import { useWakeLock } from '@/hooks/useWakeLock';
 
 import { QRCodeSVG } from 'qrcode.react';
@@ -104,6 +105,7 @@ export function P2PTransfer() {
     const [estimatedTime, setEstimatedTime] = useState('');
     const [isDragging, setIsDragging] = useState(false);
     const [connectionType, setConnectionType] = useState<'direct' | 'relay' | null>(null);
+    const [verifyCode, setVerifyCode] = useState('');
     const [showQr, setShowQr] = useState(false);
     const [showInfoTooltip, setShowInfoTooltip] = useState(false);
     const [relayEnabled, setRelayEnabled] = useState(true);
@@ -159,6 +161,14 @@ export function P2PTransfer() {
                     setConnectionType(isRelay ? 'relay' : 'direct');
                 }
             });
+        } catch { }
+        // Connection verification code (ZRTP / safety-number model): derived from
+        // both DTLS fingerprints so the user can compare it with the peer and
+        // detect a man-in-the-middle. Mirrors cli/engine/verify. See lib/transfer/verify.ts.
+        try {
+            const local = extractFingerprint(pc.localDescription?.sdp);
+            const remote = extractFingerprint(pc.remoteDescription?.sdp);
+            if (local && remote) setVerifyCode(await deriveVerifyCode(local, remote));
         } catch { }
     };
 
@@ -390,6 +400,7 @@ export function P2PTransfer() {
         peer.on('close', () => {
             releaseWakeLock();
             setConnectionType(null);
+            setVerifyCode('');
             if (connTypeIntervalRef.current) clearInterval(connTypeIntervalRef.current);
             Sentry.addBreadcrumb({
                 category: 'webrtc',
@@ -777,6 +788,7 @@ export function P2PTransfer() {
             peer.on('close', () => {
                 releaseWakeLock();
                 setConnectionType(null);
+                setVerifyCode('');
                 if (connTypeIntervalRef.current) clearInterval(connTypeIntervalRef.current);
                 Sentry.addBreadcrumb({
                     category: 'webrtc',
@@ -1055,6 +1067,14 @@ export function P2PTransfer() {
                                     )}
                                 </div>
                             </div>
+
+                            {verifyCode && (
+                                <div className="mt-2 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-400 flex flex-wrap items-center gap-x-2 gap-y-1">
+                                    <span className="uppercase tracking-wider text-[10px] font-bold text-zinc-500">Verify</span>
+                                    <span className="font-mono font-semibold text-zinc-200 tracking-wider text-sm">{verifyCode}</span>
+                                    <span className="text-zinc-500">compare with the other device to rule out eavesdropping</span>
+                                </div>
+                            )}
 
                             {isSender && isRelayOverLimit && (
                                 <div className="mt-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 flex items-start gap-3">
