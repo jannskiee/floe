@@ -1073,14 +1073,6 @@ export function P2PTransfer() {
                                 </div>
                             </div>
 
-                            {verifyCode && (
-                                <div className="mt-2 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-400 flex flex-wrap items-center gap-x-2 gap-y-1">
-                                    <span className="uppercase tracking-wider text-[10px] font-bold text-zinc-500">Verify</span>
-                                    <span className="font-mono font-semibold text-zinc-200 tracking-wider text-sm">{verifyCode}</span>
-                                    <span className="text-zinc-500">compare with the other device to rule out eavesdropping</span>
-                                </div>
-                            )}
-
                             {isSender && isRelayOverLimit && (
                                 <div className="mt-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 flex items-start gap-3">
                                     <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />

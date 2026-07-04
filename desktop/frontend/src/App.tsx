@@ -88,17 +88,6 @@ function ProgressRow({prog}: {prog: {pct: number; label: string}}) {
     );
 }
 
-function VerifyRow({code, peer}: {code: string; peer: 'sender' | 'receiver'}) {
-    return (
-        <div className="animate-floe-in flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-zinc-400">
-            <ShieldCheck className="size-3.5 text-zinc-500"/>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Verify</span>
-            <span className="font-mono text-sm font-semibold tracking-wider text-zinc-200">{code}</span>
-            <span className="text-zinc-500">confirm it matches the {peer}</span>
-        </div>
-    );
-}
-
 function StatusLine({text, busy}: {text: string; busy: boolean}) {
     const isError = text.startsWith('Error');
     return (
@@ -121,7 +110,6 @@ function App() {
     const [sendStatus, setSendStatus] = useState('Select or drag files, then click Send.');
     const [sending, setSending] = useState(false);
     const [sendProg, setSendProg] = useState<{pct: number; label: string} | null>(null);
-    const [sendVerify, setSendVerify] = useState('');
     const [copied, setCopied] = useState(false);
     const sendStart = useRef<Marker>(null);
 
@@ -132,7 +120,6 @@ function App() {
     const [receiving, setReceiving] = useState(false);
     const [recvProg, setRecvProg] = useState<{pct: number; label: string} | null>(null);
     const [recvDir, setRecvDir] = useState('');
-    const [recvVerify, setRecvVerify] = useState('');
     const recvStart = useRef<Marker>(null);
 
     useEffect(() => {
@@ -143,7 +130,6 @@ function App() {
         });
         EventsOn('send:status', (msg: string) => setSendStatus(msg));
         EventsOn('send:progress', (p: Prog) => setSendProg(track(sendStart, p)));
-        EventsOn('send:verify', (c: string) => setSendVerify(c));
         EventsOn('send:done', (msg: string) => {
             setSendStatus(msg);
             setSendProg({pct: 100, label: 'Complete.'});
@@ -154,7 +140,6 @@ function App() {
             setSending(false);
         });
         EventsOn('recv:progress', (p: Prog) => setRecvProg(track(recvStart, p)));
-        EventsOn('recv:verify', (c: string) => setRecvVerify(c));
         // Native file drop on the whole window (useDropTarget=false). Paths arrive
         // already resolved to absolute paths from the Go side.
         OnFileDrop((_x, _y, paths) => {
@@ -168,11 +153,9 @@ function App() {
             EventsOff('send:code');
             EventsOff('send:status');
             EventsOff('send:progress');
-            EventsOff('send:verify');
             EventsOff('send:done');
             EventsOff('send:error');
             EventsOff('recv:progress');
-            EventsOff('recv:verify');
             OnFileDropOff();
         };
     }, []);
@@ -229,7 +212,6 @@ function App() {
         setSendCode('');
         setSendLink('');
         setSendProg(null);
-        setSendVerify('');
         sendStart.current = null;
         setSendStatus('Setting up...');
         try {
@@ -248,7 +230,6 @@ function App() {
         setReceiving(true);
         setRecvProg(null);
         setRecvDir('');
-        setRecvVerify('');
         recvStart.current = null;
         setRecvStatus('Connecting... keep this window open.');
         try {
@@ -449,7 +430,6 @@ function App() {
                             )}
 
                             {sendProg && <ProgressRow prog={sendProg}/>}
-                            {sendVerify && <VerifyRow code={sendVerify} peer="receiver"/>}
                             <StatusLine text={sendStatus} busy={sending}/>
                         </div>
 
@@ -485,7 +465,6 @@ function App() {
                             </Button>
 
                             {recvProg && <ProgressRow prog={recvProg}/>}
-                            {recvVerify && <VerifyRow code={recvVerify} peer="sender"/>}
                             {recvDir && !receiving && (
                                 <Button variant="outline" className="animate-floe-in w-full" onClick={() => { OpenFolder(recvDir).catch(() => {}); }}>
                                     <FolderOpen/> Show in folder

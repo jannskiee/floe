@@ -22,7 +22,6 @@ import (
 	"github.com/jannskiee/floe/cli/engine/peer"
 	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/jannskiee/floe/cli/engine/transfer"
-	"github.com/jannskiee/floe/cli/engine/verify"
 	"github.com/jannskiee/floe/cli/internal/selfupdate"
 	"github.com/spf13/cobra"
 )
@@ -196,9 +195,6 @@ func runSend(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println("  Connected")
-	if local, remote, err := conn.Fingerprints(); err == nil {
-		fmt.Printf("  Verify    %s   (compare with the other device to rule out eavesdropping)\n", verify.Code(local, remote))
-	}
 	fmt.Println()
 
 	// 9. Send files
@@ -309,9 +305,6 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println("  Connected")
-	if local, remote, err := conn.Fingerprints(); err == nil {
-		fmt.Printf("  Verify    %s   (compare with the other device to rule out eavesdropping)\n", verify.Code(local, remote))
-	}
 
 	// 7. Receive files
 	statsURL := flagServer
