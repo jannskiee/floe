@@ -1,14 +1,24 @@
-import type {ButtonHTMLAttributes, InputHTMLAttributes, ReactNode} from 'react';
+import type {ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SVGProps} from 'react';
 
 /** cn joins truthy class strings. A one-liner replaces clsx/tailwind-merge for this small app. */
 export const cn = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
 
-type ButtonVariant = 'primary' | 'outline' | 'ghost';
+/** BoltMark is the real Floe lightning-bolt logo mark as an inline SVG. */
+export function BoltMark({className, ...props}: SVGProps<SVGSVGElement>) {
+    return (
+        <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden {...props}>
+            <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z"/>
+        </svg>
+    );
+}
+
+type ButtonVariant = 'primary' | 'outline' | 'ghost' | 'secondary';
 
 const buttonVariants: Record<ButtonVariant, string> = {
-    primary: 'bg-white text-black hover:bg-zinc-200 font-semibold',
-    outline: 'border border-zinc-700 bg-transparent text-zinc-300 hover:bg-zinc-800 hover:text-white',
-    ghost: 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800',
+    primary:   'bg-white text-black hover:bg-zinc-200 font-semibold',
+    secondary: 'bg-zinc-800 text-white hover:bg-zinc-700 border border-zinc-700',
+    outline:   'border border-zinc-700 bg-transparent text-zinc-300 hover:bg-zinc-800 hover:text-white',
+    ghost:     'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800',
 };
 
 export function Button({

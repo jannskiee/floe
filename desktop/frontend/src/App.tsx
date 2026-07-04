@@ -1,7 +1,7 @@
 import {useEffect, useRef, useState} from 'react';
 import type {MutableRefObject, ReactNode} from 'react';
 import {ReceiveByCode, SelectFiles, SelectFolder, OpenFolder, StartSend} from "../wailsjs/go/main/App";
-import {EventsOn, EventsOff, OnFileDrop, OnFileDropOff} from "../wailsjs/runtime/runtime";
+import {EventsOn, EventsOff, OnFileDrop, OnFileDropOff, BrowserOpenURL} from "../wailsjs/runtime/runtime";
 import {
     AlertCircle,
     Check,
@@ -13,10 +13,12 @@ import {
     FolderOpen,
     Loader2,
     Send,
+    Server,
     ShieldCheck,
     UploadCloud,
+    Zap,
 } from 'lucide-react';
-import {Button, Card, Input, cn} from './components/ui';
+import {BoltMark, Button, Card, Input, cn} from './components/ui';
 
 type Mode = 'send' | 'receive';
 
@@ -74,7 +76,7 @@ function track(ref: MutableRefObject<Marker>, p: Prog): {pct: number; label: str
 
 function ProgressRow({prog}: {prog: {pct: number; label: string}}) {
     return (
-        <div className="space-y-1.5">
+        <div className="animate-floe-in space-y-1.5">
             <div className="truncate font-mono text-xs text-zinc-400">{prog.label}</div>
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
                 <div
@@ -88,7 +90,7 @@ function ProgressRow({prog}: {prog: {pct: number; label: string}}) {
 
 function VerifyRow({code, peer}: {code: string; peer: 'sender' | 'receiver'}) {
     return (
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-zinc-400">
+        <div className="animate-floe-in flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-zinc-400">
             <ShieldCheck className="size-3.5 text-zinc-500"/>
             <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Verify</span>
             <span className="font-mono text-sm font-semibold tracking-wider text-zinc-200">{code}</span>
@@ -273,149 +275,227 @@ function App() {
     );
 
     return (
-        <div className="relative flex min-h-screen flex-col items-center justify-center gap-5 overflow-hidden p-8 selection:bg-white/20">
-            {/* soft glow so the roomy window's empty space reads as intentional */}
-            <div
-                aria-hidden
-                className="pointer-events-none absolute left-1/2 top-1/3 -z-10 h-[420px] w-[560px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/[0.04] blur-3xl"
-            />
+        <div className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-100 selection:bg-white/20">
 
-            <div className="flex items-baseline gap-2">
-                <span className="text-lg font-bold tracking-tight text-white">Floe</span>
-                <span className="rounded border border-zinc-800 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-widest text-zinc-500">
-                    Desktop
-                </span>
-            </div>
+            {/* ── LEFT RAIL: brand + hero ─────────────────────────────────────── */}
+            <aside className="relative flex w-[42%] max-w-[440px] shrink-0 flex-col overflow-hidden border-r border-white/5 bg-zinc-950">
+                {/* ambient glow */}
+                <div
+                    aria-hidden
+                    className="pointer-events-none absolute left-1/4 top-1/3 h-[360px] w-[360px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/[0.04] blur-3xl"
+                />
+                {/* giant watermark bolt */}
+                <BoltMark
+                    aria-hidden
+                    className="pointer-events-none absolute -bottom-8 -right-8 size-64 rotate-12 text-white/[0.025]"
+                />
 
-            <Card className="space-y-5">
-                {/* Send / Receive tabs */}
-                <div className="grid grid-cols-2 gap-1 rounded-lg border border-zinc-800 bg-zinc-900/80 p-1">
-                    {tab('send', 'Send', <Send className="size-4"/>)}
-                    {tab('receive', 'Receive', <Download className="size-4"/>)}
+                {/* top: brand lockup */}
+                <div className="relative flex items-center gap-2.5 p-8 pb-0">
+                    <BoltMark className="size-5 text-white"/>
+                    <span className="text-lg font-bold tracking-tight text-white">Floe</span>
+                    <span className="rounded border border-zinc-800 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-widest text-zinc-500">
+                        Desktop
+                    </span>
                 </div>
 
-                {/* Hide my IP */}
-                <label className="group/hideip flex cursor-pointer select-none items-start gap-3 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
-                    <input
-                        type="checkbox"
-                        checked={hideIP}
-                        onChange={(e) => setHideIP(e.target.checked)}
-                        className="sr-only"
-                    />
-                    <span
-                        className={cn(
-                            'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border transition-all',
-                            hideIP ? 'border-white bg-white' : 'border-zinc-600 bg-transparent group-hover/hideip:border-zinc-400',
-                        )}
-                    >
-                        {hideIP && (
-                            <svg viewBox="0 0 10 8" fill="none" className="h-2.5 w-2.5">
-                                <path d="M1 4l2.5 2.5L9 1" stroke="#09090b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                            </svg>
-                        )}
-                    </span>
-                    <span className="space-y-0.5">
-                        <span className="block text-sm font-medium leading-none text-zinc-200">Hide my IP</span>
-                        <span className="block text-xs text-zinc-500">Route through the relay so the peer never sees your IP.</span>
-                    </span>
-                </label>
+                {/* middle: hero content — vertically centered in remaining space */}
+                <div className="relative flex flex-1 flex-col justify-center px-8 py-6">
+                    <h1 className="text-3xl font-extrabold tracking-tighter text-white">
+                        Send anything,<br/>peer to peer.
+                    </h1>
+                    <p className="mt-3 text-sm leading-relaxed text-zinc-400">
+                        End-to-end encrypted. No accounts,<br/>no storage, no middleman.
+                    </p>
 
-                {mode === 'send' ? (
-                    <div className="space-y-4">
-                        <div className="flex flex-col items-center gap-3 rounded-xl border-2 border-dashed border-zinc-700 bg-zinc-900/40 p-5 text-center">
-                            <span className="rounded-full bg-zinc-800 p-3">
-                                <UploadCloud className="size-6 text-zinc-400"/>
-                            </span>
-                            <div className="flex w-full gap-2">
-                                <Button variant="outline" className="flex-1" onClick={pickFiles} disabled={sending}>
-                                    <Files/> Select files
-                                </Button>
-                                <Button variant="outline" className="flex-1" onClick={pickSendFolder} disabled={sending}>
-                                    <Folder/> Select folder
-                                </Button>
+                    <div className="mt-8 space-y-4">
+                        {[
+                            {icon: <ShieldCheck className="size-4 text-white"/>, label: 'End-to-end encrypted', note: 'DTLS + SRTP, same as video calls'},
+                            {icon: <Zap className="size-4 text-white"/>, label: 'Direct, unlimited transfers', note: 'P2P — files never touch a server'},
+                            {icon: <Server className="size-4 text-white"/>, label: 'Nothing stored on a server', note: 'The relay only brokers the handshake'},
+                        ].map(({icon, label, note}) => (
+                            <div key={label} className="flex items-start gap-3">
+                                <span className="flex size-9 shrink-0 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900">
+                                    {icon}
+                                </span>
+                                <div>
+                                    <p className="text-sm font-medium text-zinc-200">{label}</p>
+                                    <p className="text-xs text-zinc-500">{note}</p>
+                                </div>
                             </div>
-                            <p className="text-xs text-zinc-500">or drag files onto the window</p>
+                        ))}
+                    </div>
+                </div>
+
+                {/* bottom: footer links */}
+                <div className="relative flex items-center gap-4 p-8 pt-0">
+                    <button
+                        onClick={() => BrowserOpenURL('https://github.com/jannskiee/floe')}
+                        className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
+                    >
+                        Open source
+                    </button>
+                    <span className="text-zinc-800">·</span>
+                    <button
+                        onClick={() => BrowserOpenURL('https://docs.floe.one')}
+                        className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
+                    >
+                        Docs
+                    </button>
+                </div>
+            </aside>
+
+            {/* ── RIGHT CONSOLE: the working UI ───────────────────────────────── */}
+            <main className="custom-scrollbar flex-1 overflow-y-auto">
+                <div className="mx-auto w-full max-w-md space-y-5 px-8 py-10">
+
+                    {/* Send / Receive tabs */}
+                    <div className="grid grid-cols-2 gap-1 rounded-lg border border-zinc-800 bg-zinc-900/80 p-1">
+                        {tab('send', 'Send', <Send className="size-4"/>)}
+                        {tab('receive', 'Receive', <Download className="size-4"/>)}
+                    </div>
+
+                    {/* Hide my IP */}
+                    <label className="group/hideip flex cursor-pointer select-none items-start gap-3 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+                        <input
+                            type="checkbox"
+                            checked={hideIP}
+                            onChange={(e) => setHideIP(e.target.checked)}
+                            className="sr-only"
+                        />
+                        <span
+                            className={cn(
+                                'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border transition-all',
+                                hideIP ? 'border-white bg-white' : 'border-zinc-600 bg-transparent group-hover/hideip:border-zinc-400',
+                            )}
+                        >
+                            {hideIP && (
+                                <svg viewBox="0 0 10 8" fill="none" className="h-2.5 w-2.5">
+                                    <path d="M1 4l2.5 2.5L9 1" stroke="#09090b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                </svg>
+                            )}
+                        </span>
+                        <span className="space-y-0.5">
+                            <span className="block text-sm font-medium leading-none text-zinc-200">Hide my IP</span>
+                            <span className="block text-xs text-zinc-500">Route through the relay so the peer never sees your IP.</span>
+                        </span>
+                    </label>
+
+                    {/* ── SEND VIEW ─────────────────────────────────────────────── */}
+                    {mode === 'send' ? (
+                        <div className="space-y-4">
+                            {/* drop zone */}
+                            <div className="flex flex-col items-center gap-3 rounded-xl border-2 border-dashed border-zinc-700 bg-zinc-900/40 p-6 text-center transition-colors hover:border-white/30 hover:bg-zinc-900/60">
+                                <span className="rounded-full bg-zinc-800 p-3">
+                                    <UploadCloud className="size-6 text-zinc-400"/>
+                                </span>
+                                <div className="flex w-full gap-2">
+                                    <Button variant="outline" className="flex-1" onClick={pickFiles} disabled={sending}>
+                                        <Files/> Select files
+                                    </Button>
+                                    <Button variant="outline" className="flex-1" onClick={pickSendFolder} disabled={sending}>
+                                        <Folder/> Select folder
+                                    </Button>
+                                </div>
+                                <p className="text-xs text-zinc-500">or drag files onto the window</p>
+                            </div>
+
+                            {/* file list */}
+                            {files.length > 0 && (
+                                <ul className="animate-floe-in custom-scrollbar max-h-40 divide-y divide-zinc-800 overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-900/40">
+                                    {files.map((f) => (
+                                        <li key={f} className="flex items-center gap-2 px-3 py-2 text-sm text-zinc-300">
+                                            <FileText className="size-4 shrink-0 text-zinc-500"/>
+                                            <span className="truncate">{f.split(/[\\/]/).pop()}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+
+                            {/* send button */}
+                            <Button className="w-full" onClick={send} disabled={sending || !files.length}>
+                                {sending
+                                    ? <><Loader2 className="animate-spin"/> Sending...</>
+                                    : <><Send/> Send{files.length ? ` (${files.length})` : ''}</>
+                                }
+                            </Button>
+
+                            {/* room code */}
+                            {sendCode && (
+                                <div className="animate-floe-in space-y-1 rounded-lg border border-zinc-800 bg-black/40 p-4 text-center">
+                                    <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Room code</p>
+                                    <div className="font-mono text-2xl font-bold tracking-[0.2em] text-white">{sendCode}</div>
+                                </div>
+                            )}
+
+                            {/* share link */}
+                            {sendLink && (
+                                <div className="animate-floe-in space-y-2 rounded-lg border border-zinc-800 bg-black/40 p-3">
+                                    <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Share link</p>
+                                    <code className="block break-all rounded border border-zinc-800 bg-zinc-950 p-2.5 font-mono text-xs text-zinc-300">
+                                        {sendLink}
+                                    </code>
+                                    <Button
+                                        variant="secondary"
+                                        className="w-full"
+                                        onClick={copyLink}
+                                    >
+                                        {copied
+                                            ? <><Check className="size-3.5 text-green-500"/> <span className="text-green-500">Copied</span></>
+                                            : <><Copy className="size-3.5"/> Copy link</>
+                                        }
+                                    </Button>
+                                </div>
+                            )}
+
+                            {sendProg && <ProgressRow prog={sendProg}/>}
+                            {sendVerify && <VerifyRow code={sendVerify} peer="receiver"/>}
+                            <StatusLine text={sendStatus} busy={sending}/>
                         </div>
 
-                        {files.length > 0 && (
-                            <ul className="custom-scrollbar max-h-40 divide-y divide-zinc-800 overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-900/40">
-                                {files.map((f) => (
-                                    <li key={f} className="flex items-center gap-2 px-3 py-2 text-sm text-zinc-300">
-                                        <FileText className="size-4 shrink-0 text-zinc-500"/>
-                                        <span className="truncate">{f.split(/[\\/]/).pop()}</span>
-                                    </li>
-                                ))}
-                            </ul>
-                        )}
-
-                        <Button className="w-full" onClick={send} disabled={sending || !files.length}>
-                            {sending ? <><Loader2 className="animate-spin"/> Sending...</> : <><Send/> Send{files.length ? ` (${files.length})` : ''}</>}
-                        </Button>
-
-                        {sendCode && (
-                            <div className="space-y-1 rounded-lg border border-zinc-800 bg-black/40 p-4 text-center">
-                                <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Room code</p>
-                                <div className="font-mono text-2xl font-bold tracking-[0.2em] text-white">{sendCode}</div>
-                            </div>
-                        )}
-
-                        {sendLink && (
-                            <div className="space-y-2 rounded-lg border border-zinc-800 bg-black/40 p-3">
-                                <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Share link</p>
-                                <code className="block break-all rounded border border-zinc-800 bg-zinc-950 p-2.5 font-mono text-xs text-zinc-300">
-                                    {sendLink}
-                                </code>
-                                <button
-                                    onClick={copyLink}
-                                    className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-800/80 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-700 hover:text-white"
-                                >
-                                    {copied ? <><Check className="size-3.5 text-green-500"/> Copied</> : <><Copy className="size-3.5"/> Copy link</>}
-                                </button>
-                            </div>
-                        )}
-
-                        {sendProg && <ProgressRow prog={sendProg}/>}
-                        {sendVerify && <VerifyRow code={sendVerify} peer="receiver"/>}
-                        <StatusLine text={sendStatus} busy={sending}/>
-                    </div>
-                ) : (
-                    <div className="space-y-4">
-                        <Input
-                            placeholder="code or link (e.g. olive-tiger-castle)"
-                            value={code}
-                            onChange={(e) => setCode(e.target.value)}
-                            disabled={receiving}
-                            autoComplete="off"
-                        />
-                        <div className="flex gap-2">
+                    ) : (
+                    /* ── RECEIVE VIEW ─────────────────────────────────────────── */
+                        <div className="space-y-4">
                             <Input
-                                className="flex-1"
-                                placeholder="save to folder (blank = Downloads)"
-                                value={output}
-                                onChange={(e) => setOutput(e.target.value)}
+                                placeholder="code or link (e.g. olive-tiger-castle)"
+                                value={code}
+                                onChange={(e) => setCode(e.target.value)}
                                 disabled={receiving}
                                 autoComplete="off"
                             />
-                            <Button variant="outline" onClick={pickSaveFolder} disabled={receiving}>
-                                <Folder/> Browse
+                            <div className="flex gap-2">
+                                <Input
+                                    className="flex-1"
+                                    placeholder="save to folder (blank = Downloads)"
+                                    value={output}
+                                    onChange={(e) => setOutput(e.target.value)}
+                                    disabled={receiving}
+                                    autoComplete="off"
+                                />
+                                <Button variant="outline" onClick={pickSaveFolder} disabled={receiving}>
+                                    <Folder/> Browse
+                                </Button>
+                            </div>
+
+                            <Button className="w-full" onClick={receive} disabled={receiving}>
+                                {receiving
+                                    ? <><Loader2 className="animate-spin"/> Receiving...</>
+                                    : <><Download/> Receive</>
+                                }
                             </Button>
+
+                            {recvProg && <ProgressRow prog={recvProg}/>}
+                            {recvVerify && <VerifyRow code={recvVerify} peer="sender"/>}
+                            {recvDir && !receiving && (
+                                <Button variant="outline" className="animate-floe-in w-full" onClick={() => { OpenFolder(recvDir).catch(() => {}); }}>
+                                    <FolderOpen/> Show in folder
+                                </Button>
+                            )}
+                            <StatusLine text={recvStatus} busy={receiving}/>
                         </div>
-
-                        <Button className="w-full" onClick={receive} disabled={receiving}>
-                            {receiving ? <><Loader2 className="animate-spin"/> Receiving...</> : <><Download/> Receive</>}
-                        </Button>
-
-                        {recvProg && <ProgressRow prog={recvProg}/>}
-                        {recvVerify && <VerifyRow code={recvVerify} peer="sender"/>}
-                        {recvDir && !receiving && (
-                            <Button variant="outline" className="w-full" onClick={() => { OpenFolder(recvDir).catch(() => {}); }}>
-                                <FolderOpen/> Show in folder
-                            </Button>
-                        )}
-                        <StatusLine text={recvStatus} busy={receiving}/>
-                    </div>
-                )}
-            </Card>
+                    )}
+                </div>
+            </main>
         </div>
     );
 }
