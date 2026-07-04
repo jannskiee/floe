@@ -74,7 +74,9 @@ go.work                ties cli + desktop for local dev (to be added)
 - [x] Live progress bar (percent + bytes) via an engine progress callback (`SendFilesWithProgress`/`ReceiveFilesWithProgress`) plus throttled `send:progress`/`recv:progress` Wails events
 - [x] Speed and ETA readout on the progress bar
 - [x] Drag and drop files onto the window to send
-- [ ] Polished UI sharing the web app's design (QR code, matching styles)
+- [x] Polished UI matching the web app's design: Tailwind v4 (`@tailwindcss/vite`, Vite 3->6 bump)
+      + Geist fonts + lucide-react; dark zinc theme, elevated card, segmented tabs, custom toggle,
+      dashed drop zone, mono room code + copy-link, polished progress/verify/status. (QR deferred.)
 - [x] Folder sends, a "Browse..." save-folder picker, and "Show in folder" after receive
 - [x] OS notifications on transfer complete / failure (native Wails; auto toast AppUserModelID on Windows)
 - [ ] System tray / minimize-to-tray (NOT in Wails v2 - `onhold`, deferred to the v3 migration). Transfers already keep running while the window is minimized.
