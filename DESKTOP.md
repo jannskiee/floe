@@ -90,15 +90,16 @@ exchanged through the signaling server, so a malicious/compromised server could
 swap them and man-in-the-middle the "peer to peer" link (RFC 8827). The fix is to
 verify the connection independently of the server.
 
-**3a - Connection verification code  [DONE - all surfaces]**
+**3a - Connection verification code  [MECHANISM DONE; UI REMOVED 2026-07-04]**
 - [x] `engine/verify` derives a short code from both DTLS fingerprints
       (ZRTP / Signal "safety number" model); unit-tested (order-independent,
-      case-insensitive, and a swapped fingerprint changes the code)
-- [x] `engine/peer` exposes `Fingerprints()` parsed from the negotiated SDPs
-- [x] CLI prints "Verify NNNN NNNN" on send and receive; desktop shows it in the UI
-- [x] Browser parity: the web app computes the same code from the SDP fingerprints
-      (`client/lib/transfer/verify.ts`, unit-tested to match the Go canonical vector
-      `1337 5359`) and shows it after connecting. Verification now works browser <-> CLI <-> desktop.
+      case-insensitive, and a swapped fingerprint changes the code). RETAINED.
+- [x] `engine/peer` exposes `Fingerprints()` parsed from the negotiated SDPs. RETAINED.
+- [~] The user-facing verify code was REMOVED from all three UIs (CLI print,
+      browser `verifyCode` block, desktop `VerifyRow`) because manual 8-digit
+      comparison is friction almost no one uses. `engine/verify` + `verify.ts`
+      stay (tested, zero cost). PAKE (3b) is the intended replacement: it does the
+      same MITM check automatically, so the human compare never comes back.
 
 **3b - PAKE auto-verification (removes the human compare)**
 - [ ] PAKE (CPace or SPAKE2) keyed by the room code, bound to the DTLS fingerprints,
@@ -116,6 +117,19 @@ verify the connection independently of the server.
 - [x] Shorten TURN credential TTL (24h -> 2h)
 - [x] "Hide my IP" mode: engine (`peer.WithRelayOnly()` -> `iceTransportPolicy: 'relay'`), desktop
       (checkbox), and browser sender toggle. Follow-up: a receiver-side toggle in the browser.
+
+**Hardening audited 2026-07-04 (already solid, no change needed):**
+- [x] Receiver path-traversal: `transfer.safeJoin` strips volume names + `..`/`.`/empty
+      segments and falls back to `received_file`; `TestSafeJoin` covers `../../etc/passwd`,
+      `/etc/passwd`, `C:\...`, UNC `\\host\share\...`, dot-segments, empty. All pass.
+- [x] Client CVEs: overrides live in `client/pnpm-workspace.yaml`; `corepack pnpm audit`
+      (prod + full) reports "No known vulnerabilities found."
+
+**Open robustness gap (found 2026-07-04):** desktop `runSend` / `ReceiveByCode` (`app.go`)
+block indefinitely on peer-connect and WebRTC setup with NO timeout and NO cancel, so a
+wrong code / firewalled peer spins the UI forever (the CLI user can Ctrl+C; a desktop user
+cannot). Add a connection timeout + a bound `Cancel()` that closes the signaling/peer conn.
+Needs no context refactor (closing `sc`/`conn` unblocks the reads).
 
 ### Phase 4 - Release pipeline
 - [ ] `.goreleaser.desktop.yml` plus a native-runner matrix workflow
