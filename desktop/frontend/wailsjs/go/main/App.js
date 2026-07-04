@@ -6,14 +6,22 @@ export function EngineProtocolVersion() {
   return window['go']['main']['App']['EngineProtocolVersion']();
 }
 
-export function ReceiveByCode(arg1, arg2) {
-  return window['go']['main']['App']['ReceiveByCode'](arg1, arg2);
+export function OpenFolder(arg1) {
+  return window['go']['main']['App']['OpenFolder'](arg1);
+}
+
+export function ReceiveByCode(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ReceiveByCode'](arg1, arg2, arg3);
 }
 
 export function SelectFiles() {
   return window['go']['main']['App']['SelectFiles']();
 }
 
-export function StartSend(arg1) {
-  return window['go']['main']['App']['StartSend'](arg1);
+export function SelectFolder() {
+  return window['go']['main']['App']['SelectFolder']();
+}
+
+export function StartSend(arg1, arg2) {
+  return window['go']['main']['App']['StartSend'](arg1, arg2);
 }

@@ -3,8 +3,12 @@
 
 export function EngineProtocolVersion():Promise<number>;
 
-export function ReceiveByCode(arg1:string,arg2:string):Promise<string>;
+export function OpenFolder(arg1:string):Promise<void>;
+
+export function ReceiveByCode(arg1:string,arg2:string,arg3:boolean):Promise<string>;
 
 export function SelectFiles():Promise<Array<string>>;
 
-export function StartSend(arg1:Array<string>):Promise<void>;
+export function SelectFolder():Promise<string>;
+
+export function StartSend(arg1:Array<string>,arg2:boolean):Promise<void>;
