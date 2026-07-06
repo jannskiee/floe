@@ -12,6 +12,7 @@ import {
     compatErrorMessage,
     PROTOCOL_VERSION,
     MIN_PROTOCOL_VERSION,
+    ACK_TIMEOUT_MS,
     type Ack,
     type Incompatible,
 } from './protocol';
@@ -246,6 +247,6 @@ function waitForAck(
                 }
             });
         }),
-        new Promise<AckResult>((resolve) => setTimeout(() => resolve({ type: 'timeout' }), 15_000)),
+        new Promise<AckResult>((resolve) => setTimeout(() => resolve({ type: 'timeout' }), ACK_TIMEOUT_MS)),
     ]);
 }
