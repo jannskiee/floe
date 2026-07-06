@@ -21,7 +21,7 @@ These properties hold on self-hosted instances as well. The signaling server and
 <Accordion title="Technical details">
   **DTLS for data channels:** WebRTC data channels are transported over SCTP (Stream Control Transmission Protocol) running on top of DTLS. This is distinct from DTLS-SRTP, which is used for audio/video media streams. Both provide strong encryption, but data channels specifically use SCTP over DTLS.
 
-  **Key exchange:** Each peer generates a certificate and key pair for the session. The fingerprints of these certificates are exchanged via the SDP offer and answer during signaling. DTLS verifies these fingerprints during the handshake, ensuring that even if the signaling channel is compromised, a man-in-the-middle cannot inject a different certificate.
+  **Key exchange:** Each peer generates a certificate and key pair for the session. The fingerprints of these certificates are exchanged via the SDP offer and answer during signaling. DTLS verifies these fingerprints during the handshake, so an outside attacker on the network path cannot substitute a different certificate. As in every WebRTC application, this guarantee depends on the signaling server relaying the fingerprints faithfully: a malicious server could in principle swap them to mount a man-in-the-middle attack. Self-hosting removes reliance on a third-party server for this.
 
   **Per-session keys:** Keys are ephemeral. They are generated when the connection is created and discarded when it closes. There is no key escrow, no recovery mechanism, and no persistent storage of session keys.
 </Accordion>
