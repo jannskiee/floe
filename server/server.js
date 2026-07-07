@@ -120,7 +120,71 @@ function generateCoturnCredentials() {
     ];
 }
 
-app.get('/api/turn-credentials', (req, res) => {
+// ---------------------------------------------------------------------------
+// Cloudflare Realtime TURN
+//
+// When CLOUDFLARE_TURN_KEY_ID / CLOUDFLARE_TURN_KEY_API_TOKEN are set, mint
+// short-lived ICE servers from Cloudflare's global anycast TURN network. The
+// credentials are not per-user, so cache one set in memory and refresh well
+// before the 24h TTL instead of calling the API on every request. STUN and TURN
+// are returned as separate entries so the client's relay-off filter
+// (filterIceServers) can drop TURN while keeping STUN.
+// ---------------------------------------------------------------------------
+
+const CLOUDFLARE_TURN_KEY_ID = process.env.CLOUDFLARE_TURN_KEY_ID;
+const CLOUDFLARE_TURN_KEY_API_TOKEN = process.env.CLOUDFLARE_TURN_KEY_API_TOKEN;
+const CF_TURN_TTL = 24 * 3600;         // credential lifetime requested from Cloudflare (seconds)
+const CF_CACHE_MS = 12 * 3600 * 1000;  // refresh our cached copy every 12h (well within the TTL)
+
+let cfIceCache = { servers: null, expires: 0 };
+
+async function generateCloudflareIceServers() {
+    if (!CLOUDFLARE_TURN_KEY_ID || !CLOUDFLARE_TURN_KEY_API_TOKEN) return null;
+    if (cfIceCache.servers && Date.now() < cfIceCache.expires) return cfIceCache.servers;
+    try {
+        const resp = await fetch(
+            `https://rtc.live.cloudflare.com/v1/turn/keys/${CLOUDFLARE_TURN_KEY_ID}/credentials/generate-ice-servers`,
+            {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${CLOUDFLARE_TURN_KEY_API_TOKEN}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ ttl: CF_TURN_TTL }),
+            }
+        );
+        if (!resp.ok) return cfIceCache.servers; // serve last good copy on a transient failure
+        const { iceServers } = await resp.json();
+        if (!iceServers) return cfIceCache.servers;
+
+        // Cloudflare returns one object with all URLs and a single credential.
+        // Split STUN from TURN so the client can strip TURN while keeping STUN
+        // when the user disables relay fallback.
+        const raw = Array.isArray(iceServers) ? iceServers : [iceServers];
+        const stunUrls = [];
+        const turnUrls = [];
+        let username;
+        let credential;
+        for (const s of raw) {
+            const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
+            for (const u of urls) {
+                (u.startsWith('stun:') ? stunUrls : turnUrls).push(u);
+            }
+            if (s.username) { username = s.username; credential = s.credential; }
+        }
+        const servers = [];
+        if (stunUrls.length) servers.push({ urls: stunUrls });
+        if (turnUrls.length) servers.push({ urls: turnUrls, username, credential });
+        if (!servers.length) return cfIceCache.servers;
+
+        cfIceCache = { servers, expires: Date.now() + CF_CACHE_MS };
+        return servers;
+    } catch {
+        return cfIceCache.servers; // network hiccup: last good copy (may be null, then we fall through)
+    }
+}
+
+app.get('/api/turn-credentials', async (req, res) => {
     const ip = req.ip;  // Express resolves this correctly via trust proxy
     const now = Date.now();
 
@@ -130,7 +194,8 @@ app.get('/api/turn-credentials', (req, res) => {
     timestamps.push(now);
     turnRateLimits.set(ip, timestamps);
 
-    const credentials = generateCoturnCredentials();
+    // Prefer Cloudflare's managed TURN, then self-hosted coturn, then public STUN.
+    const credentials = (await generateCloudflareIceServers()) || generateCoturnCredentials();
     res.json(credentials || STUN_FALLBACK);
 });
 
