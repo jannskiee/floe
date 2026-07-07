@@ -24,6 +24,9 @@ services:
       CLIENT_URL: ${CLIENT_URL:-http://localhost:3000}
       TRUSTED_PROXY_COUNT: ${TRUSTED_PROXY_COUNT:-1}
       MAX_CONNECTIONS_PER_IP: ${MAX_CONNECTIONS_PER_IP:-30}
+      # Managed TURN via Cloudflare Realtime (takes precedence over coturn below).
+      CLOUDFLARE_TURN_KEY_ID: ${CLOUDFLARE_TURN_KEY_ID:-}
+      CLOUDFLARE_TURN_KEY_API_TOKEN: ${CLOUDFLARE_TURN_KEY_API_TOKEN:-}
       TURN_SECRET: ${TURN_SECRET:-}
       TURN_DOMAIN: ${TURN_DOMAIN:-}
       # Durable global-stats counter (optional). Without these the counter is
