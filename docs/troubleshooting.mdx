@@ -92,7 +92,11 @@ Most Floe transfers just work. When something goes wrong, it is almost always on
   </Accordion>
 
   <Accordion title="The TURN relay is not working">
-    The bundled coturn service uses host networking, so it runs on a **Linux host** with a public IP, a domain, and TLS certificates. On macOS or Windows with Docker Desktop, run coturn separately or on a Linux VM. Confirm that `TURN_SECRET` and `TURN_DOMAIN` in `.env` match coturn's `static-auth-secret` and `realm`, then start the stack with `docker compose --profile turn up -d --build`. See [TURN Relay](/self-hosting/turn-relay).
+    First check which relay option your instance uses.
+
+    **Managed Cloudflare TURN:** confirm both `CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_KEY_API_TOKEN` are set in `.env`, then run `curl http://localhost:3001/api/turn-credentials`. A working setup returns `turn.cloudflare.com` entries with a username and credential. If it returns STUN servers only, one of the two variables is missing or the API token is invalid (roll it in the Cloudflare dashboard under Realtime, then TURN Server).
+
+    **Self-hosted coturn:** the bundled coturn service uses host networking, so it runs on a **Linux host** with a public IP, a domain, and TLS certificates. On macOS or Windows with Docker Desktop, run coturn separately or on a Linux VM. Confirm that `TURN_SECRET` and `TURN_DOMAIN` in `.env` match coturn's `static-auth-secret` and `realm`, then start the stack with `docker compose --profile turn up -d --build`. See [TURN Relay](/self-hosting/turn-relay).
   </Accordion>
 </AccordionGroup>
 

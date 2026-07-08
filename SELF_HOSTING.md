@@ -32,7 +32,8 @@ Everything is set in the `.env` file you copied above. The values that matter mo
 | `NEXT_PUBLIC_SITE_URL` | Public URL of your client (canonical links, share previews, sitemap). |
 | `PORT` | Host port the server is published on. |
 | `CLIENT_URL` | Your client's origin, allowed by the server's CORS. |
-| `TURN_SECRET` / `TURN_DOMAIN` | Optional relay credentials (see below). |
+| `CLOUDFLARE_TURN_KEY_ID` / `CLOUDFLARE_TURN_KEY_API_TOKEN` | Optional managed TURN via Cloudflare (see below). |
+| `TURN_SECRET` / `TURN_DOMAIN` | Optional self-hosted coturn credentials (see below). |
 
 ### Build-time variables (important)
 
@@ -48,9 +49,14 @@ docker compose build client && docker compose up -d
 
 - **STUN only (default).** Works for most networks. Peers connect directly and no
   file data passes through your server. Nothing extra to configure.
-- **TURN relay (optional).** Needed when both peers are behind strict NAT / CGNAT
-  and cannot connect directly. Set `TURN_SECRET` and `TURN_DOMAIN`, then start the
-  bundled coturn service:
+- **Managed TURN via Cloudflare (recommended).** Needed when both peers are behind
+  strict NAT / CGNAT and cannot connect directly. Create a TURN key in the
+  Cloudflare dashboard (Realtime > TURN Server), then set
+  `CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_KEY_API_TOKEN`. No public IP,
+  extra ports, or TLS certificates needed. These take precedence over the coturn
+  variables below.
+- **Self-hosted TURN relay (coturn).** Prefer to run the relay yourself? Set
+  `TURN_SECRET` and `TURN_DOMAIN`, then start the bundled coturn service:
 
   ```bash
   docker compose --profile turn up -d

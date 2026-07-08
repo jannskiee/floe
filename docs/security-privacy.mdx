@@ -46,7 +46,7 @@ Share links use a URL fragment (`https://floe.one/#room=...`), not a query strin
 
 ## What the TURN relay sees
 
-When a direct connection cannot be established (strict firewalls, carrier-grade NAT), Floe routes traffic through a TURN relay server. The relay server acts as a forwarding intermediary.
+When a direct connection cannot be established (strict firewalls, carrier-grade NAT), Floe routes traffic through a TURN relay server. The relay server acts as a forwarding intermediary. On floe.one, the relay is Cloudflare's Realtime TURN network; self-hosted instances can run their own coturn relay instead.
 
 The relay sees: encrypted DTLS packets.
 

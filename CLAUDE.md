@@ -46,8 +46,10 @@ The CLI uses GoReleaser for cross-platform distribution; version is injected via
 ```
 CLIENT_URL=http://localhost:3000
 PORT=3001
-TURN_SECRET=                 # optional Coturn HMAC secret
-TURN_DOMAIN=                 # optional TURN server hostname
+CLOUDFLARE_TURN_KEY_ID=      # optional, managed Cloudflare Realtime TURN (takes precedence)
+CLOUDFLARE_TURN_KEY_API_TOKEN= # optional, pairs with the key ID above
+TURN_SECRET=                 # optional coturn HMAC secret (used when Cloudflare vars unset)
+TURN_DOMAIN=                 # optional coturn hostname
 UPSTASH_REDIS_REST_URL=      # optional, durable global stats counter
 UPSTASH_REDIS_REST_TOKEN=    # optional, pairs with the URL above
 MAX_REPORT_BYTES=            # optional, per-report cap (default 5 TB)
@@ -76,7 +78,7 @@ The data-channel transfer protocol carries its own version, independent of the r
 `POST /api/code` registers a short human-readable phrase (e.g. `olive-tiger-castle`) mapping to a room ID with 10-min TTL. `GET /api/code/:code` resolves it. Words come from `server/words.json`.
 
 ### TURN Credentials
-`GET /api/turn-credentials` issues short-lived (24h) Coturn HMAC-SHA1 credentials. Called by both client and CLI before connecting. If `TURN_SECRET` is unset, only STUN is returned.
+`GET /api/turn-credentials` returns the ICE server list; called by both client and CLI before connecting. Precedence: **Cloudflare Realtime TURN** when `CLOUDFLARE_TURN_KEY_ID` / `CLOUDFLARE_TURN_KEY_API_TOKEN` are set (what floe.one runs; short-lived credentials minted from Cloudflare's `generate-ice-servers` API, cached in memory ~12h, with STUN and TURN returned as separate entries so the client's relay-off filter can strip TURN while keeping STUN), then self-hosted **coturn** HMAC-SHA1 credentials (24h) when `TURN_SECRET` / `TURN_DOMAIN` are set, otherwise Google STUN only.
 
 ### Global Stats Counter
 A public, all-time counter of total bytes transferred across every Floe user, shown on the homepage (`client/components/GlobalStats.tsx`) with a NumberFlow odometer animation. Because Floe is P2P and file bytes never reach the server, the **receiver** peer reports the byte count out-of-band over HTTP after a completed transfer. Only the receiver reports (browser receiver in `P2PTransfer.tsx`, CLI receiver in `cli/internal/transfer/receiver.go`), so each transfer is counted exactly once. The sender never reports. The data-channel protocol is unchanged, so no `ProtocolVersion` bump is needed.

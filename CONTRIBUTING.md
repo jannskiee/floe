@@ -106,8 +106,10 @@ This is aimed at **self-hosting** (running your own instance) rather than active
 | `MAX_CONNECTIONS_PER_IP` | No | Connection rate limit ceiling per IP per 60 seconds (default: `30`). Raise in staging or test environments. |
 | `MAX_CODE_REQUESTS_PER_IP` | No | Rate limit for the `/api/code` endpoints per IP per 60 seconds (default: `60`), shared across registering and resolving codes. Raise in CI or staging. |
 | `MAX_ACTIVE_CODES` | No | Maximum number of simultaneously-live room codes (default: `10000`). `POST /api/code` returns `503` when the cap is reached. |
-| `TURN_SECRET` | No | Shared secret for coturn HMAC credentials. Omit to use STUN-only (direct connections). |
-| `TURN_DOMAIN` | No | Your TURN relay server domain. |
+| `CLOUDFLARE_TURN_KEY_ID` | No | Turn Token ID of a Cloudflare Realtime TURN key. With the API token below, enables managed TURN with no extra infrastructure. Takes precedence over the coturn variables. |
+| `CLOUDFLARE_TURN_KEY_API_TOKEN` | No | API token that pairs with `CLOUDFLARE_TURN_KEY_ID`. Keep it secret. |
+| `TURN_SECRET` | No | Shared secret for self-hosted coturn HMAC credentials, used only when the Cloudflare variables are unset. Omit both options to use STUN-only (direct connections). |
+| `TURN_DOMAIN` | No | Your self-hosted TURN relay server domain. |
 | `UPSTASH_REDIS_REST_URL` | No | Upstash Redis REST URL for the durable global transfer counter. Omit to run the counter in memory only (resets on restart). |
 | `UPSTASH_REDIS_REST_TOKEN` | No | Upstash Redis REST token, paired with the URL above. |
 | `MAX_REPORT_BYTES` | No | Max bytes accepted per `/api/stats/report` call (default: 5 TB). |
