@@ -15,7 +15,7 @@ The signaling server brokers WebRTC connection setup (offer, answer, ICE candida
 |-----------|-------------|
 | `client` | Next.js web app, served on port 3000 |
 | `server` | Node.js signaling server, on port 3001 |
-| `coturn` | Optional TURN relay (profile-gated in Docker Compose) |
+| `coturn` | Optional self-hosted TURN relay (profile-gated in Docker Compose). Alternatively, use managed Cloudflare Realtime TURN with no extra container. |
 
 ## Contents
 
@@ -30,6 +30,6 @@ The signaling server brokers WebRTC connection setup (offer, answer, ICE candida
     HTTPS, reverse proxy, and domain setup.
   </Card>
   <Card title="TURN Relay" href="/self-hosting/turn-relay">
-    Add coturn to support peers behind strict NAT or CGNAT.
+    Use Cloudflare's managed TURN or add coturn to support peers behind strict NAT or CGNAT.
   </Card>
 </CardGroup>

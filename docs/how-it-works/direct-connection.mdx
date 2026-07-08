@@ -25,7 +25,7 @@ Strict corporate firewalls, university networks, and carrier-grade NAT can block
 <Accordion title="Technical details">
   **ICE (Interactive Connectivity Establishment):** WebRTC uses the ICE protocol to find a usable network path. Each peer gathers a list of "candidates" (IP/port combinations it might be reachable on), including local addresses, server-reflexive addresses from STUN, and relay addresses from TURN. Peers exchange their candidates via the signaling server and try each pair until one works.
 
-  **STUN servers used:** `stun.l.google.com:19302` and `stun1.l.google.com:19302` as fallbacks. When connected to a self-hosted instance with TURN configured, the signaling server's TURN endpoints also double as STUN.
+  **STUN servers used:** On floe.one, `stun.cloudflare.com:3478` (with an alternate on port 53) from the Cloudflare ICE list. `stun.l.google.com:19302` and `stun1.l.google.com:19302` serve as the fallback when no TURN service is configured. On a self-hosted instance with coturn, the TURN endpoints also double as STUN.
 
   **Trickle ICE:** Candidates are sent incrementally as they are gathered rather than waiting for the full list. This reduces connection time significantly.
 

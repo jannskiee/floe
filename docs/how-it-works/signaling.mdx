@@ -44,7 +44,7 @@ The signaling server never touches file data, never stores your files or any rec
 
   **Short codes:** Registered via `POST /api/code` with a room UUID. The server picks three random words from a 288-word list using a cryptographically secure random source (`crypto.randomInt`, not `Math.random`), because the code phrase is the only secret guarding a transfer, and maps them to the room ID with a 10-minute TTL. `GET /api/code/:code` resolves a code back to its room UUID.
 
-  **TURN credentials:** Issued via `GET /api/turn-credentials`. Credentials use HMAC-SHA1 with a 24-hour expiry. If `TURN_SECRET` is not set, the endpoint returns STUN servers only.
+  **TURN credentials:** Issued via `GET /api/turn-credentials`. On floe.one the server mints short-lived credentials (up to 24 hours) from Cloudflare's Realtime TURN service. Self-hosted instances can instead use coturn with HMAC-SHA1 credentials via `TURN_SECRET`, or skip TURN entirely, in which case the endpoint returns public STUN servers only.
 
   **Rate limiting:** 30 connections per IP per 60 seconds for Socket.IO and WebSocket; 20 requests per IP per 60 seconds for the TURN credential endpoint; 60 requests per IP per 60 seconds shared across `POST /api/code` and `GET /api/code/:code`; 60 reports per IP per 60 seconds for the stats endpoint. The signaling server also caps the number of simultaneously-live room codes (10000 by default); `POST /api/code` returns `503` when that cap is hit.
 
