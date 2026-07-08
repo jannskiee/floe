@@ -18,7 +18,7 @@ export default function PrivacyPolicy() {
                     <h1 className="text-4xl font-bold tracking-tight text-white">
                         Privacy Policy
                     </h1>
-                    <p className="text-zinc-400">Last updated: June 2026</p>
+                    <p className="text-zinc-400">Last updated: July 2026</p>
                 </div>
 
                 <div className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800 space-y-4">
@@ -113,7 +113,9 @@ export default function PrivacyPolicy() {
                         <p>
                             Floe uses third-party infrastructure providers for
                             hosting and network relay services. The web app is
-                            hosted on Vercel. For usage analytics we use only
+                            hosted on Vercel, the signaling server runs on Microsoft
+                            Azure, and when a relay is needed, encrypted file data
+                            passes through Cloudflare&apos;s TURN network. For usage analytics we use only
                             Umami, which is cookieless and does not track you
                             across sites, and we optionally use Sentry for error
                             monitoring. The link you share carries its room id in
@@ -134,15 +136,15 @@ export default function PrivacyPolicy() {
                         </h3>
                         <p>
                             When a direct connection cannot be established, file data
-                            is routed through our TURN relay server (
+                            is routed through Cloudflare&apos;s TURN relay network (
                             <code className="text-xs bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-300">
-                                turn.floe.one
+                                turn.cloudflare.com
                             </code>
-                            ). This server processes encrypted data packets in transit
+                            ). The relay processes encrypted data packets in transit
                             and does not store, decrypt, or inspect any file contents.
                             Relay sessions are limited to 2 GB per session. Connection
                             metadata (timestamps, IP addresses) may be logged by the
-                            hosting provider for security purposes.
+                            infrastructure provider for security purposes.
                         </p>
                     </section>
 

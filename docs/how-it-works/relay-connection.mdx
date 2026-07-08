@@ -17,7 +17,7 @@ Some networks make it impossible for two devices to connect directly. This happe
 
 ## TURN fallback
 
-When a direct connection fails, Floe automatically routes through a **TURN server** (`turn.floe.one`). A TURN server acts as a secure bridge. Your data travels through it on the way to the recipient, like a courier carrying a locked box it cannot open.
+When a direct connection fails, Floe automatically routes through a **TURN server** on Cloudflare's global anycast network. A TURN server acts as a secure bridge. Your data travels through it on the way to the recipient, like a courier carrying a locked box it cannot open.
 
 ## Encryption
 
@@ -43,9 +43,9 @@ With relay disabled, the transfer fails if a direct path cannot be established.
 <Accordion title="Technical details">
   **TURN (Traversal Using Relays around NAT):** When ICE negotiation produces only `relay` candidates, both peers connect to the TURN server and the server forwards packets between them. The data is still DTLS-encrypted end-to-end before it reaches the TURN server.
 
-  **Credentials:** The signaling server issues time-limited HMAC-SHA1 credentials for coturn (`username: {expiry}:floeuser`, `password: base64(HMAC-SHA1(secret, username))`). Credentials are valid for 24 hours.
+  **Credentials:** The signaling server mints short-lived credentials from Cloudflare's Realtime TURN service and hands them to peers via `/api/turn-credentials`. Credentials are valid for up to 24 hours. (Self-hosted deployments can instead use coturn with time-limited HMAC-SHA1 credentials; see the self-hosting guide.)
 
-  **Endpoints:** `turn:turn.floe.one:3478` (STUN/TURN over UDP and TCP) and `turns:turn.floe.one:5349` (TURN over TLS).
+  **Endpoints:** `turn:turn.cloudflare.com:3478` (STUN/TURN over UDP and TCP) and `turns:turn.cloudflare.com:5349` (TURN over TLS), plus TCP fallbacks on ports 80 and 443.
 
   **Relay detection:** The browser polls `RTCStatsReport` every 5 seconds and examines the nominated candidate pair. If either candidate is of type `relay`, the connection indicator shows amber.
 </Accordion>
