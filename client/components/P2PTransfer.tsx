@@ -121,6 +121,9 @@ export function P2PTransfer() {
 
     const peerRef = useRef<PeerInstance | null>(null);
     const hasJoinedRef = useRef(false);
+    // The room this page instance is handling as a receiver. Used to detect a
+    // fragment-only navigation (scanning a second QR code into the same tab).
+    const joinedRoomRef = useRef<string | null>(null);
     const receivedFilesRef = useRef<ReceivedFile[]>([]);
     const transferCompleteRef = useRef(false);
     const progressRef = useRef(0);
@@ -266,6 +269,7 @@ export function P2PTransfer() {
     const joinRoomAsReceiver = (roomId: string) => {
         if (hasJoinedRef.current) return;
         hasJoinedRef.current = true;
+        joinedRoomRef.current = roomId;
 
         setStatus('Connecting');
 
@@ -419,6 +423,23 @@ export function P2PTransfer() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // The room id lives in the URL fragment (#room=<id>). Swapping only the
+    // fragment is a same-document navigation, so opening a new room link in an
+    // existing tab (e.g. scanning a second QR code on a phone that already has
+    // Floe open) changes the hash without reloading, so the mount effect above
+    // never re-runs and the tab stays stuck on the previous transfer. Detect
+    // that here and reload so the receiver joins the new room from a clean slate.
+    useEffect(() => {
+        const onHashChange = () => {
+            const room = getRoomFromUrl();
+            if (room && room !== joinedRoomRef.current) {
+                window.location.reload();
+            }
+        };
+        window.addEventListener('hashchange', onHashChange);
+        return () => window.removeEventListener('hashchange', onHashChange);
+    }, []);
+
     useEffect(() => {
         const handleVisibilityChange = () => {
             if (document.visibilityState === 'visible' && isConnected) {
@@ -444,7 +465,14 @@ export function P2PTransfer() {
 
     const handleCreateLink = () => {
         const newRoomId = uuidv4();
-        const link = `${window.location.protocol}//${window.location.host}/#room=${newRoomId}`;
+        // A unique per-link nonce in the query string (not the fragment) makes
+        // every transfer link a distinct document. Without it, two links differ
+        // only in the fragment, which browsers treat as the same page, so a phone
+        // that already has Floe open can reuse a stale tab when a new QR is
+        // scanned instead of joining the new room. The secret room id stays in
+        // the fragment (never sent to the server); the nonce carries no info.
+        const nonce = uuidv4().slice(0, 8);
+        const link = `${window.location.protocol}//${window.location.host}/?s=${nonce}#room=${newRoomId}`;
         setGeneratedLink(link);
         joinRoom(newRoomId);
         setStatus('Waiting for peer');
