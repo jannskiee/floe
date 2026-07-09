@@ -21,6 +21,7 @@ const {
     statsRateLimits,
     makeRateLimiter,
     codeRateLimits,
+    selectMinimalIceUrls,
 } = require('./server');
 
 // ---------------------------------------------------------------------------
@@ -409,5 +410,75 @@ describe('codeRateLimits', () => {
 
     it('is exported and starts empty', () => {
         assert.equal(codeRateLimits.size, 0);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// selectMinimalIceUrls
+// ---------------------------------------------------------------------------
+
+describe('selectMinimalIceUrls', () => {
+    // The exact shape Cloudflare's generate-ice-servers returned in production.
+    const cfStun = [
+        'stun:stun.cloudflare.com:3478',
+        'stun:stun.cloudflare.com:53',
+    ];
+    const cfTurn = [
+        'turn:turn.cloudflare.com:3478?transport=udp',
+        'turn:turn.cloudflare.com:3478?transport=tcp',
+        'turns:turn.cloudflare.com:5349?transport=tcp',
+        'turn:turn.cloudflare.com:53?transport=udp',
+        'turn:turn.cloudflare.com:80?transport=tcp',
+        'turns:turn.cloudflare.com:443?transport=tcp',
+    ];
+
+    it('reduces the Cloudflare production list to one URL per class', () => {
+        const { stunUrls, turnUrls } = selectMinimalIceUrls(cfStun, cfTurn);
+        assert.deepEqual(stunUrls, ['stun:stun.cloudflare.com:3478']);
+        assert.deepEqual(turnUrls, [
+            'turn:turn.cloudflare.com:3478?transport=udp',
+            'turns:turn.cloudflare.com:443?transport=tcp',
+        ]);
+    });
+
+    it('prefers the :3478 STUN URL regardless of order', () => {
+        const { stunUrls } = selectMinimalIceUrls(
+            ['stun:x:53', 'stun:x:3478'], []
+        );
+        assert.deepEqual(stunUrls, ['stun:x:3478']);
+    });
+
+    it('treats a turn: URL without a transport param as UDP (RFC 7065 default)', () => {
+        const { turnUrls } = selectMinimalIceUrls([], ['turn:host:3478', 'turns:host:5349']);
+        assert.deepEqual(turnUrls, ['turn:host:3478', 'turns:host:5349']);
+    });
+
+    it('falls back to any turns: URL when no :443 variant exists', () => {
+        const { turnUrls } = selectMinimalIceUrls([], [
+            'turn:host:3478?transport=udp',
+            'turns:host:5349?transport=tcp',
+        ]);
+        assert.deepEqual(turnUrls, [
+            'turn:host:3478?transport=udp',
+            'turns:host:5349?transport=tcp',
+        ]);
+    });
+
+    it('falls back to turn tcp when no turns: URL exists at all', () => {
+        const { turnUrls } = selectMinimalIceUrls([], [
+            'turn:host:80?transport=tcp',
+        ]);
+        assert.deepEqual(turnUrls, ['turn:host:80?transport=tcp']);
+    });
+
+    it('handles empty inputs', () => {
+        const { stunUrls, turnUrls } = selectMinimalIceUrls([], []);
+        assert.deepEqual(stunUrls, []);
+        assert.deepEqual(turnUrls, []);
+    });
+
+    it('never returns duplicate TURN URLs', () => {
+        const { turnUrls } = selectMinimalIceUrls([], ['turn:only:3478?transport=udp']);
+        assert.deepEqual(turnUrls, ['turn:only:3478?transport=udp']);
     });
 });
