@@ -138,6 +138,31 @@ const CF_CACHE_MS = 12 * 3600 * 1000;  // refresh our cached copy every 12h (wel
 
 let cfIceCache = { servers: null, expires: 0 };
 
+// selectMinimalIceUrls reduces Cloudflare's full URL list (8 entries: STUN on two
+// ports plus TURN duplicated across udp/tcp/tls on :53/:80/:443/:3478/:5349) to
+// one URL per connectivity class. WebRTC clients gather candidates and open TURN
+// allocations per URL per network interface, so redundant URLs multiply ICE work;
+// on multi-adapter machines (VPN, VMware, WSL) the full list pushed connection
+// setup from ~1s to 20-30s. Three classes cover every network:
+//   - STUN (server-reflexive discovery), prefer the standard :3478
+//   - TURN over UDP (the fast relay path)
+//   - TURN over TLS, prefer :443 (indistinguishable from HTTPS; the canonical
+//     fallback on UDP-blocking networks, covering what :53/:80/:5349 duplicated)
+// Pattern-based so it keeps working if Cloudflare reorders or extends its list.
+function selectMinimalIceUrls(stunUrls, turnUrls) {
+    const stun = stunUrls.find(u => u.includes(':3478')) || stunUrls[0];
+    // RFC 7065: a turn: URI without a transport param defaults to UDP.
+    const udp = turnUrls.find(u => u.startsWith('turn:') && (u.includes('transport=udp') || !u.includes('transport=')));
+    const tls =
+        turnUrls.find(u => u.startsWith('turns:') && u.includes(':443')) ||
+        turnUrls.find(u => u.startsWith('turns:')) ||
+        turnUrls.find(u => u.includes('transport=tcp'));
+    return {
+        stunUrls: stun ? [stun] : [],
+        turnUrls: [...new Set([udp, tls].filter(Boolean))],
+    };
+}
+
 async function generateCloudflareIceServers() {
     if (!CLOUDFLARE_TURN_KEY_ID || !CLOUDFLARE_TURN_KEY_API_TOKEN) return null;
     if (cfIceCache.servers && Date.now() < cfIceCache.expires) return cfIceCache.servers;
@@ -172,9 +197,12 @@ async function generateCloudflareIceServers() {
             }
             if (s.username) { username = s.username; credential = s.credential; }
         }
+        // Trim to the minimal effective set before serving: fewer URLs means far
+        // less ICE gathering work on every client (see selectMinimalIceUrls).
+        const minimal = selectMinimalIceUrls(stunUrls, turnUrls);
         const servers = [];
-        if (stunUrls.length) servers.push({ urls: stunUrls });
-        if (turnUrls.length) servers.push({ urls: turnUrls, username, credential });
+        if (minimal.stunUrls.length) servers.push({ urls: minimal.stunUrls });
+        if (minimal.turnUrls.length) servers.push({ urls: minimal.turnUrls, username, credential });
         if (!servers.length) return cfIceCache.servers;
 
         cfIceCache = { servers, expires: Date.now() + CF_CACHE_MS };
@@ -644,4 +672,5 @@ module.exports = {
     statsRateLimits,
     makeRateLimiter,
     codeRateLimits,
+    selectMinimalIceUrls,
 };
