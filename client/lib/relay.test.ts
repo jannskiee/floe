@@ -3,6 +3,7 @@ import {
     RELAY_SIZE_LIMIT,
     filterIceServers,
     evaluateRelayGate,
+    classifyCandidatePair,
 } from './relay';
 
 const STUN: RTCIceServer = { urls: 'stun:stun.l.google.com:19302' };
@@ -30,6 +31,47 @@ describe('filterIceServers', () => {
     it('keeps every stun server when relay is disabled', () => {
         const stunOnly = [STUN, { urls: 'stun:stun1.l.google.com:19302' }];
         expect(filterIceServers(stunOnly, false)).toEqual(stunOnly);
+    });
+});
+
+describe('classifyCandidatePair', () => {
+    it('classifies host↔host as direct on the same network', () => {
+        expect(classifyCandidatePair('host', 'host')).toEqual({
+            isRelay: false,
+            scope: 'same-network',
+        });
+    });
+
+    it('classifies hole-punched pairs as direct over the internet', () => {
+        expect(classifyCandidatePair('srflx', 'srflx')).toEqual({
+            isRelay: false,
+            scope: 'internet',
+        });
+        expect(classifyCandidatePair('srflx', 'host')).toEqual({
+            isRelay: false,
+            scope: 'internet',
+        });
+        expect(classifyCandidatePair('host', 'prflx')).toEqual({
+            isRelay: false,
+            scope: 'internet',
+        });
+    });
+
+    it('reports relay when either side connects through TURN', () => {
+        expect(classifyCandidatePair('relay', 'host').isRelay).toBe(true);
+        expect(classifyCandidatePair('srflx', 'relay').isRelay).toBe(true);
+        expect(classifyCandidatePair('relay', 'relay').isRelay).toBe(true);
+    });
+
+    it('treats missing candidate types as direct over the internet', () => {
+        expect(classifyCandidatePair(undefined, undefined)).toEqual({
+            isRelay: false,
+            scope: 'internet',
+        });
+        expect(classifyCandidatePair('host', undefined)).toEqual({
+            isRelay: false,
+            scope: 'internet',
+        });
     });
 });
 
