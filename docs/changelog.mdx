@@ -3,6 +3,15 @@ title: "Changelog"
 description: "Release history for Floe."
 ---
 
+<Update label="v1.7.4" description="2026-07-10">
+  **Faster connection setup**
+
+  - Fixed connections taking 20 to 30 seconds to establish on machines running VPN or virtual machine software (Tailscale, VMware, WSL, Hyper-V). Two causes were addressed: the signaling server handed every client a redundant list of eight relay endpoints where three suffice, and the CLI probed dead auto-configuration network interfaces during setup. The server-side fix is already live and speeds up all existing versions, browser included; this release adds the CLI-side hardening so connections stay fast against any server, including self-hosted ones.
+  - Added an advanced `--iface` flag to restrict the CLI to specific network interfaces by name (for example `--iface Ethernet`), useful for pinning a transfer to a chosen network. Most users never need it. See the [flags reference](/cli/flags).
+  - Web app: opening a fresh share link in a tab that already had Floe open now joins the new room correctly instead of reusing the old session.
+  - No transfer-protocol change, so v1.7.4 interoperates with older CLI and browser peers in every direction.
+</Update>
+
 <Update label="v1.7.3" description="2026-07-09">
   **Faster CLI transfers, and a browser-to-CLI reliability fix**
 
