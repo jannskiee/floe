@@ -23,7 +23,7 @@ import { useSignaling } from '@/hooks/useSignaling';
 import { useConnectionType } from '@/hooks/useConnectionType';
 import { useTransferAnalytics } from '@/hooks/useTransferAnalytics';
 import { useRelayConfiguration } from '@/hooks/useRelayConfiguration';
-import { RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate } from '@/lib/relay';
+import { RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, isRelayPair } from '@/lib/relay';
 import { classifyPeerError } from '@/lib/peerErrors';
 
 import {
@@ -519,7 +519,7 @@ export function P2PTransfer() {
                                 if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.nominated) {
                                     const lc = stats.get(report.localCandidateId);
                                     const rc = stats.get(report.remoteCandidateId);
-                                    if ((lc && lc.candidateType === 'relay') || (rc && rc.candidateType === 'relay')) {
+                                    if (isRelayPair(lc?.candidateType, rc?.candidateType)) {
                                         isRelay = true;
                                     }
                                 }

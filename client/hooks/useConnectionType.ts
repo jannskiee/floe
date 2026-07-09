@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import type { Instance as PeerInstance } from 'simple-peer';
+import { isRelayPair } from '@/lib/relay';
 
 /**
  * Detects and tracks whether the active WebRTC connection is direct or routed
@@ -21,9 +22,10 @@ export function useConnectionType() {
                 if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.nominated) {
                     const localCandidate = stats.get(report.localCandidateId);
                     const remoteCandidate = stats.get(report.remoteCandidateId);
-                    const isRelay =
-                        localCandidate?.candidateType === 'relay' ||
-                        remoteCandidate?.candidateType === 'relay';
+                    const isRelay = isRelayPair(
+                        localCandidate?.candidateType,
+                        remoteCandidate?.candidateType
+                    );
                     setConnectionType(isRelay ? 'relay' : 'direct');
                 }
             });

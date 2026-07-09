@@ -35,7 +35,7 @@ export function RelayFallbackToggle({ relayEnabled, onChange }: RelayFallbackTog
                 <div className="space-y-1.5">
                     <p className="text-sm font-medium text-zinc-200 leading-none">Network Relay Fallback</p>
                     <p className="text-xs text-zinc-500 leading-relaxed">
-                        Uses a relay server when a direct connection is unavailable. Recommended for mobile data and private networks. 2 GB limit per session.{' '}
+                        Only used when a direct connection can&apos;t be established. Most transfers stay direct, even on mobile data. 2 GB limit when relayed.{' '}
                         <a
                             href="/how-it-works"
                             target="_blank"

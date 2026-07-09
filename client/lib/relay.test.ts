@@ -3,6 +3,7 @@ import {
     RELAY_SIZE_LIMIT,
     filterIceServers,
     evaluateRelayGate,
+    isRelayPair,
 } from './relay';
 
 const STUN: RTCIceServer = { urls: 'stun:stun.l.google.com:19302' };
@@ -30,6 +31,26 @@ describe('filterIceServers', () => {
     it('keeps every stun server when relay is disabled', () => {
         const stunOnly = [STUN, { urls: 'stun:stun1.l.google.com:19302' }];
         expect(filterIceServers(stunOnly, false)).toEqual(stunOnly);
+    });
+});
+
+describe('isRelayPair', () => {
+    it('classifies host and reflexive pairs as direct', () => {
+        expect(isRelayPair('host', 'host')).toBe(false);
+        expect(isRelayPair('srflx', 'srflx')).toBe(false);
+        expect(isRelayPair('srflx', 'host')).toBe(false);
+        expect(isRelayPair('host', 'prflx')).toBe(false);
+    });
+
+    it('reports relay when either side connects through TURN', () => {
+        expect(isRelayPair('relay', 'host')).toBe(true);
+        expect(isRelayPair('srflx', 'relay')).toBe(true);
+        expect(isRelayPair('relay', 'relay')).toBe(true);
+    });
+
+    it('treats missing candidate types as not relay', () => {
+        expect(isRelayPair(undefined, undefined)).toBe(false);
+        expect(isRelayPair('host', undefined)).toBe(false);
     });
 });
 

@@ -57,11 +57,28 @@ description: "Answers to the most common questions about Floe."
   <Accordion title="What does the connection indicator color mean?">
     The indicator in the corner of the page shows connection state:
 
-    - **Green (Direct):** Files transfer directly between devices. No server involved. No size limit.
+    - **Green (Direct):** Files transfer directly between devices, whether they share a network or connect peer-to-peer across the internet. No server involved. No size limit.
     - **Amber (Relay):** Files route through the encrypted TURN relay. The 2 GB cap applies.
     - **Connecting:** Negotiating the WebRTC connection. This usually takes a few seconds.
 
     If the connection stays in "Connecting" for more than 30 seconds, see [Troubleshooting](/troubleshooting).
+  </Accordion>
+
+  <Accordion title="Why does it say Direct when my phone is on mobile data?">
+    Because the connection really is direct. WebRTC uses a technique called NAT hole punching (with the help of a STUN server) to open a peer-to-peer path between two devices even when they sit on completely different networks, such as home Wi-Fi on one side and mobile data on the other. Once that path is open, file bytes flow straight from one device to the other and no server carries them.
+
+    The relay only enters the picture when hole punching fails, which mostly happens on strict corporate firewalls or unusual carrier NAT setups. Most transfers, including those involving mobile data, connect directly.
+
+    Transfer speed on a direct connection is set by the slower of the two internet connections involved (typically the sender's upload speed or the receiver's mobile signal), not by Floe. See [Direct Connection](/how-it-works/direct-connection) for the full story.
+  </Accordion>
+
+  <Accordion title="Does turning off Network Relay Fallback stop or cancel my transfer?">
+    No. The toggle only controls whether Floe may fall back to a relay server when a direct connection cannot be established. It is checked once, when the connection is being set up.
+
+    - If the connection is **direct**, the toggle has no effect. The transfer proceeds whether relay fallback is on or off, because no relay is involved.
+    - If the connection would need a **relay** and the toggle is off, Floe blocks the transfer before any file data moves.
+
+    The toggle cannot affect a connection that is already established, which is why it is only shown before the share link is created.
   </Accordion>
 
   <Accordion title="Can I enter a short code in the browser to receive?">

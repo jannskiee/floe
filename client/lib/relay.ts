@@ -20,6 +20,15 @@ export function filterIceServers(
     });
 }
 
+/**
+ * Reports whether the selected ICE candidate pair from getStats() runs through
+ * a TURN relay, i.e. either side's candidate is a relay candidate. Anything
+ * else (host or reflexive on both ends) is a direct peer-to-peer path.
+ */
+export function isRelayPair(localType?: string, remoteType?: string): boolean {
+    return localType === 'relay' || remoteType === 'relay';
+}
+
 export type RelayGateVerdict =
     | { action: 'proceed' }
     | { action: 'block-relay-disabled' }
