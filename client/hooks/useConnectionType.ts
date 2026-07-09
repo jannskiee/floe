@@ -1,17 +1,15 @@
 import { useState, useRef } from 'react';
 import type { Instance as PeerInstance } from 'simple-peer';
-import { classifyCandidatePair } from '@/lib/relay';
+import { isRelayPair } from '@/lib/relay';
 
 /**
  * Detects and tracks whether the active WebRTC connection is direct or routed
  * through a TURN relay, by polling the peer's ICE candidate-pair stats every 5s.
- * For direct connections it also reports the scope: same-network (host↔host)
- * or internet (hole-punched). Pure connection-quality detection: it only drives
- * the "Direct/Relay" badge and has no effect on the transfer itself.
+ * Pure connection-quality detection: it only drives the "Direct/Relay" badge and
+ * has no effect on the transfer itself.
  */
 export function useConnectionType() {
     const [connectionType, setConnectionType] = useState<'direct' | 'relay' | null>(null);
-    const [directScope, setDirectScope] = useState<'same-network' | 'internet' | null>(null);
     const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const checkConnectionType = async (peer: PeerInstance) => {
@@ -24,12 +22,11 @@ export function useConnectionType() {
                 if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.nominated) {
                     const localCandidate = stats.get(report.localCandidateId);
                     const remoteCandidate = stats.get(report.remoteCandidateId);
-                    const { isRelay, scope } = classifyCandidatePair(
+                    const isRelay = isRelayPair(
                         localCandidate?.candidateType,
                         remoteCandidate?.candidateType
                     );
                     setConnectionType(isRelay ? 'relay' : 'direct');
-                    setDirectScope(isRelay ? null : scope);
                 }
             });
         } catch { }
@@ -46,10 +43,7 @@ export function useConnectionType() {
         if (intervalRef.current) clearInterval(intervalRef.current);
     };
 
-    const reset = () => {
-        setConnectionType(null);
-        setDirectScope(null);
-    };
+    const reset = () => setConnectionType(null);
 
-    return { connectionType, directScope, startPolling, stopPolling, reset };
+    return { connectionType, startPolling, stopPolling, reset };
 }

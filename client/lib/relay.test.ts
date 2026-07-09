@@ -3,7 +3,7 @@ import {
     RELAY_SIZE_LIMIT,
     filterIceServers,
     evaluateRelayGate,
-    classifyCandidatePair,
+    isRelayPair,
 } from './relay';
 
 const STUN: RTCIceServer = { urls: 'stun:stun.l.google.com:19302' };
@@ -34,44 +34,23 @@ describe('filterIceServers', () => {
     });
 });
 
-describe('classifyCandidatePair', () => {
-    it('classifies host↔host as direct on the same network', () => {
-        expect(classifyCandidatePair('host', 'host')).toEqual({
-            isRelay: false,
-            scope: 'same-network',
-        });
-    });
-
-    it('classifies hole-punched pairs as direct over the internet', () => {
-        expect(classifyCandidatePair('srflx', 'srflx')).toEqual({
-            isRelay: false,
-            scope: 'internet',
-        });
-        expect(classifyCandidatePair('srflx', 'host')).toEqual({
-            isRelay: false,
-            scope: 'internet',
-        });
-        expect(classifyCandidatePair('host', 'prflx')).toEqual({
-            isRelay: false,
-            scope: 'internet',
-        });
+describe('isRelayPair', () => {
+    it('classifies host and reflexive pairs as direct', () => {
+        expect(isRelayPair('host', 'host')).toBe(false);
+        expect(isRelayPair('srflx', 'srflx')).toBe(false);
+        expect(isRelayPair('srflx', 'host')).toBe(false);
+        expect(isRelayPair('host', 'prflx')).toBe(false);
     });
 
     it('reports relay when either side connects through TURN', () => {
-        expect(classifyCandidatePair('relay', 'host').isRelay).toBe(true);
-        expect(classifyCandidatePair('srflx', 'relay').isRelay).toBe(true);
-        expect(classifyCandidatePair('relay', 'relay').isRelay).toBe(true);
+        expect(isRelayPair('relay', 'host')).toBe(true);
+        expect(isRelayPair('srflx', 'relay')).toBe(true);
+        expect(isRelayPair('relay', 'relay')).toBe(true);
     });
 
-    it('treats missing candidate types as direct over the internet', () => {
-        expect(classifyCandidatePair(undefined, undefined)).toEqual({
-            isRelay: false,
-            scope: 'internet',
-        });
-        expect(classifyCandidatePair('host', undefined)).toEqual({
-            isRelay: false,
-            scope: 'internet',
-        });
+    it('treats missing candidate types as not relay', () => {
+        expect(isRelayPair(undefined, undefined)).toBe(false);
+        expect(isRelayPair('host', undefined)).toBe(false);
     });
 });
 

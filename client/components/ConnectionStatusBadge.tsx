@@ -6,7 +6,6 @@ interface ConnectionStatusBadgeProps {
     isConnected: boolean;
     ping: number;
     connectionType: 'direct' | 'relay' | null;
-    directScope: 'same-network' | 'internet' | null;
     progress: number;
 }
 
@@ -21,7 +20,6 @@ export function ConnectionStatusBadge({
     isConnected,
     ping,
     connectionType,
-    directScope,
     progress,
 }: ConnectionStatusBadgeProps) {
     const [showInfoTooltip, setShowInfoTooltip] = useState(false);
@@ -69,11 +67,7 @@ export function ConnectionStatusBadge({
                 </span>
                 <span>
                     {connectionType === 'direct'
-                        ? directScope === 'same-network'
-                            ? 'Direct (same network)'
-                            : directScope === 'internet'
-                                ? 'Direct (internet)'
-                                : 'Direct'
+                        ? 'Direct'
                         : connectionType === 'relay'
                             ? 'Relay'
                             : isConnected
@@ -96,11 +90,7 @@ export function ConnectionStatusBadge({
                                     <>
                                         <p className="text-[10px] font-bold text-green-400 uppercase tracking-wider mb-1">Direct Connection</p>
                                         <p className="text-[10px] font-normal normal-case tracking-normal text-zinc-400 leading-relaxed">
-                                            {directScope === 'same-network'
-                                                ? 'Your devices are on the same network. Files travel over it directly. No servers involved. Unlimited speed and size.'
-                                                : directScope === 'internet'
-                                                    ? "Your files travel peer-to-peer across the internet, even between different networks like mobile data and home Wi-Fi. No servers carry your data. Speed depends on both devices' connections."
-                                                    : 'Your files go directly to the other device. No servers involved. Unlimited speed and size.'}{' '}
+                                            Your files go directly to the other device, even across different networks like mobile data. No servers involved. Unlimited speed and size.{' '}
                                             <a href="/how-it-works" target="_blank" rel="noreferrer" className="text-zinc-500 hover:text-white underline underline-offset-2 transition-colors">
                                                 Learn more
                                             </a>

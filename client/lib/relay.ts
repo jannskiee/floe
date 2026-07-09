@@ -20,26 +20,13 @@ export function filterIceServers(
     });
 }
 
-export interface CandidatePairClass {
-    isRelay: boolean;
-    scope: 'same-network' | 'internet';
-}
-
 /**
- * Classifies the selected ICE candidate pair from getStats(). Relay means
- * either side connects through a TURN server. For non-relay pairs, host↔host
- * means both devices reached each other without NAT traversal (same network);
- * anything involving a reflexive candidate is a hole-punched path across the
- * internet. Informational only — a VPN can make distinct networks look local.
+ * Reports whether the selected ICE candidate pair from getStats() runs through
+ * a TURN relay, i.e. either side's candidate is a relay candidate. Anything
+ * else (host or reflexive on both ends) is a direct peer-to-peer path.
  */
-export function classifyCandidatePair(
-    localType?: string,
-    remoteType?: string
-): CandidatePairClass {
-    const isRelay = localType === 'relay' || remoteType === 'relay';
-    const scope =
-        localType === 'host' && remoteType === 'host' ? 'same-network' : 'internet';
-    return { isRelay, scope };
+export function isRelayPair(localType?: string, remoteType?: string): boolean {
+    return localType === 'relay' || remoteType === 'relay';
 }
 
 export type RelayGateVerdict =
