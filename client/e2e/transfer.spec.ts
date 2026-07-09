@@ -86,7 +86,9 @@ test('transfers a 50 MB binary file with SHA-256 integrity check', async ({ brow
 
         // Measure once the receiver reports it is actively receiving, so the
         // throughput figure reflects the data path rather than connection setup.
-        await expect(receiverPage.getByText(/Receiving file/i)).toBeVisible({ timeout: 30_000 });
+        // .first(): the status line and the in-progress file row can both show
+        // "Receiving file 1 of 1" at the same time.
+        await expect(receiverPage.getByText(/Receiving file/i).first()).toBeVisible({ timeout: 30_000 });
         const transferStart = Date.now();
 
         // Wait for the download button to appear — file is fully in memory as a blob
