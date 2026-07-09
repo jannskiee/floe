@@ -170,7 +170,7 @@ Once the WebRTC data channel is open, the sender runs the following sequence for
 
 **Binary chunks (raw bytes)**
 
-The CLI sends 16 KB chunks. The browser sender sends larger adaptive chunks.
+Both the CLI and the browser size chunks adaptively to the connection's negotiated maximum message size, capped at 256 KB. Chunk size is a local sender choice, not part of the wire protocol; receivers handle any size.
 
 **End marker (JSON, sender to receiver)**
 

@@ -45,7 +45,7 @@ With relay disabled, the transfer fails if a direct path cannot be established.
 
   **Credentials:** The signaling server mints short-lived credentials from Cloudflare's Realtime TURN service and hands them to peers via `/api/turn-credentials`. Credentials are valid for up to 24 hours. (Self-hosted deployments can instead use coturn with time-limited HMAC-SHA1 credentials; see the self-hosting guide.)
 
-  **Endpoints:** `turn:turn.cloudflare.com:3478` (STUN/TURN over UDP and TCP) and `turns:turn.cloudflare.com:5349` (TURN over TLS), plus TCP fallbacks on ports 80 and 443.
+  **Endpoints:** the signaling server hands peers a minimal set of three: `stun:stun.cloudflare.com:3478` for address discovery, `turn:turn.cloudflare.com:3478` over UDP as the primary relay path, and `turns:turn.cloudflare.com:443` over TLS as the fallback on networks that block UDP (TLS on port 443 looks like ordinary HTTPS traffic). Cloudflare mints more endpoint variants, but every extra URL multiplies the connection checks each client runs during setup, so the redundant ones are trimmed before serving.
 
   **Relay detection:** The browser polls `RTCStatsReport` every 5 seconds and examines the nominated candidate pair. If either candidate is of type `relay`, the connection indicator shows amber.
 </Accordion>
