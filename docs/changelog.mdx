@@ -3,6 +3,14 @@ title: "Changelog"
 description: "Release history for Floe."
 ---
 
+<Update label="v1.7.3" description="2026-07-09">
+  **Faster CLI transfers, and a browser-to-CLI reliability fix**
+
+  - `floe send` now sends file data in larger blocks, sized to what the connection negotiates (up to 256 KB) rather than a fixed 16 KB. On fast paths such as a local network or a direct connection, this removes most of the per-block overhead and noticeably increases throughput. Relayed or slower connections are unaffected, since their speed is set by the link rather than the block size.
+  - Fixed browser-to-CLI transfers that could fail with a timeout when the person running `floe receive` took more than 15 seconds to accept the incoming files at the prompt. The browser now waits as patiently as the CLI already did.
+  - No transfer-protocol change, so v1.7.3 interoperates with older CLI and browser peers in every direction.
+</Update>
+
 <Update label="v1.7.2" description="2026-06-30">
   **CLI: share links keep the room secret in the URL fragment**
 
