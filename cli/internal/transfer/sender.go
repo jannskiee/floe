@@ -63,6 +63,14 @@ const (
 	bufferedAmountLowWater  = 4 * 1024 * 1024 // resume sending below 4 MB buffered
 )
 
+// backpressureStalled reports whether a backpressure wait that just hit its
+// timeout should abort the transfer: only when the buffer failed to shrink at
+// all over the window. Any drain, however slow, means the peer is alive and
+// the wait should continue.
+func backpressureStalled(prev, cur uint64) bool {
+	return cur >= prev
+}
+
 // metadataMsg is sent before each file to describe it.
 type metadataMsg struct {
 	Type       string `json:"type"`
@@ -354,12 +362,20 @@ ackLoop:
 		if n > 0 {
 			// Backpressure: block until pion's buffer drains below the low-water
 			// mark before queuing more. The loop re-checks after each wakeup so a
-			// stale signal can't let us run away from the receiver.
+			// stale signal can't let us run away from the receiver. Abort only
+			// when the buffer makes no progress across a full 60 s window: a
+			// slow-but-draining relay (below ~70 KB/s the 4 MB drain takes over
+			// a minute) must not kill the transfer.
+			lastBuffered := dc.BufferedAmount()
 			for dc.BufferedAmount() >= bufferedAmountHighWater {
 				select {
 				case <-sendMore:
 				case <-time.After(60 * time.Second):
-					return fmt.Errorf("backpressure stall: peer not draining (%d bytes buffered)", dc.BufferedAmount())
+					cur := dc.BufferedAmount()
+					if backpressureStalled(lastBuffered, cur) {
+						return fmt.Errorf("backpressure stall: peer not draining (%d bytes buffered)", cur)
+					}
+					lastBuffered = cur
 				}
 			}
 			if sendErr := dc.Send(buf[:n]); sendErr != nil {
