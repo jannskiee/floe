@@ -4,7 +4,8 @@
 //   1. Sender → Receiver: metadata JSON  (file name, size, index, total, pv, pvMin, ver)
 //   2. Receiver → Sender: ack JSON       (confirms ready, offset for resume, pv, pvMin, ver)
 //      OR:       incompatible JSON       (sent instead of ack when protocol ranges do not overlap)
-//   3. Sender → Receiver: binary chunks  (raw file bytes, 16 KB each)
+//   3. Sender → Receiver: binary chunks  (raw file bytes; chunk size adapts to
+//      the negotiated SCTP max-message-size, capped at 256 KB — see chunkSizeFor)
 //   4. Sender → Receiver: end JSON       (signals end of this file)
 //   Repeat for each file.
 //
@@ -26,7 +27,30 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
-const chunkSize = 16 * 1024
+const (
+	// defaultChunkSize is the safe fallback used when the negotiated SCTP
+	// max-message-size is unavailable (0). It matches the historical value.
+	defaultChunkSize = 16 * 1024
+	// maxChunkSize caps the adaptive chunk. Mirrors MAX_CHUNK in the browser
+	// sender (client/lib/transfer/protocol.ts).
+	maxChunkSize = 256 * 1024
+)
+
+// chunkSizeFor returns the send chunk size for a connection whose negotiated
+// SCTP max-message-size is sctpMax (read from dc.Transport().GetCapabilities()).
+// It caps at maxChunkSize and never exceeds the negotiated ceiling, so dc.Send
+// can never return ErrOutboundPacketTooLarge (pion/sctp enforces the limit on
+// send). A zero sctpMax (capabilities not yet available) falls back to the
+// proven default. Mirrors chunkSize() in client/lib/transfer/protocol.ts.
+func chunkSizeFor(sctpMax uint32) int {
+	if sctpMax == 0 {
+		return defaultChunkSize
+	}
+	if int(sctpMax) < maxChunkSize {
+		return int(sctpMax)
+	}
+	return maxChunkSize
+}
 
 // Backpressure watermarks mirror the browser sender (P2PTransfer.tsx): pause
 // sending once pion's SCTP send buffer reaches the high-water mark, resume once
@@ -114,8 +138,17 @@ func SendFiles(dc *webrtc.DataChannel, paths []string, localVer string) error {
 		}
 	})
 
+	// Size chunks to the connection's negotiated SCTP max-message-size (capped
+	// at maxChunkSize), matching the browser sender. Larger chunks mean far fewer
+	// dc.Send calls per file — the main throughput lever on fast links.
+	var sctpMax uint32
+	if t := dc.Transport(); t != nil {
+		sctpMax = t.GetCapabilities().MaxMessageSize
+	}
+	chunk := chunkSizeFor(sctpMax)
+
 	for i, entry := range files {
-		if err := sendFile(dc, ackCh, sendMore, entry, i+1, len(files), totalBytes, localVer); err != nil {
+		if err := sendFile(dc, ackCh, sendMore, entry, i+1, len(files), totalBytes, localVer, chunk); err != nil {
 			return fmt.Errorf("error sending %s: %w", entry.displayName, err)
 		}
 	}
@@ -213,7 +246,7 @@ func collectFiles(paths []string) ([]fileEntry, error) {
 }
 
 // sendFile handles the full send sequence for a single file.
-func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string) error {
+func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, chunk int) error {
 	f, err := os.Open(entry.absPath)
 	if err != nil {
 		return err
@@ -315,7 +348,7 @@ ackLoop:
 	bar := newProgressBar(fileSize, index, total, entry.displayName)
 	bar.Set64(offset)
 
-	buf := make([]byte, chunkSize)
+	buf := make([]byte, chunk)
 	for {
 		n, err := f.Read(buf)
 		if n > 0 {
