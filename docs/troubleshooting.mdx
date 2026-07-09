@@ -55,6 +55,18 @@ Most Floe transfers just work. When something goes wrong, it is almost always on
     A browser can only join by opening the link, not by entering a short code (there is no code field in the web UI). Share the **link** printed by `floe send` with browser recipients, and the **code** with CLI recipients.
   </Accordion>
 
+  <Accordion title="The CLI is slow to connect when a VPN or virtual machine is running">
+    A VPN (such as Tailscale) or virtualization software (VMware, VirtualBox, WSL, Hyper-V) adds extra network interfaces. The CLI probes each one while establishing the connection, so a machine with several of them can spend longer on "Connecting..." before settling on the working path. The transfer still completes, and the browser app is unaffected.
+
+    The CLI already skips dead auto-config interfaces automatically. If you still see slow connects, pin the CLI to your real interface by name:
+
+    ```bash
+    floe receive olive-tiger-castle --iface Ethernet   # or --iface Wi-Fi
+    ```
+
+    Pass `--iface` more than once to allow several interfaces. Temporarily quitting the VPN during a transfer also resolves it.
+  </Accordion>
+
   <Accordion title="The CLI says the version is incompatible">
     Peers on different floe versions normally transfer fine, so a small version difference (for example v1.5.4 and v1.5.5) is never a problem. This message only appears if a release changed the transfer protocol in a way the two versions cannot bridge. Whichever side is older should update:
 

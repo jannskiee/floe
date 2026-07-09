@@ -5,12 +5,69 @@ package peer
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 
 	"github.com/jannskiee/floe/cli/internal/signaling"
 	"github.com/pion/webrtc/v4"
 )
+
+// keepICEIP reports whether an interface IP should be used for ICE candidate
+// gathering. It drops link-local addresses (IPv4 169.254.0.0/16 and IPv6
+// fe80::/10), which are handed out by virtual and VPN adapters (Hyper-V, WSL,
+// VMware, Tailscale) and by APIPA auto-config when DHCP fails. Such addresses
+// never form a working peer-to-peer path, but pion would otherwise gather a host
+// candidate on each and spend 20-30s running connectivity checks that fail with
+// "socket operation attempted to an unreachable host" before settling on the
+// real interface (often falling back to the relay). Filtering by the link-local
+// IP class is unambiguous and safe: it never removes a routable interface.
+func keepICEIP(ip net.IP) bool {
+	return !ip.IsLinkLocalUnicast()
+}
+
+// makeInterfaceAllowFilter builds an ICE interface filter that keeps only the
+// interfaces whose name contains one of the given substrings (case-insensitive).
+// It is used for the opt-in `--iface` flag so power users on machines with many
+// virtual/VPN adapters (VMware, WSL, Tailscale) can pin ICE to their real NIC,
+// e.g. `--iface Ethernet`. The link-local IP filter above already handles the
+// common case; this is the manual override for the rest. Returns nil (no filter)
+// for an empty allowlist so the default behavior is unchanged.
+func makeInterfaceAllowFilter(names []string) func(string) bool {
+	var wanted []string
+	for _, n := range names {
+		n = strings.ToLower(strings.TrimSpace(n))
+		if n != "" {
+			wanted = append(wanted, n)
+		}
+	}
+	if len(wanted) == 0 {
+		return nil
+	}
+	return func(ifName string) bool {
+		lower := strings.ToLower(ifName)
+		for _, w := range wanted {
+			if strings.Contains(lower, w) {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+// Option configures a Connection created by New.
+type Option func(*settings)
+
+type settings struct {
+	ifaceAllowlist []string
+}
+
+// WithInterfaceAllowlist restricts ICE candidate gathering to network interfaces
+// whose name contains one of the given substrings (case-insensitive). Empty or
+// nil leaves the default (gather on all non-link-local interfaces).
+func WithInterfaceAllowlist(names []string) Option {
+	return func(s *settings) { s.ifaceAllowlist = names }
+}
 
 // signalPayload is the JSON structure for WebRTC signals sent over the
 // signaling channel. It can be either an SDP (offer/answer) or an ICE candidate.
@@ -44,7 +101,12 @@ type Connection struct {
 
 // New creates a pion RTCPeerConnection with the given ICE servers and starts
 // the signal dispatcher. Call SetupAsSender or SetupAsReceiver next.
-func New(iceServers []webrtc.ICEServer, sc *signaling.Client) (*Connection, error) {
+func New(iceServers []webrtc.ICEServer, sc *signaling.Client, opts ...Option) (*Connection, error) {
+	var cfg settings
+	for _, o := range opts {
+		o(&cfg)
+	}
+
 	config := webrtc.Configuration{ICEServers: iceServers}
 
 	// Configure SCTP to accept large messages from browsers.
@@ -53,6 +115,13 @@ func New(iceServers []webrtc.ICEServer, sc *signaling.Client) (*Connection, erro
 	// browser-to-CLI transfers to stall after the small metadata arrives.
 	se := webrtc.SettingEngine{}
 	se.SetSCTPMaxReceiveBufferSize(16 * 1024 * 1024) // 16 MB total receive buffer
+	// Skip link-local interfaces when gathering ICE candidates so virtual/VPN
+	// adapters (Hyper-V, WSL, Tailscale, APIPA) don't stall connection setup.
+	se.SetIPFilter(keepICEIP)
+	// Opt-in `--iface` override: pin ICE to specific interfaces by name.
+	if f := makeInterfaceAllowFilter(cfg.ifaceAllowlist); f != nil {
+		se.SetInterfaceFilter(f)
+	}
 	api := webrtc.NewAPI(webrtc.WithSettingEngine(se))
 
 	pc, err := api.NewPeerConnection(config)
