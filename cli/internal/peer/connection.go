@@ -5,12 +5,26 @@ package peer
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 
 	"github.com/jannskiee/floe/cli/internal/signaling"
 	"github.com/pion/webrtc/v4"
 )
+
+// keepICEIP reports whether an interface IP should be used for ICE candidate
+// gathering. It drops link-local addresses (IPv4 169.254.0.0/16 and IPv6
+// fe80::/10), which are handed out by virtual and VPN adapters (Hyper-V, WSL,
+// VMware, Tailscale) and by APIPA auto-config when DHCP fails. Such addresses
+// never form a working peer-to-peer path, but pion would otherwise gather a host
+// candidate on each and spend 20-30s running connectivity checks that fail with
+// "socket operation attempted to an unreachable host" before settling on the
+// real interface (often falling back to the relay). Filtering by the link-local
+// IP class is unambiguous and safe: it never removes a routable interface.
+func keepICEIP(ip net.IP) bool {
+	return !ip.IsLinkLocalUnicast()
+}
 
 // signalPayload is the JSON structure for WebRTC signals sent over the
 // signaling channel. It can be either an SDP (offer/answer) or an ICE candidate.
@@ -53,6 +67,9 @@ func New(iceServers []webrtc.ICEServer, sc *signaling.Client) (*Connection, erro
 	// browser-to-CLI transfers to stall after the small metadata arrives.
 	se := webrtc.SettingEngine{}
 	se.SetSCTPMaxReceiveBufferSize(16 * 1024 * 1024) // 16 MB total receive buffer
+	// Skip link-local interfaces when gathering ICE candidates so virtual/VPN
+	// adapters (Hyper-V, WSL, Tailscale, APIPA) don't stall connection setup.
+	se.SetIPFilter(keepICEIP)
 	api := webrtc.NewAPI(webrtc.WithSettingEngine(se))
 
 	pc, err := api.NewPeerConnection(config)
