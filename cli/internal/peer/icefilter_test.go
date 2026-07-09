@@ -5,6 +5,40 @@ import (
 	"testing"
 )
 
+// TestMakeInterfaceAllowFilter verifies the opt-in --iface allowlist: an empty
+// list disables the filter (nil), and a non-empty list keeps only interfaces
+// whose name contains an allowed substring (case-insensitive).
+func TestMakeInterfaceAllowFilter(t *testing.T) {
+	if makeInterfaceAllowFilter(nil) != nil {
+		t.Fatal("empty allowlist must return a nil filter (default behavior)")
+	}
+	if makeInterfaceAllowFilter([]string{"", "  "}) != nil {
+		t.Fatal("blank-only allowlist must return a nil filter")
+	}
+
+	f := makeInterfaceAllowFilter([]string{"Ethernet", "wi-fi"})
+	if f == nil {
+		t.Fatal("non-empty allowlist must return a filter")
+	}
+	cases := []struct {
+		ifName string
+		keep   bool
+	}{
+		{"Ethernet", true},
+		{"Ethernet 2", true},       // substring match
+		{"ethernet", true},         // case-insensitive
+		{"Wi-Fi", true},            // case-insensitive match of "wi-fi"
+		{"Tailscale", false},       // not in the allowlist
+		{"VMware Network Adapter VMnet1", false},
+		{"vEthernet (WSL)", true},  // contains "ethernet" -> matched by "Ethernet" entry
+	}
+	for _, c := range cases {
+		if got := f(c.ifName); got != c.keep {
+			t.Errorf("filter(%q) = %v, want %v", c.ifName, got, c.keep)
+		}
+	}
+}
+
 // TestKeepICEIP verifies the ICE gathering filter drops link-local addresses
 // (the virtual/VPN/APIPA junk that stalls connection setup) while keeping every
 // routable address a real transfer needs.

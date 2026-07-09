@@ -12,6 +12,7 @@ Available on all commands (`send`, `receive`, `update`, `version`).
 | `--server <url>` | `https://api.floe.one` | Signaling server URL. Use `http://localhost:3001` for local testing or your self-hosted server URL. |
 | `--no-relay` | `false` | Disable the TURN relay. Only direct (STUN) connections are attempted. The transfer fails if a direct path cannot be established. Useful for ensuring files never pass through a relay. |
 | `--web <url>` | _(auto-detected)_ | Web app URL included in the browser link printed by `floe send`. Auto-detected from `--server`: the production server defaults to `https://floe.one`, and `localhost:3001` defaults to `http://localhost:3000`. |
+| `--iface <name>` | _(all interfaces)_ | Restrict WebRTC to network interfaces whose name contains this value (case-insensitive). Repeatable. Use when a VPN or virtual-machine adapter (Tailscale, VMware, WSL, Hyper-V) slows connection setup, for example `--iface Ethernet`. See [Troubleshooting](/troubleshooting). |
 
 ## `floe receive` flags
 
