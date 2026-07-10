@@ -1,5 +1,4 @@
 import React from 'react';
-import { ChevronDown } from 'lucide-react';
 import { Navbar } from '@/components/layout/Navbar';
 import { HowItWorksSection } from '@/components/landing/HowItWorksSection';
 import { PrivacySection } from '@/components/landing/PrivacySection';
@@ -36,13 +35,11 @@ export default function Home() {
                 </InAppBrowserGuard>
                 <GlobalStats />
 
-                <a
-                    href="#about"
-                    aria-label="Scroll to learn how Floe works"
-                    className="absolute bottom-4 left-1/2 hidden -translate-x-1/2 rounded-full p-2 text-zinc-700 transition hover:text-zinc-400 focus-visible:outline-2 focus-visible:outline-ice sm:block"
-                >
-                    <ChevronDown className="h-4 w-4 animate-bounce motion-reduce:animate-none" aria-hidden="true" />
-                </a>
+                {/* Quiet scroll hint: a vertical hairline strengthening downward */}
+                <div
+                    aria-hidden="true"
+                    className="absolute bottom-6 left-1/2 hidden h-10 w-px -translate-x-1/2 bg-gradient-to-b from-transparent to-white/25 sm:block"
+                />
             </section>
 
             <HowItWorksSection />
