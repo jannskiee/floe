@@ -48,8 +48,8 @@ async function senderSetup(
     const fileInput = senderPage.locator('input[type="file"]');
     await fileInput.setInputFiles(fixturePath);
 
-    // Button text contains "Create Secure Link" — file count varies
-    await senderPage.locator('button', { hasText: 'Create Secure Link' }).click();
+    // Button text contains "Create secure link" — file count varies
+    await senderPage.locator('button', { hasText: /create secure link/i }).click();
 
     // Generated link appears in the <code> element
     const linkEl = senderPage.locator('code').filter({ hasText: '#room=' });
