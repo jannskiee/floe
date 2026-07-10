@@ -1,6 +1,9 @@
 import React from 'react';
 import { Navbar } from '@/components/layout/Navbar';
-import { AboutSection } from '@/components/layout/AboutSection';
+import { HowItWorksSection } from '@/components/landing/HowItWorksSection';
+import { PrivacySection } from '@/components/landing/PrivacySection';
+import { CliSection } from '@/components/landing/CliSection';
+import { CapabilitiesSection } from '@/components/landing/CapabilitiesSection';
 import { FAQSection } from '@/components/layout/FAQSection';
 import { Footer } from '@/components/layout/Footer';
 import { GlobalStats } from '@/components/GlobalStats';
@@ -27,7 +30,10 @@ export default function Home() {
                 <P2PTransfer />
             </InAppBrowserGuard>
             <GlobalStats />
-            <AboutSection />
+            <HowItWorksSection />
+            <PrivacySection />
+            <CliSection />
+            <CapabilitiesSection />
             <FAQSection />
 
             <Footer />
