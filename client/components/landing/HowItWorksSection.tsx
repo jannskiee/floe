@@ -27,7 +27,8 @@ const steps: { index: string; title: string; body: ReactNode }[] = [
 
 export function HowItWorksSection() {
     return (
-        <section id="about" className={sectionClass}>
+        // mt-0!: this section's top hairline sits at the hero's fold as the scroll cue
+        <section id="about" className={`${sectionClass} mt-0!`}>
             <SectionHeader
                 eyebrow="How it works"
                 headline="Your files never make a stop."

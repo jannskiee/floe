@@ -15,8 +15,9 @@ export default function Home() {
         <div className="flex min-h-dvh flex-col items-center bg-zinc-950 font-sans text-zinc-100 px-4 pb-4 sm:px-6 sm:pb-6">
             <Navbar />
 
-            {/* Full-viewport hero: sections below only appear on scroll */}
-            <section className="relative flex min-h-dvh w-full flex-col items-center justify-center pb-14 pt-24 sm:pt-28">
+            {/* Near-full-viewport hero: the next section's top hairline peeks at the
+                fold as the scroll cue, while its content stays below it */}
+            <section className="relative flex min-h-[calc(100dvh-2rem)] w-full flex-col items-center justify-center pb-14 pt-24 sm:pt-28">
                 <div className="mx-auto max-w-3xl text-center mb-8 space-y-4">
                     <h1 className="text-5xl sm:text-7xl font-extrabold tracking-tighter text-white lg:text-9xl drop-shadow-2xl">
                         Floe
@@ -35,11 +36,6 @@ export default function Home() {
                 </InAppBrowserGuard>
                 <GlobalStats />
 
-                {/* Quiet scroll hint: a vertical hairline strengthening downward */}
-                <div
-                    aria-hidden="true"
-                    className="absolute bottom-6 left-1/2 hidden h-10 w-px -translate-x-1/2 bg-gradient-to-b from-transparent to-white/25 sm:block"
-                />
             </section>
 
             <HowItWorksSection />
