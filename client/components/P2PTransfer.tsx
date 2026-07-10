@@ -39,8 +39,10 @@ import {
     AlertTriangle,
     ArrowRight,
     CheckCircle2,
+    Circle,
     Download,
     Loader2,
+    Plus,
     ShieldCheck,
     UploadCloud,
     FileArchive,
@@ -773,7 +775,7 @@ export function P2PTransfer() {
                                 />
                             )}
 
-                            {isSender && !generatedLink && (
+                            {isSender && !generatedLink && files.length === 0 && (
                                 <div
                                     onDragOver={handleDragOver}
                                     onDragLeave={handleDragLeave}
@@ -807,24 +809,32 @@ export function P2PTransfer() {
                                 </div>
                             )}
 
+                            {isSender && !generatedLink && files.length > 0 && (
+                                <div
+                                    onDragOver={handleDragOver}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={handleDrop}
+                                    className={`group relative mt-2 flex items-center justify-center gap-2 rounded-lg border border-dashed py-3 transition-all ${isDragging
+                                        ? 'border-ice bg-ice/[0.04]'
+                                        : 'border-white/15 hover:border-ice/40 hover:bg-white/[0.02]'
+                                        }`}
+                                >
+                                    <Plus className={`h-3.5 w-3.5 transition ${isDragging ? 'text-ice' : 'text-zinc-500 group-hover:text-zinc-300'}`} />
+                                    <span className="text-xs font-medium text-zinc-400 transition group-hover:text-zinc-200">
+                                        {isDragging ? 'Release to add files' : 'Add more files'}
+                                    </span>
+                                    <Input
+                                        type="file"
+                                        multiple
+                                        onChange={handleFileSelection}
+                                        className="absolute inset-0 h-full w-full opacity-0 cursor-pointer"
+                                    />
+                                </div>
+                            )}
+
                             {isSender &&
                                 (files.length > 0 || generatedLink) && (
                                     <div className="mt-4">
-                                        {files.length > 0 && !generatedLink && (
-                                            <>
-                                                <RelayFallbackToggle relayEnabled={relayEnabled} onChange={setRelayEnabled} />
-
-                                                <Button
-                                                    onClick={handleCreateLink}
-                                                    className="w-full mb-4 bg-white text-black hover:bg-zinc-200 font-bold text-xs sm:text-sm"
-                                                >
-                                                    Create secure link ({files.length} {files.length === 1 ? 'file' : 'files'})
-                                                    <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 ml-1.5 sm:ml-2 shrink-0" />
-                                                </Button>
-                                            </>
-                                        )}
-
-
                                         {generatedLink && (
                                             <ShareLinkPanel
                                                 generatedLink={generatedLink}
@@ -837,6 +847,18 @@ export function P2PTransfer() {
                                             />
                                         )}
 
+                                        {files.length > 0 && (
+                                            <div className="mb-2 flex items-baseline justify-between px-0.5">
+                                                <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-600">
+                                                    Files
+                                                </span>
+                                                <span className={`font-mono text-[10px] uppercase tracking-[0.2em] ${isRelayOverLimit ? 'text-amber-500' : 'text-zinc-600'
+                                                    }`}>
+                                                    {files.length} · {formatBytes(totalBytes)}{connectionType === 'relay' ? ' / 2.0 GB' : ''}
+                                                </span>
+                                            </div>
+                                        )}
+
                                         <SelectedFilesList
                                             files={files}
                                             currentFileIndex={currentFileIndex}
@@ -847,13 +869,17 @@ export function P2PTransfer() {
                                             listRef={fileListRef}
                                         />
 
-                                        {/* Total file size indicator */}
-                                        {files.length > 0 && (
-                                            <div className="pt-1 pb-0.5 px-0.5">
-                                                <span className={`font-mono text-[10px] uppercase tracking-[0.2em] ${isRelayOverLimit ? 'text-amber-500' : 'text-zinc-600'
-                                                    }`}>
-                                                    {files.length} {files.length === 1 ? 'file' : 'files'} ({formatBytes(totalBytes)}{connectionType === 'relay' ? ' / 2.0 GB' : ''})
-                                                </span>
+                                        {files.length > 0 && !generatedLink && (
+                                            <div className="mt-4 space-y-4">
+                                                <RelayFallbackToggle relayEnabled={relayEnabled} onChange={setRelayEnabled} />
+
+                                                <Button
+                                                    onClick={handleCreateLink}
+                                                    className="w-full bg-white text-black hover:bg-zinc-200 font-bold text-xs sm:text-sm"
+                                                >
+                                                    Create secure link ({files.length} {files.length === 1 ? 'file' : 'files'})
+                                                    <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 ml-1.5 sm:ml-2 shrink-0" />
+                                                </Button>
                                             </div>
                                         )}
 
@@ -870,18 +896,37 @@ export function P2PTransfer() {
 
                             {!isSender && (
                                 <div className="space-y-3 pt-2">
+                                    {/* Handshake pipeline — shows what has happened and what comes next */}
+                                    {receivedFiles.length === 0 &&
+                                        !status.includes('Receiving') && (
+                                            <div className="space-y-3 px-1 py-3">
+                                                <div className={`flex items-center gap-2.5 text-sm ${isConnected ? 'text-zinc-400' : 'text-zinc-200'}`}>
+                                                    {isConnected ? (
+                                                        <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-500" />
+                                                    ) : (
+                                                        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-zinc-400" />
+                                                    )}
+                                                    Secure room joined
+                                                </div>
+                                                <div className={`flex items-center gap-2.5 text-sm ${isConnected ? 'text-zinc-200' : 'text-zinc-600'}`}>
+                                                    {isConnected ? (
+                                                        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-zinc-400" />
+                                                    ) : (
+                                                        <Circle className="h-3.5 w-3.5 shrink-0 text-zinc-700" />
+                                                    )}
+                                                    Waiting for the sender to start
+                                                </div>
+                                                <div className="flex items-center gap-2.5 text-sm text-zinc-600">
+                                                    <Circle className="h-3.5 w-3.5 shrink-0 text-zinc-700" />
+                                                    Files stream in below
+                                                </div>
+                                            </div>
+                                        )}
+
                                     {/* Contribute to global stats toggle — visible while waiting, before any file arrives */}
                                     {receivedFiles.length === 0 && (
                                         <StatsContributionToggle enabled={reportStatsEnabled} onChange={setReportStatsEnabled} />
                                     )}
-
-                                    {receivedFiles.length === 0 &&
-                                        !status.includes('Receiving') && (
-                                            <div className="flex items-center justify-center gap-2 py-8 text-sm text-zinc-500">
-                                                <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-600" />
-                                                Waiting for the sender to start...
-                                            </div>
-                                        )}
 
 
                                     {receivedFiles.length > 1 &&

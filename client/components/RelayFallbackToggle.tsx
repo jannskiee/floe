@@ -12,7 +12,7 @@ interface RelayFallbackToggleProps {
  */
 export function RelayFallbackToggle({ relayEnabled, onChange }: RelayFallbackToggleProps) {
     return (
-        <div className="mb-4 rounded-xl border border-white/[0.08] bg-white/[0.02] p-4">
+        <div>
             <label className="flex items-start gap-3 cursor-pointer group/relay select-none">
                 <div className="relative flex-shrink-0 mt-0.5">
                     <input
@@ -32,10 +32,10 @@ export function RelayFallbackToggle({ relayEnabled, onChange }: RelayFallbackTog
                         )}
                     </div>
                 </div>
-                <div className="space-y-1.5">
-                    <p className="text-sm font-medium text-zinc-200 leading-none">Network Relay Fallback</p>
+                <div className="min-w-0 space-y-1">
+                    <p className="text-sm font-medium text-zinc-200 leading-none">Network relay fallback</p>
                     <p className="text-xs text-zinc-500 leading-relaxed">
-                        Only used when a direct connection can&apos;t be established. Most transfers stay direct, even on mobile data. 2 GB limit when relayed.{' '}
+                        Only used when a direct connection isn&apos;t possible; most transfers stay direct. 2 GB limit when relayed.{' '}
                         <a
                             href="/how-it-works"
                             target="_blank"

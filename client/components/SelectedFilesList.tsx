@@ -32,7 +32,7 @@ export function SelectedFilesList({
     return (
         <div
             ref={listRef}
-            className="space-y-3 max-h-[300px] overflow-y-auto pr-1 pb-12 custom-scrollbar"
+            className="space-y-3 max-h-[300px] overflow-y-auto pr-1 pb-1 custom-scrollbar"
         >
             {files.map((item, i) => (
                 <div
