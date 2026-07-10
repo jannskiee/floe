@@ -3,6 +3,16 @@ title: "Changelog"
 description: "Release history for Floe."
 ---
 
+<Update label="v1.7.5" description="2026-07-10">
+  **Accurate progress on slow connections, and a CLI relay fix**
+
+  - Fixed the sender's progress running far ahead of the receiver. The sender counted bytes handed to the connection's send buffer rather than bytes that actually reached the other side, so on slower or relayed connections its bar raced ahead by up to 8 MB, froze for up to a minute while the buffer drained, moved to the next file before the receiver finished the previous one, and showed "All Files Sent!" while the receiver was still downloading. The sender now reports delivered bytes: both sides move together at the real network speed, the file counter stays in step, and completion means the receiver has everything.
+  - Fixed the receiver's progress bar barely updating since the larger transfer blocks introduced in v1.7.3. It could sit still for minutes on slow connections (and never move at all for files under 6.25 MB), which looked like a stalled transfer. It now updates at least every 1 MB regardless of block size.
+  - Fixed `floe send` giving up with a "backpressure stall" error on relayed connections slower than roughly 70 KB/s. The CLI now aborts only when the connection makes no progress at all for a full minute, instead of whenever draining simply takes longer than a minute.
+  - Web app: the connection badge tooltip and the Network Relay Fallback description now explain that direct peer-to-peer connections are the norm even across different networks such as mobile data, and that the relay is only a fallback used when a direct path cannot be established.
+  - No transfer-protocol change, so v1.7.5 interoperates with older CLI and browser peers in every direction.
+</Update>
+
 <Update label="v1.7.4" description="2026-07-10">
   **Faster connection setup**
 
