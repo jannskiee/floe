@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowUpRight } from 'lucide-react';
 
 type ConnectionStatus = 'direct' | 'relay' | 'connected' | 'offline';
 
@@ -14,9 +13,9 @@ const STATUS: Record<ConnectionStatus, { color: string; label: string }> = {
 
 // Section anchors on the homepage, in document order (drives the scroll-spy).
 const SECTIONS = [
-    { id: 'about', label: 'How it works', longLabel: true },
-    { id: 'cli', label: 'CLI', longLabel: false },
-    { id: 'faq', label: 'FAQ', longLabel: false },
+    { id: 'about', label: 'About' },
+    { id: 'cli', label: 'CLI' },
+    { id: 'faq', label: 'FAQ' },
 ];
 
 export const Navbar = () => {
@@ -85,8 +84,6 @@ export const Navbar = () => {
                             key={section.id}
                             onClick={() => scrollToSection(section.id)}
                             className={`rounded-full px-2.5 py-1.5 sm:px-3.5 sm:py-2 text-xs sm:text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-ice ${
-                                section.longLabel ? 'hidden xs:block' : ''
-                            } ${
                                 activeSection === section.id
                                     ? 'bg-white/[0.07] text-zinc-100'
                                     : 'text-zinc-400 hover:bg-white/10 hover:text-white'
@@ -99,10 +96,9 @@ export const Navbar = () => {
                         href="https://docs.floe.one"
                         target="_blank"
                         rel="noreferrer"
-                        className="flex items-center gap-1 rounded-full px-2.5 py-1.5 sm:px-3.5 sm:py-2 text-xs sm:text-sm font-medium text-zinc-400 transition hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-ice"
+                        className="rounded-full px-2.5 py-1.5 sm:px-3.5 sm:py-2 text-xs sm:text-sm font-medium text-zinc-400 transition hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-ice"
                     >
                         Docs
-                        <ArrowUpRight className="h-3 w-3 text-zinc-500" aria-hidden="true" />
                     </a>
                 </div>
                 <div className="h-4 w-px bg-white/10 mx-1" />
