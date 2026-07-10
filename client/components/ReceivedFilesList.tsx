@@ -23,7 +23,7 @@ export function ReceivedFilesList({ receivedFiles, listRef }: ReceivedFilesListP
             {receivedFiles.map((file) => (
                 <div
                     key={file.id}
-                    className="relative group/fname flex items-center justify-between rounded-lg bg-zinc-900 p-3 border border-zinc-800"
+                    className="relative group/fname flex items-center justify-between rounded-lg bg-white/[0.02] p-3 border border-white/[0.06]"
                 >
                     <div className="flex items-center gap-3 min-w-0">
                         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-500/10 text-green-500">

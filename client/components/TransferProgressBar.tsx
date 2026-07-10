@@ -30,8 +30,8 @@ export function TransferProgressBar({
                 <span>
                     {isSender
                         ? status === 'All Files Sent!'
-                            ? `Upload Complete (${filesCount} ${filesCount === 1 ? 'File' : 'Files'})`
-                            : `Sending File ${currentFileIndex + 1} of ${filesCount}...`
+                            ? `Sent ${filesCount} ${filesCount === 1 ? 'file' : 'files'}`
+                            : `Sending file ${currentFileIndex + 1} of ${filesCount}...`
                         : status.includes('Receiving')
                             ? status
                             : 'Receiving...'}
@@ -39,7 +39,7 @@ export function TransferProgressBar({
                 <span className="flex items-center gap-2">
                     {transferSpeed && estimatedTime && progress < 100 && (
                         <span className="text-zinc-500">
-                            {transferSpeed} • {estimatedTime}
+                            {transferSpeed} · {estimatedTime}
                         </span>
                     )}
                     <span>{progress}%</span>
@@ -47,7 +47,7 @@ export function TransferProgressBar({
             </div>
             <Progress
                 value={progress}
-                className="h-1 bg-zinc-800 [&>div]:bg-zinc-200"
+                className="h-1 bg-white/10 [&>div]:bg-ice"
             />
         </div>
     );

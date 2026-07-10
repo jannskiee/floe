@@ -12,7 +12,7 @@ interface RelayFallbackToggleProps {
  */
 export function RelayFallbackToggle({ relayEnabled, onChange }: RelayFallbackToggleProps) {
     return (
-        <div className="mb-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+        <div className="mb-4 rounded-xl border border-white/[0.08] bg-white/[0.02] p-4">
             <label className="flex items-start gap-3 cursor-pointer group/relay select-none">
                 <div className="relative flex-shrink-0 mt-0.5">
                     <input

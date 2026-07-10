@@ -28,19 +28,19 @@ export function ShareLinkPanel({
     const isComplete = status === 'All Files Sent!' || status.includes('Transfer complete');
 
     return (
-        <div className="rounded-lg bg-black/40 p-4 border border-zinc-800 mb-4">
+        <div className="rounded-xl bg-black/40 p-4 border border-white/[0.08] mb-4">
             <div className="group">
-                <p className="text-[10px] uppercase text-zinc-500 mb-1 font-bold tracking-wider">
-                    Share Link
+                <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500 mb-2">
+                    Share link
                 </p>
                 <div>
-                    <code className="block break-all rounded bg-zinc-950 p-3 text-xs text-zinc-300 font-mono border border-zinc-800 group-hover:border-zinc-600 transition leading-relaxed">
+                    <code className="block break-all rounded-lg bg-zinc-950 p-3 text-xs text-zinc-300 font-mono border border-white/10 group-hover:border-white/20 transition leading-relaxed">
                         {generatedLink}
                     </code>
                     <div className="flex items-center justify-center gap-2 mt-2.5">
                         <button
                             onClick={onCopy}
-                            className="w-20 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-md bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700 text-zinc-400 hover:text-white text-xs font-medium transition-all"
+                            className="w-20 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-md bg-white/[0.04] hover:bg-white/10 border border-white/10 text-zinc-400 hover:text-zinc-100 text-xs font-medium transition-all focus-visible:outline-2 focus-visible:outline-ice"
                             aria-label="Copy link"
                         >
                             {copied ? (
@@ -57,9 +57,9 @@ export function ShareLinkPanel({
                         </button>
                         <button
                             onClick={onToggleQr}
-                            className={`w-24 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-md border text-xs font-medium transition-all ${showQr
-                                    ? 'bg-zinc-700 border-zinc-600 text-white'
-                                    : 'bg-zinc-800/80 hover:bg-zinc-700 border-zinc-700 text-zinc-400 hover:text-white'
+                            className={`w-24 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-md border text-xs font-medium transition-all focus-visible:outline-2 focus-visible:outline-ice ${showQr
+                                    ? 'bg-white/10 border-white/20 text-zinc-100'
+                                    : 'bg-white/[0.04] hover:bg-white/10 border-white/10 text-zinc-400 hover:text-zinc-100'
                                 }`}
                             aria-label="Toggle QR code"
                         >
@@ -69,7 +69,7 @@ export function ShareLinkPanel({
                         {typeof navigator !== 'undefined' && !!navigator.share && (
                             <button
                                 onClick={onShare}
-                                className="w-20 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-md bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700 text-zinc-400 hover:text-white text-xs font-medium transition-all"
+                                className="w-20 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-md bg-white/[0.04] hover:bg-white/10 border border-white/10 text-zinc-400 hover:text-zinc-100 text-xs font-medium transition-all focus-visible:outline-2 focus-visible:outline-ice"
                                 aria-label="Share link"
                             >
                                 <Share2 className="h-3.5 w-3.5" />
@@ -91,7 +91,7 @@ export function ShareLinkPanel({
                             level="M"
                         />
                     </div>
-                    <p className="text-[10px] uppercase tracking-widest text-zinc-600 font-bold">Scan to receive files</p>
+                    <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-600">Scan to receive files</p>
                 </div>
             )}
 

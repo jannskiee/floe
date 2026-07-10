@@ -37,9 +37,9 @@ export function SelectedFilesList({
             {files.map((item, i) => (
                 <div
                     key={i}
-                    className="flex items-center gap-3 bg-zinc-900/30 p-2 rounded-lg border border-white/5"
+                    className="flex items-center gap-3 bg-white/[0.02] p-2 rounded-lg border border-white/[0.06]"
                 >
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-800/50 ring-1 ring-inset ring-white/10">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.04] ring-1 ring-inset ring-white/10">
                         <FileIcon
                             fileName={
                                 item.file.name
