@@ -72,6 +72,17 @@ function getRoomFromUrl(): string | null {
     return new URLSearchParams(window.location.search).get('room');
 }
 
+// Mirrors the signaling server's UUID_REGEX (server.js) so the client rejects a
+// malformed room id up front instead of emitting a join the server would refuse
+// with an 'error' event the browser does not listen for. Keep in sync with the
+// server: a loose format check, not a version/variant-strict UUID validation.
+const ROOM_ID_REGEX =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isValidRoomId(roomId: string): boolean {
+    return ROOM_ID_REGEX.test(roomId);
+}
+
 export function P2PTransfer() {
     const [isSender, setIsSender] = useState<boolean | null>(null);
     const [status, setStatus] = useState('Idle');
@@ -406,6 +417,18 @@ export function P2PTransfer() {
         const roomFromUrl = getRoomFromUrl();
 
         if (roomFromUrl) {
+            if (!isValidRoomId(roomFromUrl)) {
+                // A hand-edited or truncated fragment can carry a non-UUID room id.
+                // The server would reject the join with an 'error' event we do not
+                // listen for, leaving the receiver waiting forever; surface the same
+                // "Link Invalid" card the room-full path uses instead of joining.
+                // Fragment-derived state is set post-mount (SSR has no fragment),
+                // the same one-shot sync as the setIsSender effect above.
+                // eslint-disable-next-line react-hooks/set-state-in-effect
+                setError('Link Expired or Busy');
+                setStatus('Access Denied');
+                return;
+            }
             fetchIceServers().then(() => joinRoomAsReceiver(roomFromUrl));
         } else {
             fetchIceServers();
