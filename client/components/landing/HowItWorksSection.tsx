@@ -9,7 +9,8 @@ const steps: { index: string; title: string; body: ReactNode }[] = [
             <>
                 You get a link and a short code like{' '}
                 <code className="font-mono text-[12px] text-zinc-300">olive-tiger-castle</code>. The
-                room secret lives in the URL fragment, so it never reaches the server.
+                room id rides the URL fragment, which never appears in page requests, server logs,
+                or analytics.
             </>
         ),
     },
@@ -32,7 +33,7 @@ export function HowItWorksSection() {
             <SectionHeader
                 eyebrow="How it works"
                 headline="Your files never make a stop."
-                lede="Two devices open an encrypted WebRTC channel and stream bytes directly to each other. The signaling server brokers the handshake, then steps out of the way."
+                lede="Two devices open an encrypted WebRTC channel and stream bytes to each other. The signaling server brokers the handshake, then steps out of the way."
             />
             <div className="mt-12 grid gap-10 sm:grid-cols-3 sm:gap-8">
                 {steps.map((step) => (

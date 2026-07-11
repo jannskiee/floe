@@ -55,6 +55,9 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
     themeColor: '#0a0a0a',
+    // Extend the dark backdrop under notches and rounded corners; safe-area
+    // padding on the navbar and page root keeps content clear of them.
+    viewportFit: 'cover',
 };
 
 export default function RootLayout({

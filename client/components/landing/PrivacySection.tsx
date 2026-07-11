@@ -4,6 +4,7 @@ import { SectionHeader, sectionClass } from './SectionHeader';
 
 const handled: ReactNode[] = [
     'WebRTC offers, answers, and ICE candidates',
+    'The room id that pairs two devices, held in memory while the room is open',
     'A short room code that expires after 10 minutes',
     'Short-lived TURN relay credentials',
     'One anonymous running total of bytes for the public counter',
@@ -12,10 +13,10 @@ const handled: ReactNode[] = [
 const neverSees: ReactNode[] = [
     'Your files, file names, or folder structure',
     <>
-        The room secret. The <code className="font-mono text-[12px] text-zinc-300">#room</code>{' '}
-        fragment stays in your browser
+        Your share link. The <code className="font-mono text-[12px] text-zinc-300">#room</code>{' '}
+        fragment never travels in an HTTP request, referrer, or analytics event
     </>,
-    'Who is sending and who is receiving',
+    'Any transfer traffic. Once the peers connect, the data channel bypasses it entirely',
     'Relayed traffic in the clear. Relay packets stay encrypted end to end',
 ];
 

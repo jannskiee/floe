@@ -11,7 +11,7 @@ import {
 export const metadata: Metadata = {
     title: 'Privacy Policy · Floe',
     description:
-        'How Floe handles your data: files stream peer to peer and are never stored, and the only number we keep is one anonymous global byte total.',
+        'How Floe handles your data: files stream peer to peer and are never stored, and the only tally we keep is one anonymous global byte total.',
     alternates: {
         canonical: '/privacy',
     },
@@ -51,9 +51,11 @@ export default function PrivacyPolicy() {
                         </strong>{' '}
                         In direct connections, files never touch our servers. In relay connections,
                         encrypted file data passes through our TURN server in transit but is never
-                        stored or inspected. The only thing we keep is a single anonymous number: the
+                        stored or inspected. The only tally we keep is one anonymous number: the
                         running total of bytes transferred across all users, shown by the counter on
-                        our homepage. You can opt out of contributing to this counter at any time.
+                        our homepage. You can opt out of contributing to it at any time. The
+                        cookieless, aggregate analytics and error monitoring we use are described
+                        below.
                     </p>
                 </LegalCallout>
             }
@@ -78,9 +80,10 @@ export default function PrivacyPolicy() {
                             collect or store any files.
                         </>,
                         <>
-                            <strong className="font-semibold text-zinc-200">Metadata.</strong> We
-                            temporarily process filenames and sizes during the signaling phase to
-                            display them to the receiver. This data is not stored permanently.
+                            <strong className="font-semibold text-zinc-200">Metadata.</strong>{' '}
+                            Filenames and sizes travel directly between the two devices over the
+                            encrypted data channel so the receiver can see what is arriving. They
+                            never pass through, and are never stored on, our servers.
                         </>,
                         <>
                             <strong className="font-semibold text-zinc-200">
@@ -89,8 +92,8 @@ export default function PrivacyPolicy() {
                             When a transfer completes, the receiving side reports only the number of
                             bytes it received. We add this to one shared, all-time counter of total
                             bytes transferred, shown on our homepage. The sender never reports. We do
-                            not store file names, file contents, individual transfer records, or any
-                            link between this number and you. You can opt out of this report: uncheck
+                            not store file names, file contents, or any link between this number and
+                            you. You can opt out of this report: uncheck
                             &quot;Contribute to global stats&quot; on the receiver view in the browser,
                             or use <InlineCode>--no-report</InlineCode> (or set{' '}
                             <InlineCode>FLOE_NO_STATS=1</InlineCode>) when using the CLI.
@@ -113,9 +116,12 @@ export default function PrivacyPolicy() {
                     Cloudflare&apos;s TURN network. For usage analytics we use only Umami, which is
                     cookieless and does not track you across sites, and we optionally use Sentry for
                     error monitoring. The link you share carries its room id in the URL fragment (the
-                    part after the <InlineCode>#</InlineCode>), which browsers never send to any server
-                    or analytics provider, so the transfer secret stays between you and the recipient.
-                    Please refer to each provider&apos;s privacy policy regarding data handling.
+                    part after the <InlineCode>#</InlineCode>). Browsers never include the fragment in
+                    HTTP requests, so it stays out of hosting logs, referrer headers, and analytics.
+                    Our signaling server receives the room id only when your app joins the room to be
+                    paired with your peer; it is held in memory for the life of the session and never
+                    logged. Please refer to each provider&apos;s privacy policy regarding data
+                    handling.
                 </p>
             </LegalSection>
 
@@ -135,7 +141,7 @@ export default function PrivacyPolicy() {
                 <LegalList
                     items={[
                         'Error stack traces and browser metadata (browser version, OS, device type)',
-                        'Connection type (direct or relay) and transfer progress at time of error',
+                        'Connection type (direct or relay), transfer progress, file count, and total size at the time of an error',
                         <>
                             <strong className="font-semibold text-zinc-200">Session replay.</strong> An
                             anonymized, video-like recording of a small sample of browser sessions,

@@ -65,11 +65,11 @@ export function ConnectionStatusBadge({
                                 : 'Offline'}
                 </span>
                 {(connectionType === 'direct' || connectionType === 'relay') && (
-                    <div className="relative group/info inline-flex items-center p-0.5 cursor-help"
+                    <div className="relative before:absolute before:-inset-y-4 before:-inset-x-3 group/info inline-flex items-center p-0.5 cursor-help"
                         onClick={(e) => { e.stopPropagation(); setShowInfoTooltip(v => !v); }}
                     >
                         <Info className="w-2.5 h-2.5 text-zinc-600 group-hover/info:text-zinc-400 transition-colors" />
-                        <div className={`absolute z-[9999] w-52 transition-opacity duration-150 top-full right-0 mt-2 sm:top-1/2 sm:right-full sm:left-auto sm:-translate-y-1/2 sm:mt-0 sm:mr-2 ${showInfoTooltip ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'} group-hover/info:opacity-100 group-hover/info:pointer-events-auto`}>
+                        <div className={`absolute z-[9999] w-52 max-w-[calc(100vw-2rem)] transition-opacity duration-150 top-full right-0 mt-2 sm:top-1/2 sm:right-full sm:left-auto sm:-translate-y-1/2 sm:mt-0 sm:mr-2 ${showInfoTooltip ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'} group-hover/info:opacity-100 group-hover/info:pointer-events-auto`}>
                             {/* invisible bridge above to prevent hover gap */}
                             <div className="hidden sm:block absolute top-0 bottom-0 left-full w-3" />
                             <div className="relative bg-zinc-950 border border-zinc-800 rounded-xl p-3 shadow-2xl text-left">

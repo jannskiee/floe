@@ -40,7 +40,7 @@ export function ShareLinkPanel({
                     <div className="flex items-center justify-center gap-2 mt-2.5">
                         <button
                             onClick={onCopy}
-                            className="w-20 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-md bg-white/[0.04] hover:bg-white/10 border border-white/10 text-zinc-400 hover:text-zinc-100 text-xs font-medium transition-all focus-visible:outline-2 focus-visible:outline-ice"
+                            className="relative before:absolute before:-inset-y-2 before:-inset-x-1 w-20 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-md bg-white/[0.04] hover:bg-white/10 border border-white/10 text-zinc-400 hover:text-zinc-100 text-xs font-medium transition-all focus-visible:outline-2 focus-visible:outline-ice"
                             aria-label="Copy link"
                         >
                             {copied ? (
@@ -57,7 +57,7 @@ export function ShareLinkPanel({
                         </button>
                         <button
                             onClick={onToggleQr}
-                            className={`w-24 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-md border text-xs font-medium transition-all focus-visible:outline-2 focus-visible:outline-ice ${showQr
+                            className={`relative before:absolute before:-inset-y-2 before:-inset-x-1 w-24 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-md border text-xs font-medium transition-all focus-visible:outline-2 focus-visible:outline-ice ${showQr
                                     ? 'bg-white/10 border-white/20 text-zinc-100'
                                     : 'bg-white/[0.04] hover:bg-white/10 border-white/10 text-zinc-400 hover:text-zinc-100'
                                 }`}
@@ -69,7 +69,7 @@ export function ShareLinkPanel({
                         {typeof navigator !== 'undefined' && !!navigator.share && (
                             <button
                                 onClick={onShare}
-                                className="w-20 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-md bg-white/[0.04] hover:bg-white/10 border border-white/10 text-zinc-400 hover:text-zinc-100 text-xs font-medium transition-all focus-visible:outline-2 focus-visible:outline-ice"
+                                className="relative before:absolute before:-inset-y-2 before:-inset-x-1 w-20 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-md bg-white/[0.04] hover:bg-white/10 border border-white/10 text-zinc-400 hover:text-zinc-100 text-xs font-medium transition-all focus-visible:outline-2 focus-visible:outline-ice"
                                 aria-label="Share link"
                             >
                                 <Share2 className="h-3.5 w-3.5" />

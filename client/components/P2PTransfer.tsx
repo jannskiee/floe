@@ -741,7 +741,7 @@ export function P2PTransfer() {
                                     <div className="flex-1 text-sm text-red-300">{error}</div>
                                     <button
                                         onClick={() => setError('')}
-                                        className="text-red-400 hover:text-red-300"
+                                        className="relative before:absolute before:-inset-3.5 text-red-400 hover:text-red-300"
                                     >
                                         <X className="h-4 w-4" />
                                     </button>

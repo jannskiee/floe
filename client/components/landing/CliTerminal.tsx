@@ -126,15 +126,16 @@ export function CliTerminal() {
                         type="button"
                         onClick={replay}
                         aria-label="Replay the transfer demo"
-                        className={`rounded p-1 text-zinc-600 transition hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-ice ${
+                        className={`relative before:absolute before:-inset-3 rounded p-1 text-zinc-600 transition hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-ice ${
                             done && !reduced ? 'opacity-100' : 'pointer-events-none opacity-0'
                         }`}
                     >
                         <RotateCcw className="h-3.5 w-3.5" />
                     </button>
                 </div>
-                {/* min-height matches the completed session so replay does not shift the layout */}
-                <div className="custom-scrollbar min-h-[480px] overflow-x-auto px-4 py-4" aria-hidden="true">
+                {/* min-height matches the completed session so replay does not shift the layout;
+                    dropped on short-landscape viewports where a 480px reservation cannot fit */}
+                <div className="custom-scrollbar [@media(min-height:481px)]:min-h-[480px] overflow-x-auto px-4 py-4" aria-hidden="true">
                     <div className="min-w-max whitespace-pre font-mono text-[12.5px] leading-[1.7] text-zinc-300">
                         <div>
                             <span className="text-ice">$ </span>

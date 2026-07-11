@@ -12,7 +12,7 @@ import { InAppBrowserGuard } from '@/components/InAppBrowserGuard';
 
 export default function Home() {
     return (
-        <div className="flex min-h-dvh flex-col items-center bg-zinc-950 font-sans text-zinc-100 px-4 pb-4 sm:px-6 sm:pb-6">
+        <div className="flex min-h-dvh flex-col items-center bg-zinc-950 font-sans text-zinc-100 px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-[max(1.5rem,env(safe-area-inset-left),env(safe-area-inset-right))] sm:pb-[max(1.5rem,env(safe-area-inset-bottom))]">
             <Navbar />
 
             {/* Near-full-viewport hero: the next section's top hairline peeks at the
@@ -23,9 +23,8 @@ export default function Home() {
                         Floe
                     </h1>
                     <p className="mt-4 text-lg leading-8 text-zinc-300 max-w-lg mx-auto">
-                        Secure, encrypted P2P file transfer.{' '}
-                        <br className="hidden sm:inline" />
-                        <span className="text-zinc-500">
+                        Secure, encrypted P2P file transfer.
+                        <span className="block text-zinc-500">
                             No accounts, no file storage, and no registration required.
                         </span>
                     </p>

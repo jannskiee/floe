@@ -18,8 +18,12 @@ const FAQItem = ({ question, answer }: { question: string; answer: ReactNode }) 
                     className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
                 />
             </button>
-            <div className={`overflow-hidden transition-all duration-300 ${isOpen ? 'max-h-[600px] pb-5' : 'max-h-0'}`}>
-                <div className="text-sm leading-relaxed text-zinc-400">{answer}</div>
+            {/* 0fr -> 1fr grid rows track the answer's true height at every viewport width,
+                unlike a fixed max-h cap that silently clips long answers on narrow screens */}
+            <div className={`grid transition-[grid-template-rows] duration-300 ${isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+                <div className="overflow-hidden">
+                    <div className="pb-5 text-sm leading-relaxed text-zinc-400">{answer}</div>
+                </div>
             </div>
         </div>
     );
@@ -58,8 +62,8 @@ export const FAQSection = () => {
                                 <p className="font-semibold text-zinc-200">For Receivers:</p>
                                 <ol className="list-decimal list-inside space-y-1 pl-2">
                                     <li>Open the link your friend sent you</li>
-                                    <li>Wait for the connection (you&apos;ll see &quot;Connected&quot;)</li>
-                                    <li>Click &quot;Download&quot; and the file comes directly from your friend&apos;s device</li>
+                                    <li>Wait for the connection (the status badge shows &quot;Direct&quot; or &quot;Relay&quot;)</li>
+                                    <li>Click &quot;Download All&quot; and the files come straight from your friend&apos;s device</li>
                                 </ol>
                             </div>
 
@@ -85,7 +89,7 @@ export const FAQSection = () => {
                 />
                 <FAQItem
                     question="Is this secure?"
-                    answer="Yes. All transfers use DTLS encryption built into WebRTC. Whether your connection is direct or relayed, only you and your recipient can read the data. Even our own relay server handles only encrypted packets and cannot access your files."
+                    answer="Yes. All transfers use DTLS encryption built into WebRTC. Whether your connection is direct or relayed, only you and your recipient can read the data. Even the relay server handles only encrypted packets and cannot access your files."
                 />
             </div>
         </section>

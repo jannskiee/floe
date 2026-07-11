@@ -47,7 +47,7 @@ export function TransferProgressBar({
             </div>
             <Progress
                 value={progress}
-                className="h-1 bg-white/10 [&>div]:bg-ice"
+                className="h-1 bg-white/10 [&>div]:bg-white"
             />
         </div>
     );
