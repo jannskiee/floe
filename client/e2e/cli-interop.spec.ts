@@ -99,7 +99,7 @@ async function browserSenderSetup(page: Page, fixturePath: string): Promise<stri
     await page.goto('/');
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(fixturePath);
-    await page.locator('button', { hasText: 'Create Secure Link' }).click();
+    await page.locator('button', { hasText: /create secure link/i }).click();
     const linkEl = page.locator('code').filter({ hasText: '#room=' });
     await expect(linkEl).toBeVisible({ timeout: 10_000 });
     return (await linkEl.textContent())!.trim();

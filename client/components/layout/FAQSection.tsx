@@ -2,17 +2,28 @@
 
 import React, { useState, ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { SectionHeader, sectionClass } from '@/components/landing/SectionHeader';
 
 const FAQItem = ({ question, answer }: { question: string; answer: ReactNode }) => {
     const [isOpen, setIsOpen] = useState(false);
     return (
-        <div className="border-b border-white/10 last:border-0">
-            <button onClick={() => setIsOpen(!isOpen)} className="flex w-full items-center justify-between py-4 text-left font-medium text-white transition-all hover:text-zinc-200">
+        <div className="border-b border-white/[0.06]">
+            <button
+                onClick={() => setIsOpen(!isOpen)}
+                aria-expanded={isOpen}
+                className="flex w-full items-center justify-between gap-4 py-5 text-left text-[15px] font-medium text-zinc-100 transition hover:text-white focus-visible:outline-2 focus-visible:outline-ice"
+            >
                 {question}
-                <ChevronDown className={`h-4 w-4 text-zinc-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+                <ChevronDown
+                    className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+                />
             </button>
-            <div className={`overflow-hidden transition-all duration-300 ${isOpen ? 'max-h-[600px] pb-4' : 'max-h-0'}`}>
-                <div className="text-sm text-zinc-400 leading-relaxed">{answer}</div>
+            {/* 0fr -> 1fr grid rows track the answer's true height at every viewport width,
+                unlike a fixed max-h cap that silently clips long answers on narrow screens */}
+            <div className={`grid transition-[grid-template-rows] duration-300 ${isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+                <div className="overflow-hidden">
+                    <div className="pb-5 text-sm leading-relaxed text-zinc-400">{answer}</div>
+                </div>
             </div>
         </div>
     );
@@ -20,9 +31,9 @@ const FAQItem = ({ question, answer }: { question: string; answer: ReactNode }) 
 
 export const FAQSection = () => {
     return (
-        <section id="faq" className="mt-32 max-w-2xl w-full space-y-8 scroll-mt-28">
-            <h2 className="text-2xl font-bold text-center text-white tracking-tight">Frequently Asked Questions</h2>
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 px-6 backdrop-blur-sm">
+        <section id="faq" className={sectionClass}>
+            <SectionHeader eyebrow="FAQ" headline="Questions, answered plainly." />
+            <div className="mt-10 max-w-3xl border-t border-white/[0.06]">
                 <FAQItem
                     question="What is Floe?"
                     answer="Floe is a free file-sharing tool that lets you send files directly to another person, with no sign-up, no app download, and no files stored on any server. Think of it like handing a USB drive to someone, but over the internet. Direct connections have no size limit; relay connections are capped at 2 GB per session."
@@ -51,14 +62,18 @@ export const FAQSection = () => {
                                 <p className="font-semibold text-zinc-200">For Receivers:</p>
                                 <ol className="list-decimal list-inside space-y-1 pl-2">
                                     <li>Open the link your friend sent you</li>
-                                    <li>Wait for the connection (you&apos;ll see &quot;Connected&quot;)</li>
-                                    <li>Click &quot;Download&quot; — the file comes directly from your friend&apos;s device</li>
+                                    <li>Wait for the connection (the status badge shows &quot;Direct&quot; or &quot;Relay&quot;)</li>
+                                    <li>Click &quot;Download All&quot; and the files come straight from your friend&apos;s device</li>
                                 </ol>
                             </div>
 
                             <p className="text-zinc-500 italic">That&apos;s it! No accounts needed, no waiting for uploads.</p>
                         </div>
                     }
+                />
+                <FAQItem
+                    question="Can I use Floe from the terminal?"
+                    answer="Yes. The floe CLI installs as a single binary and talks to the same infrastructure as the web app, so browser-to-terminal transfers work in every direction. Run floe send with a file or folder, share the printed code or link, and the other side receives it in a browser or with floe receive."
                 />
                 <FAQItem
                     question="Where are my files stored?"
@@ -70,11 +85,11 @@ export const FAQSection = () => {
                 />
                 <FAQItem
                     question="Why do I need to keep the tab open?"
-                    answer="Because files are never uploaded to a storage server, your browser must remain open to send the data. If you close the tab or lose your connection, the transfer will stop. Think of it like a live video call — both sides need to stay connected for it to work."
+                    answer="Because files are never uploaded to a storage server, your browser must remain open to send the data. If you close the tab or lose your connection, the transfer will stop. Think of it like a live video call: both sides need to stay connected for it to work."
                 />
                 <FAQItem
                     question="Is this secure?"
-                    answer="Yes. All transfers use DTLS encryption built into WebRTC. Whether your connection is direct or relayed, only you and your recipient can read the data. Even our own relay server handles only encrypted packets and cannot access your files."
+                    answer="Yes. All transfers use DTLS encryption built into WebRTC. Whether your connection is direct or relayed, only you and your recipient can read the data. Even the relay server handles only encrypted packets and cannot access your files."
                 />
             </div>
         </section>

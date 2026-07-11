@@ -10,7 +10,7 @@ interface StatsContributionToggleProps {
  */
 export function StatsContributionToggle({ enabled, onChange }: StatsContributionToggleProps) {
     return (
-        <div className="mb-1 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+        <div className="border-t border-white/[0.06] pt-4">
             <label className="flex items-start gap-3 cursor-pointer group/report select-none">
                 <div className="relative flex-shrink-0 mt-0.5">
                     <input
@@ -30,7 +30,7 @@ export function StatsContributionToggle({ enabled, onChange }: StatsContribution
                         )}
                     </div>
                 </div>
-                <div className="space-y-1.5">
+                <div className="min-w-0 space-y-1">
                     <p className="text-sm font-medium text-zinc-200 leading-none">Contribute to global stats</p>
                     <p className="text-xs text-zinc-500 leading-relaxed">
                         Adds only this transfer&apos;s byte count to Floe&apos;s public total. File names and contents are never sent.{' '}

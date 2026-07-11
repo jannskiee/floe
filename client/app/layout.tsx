@@ -55,6 +55,9 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
     themeColor: '#0a0a0a',
+    // Extend the dark backdrop under notches and rounded corners; safe-area
+    // padding on the navbar and page root keeps content clear of them.
+    viewportFit: 'cover',
 };
 
 export default function RootLayout({
@@ -63,7 +66,7 @@ export default function RootLayout({
     children: React.ReactNode;
 }>) {
     return (
-        <html lang="en" suppressHydrationWarning>
+        <html lang="en" suppressHydrationWarning className="scroll-smooth">
             <body
                 suppressHydrationWarning={true}
                 className={`${geistSans.variable} ${geistMono.variable} antialiased`}

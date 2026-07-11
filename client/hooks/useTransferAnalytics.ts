@@ -6,21 +6,22 @@ interface UmamiWindow extends Window {
     };
 }
 
-export function useTransferAnalytics() {
-    const [reportStatsEnabled, setReportStatsEnabled] = useState(true);
-    const reportStatsEnabledRef = useRef(true);
+// Read synchronously during the first render so state never disagrees with
+// storage: a default-true state plus a read-in-effect opens a window where the
+// persist effect writes 'true' over a stored 'false' opt-out (lost if the page
+// unloads before the corrective re-render).
+function readInitialReportStats(): boolean {
+    if (typeof window === 'undefined') return true;
+    try {
+        return localStorage.getItem('floe:report-stats') !== 'false';
+    } catch {
+        return true;
+    }
+}
 
-    useEffect(() => {
-        try {
-            const stored = localStorage.getItem('floe:report-stats');
-            if (stored !== null) {
-                const val = stored !== 'false';
-                // eslint-disable-next-line react-hooks/set-state-in-effect
-                setReportStatsEnabled(val);
-                reportStatsEnabledRef.current = val;
-            }
-        } catch { }
-    }, []);
+export function useTransferAnalytics() {
+    const [reportStatsEnabled, setReportStatsEnabled] = useState(readInitialReportStats);
+    const reportStatsEnabledRef = useRef(reportStatsEnabled);
 
     useEffect(() => {
         reportStatsEnabledRef.current = reportStatsEnabled;

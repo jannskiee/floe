@@ -29,10 +29,8 @@ import { classifyPeerError } from '@/lib/peerErrors';
 import {
     Card,
     CardContent,
-    CardDescription,
     CardFooter,
     CardHeader,
-    CardTitle,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,10 +39,10 @@ import {
     AlertTriangle,
     ArrowRight,
     CheckCircle2,
+    Circle,
     Download,
-    Infinity,
     Loader2,
-    Radio,
+    Plus,
     ShieldCheck,
     UploadCloud,
     FileArchive,
@@ -683,8 +681,13 @@ export function P2PTransfer() {
     if (isSender === null) {
         return (
             <main className="w-full flex justify-center z-10 relative">
-                <Card className="w-full max-w-md border-zinc-800 bg-zinc-900/50 shadow-2xl backdrop-blur-xl ring-1 ring-white/5 overflow-visible">
-                    <CardContent className="flex items-center justify-center py-16">
+                <Card className="w-full max-w-md gap-5 overflow-visible border-white/10 bg-zinc-900/60 shadow-2xl backdrop-blur-xl sm:max-w-lg">
+                    <CardHeader className="flex items-center justify-between border-b border-white/[0.06] !pb-4">
+                        <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-zinc-500">
+                            Transfer
+                        </span>
+                    </CardHeader>
+                    <CardContent className="flex items-center justify-center py-14">
                         <Loader2 className="w-8 h-8 animate-spin text-zinc-500" />
                     </CardContent>
                 </Card>
@@ -694,31 +697,20 @@ export function P2PTransfer() {
 
     return (
         <main className="w-full flex justify-center z-10 relative">
-            <Card className="w-full max-w-md border-zinc-800 bg-zinc-900/50 shadow-2xl backdrop-blur-xl ring-1 ring-white/5 overflow-visible">
-                <CardHeader className="text-center pb-0">
-                    <CardTitle className="text-xl font-semibold text-white flex items-center justify-center gap-2">
-                        {isSender ? (
-                            <>
-                                {' '}
-                                <Radio className="w-5 h-5 text-white" /> Start
-                                Sharing{' '}
-                            </>
-                        ) : (
-                            <>
-                                {' '}
-                                <Download className="w-5 h-5 text-white" />{' '}
-                                Receive Files{' '}
-                            </>
-                        )}
-                    </CardTitle>
-                    <CardDescription className="text-zinc-500">
-                        {isSender
-                            ? 'Send files to anyone, anywhere, securely.'
-                            : 'Secure, direct connection established.'}
-                    </CardDescription>
+            <Card className="w-full max-w-md gap-5 overflow-visible border-white/10 bg-zinc-900/60 shadow-2xl backdrop-blur-xl sm:max-w-lg">
+                <CardHeader className="flex items-center justify-between border-b border-white/[0.06] !pb-4">
+                    <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-zinc-500">
+                        {isSender ? 'Send' : 'Receive'}
+                    </span>
+                    <ConnectionStatusBadge
+                        isSender={isSender}
+                        isConnected={isConnected}
+                        ping={ping}
+                        connectionType={connectionType}
+                    />
                 </CardHeader>
 
-                <CardContent className="space-y-4 pt-0">
+                <CardContent className="space-y-4">
                     {error && error.includes('Link Expired') ? (
                         <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
                             <div className="h-16 w-16 rounded-full bg-red-500/10 flex items-center justify-center mb-2">
@@ -749,20 +741,12 @@ export function P2PTransfer() {
                                     <div className="flex-1 text-sm text-red-300">{error}</div>
                                     <button
                                         onClick={() => setError('')}
-                                        className="text-red-400 hover:text-red-300"
+                                        className="relative before:absolute before:-inset-3.5 text-red-400 hover:text-red-300"
                                     >
                                         <X className="h-4 w-4" />
                                     </button>
                                 </div>
                             )}
-                            <ConnectionStatusBadge
-                                isSender={isSender}
-                                isConnected={isConnected}
-                                ping={ping}
-                                connectionType={connectionType}
-                                progress={progress}
-                            />
-
                             {isSender && isRelayOverLimit && (
                                 <div className="mt-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 flex items-start gap-3">
                                     <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
@@ -791,30 +775,54 @@ export function P2PTransfer() {
                                 />
                             )}
 
-                            {isSender && !generatedLink && (
+                            {isSender && !generatedLink && files.length === 0 && (
                                 <div
                                     onDragOver={handleDragOver}
                                     onDragLeave={handleDragLeave}
                                     onDrop={handleDrop}
-                                    className={`group relative mt-2 flex flex-col items-center justify-center rounded-xl border-2 border-dashed bg-zinc-900/50 p-10 transition-all ${isDragging
-                                        ? 'border-white bg-zinc-800/80'
-                                        : 'border-zinc-700 hover:border-white/50 hover:bg-zinc-800'
+                                    className={`group relative mt-2 flex flex-col items-center justify-center rounded-xl border border-dashed p-10 transition-all sm:p-14 ${isDragging
+                                        ? 'border-ice bg-ice/[0.04]'
+                                        : 'border-white/15 hover:border-ice/40 hover:bg-white/[0.02]'
                                         }`}
                                 >
-                                    <div className={`mb-4 rounded-full p-4 transition ${isDragging ? 'bg-white/20' : 'bg-zinc-800 group-hover:bg-zinc-700'
+                                    <div className={`mb-4 flex h-12 w-12 items-center justify-center rounded-full border transition ${isDragging
+                                        ? 'border-ice/60 bg-ice/10'
+                                        : 'border-white/10 bg-white/[0.03] group-hover:border-ice/30'
                                         }`}>
-                                        <UploadCloud className={`h-8 w-8 transition ${isDragging ? 'text-white' : 'text-zinc-400 group-hover:text-white'
+                                        <UploadCloud className={`h-5 w-5 transition ${isDragging ? 'text-ice' : 'text-zinc-400 group-hover:text-zinc-200'
                                             }`} />
                                     </div>
-                                    <p className="mb-2 text-sm font-medium text-zinc-200">
-                                        {isDragging ? 'Drop files here!' : 'Click or Drag files here'}
+                                    <p className="mb-1.5 text-sm font-medium text-zinc-200">
+                                        {isDragging ? 'Release to add files' : 'Drop files or click to browse'}
                                     </p>
-                                    <p className="flex items-center gap-1 text-xs text-zinc-500">
+                                    <p className="font-mono text-[11px] text-zinc-500">
                                         {connectionType === 'relay'
-                                            ? 'Max size: 2 GB (relay)'
-                                            : <>Max size: Unlimited{' '}<Infinity className="w-3 h-3" strokeWidth={1.5} /></>
-                                        }
+                                            ? '2 GB limit over relay'
+                                            : 'No size limit over direct connections'}
                                     </p>
+                                    <Input
+                                        type="file"
+                                        multiple
+                                        onChange={handleFileSelection}
+                                        className="absolute inset-0 h-full w-full opacity-0 cursor-pointer"
+                                    />
+                                </div>
+                            )}
+
+                            {isSender && !generatedLink && files.length > 0 && (
+                                <div
+                                    onDragOver={handleDragOver}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={handleDrop}
+                                    className={`group relative mt-2 flex items-center justify-center gap-2 rounded-lg border border-dashed py-3 transition-all ${isDragging
+                                        ? 'border-ice bg-ice/[0.04]'
+                                        : 'border-white/15 hover:border-ice/40 hover:bg-white/[0.02]'
+                                        }`}
+                                >
+                                    <Plus className={`h-3.5 w-3.5 transition ${isDragging ? 'text-ice' : 'text-zinc-500 group-hover:text-zinc-300'}`} />
+                                    <span className="text-xs font-medium text-zinc-400 transition group-hover:text-zinc-200">
+                                        {isDragging ? 'Release to add files' : 'Add more files'}
+                                    </span>
                                     <Input
                                         type="file"
                                         multiple
@@ -827,21 +835,6 @@ export function P2PTransfer() {
                             {isSender &&
                                 (files.length > 0 || generatedLink) && (
                                     <div className="mt-4">
-                                        {files.length > 0 && !generatedLink && (
-                                            <>
-                                                <RelayFallbackToggle relayEnabled={relayEnabled} onChange={setRelayEnabled} />
-
-                                                <Button
-                                                    onClick={handleCreateLink}
-                                                    className="w-full mb-4 bg-white text-black hover:bg-zinc-200 font-bold text-xs sm:text-sm"
-                                                >
-                                                    Create Secure Link &amp; Share ({files.length} {files.length === 1 ? 'File' : 'Files'})
-                                                    <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 ml-1.5 sm:ml-2 shrink-0" />
-                                                </Button>
-                                            </>
-                                        )}
-
-
                                         {generatedLink && (
                                             <ShareLinkPanel
                                                 generatedLink={generatedLink}
@@ -854,6 +847,18 @@ export function P2PTransfer() {
                                             />
                                         )}
 
+                                        {files.length > 0 && (
+                                            <div className="mb-2 flex items-baseline justify-between px-0.5">
+                                                <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-600">
+                                                    Files
+                                                </span>
+                                                <span className={`font-mono text-[10px] uppercase tracking-[0.2em] ${isRelayOverLimit ? 'text-amber-500' : 'text-zinc-600'
+                                                    }`}>
+                                                    {files.length} · {formatBytes(totalBytes)}{connectionType === 'relay' ? ' / 2.0 GB' : ''}
+                                                </span>
+                                            </div>
+                                        )}
+
                                         <SelectedFilesList
                                             files={files}
                                             currentFileIndex={currentFileIndex}
@@ -864,13 +869,17 @@ export function P2PTransfer() {
                                             listRef={fileListRef}
                                         />
 
-                                        {/* Total file size indicator */}
-                                        {files.length > 0 && (
-                                            <div className="pt-1 pb-0.5 px-0.5">
-                                                <span className={`text-[10px] uppercase font-bold tracking-widest font-mono ${isRelayOverLimit ? 'text-amber-500' : 'text-zinc-600'
-                                                    }`}>
-                                                    {files.length} {files.length === 1 ? 'file' : 'files'} ({formatBytes(totalBytes)}{connectionType === 'relay' ? ' / 2.0 GB' : ''})
-                                                </span>
+                                        {files.length > 0 && !generatedLink && (
+                                            <div className="mt-4 space-y-4">
+                                                <RelayFallbackToggle relayEnabled={relayEnabled} onChange={setRelayEnabled} />
+
+                                                <Button
+                                                    onClick={handleCreateLink}
+                                                    className="w-full bg-white text-black hover:bg-zinc-200 font-bold text-xs sm:text-sm"
+                                                >
+                                                    Create secure link ({files.length} {files.length === 1 ? 'file' : 'files'})
+                                                    <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 ml-1.5 sm:ml-2 shrink-0" />
+                                                </Button>
                                             </div>
                                         )}
 
@@ -887,17 +896,37 @@ export function P2PTransfer() {
 
                             {!isSender && (
                                 <div className="space-y-3 pt-2">
+                                    {/* Handshake pipeline — shows what has happened and what comes next */}
+                                    {receivedFiles.length === 0 &&
+                                        !status.includes('Receiving') && (
+                                            <div className="space-y-3 px-1 py-3">
+                                                <div className={`flex items-center gap-2.5 text-sm ${isConnected ? 'text-zinc-400' : 'text-zinc-200'}`}>
+                                                    {isConnected ? (
+                                                        <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-500" />
+                                                    ) : (
+                                                        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-zinc-400" />
+                                                    )}
+                                                    Secure room joined
+                                                </div>
+                                                <div className={`flex items-center gap-2.5 text-sm ${isConnected ? 'text-zinc-200' : 'text-zinc-600'}`}>
+                                                    {isConnected ? (
+                                                        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-zinc-400" />
+                                                    ) : (
+                                                        <Circle className="h-3.5 w-3.5 shrink-0 text-zinc-700" />
+                                                    )}
+                                                    Waiting for the sender to start
+                                                </div>
+                                                <div className="flex items-center gap-2.5 text-sm text-zinc-600">
+                                                    <Circle className="h-3.5 w-3.5 shrink-0 text-zinc-700" />
+                                                    Files stream in below
+                                                </div>
+                                            </div>
+                                        )}
+
                                     {/* Contribute to global stats toggle — visible while waiting, before any file arrives */}
                                     {receivedFiles.length === 0 && (
                                         <StatsContributionToggle enabled={reportStatsEnabled} onChange={setReportStatsEnabled} />
                                     )}
-
-                                    {receivedFiles.length === 0 &&
-                                        !status.includes('Receiving') && (
-                                            <div className="text-center text-sm text-zinc-500 py-8">
-                                                Waiting for sender...
-                                            </div>
-                                        )}
 
 
                                     {receivedFiles.length > 1 &&
@@ -957,7 +986,7 @@ export function P2PTransfer() {
 
                                     {receivedFiles.length > 0 && (
                                         <div className="pt-1 pb-0.5 px-0.5">
-                                            <span className="text-[10px] uppercase font-bold tracking-widest font-mono text-zinc-600">
+                                            <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-600">
                                                 {receivedFiles.length} {receivedFiles.length === 1 ? 'file' : 'files'} ({formatBytes(receivedFiles.reduce((s, f) => s + f.fileSize, 0))})
                                             </span>
                                         </div>
@@ -988,12 +1017,17 @@ export function P2PTransfer() {
                     )}
                 </CardContent>
 
-                <CardFooter className="flex-col justify-center border-t border-white/5 py-4 gap-2">
-                    <p className="text-[10px] text-zinc-500 uppercase tracking-wide text-center leading-relaxed">
-                        {isSender
-                            ? 'Do not close this tab. Closing it will cancel the transfer.'
-                            : 'Do not close this tab. Closing it will interrupt the download.'}
-                    </p>
+                <CardFooter className="justify-center border-t border-white/[0.06] !pt-4">
+                    {isSender && !generatedLink ? (
+                        <p className="text-[10px] uppercase tracking-wide text-zinc-500 text-center leading-relaxed">
+                            End-to-end encrypted. Files are never stored on a server.
+                        </p>
+                    ) : (
+                        <p className="text-[10px] uppercase tracking-wide text-amber-300/80 text-center leading-relaxed">
+                            Keep this tab open. Closing it{' '}
+                            {isSender ? 'cancels the transfer' : 'interrupts the download'}.
+                        </p>
+                    )}
                 </CardFooter>
             </Card>
         </main>
