@@ -7,6 +7,8 @@
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, monospace;
   --color-ring: oklch(0.556 0 0);
+  /* Glacial ice-blue accent, matching the floe.one --color-ice token. */
+  --color-ice: oklch(0.87 0.05 220);
 }
 
 @layer base {
