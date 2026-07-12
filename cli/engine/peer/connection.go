@@ -7,9 +7,20 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/pion/webrtc/v4"
+)
+
+// Connection timeouts guard the WebRTC connect phase so a peer that never
+// completes ICE/DTLS (restrictive NAT, no working relay, vanished peer) fails
+// fast with a clear error instead of hanging forever. The file transfer itself
+// carries its own timeouts (see the transfer package).
+const (
+	signalWaitTimeout = 30 * time.Second // waiting for the peer's SDP offer/answer
+	connectTimeout    = 30 * time.Second // waiting for ICE/DTLS + the data channel to open
+	connectGrace      = 10 * time.Second // extra grace for the data channel after "connected"
 )
 
 // signalPayload is the JSON structure for WebRTC signals sent over the
@@ -152,22 +163,44 @@ func (conn *Connection) SetupAsSender() (*webrtc.DataChannel, error) {
 		return nil, fmt.Errorf("failed to send offer: %w", err)
 	}
 
-	// Wait for the receiver's SDP answer
-	answer, ok := <-conn.answers
-	if !ok {
-		return nil, fmt.Errorf("signaling closed before answer was received")
+	// Wait for the receiver's SDP answer (bounded so a vanished peer fails fast).
+	var answer webrtc.SessionDescription
+	select {
+	case a, ok := <-conn.answers:
+		if !ok {
+			return nil, fmt.Errorf("signaling closed before answer was received")
+		}
+		answer = a
+	case <-time.After(signalWaitTimeout):
+		return nil, fmt.Errorf("timed out waiting for the peer to answer")
 	}
 
 	if err := conn.setRemoteDesc(answer); err != nil {
 		return nil, err
 	}
 
-	// Wait for the data channel to open (ICE + DTLS must complete first)
+	// Wait for the data channel to open (ICE + DTLS must complete first). Fail
+	// fast if the connection reports failure/closure or never establishes,
+	// instead of blocking forever.
 	dcOpen := make(chan struct{})
 	dc.OnOpen(func() { close(dcOpen) })
-	<-dcOpen
-
-	return dc, nil
+	select {
+	case <-dcOpen:
+		return dc, nil
+	case err := <-conn.connected:
+		if err != nil {
+			return nil, err
+		}
+		// Reached "connected"; give the data channel a brief grace to open.
+		select {
+		case <-dcOpen:
+			return dc, nil
+		case <-time.After(connectGrace):
+			return nil, fmt.Errorf("connected but the data channel did not open")
+		}
+	case <-time.After(connectTimeout):
+		return nil, fmt.Errorf("timed out establishing a connection")
+	}
 }
 
 // SetupAsReceiver is called by `floe receive`.
@@ -182,10 +215,16 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 		})
 	})
 
-	// Wait for the sender's SDP offer
-	offer, ok := <-conn.offers
-	if !ok {
-		return nil, fmt.Errorf("signaling closed before offer was received")
+	// Wait for the sender's SDP offer (bounded so a vanished peer fails fast).
+	var offer webrtc.SessionDescription
+	select {
+	case o, ok := <-conn.offers:
+		if !ok {
+			return nil, fmt.Errorf("signaling closed before offer was received")
+		}
+		offer = o
+	case <-time.After(signalWaitTimeout):
+		return nil, fmt.Errorf("timed out waiting for the peer's offer")
 	}
 
 	if err := conn.setRemoteDesc(offer); err != nil {
@@ -214,9 +253,24 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 		return nil, fmt.Errorf("failed to send answer: %w", err)
 	}
 
-	// Wait for the data channel to arrive from the sender
-	dc := <-dcChan
-	return dc, nil
+	// Wait for the data channel to arrive from the sender. Fail fast if the
+	// connection reports failure/closure or never establishes.
+	select {
+	case dc := <-dcChan:
+		return dc, nil
+	case err := <-conn.connected:
+		if err != nil {
+			return nil, err
+		}
+		select {
+		case dc := <-dcChan:
+			return dc, nil
+		case <-time.After(connectGrace):
+			return nil, fmt.Errorf("connected but the data channel did not open")
+		}
+	case <-time.After(connectTimeout):
+		return nil, fmt.Errorf("timed out establishing a connection")
+	}
 }
 
 // WaitConnected blocks until the peer connection reaches "connected" state or fails.

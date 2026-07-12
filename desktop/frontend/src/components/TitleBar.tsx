@@ -24,7 +24,7 @@ export default function TitleBar() {
                 <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-600">desktop</span>
             </div>
 
-            <div style={noDrag} className="flex items-center">
+            <div style={noDrag} onDoubleClick={(e) => e.stopPropagation()} className="flex items-center">
                 <button
                     aria-label="Minimise"
                     onClick={() => WindowMinimise()}

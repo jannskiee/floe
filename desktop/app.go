@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -29,6 +30,13 @@ const webURL = "https://floe.one"
 // App struct
 type App struct {
 	ctx context.Context
+
+	// mu guards the handles to the in-flight transfer's signaling and peer
+	// connections so CancelTransfer can close them from the UI goroutine to
+	// unblock a send/receive that is waiting for a peer or stuck connecting.
+	mu      sync.Mutex
+	curSC   *signaling.Client
+	curConn *peer.Connection
 }
 
 // NewApp creates a new App application struct
@@ -119,6 +127,43 @@ func relayOpts(hideIP bool) []peer.Option {
 	return nil
 }
 
+// setSignaling / setConn register the in-flight connections so CancelTransfer
+// can reach them; clearTransfer resets them when the transfer goroutine returns.
+func (a *App) setSignaling(sc *signaling.Client) {
+	a.mu.Lock()
+	a.curSC = sc
+	a.mu.Unlock()
+}
+
+func (a *App) setConn(conn *peer.Connection) {
+	a.mu.Lock()
+	a.curConn = conn
+	a.mu.Unlock()
+}
+
+func (a *App) clearTransfer() {
+	a.mu.Lock()
+	a.curSC = nil
+	a.curConn = nil
+	a.mu.Unlock()
+}
+
+// CancelTransfer aborts the current send or receive by closing its signaling and
+// peer connections. Closing the signaling client unblocks a sender waiting for a
+// receiver (via PeerLeft); closing the peer connection unblocks a stuck WebRTC
+// setup (via the connection-state error). Safe to call when nothing is running.
+func (a *App) CancelTransfer() {
+	a.mu.Lock()
+	sc, conn := a.curSC, a.curConn
+	a.mu.Unlock()
+	if conn != nil {
+		conn.Close()
+	}
+	if sc != nil {
+		sc.Close()
+	}
+}
+
 // StartSend validates the given paths and launches the send flow in the
 // background. Progress is reported to the UI via Wails events:
 //   - "send:code"   {code, link}  once the room code is registered
@@ -158,6 +203,8 @@ func (a *App) runSend(paths []string, hideIP bool) {
 		return
 	}
 	defer sc.Close()
+	a.setSignaling(sc)
+	defer a.clearTransfer()
 
 	if err := sc.JoinRoom(roomID); err != nil {
 		fail(fmt.Errorf("failed to join room: %w", err))
@@ -176,6 +223,12 @@ func (a *App) runSend(paths []string, hideIP bool) {
 	case errMsg := <-sc.Errors:
 		fail(fmt.Errorf("server error: %s", errMsg))
 		return
+	case <-sc.PeerLeft:
+		fail(fmt.Errorf("connection closed"))
+		return
+	case <-time.After(20 * time.Second):
+		fail(fmt.Errorf("timed out waiting for the server to assign a role"))
+		return
 	}
 
 	// Register a short shareable code and emit it to the UI immediately.
@@ -186,7 +239,8 @@ func (a *App) runSend(paths []string, hideIP bool) {
 	link := webURL + "?room=" + roomID
 	runtime.EventsEmit(a.ctx, "send:code", map[string]string{"code": codePhrase, "link": link})
 
-	// Wait for a receiver to join.
+	// Wait for a receiver to join. This wait is intentionally unbounded (you may
+	// share a link and wait) — CancelTransfer closes sc to abort it via PeerLeft.
 	select {
 	case <-sc.PeerConnected:
 	case <-sc.PeerLeft:
@@ -205,6 +259,7 @@ func (a *App) runSend(paths []string, hideIP bool) {
 		return
 	}
 	defer conn.Close()
+	a.setConn(conn)
 
 	dc, err := conn.SetupAsSender()
 	if err != nil {
@@ -269,6 +324,8 @@ func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool) (s
 		return "", fmt.Errorf("failed to connect to signaling server: %w", err)
 	}
 	defer sc.Close()
+	a.setSignaling(sc)
+	defer a.clearTransfer()
 
 	if err := sc.JoinRoom(roomID); err != nil {
 		return "", fmt.Errorf("failed to join room: %w", err)
@@ -283,6 +340,10 @@ func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool) (s
 		return "", fmt.Errorf("room is full (someone else may already be receiving)")
 	case errMsg := <-sc.Errors:
 		return "", fmt.Errorf("server error: %s", errMsg)
+	case <-sc.PeerLeft:
+		return "", fmt.Errorf("connection closed")
+	case <-time.After(20 * time.Second):
+		return "", fmt.Errorf("timed out waiting for the server to assign a role")
 	}
 
 	conn, err := peer.New(iceServers, sc, relayOpts(hideIP)...)
@@ -290,6 +351,7 @@ func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool) (s
 		return "", fmt.Errorf("failed to create peer connection: %w", err)
 	}
 	defer conn.Close()
+	a.setConn(conn)
 
 	dc, err := conn.SetupAsReceiver()
 	if err != nil {

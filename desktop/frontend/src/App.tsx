@@ -1,6 +1,6 @@
 import {useEffect, useRef, useState} from 'react';
 import type {MutableRefObject} from 'react';
-import {ReceiveByCode, SelectFiles, SelectFolder, OpenFolder, StartSend} from "../wailsjs/go/main/App";
+import {ReceiveByCode, SelectFiles, SelectFolder, OpenFolder, StartSend, CancelTransfer} from "../wailsjs/go/main/App";
 import {EventsOn, EventsOff, OnFileDrop, OnFileDropOff, BrowserOpenURL} from "../wailsjs/runtime/runtime";
 import {
     AlertCircle,
@@ -13,6 +13,7 @@ import {
     Loader2,
     Send,
     UploadCloud,
+    X,
 } from 'lucide-react';
 import {BoltMark, Button, Eyebrow, Input, StatusDot, cn} from './components/ui';
 import TitleBar from './components/TitleBar';
@@ -113,6 +114,7 @@ function App() {
     const [sendProg, setSendProg] = useState<{pct: number; label: string} | null>(null);
     const [copied, setCopied] = useState(false);
     const sendStart = useRef<Marker>(null);
+    const sendCancel = useRef(false);
 
     // Receive state
     const [code, setCode] = useState('');
@@ -122,6 +124,7 @@ function App() {
     const [recvProg, setRecvProg] = useState<{pct: number; label: string} | null>(null);
     const [recvDir, setRecvDir] = useState('');
     const recvStart = useRef<Marker>(null);
+    const recvCancel = useRef(false);
 
     useEffect(() => {
         EventsOn('send:code', (data: {code: string; link: string}) => {
@@ -129,18 +132,29 @@ function App() {
             setSendLink(data.link);
             setSendStatus('Share this code or link, then wait for the receiver to connect...');
         });
-        EventsOn('send:status', (msg: string) => setSendStatus(msg));
-        EventsOn('send:progress', (p: Prog) => setSendProg(track(sendStart, p)));
+        EventsOn('send:status', (msg: string) => {
+            if (sendCancel.current) return;
+            setSendStatus(msg);
+        });
+        EventsOn('send:progress', (p: Prog) => {
+            if (sendCancel.current) return;
+            setSendProg(track(sendStart, p));
+        });
         EventsOn('send:done', (msg: string) => {
+            if (sendCancel.current) return;
             setSendStatus(msg);
             setSendProg({pct: 100, label: 'Complete.'});
             setSending(false);
         });
         EventsOn('send:error', (msg: string) => {
+            if (sendCancel.current) return;
             setSendStatus('Error: ' + msg);
             setSending(false);
         });
-        EventsOn('recv:progress', (p: Prog) => setRecvProg(track(recvStart, p)));
+        EventsOn('recv:progress', (p: Prog) => {
+            if (recvCancel.current) return;
+            setRecvProg(track(recvStart, p));
+        });
         // Native file drop on the whole window (useDropTarget=false). Paths arrive
         // already resolved to absolute paths from the Go side.
         OnFileDrop((_x, _y, paths) => {
@@ -209,6 +223,7 @@ function App() {
             setSendStatus('Select at least one file first.');
             return;
         }
+        sendCancel.current = false;
         setSending(true);
         setSendCode('');
         setSendLink('');
@@ -231,6 +246,7 @@ function App() {
         setReceiving(true);
         setRecvProg(null);
         setRecvDir('');
+        recvCancel.current = false;
         recvStart.current = null;
         setRecvStatus('Connecting... keep this window open.');
         try {
@@ -238,10 +254,28 @@ function App() {
             setRecvDir(dir);
             setRecvStatus('Done. Files saved to: ' + dir);
         } catch (e: any) {
-            setRecvStatus('Error: ' + e);
+            setRecvStatus(recvCancel.current ? 'Cancelled.' : 'Error: ' + e);
         } finally {
             setReceiving(false);
         }
+    }
+
+    // cancel aborts the in-flight transfer: flag it so late Go events are ignored,
+    // reset the UI optimistically, then close the connections on the Go side.
+    function cancel() {
+        if (sending) {
+            sendCancel.current = true;
+            setSending(false);
+            setSendProg(null);
+            setSendStatus('Cancelled.');
+        }
+        if (receiving) {
+            recvCancel.current = true;
+            setReceiving(false);
+            setRecvProg(null);
+            setRecvStatus('Cancelled.');
+        }
+        CancelTransfer().catch(() => {});
     }
 
     const busy = sending || receiving;
@@ -408,13 +442,16 @@ function App() {
                                             </div>
                                         )}
 
-                                        {/* send button */}
-                                        <Button className="w-full" onClick={send} disabled={sending || !files.length}>
-                                            {sending
-                                                ? <><Loader2 className="animate-spin"/> Sending…</>
-                                                : <><Send/> Send{files.length ? ` · ${files.length} ${files.length === 1 ? 'item' : 'items'}` : ''}</>
-                                            }
-                                        </Button>
+                                        {/* send button (becomes Cancel while a transfer is in flight) */}
+                                        {sending ? (
+                                            <Button variant="outline" className="w-full" onClick={cancel}>
+                                                <X/> Cancel
+                                            </Button>
+                                        ) : (
+                                            <Button className="w-full" onClick={send} disabled={busy || !files.length}>
+                                                <Send/> Send{files.length ? ` · ${files.length} ${files.length === 1 ? 'item' : 'items'}` : ''}
+                                            </Button>
+                                        )}
 
                                         {/* room code */}
                                         {sendCode && (
@@ -474,12 +511,15 @@ function App() {
                                             </div>
                                         </div>
 
-                                        <Button className="w-full" onClick={receive} disabled={receiving}>
-                                            {receiving
-                                                ? <><Loader2 className="animate-spin"/> Receiving…</>
-                                                : <><Download/> Receive</>
-                                            }
-                                        </Button>
+                                        {receiving ? (
+                                            <Button variant="outline" className="w-full" onClick={cancel}>
+                                                <X/> Cancel
+                                            </Button>
+                                        ) : (
+                                            <Button className="w-full" onClick={receive} disabled={busy}>
+                                                <Download/> Receive
+                                            </Button>
+                                        )}
 
                                         {recvProg && <ProgressRow prog={recvProg}/>}
                                         {recvDir && !receiving && (
