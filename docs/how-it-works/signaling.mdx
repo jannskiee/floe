@@ -1,6 +1,6 @@
 ---
-title: "Signaling"
-description: "How Floe brokers the initial connection between two peers."
+title: "How Floe Signaling Works"
+description: "How the Floe signaling server brokers the initial WebRTC handshake between sender and receiver without ever seeing the files being transferred."
 ---
 
 When you create a transfer in Floe, a unique room is created on the signaling server. The sender shares a code or link. When the recipient joins, the two devices introduce themselves through the server and exchange the information they need to connect directly. Once that handshake is complete, the server steps aside.
