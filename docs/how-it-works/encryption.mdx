@@ -1,6 +1,6 @@
 ---
 title: "End-to-End Encryption in Floe"
-description: "How Floe uses WebRTC DTLS-SRTP to end-to-end encrypt every file transfer so neither the signaling server nor the TURN relay can read your data."
+description: "How Floe uses WebRTC DTLS to end-to-end encrypt every file transfer so neither the signaling server nor the TURN relay can read your data."
 ---
 
 Every WebRTC connection, whether direct or relayed, is encrypted using **DTLS** (Datagram TLS). The encryption is built into WebRTC itself. Even Floe's own relay server cannot read your files.
