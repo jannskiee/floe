@@ -1,6 +1,6 @@
 ---
-title: "Relay Connection"
-description: "How Floe uses a TURN server as an encrypted bridge when a direct connection is not possible."
+title: "TURN Relay Fallback Connection"
+description: "How Floe falls back to a TURN server as an encrypted bridge when strict NAT or firewalls block a direct peer-to-peer WebRTC connection."
 ---
 
 Some networks make it impossible for two devices to connect directly. This happens on strict corporate firewalls, university networks, and when a mobile carrier places many users behind a single shared IP address (carrier-grade NAT). In these cases, a direct path cannot be found and Floe falls back to a relay.

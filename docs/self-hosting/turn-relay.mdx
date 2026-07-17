@@ -1,6 +1,6 @@
 ---
-title: "TURN Relay"
-description: "Add a TURN server to support peers behind strict NAT or CGNAT."
+title: "Add a TURN Relay to Self-Hosted Floe"
+description: "Add a coturn TURN relay to a self-hosted Floe instance so peers behind strict NAT, CGNAT, or corporate firewalls can still complete file transfers."
 ---
 
 A TURN server relays the (still end-to-end encrypted) stream when two peers cannot reach each other directly. This is common with symmetric NAT or carrier-grade NAT. Without TURN, those specific transfers fail. All other transfers still work over direct connections.
