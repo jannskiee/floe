@@ -5,6 +5,7 @@ import {EventsOn, EventsOff, OnFileDrop, OnFileDropOff, BrowserOpenURL} from "..
 import {
     AlertCircle,
     Check,
+    ChevronDown,
     Copy,
     Download,
     Files,
@@ -92,6 +93,7 @@ function ProgressRow({prog}: {prog: {pct: number; label: string}}) {
 }
 
 function StatusLine({text, busy}: {text: string; busy: boolean}) {
+    if (!text) return null;
     const isError = text.startsWith('Error');
     return (
         <p className={cn('flex min-h-5 items-center justify-center gap-2 text-center text-xs', isError ? 'text-red-400' : 'text-zinc-500')}>
@@ -99,6 +101,192 @@ function StatusLine({text, busy}: {text: string; busy: boolean}) {
             {isError && <AlertCircle className="size-3.5 shrink-0"/>}
             <span>{text}</span>
         </p>
+    );
+}
+
+// Windows paths compare case-insensitively; normalize for dedupe and removal but
+// keep the original strings for display and for the Go side.
+const isWindows = navigator.userAgent.includes('Windows');
+const normPath = (p: string) => (isWindows ? p.toLowerCase() : p);
+const baseName = (p: string) => p.split(/[\\/]/).pop();
+
+function mergePaths(prev: string[], add: string[]): string[] {
+    const seen = new Set(prev.map(normPath));
+    const out = [...prev];
+    for (const p of add) {
+        if (!seen.has(normPath(p))) {
+            seen.add(normPath(p));
+            out.push(p);
+        }
+    }
+    return out;
+}
+
+// Wails highlights the element carrying this var while an OS drag hovers it.
+// Dropping works window-wide regardless (OnFileDrop useDropTarget=false); the
+// var only drives the hover highlight.
+const dropVar = {['--wails-drop-target' as never]: 'drop'} as CSSProperties;
+
+/** Dropzone is the file selector: a full invitation while the selection is empty,
+ *  a slim "Add files" row once files are picked. */
+function Dropzone({expanded, onPickFiles, onPickFolder}: {
+    expanded: boolean;
+    onPickFiles: () => void;
+    onPickFolder: () => void;
+}) {
+    if (!expanded) {
+        return (
+            <div style={dropVar} className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-white/15 bg-white/[0.02] py-1.5 pl-3 pr-1.5 transition-colors hover:border-ice/40">
+                <span className="flex min-w-0 items-baseline gap-2.5">
+                    <span className="text-sm font-medium text-zinc-200">Add files</span>
+                    <span className="truncate font-mono text-[10px] uppercase tracking-[0.15em] text-zinc-600">or drop anywhere</span>
+                </span>
+                <span className="flex shrink-0 gap-1">
+                    <Button variant="ghost" className="px-2 py-1.5" onClick={onPickFiles} aria-label="Add files">
+                        <Files/>
+                    </Button>
+                    <Button variant="ghost" className="px-2 py-1.5" onClick={onPickFolder} aria-label="Add a folder">
+                        <Folder/>
+                    </Button>
+                </span>
+            </div>
+        );
+    }
+    return (
+        <div style={dropVar} className="group rounded-xl border border-dashed border-white/15 bg-white/[0.02] p-5 text-center transition-colors hover:border-ice/40 hover:bg-white/[0.03]">
+            <span className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] transition group-hover:border-ice/30">
+                <UploadCloud className="h-5 w-5 text-zinc-400 transition group-hover:text-ice"/>
+            </span>
+            <p className="text-sm font-medium text-zinc-200">Select files to send</p>
+            <p className="mt-1 font-mono text-[11px] text-zinc-500">or drag them onto the window</p>
+            <div className="mt-3 flex gap-2">
+                <Button variant="outline" className="flex-1" onClick={onPickFiles}>
+                    <Files/> Files
+                </Button>
+                <Button variant="outline" className="flex-1" onClick={onPickFolder}>
+                    <Folder/> Folder
+                </Button>
+            </div>
+        </div>
+    );
+}
+
+/** FileList is the editable selection: compact rows with a remove control. */
+function FileList({files, onRemove}: {files: string[]; onRemove: (path: string) => void}) {
+    return (
+        <ul className="custom-scrollbar max-h-40 space-y-1.5 overflow-y-auto">
+            {files.map((f) => (
+                <li key={f} className="flex items-center gap-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02] py-1.5 pl-2 pr-1">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/[0.04] ring-1 ring-inset ring-white/10">
+                        <FileIcon name={f}/>
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-sm text-zinc-300">{baseName(f)}</span>
+                    <button
+                        onClick={() => onRemove(f)}
+                        aria-label={`Remove ${baseName(f)}`}
+                        className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-600 transition-colors hover:bg-white/10 hover:text-zinc-200"
+                    >
+                        <X className="size-3.5"/>
+                    </button>
+                </li>
+            ))}
+        </ul>
+    );
+}
+
+/** FileSummary collapses the selection to one row while a transfer is in flight;
+ *  the chevron expands a read-only list. */
+function FileSummary({files, open, onToggle}: {files: string[]; open: boolean; onToggle: () => void}) {
+    return (
+        <div className="space-y-1.5">
+            <button
+                onClick={onToggle}
+                className="flex w-full items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-left transition-colors hover:bg-white/[0.04]"
+            >
+                <span className="flex items-center gap-2.5">
+                    <Files className="size-4 text-zinc-400"/>
+                    <span className="text-sm text-zinc-300">{files.length} {files.length === 1 ? 'item' : 'items'}</span>
+                </span>
+                <ChevronDown className={cn('size-4 text-zinc-500 transition-transform', open && 'rotate-180')}/>
+            </button>
+            {open && (
+                <ul className="custom-scrollbar max-h-32 space-y-1.5 overflow-y-auto">
+                    {files.map((f) => (
+                        <li key={f} className="flex items-center gap-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2 py-1.5">
+                            <FileIcon name={f}/>
+                            <span className="min-w-0 truncate text-sm text-zinc-300">{baseName(f)}</span>
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </div>
+    );
+}
+
+/** SharePanel is the single share surface: code hero + QR + link while waiting
+ *  for the receiver, then a slim code row once the transfer starts (rooms are
+ *  one-to-one, so the code is consumed the moment the receiver joins). Callers
+ *  gate on the link because code registration can fail while the link is always
+ *  valid; the code hero simply drops out when the code is empty. */
+function SharePanel({code, link, compact}: {code: string; link: string; compact: boolean}) {
+    const [copied, setCopied] = useState<'code' | 'link' | null>(null);
+    async function copy(kind: 'code' | 'link', text: string) {
+        try {
+            await navigator.clipboard.writeText(text);
+            setCopied(kind);
+            setTimeout(() => setCopied(null), 1500);
+        } catch {
+            // clipboard unavailable
+        }
+    }
+    if (compact) {
+        return (
+            <div className="animate-floe-in flex items-center justify-between gap-3 rounded-lg border border-white/[0.08] bg-black/40 py-1.5 pl-3 pr-1">
+                <span className="flex min-w-0 items-baseline gap-2.5">
+                    <Eyebrow tone="ice" className="shrink-0">Code</Eyebrow>
+                    <span className="truncate font-mono text-sm text-zinc-200">{code || link}</span>
+                </span>
+                <button
+                    onClick={() => copy('code', code || link)}
+                    aria-label="Copy code"
+                    className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
+                >
+                    {copied ? <Check className="size-3.5 text-green-500"/> : <Copy className="size-3.5"/>}
+                </button>
+            </div>
+        );
+    }
+    return (
+        <div className="animate-floe-in space-y-3 rounded-xl border border-white/[0.08] bg-black/40 p-4">
+            {code && (
+                <div className="relative text-center">
+                    <button
+                        onClick={() => copy('code', code)}
+                        aria-label="Copy code"
+                        className="absolute -right-1.5 -top-1.5 grid h-7 w-7 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
+                    >
+                        {copied === 'code' ? <Check className="size-3.5 text-green-500"/> : <Copy className="size-3.5"/>}
+                    </button>
+                    <Eyebrow tone="ice">Room code</Eyebrow>
+                    <div className="mt-1.5 font-mono text-2xl font-semibold tracking-[0.2em] text-white">{code}</div>
+                </div>
+            )}
+            <div className="flex justify-center">
+                <div className="rounded-lg bg-white p-2">
+                    <QRCode value={link} size={96} style={{height: 96, width: 96}} fgColor="#09090b" bgColor="#ffffff" level="M"/>
+                </div>
+            </div>
+            <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-zinc-950 py-1.5 pl-3 pr-1">
+                <span className="min-w-0 flex-1 truncate font-mono text-xs text-zinc-400">{link}</span>
+                <button
+                    onClick={() => copy('link', link)}
+                    aria-label="Copy link"
+                    className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
+                >
+                    {copied === 'link' ? <Check className="size-3.5 text-green-500"/> : <Copy className="size-3.5"/>}
+                </button>
+            </div>
+        </div>
     );
 }
 
@@ -113,9 +301,10 @@ function App() {
     const [sendStatus, setSendStatus] = useState('Select or drag files, then click Send.');
     const [sending, setSending] = useState(false);
     const [sendProg, setSendProg] = useState<{pct: number; label: string} | null>(null);
-    const [copied, setCopied] = useState(false);
-    const [codeCopied, setCodeCopied] = useState(false);
     const [sendDone, setSendDone] = useState(false);
+    const [sentCount, setSentCount] = useState(0);
+    const [peerConnected, setPeerConnected] = useState(false);
+    const [filesOpen, setFilesOpen] = useState(false);
     const sendStart = useRef<Marker>(null);
     const sendCancel = useRef(false);
 
@@ -130,23 +319,32 @@ function App() {
     const recvStart = useRef<Marker>(null);
     const recvCancel = useRef(false);
 
+    // Live busy flag for the OnFileDrop closure, which is registered once with []
+    // deps and would otherwise read a stale `busy`.
+    const busyRef = useRef(false);
+
     useEffect(() => {
         EventsOn('send:code', (data: {code: string; link: string}) => {
+            if (sendCancel.current) return;
             setSendCode(data.code);
             setSendLink(data.link);
-            setSendStatus('Share this code or link, then wait for the receiver to connect...');
+            setSendStatus('Waiting for the receiver...');
         });
         EventsOn('send:status', (msg: string) => {
             if (sendCancel.current) return;
             setSendStatus(msg);
+            // The only send:status today is "Peer connected. Sending..." — it marks
+            // the moment the room is consumed and the share panel can collapse.
+            setPeerConnected(true);
         });
         EventsOn('send:progress', (p: Prog) => {
             if (sendCancel.current) return;
             setSendProg(track(sendStart, p));
+            setSendStatus('');
         });
         EventsOn('send:done', () => {
             if (sendCancel.current) return;
-            setSendProg({pct: 100, label: 'Complete.'});
+            setSendProg(null);
             setSending(false);
             setSendDone(true);
             setSendStatus('');
@@ -155,19 +353,24 @@ function App() {
             if (sendCancel.current) return;
             setSendStatus('Error: ' + msg);
             setSending(false);
+            // The room is dead after an error; drop the stale code and link.
+            setSendCode('');
+            setSendLink('');
+            setPeerConnected(false);
         });
         EventsOn('recv:progress', (p: Prog) => {
             if (recvCancel.current) return;
             setRecvProg(track(recvStart, p));
         });
         // Native file drop on the whole window (useDropTarget=false). Paths arrive
-        // already resolved to absolute paths from the Go side.
+        // already resolved to absolute paths from the Go side. Registered once, so
+        // only refs and functional updates may touch live state here.
         OnFileDrop((_x, _y, paths) => {
-            if (paths && paths.length) {
-                setMode('send');
-                setFiles(paths);
-                setSendStatus(`${paths.length} file(s) ready. Click Send.`);
-            }
+            if (!paths || !paths.length || busyRef.current) return;
+            setMode('send');
+            setFiles((prev) => mergePaths(prev, paths));
+            setSendDone(false);
+            setSendStatus('');
         }, false);
         return () => {
             EventsOff('send:code');
@@ -185,28 +388,39 @@ function App() {
     useEffect(() => { localStorage.setItem('floe:mode', mode); }, [mode]);
     useEffect(() => { localStorage.setItem('floe:saveDir', output); }, [output]);
 
+    useEffect(() => { busyRef.current = sending || receiving; }, [sending, receiving]);
+
     async function pickFiles() {
         try {
             const picked = await SelectFiles();
             if (picked && picked.length) {
-                setFiles(picked);
-                setSendStatus(`${picked.length} file(s) ready. Click Send.`);
+                setFiles((prev) => mergePaths(prev, picked));
+                setSendDone(false);
+                setSendStatus('');
             }
         } catch {
             // dialog cancelled
         }
     }
 
+    // Folders merge like files. Known edge: picking a folder plus a file inside it
+    // sends that file twice (the engine walks the folder); path dedupe cannot see it.
     async function pickSendFolder() {
         try {
             const dir = await SelectFolder();
             if (dir) {
-                setFiles([dir]);
-                setSendStatus('1 folder ready. Click Send.');
+                setFiles((prev) => mergePaths(prev, [dir]));
+                setSendDone(false);
+                setSendStatus('');
             }
         } catch {
             // dialog cancelled
         }
+    }
+
+    function removeFile(path: string) {
+        setFiles((prev) => prev.filter((f) => normPath(f) !== normPath(path)));
+        setSendDone(false);
     }
 
     async function pickSaveFolder() {
@@ -218,26 +432,6 @@ function App() {
         }
     }
 
-    async function copyLink() {
-        try {
-            await navigator.clipboard.writeText(sendLink);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
-        } catch {
-            // clipboard unavailable
-        }
-    }
-
-    async function copyCode() {
-        try {
-            await navigator.clipboard.writeText(sendCode);
-            setCodeCopied(true);
-            setTimeout(() => setCodeCopied(false), 1500);
-        } catch {
-            // clipboard unavailable
-        }
-    }
-
     async function send() {
         if (!files.length) {
             setSendStatus('Select at least one file first.');
@@ -246,6 +440,9 @@ function App() {
         sendCancel.current = false;
         setSending(true);
         setSendDone(false);
+        setSentCount(files.length);
+        setPeerConnected(false);
+        setFilesOpen(false);
         setSendCode('');
         setSendLink('');
         setSendProg(null);
@@ -275,6 +472,7 @@ function App() {
             const dir = await ReceiveByCode(code.trim(), output.trim(), hideIP);
             setRecvDir(dir);
             setRecvDone(true);
+            setRecvProg(null);
             setRecvStatus('');
         } catch (e: any) {
             setRecvStatus(recvCancel.current ? 'Cancelled.' : 'Error: ' + e);
@@ -291,6 +489,13 @@ function App() {
             setSending(false);
             setSendProg(null);
             setSendDone(false);
+            // The room is dead once we cancel; drop the code and link. (A cancel
+            // followed by an instant re-Send can still let one late send:code from
+            // the dead attempt through — same tiny window as the other guards.)
+            setSendCode('');
+            setSendLink('');
+            setPeerConnected(false);
+            setFilesOpen(false);
             setSendStatus('Cancelled.');
         }
         if (receiving) {
@@ -397,7 +602,7 @@ function App() {
                             </div>
 
                             {/* body */}
-                            <div className="space-y-4 px-5 py-5">
+                            <div className="space-y-4 px-5 py-4">
 
                                 {/* Hide my IP (shared). Hidden while busy: the flag is captured when
                                     the transfer starts, so editing it mid-flight would be misleading. */}
@@ -432,28 +637,14 @@ function App() {
                                 {/* ── SEND VIEW ─────────────────────────────────── */}
                                 {mode === 'send' ? (
                                     <div className="space-y-4">
-                                        {/* selector / dropzone */}
-                                        <div
-                                            style={{['--wails-drop-target' as never]: 'drop'} as CSSProperties}
-                                            className="group rounded-xl border border-dashed border-white/15 bg-white/[0.02] p-6 text-center transition-colors hover:border-ice/40 hover:bg-white/[0.03]"
-                                        >
-                                            <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] transition group-hover:border-ice/30">
-                                                <UploadCloud className="h-5 w-5 text-zinc-400 transition group-hover:text-ice"/>
-                                            </span>
-                                            <p className="text-sm font-medium text-zinc-200">Select files to send</p>
-                                            <p className="mt-1 font-mono text-[11px] text-zinc-500">or drag them onto the window</p>
-                                            <div className="mt-4 flex gap-2">
-                                                <Button variant="outline" className="flex-1" onClick={pickFiles} disabled={sending}>
-                                                    <Files/> Files
-                                                </Button>
-                                                <Button variant="outline" className="flex-1" onClick={pickSendFolder} disabled={sending}>
-                                                    <Folder/> Folder
-                                                </Button>
-                                            </div>
-                                        </div>
+                                        {/* selector: full dropzone when empty, slim add-row once files
+                                            are picked, hidden entirely while a transfer is in flight */}
+                                        {!sending && (
+                                            <Dropzone expanded={!files.length} onPickFiles={pickFiles} onPickFolder={pickSendFolder}/>
+                                        )}
 
-                                        {/* file list */}
-                                        {files.length > 0 && (
+                                        {/* selection: editable list while idle, one-row summary while sending */}
+                                        {files.length > 0 && !sending && (
                                             <div className="animate-floe-in space-y-2">
                                                 <div className="flex items-baseline justify-between px-0.5">
                                                     <Eyebrow>Files</Eyebrow>
@@ -461,20 +652,14 @@ function App() {
                                                         {files.length} {files.length === 1 ? 'item' : 'items'}
                                                     </span>
                                                 </div>
-                                                <ul className="custom-scrollbar max-h-44 space-y-2 overflow-y-auto">
-                                                    {files.map((f) => (
-                                                        <li key={f} className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-2">
-                                                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.04] ring-1 ring-inset ring-white/10">
-                                                                <FileIcon name={f}/>
-                                                            </span>
-                                                            <span className="truncate text-sm text-zinc-300">{f.split(/[\\/]/).pop()}</span>
-                                                        </li>
-                                                    ))}
-                                                </ul>
+                                                <FileList files={files} onRemove={removeFile}/>
                                             </div>
                                         )}
+                                        {sending && (
+                                            <FileSummary files={files} open={filesOpen} onToggle={() => setFilesOpen((o) => !o)}/>
+                                        )}
 
-                                        {/* send button (becomes Cancel while a transfer is in flight) */}
+                                        {/* action: a stable slot across stages so the button never jumps */}
                                         {sending ? (
                                             <Button variant="outline" className="w-full" onClick={cancel}>
                                                 <X/> Cancel
@@ -485,48 +670,16 @@ function App() {
                                             </Button>
                                         )}
 
-                                        {/* room code */}
-                                        {sendCode && (
-                                            <div className="animate-floe-in relative space-y-2 rounded-xl border border-white/[0.08] bg-black/40 p-4 text-center">
-                                                <button
-                                                    onClick={copyCode}
-                                                    aria-label="Copy code"
-                                                    className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
-                                                >
-                                                    {codeCopied ? <Check className="size-3.5 text-green-500"/> : <Copy className="size-3.5"/>}
-                                                </button>
-                                                <Eyebrow tone="ice">Room code</Eyebrow>
-                                                <div className="font-mono text-2xl font-semibold tracking-[0.2em] text-white">{sendCode}</div>
-                                            </div>
-                                        )}
-
-                                        {/* share link */}
-                                        {sendLink && (
-                                            <div className="animate-floe-in space-y-3 rounded-xl border border-white/[0.08] bg-black/40 p-4">
-                                                <Eyebrow>Share link</Eyebrow>
-                                                <div className="flex flex-col items-center gap-2 pt-1">
-                                                    <div className="rounded-lg bg-white p-2.5">
-                                                        <QRCode value={sendLink} size={124} style={{height: 124, width: 124}} fgColor="#09090b" bgColor="#ffffff" level="M"/>
-                                                    </div>
-                                                    <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-600">Scan to open</span>
-                                                </div>
-                                                <code className="block break-all rounded-lg border border-white/10 bg-zinc-950 p-3 font-mono text-xs leading-relaxed text-zinc-300">
-                                                    {sendLink}
-                                                </code>
-                                                <Button variant="secondary" className="w-full" onClick={copyLink}>
-                                                    {copied
-                                                        ? <><Check className="size-3.5 text-green-500"/> <span className="text-green-500">Copied</span></>
-                                                        : <><Copy className="size-3.5"/> Copy link</>
-                                                    }
-                                                </Button>
-                                            </div>
+                                        {/* share surface: full while waiting, slim once the receiver joins */}
+                                        {sending && sendLink && (
+                                            <SharePanel code={sendCode} link={sendLink} compact={peerConnected || !!sendProg}/>
                                         )}
 
                                         {sendProg && <ProgressRow prog={sendProg}/>}
                                         {sendDone && !sending && (
                                             <div className="animate-floe-in flex items-center justify-center gap-2 text-sm text-zinc-300">
                                                 <Check className="size-4 shrink-0 text-green-500"/>
-                                                <span>Sent {files.length} {files.length === 1 ? 'item' : 'items'}</span>
+                                                <span>Sent {sentCount} {sentCount === 1 ? 'item' : 'items'}</span>
                                             </div>
                                         )}
                                         <StatusLine text={sendStatus} busy={sending}/>
