@@ -11,6 +11,10 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+// version is the release string reported to the transfer peer. Overridden at
+// build time via -ldflags "-X main.version=v1.0.0"; "dev" for local builds.
+var version = "dev"
+
 func main() {
 	// Create an instance of the app structure
 	app := NewApp()
@@ -28,6 +32,10 @@ func main() {
 		},
 		BackgroundColour: &options.RGBA{R: 9, G: 9, B: 11, A: 1},
 		OnStartup:        app.startup,
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId:               "one.floe.desktop",
+			OnSecondInstanceLaunch: app.onSecondInstanceLaunch,
+		},
 		DragAndDrop: &options.DragAndDrop{
 			EnableFileDrop: true,
 		},

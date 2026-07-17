@@ -17,6 +17,7 @@ import (
 	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/jannskiee/floe/cli/engine/transfer"
 	"github.com/jannskiee/floe/cli/engine/verify"
+	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -51,6 +52,13 @@ func (a *App) startup(ctx context.Context) {
 	// Best-effort: register the app for OS notifications (sets up the toast
 	// AppUserModelID on Windows). Errors are non-fatal.
 	_ = runtime.InitializeNotifications(ctx)
+}
+
+// onSecondInstanceLaunch fires when Floe is launched again while already running.
+// Rather than open a second window, bring the existing one to the front.
+func (a *App) onSecondInstanceLaunch(_ options.SecondInstanceData) {
+	runtime.WindowUnminimise(a.ctx)
+	runtime.WindowShow(a.ctx)
 }
 
 // notify sends a best-effort OS notification. Failures are ignored so a transfer
@@ -282,7 +290,7 @@ func (a *App) runSend(paths []string, hideIP bool) {
 		lastEmit = time.Now()
 		runtime.EventsEmit(a.ctx, "send:progress", p)
 	}
-	if err := transfer.SendFilesWithProgress(dc, paths, "desktop-dev", onProgress); err != nil {
+	if err := transfer.SendFilesWithProgress(dc, paths, version, onProgress); err != nil {
 		fail(fmt.Errorf("transfer failed: %w", err))
 		return
 	}
@@ -373,7 +381,7 @@ func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool) (s
 		lastEmit = time.Now()
 		runtime.EventsEmit(a.ctx, "recv:progress", p)
 	}
-	if err := transfer.ReceiveFilesWithProgress(dc, absOutput, true, "desktop-dev", "", onProgress); err != nil {
+	if err := transfer.ReceiveFilesWithProgress(dc, absOutput, true, version, "", onProgress); err != nil {
 		return "", fmt.Errorf("transfer failed: %w", err)
 	}
 
