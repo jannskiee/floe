@@ -13,7 +13,8 @@
     "@fontsource-variable/geist-mono": "^5.0.0",
     "lucide-react": "^0.562.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "react-qr-code": "^2.2.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",

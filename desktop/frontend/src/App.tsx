@@ -15,6 +15,7 @@ import {
     UploadCloud,
     X,
 } from 'lucide-react';
+import QRCode from 'react-qr-code';
 import {BoltMark, Button, Eyebrow, Input, StatusDot, cn} from './components/ui';
 import TitleBar from './components/TitleBar';
 import FileIcon from './components/FileIcon';
@@ -497,8 +498,14 @@ function App() {
 
                                         {/* share link */}
                                         {sendLink && (
-                                            <div className="animate-floe-in space-y-2 rounded-xl border border-white/[0.08] bg-black/40 p-4">
+                                            <div className="animate-floe-in space-y-3 rounded-xl border border-white/[0.08] bg-black/40 p-4">
                                                 <Eyebrow>Share link</Eyebrow>
+                                                <div className="flex flex-col items-center gap-2 pt-1">
+                                                    <div className="rounded-lg bg-white p-2.5">
+                                                        <QRCode value={sendLink} size={124} style={{height: 124, width: 124}} fgColor="#09090b" bgColor="#ffffff" level="M"/>
+                                                    </div>
+                                                    <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-600">Scan to open</span>
+                                                </div>
                                                 <code className="block break-all rounded-lg border border-white/10 bg-zinc-950 p-3 font-mono text-xs leading-relaxed text-zinc-300">
                                                     {sendLink}
                                                 </code>
