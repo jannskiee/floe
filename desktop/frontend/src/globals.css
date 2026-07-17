@@ -60,4 +60,11 @@
   .animate-floe-in {
     animation: floe-in 0.2s ease-out both;
   }
+
+  /* Wails adds this class to the element carrying `--wails-drop-target: drop`
+     while an OS file drag hovers it (WebView2 does not emit HTML drag events). */
+  .wails-drop-target-active {
+    border-color: var(--color-ice) !important;
+    background-color: rgb(255 255 255 / 0.05) !important;
+  }
 }

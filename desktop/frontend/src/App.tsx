@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState} from 'react';
-import type {MutableRefObject} from 'react';
+import type {CSSProperties, MutableRefObject} from 'react';
 import {ReceiveByCode, SelectFiles, SelectFolder, OpenFolder, StartSend, CancelTransfer} from "../wailsjs/go/main/App";
 import {EventsOn, EventsOff, OnFileDrop, OnFileDropOff, BrowserOpenURL} from "../wailsjs/runtime/runtime";
 import {
@@ -102,8 +102,8 @@ function StatusLine({text, busy}: {text: string; busy: boolean}) {
 }
 
 function App() {
-    const [mode, setMode] = useState<Mode>('send');
-    const [hideIP, setHideIP] = useState(false);
+    const [mode, setMode] = useState<Mode>(() => (localStorage.getItem('floe:mode') as Mode) || 'send');
+    const [hideIP, setHideIP] = useState(() => localStorage.getItem('floe:hideIP') === '1');
 
     // Send state
     const [files, setFiles] = useState<string[]>([]);
@@ -113,16 +113,19 @@ function App() {
     const [sending, setSending] = useState(false);
     const [sendProg, setSendProg] = useState<{pct: number; label: string} | null>(null);
     const [copied, setCopied] = useState(false);
+    const [codeCopied, setCodeCopied] = useState(false);
+    const [sendDone, setSendDone] = useState(false);
     const sendStart = useRef<Marker>(null);
     const sendCancel = useRef(false);
 
     // Receive state
     const [code, setCode] = useState('');
-    const [output, setOutput] = useState('');
+    const [output, setOutput] = useState(() => localStorage.getItem('floe:saveDir') || '');
     const [recvStatus, setRecvStatus] = useState('Enter a code or link, then click Receive.');
     const [receiving, setReceiving] = useState(false);
     const [recvProg, setRecvProg] = useState<{pct: number; label: string} | null>(null);
     const [recvDir, setRecvDir] = useState('');
+    const [recvDone, setRecvDone] = useState(false);
     const recvStart = useRef<Marker>(null);
     const recvCancel = useRef(false);
 
@@ -140,11 +143,12 @@ function App() {
             if (sendCancel.current) return;
             setSendProg(track(sendStart, p));
         });
-        EventsOn('send:done', (msg: string) => {
+        EventsOn('send:done', () => {
             if (sendCancel.current) return;
-            setSendStatus(msg);
             setSendProg({pct: 100, label: 'Complete.'});
             setSending(false);
+            setSendDone(true);
+            setSendStatus('');
         });
         EventsOn('send:error', (msg: string) => {
             if (sendCancel.current) return;
@@ -174,6 +178,11 @@ function App() {
             OnFileDropOff();
         };
     }, []);
+
+    // Persist lightweight UI preferences so they survive a relaunch.
+    useEffect(() => { localStorage.setItem('floe:hideIP', hideIP ? '1' : '0'); }, [hideIP]);
+    useEffect(() => { localStorage.setItem('floe:mode', mode); }, [mode]);
+    useEffect(() => { localStorage.setItem('floe:saveDir', output); }, [output]);
 
     async function pickFiles() {
         try {
@@ -218,6 +227,16 @@ function App() {
         }
     }
 
+    async function copyCode() {
+        try {
+            await navigator.clipboard.writeText(sendCode);
+            setCodeCopied(true);
+            setTimeout(() => setCodeCopied(false), 1500);
+        } catch {
+            // clipboard unavailable
+        }
+    }
+
     async function send() {
         if (!files.length) {
             setSendStatus('Select at least one file first.');
@@ -225,6 +244,7 @@ function App() {
         }
         sendCancel.current = false;
         setSending(true);
+        setSendDone(false);
         setSendCode('');
         setSendLink('');
         setSendProg(null);
@@ -246,13 +266,15 @@ function App() {
         setReceiving(true);
         setRecvProg(null);
         setRecvDir('');
+        setRecvDone(false);
         recvCancel.current = false;
         recvStart.current = null;
         setRecvStatus('Connecting... keep this window open.');
         try {
             const dir = await ReceiveByCode(code.trim(), output.trim(), hideIP);
             setRecvDir(dir);
-            setRecvStatus('Done. Files saved to: ' + dir);
+            setRecvDone(true);
+            setRecvStatus('');
         } catch (e: any) {
             setRecvStatus(recvCancel.current ? 'Cancelled.' : 'Error: ' + e);
         } finally {
@@ -267,12 +289,14 @@ function App() {
             sendCancel.current = true;
             setSending(false);
             setSendProg(null);
+            setSendDone(false);
             setSendStatus('Cancelled.');
         }
         if (receiving) {
             recvCancel.current = true;
             setReceiving(false);
             setRecvProg(null);
+            setRecvDone(false);
             setRecvStatus('Cancelled.');
         }
         CancelTransfer().catch(() => {});
@@ -404,7 +428,10 @@ function App() {
                                 {mode === 'send' ? (
                                     <div className="space-y-4">
                                         {/* selector / dropzone */}
-                                        <div className="group rounded-xl border border-dashed border-white/15 bg-white/[0.02] p-6 text-center transition-colors hover:border-ice/40 hover:bg-white/[0.03]">
+                                        <div
+                                            style={{['--wails-drop-target' as never]: 'drop'} as CSSProperties}
+                                            className="group rounded-xl border border-dashed border-white/15 bg-white/[0.02] p-6 text-center transition-colors hover:border-ice/40 hover:bg-white/[0.03]"
+                                        >
                                             <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] transition group-hover:border-ice/30">
                                                 <UploadCloud className="h-5 w-5 text-zinc-400 transition group-hover:text-ice"/>
                                             </span>
@@ -455,7 +482,14 @@ function App() {
 
                                         {/* room code */}
                                         {sendCode && (
-                                            <div className="animate-floe-in space-y-2 rounded-xl border border-white/[0.08] bg-black/40 p-4 text-center">
+                                            <div className="animate-floe-in relative space-y-2 rounded-xl border border-white/[0.08] bg-black/40 p-4 text-center">
+                                                <button
+                                                    onClick={copyCode}
+                                                    aria-label="Copy code"
+                                                    className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
+                                                >
+                                                    {codeCopied ? <Check className="size-3.5 text-green-500"/> : <Copy className="size-3.5"/>}
+                                                </button>
                                                 <Eyebrow tone="ice">Room code</Eyebrow>
                                                 <div className="font-mono text-2xl font-semibold tracking-[0.2em] text-white">{sendCode}</div>
                                             </div>
@@ -478,6 +512,12 @@ function App() {
                                         )}
 
                                         {sendProg && <ProgressRow prog={sendProg}/>}
+                                        {sendDone && !sending && (
+                                            <div className="animate-floe-in flex items-center justify-center gap-2 text-sm text-zinc-300">
+                                                <Check className="size-4 shrink-0 text-green-500"/>
+                                                <span>Sent {files.length} {files.length === 1 ? 'item' : 'items'}</span>
+                                            </div>
+                                        )}
                                         <StatusLine text={sendStatus} busy={sending}/>
                                     </div>
 
@@ -522,6 +562,12 @@ function App() {
                                         )}
 
                                         {recvProg && <ProgressRow prog={recvProg}/>}
+                                        {recvDone && !receiving && (
+                                            <div className="animate-floe-in flex items-center gap-2 text-sm text-zinc-300">
+                                                <Check className="size-4 shrink-0 text-green-500"/>
+                                                <span className="truncate">Saved to {recvDir}</span>
+                                            </div>
+                                        )}
                                         {recvDir && !receiving && (
                                             <Button variant="outline" className="animate-floe-in w-full" onClick={() => { OpenFolder(recvDir).catch(() => {}); }}>
                                                 <FolderOpen/> Show in folder
