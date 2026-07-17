@@ -309,7 +309,7 @@ function App() {
         <button
             onClick={() => setMode(m)}
             className={cn(
-                'border-b-2 pb-1 font-mono text-[11px] uppercase tracking-[0.2em] transition-colors',
+                'border-b-2 px-3 pb-1 font-mono text-[11px] uppercase tracking-[0.2em] transition-colors',
                 mode === m ? 'border-ice text-zinc-100' : 'border-transparent text-zinc-600 hover:text-zinc-400',
             )}
         >
@@ -381,7 +381,7 @@ function App() {
 
                 {/* ── RIGHT CONSOLE: the "instrument" card ────────────────────── */}
                 <main className="custom-scrollbar flex-1 overflow-y-auto">
-                    <div className="mx-auto flex min-h-full w-full max-w-md px-8 py-8">
+                    <div className="mx-auto flex min-h-full w-full max-w-lg px-8 py-8">
                         <div className="m-auto w-full rounded-xl border border-white/10 bg-zinc-900/60 shadow-2xl ring-1 ring-white/5 backdrop-blur-xl">
 
                             {/* header: mode toggle + status badge */}
@@ -391,7 +391,7 @@ function App() {
                                     {modeBtn('receive', 'Receive')}
                                 </div>
                                 <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                                    <StatusDot className={busy ? 'bg-ice' : 'bg-green-500'}/>
+                                    <StatusDot className="bg-green-500" pulse={busy}/>
                                     {busy ? 'Active' : 'Ready'}
                                 </div>
                             </div>
@@ -399,31 +399,35 @@ function App() {
                             {/* body */}
                             <div className="space-y-4 px-5 py-5">
 
-                                {/* Hide my IP (shared) */}
-                                <label className="group/hideip flex cursor-pointer select-none items-start gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
-                                    <input
-                                        type="checkbox"
-                                        checked={hideIP}
-                                        onChange={(e) => setHideIP(e.target.checked)}
-                                        className="sr-only"
-                                    />
-                                    <span
-                                        className={cn(
-                                            'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border transition-all',
-                                            hideIP ? 'border-white bg-white' : 'border-zinc-600 bg-transparent group-hover/hideip:border-zinc-400',
-                                        )}
+                                {/* Hide my IP (shared). Hidden while busy: the flag is captured when
+                                    the transfer starts, so editing it mid-flight would be misleading. */}
+                                {!busy && (
+                                    <label
+                                        title="Route through the relay so the peer never sees your IP."
+                                        className="group/hideip flex cursor-pointer select-none items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3"
                                     >
-                                        {hideIP && (
-                                            <svg viewBox="0 0 10 8" fill="none" className="h-2.5 w-2.5">
-                                                <path d="M1 4l2.5 2.5L9 1" stroke="#09090b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                                            </svg>
-                                        )}
-                                    </span>
-                                    <span className="space-y-1">
-                                        <span className="block text-sm font-medium leading-none text-zinc-200">Hide my IP</span>
-                                        <span className="block text-xs leading-relaxed text-zinc-500">Route through the relay so the peer never sees your IP.</span>
-                                    </span>
-                                </label>
+                                        <input
+                                            type="checkbox"
+                                            checked={hideIP}
+                                            onChange={(e) => setHideIP(e.target.checked)}
+                                            className="sr-only"
+                                        />
+                                        <span
+                                            className={cn(
+                                                'flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border transition-all',
+                                                hideIP ? 'border-white bg-white' : 'border-zinc-600 bg-transparent group-hover/hideip:border-zinc-400',
+                                            )}
+                                        >
+                                            {hideIP && (
+                                                <svg viewBox="0 0 10 8" fill="none" className="h-2.5 w-2.5">
+                                                    <path d="M1 4l2.5 2.5L9 1" stroke="#09090b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                                </svg>
+                                            )}
+                                        </span>
+                                        <span className="text-sm font-medium text-zinc-200">Hide my IP</span>
+                                        <span className="truncate text-xs text-zinc-500">routes through the relay</span>
+                                    </label>
+                                )}
 
                                 {/* ── SEND VIEW ─────────────────────────────────── */}
                                 {mode === 'send' ? (
@@ -589,7 +593,7 @@ function App() {
 
                             {/* footer note */}
                             <div className="border-t border-white/[0.06] px-5 py-3">
-                                <p className="text-center font-mono text-[10px] uppercase tracking-[0.15em] leading-relaxed text-zinc-600">
+                                <p className="whitespace-nowrap text-center font-mono text-[10px] uppercase tracking-[0.15em] text-zinc-600">
                                     {busy ? 'Keep this window open · closing cancels the transfer' : 'End-to-end encrypted · nothing is stored on a server'}
                                 </p>
                             </div>

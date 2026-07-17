@@ -36,11 +36,12 @@ export function Eyebrow({
 }
 
 /** StatusDot renders the site's halo dot (soft blur glow + solid core). Pass a
- *  Tailwind background class (e.g. "bg-green-500", "bg-ice") to color it. */
-export function StatusDot({className}: {className?: string}) {
+ *  Tailwind background class (e.g. "bg-green-500", "bg-ice") to color it.
+ *  `pulse` animates the halo only — pulsing the solid core reads as flicker. */
+export function StatusDot({className, pulse}: {className?: string; pulse?: boolean}) {
     return (
         <span className="relative flex h-2.5 w-2.5 items-center justify-center" aria-hidden>
-            <span className={cn('absolute inset-0 rounded-full opacity-40 blur-[2px]', className)}/>
+            <span className={cn('absolute inset-0 rounded-full opacity-40 blur-[2px]', pulse && 'animate-pulse', className)}/>
             <span className={cn('h-1.5 w-1.5 rounded-full', className)}/>
         </span>
     );
