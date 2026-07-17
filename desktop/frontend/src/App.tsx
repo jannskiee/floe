@@ -537,7 +537,9 @@ function App() {
                                                 placeholder="e.g. olive-tiger-castle"
                                                 value={code}
                                                 onChange={(e) => setCode(e.target.value)}
+                                                onKeyDown={(e) => { if (e.key === 'Enter' && !receiving && code.trim()) receive(); }}
                                                 disabled={receiving}
+                                                autoFocus
                                                 autoComplete="off"
                                             />
                                         </div>
