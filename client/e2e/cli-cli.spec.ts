@@ -4,9 +4,10 @@
  * cli-interop.spec.ts proves each Go side against the browser; this spec
  * closes the triangle by running BOTH ends on the Go implementation. It also
  * asserts something the browser tests structurally cannot: the sender process
- * exits 0 after the receiver's {"type":"received"} delivery confirmation
- * (the authoritative signal in the sender's drain loop), so a regression that
- * strands the sender after a complete transfer fails here and nowhere else.
+ * terminates with exit 0 on its own after delivery (its drain loop waits for
+ * the receiver's {"type":"received"} confirmation, with a buffer-flushed
+ * fallback), so a regression that strands the sender after a complete
+ * transfer fails here and nowhere else.
  *
  * The CLI binary comes from e2e/global-setup.ts via helpers.cliBinary().
  * --no-relay keeps both peers on host/loopback candidates (hermetic).

@@ -34,9 +34,12 @@ export default defineConfig({
                 // so browser-to-browser pairs (both Chromium sides obfuscating
                 // their host IPs) never connect there; CLI pairs are unaffected
                 // because pion publishes real IPs. Expose real host IPs on macOS
-                // only - ubuntu and windows pass with the production
-                // mDNS-obfuscated path and keep covering it.
-                launchOptions: process.platform === 'darwin'
+                // CI only - ubuntu/windows CI and every local run (including
+                // local Macs, where Bonjour works) keep the production
+                // mDNS-obfuscated path and keep covering it. Note: this replaces
+                // Playwright's own --disable-features list on that one leg
+                // (Chromium takes the last occurrence); validated green in CI.
+                launchOptions: process.platform === 'darwin' && !!process.env.CI
                     ? { args: ['--disable-features=WebRtcHideLocalIpsWithMdns'] }
                     : {},
             },
