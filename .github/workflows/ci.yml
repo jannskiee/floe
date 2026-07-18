@@ -221,3 +221,107 @@ jobs:
           path: client/test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  back-compat:
+    name: Back-compat (HEAD vs latest release)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Same toolchain needs as e2e; ubuntu-only because the wire protocol under
+    # test is OS-independent and one leg keeps the release download cheap.
+    needs: [cli, build-and-lint, server]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: cli/go.sum
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          # Version comes from packageManager in client/package.json
+          package_json_file: client/package.json
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          # Linux-only job, so no per-OS path dance like the e2e matrix; same
+          # cache key as the ubuntu e2e leg so this job rides its cache.
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('client/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install client dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: client
+
+      - name: Install server dependencies
+        run: npm install
+        working-directory: server
+
+      - name: Install Playwright Chromium
+        # Always run: on a browser-cache hit the download is skipped anyway,
+        # but the Linux system dependencies (--with-deps) still need installing.
+        run: pnpm exec playwright install --with-deps chromium
+        working-directory: client
+
+      - name: Download latest released CLI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Resolve the tag FIRST, then download BY TAG: if a release published
+          # mid-job, "latest" could otherwise change between the two gh calls.
+          tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)"
+          echo "Released tag: $tag"
+          dest="$RUNNER_TEMP/floe-released"
+          mkdir -p "$dest"
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir "$dest" \
+            --pattern 'floe_*_linux_amd64.tar.gz' --pattern 'checksums.txt'
+          cd "$dest"
+          # checksums.txt covers every asset; verify just the one we fetched.
+          sha256sum --check <(grep linux_amd64.tar.gz checksums.txt)
+          tar -xzf floe_*_linux_amd64.tar.gz floe
+          chmod +x floe
+          echo "FLOE_RELEASED_CLI=$dest/floe" >> "$GITHUB_ENV"
+          echo "FLOE_RELEASED_VERSION=$tag" >> "$GITHUB_ENV"
+
+      - name: Run back-compat E2E tests
+        working-directory: client
+        env:
+          NEXT_PUBLIC_SOCKET_URL: http://localhost:3001
+        run: |
+          # Fail loud if the export above ever regresses; otherwise the spec
+          # would skip itself and this job would go green testing nothing.
+          test -x "$FLOE_RELEASED_CLI"
+          pnpm exec playwright test e2e/back-compat.spec.ts
+
+      - name: Upload traces and test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: back-compat-traces
+          path: client/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
