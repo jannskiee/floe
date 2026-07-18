@@ -3,12 +3,13 @@
 import React, { useState, useEffect } from 'react';
 import NumberFlow, { continuous } from '@number-flow/react';
 import { splitBytes } from '@/lib/utils';
+import { getSocketUrl } from '@/lib/runtimeConfig';
 
 export function GlobalStats() {
     const [totalBytes, setTotalBytes] = useState<number | null>(null);
 
     useEffect(() => {
-        const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
+        const socketUrl = getSocketUrl();
 
         const fetchStats = async () => {
             try {

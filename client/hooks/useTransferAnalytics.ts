@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { getSocketUrl } from '@/lib/runtimeConfig';
 
 interface UmamiWindow extends Window {
     umami?: {
@@ -37,7 +38,7 @@ export function useTransferAnalytics() {
 
     const reportBytes = (bytes: number) => {
         if (!reportStatsEnabledRef.current) return;
-        const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
+        const socketUrl = getSocketUrl();
         fetch(`${socketUrl}/api/stats/report`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

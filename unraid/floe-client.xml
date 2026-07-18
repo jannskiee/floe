@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>Floe-Client</Name>
+  <Repository>ghcr.io/jannskiee/floe-client:latest</Repository>
+  <Registry>https://github.com/jannskiee/floe/pkgs/container/floe-client</Registry>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/jannskiee/floe/issues</Support>
+  <Project>https://github.com/jannskiee/floe</Project>
+  <Overview>Web client for Floe encrypted peer-to-peer file transfer. Install Floe-Server first, then set that server template's Client URL to this app's exact browser origin.[br][br]For direct LAN access, Signaling Server Port must match the host port assigned to Floe-Server. For HTTPS or a different server hostname, set Signaling Server URL instead.</Overview>
+  <Category>Network:Other Productivity:</Category>
+  <WebUI>http://[IP]:[PORT:3000]</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/jannskiee/floe/main/unraid/floe-client.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/jannskiee/floe/main/client/public/icon-512.png</Icon>
+  <Config Name="Web UI Port" Target="3000" Default="3000" Mode="tcp" Description="Port used to open the Floe web client." Type="Port" Display="always" Required="true" Mask="false">3000</Config>
+  <Config Name="Signaling Server Port" Target="FLOE_SOCKET_PORT" Default="3001" Description="Host port assigned to Floe-Server. Used with the browser hostname when Signaling Server URL is empty." Type="Variable" Display="always" Required="true" Mask="false">3001</Config>
+  <Config Name="Signaling Server URL" Target="FLOE_SOCKET_URL" Default="" Description="Optional complete public signaling URL, for example https://api.example.com. Required when using HTTPS or a different hostname. Takes precedence over Signaling Server Port." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+</Container>

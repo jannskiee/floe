@@ -35,6 +35,10 @@ self.addEventListener('fetch', (event) => {
 
     if (request.method !== 'GET') return;
     if (url.pathname.includes('socket.io')) return;
+    // This file is regenerated from container environment variables at startup.
+    // Always use the network copy so an old service-worker cache cannot pin a
+    // previous signaling URL after the container is reconfigured.
+    if (url.pathname === '/runtime-config.js') return;
     if (url.hostname !== self.location.hostname) return;
 
     if (request.mode === 'navigate') {

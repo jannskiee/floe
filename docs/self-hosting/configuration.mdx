@@ -10,6 +10,8 @@ All settings live in the `.env` file you copied from `.env.docker.example`.
 | Variable | Service | Required | Default | Purpose |
 |----------|---------|----------|---------|---------|
 | `NEXT_PUBLIC_SOCKET_URL` | client (build) | Yes | `http://localhost:3001` | URL the **browser** uses to reach the signaling server. Inlined at build time. See [the build-time URL caveat](/self-hosting/build-time-url). |
+| `FLOE_SOCKET_URL` | client (runtime) | No | _(derived)_ | Complete signaling server origin for a prebuilt client image. Takes precedence over the build-time URL. If empty, the client uses the browser hostname and `FLOE_SOCKET_PORT`. |
+| `FLOE_SOCKET_PORT` | client (runtime) | No | `3001` | Signaling server host port used when `FLOE_SOCKET_URL` is empty. |
 | `NEXT_PUBLIC_SITE_URL` | client (build) | No | `https://www.floe.one` | Canonical public origin of your client (e.g. `https://app.your-domain.com`). Used to generate canonical, Open Graph, JSON-LD, and sitemap URLs. Set this on self-hosted instances so search engines and link previews point at your domain instead of `floe.one`. Inlined at build time. |
 | `PORT` | server | No | `3001` | Port the signaling server listens on inside the container. The host port is set separately in `docker-compose.yml`. |
 | `NODE_ENV` | server | No | `production` | Standard Node.js runtime flag. The server Docker image sets this to `production`. |

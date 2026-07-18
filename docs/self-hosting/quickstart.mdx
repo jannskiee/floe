@@ -40,5 +40,9 @@ This starts the stack in **STUN-only** mode. Direct peer-to-peer connections are
 To support peers behind strict firewalls, symmetric NAT, or CGNAT, add a [TURN relay](/self-hosting/turn-relay).
 
 <Note>
-  `NEXT_PUBLIC_SOCKET_URL` defaults to `http://localhost:3001` in `.env.docker.example`, which works when both the browser and the server are on the same machine. If you want to access the app from another device on your network, update this to your machine's LAN IP (e.g. `http://192.168.1.x:3001`) and rebuild the client image. See [Build-Time URL Caveat](/self-hosting/build-time-url) for why.
+  `NEXT_PUBLIC_SOCKET_URL` defaults to `http://localhost:3001` in `.env.docker.example`, which works when both the browser and the server are on the same machine. If you want to access the app from another device on your network, update this to your machine's LAN IP (e.g. `http://192.168.1.x:3001`) and rebuild the client image. See [Configure the Socket URL](/self-hosting/build-time-url) for why.
 </Note>
+
+Using a published image instead of building from source? Set the runtime
+`FLOE_SOCKET_URL`, or leave it empty and set `FLOE_SOCKET_PORT` to derive the
+server URL from the browser hostname. See [Configure the Socket URL](/self-hosting/build-time-url).

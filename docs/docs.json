@@ -95,6 +95,7 @@
         "pages": [
           "self-hosting/overview",
           "self-hosting/quickstart",
+          "self-hosting/unraid",
           "self-hosting/configuration",
           "self-hosting/build-time-url",
           "self-hosting/production",
