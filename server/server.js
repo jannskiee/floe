@@ -68,7 +68,10 @@ const STUN_FALLBACK = [
 
 const turnRateLimits = new Map();
 const TURN_RATE_WINDOW = 60000;
-const TURN_MAX_REQUESTS = 20;
+// Default 20/min is ample for real users (one fetch per page load or CLI
+// invocation); raise via MAX_TURN_REQUESTS_PER_IP in CI/staging where many
+// CLI runs share one IP - a 429 silently degrades clients to Google STUN.
+const TURN_MAX_REQUESTS = parseInt(process.env.MAX_TURN_REQUESTS_PER_IP, 10) || 20;
 
 const statsRateLimits = new Map();
 const STATS_RATE_WINDOW = 60000;

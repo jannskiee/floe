@@ -50,6 +50,10 @@ export default defineConfig({
                 // Same reasoning for the code endpoint limiter: keep it well clear of
                 // the suite's /api/code traffic so a growing suite can never trip it.
                 MAX_CODE_REQUESTS_PER_IP: '1000',
+                // Every browser page load and CLI spawn fetches /api/turn-credentials
+                // once; keep the suite clear of the 20/min default so a 429 can never
+                // silently reroute the CLI onto public Google STUN mid-test.
+                MAX_TURN_REQUESTS_PER_IP: '1000',
             },
         },
         {
