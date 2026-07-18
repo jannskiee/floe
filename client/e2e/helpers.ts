@@ -7,6 +7,10 @@
  * publishes its path via the FLOE_E2E_CLI_BINARY environment variable;
  * cliBinary() reads it back here.
  *
+ * spawnSend/spawnReceive default to that HEAD build but accept an explicit
+ * binary path, so back-compat.spec.ts can drive a downloaded released CLI
+ * through the same process plumbing.
+ *
  * --no-relay keeps both peers on host/loopback candidates so CLI tests run
  * hermetically without a TURN server or real network.
  */
@@ -107,12 +111,16 @@ export async function browserSenderSetup(page: Page, fixturePath: string): Promi
  * Spawn `floe send` and return a promise that resolves to the room link once
  * it appears in stdout, plus the process so the caller can await/kill it.
  * The caller owns the process and must kill it in a finally block.
+ *
+ * `binary` defaults to the HEAD build. The default is evaluated per call and
+ * only when the argument is omitted, so existing call sites keep cliBinary()'s
+ * fail-loud contract and back-compat callers can pass a released binary.
  */
-export function spawnSend(path: string): {
+export function spawnSend(path: string, binary: string = cliBinary()): {
     linkPromise: Promise<string>;
     proc: ChildProcess;
 } {
-    const proc = spawn(cliBinary(), [
+    const proc = spawn(binary, [
         'send', path,
         '--server', SERVER_URL,
         '--web', WEB_URL,
@@ -152,10 +160,12 @@ export function spawnSend(path: string): {
  * Spawn `floe receive` and return a promise that resolves once the process
  * exits successfully (its integrity guard ties exit 0 to every byte of every
  * file being on disk), and rejects on nonzero exit or after CLI_TIMEOUT_MS.
+ *
+ * `binary` defaults to the HEAD build, same contract as spawnSend.
  */
-export function spawnReceive(link: string, outputDir: string): Promise<void> {
+export function spawnReceive(link: string, outputDir: string, binary: string = cliBinary()): Promise<void> {
     return new Promise((resolve, reject) => {
-        const proc = spawn(cliBinary(), [
+        const proc = spawn(binary, [
             'receive', link,
             '--server', SERVER_URL,
             '--output', outputDir,
