@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # Floe CLI installer for macOS and Linux
 # Usage: curl -fsSL https://floe.one/install.sh | sh
-#        FLOE_VERSION=v1.2.0 curl -fsSL https://floe.one/install.sh | sh
+#        curl -fsSL https://floe.one/install.sh | FLOE_VERSION=v1.2.0 sh
 # Re-running upgrades an existing install in place.
 
 set -e
@@ -44,7 +44,7 @@ fi
 if [ -z "${FLOE_VERSION}" ]; then
   echo "Could not determine latest version." >&2
   echo "Set FLOE_VERSION=vX.Y.Z to install a specific version, e.g.:" >&2
-  echo "  FLOE_VERSION=v1.0.0 curl -fsSL https://floe.one/install.sh | sh" >&2
+  echo "  curl -fsSL https://floe.one/install.sh | FLOE_VERSION=v1.0.0 sh" >&2
   exit 1
 fi
 
