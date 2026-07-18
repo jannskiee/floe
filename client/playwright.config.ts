@@ -5,6 +5,10 @@ export default defineConfig({
     testDir: './e2e',
     timeout: 90_000,
     expect: { timeout: 60_000 },
+    // Build the Go CLI once per run for the CLI interop / CLI-CLI specs
+    // (paths resolve relative to this config file).
+    globalSetup: './e2e/global-setup.ts',
+    globalTeardown: './e2e/global-teardown.ts',
     // These are heavy WebRTC integration tests that share one signaling server
     // (which is per-IP rate limited) and move tens of MB each. Running them in
     // parallel on a 2-core CI runner starves the transfers and trips flaky
