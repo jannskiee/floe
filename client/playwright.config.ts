@@ -21,6 +21,9 @@ export default defineConfig({
     use: {
         baseURL: 'http://localhost:3000',
         headless: true,
+        // On the CI retry, record a trace so a cross-OS-only failure is
+        // debuggable from the uploaded artifact instead of being unreproducible.
+        trace: 'on-first-retry',
     },
     projects: [
         {
@@ -32,7 +35,9 @@ export default defineConfig({
         {
             command: 'node server.js',
             cwd: path.resolve(__dirname, '../server'),
-            port: 3001,
+            // Poll /health instead of the bare port so tests only start once
+            // Express is actually routing requests, not merely listening.
+            url: 'http://localhost:3001/health',
             reuseExistingServer: true,
             timeout: 30_000,
             env: {
@@ -50,9 +55,12 @@ export default defineConfig({
         {
             command: 'pnpm dev',
             cwd: __dirname,
-            port: 3000,
+            // URL readiness makes Playwright issue a real GET / before tests
+            // start, forcing next dev to compile the home page up front; on the
+            // slow Windows runner that first compile must not eat test timeouts.
+            url: 'http://localhost:3000',
             reuseExistingServer: true,
-            timeout: 60_000,
+            timeout: 120_000,
             env: {
                 NEXT_PUBLIC_SOCKET_URL: 'http://localhost:3001',
             },
