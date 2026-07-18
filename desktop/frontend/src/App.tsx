@@ -23,7 +23,36 @@ import {BoltMark, Button, Eyebrow, Input, StatusDot, cn} from './components/ui';
 import TitleBar from './components/TitleBar';
 import FileIcon from './components/FileIcon';
 
-type Mode = 'send' | 'receive';
+type Mode = 'send' | 'receive' | 'history';
+
+// One completed transfer, persisted locally in localStorage['floe:history'].
+interface HistEntry {
+    kind: 'send' | 'recv';
+    names: string[];
+    count: number;
+    dir?: string;
+    at: number;
+}
+
+const HISTORY_CAP = 50;
+
+function loadHistory(): HistEntry[] {
+    // A corrupted store must never break the app; fall back to empty.
+    try {
+        const raw = JSON.parse(localStorage.getItem('floe:history') || '[]');
+        return Array.isArray(raw) ? raw : [];
+    } catch {
+        return [];
+    }
+}
+
+function fmtWhen(ts: number): string {
+    const d = new Date(ts);
+    const mon = d.toLocaleString('en', {month: 'short'});
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${mon} ${d.getDate()} · ${hh}:${mm}`;
+}
 
 interface Prog {
     fileName: string;
@@ -385,6 +414,9 @@ function App() {
     const [filesOpen, setFilesOpen] = useState(false);
     const sendStart = useRef<Marker>(null);
     const sendCancel = useRef(false);
+    // Snapshot of the sent file names, readable from the once-registered
+    // send:done closure (which must not touch React state directly).
+    const sentNamesRef = useRef<string[]>([]);
 
     // Receive state
     const [code, setCode] = useState('');
@@ -398,6 +430,12 @@ function App() {
     const [recvDone, setRecvDone] = useState(false);
     const recvStart = useRef<Marker>(null);
     const recvCancel = useRef(false);
+    // Receive file names harvested from progress events (the Go throttle always
+    // emits each file's final update, so every name is captured).
+    const recvNamesRef = useRef<string[]>([]);
+
+    // Local transfer history (successful transfers only), newest first.
+    const [history, setHistory] = useState<HistEntry[]>(loadHistory);
 
     // Live busy flag for the OnFileDrop closure, which is registered once with []
     // deps and would otherwise read a stale `busy`.
@@ -428,6 +466,8 @@ function App() {
             setSending(false);
             setSendDone(true);
             setSendStatus('');
+            const names = sentNamesRef.current;
+            setHistory((prev) => [{kind: 'send' as const, names, count: names.length, at: Date.now()}, ...prev].slice(0, HISTORY_CAP));
         });
         EventsOn('send:error', (msg: string) => {
             if (sendCancel.current) return;
@@ -441,6 +481,7 @@ function App() {
         EventsOn('recv:progress', (p: Prog) => {
             if (recvCancel.current) return;
             setRecvProg(track(recvStart, p));
+            if (p.fileName && !recvNamesRef.current.includes(p.fileName)) recvNamesRef.current.push(p.fileName);
         });
         // Native file drop on the whole window (useDropTarget=false). Paths arrive
         // already resolved to absolute paths from the Go side. Registered once, so
@@ -465,7 +506,9 @@ function App() {
 
     // Persist lightweight UI preferences so they survive a relaunch.
     useEffect(() => { localStorage.setItem('floe:hideIP', hideIP ? '1' : '0'); }, [hideIP]);
-    useEffect(() => { localStorage.setItem('floe:mode', mode); }, [mode]);
+    // Persist only the transfer tabs; relaunching into History would be odd.
+    useEffect(() => { if (mode !== 'history') localStorage.setItem('floe:mode', mode); }, [mode]);
+    useEffect(() => { localStorage.setItem('floe:history', JSON.stringify(history)); }, [history]);
     useEffect(() => { localStorage.setItem('floe:saveDir', output); }, [output]);
     useEffect(() => { localStorage.setItem('floe:report-stats', reportStats ? '1' : '0'); }, [reportStats]);
 
@@ -522,6 +565,7 @@ function App() {
         setSending(true);
         setSendDone(false);
         setSentCount(files.length);
+        sentNamesRef.current = files.map((f) => baseName(f) || f);
         setPeerConnected(false);
         setFilesOpen(false);
         setSendCode('');
@@ -548,6 +592,7 @@ function App() {
         setRecvDone(false);
         recvCancel.current = false;
         recvStart.current = null;
+        recvNamesRef.current = [];
         setRecvStatus('Connecting... keep this window open.');
         try {
             const dir = await ReceiveByCode(code.trim(), output.trim(), hideIP, reportStats);
@@ -555,6 +600,8 @@ function App() {
             setRecvDone(true);
             setRecvProg(null);
             setRecvStatus('');
+            const names = recvNamesRef.current;
+            setHistory((prev) => [{kind: 'recv' as const, names, count: names.length, dir, at: Date.now()}, ...prev].slice(0, HISTORY_CAP));
         } catch (e: any) {
             setRecvStatus(recvCancel.current ? 'Cancelled.' : 'Error: ' + e);
         } finally {
@@ -675,6 +722,7 @@ function App() {
                                 <div className="flex items-center gap-5">
                                     {modeBtn('send', 'Send')}
                                     {modeBtn('receive', 'Receive')}
+                                    {modeBtn('history', 'History')}
                                 </div>
                                 <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">
                                     <StatusDot className="bg-green-500" pulse={busy}/>
@@ -685,9 +733,10 @@ function App() {
                             {/* body */}
                             <div className="space-y-4 px-5 py-4">
 
-                                {/* Hide my IP (shared). Hidden while busy: the flag is captured when
-                                    the transfer starts, so editing it mid-flight would be misleading. */}
-                                {!busy && (
+                                {/* Hide my IP (shared by send/receive). Hidden while busy: the flag
+                                    is captured when the transfer starts, so editing it mid-flight
+                                    would be misleading. */}
+                                {!busy && mode !== 'history' && (
                                     <ToggleRow
                                         checked={hideIP}
                                         onChange={setHideIP}
@@ -748,7 +797,7 @@ function App() {
                                         <StatusLine text={sendStatus} busy={sending}/>
                                     </div>
 
-                                ) : (
+                                ) : mode === 'receive' ? (
                                 /* ── RECEIVE VIEW ─────────────────────────────── */
                                     <div className="space-y-4">
                                         <div className="space-y-2">
@@ -813,6 +862,55 @@ function App() {
                                             </Button>
                                         )}
                                         <StatusLine text={recvStatus} busy={receiving}/>
+                                    </div>
+
+                                ) : (
+                                /* ── HISTORY VIEW ─────────────────────────────── */
+                                    <div className="space-y-3">
+                                        <div className="flex items-baseline justify-between px-0.5">
+                                            <Eyebrow>History</Eyebrow>
+                                            {history.length > 0 && (
+                                                <button
+                                                    onClick={() => setHistory([])}
+                                                    className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-600 transition-colors hover:text-zinc-300"
+                                                >
+                                                    Clear
+                                                </button>
+                                            )}
+                                        </div>
+                                        {history.length === 0 ? (
+                                            <p className="py-6 text-center text-xs text-zinc-500">No transfers yet.</p>
+                                        ) : (
+                                            <ul className="custom-scrollbar max-h-80 space-y-1.5 overflow-y-auto">
+                                                {history.map((h, i) => (
+                                                    <li key={`${h.at}-${i}`} className="flex items-center gap-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02] py-2 pl-2.5 pr-1">
+                                                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/[0.04] ring-1 ring-inset ring-white/10">
+                                                            {h.kind === 'send'
+                                                                ? <Send className="size-3.5 text-zinc-300"/>
+                                                                : <Download className="size-3.5 text-zinc-300"/>}
+                                                        </span>
+                                                        <span className="min-w-0 flex-1">
+                                                            <span className="block truncate text-sm text-zinc-300">
+                                                                {h.count} {h.count === 1 ? 'item' : 'items'}
+                                                                {h.names.length > 0 && <span className="text-zinc-500"> · {h.names.join(', ')}</span>}
+                                                            </span>
+                                                            <span className="block font-mono text-[10px] uppercase tracking-[0.15em] text-zinc-600">
+                                                                {h.kind === 'send' ? 'Sent' : 'Received'} · {fmtWhen(h.at)}
+                                                            </span>
+                                                        </span>
+                                                        {h.kind === 'recv' && h.dir && (
+                                                            <button
+                                                                onClick={() => { OpenFolder(h.dir!).catch(() => {}); }}
+                                                                aria-label="Show in folder"
+                                                                className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
+                                                            >
+                                                                <FolderOpen className="size-3.5"/>
+                                                            </button>
+                                                        )}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        )}
                                     </div>
                                 )}
                             </div>
