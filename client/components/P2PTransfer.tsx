@@ -133,6 +133,10 @@ export function P2PTransfer() {
     // The room this page instance is handling as a receiver. Used to detect a
     // fragment-only navigation (scanning a second QR code into the same tab).
     const joinedRoomRef = useRef<string | null>(null);
+    // The room this page instance created as a sender (handleCreateLink). The
+    // displayed link keeps pointing at this id, so a socket reconnect must
+    // re-join it or the link goes dead.
+    const createdRoomRef = useRef<string | null>(null);
     const receivedFilesRef = useRef<ReceivedFile[]>([]);
     const transferCompleteRef = useRef(false);
     const progressRef = useRef(0);
@@ -201,7 +205,31 @@ export function P2PTransfer() {
                 setError('Too many refreshes. Reconnecting');
             }
         },
-        onReconnect: () => setError(''),
+        onReconnect: () => {
+            setError('');
+            // A Socket.IO auto-reconnect comes back under a fresh socket.id,
+            // and the server room only ever contained the old id, so this
+            // client is no longer in its room. Re-join while the WebRTC data
+            // channel is not yet up and the transfer has not finished; once
+            // either is true, signaling is done and re-joining would only
+            // churn the room.
+            if (transferCompleteRef.current || receivedFilesRef.current.length > 0) return;
+            if (peerRef.current?.connected) return;
+            if (joinedRoomRef.current) {
+                // Receiver: a bare re-join is not enough. The sender reacts to
+                // the rejoin's user-connected with a brand-new initiator peer
+                // and a fresh offer, which the old half-negotiated peer cannot
+                // answer, so recreate the peer by re-running the join flow.
+                peerRef.current?.destroy();
+                hasJoinedRef.current = false;
+                joinRoomAsReceiver(joinedRoomRef.current);
+            } else if (createdRoomRef.current) {
+                // Sender: re-enter the room only. Peer creation stays driven by
+                // user-connected, whose handler (handleCreateLink) replaces any
+                // stale peer when a receiver joins or re-joins.
+                joinRoom(createdRoomRef.current);
+            }
+        },
     });
 
     const fetchIceServers = async () => {
@@ -495,6 +523,7 @@ export function P2PTransfer() {
         const nonce = uuidv4().slice(0, 8);
         const link = `${window.location.protocol}//${window.location.host}/?s=${nonce}#room=${newRoomId}`;
         setGeneratedLink(link);
+        createdRoomRef.current = newRoomId;
         joinRoom(newRoomId);
         setStatus('Waiting for peer');
 
