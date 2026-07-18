@@ -7,7 +7,7 @@ export function EngineProtocolVersion():Promise<number>;
 
 export function OpenFolder(arg1:string):Promise<void>;
 
-export function ReceiveByCode(arg1:string,arg2:string,arg3:boolean):Promise<string>;
+export function ReceiveByCode(arg1:string,arg2:string,arg3:boolean,arg4:boolean):Promise<string>;
 
 export function SelectFiles():Promise<Array<string>>;
 

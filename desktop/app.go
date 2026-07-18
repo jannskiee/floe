@@ -305,7 +305,7 @@ func (a *App) runSend(paths []string, hideIP bool) {
 // webview never touches the data channel.
 //
 // Returns the absolute output directory on success.
-func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool) (string, error) {
+func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool, reportStats bool) (string, error) {
 	if outputDir == "" {
 		outputDir = defaultReceiveDir()
 	}
@@ -371,8 +371,13 @@ func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool) (s
 		go runtime.EventsEmit(a.ctx, "recv:verify", vc) // off the transfer critical path
 	}
 
-	// autoAccept=true: a GUI cannot answer a terminal prompt. statsURL="" so the
-	// skeleton does not report to the global counter.
+	// autoAccept=true: a GUI cannot answer a terminal prompt. The receiver reports
+	// received bytes to the global stats counter unless the user opted out (the
+	// engine skips the report when statsURL is empty).
+	statsURL := ""
+	if reportStats {
+		statsURL = defaultServer
+	}
 	lastEmit := time.Now()
 	onProgress := func(p transfer.Progress) {
 		if time.Since(lastEmit) < 100*time.Millisecond && p.FileBytes < p.FileSize {
@@ -381,7 +386,7 @@ func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool) (s
 		lastEmit = time.Now()
 		runtime.EventsEmit(a.ctx, "recv:progress", p)
 	}
-	if err := transfer.ReceiveFilesWithProgress(dc, absOutput, true, version, "", onProgress); err != nil {
+	if err := transfer.ReceiveFilesWithProgress(dc, absOutput, true, version, statsURL, onProgress); err != nil {
 		return "", fmt.Errorf("transfer failed: %w", err)
 	}
 

@@ -124,6 +124,38 @@ function mergePaths(prev: string[], add: string[]): string[] {
     return out;
 }
 
+/** ToggleRow is the compact checkbox row used for transfer options. */
+function ToggleRow({checked, onChange, label, hint, title}: {
+    checked: boolean;
+    onChange: (v: boolean) => void;
+    label: string;
+    hint: string;
+    title: string;
+}) {
+    return (
+        <label
+            title={title}
+            className="group/toggle flex cursor-pointer select-none items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3"
+        >
+            <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="sr-only"/>
+            <span
+                className={cn(
+                    'flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border transition-all',
+                    checked ? 'border-white bg-white' : 'border-zinc-600 bg-transparent group-hover/toggle:border-zinc-400',
+                )}
+            >
+                {checked && (
+                    <svg viewBox="0 0 10 8" fill="none" className="h-2.5 w-2.5">
+                        <path d="M1 4l2.5 2.5L9 1" stroke="#09090b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                )}
+            </span>
+            <span className="text-sm font-medium text-zinc-200">{label}</span>
+            <span className="truncate text-xs text-zinc-500">{hint}</span>
+        </label>
+    );
+}
+
 // Wails highlights the element carrying this var while an OS drag hovers it.
 // Dropping works window-wide regardless (OnFileDrop useDropTarget=false); the
 // var only drives the hover highlight.
@@ -357,6 +389,8 @@ function App() {
     // Receive state
     const [code, setCode] = useState('');
     const [output, setOutput] = useState(() => localStorage.getItem('floe:saveDir') || '');
+    // Opt-OUT model like the browser: report unless explicitly disabled.
+    const [reportStats, setReportStats] = useState(() => localStorage.getItem('floe:report-stats') !== '0');
     const [recvStatus, setRecvStatus] = useState('Enter a code or link, then click Receive.');
     const [receiving, setReceiving] = useState(false);
     const [recvProg, setRecvProg] = useState<{pct: number; label: string} | null>(null);
@@ -433,6 +467,7 @@ function App() {
     useEffect(() => { localStorage.setItem('floe:hideIP', hideIP ? '1' : '0'); }, [hideIP]);
     useEffect(() => { localStorage.setItem('floe:mode', mode); }, [mode]);
     useEffect(() => { localStorage.setItem('floe:saveDir', output); }, [output]);
+    useEffect(() => { localStorage.setItem('floe:report-stats', reportStats ? '1' : '0'); }, [reportStats]);
 
     useEffect(() => { busyRef.current = sending || receiving; }, [sending, receiving]);
 
@@ -515,7 +550,7 @@ function App() {
         recvStart.current = null;
         setRecvStatus('Connecting... keep this window open.');
         try {
-            const dir = await ReceiveByCode(code.trim(), output.trim(), hideIP);
+            const dir = await ReceiveByCode(code.trim(), output.trim(), hideIP, reportStats);
             setRecvDir(dir);
             setRecvDone(true);
             setRecvProg(null);
@@ -653,31 +688,13 @@ function App() {
                                 {/* Hide my IP (shared). Hidden while busy: the flag is captured when
                                     the transfer starts, so editing it mid-flight would be misleading. */}
                                 {!busy && (
-                                    <label
+                                    <ToggleRow
+                                        checked={hideIP}
+                                        onChange={setHideIP}
+                                        label="Hide my IP"
+                                        hint="routes through the relay"
                                         title="Route through the relay so the peer never sees your IP."
-                                        className="group/hideip flex cursor-pointer select-none items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3"
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            checked={hideIP}
-                                            onChange={(e) => setHideIP(e.target.checked)}
-                                            className="sr-only"
-                                        />
-                                        <span
-                                            className={cn(
-                                                'flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border transition-all',
-                                                hideIP ? 'border-white bg-white' : 'border-zinc-600 bg-transparent group-hover/hideip:border-zinc-400',
-                                            )}
-                                        >
-                                            {hideIP && (
-                                                <svg viewBox="0 0 10 8" fill="none" className="h-2.5 w-2.5">
-                                                    <path d="M1 4l2.5 2.5L9 1" stroke="#09090b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                                                </svg>
-                                            )}
-                                        </span>
-                                        <span className="text-sm font-medium text-zinc-200">Hide my IP</span>
-                                        <span className="truncate text-xs text-zinc-500">routes through the relay</span>
-                                    </label>
+                                    />
                                 )}
 
                                 {/* ── SEND VIEW ─────────────────────────────────── */}
@@ -762,6 +779,16 @@ function App() {
                                                 </Button>
                                             </div>
                                         </div>
+
+                                        {!receiving && (
+                                            <ToggleRow
+                                                checked={reportStats}
+                                                onChange={setReportStats}
+                                                label="Contribute to global stats"
+                                                hint="adds received bytes to the public counter"
+                                                title="After a transfer completes, only the total byte count is reported to the public homepage counter. File contents and names never leave your devices."
+                                            />
+                                        )}
 
                                         {receiving ? (
                                             <Button variant="outline" className="w-full" onClick={cancel}>

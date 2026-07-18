@@ -14,8 +14,8 @@ export function OpenFolder(arg1) {
   return window['go']['main']['App']['OpenFolder'](arg1);
 }
 
-export function ReceiveByCode(arg1, arg2, arg3) {
-  return window['go']['main']['App']['ReceiveByCode'](arg1, arg2, arg3);
+export function ReceiveByCode(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['ReceiveByCode'](arg1, arg2, arg3, arg4);
 }
 
 export function SelectFiles() {
