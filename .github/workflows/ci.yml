@@ -182,6 +182,7 @@ jobs:
             Linux)   echo "PLAYWRIGHT_CACHE=$HOME/.cache/ms-playwright" >> $GITHUB_OUTPUT ;;
             macOS)   echo "PLAYWRIGHT_CACHE=$HOME/Library/Caches/ms-playwright" >> $GITHUB_OUTPUT ;;
             Windows) echo "PLAYWRIGHT_CACHE=$LOCALAPPDATA/ms-playwright" >> $GITHUB_OUTPUT ;;
+            *)       echo "Unknown RUNNER_OS: $RUNNER_OS" >&2; exit 1 ;;
           esac
 
       - name: Cache Playwright browsers
