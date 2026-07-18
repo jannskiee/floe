@@ -117,7 +117,8 @@ jobs:
         working-directory: cli
 
       - name: Test
-        run: go test ./...
+        # -count=1 bypasses Go's test-result cache so stability re-runs always execute
+        run: go test -count=1 ./...
         working-directory: cli
 
       - name: Build
@@ -125,11 +126,16 @@ jobs:
         working-directory: cli
 
   e2e:
-    name: E2E (browser + CLI interop)
-    runs-on: ubuntu-latest
+    name: E2E (browser + CLI interop, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     # Requires both Go (CLI binary) and Node (server + client + Playwright)
     needs: [cli, build-and-lint, server]
+    strategy:
+      # One OS failing must not hide results from the others
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - name: Checkout
@@ -154,6 +160,9 @@ jobs:
 
       - name: Get pnpm store directory
         id: pnpm-cache
+        # $(...) and $GITHUB_OUTPUT appends are bash-isms; the Windows default
+        # shell is pwsh, so pin bash for a portable step.
+        shell: bash
         run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
 
       - name: Cache pnpm store
@@ -164,6 +173,26 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pnpm-
 
+      - name: Get Playwright browser cache directory
+        id: playwright-cache
+        shell: bash
+        # Default per-OS browser paths: https://playwright.dev/docs/browsers
+        run: |
+          case "$RUNNER_OS" in
+            Linux)   echo "PLAYWRIGHT_CACHE=$HOME/.cache/ms-playwright" >> $GITHUB_OUTPUT ;;
+            macOS)   echo "PLAYWRIGHT_CACHE=$HOME/Library/Caches/ms-playwright" >> $GITHUB_OUTPUT ;;
+            Windows) echo "PLAYWRIGHT_CACHE=$LOCALAPPDATA/ms-playwright" >> $GITHUB_OUTPUT ;;
+            *)       echo "Unknown RUNNER_OS: $RUNNER_OS" >&2; exit 1 ;;
+          esac
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.playwright-cache.outputs.PLAYWRIGHT_CACHE }}
+          key: ${{ runner.os }}-playwright-${{ hashFiles('client/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
       - name: Install client dependencies
         run: pnpm install --frozen-lockfile
         working-directory: client
@@ -173,6 +202,8 @@ jobs:
         working-directory: server
 
       - name: Install Playwright Chromium
+        # Always run: on a browser-cache hit the download is skipped anyway,
+        # but the Linux system dependencies (--with-deps) still need installing.
         run: pnpm exec playwright install --with-deps chromium
         working-directory: client
 
@@ -181,3 +212,12 @@ jobs:
         working-directory: client
         env:
           NEXT_PUBLIC_SOCKET_URL: http://localhost:3001
+
+      - name: Upload traces and test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-traces-${{ matrix.os }}
+          path: client/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
