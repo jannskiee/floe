@@ -279,6 +279,9 @@ func (a *App) runSend(paths []string, hideIP bool) {
 		vc := verify.Code(local, remote)
 		go runtime.EventsEmit(a.ctx, "send:verify", vc) // off the transfer critical path
 	}
+	if ct, ctErr := conn.ConnectionType(); ctErr == nil {
+		runtime.EventsEmit(a.ctx, "send:route", ct) // "direct" or "relay", best-effort
+	}
 
 	lastEmit := time.Now()
 	onProgress := func(p transfer.Progress) {
@@ -369,6 +372,9 @@ func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool, re
 	if local, remote, fErr := conn.Fingerprints(); fErr == nil {
 		vc := verify.Code(local, remote)
 		go runtime.EventsEmit(a.ctx, "recv:verify", vc) // off the transfer critical path
+	}
+	if ct, ctErr := conn.ConnectionType(); ctErr == nil {
+		runtime.EventsEmit(a.ctx, "recv:route", ct) // "direct" or "relay", best-effort
 	}
 
 	// autoAccept=true: a GUI cannot answer a terminal prompt. The receiver reports

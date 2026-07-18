@@ -437,6 +437,10 @@ function App() {
     // Local transfer history (successful transfers only), newest first.
     const [history, setHistory] = useState<HistEntry[]>(loadHistory);
 
+    // Selected ICE path of the in-flight transfer ('' until known). One transfer
+    // at a time (busy-gated), so a single value covers send and receive.
+    const [route, setRoute] = useState('');
+
     // Live busy flag for the OnFileDrop closure, which is registered once with []
     // deps and would otherwise read a stale `busy`.
     const busyRef = useRef(false);
@@ -483,6 +487,14 @@ function App() {
             setRecvProg(track(recvStart, p));
             if (p.fileName && !recvNamesRef.current.includes(p.fileName)) recvNamesRef.current.push(p.fileName);
         });
+        EventsOn('send:route', (r: string) => {
+            if (sendCancel.current) return;
+            setRoute(r);
+        });
+        EventsOn('recv:route', (r: string) => {
+            if (recvCancel.current) return;
+            setRoute(r);
+        });
         // Native file drop on the whole window (useDropTarget=false). Paths arrive
         // already resolved to absolute paths from the Go side. Registered once, so
         // only refs and functional updates may touch live state here.
@@ -500,6 +512,8 @@ function App() {
             EventsOff('send:done');
             EventsOff('send:error');
             EventsOff('recv:progress');
+            EventsOff('send:route');
+            EventsOff('recv:route');
             OnFileDropOff();
         };
     }, []);
@@ -564,6 +578,7 @@ function App() {
         sendCancel.current = false;
         setSending(true);
         setSendDone(false);
+        setRoute('');
         setSentCount(files.length);
         sentNamesRef.current = files.map((f) => baseName(f) || f);
         setPeerConnected(false);
@@ -590,6 +605,7 @@ function App() {
         setRecvProg(null);
         setRecvDir('');
         setRecvDone(false);
+        setRoute('');
         recvCancel.current = false;
         recvStart.current = null;
         recvNamesRef.current = [];
@@ -626,6 +642,7 @@ function App() {
             setFilesOpen(false);
             setSendStatus('Cancelled.');
         }
+        setRoute('');
         if (receiving) {
             recvCancel.current = true;
             setReceiving(false);
@@ -726,7 +743,7 @@ function App() {
                                 </div>
                                 <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">
                                     <StatusDot className="bg-green-500" pulse={busy}/>
-                                    {busy ? 'Active' : 'Ready'}
+                                    {busy ? (route ? `Active · ${route === 'relay' ? 'Relayed' : 'Direct'}` : 'Active') : 'Ready'}
                                 </div>
                             </div>
 

@@ -301,6 +301,36 @@ func (conn *Connection) Fingerprints() (local, remote string, err error) {
 	return local, remote, nil
 }
 
+// ConnectionType reports the selected ICE path: "relay" when either side of the
+// selected candidate pair is a TURN relay, "direct" otherwise. Only meaningful
+// once the connection is established (call after SetupAsSender/SetupAsReceiver
+// returns); before that it returns an error.
+func (conn *Connection) ConnectionType() (string, error) {
+	sctp := conn.pc.SCTP()
+	if sctp == nil {
+		return "", fmt.Errorf("no SCTP transport")
+	}
+	dtls := sctp.Transport()
+	if dtls == nil {
+		return "", fmt.Errorf("no DTLS transport")
+	}
+	ice := dtls.ICETransport()
+	if ice == nil {
+		return "", fmt.Errorf("no ICE transport")
+	}
+	pair, err := ice.GetSelectedCandidatePair()
+	if err != nil {
+		return "", err
+	}
+	if pair == nil || pair.Local == nil || pair.Remote == nil {
+		return "", fmt.Errorf("no candidate pair selected")
+	}
+	if pair.Local.Typ == webrtc.ICECandidateTypeRelay || pair.Remote.Typ == webrtc.ICECandidateTypeRelay {
+		return "relay", nil
+	}
+	return "direct", nil
+}
+
 // extractFingerprint returns the value of the first "a=fingerprint:" attribute
 // in an SDP (e.g. "sha-256 AB:CD:..."), or "" if absent.
 func extractFingerprint(sdp string) string {

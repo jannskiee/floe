@@ -3,6 +3,8 @@ package peer
 import (
 	"strings"
 	"testing"
+
+	"github.com/pion/webrtc/v4"
 )
 
 // TestPatchMaxMessageSizeInjects verifies the attribute is added after the
@@ -41,5 +43,20 @@ func TestPatchMaxMessageSizeReplaces(t *testing.T) {
 	}
 	if !strings.Contains(got, "a=max-message-size:1073741824") {
 		t.Errorf("max-message-size not set to 1 GB:\n%s", got)
+	}
+}
+
+// TestConnectionTypeUnconnected verifies ConnectionType errors cleanly (no
+// panic) on a peer connection that never negotiated a candidate pair.
+func TestConnectionTypeUnconnected(t *testing.T) {
+	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatalf("NewPeerConnection: %v", err)
+	}
+	defer pc.Close()
+
+	conn := &Connection{pc: pc}
+	if _, err := conn.ConnectionType(); err == nil {
+		t.Fatal("expected an error before a candidate pair is selected, got nil")
 	}
 }
