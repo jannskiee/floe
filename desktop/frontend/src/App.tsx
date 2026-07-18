@@ -561,7 +561,7 @@ function App() {
             onClick={() => setMode(m)}
             className={cn(
                 'border-b-2 px-3 pb-1 font-mono text-[11px] uppercase tracking-[0.2em] transition-colors',
-                mode === m ? 'border-ice text-zinc-100' : 'border-transparent text-zinc-600 hover:text-zinc-400',
+                mode === m ? 'border-white text-zinc-100' : 'border-transparent text-zinc-600 hover:text-zinc-400',
             )}
         >
             {label}
