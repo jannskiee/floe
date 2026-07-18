@@ -80,7 +80,13 @@ export default defineConfig({
             reuseExistingServer: true,
             timeout: 120_000,
             env: {
-                NEXT_PUBLIC_SOCKET_URL: 'http://localhost:3001',
+                // 127.0.0.1 (not localhost) so engine.io-client registers its
+                // window 'offline' listener, which reconnect.spec.ts relies on:
+                // the client hardcodes a skip of that listener for the literal
+                // host "localhost", and setOffline alone never tears down an
+                // established WebSocket. Also the production code path, since
+                // real deployments never use "localhost".
+                NEXT_PUBLIC_SOCKET_URL: 'http://127.0.0.1:3001',
             },
         },
     ],

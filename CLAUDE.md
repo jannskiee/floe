@@ -69,6 +69,8 @@ NEXT_PUBLIC_SENTRY_DSN=    # optional
 3. Peers exchange WebRTC `signal` messages (offer → answer → ICE candidates) via the server.
 4. Once WebRTC connects, the data channel is used directly (server is out of the loop).
 
+A disconnect removes only that peer from the room (the room is deleted once empty), and browser peers re-send `join-room` automatically after a Socket.IO reconnect until the WebRTC connection is up.
+
 Browser peers communicate via **Socket.IO**; CLI peers communicate via **WebSocket at `/ws`**. Both share the same `rooms` registry on the server (`Map<roomId, [peer, peer]>`), so browser-to-CLI transfers work transparently.
 
 ### Transfer Protocol Versioning

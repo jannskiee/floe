@@ -211,7 +211,9 @@ jobs:
         run: pnpm exec playwright test
         working-directory: client
         env:
-          NEXT_PUBLIC_SOCKET_URL: http://localhost:3001
+          # 127.0.0.1, not localhost: see the webServer env note in
+          # client/playwright.config.ts (its env overrides this line anyway).
+          NEXT_PUBLIC_SOCKET_URL: http://127.0.0.1:3001
 
       - name: Upload traces and test results on failure
         if: failure()
@@ -310,7 +312,9 @@ jobs:
       - name: Run back-compat E2E tests
         working-directory: client
         env:
-          NEXT_PUBLIC_SOCKET_URL: http://localhost:3001
+          # 127.0.0.1, not localhost: see the webServer env note in
+          # client/playwright.config.ts (its env overrides this line anyway).
+          NEXT_PUBLIC_SOCKET_URL: http://127.0.0.1:3001
         run: |
           # Fail loud if the export above ever regresses; otherwise the spec
           # would skip itself and this job would go green testing nothing.
