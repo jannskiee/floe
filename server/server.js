@@ -499,15 +499,16 @@ function handleDisconnect(peer) {
     const room = rooms.get(peer.roomId);
     if (!room) return;
 
-    // Notify the other peer in the room
-    room.forEach(p => {
-        if (p.id !== peer.id) {
-            p.send('peer-disconnected', {});
-            p.roomId = null;
-        }
-    });
-
-    rooms.delete(peer.roomId);
+    // Remove only the disconnecting peer (same shape as the leave-old-room
+    // block in handleJoinRoom). The remaining peer keeps its seat and roomId,
+    // so the room survives a one-sided drop: the departed side can rejoin the
+    // same room id after a Socket.IO auto-reconnect, and a stale socket's late
+    // ping-timeout disconnect removes just its own ghost entry instead of
+    // tearing down a room the same user has already rejoined.
+    const remaining = room.filter(p => p.id !== peer.id);
+    remaining.forEach(p => p.send('peer-disconnected', {}));
+    if (remaining.length === 0) rooms.delete(peer.roomId);
+    else rooms.set(peer.roomId, remaining);
     peer.roomId = null;
 }
 
