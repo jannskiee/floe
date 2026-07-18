@@ -5,10 +5,16 @@
  * open for a moment, so rmSync may throw EBUSY/EPERM. maxRetries gives the
  * OS time to release the handle; any remaining error is swallowed. A leaked
  * temp directory must never fail an otherwise green suite.
+ *
+ * Self-contained for the same loader reason as global-setup.ts; the
+ * constant mirrors e2e/cli-binary.ts - keep them in sync.
  */
 
 import { rmSync } from 'fs';
-import { CLI_BUILD_DIR } from './helpers';
+import { join } from 'path';
+import { tmpdir } from 'os';
+
+const CLI_BUILD_DIR = join(tmpdir(), 'floe-e2e-cli');
 
 export default function globalTeardown(): void {
     try {

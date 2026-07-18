@@ -15,8 +15,9 @@ import { expect, type Page } from '@playwright/test';
 import { createHash, randomBytes } from 'crypto';
 import { writeFileSync, mkdirSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
-import { tmpdir, platform } from 'os';
 import { spawn, type ChildProcess } from 'child_process';
+
+export { CLI_BUILD_DIR, CLI_BUILD_BINARY } from './cli-binary';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -26,14 +27,6 @@ export const SERVER_URL = 'http://localhost:3001';
 export const WEB_URL = 'http://localhost:3000';
 /** Max time to wait for CLI process output / completion. */
 export const CLI_TIMEOUT_MS = 60_000;
-
-/** Directory the test CLI binary is built into by e2e/global-setup.ts. */
-export const CLI_BUILD_DIR = join(tmpdir(), 'floe-e2e-cli');
-/** Where global-setup builds the binary (only global-setup should write it). */
-export const CLI_BUILD_BINARY = join(
-    CLI_BUILD_DIR,
-    platform() === 'win32' ? 'floe-test.exe' : 'floe-test',
-);
 
 /**
  * Path of the CLI binary built by global-setup. Throws when the suite runs
