@@ -117,7 +117,8 @@ jobs:
         working-directory: cli
 
       - name: Test
-        run: go test ./...
+        # -count=1 bypasses Go's test-result cache so stability re-runs always execute
+        run: go test -count=1 ./...
         working-directory: cli
 
       - name: Build
