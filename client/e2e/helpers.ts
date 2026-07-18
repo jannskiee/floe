@@ -129,8 +129,11 @@ export function spawnSend(path: string, binary: string = cliBinary()): {
 
     const linkPromise = new Promise<string>((resolve, reject) => {
         let stdout = '';
+        let stderr = '';
         const timer = setTimeout(
-            () => reject(new Error(`CLI send did not emit a room link within ${CLI_TIMEOUT_MS} ms`)),
+            () => reject(new Error(
+                `CLI send did not emit a room link within ${CLI_TIMEOUT_MS} ms${tail(stdout, stderr)}`,
+            )),
             CLI_TIMEOUT_MS,
         );
 
@@ -143,12 +146,13 @@ export function spawnSend(path: string, binary: string = cliBinary()): {
                 resolve(match[0].trim());
             }
         });
+        proc.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
 
         proc.on('error', (err) => { clearTimeout(timer); reject(err); });
         proc.on('close', (code) => {
             if (code !== 0 && code !== null) {
                 clearTimeout(timer);
-                reject(new Error(`floe send exited with code ${code}`));
+                reject(new Error(`floe send exited with code ${code}${tail(stdout, stderr)}`));
             }
         });
     });
@@ -173,8 +177,16 @@ export function spawnReceive(link: string, outputDir: string, binary: string = c
             '--no-relay',
         ]);
 
+        let stdout = '';
+        let stderr = '';
+        proc.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+        proc.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+
         const timer = setTimeout(
-            () => { proc.kill(); reject(new Error(`floe receive timed out after ${CLI_TIMEOUT_MS} ms`)); },
+            () => {
+                proc.kill();
+                reject(new Error(`floe receive timed out after ${CLI_TIMEOUT_MS} ms${tail(stdout, stderr)}`));
+            },
             CLI_TIMEOUT_MS,
         );
 
@@ -182,9 +194,23 @@ export function spawnReceive(link: string, outputDir: string, binary: string = c
         proc.on('close', (code) => {
             clearTimeout(timer);
             if (code === 0) resolve();
-            else reject(new Error(`floe receive exited with code ${code}`));
+            else reject(new Error(`floe receive exited with code ${code}${tail(stdout, stderr)}`));
         });
     });
+}
+
+/**
+ * Format the tail of a CLI process's output for an error message, so a
+ * failed or timed-out spawn carries the binary's own words instead of just
+ * an exit code. Vital for back-compat runs, where the failing binary may be
+ * a released version whose failure cannot be reproduced from HEAD sources.
+ */
+function tail(stdout: string, stderr: string): string {
+    const clip = (s: string) => s.trim().slice(-500);
+    let out = '';
+    if (stderr.trim()) out += `\nstderr: ${clip(stderr)}`;
+    if (stdout.trim()) out += `\nstdout: ${clip(stdout)}`;
+    return out;
 }
 
 /**
