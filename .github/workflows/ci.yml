@@ -10,6 +10,11 @@ on:
     paths-ignore:
       - 'docs/**'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Cancel superseded runs on PRs; never cancel runs on main
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -17,6 +22,7 @@ jobs:
   build-and-lint:
     name: Build & Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -30,7 +36,8 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 11.1.2
+          # Version comes from packageManager in client/package.json
+          package_json_file: client/package.json
 
       - name: Get pnpm store directory
         id: pnpm-cache
@@ -66,6 +73,7 @@ jobs:
   server:
     name: Server (Node.js)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
@@ -85,8 +93,14 @@ jobs:
         working-directory: server
 
   cli:
-    name: CLI (Go)
-    runs-on: ubuntu-latest
+    name: CLI (Go, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      # One OS failing must not hide results from the others
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - name: Checkout
@@ -113,6 +127,7 @@ jobs:
   e2e:
     name: E2E (browser + CLI interop)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Requires both Go (CLI binary) and Node (server + client + Playwright)
     needs: [cli, build-and-lint, server]
 
@@ -134,7 +149,8 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 11.1.2
+          # Version comes from packageManager in client/package.json
+          package_json_file: client/package.json
 
       - name: Get pnpm store directory
         id: pnpm-cache
