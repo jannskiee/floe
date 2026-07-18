@@ -28,7 +28,18 @@ export default defineConfig({
     projects: [
         {
             name: 'chromium',
-            use: { ...devices['Desktop Chrome'] },
+            use: {
+                ...devices['Desktop Chrome'],
+                // macOS CI runners cannot resolve peer mDNS .local ICE candidates,
+                // so browser-to-browser pairs (both Chromium sides obfuscating
+                // their host IPs) never connect there; CLI pairs are unaffected
+                // because pion publishes real IPs. Expose real host IPs on macOS
+                // only - ubuntu and windows pass with the production
+                // mDNS-obfuscated path and keep covering it.
+                launchOptions: process.platform === 'darwin'
+                    ? { args: ['--disable-features=WebRtcHideLocalIpsWithMdns'] }
+                    : {},
+            },
         },
     ],
     webServer: [
