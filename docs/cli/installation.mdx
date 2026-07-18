@@ -56,7 +56,7 @@ upgrades an existing install in place.
 
     To install a specific version:
     ```bash
-    FLOE_VERSION=v1.2.0 curl -fsSL https://floe.one/install.sh | sh
+    curl -fsSL https://floe.one/install.sh | FLOE_VERSION=v1.2.0 sh
     ```
 
     The script detects your OS and architecture, downloads the correct archive, verifies the
