@@ -12,7 +12,9 @@ import {
     Folder,
     FolderOpen,
     Loader2,
+    QrCode,
     Send,
+    Share2,
     UploadCloud,
     X,
 } from 'lucide-react';
@@ -223,13 +225,15 @@ function FileSummary({files, open, onToggle}: {files: string[]; open: boolean; o
     );
 }
 
-/** SharePanel is the single share surface: code hero + QR + link while waiting
- *  for the receiver, then a slim code row once the transfer starts (rooms are
- *  one-to-one, so the code is consumed the moment the receiver joins). Callers
- *  gate on the link because code registration can fail while the link is always
- *  valid; the code hero simply drops out when the code is empty. */
+/** SharePanel is the single share surface, mirroring the browser's ShareLinkPanel:
+ *  code hero + a [Copy link] [Show QR] [Share] action row while waiting for the
+ *  receiver, then a slim code row once the transfer starts (rooms are one-to-one,
+ *  so the code is consumed the moment the receiver joins). Callers gate on the
+ *  link because code registration can fail while the link is always valid; the
+ *  code hero simply drops out when the code is empty. */
 function SharePanel({code, link, compact}: {code: string; link: string; compact: boolean}) {
     const [copied, setCopied] = useState<'code' | 'link' | null>(null);
+    const [qrOpen, setQrOpen] = useState(false);
     async function copy(kind: 'code' | 'link', text: string) {
         try {
             await navigator.clipboard.writeText(text);
@@ -237,6 +241,15 @@ function SharePanel({code, link, compact}: {code: string; link: string; compact:
             setTimeout(() => setCopied(null), 1500);
         } catch {
             // clipboard unavailable
+        }
+    }
+    // Mirrors the browser's share handler: user-cancel is not an error; anything
+    // else falls back to copying the link.
+    async function share() {
+        try {
+            await navigator.share({url: link});
+        } catch (err) {
+            if ((err as Error).name !== 'AbortError') copy('link', link);
         }
     }
     if (compact) {
@@ -259,33 +272,51 @@ function SharePanel({code, link, compact}: {code: string; link: string; compact:
     return (
         <div className="animate-floe-in space-y-3 rounded-xl border border-white/[0.08] bg-black/40 p-4">
             {code && (
-                <div className="relative text-center">
-                    <button
-                        onClick={() => copy('code', code)}
-                        aria-label="Copy code"
-                        className="absolute -right-1.5 -top-1.5 grid h-7 w-7 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
-                    >
-                        {copied === 'code' ? <Check className="size-3.5 text-green-500"/> : <Copy className="size-3.5"/>}
-                    </button>
+                <div className="text-center">
                     <Eyebrow tone="ice">Room code</Eyebrow>
-                    <div className="mt-1.5 font-mono text-2xl font-semibold tracking-[0.2em] text-white">{code}</div>
+                    <div className="mt-1.5 flex items-center justify-center gap-2">
+                        <span className="font-mono text-2xl font-semibold tracking-[0.2em] text-white">{code}</span>
+                        <button
+                            onClick={() => copy('code', code)}
+                            aria-label="Copy code"
+                            className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
+                        >
+                            {copied === 'code' ? <Check className="size-3.5 text-green-500"/> : <Copy className="size-3.5"/>}
+                        </button>
+                    </div>
                 </div>
             )}
-            <div className="flex justify-center">
-                <div className="rounded-lg bg-white p-2">
-                    <QRCode value={link} size={96} style={{height: 96, width: 96}} fgColor="#09090b" bgColor="#ffffff" level="M"/>
-                </div>
-            </div>
-            <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-zinc-950 py-1.5 pl-3 pr-1">
-                <span className="min-w-0 flex-1 truncate font-mono text-xs text-zinc-400">{link}</span>
-                <button
-                    onClick={() => copy('link', link)}
-                    aria-label="Copy link"
-                    className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
+            <div className="flex gap-2">
+                <Button variant="secondary" className="flex-1" onClick={() => copy('link', link)}>
+                    {copied === 'link'
+                        ? <><Check className="text-green-500"/> <span className="text-green-500">Copied</span></>
+                        : <><Copy/> Copy link</>
+                    }
+                </Button>
+                <Button
+                    variant="secondary"
+                    className={cn('flex-1', qrOpen && 'bg-white/10 text-white')}
+                    onClick={() => setQrOpen((o) => !o)}
+                    aria-pressed={qrOpen}
                 >
-                    {copied === 'link' ? <Check className="size-3.5 text-green-500"/> : <Copy className="size-3.5"/>}
-                </button>
+                    <QrCode/> {qrOpen ? 'Hide QR' : 'Show QR'}
+                </Button>
+                {/* Web Share needs webview support: WebView2 (Windows) does not expose
+                    it today, so this renders only where the API exists — the same
+                    feature gate as the browser app. */}
+                {typeof navigator.share === 'function' && (
+                    <Button variant="secondary" className="flex-1" onClick={share}>
+                        <Share2/> Share
+                    </Button>
+                )}
             </div>
+            {qrOpen && (
+                <div className="animate-floe-in flex justify-center">
+                    <div className="rounded-lg bg-white p-2">
+                        <QRCode value={link} size={128} style={{height: 128, width: 128}} fgColor="#09090b" bgColor="#ffffff" level="M"/>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
