@@ -783,6 +783,9 @@ function App() {
     }
 
     const busy = sending || receiving;
+    // Amber marks anything relay-flavored: a known relayed route, or (before
+    // the route is known / while idle) the Hide-my-IP preference forcing one.
+    const relayTone = route ? route === 'relay' : hideIP;
 
     const modeBtn = (m: Mode, label: string) => (
         <button
@@ -943,9 +946,16 @@ function App() {
                                     {modeBtn('receive', 'Receive')}
                                     {modeBtn('history', 'History')}
                                 </div>
-                                <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                                    <StatusDot className="bg-green-500" pulse={busy}/>
-                                    {busy ? (route ? `Active · ${route === 'relay' ? 'Relayed' : 'Direct'}` : 'Active') : hideIP ? 'Ready · Relay' : 'Ready'}
+                                {/* one-word status; the dot color carries the route (site parity:
+                                    green = direct, amber = relay), details live in the tooltip */}
+                                <div
+                                    title={busy
+                                        ? (route === 'relay' ? 'Relay connection' : route === 'direct' ? 'Direct peer connection' : 'Connecting')
+                                        : hideIP ? 'Hide my IP is on. Transfers go through the relay.' : 'Ready for a transfer'}
+                                    className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500"
+                                >
+                                    <StatusDot className={cn('transition-colors duration-500', relayTone ? 'bg-amber-500' : 'bg-green-500')} pulse={busy}/>
+                                    {busy ? (route ? (route === 'relay' ? 'Relayed' : 'Direct') : 'Active') : 'Ready'}
                                 </div>
                             </div>
 
