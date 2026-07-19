@@ -1242,21 +1242,19 @@ function App() {
                                                 </button>
                                             )}
                                             {confirmClear && (
-                                                <span className="animate-floe-in flex items-center gap-2">
-                                                    <span className="text-xs text-zinc-500">
-                                                        Clear {history.length} {history.length === 1 ? 'entry' : 'entries'}?
-                                                    </span>
+                                                <span className="animate-floe-in flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.2em]">
+                                                    <span className="text-zinc-500">Clear all?</span>
                                                     <button
                                                         onClick={() => { setHistory([]); setConfirmClear(false); }}
-                                                        className="rounded-md border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/20"
+                                                        className="text-red-400 transition-colors hover:text-red-300"
                                                     >
-                                                        Clear
+                                                        Yes
                                                     </button>
                                                     <button
                                                         onClick={() => setConfirmClear(false)}
-                                                        className="rounded-md px-2 py-0.5 text-xs text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-200"
+                                                        className="text-zinc-600 transition-colors hover:text-zinc-300"
                                                     >
-                                                        Cancel
+                                                        No
                                                     </button>
                                                 </span>
                                             )}
