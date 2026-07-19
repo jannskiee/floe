@@ -336,12 +336,12 @@ function FileSummary({files, open, onToggle}: {files: string[]; open: boolean; o
 }
 
 /** SharePanel is the single share surface, mirroring the browser's ShareLinkPanel:
- *  code hero + a [Copy link] [Show QR] [Share] action row while waiting for the
- *  receiver, then a slim code row once the transfer starts (rooms are one-to-one,
- *  so the code is consumed the moment the receiver joins). Callers gate on the
+ *  code hero + a [Copy link] [Show QR] [Share] action row. Shown only while
+ *  waiting for the receiver: rooms are one-to-one, so the code is consumed
+ *  (dead to anyone else) the moment the receiver joins. Callers gate on the
  *  link because code registration can fail while the link is always valid; the
  *  code hero simply drops out when the code is empty. */
-function SharePanel({code, link, compact}: {code: string; link: string; compact: boolean}) {
+function SharePanel({code, link}: {code: string; link: string}) {
     const [copied, setCopied] = useState<'code' | 'link' | null>(null);
     const [qrOpen, setQrOpen] = useState(false);
     async function copy(kind: 'code' | 'link', text: string) {
@@ -361,23 +361,6 @@ function SharePanel({code, link, compact}: {code: string; link: string; compact:
         } catch (err) {
             if ((err as Error).name !== 'AbortError') copy('link', link);
         }
-    }
-    if (compact) {
-        return (
-            <div className="animate-floe-in flex items-center justify-between gap-3 rounded-lg border border-white/[0.08] bg-black/40 py-1.5 pl-3 pr-1">
-                <span className="flex min-w-0 items-baseline gap-2.5">
-                    <Eyebrow className="shrink-0">Code</Eyebrow>
-                    <span className="truncate font-mono text-sm text-zinc-200">{code || link}</span>
-                </span>
-                <button
-                    onClick={() => copy('code', code || link)}
-                    aria-label="Copy code"
-                    className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
-                >
-                    {copied ? <Check className="size-3.5 text-green-500"/> : <Copy className="size-3.5"/>}
-                </button>
-            </div>
-        );
     }
     // Small centered action buttons mirroring the browser ShareLinkPanel's row;
     // raw buttons because their py-1.5/text-xs sizing conflicts with Button's.
@@ -1038,9 +1021,10 @@ function App() {
                                             </Button>
                                         )}
 
-                                        {/* share surface: full while waiting, slim once the receiver joins */}
-                                        {sending && sendLink && (
-                                            <SharePanel code={sendCode} link={sendLink} compact={peerConnected || !!sendProg}/>
+                                        {/* share surface: waiting stage only — the 1:1 room is consumed
+                                            once the receiver joins, so the code is dead from then on */}
+                                        {sending && sendLink && !peerConnected && !sendProg && (
+                                            <SharePanel code={sendCode} link={sendLink}/>
                                         )}
 
                                         {sendProg && <ProgressRow prog={sendProg}/>}
