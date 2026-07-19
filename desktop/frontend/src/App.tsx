@@ -1129,7 +1129,7 @@ function App() {
                                         <div className="space-y-2">
                                             <Eyebrow>Code or link</Eyebrow>
                                             <Input
-                                                placeholder="e.g. olive-tiger-castle"
+                                                placeholder="olive-tiger-castle"
                                                 value={code}
                                                 onChange={(e) => setCode(e.target.value)}
                                                 onKeyDown={(e) => { if (e.key === 'Enter' && !receiving && code.trim()) receive(); }}
@@ -1143,7 +1143,7 @@ function App() {
                                             <div className="flex gap-2">
                                                 <Input
                                                     className="flex-1"
-                                                    placeholder="blank = Downloads"
+                                                    placeholder="Downloads (default)"
                                                     value={output}
                                                     onChange={(e) => setOutput(e.target.value)}
                                                     disabled={receiving}
