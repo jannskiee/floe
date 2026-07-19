@@ -29,3 +29,7 @@ export function SelectFolder() {
 export function StartSend(arg1, arg2) {
   return window['go']['main']['App']['StartSend'](arg1, arg2);
 }
+
+export function StartSendText(arg1, arg2) {
+  return window['go']['main']['App']['StartSendText'](arg1, arg2);
+}

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -188,6 +189,41 @@ func (a *App) StartSend(paths []string, hideIP bool) error {
 		}
 	}
 	go a.runSend(paths, hideIP)
+	return nil
+}
+
+// writeTextTemp writes text to <tempdir>/message.txt and returns the file path
+// plus a cleanup that removes the directory. The fixed inner name is what the
+// receiver sees; the random temp-dir name never crosses the wire.
+func writeTextTemp(text string) (string, func(), error) {
+	dir, err := os.MkdirTemp("", "floe-text-")
+	if err != nil {
+		return "", nil, err
+	}
+	path := filepath.Join(dir, "message.txt")
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		os.RemoveAll(dir)
+		return "", nil, err
+	}
+	return path, func() { os.RemoveAll(dir) }, nil
+}
+
+// StartSendText sends a text note as a message.txt file through the normal send
+// flow. Zero protocol change, so any Floe peer (browser, CLI, desktop) can
+// receive it. The temp file is removed when the transfer goroutine ends,
+// whether it completed, failed, or was cancelled.
+func (a *App) StartSendText(text string, hideIP bool) error {
+	if strings.TrimSpace(text) == "" {
+		return fmt.Errorf("nothing to send")
+	}
+	path, cleanup, err := writeTextTemp(text)
+	if err != nil {
+		return fmt.Errorf("could not stage the text: %w", err)
+	}
+	go func() {
+		defer cleanup()
+		a.runSend([]string{path}, hideIP)
+	}()
 	return nil
 }
 

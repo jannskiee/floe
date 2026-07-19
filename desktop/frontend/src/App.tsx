@@ -1,6 +1,6 @@
 import {useEffect, useRef, useState} from 'react';
 import type {CSSProperties, MutableRefObject} from 'react';
-import {ReceiveByCode, SelectFiles, SelectFolder, OpenFolder, StartSend, CancelTransfer} from "../wailsjs/go/main/App";
+import {ReceiveByCode, SelectFiles, SelectFolder, OpenFolder, StartSend, StartSendText, CancelTransfer} from "../wailsjs/go/main/App";
 import {EventsOn, EventsOff, OnFileDrop, OnFileDropOff, BrowserOpenURL} from "../wailsjs/runtime/runtime";
 import {
     AlertCircle,
@@ -403,6 +403,9 @@ function App() {
 
     // Send state
     const [files, setFiles] = useState<string[]>([]);
+    // What the send view is staging: a file selection or a typed text note.
+    const [sendKind, setSendKind] = useState<'files' | 'text'>('files');
+    const [sendText, setSendText] = useState('');
     const [sendCode, setSendCode] = useState('');
     const [sendLink, setSendLink] = useState('');
     const [sendStatus, setSendStatus] = useState('Select or drag files, then click Send.');
@@ -501,6 +504,7 @@ function App() {
         OnFileDrop((_x, _y, paths) => {
             if (!paths || !paths.length || busyRef.current) return;
             setMode('send');
+            setSendKind('files');
             setFiles((prev) => mergePaths(prev, paths));
             setSendDone(false);
             setSendStatus('');
@@ -571,7 +575,12 @@ function App() {
     }
 
     async function send() {
-        if (!files.length) {
+        if (sendKind === 'text') {
+            if (!sendText.trim()) {
+                setSendStatus('Type some text first.');
+                return;
+            }
+        } else if (!files.length) {
             setSendStatus('Select at least one file first.');
             return;
         }
@@ -579,8 +588,13 @@ function App() {
         setSending(true);
         setSendDone(false);
         setRoute('');
-        setSentCount(files.length);
-        sentNamesRef.current = files.map((f) => baseName(f) || f);
+        if (sendKind === 'text') {
+            setSentCount(1);
+            sentNamesRef.current = ['message.txt'];
+        } else {
+            setSentCount(files.length);
+            sentNamesRef.current = files.map((f) => baseName(f) || f);
+        }
         setPeerConnected(false);
         setFilesOpen(false);
         setSendCode('');
@@ -589,7 +603,8 @@ function App() {
         sendStart.current = null;
         setSendStatus('Setting up...');
         try {
-            await StartSend(files, hideIP);
+            if (sendKind === 'text') await StartSendText(sendText, hideIP);
+            else await StartSend(files, hideIP);
         } catch (e: any) {
             setSendStatus('Error: ' + e);
             setSending(false);
@@ -766,14 +781,44 @@ function App() {
                                 {/* ── SEND VIEW ─────────────────────────────────── */}
                                 {mode === 'send' ? (
                                     <div className="space-y-4">
+                                        {/* what to stage: a file selection or a typed text note */}
+                                        {!sending && (
+                                            <div className="flex gap-4 px-0.5">
+                                                {(['files', 'text'] as const).map((k) => (
+                                                    <button
+                                                        key={k}
+                                                        onClick={() => setSendKind(k)}
+                                                        className={cn(
+                                                            'border-b pb-0.5 font-mono text-[10px] uppercase tracking-[0.2em] transition-colors',
+                                                            sendKind === k ? 'border-white text-zinc-200' : 'border-transparent text-zinc-600 hover:text-zinc-400',
+                                                        )}
+                                                    >
+                                                        {k === 'files' ? 'Files' : 'Text'}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+
                                         {/* selector: full dropzone when empty, slim add-row once files
                                             are picked, hidden entirely while a transfer is in flight */}
-                                        {!sending && (
+                                        {!sending && sendKind === 'files' && (
                                             <Dropzone expanded={!files.length} onPickFiles={pickFiles} onPickFolder={pickSendFolder}/>
                                         )}
 
+                                        {/* text note editor (Ctrl+Enter sends) */}
+                                        {!sending && sendKind === 'text' && (
+                                            <textarea
+                                                value={sendText}
+                                                onChange={(e) => setSendText(e.target.value)}
+                                                onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && sendText.trim() && !busy) send(); }}
+                                                placeholder="Type or paste text to send"
+                                                rows={4}
+                                                className="custom-scrollbar w-full resize-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-zinc-100 outline-none transition-[color,box-shadow] placeholder:text-zinc-500 focus-visible:border-ice/50 focus-visible:ring-[3px] focus-visible:ring-ice/25"
+                                            />
+                                        )}
+
                                         {/* selection: editable list while idle, one-row summary while sending */}
-                                        {files.length > 0 && !sending && (
+                                        {sendKind === 'files' && files.length > 0 && !sending && (
                                             <div className="animate-floe-in space-y-2">
                                                 <div className="flex items-baseline justify-between px-0.5">
                                                     <Eyebrow>Files</Eyebrow>
@@ -785,7 +830,11 @@ function App() {
                                             </div>
                                         )}
                                         {sending && (
-                                            <FileSummary files={files} open={filesOpen} onToggle={() => setFilesOpen((o) => !o)}/>
+                                            <FileSummary
+                                                files={sendKind === 'text' ? ['message.txt'] : files}
+                                                open={filesOpen}
+                                                onToggle={() => setFilesOpen((o) => !o)}
+                                            />
                                         )}
 
                                         {/* action: a stable slot across stages so the button never jumps */}
@@ -794,8 +843,14 @@ function App() {
                                                 <X/> Cancel
                                             </Button>
                                         ) : (
-                                            <Button className="w-full" onClick={send} disabled={busy || !files.length}>
-                                                <Send/> Send{files.length ? ` · ${files.length} ${files.length === 1 ? 'item' : 'items'}` : ''}
+                                            <Button
+                                                className="w-full"
+                                                onClick={send}
+                                                disabled={busy || (sendKind === 'text' ? !sendText.trim() : !files.length)}
+                                            >
+                                                <Send/> {sendKind === 'text'
+                                                    ? 'Send text'
+                                                    : `Send${files.length ? ` · ${files.length} ${files.length === 1 ? 'item' : 'items'}` : ''}`}
                                             </Button>
                                         )}
 

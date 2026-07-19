@@ -14,3 +14,5 @@ export function SelectFiles():Promise<Array<string>>;
 export function SelectFolder():Promise<string>;
 
 export function StartSend(arg1:Array<string>,arg2:boolean):Promise<void>;
+
+export function StartSendText(arg1:string,arg2:boolean):Promise<void>;
