@@ -1,17 +1,20 @@
 import type {CSSProperties} from 'react';
-import {Minus, Square, X} from 'lucide-react';
+import {Minus, Settings, Square, X} from 'lucide-react';
 import {WindowMinimise, WindowToggleMaximise, Quit} from '../../wailsjs/runtime/runtime';
-import {BoltMark} from './ui';
+import {BoltMark, cn} from './ui';
 
 // Wails turns any element with `--wails-draggable: drag` into a window drag
 // handle; children marked `no-drag` (the window controls) stay clickable.
 const drag = {['--wails-draggable' as never]: 'drag'} as CSSProperties;
 const noDrag = {['--wails-draggable' as never]: 'no-drag'} as CSSProperties;
 
-/** TitleBar is the custom frameless chrome: brand lockup on the left, window
- *  controls on the right. The whole strip drags the window; double-click
- *  toggles maximise. */
-export default function TitleBar() {
+/** TitleBar is the custom frameless chrome: brand lockup on the left, app
+ *  settings plus window controls on the right. The whole strip drags the
+ *  window; double-click toggles maximise. */
+export default function TitleBar({onSettings, settingsActive}: {
+    onSettings: () => void;
+    settingsActive: boolean;
+}) {
     return (
         <div
             style={drag}
@@ -25,6 +28,18 @@ export default function TitleBar() {
             </div>
 
             <div style={noDrag} onDoubleClick={(e) => e.stopPropagation()} className="flex items-center">
+                <button
+                    aria-label="Settings"
+                    aria-pressed={settingsActive}
+                    onClick={onSettings}
+                    className={cn(
+                        'grid h-9 w-11 place-items-center transition-colors hover:bg-white/10',
+                        settingsActive ? 'text-zinc-100' : 'text-zinc-500 hover:text-zinc-100',
+                    )}
+                >
+                    <Settings className="size-4"/>
+                </button>
+                <span aria-hidden className="mx-1 h-3.5 w-px bg-white/10"/>
                 <button
                     aria-label="Minimise"
                     onClick={() => WindowMinimise()}

@@ -18,6 +18,7 @@ import {
 import {EventsOn, EventsOff, OnFileDrop, OnFileDropOff, BrowserOpenURL} from "../wailsjs/runtime/runtime";
 import {
     AlertCircle,
+    ArrowLeft,
     Check,
     ChevronDown,
     Copy,
@@ -28,7 +29,6 @@ import {
     Loader2,
     QrCode,
     Send,
-    Settings,
     Share2,
     UploadCloud,
     X,
@@ -38,7 +38,7 @@ import {BoltMark, Button, Eyebrow, Input, StatusDot, cn} from './components/ui';
 import TitleBar from './components/TitleBar';
 import FileIcon from './components/FileIcon';
 
-type Mode = 'send' | 'receive' | 'history' | 'settings';
+type Mode = 'send' | 'receive' | 'history';
 
 // One completed transfer, persisted locally in localStorage['floe:history'].
 interface HistEntry {
@@ -168,35 +168,60 @@ function mergePaths(prev: string[], add: string[]): string[] {
     return out;
 }
 
-/** ToggleRow is the compact checkbox row used for transfer options. */
-function ToggleRow({checked, onChange, label, hint, title}: {
+/** Switch is the settings toggle: a small track/thumb pair driven by an
+ *  sr-only checkbox so keyboard and screen-reader behavior come for free. */
+function Switch({checked, onChange}: {checked: boolean; onChange: (v: boolean) => void}) {
+    return (
+        <span className="relative inline-flex shrink-0">
+            <input
+                type="checkbox"
+                checked={checked}
+                onChange={(e) => onChange(e.target.checked)}
+                className="peer sr-only"
+            />
+            <span
+                className={cn(
+                    'relative h-5 w-9 rounded-full transition-colors peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ice/60',
+                    checked ? 'bg-white' : 'bg-white/10 ring-1 ring-inset ring-white/15',
+                )}
+            >
+                <span
+                    className={cn(
+                        'absolute left-0.5 top-0.5 size-4 rounded-full transition-transform',
+                        checked ? 'translate-x-4 bg-zinc-950' : 'bg-zinc-400',
+                    )}
+                />
+            </span>
+        </span>
+    );
+}
+
+/** SettingRow is one settings entry: stacked label and description with a
+ *  trailing switch, sized so long descriptions wrap instead of truncating. */
+function SettingRow({checked, onChange, label, description}: {
     checked: boolean;
     onChange: (v: boolean) => void;
     label: string;
-    hint: string;
-    title: string;
+    description: string;
 }) {
     return (
-        <label
-            title={title}
-            className="group/toggle flex cursor-pointer select-none items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3"
-        >
-            <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="sr-only"/>
-            <span
-                className={cn(
-                    'flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border transition-all',
-                    checked ? 'border-white bg-white' : 'border-zinc-600 bg-transparent group-hover/toggle:border-zinc-400',
-                )}
-            >
-                {checked && (
-                    <svg viewBox="0 0 10 8" fill="none" className="h-2.5 w-2.5">
-                        <path d="M1 4l2.5 2.5L9 1" stroke="#09090b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                )}
+        <label className="flex cursor-pointer select-none items-center justify-between gap-4 p-3.5">
+            <span className="min-w-0">
+                <span className="block text-sm font-medium text-zinc-200">{label}</span>
+                <span className="mt-0.5 block text-xs leading-relaxed text-zinc-500">{description}</span>
             </span>
-            <span className="text-sm font-medium text-zinc-200">{label}</span>
-            <span className="truncate text-xs text-zinc-500">{hint}</span>
+            <Switch checked={checked} onChange={onChange}/>
         </label>
+    );
+}
+
+/** FooterNote is the reassurance/warning line under the card and the settings
+ *  screen, styled to match the browser transfer card's footer. */
+function FooterNote({busy}: {busy: boolean}) {
+    return (
+        <p className={cn('text-center text-[10px] uppercase leading-relaxed tracking-wide', busy ? 'text-amber-300/80' : 'text-zinc-500')}>
+            {busy ? 'Keep this window open. Closing it cancels the transfer.' : 'End-to-end encrypted. Files are never stored on a server.'}
+        </p>
     );
 }
 
@@ -419,8 +444,8 @@ function App() {
         const m = localStorage.getItem('floe:mode');
         return m === 'send' || m === 'receive' ? m : 'send';
     });
-    // Where the gear button returns to when leaving the settings view.
-    const prevModeRef = useRef<Mode>('send');
+    // Whether the full-screen settings view covers the transfer UI.
+    const [settingsOpen, setSettingsOpen] = useState(false);
     const [hideIP, setHideIP] = useState(() => localStorage.getItem('floe:hideIP') === '1');
 
     // Send state
@@ -482,6 +507,7 @@ function App() {
     // once-registered closures (functional updates + stable setters only).
     function addFiles(paths: string[]) {
         if (!paths || !paths.length || busyRef.current) return;
+        setSettingsOpen(false);
         setMode('send');
         setSendKind('files');
         setFiles((prev) => mergePaths(prev, paths));
@@ -581,13 +607,21 @@ function App() {
 
     // Persist lightweight UI preferences so they survive a relaunch.
     useEffect(() => { localStorage.setItem('floe:hideIP', hideIP ? '1' : '0'); }, [hideIP]);
-    // Persist only the transfer tabs; relaunching into History or Settings would be odd.
-    useEffect(() => { if (mode !== 'history' && mode !== 'settings') localStorage.setItem('floe:mode', mode); }, [mode]);
+    // Persist only the transfer tabs; relaunching into History would be odd.
+    useEffect(() => { if (mode !== 'history') localStorage.setItem('floe:mode', mode); }, [mode]);
     useEffect(() => { localStorage.setItem('floe:history', JSON.stringify(history)); }, [history]);
     useEffect(() => { localStorage.setItem('floe:saveDir', output); }, [output]);
     useEffect(() => { localStorage.setItem('floe:report-stats', reportStats ? '1' : '0'); }, [reportStats]);
 
     useEffect(() => { busyRef.current = sending || receiving; }, [sending, receiving]);
+
+    // Escape closes the settings screen.
+    useEffect(() => {
+        if (!settingsOpen) return;
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSettingsOpen(false); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [settingsOpen]);
 
     async function pickFiles() {
         try {
@@ -727,16 +761,6 @@ function App() {
 
     const busy = sending || receiving;
 
-    // The gear toggles the settings view; leaving returns to the tab it covered.
-    function toggleSettings() {
-        if (mode === 'settings') {
-            setMode(prevModeRef.current);
-        } else {
-            prevModeRef.current = mode;
-            setMode('settings');
-        }
-    }
-
     const modeBtn = (m: Mode, label: string) => (
         <button
             onClick={() => setMode(m)}
@@ -751,8 +775,81 @@ function App() {
 
     return (
         <div className="flex h-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100 selection:bg-ice/20">
-            <TitleBar/>
+            <TitleBar onSettings={() => setSettingsOpen((o) => !o)} settingsActive={settingsOpen}/>
 
+            {settingsOpen ? (
+            /* ── SETTINGS SCREEN ─────────────────────────────────────────── */
+                <div className="flex flex-1 flex-col overflow-hidden">
+                    <div className="custom-scrollbar flex-1 overflow-y-auto">
+                        <div className="mx-auto w-full max-w-lg px-8 py-10">
+                            <div className="flex items-center gap-3">
+                                <button
+                                    aria-label="Back"
+                                    onClick={() => setSettingsOpen(false)}
+                                    className="grid h-7 w-7 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
+                                >
+                                    <ArrowLeft className="size-4"/>
+                                </button>
+                                <h2 className="text-base font-semibold tracking-tight text-white">Settings</h2>
+                            </div>
+
+                            <div className="mt-6 space-y-6">
+                                <section className="space-y-2">
+                                    <Eyebrow>Privacy</Eyebrow>
+                                    <div className="divide-y divide-white/[0.06] rounded-lg border border-white/[0.06] bg-white/[0.02]">
+                                        <SettingRow
+                                            checked={hideIP}
+                                            onChange={setHideIP}
+                                            label="Hide my IP"
+                                            description="Route transfers through the relay so peers never see your IP address. Slower; applies to new transfers."
+                                        />
+                                        <SettingRow
+                                            checked={reportStats}
+                                            onChange={setReportStats}
+                                            label="Contribute to global stats"
+                                            description="After a transfer completes, only the total byte count is added to the public counter on floe.one."
+                                        />
+                                    </div>
+                                </section>
+
+                                {isWindows && (
+                                    <section className="space-y-2">
+                                        <Eyebrow>System</Eyebrow>
+                                        <div className="divide-y divide-white/[0.06] rounded-lg border border-white/[0.06] bg-white/[0.02]">
+                                            <SettingRow
+                                                checked={ctxMenu}
+                                                onChange={toggleCtxMenu}
+                                                label="Right-click menu"
+                                                description="Adds a Send with Floe entry to the Explorer right-click menu for your user account."
+                                            />
+                                        </div>
+                                    </section>
+                                )}
+
+                                <section className="space-y-2">
+                                    <Eyebrow>About</Eyebrow>
+                                    <div className="divide-y divide-white/[0.06] rounded-lg border border-white/[0.06] bg-white/[0.02]">
+                                        <div className="flex items-center justify-between p-3.5">
+                                            <span className="text-sm font-medium text-zinc-200">Version</span>
+                                            <span className="font-mono text-xs text-zinc-500">{appVer || 'dev'}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between p-3.5">
+                                            <span className="text-sm font-medium text-zinc-200">Protocol</span>
+                                            <span className="font-mono text-xs text-zinc-500">{proto ?? '…'}</span>
+                                        </div>
+                                    </div>
+                                </section>
+                            </div>
+                        </div>
+                    </div>
+                    {busy && (
+                        <div className="border-t border-white/[0.06] px-5 py-3">
+                            <FooterNote busy/>
+                        </div>
+                    )}
+                </div>
+
+            ) : (
             <div className="flex flex-1 overflow-hidden">
 
                 {/* ── LEFT RAIL: editorial hero ───────────────────────────────── */}
@@ -823,23 +920,9 @@ function App() {
                                     {modeBtn('receive', 'Receive')}
                                     {modeBtn('history', 'History')}
                                 </div>
-                                <div className="flex items-center gap-3">
-                                    <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                                        <StatusDot className="bg-green-500" pulse={busy}/>
-                                        {busy ? (route ? `Active · ${route === 'relay' ? 'Relayed' : 'Direct'}` : 'Active') : hideIP ? 'Ready · Relay' : 'Ready'}
-                                    </span>
-                                    <button
-                                        onClick={toggleSettings}
-                                        aria-label="Settings"
-                                        aria-pressed={mode === 'settings'}
-                                        title="Settings"
-                                        className={cn(
-                                            'grid h-7 w-7 place-items-center rounded-md transition-colors hover:bg-white/10',
-                                            mode === 'settings' ? 'text-zinc-200' : 'text-zinc-500 hover:text-zinc-300',
-                                        )}
-                                    >
-                                        <Settings className="size-4"/>
-                                    </button>
+                                <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+                                    <StatusDot className="bg-green-500" pulse={busy}/>
+                                    {busy ? (route ? `Active · ${route === 'relay' ? 'Relayed' : 'Direct'}` : 'Active') : hideIP ? 'Ready · Relay' : 'Ready'}
                                 </div>
                             </div>
 
@@ -994,52 +1077,6 @@ function App() {
                                         <StatusLine text={recvStatus} busy={receiving}/>
                                     </div>
 
-                                ) : mode === 'settings' ? (
-                                /* ── SETTINGS VIEW ────────────────────────────── */
-                                    <div className="space-y-4">
-                                        <div className="space-y-2">
-                                            <Eyebrow>Privacy</Eyebrow>
-                                            <ToggleRow
-                                                checked={hideIP}
-                                                onChange={setHideIP}
-                                                label="Hide my IP"
-                                                hint="peers never see your address"
-                                                title="Route transfers through the relay so the other side never sees your IP address. Slower; applies to transfers started after changing it."
-                                            />
-                                            <ToggleRow
-                                                checked={reportStats}
-                                                onChange={setReportStats}
-                                                label="Contribute to global stats"
-                                                hint="adds received bytes to the public counter"
-                                                title="After a transfer completes, only the total byte count is reported to the public homepage counter. File contents and names never leave your devices."
-                                            />
-                                        </div>
-
-                                        {/* system integration (Windows only) */}
-                                        {isWindows && (
-                                            <div className="space-y-2">
-                                                <Eyebrow>System</Eyebrow>
-                                                <ToggleRow
-                                                    checked={ctxMenu}
-                                                    onChange={toggleCtxMenu}
-                                                    label="Right-click menu"
-                                                    hint="adds Send with Floe to Explorer"
-                                                    title="Adds a Send with Floe entry to the Windows Explorer right-click menu for your user account. Toggle off to remove it."
-                                                />
-                                            </div>
-                                        )}
-
-                                        <div className="space-y-2">
-                                            <Eyebrow>About</Eyebrow>
-                                            <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
-                                                <span className="text-sm font-medium text-zinc-200">Floe Desktop</span>
-                                                <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-zinc-600">
-                                                    {appVer || '…'} · protocol {proto ?? '…'}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
-
                                 ) : (
                                 /* ── HISTORY VIEW ─────────────────────────────── */
                                     <div className="space-y-3">
@@ -1093,14 +1130,13 @@ function App() {
 
                             {/* footer note */}
                             <div className="border-t border-white/[0.06] px-5 py-3">
-                                <p className="whitespace-nowrap text-center font-mono text-[10px] uppercase tracking-[0.15em] text-zinc-600">
-                                    {busy ? 'Keep this window open · closing cancels the transfer' : 'End-to-end encrypted · nothing is stored on a server'}
-                                </p>
+                                <FooterNote busy={busy}/>
                             </div>
                         </div>
                     </div>
                 </main>
             </div>
+            )}
         </div>
     );
 }
