@@ -50,6 +50,7 @@ interface HistEntry {
     count: number;
     dir?: string;
     at: number;
+    bytes?: number; // total transferred size; absent on entries from older builds
 }
 
 const HISTORY_CAP = 50;
@@ -69,8 +70,8 @@ function loadHistory(): HistEntry[] {
     }
 }
 
-// fmtWhen renders a history timestamp as "Today · 19:55", "Yesterday · 09:12",
-// or "Jul 19 · 19:55", comparing calendar days (not 24h windows).
+// fmtWhen renders a history timestamp as "Today, 19:55", "Yesterday, 09:12",
+// or "Jul 19, 19:55", comparing calendar days (not 24h windows).
 function fmtWhen(ts: number): string {
     const d = new Date(ts);
     const now = new Date();
@@ -81,7 +82,7 @@ function fmtWhen(ts: number): string {
         `${d.toLocaleString('en', {month: 'short'})} ${d.getDate()}`;
     const hh = String(d.getHours()).padStart(2, '0');
     const mm = String(d.getMinutes()).padStart(2, '0');
-    return `${day} · ${hh}:${mm}`;
+    return `${day}, ${hh}:${mm}`;
 }
 
 interface Prog {
@@ -131,8 +132,8 @@ function track(ref: MutableRefObject<Marker>, p: Prog): {pct: number; label: str
     let label = `${tag}${p.fileName} - ${pct}%  (${fmtBytes(num)} / ${fmtBytes(denom)})`;
     const s = fmtSpeed(speed);
     const e = fmtEta(eta);
-    if (s) label += `  ·  ${s}`;
-    if (e && pct < 100) label += `  ·  ETA ${e}`;
+    if (s) label += `, ${s}`;
+    if (e && pct < 100) label += `, ETA ${e}`;
     return {pct, label};
 }
 
@@ -469,6 +470,9 @@ function App() {
     // Snapshot of the sent file names, readable from the once-registered
     // send:done closure (which must not touch React state directly).
     const sentNamesRef = useRef<string[]>([]);
+    // Total bytes of the in-flight send, harvested from progress events for the
+    // history entry (same once-registered-closure rule: refs only).
+    const sendBytesRef = useRef(0);
 
     // Receive state
     const [code, setCode] = useState('');
@@ -485,11 +489,15 @@ function App() {
     // Receive file names harvested from progress events (the Go throttle always
     // emits each file's final update, so every name is captured).
     const recvNamesRef = useRef<string[]>([]);
+    // Total bytes of the in-flight receive, for the history entry.
+    const recvBytesRef = useRef(0);
 
     // Local transfer history (successful transfers only), newest first.
     const [history, setHistory] = useState<HistEntry[]>(loadHistory);
     // Whether the destructive Clear action is awaiting its inline confirm.
     const [confirmClear, setConfirmClear] = useState(false);
+    // Which history row (keyed `${at}-${i}`) has its file list expanded.
+    const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
     // Selected ICE path of the in-flight transfer ('' until known). One transfer
     // at a time (busy-gated), so a single value covers send and receive.
@@ -546,6 +554,7 @@ function App() {
         });
         EventsOn('send:progress', (p: Prog) => {
             if (sendCancel.current) return;
+            sendBytesRef.current = p.grandTotal || p.totalBytes;
             setSendProg(track(sendStart, p));
             setSendStatus('');
         });
@@ -556,7 +565,7 @@ function App() {
             setSendDone(true);
             setSendStatus('');
             const names = sentNamesRef.current;
-            setHistory((prev) => [{kind: 'send' as const, names, count: names.length, at: Date.now()}, ...prev].slice(0, HISTORY_CAP));
+            setHistory((prev) => [{kind: 'send' as const, names, count: names.length, bytes: sendBytesRef.current || undefined, at: Date.now()}, ...prev].slice(0, HISTORY_CAP));
         });
         EventsOn('send:error', (msg: string) => {
             if (sendCancel.current) return;
@@ -569,6 +578,7 @@ function App() {
         });
         EventsOn('recv:progress', (p: Prog) => {
             if (recvCancel.current) return;
+            recvBytesRef.current = p.grandTotal || p.totalBytes;
             setRecvProg(track(recvStart, p));
             if (p.fileName && !recvNamesRef.current.includes(p.fileName)) recvNamesRef.current.push(p.fileName);
         });
@@ -730,6 +740,7 @@ function App() {
         setSendLink('');
         setSendProg(null);
         sendStart.current = null;
+        sendBytesRef.current = 0;
         setSendStatus('Setting up...');
         try {
             if (sendKind === 'text') await StartSendText(sendText, hideIP);
@@ -753,6 +764,7 @@ function App() {
         recvCancel.current = false;
         recvStart.current = null;
         recvNamesRef.current = [];
+        recvBytesRef.current = 0;
         setRecvStatus('Connecting... keep this window open.');
         try {
             const dir = await ReceiveByCode(code.trim(), output.trim(), hideIP, reportStats);
@@ -761,7 +773,7 @@ function App() {
             setRecvProg(null);
             setRecvStatus('');
             const names = recvNamesRef.current;
-            setHistory((prev) => [{kind: 'recv' as const, names, count: names.length, dir, at: Date.now()}, ...prev].slice(0, HISTORY_CAP));
+            setHistory((prev) => [{kind: 'recv' as const, names, count: names.length, dir, bytes: recvBytesRef.current || undefined, at: Date.now()}, ...prev].slice(0, HISTORY_CAP));
         } catch (e: any) {
             setRecvStatus(recvCancel.current ? 'Cancelled.' : 'Error: ' + e);
         } finally {
@@ -814,6 +826,9 @@ function App() {
         setMode(fresh);
         prevModeRef.current = fresh;
         setConfirmClear(false);
+        setExpandedRow(null);
+        sendBytesRef.current = 0;
+        recvBytesRef.current = 0;
 
         // Send
         setFiles([]);
@@ -1013,7 +1028,7 @@ function App() {
                         >
                             GitHub
                         </button>
-                        <span className="text-zinc-800">·</span>
+                        <span aria-hidden className="h-3 w-px bg-white/10"/>
                         <button
                             onClick={() => BrowserOpenURL('https://docs.floe.one')}
                             className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500 transition-colors hover:text-zinc-300"
@@ -1136,7 +1151,7 @@ function App() {
                                             >
                                                 <Send/> {sendKind === 'text'
                                                     ? 'Send text'
-                                                    : `Send${files.length ? ` · ${files.length} ${files.length === 1 ? 'item' : 'items'}` : ''}`}
+                                                    : `Send${files.length ? ` ${files.length} ${files.length === 1 ? 'item' : 'items'}` : ''}`}
                                             </Button>
                                         )}
 
@@ -1227,19 +1242,21 @@ function App() {
                                                 </button>
                                             )}
                                             {confirmClear && (
-                                                <span className="animate-floe-in flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.2em]">
-                                                    <span className="text-zinc-500">Clear all?</span>
+                                                <span className="animate-floe-in flex items-center gap-2">
+                                                    <span className="text-xs text-zinc-500">
+                                                        Clear {history.length} {history.length === 1 ? 'entry' : 'entries'}?
+                                                    </span>
                                                     <button
                                                         onClick={() => { setHistory([]); setConfirmClear(false); }}
-                                                        className="text-red-400 transition-colors hover:text-red-300"
+                                                        className="rounded-md border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/20"
                                                     >
-                                                        Yes
+                                                        Clear
                                                     </button>
                                                     <button
                                                         onClick={() => setConfirmClear(false)}
-                                                        className="text-zinc-600 transition-colors hover:text-zinc-300"
+                                                        className="rounded-md px-2 py-0.5 text-xs text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-200"
                                                     >
-                                                        No
+                                                        Cancel
                                                     </button>
                                                 </span>
                                             )}
@@ -1248,36 +1265,66 @@ function App() {
                                             <p className="py-8 text-center text-xs text-zinc-500">No transfers yet.</p>
                                         ) : (
                                             <ul className="custom-scrollbar max-h-80 divide-y divide-white/[0.04] overflow-y-auto rounded-lg border border-white/[0.06] bg-white/[0.02]">
-                                                {history.map((h, i) => (
-                                                    <li
-                                                        key={`${h.at}-${i}`}
-                                                        title={h.names.length > 1
-                                                            ? h.names.slice(0, 10).join(', ') + (h.names.length > 10 ? ` +${h.names.length - 10} more` : '')
-                                                            : undefined}
-                                                        className="group flex items-center gap-3 px-3.5 py-2.5 transition-colors hover:bg-white/[0.03]"
-                                                    >
-                                                        {h.kind === 'send'
-                                                            ? <ArrowUpRight className="size-4 shrink-0 text-zinc-500"/>
-                                                            : <ArrowDownLeft className="size-4 shrink-0 text-zinc-500"/>}
-                                                        <span className="min-w-0 flex-1">
-                                                            <span className="block truncate text-sm text-zinc-200">
-                                                                {h.count === 1 ? (h.names[0] || '1 file') : `${h.count} files`}
-                                                            </span>
-                                                            <span className="block text-xs text-zinc-500">
-                                                                {h.kind === 'send' ? 'Sent' : 'Received'} · {fmtWhen(h.at)}
-                                                            </span>
-                                                        </span>
-                                                        {h.kind === 'recv' && h.dir && (
-                                                            <button
-                                                                onClick={() => { OpenFolder(h.dir!).catch(() => {}); }}
-                                                                aria-label="Show in folder"
-                                                                className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-500 opacity-0 transition-[color,background-color,opacity] hover:bg-white/10 hover:text-zinc-200 focus-visible:opacity-100 group-hover:opacity-100"
+                                                {history.map((h, i) => {
+                                                    const key = `${h.at}-${i}`;
+                                                    const multi = h.count > 1;
+                                                    const expanded = expandedRow === key;
+                                                    return (
+                                                        <li key={key} className="group px-3.5 py-2.5 transition-colors hover:bg-white/[0.03]">
+                                                            <div
+                                                                className={cn('flex items-center gap-3', multi && 'cursor-pointer')}
+                                                                onClick={multi ? () => setExpandedRow(expanded ? null : key) : undefined}
                                                             >
-                                                                <FolderOpen className="size-3.5"/>
-                                                            </button>
-                                                        )}
-                                                    </li>
-                                                ))}
+                                                                {h.kind === 'send'
+                                                                    ? <ArrowUpRight className="size-4 shrink-0 text-zinc-500"/>
+                                                                    : <ArrowDownLeft className="size-4 shrink-0 text-zinc-500"/>}
+                                                                <span className="min-w-0 flex-1">
+                                                                    <span className="block truncate text-sm text-zinc-200">
+                                                                        {h.count === 1 ? (h.names[0] || '1 file') : `${h.count} files`}
+                                                                    </span>
+                                                                    <span className="flex items-center gap-2 text-xs text-zinc-500">
+                                                                        <span>{h.kind === 'send' ? 'Sent' : 'Received'}</span>
+                                                                        {h.bytes != null && h.bytes > 0 && <span>{fmtBytes(h.bytes)}</span>}
+                                                                        <span>{fmtWhen(h.at)}</span>
+                                                                    </span>
+                                                                </span>
+                                                                {multi && (
+                                                                    <button
+                                                                        onClick={(e) => { e.stopPropagation(); setExpandedRow(expanded ? null : key); }}
+                                                                        aria-label={expanded ? 'Hide files' : 'Show files'}
+                                                                        aria-expanded={expanded}
+                                                                        className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-600 transition-colors hover:bg-white/10 hover:text-zinc-200"
+                                                                    >
+                                                                        <ChevronDown className={cn('size-3.5 transition-transform', expanded && 'rotate-180')}/>
+                                                                    </button>
+                                                                )}
+                                                                {h.kind === 'recv' && h.dir && (
+                                                                    <button
+                                                                        onClick={(e) => { e.stopPropagation(); OpenFolder(h.dir!).catch(() => {}); }}
+                                                                        aria-label="Show in folder"
+                                                                        className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-500 opacity-0 transition-[color,background-color,opacity] hover:bg-white/10 hover:text-zinc-200 focus-visible:opacity-100 group-hover:opacity-100"
+                                                                    >
+                                                                        <FolderOpen className="size-3.5"/>
+                                                                    </button>
+                                                                )}
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); setHistory((prev) => prev.filter((_, idx) => idx !== i)); }}
+                                                                    aria-label="Remove entry"
+                                                                    className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-500 opacity-0 transition-[color,background-color,opacity] hover:bg-white/10 hover:text-zinc-200 focus-visible:opacity-100 group-hover:opacity-100"
+                                                                >
+                                                                    <X className="size-3.5"/>
+                                                                </button>
+                                                            </div>
+                                                            {expanded && (
+                                                                <ul className="custom-scrollbar mt-2 max-h-32 space-y-1 overflow-y-auto pl-7">
+                                                                    {h.names.map((n, j) => (
+                                                                        <li key={`${key}-${j}`} className="truncate text-xs text-zinc-500">{n}</li>
+                                                                    ))}
+                                                                </ul>
+                                                            )}
+                                                        </li>
+                                                    );
+                                                })}
                                             </ul>
                                         )}
                                     </div>
