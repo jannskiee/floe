@@ -1044,7 +1044,7 @@ function App() {
                                         className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500"
                                     >
                                         <StatusDot className={cn('transition-colors duration-500', relayTone ? 'bg-amber-500' : 'bg-green-500')} pulse={busy}/>
-                                        {busy ? (route ? (route === 'relay' ? 'Relayed' : 'Direct') : 'Active') : 'Ready'}
+                                        {busy ? (route ? (route === 'relay' ? 'Relay' : 'Direct') : 'Active') : 'Ready'}
                                     </span>
                                     <button
                                         onClick={toggleHistory}
