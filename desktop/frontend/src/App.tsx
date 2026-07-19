@@ -529,8 +529,9 @@ function App() {
         try {
             if (v) await EnableContextMenu();
             else await DisableContextMenu();
+            localStorage.setItem('floe:ctx-menu', v ? '1' : '0');
         } catch {
-            setCtxMenu(!v); // revert on failure
+            setCtxMenu(!v); // revert on failure, marker untouched
         }
     }
 
@@ -593,7 +594,20 @@ function App() {
         // Files passed on the command line before the frontend mounted.
         GetPendingFiles().then((paths) => { if (paths && paths.length) addFiles(paths); }).catch(() => {});
         // Whether the Explorer entry is registered (and points at this exe).
-        if (isWindows) ContextMenuEnabled().then(setCtxMenu).catch(() => {});
+        // First run defaults it ON; an explicit user OFF (floe:ctx-menu = '0')
+        // stays off. The auto-enable never writes the marker, so it records
+        // user choice only and the default self-heals if the key vanishes.
+        if (isWindows) {
+            ContextMenuEnabled().then((on) => {
+                if (on) {
+                    setCtxMenu(true);
+                    return;
+                }
+                if (localStorage.getItem('floe:ctx-menu') === null) {
+                    EnableContextMenu().then(() => setCtxMenu(true)).catch(() => {});
+                }
+            }).catch(() => {});
+        }
         return () => {
             EventsOff('send:code');
             EventsOff('send:status');
