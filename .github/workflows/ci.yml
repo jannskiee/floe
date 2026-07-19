@@ -10,6 +10,12 @@ on:
     paths-ignore:
       - 'docs/**'
 
+# Least-privilege default for the GITHUB_TOKEN in every job. The only token
+# use is back-compat's gh release view/download against this repo's public
+# releases, which contents: read covers.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   # Cancel superseded runs on PRs; never cancel runs on main
