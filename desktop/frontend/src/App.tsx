@@ -28,6 +28,7 @@ import {
     Files,
     Folder,
     FolderOpen,
+    History,
     Loader2,
     QrCode,
     Send,
@@ -441,6 +442,8 @@ function App() {
         const m = localStorage.getItem('floe:mode');
         return m === 'send' || m === 'receive' ? m : 'send';
     });
+    // Where the header clock button returns to when leaving the history view.
+    const prevModeRef = useRef<Mode>('send');
     // Whether the full-screen settings view covers the transfer UI.
     const [settingsOpen, setSettingsOpen] = useState(false);
     // Whether the "start over while transferring?" confirm overlay is showing.
@@ -485,6 +488,8 @@ function App() {
 
     // Local transfer history (successful transfers only), newest first.
     const [history, setHistory] = useState<HistEntry[]>(loadHistory);
+    // Whether the destructive Clear action is awaiting its inline confirm.
+    const [confirmClear, setConfirmClear] = useState(false);
 
     // Selected ICE path of the in-flight transfer ('' until known). One transfer
     // at a time (busy-gated), so a single value covers send and receive.
@@ -627,6 +632,9 @@ function App() {
     useEffect(() => { localStorage.setItem('floe:report-stats', reportStats ? '1' : '0'); }, [reportStats]);
 
     useEffect(() => { busyRef.current = sending || receiving; }, [sending, receiving]);
+
+    // Leaving the history view abandons a pending Clear confirmation.
+    useEffect(() => { if (mode !== 'history') setConfirmClear(false); }, [mode]);
 
     // Escape dismisses the confirm overlay first, else the settings screen.
     useEffect(() => {
@@ -801,10 +809,11 @@ function App() {
         CancelTransfer().catch(() => {});
 
         setSettingsOpen(false);
-        setMode(() => {
-            const m = localStorage.getItem('floe:mode');
-            return m === 'send' || m === 'receive' ? m : 'send';
-        });
+        const stored = localStorage.getItem('floe:mode');
+        const fresh = stored === 'send' || stored === 'receive' ? stored : 'send';
+        setMode(fresh);
+        prevModeRef.current = fresh;
+        setConfirmClear(false);
 
         // Send
         setFiles([]);
@@ -855,6 +864,17 @@ function App() {
     // Amber marks anything relay-flavored: a known relayed route, or (before
     // the route is known / while idle) the Hide-my-IP preference forcing one.
     const relayTone = route ? route === 'relay' : hideIP;
+
+    // The header clock toggles the history view; leaving returns to the tab it
+    // covered. The ref never holds 'history' (only set when entering from a tab).
+    function toggleHistory() {
+        if (mode === 'history') {
+            setMode(prevModeRef.current);
+        } else {
+            prevModeRef.current = mode;
+            setMode('history');
+        }
+    }
 
     const modeBtn = (m: Mode, label: string) => (
         <button
@@ -1013,18 +1033,31 @@ function App() {
                                 <div className="flex items-center gap-5">
                                     {modeBtn('send', 'Send')}
                                     {modeBtn('receive', 'Receive')}
-                                    {modeBtn('history', 'History')}
                                 </div>
-                                {/* one-word status; the dot color carries the route (site parity:
-                                    green = direct, amber = relay), details live in the tooltip */}
-                                <div
-                                    title={busy
-                                        ? (route === 'relay' ? 'Relay connection' : route === 'direct' ? 'Direct peer connection' : 'Connecting')
-                                        : hideIP ? 'Hide my IP is on. Transfers go through the relay.' : 'Ready for a transfer'}
-                                    className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500"
-                                >
-                                    <StatusDot className={cn('transition-colors duration-500', relayTone ? 'bg-amber-500' : 'bg-green-500')} pulse={busy}/>
-                                    {busy ? (route ? (route === 'relay' ? 'Relayed' : 'Direct') : 'Active') : 'Ready'}
+                                <div className="flex items-center gap-3">
+                                    {/* one-word status; the dot color carries the route (site parity:
+                                        green = direct, amber = relay), details live in the tooltip */}
+                                    <span
+                                        title={busy
+                                            ? (route === 'relay' ? 'Relay connection' : route === 'direct' ? 'Direct peer connection' : 'Connecting')
+                                            : hideIP ? 'Hide my IP is on. Transfers go through the relay.' : 'Ready for a transfer'}
+                                        className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500"
+                                    >
+                                        <StatusDot className={cn('transition-colors duration-500', relayTone ? 'bg-amber-500' : 'bg-green-500')} pulse={busy}/>
+                                        {busy ? (route ? (route === 'relay' ? 'Relayed' : 'Direct') : 'Active') : 'Ready'}
+                                    </span>
+                                    <button
+                                        onClick={toggleHistory}
+                                        aria-label="History"
+                                        aria-pressed={mode === 'history'}
+                                        title="History"
+                                        className={cn(
+                                            'grid h-7 w-7 place-items-center rounded-md transition-colors hover:bg-white/10',
+                                            mode === 'history' ? 'text-zinc-100' : 'text-zinc-500 hover:text-zinc-300',
+                                        )}
+                                    >
+                                        <History className="size-4"/>
+                                    </button>
                                 </div>
                             </div>
 
@@ -1185,13 +1218,30 @@ function App() {
                                     <div className="space-y-3">
                                         <div className="flex items-baseline justify-between px-0.5">
                                             <Eyebrow>History</Eyebrow>
-                                            {history.length > 0 && (
+                                            {history.length > 0 && !confirmClear && (
                                                 <button
-                                                    onClick={() => setHistory([])}
+                                                    onClick={() => setConfirmClear(true)}
                                                     className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-600 transition-colors hover:text-zinc-300"
                                                 >
                                                     Clear
                                                 </button>
+                                            )}
+                                            {confirmClear && (
+                                                <span className="animate-floe-in flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.2em]">
+                                                    <span className="text-zinc-500">Clear all?</span>
+                                                    <button
+                                                        onClick={() => { setHistory([]); setConfirmClear(false); }}
+                                                        className="text-red-400 transition-colors hover:text-red-300"
+                                                    >
+                                                        Yes
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setConfirmClear(false)}
+                                                        className="text-zinc-600 transition-colors hover:text-zinc-300"
+                                                    >
+                                                        No
+                                                    </button>
+                                                </span>
                                             )}
                                         </div>
                                         {history.length === 0 ? (
