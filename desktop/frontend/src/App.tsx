@@ -53,6 +53,11 @@ interface HistEntry {
 
 const HISTORY_CAP = 50;
 
+// Initial status lines, shared by the useState initializers and Start-over so
+// a reset lands on the exact same copy a fresh launch shows.
+const INITIAL_SEND_STATUS = 'Select or drag files, then click Send.';
+const INITIAL_RECV_STATUS = 'Enter a code or link, then click Receive.';
+
 function loadHistory(): HistEntry[] {
     // A corrupted store must never break the app; fall back to empty.
     try {
@@ -438,6 +443,8 @@ function App() {
     });
     // Whether the full-screen settings view covers the transfer UI.
     const [settingsOpen, setSettingsOpen] = useState(false);
+    // Whether the "start over while transferring?" confirm overlay is showing.
+    const [confirmReset, setConfirmReset] = useState(false);
     const [hideIP, setHideIP] = useState(() => localStorage.getItem('floe:hideIP') === '1');
 
     // Send state
@@ -447,7 +454,7 @@ function App() {
     const [sendText, setSendText] = useState('');
     const [sendCode, setSendCode] = useState('');
     const [sendLink, setSendLink] = useState('');
-    const [sendStatus, setSendStatus] = useState('Select or drag files, then click Send.');
+    const [sendStatus, setSendStatus] = useState(INITIAL_SEND_STATUS);
     const [sending, setSending] = useState(false);
     const [sendProg, setSendProg] = useState<{pct: number; label: string} | null>(null);
     const [sendDone, setSendDone] = useState(false);
@@ -465,7 +472,7 @@ function App() {
     const [output, setOutput] = useState(() => localStorage.getItem('floe:saveDir') || '');
     // Opt-OUT model like the browser: report unless explicitly disabled.
     const [reportStats, setReportStats] = useState(() => localStorage.getItem('floe:report-stats') !== '0');
-    const [recvStatus, setRecvStatus] = useState('Enter a code or link, then click Receive.');
+    const [recvStatus, setRecvStatus] = useState(INITIAL_RECV_STATUS);
     const [receiving, setReceiving] = useState(false);
     const [recvProg, setRecvProg] = useState<{pct: number; label: string} | null>(null);
     const [recvDir, setRecvDir] = useState('');
@@ -621,13 +628,30 @@ function App() {
 
     useEffect(() => { busyRef.current = sending || receiving; }, [sending, receiving]);
 
-    // Escape closes the settings screen.
+    // Escape dismisses the confirm overlay first, else the settings screen.
     useEffect(() => {
-        if (!settingsOpen) return;
-        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSettingsOpen(false); };
+        if (!settingsOpen && !confirmReset) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key !== 'Escape') return;
+            if (confirmReset) setConfirmReset(false);
+            else setSettingsOpen(false);
+        };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [settingsOpen]);
+    }, [settingsOpen, confirmReset]);
+
+    // Ctrl/Cmd+R starts over (muscle memory for "reload"). preventDefault stops
+    // WebView2 from doing a real reload, which would orphan a running transfer.
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'r' || e.key === 'R')) {
+                e.preventDefault();
+                startOverRef.current();
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, []);
 
     async function pickFiles() {
         try {
@@ -765,6 +789,68 @@ function App() {
         CancelTransfer().catch(() => {});
     }
 
+    // doReset returns the app to its just-launched state: it stands the engine
+    // down (CancelTransfer) and clears every transient field while keeping
+    // persisted preferences (hideIP/reportStats/ctxMenu/saveDir/history), just
+    // like a real relaunch. Cancel refs go true first so late Go events are
+    // swallowed; the next real transfer re-arms them.
+    function doReset() {
+        setConfirmReset(false);
+        sendCancel.current = true;
+        recvCancel.current = true;
+        CancelTransfer().catch(() => {});
+
+        setSettingsOpen(false);
+        setMode(() => {
+            const m = localStorage.getItem('floe:mode');
+            return m === 'send' || m === 'receive' ? m : 'send';
+        });
+
+        // Send
+        setFiles([]);
+        setSendKind('files');
+        setSendText('');
+        setSendCode('');
+        setSendLink('');
+        setSendStatus(INITIAL_SEND_STATUS);
+        setSending(false);
+        setSendProg(null);
+        setSendDone(false);
+        setSentCount(0);
+        setPeerConnected(false);
+        setFilesOpen(false);
+        sendStart.current = null;
+        sentNamesRef.current = [];
+
+        // Receive
+        setCode('');
+        setRecvStatus(INITIAL_RECV_STATUS);
+        setReceiving(false);
+        setRecvProg(null);
+        setRecvDir('');
+        setRecvDone(false);
+        recvStart.current = null;
+        recvNamesRef.current = [];
+
+        setRoute('');
+    }
+
+    // startOver is the Floe-lockup / Ctrl+R action. It confirms first only when
+    // bytes are actively moving, so escaping a stuck (connecting/idle) state is
+    // instant while a real transfer is protected from a fat-finger.
+    function startOver() {
+        if (sendProg || recvProg) {
+            setConfirmReset(true);
+            return;
+        }
+        doReset();
+    }
+
+    // Keep a stable reference to the latest startOver so the once-registered
+    // Ctrl+R listener always sees current progress state without re-binding.
+    const startOverRef = useRef(startOver);
+    startOverRef.current = startOver;
+
     const busy = sending || receiving;
     // Amber marks anything relay-flavored: a known relayed route, or (before
     // the route is known / while idle) the Hide-my-IP preference forcing one.
@@ -784,7 +870,7 @@ function App() {
 
     return (
         <div className="flex h-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100 selection:bg-ice/20">
-            <TitleBar onSettings={() => setSettingsOpen((o) => !o)} settingsActive={settingsOpen}/>
+            <TitleBar onSettings={() => setSettingsOpen((o) => !o)} settingsActive={settingsOpen} onStartOver={startOver}/>
 
             {settingsOpen ? (
             /* ── SETTINGS SCREEN ─────────────────────────────────────────── */
@@ -1156,6 +1242,22 @@ function App() {
                     </div>
                 </main>
             </div>
+            )}
+
+            {/* start-over guard: only shown when a transfer is actively moving
+                bytes, so escaping a stuck state stays one click. Sits below the
+                titlebar so the window controls remain reachable. */}
+            {confirmReset && (
+                <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/60 backdrop-blur-sm">
+                    <div className="animate-floe-in mx-4 w-full max-w-sm rounded-xl border border-white/10 bg-zinc-900 p-5 shadow-2xl">
+                        <h2 className="text-sm font-semibold text-white">Start over?</h2>
+                        <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">A transfer is in progress. Starting over will cancel it.</p>
+                        <div className="mt-4 flex justify-end gap-2">
+                            <Button variant="outline" onClick={() => setConfirmReset(false)}>Keep going</Button>
+                            <Button onClick={doReset}>Start over</Button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

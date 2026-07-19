@@ -11,21 +11,31 @@ const noDrag = {['--wails-draggable' as never]: 'no-drag'} as CSSProperties;
 /** TitleBar is the custom frameless chrome: brand lockup on the left, app
  *  settings plus window controls on the right. The whole strip drags the
  *  window; double-click toggles maximise. */
-export default function TitleBar({onSettings, settingsActive}: {
+export default function TitleBar({onSettings, settingsActive, onStartOver}: {
     onSettings: () => void;
     settingsActive: boolean;
+    onStartOver: () => void;
 }) {
     return (
         <div
             style={drag}
             onDoubleClick={() => WindowToggleMaximise()}
-            className="flex h-9 shrink-0 select-none items-center justify-between border-b border-white/[0.06] bg-zinc-950 pl-3.5"
+            className="flex h-9 shrink-0 select-none items-center justify-between border-b border-white/[0.06] bg-zinc-950 pl-2"
         >
-            <div className="flex items-center gap-2">
+            {/* the brand lockup is a Start-over button: clears a messy state back
+                to a fresh app, mirroring the browser's click-the-logo reset */}
+            <button
+                style={noDrag}
+                onClick={onStartOver}
+                onDoubleClick={(e) => e.stopPropagation()}
+                aria-label="Start over"
+                title="Start over"
+                className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-white/[0.06] focus-visible:outline-2 focus-visible:outline-ice"
+            >
                 <BoltMark className="size-3.5 text-white"/>
                 <span className="text-[13px] font-semibold tracking-tight text-white">Floe</span>
                 <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-600">desktop</span>
-            </div>
+            </button>
 
             <div style={noDrag} onDoubleClick={(e) => e.stopPropagation()} className="flex items-center">
                 <button

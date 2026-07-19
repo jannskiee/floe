@@ -56,3 +56,10 @@ func TestFilterFileArgs(t *testing.T) {
 		t.Errorf("filterFileArgs = %v, want [%s %s]", got, file, dir)
 	}
 }
+
+// TestCancelTransferIdle guards the Start-over path, which calls CancelTransfer
+// unconditionally: with no transfer in flight (nil curSC/curConn) it must be a
+// safe no-op, never a nil-dereference panic.
+func TestCancelTransferIdle(t *testing.T) {
+	(&App{}).CancelTransfer()
+}
