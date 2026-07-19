@@ -18,7 +18,9 @@ import {
 import {EventsOn, EventsOff, OnFileDrop, OnFileDropOff, BrowserOpenURL} from "../wailsjs/runtime/runtime";
 import {
     AlertCircle,
+    ArrowDownLeft,
     ArrowLeft,
+    ArrowUpRight,
     Check,
     ChevronDown,
     Copy,
@@ -61,12 +63,19 @@ function loadHistory(): HistEntry[] {
     }
 }
 
+// fmtWhen renders a history timestamp as "Today · 19:55", "Yesterday · 09:12",
+// or "Jul 19 · 19:55", comparing calendar days (not 24h windows).
 function fmtWhen(ts: number): string {
     const d = new Date(ts);
-    const mon = d.toLocaleString('en', {month: 'short'});
+    const now = new Date();
+    const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    const day =
+        d.toDateString() === now.toDateString() ? 'Today' :
+        d.toDateString() === yesterday.toDateString() ? 'Yesterday' :
+        `${d.toLocaleString('en', {month: 'short'})} ${d.getDate()}`;
     const hh = String(d.getHours()).padStart(2, '0');
     const mm = String(d.getMinutes()).padStart(2, '0');
-    return `${mon} ${d.getDate()} · ${hh}:${mm}`;
+    return `${day} · ${hh}:${mm}`;
 }
 
 interface Prog {
@@ -1092,22 +1101,25 @@ function App() {
                                             )}
                                         </div>
                                         {history.length === 0 ? (
-                                            <p className="py-6 text-center text-xs text-zinc-500">No transfers yet.</p>
+                                            <p className="py-8 text-center text-xs text-zinc-500">No transfers yet.</p>
                                         ) : (
-                                            <ul className="custom-scrollbar max-h-80 space-y-1.5 overflow-y-auto">
+                                            <ul className="custom-scrollbar max-h-80 divide-y divide-white/[0.04] overflow-y-auto rounded-lg border border-white/[0.06] bg-white/[0.02]">
                                                 {history.map((h, i) => (
-                                                    <li key={`${h.at}-${i}`} className="flex items-center gap-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02] py-2 pl-2.5 pr-1">
-                                                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/[0.04] ring-1 ring-inset ring-white/10">
-                                                            {h.kind === 'send'
-                                                                ? <Send className="size-3.5 text-zinc-300"/>
-                                                                : <Download className="size-3.5 text-zinc-300"/>}
-                                                        </span>
+                                                    <li
+                                                        key={`${h.at}-${i}`}
+                                                        title={h.names.length > 1
+                                                            ? h.names.slice(0, 10).join(', ') + (h.names.length > 10 ? ` +${h.names.length - 10} more` : '')
+                                                            : undefined}
+                                                        className="group flex items-center gap-3 px-3.5 py-2.5 transition-colors hover:bg-white/[0.03]"
+                                                    >
+                                                        {h.kind === 'send'
+                                                            ? <ArrowUpRight className="size-4 shrink-0 text-zinc-500"/>
+                                                            : <ArrowDownLeft className="size-4 shrink-0 text-zinc-500"/>}
                                                         <span className="min-w-0 flex-1">
-                                                            <span className="block truncate text-sm text-zinc-300">
-                                                                {h.count} {h.count === 1 ? 'item' : 'items'}
-                                                                {h.names.length > 0 && <span className="text-zinc-500"> · {h.names.join(', ')}</span>}
+                                                            <span className="block truncate text-sm text-zinc-200">
+                                                                {h.count === 1 ? (h.names[0] || '1 file') : `${h.count} files`}
                                                             </span>
-                                                            <span className="block font-mono text-[10px] uppercase tracking-[0.15em] text-zinc-600">
+                                                            <span className="block text-xs text-zinc-500">
                                                                 {h.kind === 'send' ? 'Sent' : 'Received'} · {fmtWhen(h.at)}
                                                             </span>
                                                         </span>
@@ -1115,7 +1127,7 @@ function App() {
                                                             <button
                                                                 onClick={() => { OpenFolder(h.dir!).catch(() => {}); }}
                                                                 aria-label="Show in folder"
-                                                                className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
+                                                                className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-500 opacity-0 transition-[color,background-color,opacity] hover:bg-white/10 hover:text-zinc-200 focus-visible:opacity-100 group-hover:opacity-100"
                                                             >
                                                                 <FolderOpen className="size-3.5"/>
                                                             </button>
