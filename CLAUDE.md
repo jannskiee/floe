@@ -119,9 +119,13 @@ All under `cli/internal/`:
 The docs live in `docs/` (Mintlify), git-synced to `main`, and deploy to docs.floe.one.
 
 - `docs/changelog.mdx` is written by hand; do not auto-generate or restructure it.
-- CI on docs-only changes is skipped via `paths-ignore: docs/**` in `.github/workflows/ci.yml`, so doc-only PRs do not run the client/server/CLI/e2e suite.
+- Docs-only PRs stay fast without dodging branch protection: the `changes` job in `.github/workflows/ci.yml` diffs the PR and, when every changed file is under `docs/`, the heavy jobs skip and the `CI green` check reports success in under a minute, so docs and Mintlify PRs merge quickly without running the client/server/CLI/e2e suite.
 
 Automated doc-maintenance PRs (style, links, SEO) are managed in the Mintlify dashboard. They open PRs against `main`, only edit `docs/**`, and never auto-merge.
+
+## CI
+
+`CI green` is the single required status check on `main`. It is a gate job in `.github/workflows/ci.yml` that needs every other job; any new CI job must be added to its `needs` list or its failures are invisible to branch protection. New or experimental jobs should start OUTSIDE the gate's needs (visible but non-blocking) and be promoted in once stable.
 
 ## Writing Style
 

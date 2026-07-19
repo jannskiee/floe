@@ -3,12 +3,8 @@ name: CI
 on:
   pull_request:
     branches: [main]
-    paths-ignore:
-      - 'docs/**'
   push:
     branches: [main]
-    paths-ignore:
-      - 'docs/**'
 
 # Least-privilege default for the GITHUB_TOKEN in every job. The only token
 # use is back-compat's gh release view/download against this repo's public
@@ -25,10 +21,60 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      # 'true' unless every changed file is under docs/. Negation-based on
+      # purpose: anything not under docs/ counts as code, so a new top-level
+      # file or directory can never silently skip CI.
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # The pull_request checkout is the PR merged into its base; depth 2
+          # brings in both parents so HEAD^1 (the base tip) is diffable.
+          fetch-depth: 2
+
+      - name: Classify changed files
+        id: filter
+        run: |
+          # Push events (main) always run the full suite: main only advances
+          # by PR merge, and a multi-commit (rebase) merge would make a HEAD^1
+          # diff under-classify the push.
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "push event: full suite"
+            exit 0
+          fi
+          # First-parent diff of the merge commit = the PR's effective changes
+          # against the base tip. A bare assignment on purpose: under the
+          # default bash -e shell a failing git diff fails this job, every
+          # heavy job then skips, and the CI green gate goes red (fail
+          # closed). --no-renames lists a rename as delete plus add, so a
+          # file moved between docs/ and code paths always surfaces its code
+          # side.
+          changed="$(git diff --name-only --no-renames HEAD^1 HEAD)"
+          non_docs="$(printf '%s\n' "$changed" | grep -v '^docs/' || true)"
+          if [ -n "$non_docs" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "non-docs changes:"
+            echo "$non_docs"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+            echo "docs-only change: heavy jobs will be skipped"
+          fi
+
   build-and-lint:
     name: Build & Lint
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: [changes]
+    # changes must be listed in needs above, or this expression reads an
+    # empty context, evaluates false, and the job silently never runs again.
+    if: needs.changes.outputs.code == 'true'
 
     steps:
       - name: Checkout
@@ -80,6 +126,8 @@ jobs:
     name: Server (Node.js)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
 
     steps:
       - name: Checkout
@@ -102,6 +150,8 @@ jobs:
     name: CLI (Go, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     strategy:
       # One OS failing must not hide results from the others
       fail-fast: false
@@ -353,3 +403,32 @@ jobs:
           path: client/test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  ci-green:
+    # The one required status check on main (see the main-protection
+    # ruleset). DO NOT rename this job or its name without updating the
+    # ruleset first: the ruleset matches the check by the name string
+    # "CI green", and after a rename every PR would block on a check that
+    # never reports again.
+    name: CI green
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Every job in this workflow must be listed here, or its failure is
+    # invisible to branch protection. if: always() is load-bearing and must
+    # never become !cancelled(): without always() a failed or cancelled
+    # dependency would skip this job, and GitHub counts a skipped required
+    # check as passing.
+    needs: [changes, build-and-lint, server, cli, e2e, back-compat]
+    if: always()
+    steps:
+      - name: Report dependency results
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: echo "$NEEDS_JSON"
+
+      - name: Fail if any dependency failed or was cancelled
+        # Skipped is a pass on purpose: docs-only PRs skip the heavy jobs.
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "A required job failed or was cancelled; see the results above."
+          exit 1
