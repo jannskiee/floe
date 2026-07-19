@@ -30,6 +30,9 @@ jobs:
       # purpose: anything not under docs/ counts as code, so a new top-level
       # file or directory can never silently skip CI.
       code: ${{ steps.filter.outputs.code }}
+      # 'true' when any changed file is under .github/workflows/. Gates the
+      # actionlint job; push events always report true, same as code.
+      workflows: ${{ steps.filter.outputs.workflows }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -47,6 +50,7 @@ jobs:
           # diff under-classify the push.
           if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
             echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "workflows=true" >> "$GITHUB_OUTPUT"
             echo "push event: full suite"
             exit 0
           fi
@@ -67,6 +71,50 @@ jobs:
             echo "code=false" >> "$GITHUB_OUTPUT"
             echo "docs-only change: heavy jobs will be skipped"
           fi
+          # Same diff, second classification: workflow edits gate actionlint.
+          workflow_files="$(printf '%s\n' "$changed" | grep '^\.github/workflows/' || true)"
+          if [ -n "$workflow_files" ]; then
+            echo "workflows=true" >> "$GITHUB_OUTPUT"
+            echo "workflow changes:"
+            echo "$workflow_files"
+          else
+            echo "workflows=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  actionlint:
+    name: Lint workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [changes]
+    # Runs only when workflow files changed; the gate counts the skip as a
+    # pass, same as the docs fast path.
+    if: needs.changes.outputs.workflows == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Download actionlint
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Pinned release verified against a hardcoded digest, extending the
+          # commit-SHA pin philosophy to this download (the checksums file
+          # shipped with a release would match a compromised release). Bump
+          # version and hash together, deliberately.
+          ACTIONLINT_VERSION: v1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          gh release download "$ACTIONLINT_VERSION" --repo rhysd/actionlint \
+            --pattern 'actionlint_*_linux_amd64.tar.gz'
+          echo "$ACTIONLINT_SHA256  actionlint_${ACTIONLINT_VERSION#v}_linux_amd64.tar.gz" | sha256sum --check
+          tar -xzf actionlint_*_linux_amd64.tar.gz actionlint
+          chmod +x actionlint
+
+      - name: Lint workflows
+        # Zero ignore flags on purpose: the tree lints clean after the
+        # quoting fixes and must stay clean.
+        run: ./actionlint -color
 
   build-and-lint:
     name: Build & Lint
@@ -429,7 +477,7 @@ jobs:
     # never become !cancelled(): without always() a failed or cancelled
     # dependency would skip this job, and GitHub counts a skipped required
     # check as passing.
-    needs: [changes, build-and-lint, server, cli, e2e, back-compat]
+    needs: [changes, actionlint, build-and-lint, server, cli, e2e, back-compat]
     if: always()
     steps:
       - name: Report dependency results

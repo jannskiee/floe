@@ -125,7 +125,7 @@ Automated doc-maintenance PRs (style, links, SEO) are managed in the Mintlify da
 
 ## CI
 
-`CI green` is the single required status check on `main`. It is a gate job in `.github/workflows/ci.yml` that needs every other job; any new CI job must be added to its `needs` list or its failures are invisible to branch protection. New or experimental jobs should start OUTSIDE the gate's needs (visible but non-blocking) and be promoted in once stable.
+`CI green` is the single required status check on `main`. It is a gate job in `.github/workflows/ci.yml` that needs every other job; any new CI job must be added to its `needs` list or its failures are invisible to branch protection. New or experimental jobs should start OUTSIDE the gate's needs (visible but non-blocking) and be promoted in once stable. Deterministic linters (for example actionlint) are the exception and may enter the gate's `needs` immediately: their failures are reproducible locally, and their whole purpose is to block broken workflow edits, which a soak period outside the gate would defeat.
 
 ## Writing Style
 
