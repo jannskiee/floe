@@ -158,6 +158,11 @@ func (a *App) EngineProtocolVersion() int {
 	return transfer.ProtocolVersion
 }
 
+// GetVersion returns the app's build version string ("dev" for local builds).
+func (a *App) GetVersion() string {
+	return version
+}
+
 // SelectFiles opens a native file picker and returns the chosen absolute paths.
 func (a *App) SelectFiles() ([]string, error) {
 	return runtime.OpenMultipleFilesDialog(a.ctx, runtime.OpenDialogOptions{

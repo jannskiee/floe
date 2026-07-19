@@ -26,6 +26,10 @@ export function GetPendingFiles() {
   return window['go']['main']['App']['GetPendingFiles']();
 }
 
+export function GetVersion() {
+  return window['go']['main']['App']['GetVersion']();
+}
+
 export function OpenFolder(arg1) {
   return window['go']['main']['App']['OpenFolder'](arg1);
 }

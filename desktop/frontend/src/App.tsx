@@ -5,7 +5,9 @@ import {
     ContextMenuEnabled,
     DisableContextMenu,
     EnableContextMenu,
+    EngineProtocolVersion,
     GetPendingFiles,
+    GetVersion,
     OpenFolder,
     ReceiveByCode,
     SelectFiles,
@@ -26,6 +28,7 @@ import {
     Loader2,
     QrCode,
     Send,
+    Settings,
     Share2,
     UploadCloud,
     X,
@@ -35,7 +38,7 @@ import {BoltMark, Button, Eyebrow, Input, StatusDot, cn} from './components/ui';
 import TitleBar from './components/TitleBar';
 import FileIcon from './components/FileIcon';
 
-type Mode = 'send' | 'receive' | 'history';
+type Mode = 'send' | 'receive' | 'history' | 'settings';
 
 // One completed transfer, persisted locally in localStorage['floe:history'].
 interface HistEntry {
@@ -410,7 +413,14 @@ function SharePanel({code, link, compact}: {code: string; link: string; compact:
 }
 
 function App() {
-    const [mode, setMode] = useState<Mode>(() => (localStorage.getItem('floe:mode') as Mode) || 'send');
+    // Only the transfer tabs are ever persisted; anything else in the store
+    // (stale or hand-edited) falls back to Send.
+    const [mode, setMode] = useState<Mode>(() => {
+        const m = localStorage.getItem('floe:mode');
+        return m === 'send' || m === 'receive' ? m : 'send';
+    });
+    // Where the gear button returns to when leaving the settings view.
+    const prevModeRef = useRef<Mode>('send');
     const [hideIP, setHideIP] = useState(() => localStorage.getItem('floe:hideIP') === '1');
 
     // Send state
@@ -462,6 +472,10 @@ function App() {
 
     // Windows Explorer right-click menu registration state.
     const [ctxMenu, setCtxMenu] = useState(false);
+
+    // About row data, fetched once from the Go side.
+    const [appVer, setAppVer] = useState('');
+    const [proto, setProto] = useState<number | null>(null);
 
     // addFiles merges incoming paths into the send selection. Shared by OS
     // drops, second-instance launches, and cold-start args; safe to call from
@@ -559,10 +573,16 @@ function App() {
         };
     }, []);
 
+    // About data: fetched once; failures just leave the placeholders.
+    useEffect(() => {
+        GetVersion().then(setAppVer).catch(() => {});
+        EngineProtocolVersion().then(setProto).catch(() => {});
+    }, []);
+
     // Persist lightweight UI preferences so they survive a relaunch.
     useEffect(() => { localStorage.setItem('floe:hideIP', hideIP ? '1' : '0'); }, [hideIP]);
-    // Persist only the transfer tabs; relaunching into History would be odd.
-    useEffect(() => { if (mode !== 'history') localStorage.setItem('floe:mode', mode); }, [mode]);
+    // Persist only the transfer tabs; relaunching into History or Settings would be odd.
+    useEffect(() => { if (mode !== 'history' && mode !== 'settings') localStorage.setItem('floe:mode', mode); }, [mode]);
     useEffect(() => { localStorage.setItem('floe:history', JSON.stringify(history)); }, [history]);
     useEffect(() => { localStorage.setItem('floe:saveDir', output); }, [output]);
     useEffect(() => { localStorage.setItem('floe:report-stats', reportStats ? '1' : '0'); }, [reportStats]);
@@ -707,6 +727,16 @@ function App() {
 
     const busy = sending || receiving;
 
+    // The gear toggles the settings view; leaving returns to the tab it covered.
+    function toggleSettings() {
+        if (mode === 'settings') {
+            setMode(prevModeRef.current);
+        } else {
+            prevModeRef.current = mode;
+            setMode('settings');
+        }
+    }
+
     const modeBtn = (m: Mode, label: string) => (
         <button
             onClick={() => setMode(m)}
@@ -793,27 +823,28 @@ function App() {
                                     {modeBtn('receive', 'Receive')}
                                     {modeBtn('history', 'History')}
                                 </div>
-                                <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                                    <StatusDot className="bg-green-500" pulse={busy}/>
-                                    {busy ? (route ? `Active · ${route === 'relay' ? 'Relayed' : 'Direct'}` : 'Active') : 'Ready'}
+                                <div className="flex items-center gap-3">
+                                    <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+                                        <StatusDot className="bg-green-500" pulse={busy}/>
+                                        {busy ? (route ? `Active · ${route === 'relay' ? 'Relayed' : 'Direct'}` : 'Active') : hideIP ? 'Ready · Relay' : 'Ready'}
+                                    </span>
+                                    <button
+                                        onClick={toggleSettings}
+                                        aria-label="Settings"
+                                        aria-pressed={mode === 'settings'}
+                                        title="Settings"
+                                        className={cn(
+                                            'grid h-7 w-7 place-items-center rounded-md transition-colors hover:bg-white/10',
+                                            mode === 'settings' ? 'text-zinc-200' : 'text-zinc-500 hover:text-zinc-300',
+                                        )}
+                                    >
+                                        <Settings className="size-4"/>
+                                    </button>
                                 </div>
                             </div>
 
                             {/* body */}
                             <div className="space-y-4 px-5 py-4">
-
-                                {/* Hide my IP (shared by send/receive). Hidden while busy: the flag
-                                    is captured when the transfer starts, so editing it mid-flight
-                                    would be misleading. */}
-                                {!busy && mode !== 'history' && (
-                                    <ToggleRow
-                                        checked={hideIP}
-                                        onChange={setHideIP}
-                                        label="Hide my IP"
-                                        hint="routes through the relay"
-                                        title="Route through the relay so the peer never sees your IP."
-                                    />
-                                )}
 
                                 {/* ── SEND VIEW ─────────────────────────────────── */}
                                 {mode === 'send' ? (
@@ -904,17 +935,6 @@ function App() {
                                             </div>
                                         )}
                                         <StatusLine text={sendStatus} busy={sending}/>
-
-                                        {/* system integration (persistent setting, Windows only) */}
-                                        {!sending && isWindows && (
-                                            <ToggleRow
-                                                checked={ctxMenu}
-                                                onChange={toggleCtxMenu}
-                                                label="Right-click menu"
-                                                hint="adds Send with Floe to Explorer"
-                                                title="Adds a Send with Floe entry to the Windows Explorer right-click menu for your user account. Toggle off to remove it."
-                                            />
-                                        )}
                                     </div>
 
                                 ) : mode === 'receive' ? (
@@ -949,16 +969,6 @@ function App() {
                                             </div>
                                         </div>
 
-                                        {!receiving && (
-                                            <ToggleRow
-                                                checked={reportStats}
-                                                onChange={setReportStats}
-                                                label="Contribute to global stats"
-                                                hint="adds received bytes to the public counter"
-                                                title="After a transfer completes, only the total byte count is reported to the public homepage counter. File contents and names never leave your devices."
-                                            />
-                                        )}
-
                                         {receiving ? (
                                             <Button variant="outline" className="w-full" onClick={cancel}>
                                                 <X/> Cancel
@@ -982,6 +992,52 @@ function App() {
                                             </Button>
                                         )}
                                         <StatusLine text={recvStatus} busy={receiving}/>
+                                    </div>
+
+                                ) : mode === 'settings' ? (
+                                /* ── SETTINGS VIEW ────────────────────────────── */
+                                    <div className="space-y-4">
+                                        <div className="space-y-2">
+                                            <Eyebrow>Privacy</Eyebrow>
+                                            <ToggleRow
+                                                checked={hideIP}
+                                                onChange={setHideIP}
+                                                label="Hide my IP"
+                                                hint="peers never see your address"
+                                                title="Route transfers through the relay so the other side never sees your IP address. Slower; applies to transfers started after changing it."
+                                            />
+                                            <ToggleRow
+                                                checked={reportStats}
+                                                onChange={setReportStats}
+                                                label="Contribute to global stats"
+                                                hint="adds received bytes to the public counter"
+                                                title="After a transfer completes, only the total byte count is reported to the public homepage counter. File contents and names never leave your devices."
+                                            />
+                                        </div>
+
+                                        {/* system integration (Windows only) */}
+                                        {isWindows && (
+                                            <div className="space-y-2">
+                                                <Eyebrow>System</Eyebrow>
+                                                <ToggleRow
+                                                    checked={ctxMenu}
+                                                    onChange={toggleCtxMenu}
+                                                    label="Right-click menu"
+                                                    hint="adds Send with Floe to Explorer"
+                                                    title="Adds a Send with Floe entry to the Windows Explorer right-click menu for your user account. Toggle off to remove it."
+                                                />
+                                            </div>
+                                        )}
+
+                                        <div className="space-y-2">
+                                            <Eyebrow>About</Eyebrow>
+                                            <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+                                                <span className="text-sm font-medium text-zinc-200">Floe Desktop</span>
+                                                <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-zinc-600">
+                                                    {appVer || '…'} · protocol {proto ?? '…'}
+                                                </span>
+                                            </div>
+                                        </div>
                                     </div>
 
                                 ) : (
