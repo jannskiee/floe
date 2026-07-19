@@ -18,9 +18,17 @@ updates:
     commit-message:
       prefix: "chore(deps)"
     groups:
+      # Minor and patch only: a single incompatible major inside a 20-update
+      # group PR blocks every other update in it (day one: the TypeScript
+      # 5 -> 7 bump broke typescript-eslint and poisoned 22 good bumps).
+      # Majors fall out of the group and arrive as individual PRs instead,
+      # each judged on its own by the gated CI.
       npm-deps:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "gomod"
     directory: "/cli"
