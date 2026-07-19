@@ -1,6 +1,18 @@
 import {useEffect, useRef, useState} from 'react';
 import type {CSSProperties, MutableRefObject} from 'react';
-import {ReceiveByCode, SelectFiles, SelectFolder, OpenFolder, StartSend, StartSendText, CancelTransfer} from "../wailsjs/go/main/App";
+import {
+    CancelTransfer,
+    ContextMenuEnabled,
+    DisableContextMenu,
+    EnableContextMenu,
+    GetPendingFiles,
+    OpenFolder,
+    ReceiveByCode,
+    SelectFiles,
+    SelectFolder,
+    StartSend,
+    StartSendText,
+} from "../wailsjs/go/main/App";
 import {EventsOn, EventsOff, OnFileDrop, OnFileDropOff, BrowserOpenURL} from "../wailsjs/runtime/runtime";
 import {
     AlertCircle,
@@ -448,6 +460,31 @@ function App() {
     // deps and would otherwise read a stale `busy`.
     const busyRef = useRef(false);
 
+    // Windows Explorer right-click menu registration state.
+    const [ctxMenu, setCtxMenu] = useState(false);
+
+    // addFiles merges incoming paths into the send selection. Shared by OS
+    // drops, second-instance launches, and cold-start args; safe to call from
+    // once-registered closures (functional updates + stable setters only).
+    function addFiles(paths: string[]) {
+        if (!paths || !paths.length || busyRef.current) return;
+        setMode('send');
+        setSendKind('files');
+        setFiles((prev) => mergePaths(prev, paths));
+        setSendDone(false);
+        setSendStatus('');
+    }
+
+    async function toggleCtxMenu(v: boolean) {
+        setCtxMenu(v);
+        try {
+            if (v) await EnableContextMenu();
+            else await DisableContextMenu();
+        } catch {
+            setCtxMenu(!v); // revert on failure
+        }
+    }
+
     useEffect(() => {
         EventsOn('send:code', (data: {code: string; link: string}) => {
             if (sendCancel.current) return;
@@ -499,16 +536,15 @@ function App() {
             setRoute(r);
         });
         // Native file drop on the whole window (useDropTarget=false). Paths arrive
-        // already resolved to absolute paths from the Go side. Registered once, so
-        // only refs and functional updates may touch live state here.
-        OnFileDrop((_x, _y, paths) => {
-            if (!paths || !paths.length || busyRef.current) return;
-            setMode('send');
-            setSendKind('files');
-            setFiles((prev) => mergePaths(prev, paths));
-            setSendDone(false);
-            setSendStatus('');
-        }, false);
+        // already resolved to absolute paths from the Go side.
+        OnFileDrop((_x, _y, paths) => addFiles(paths), false);
+        // Files forwarded by a second launch (Explorer context menu, drag onto
+        // the exe while running).
+        EventsOn('files:open', (paths: string[]) => addFiles(paths));
+        // Files passed on the command line before the frontend mounted.
+        GetPendingFiles().then((paths) => { if (paths && paths.length) addFiles(paths); }).catch(() => {});
+        // Whether the Explorer entry is registered (and points at this exe).
+        if (isWindows) ContextMenuEnabled().then(setCtxMenu).catch(() => {});
         return () => {
             EventsOff('send:code');
             EventsOff('send:status');
@@ -518,6 +554,7 @@ function App() {
             EventsOff('recv:progress');
             EventsOff('send:route');
             EventsOff('recv:route');
+            EventsOff('files:open');
             OnFileDropOff();
         };
     }, []);
@@ -867,6 +904,17 @@ function App() {
                                             </div>
                                         )}
                                         <StatusLine text={sendStatus} busy={sending}/>
+
+                                        {/* system integration (persistent setting, Windows only) */}
+                                        {!sending && isWindows && (
+                                            <ToggleRow
+                                                checked={ctxMenu}
+                                                onChange={toggleCtxMenu}
+                                                label="Right-click menu"
+                                                hint="adds Send with Floe to Explorer"
+                                                title="Adds a Send with Floe entry to the Windows Explorer right-click menu for your user account. Toggle off to remove it."
+                                            />
+                                        )}
                                     </div>
 
                                 ) : mode === 'receive' ? (

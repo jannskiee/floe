@@ -6,8 +6,24 @@ export function CancelTransfer() {
   return window['go']['main']['App']['CancelTransfer']();
 }
 
+export function ContextMenuEnabled() {
+  return window['go']['main']['App']['ContextMenuEnabled']();
+}
+
+export function DisableContextMenu() {
+  return window['go']['main']['App']['DisableContextMenu']();
+}
+
+export function EnableContextMenu() {
+  return window['go']['main']['App']['EnableContextMenu']();
+}
+
 export function EngineProtocolVersion() {
   return window['go']['main']['App']['EngineProtocolVersion']();
+}
+
+export function GetPendingFiles() {
+  return window['go']['main']['App']['GetPendingFiles']();
 }
 
 export function OpenFolder(arg1) {

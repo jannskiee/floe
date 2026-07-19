@@ -33,3 +33,26 @@ func TestWriteTextTemp(t *testing.T) {
 		t.Errorf("cleanup did not remove the temp dir")
 	}
 }
+
+// TestFilterFileArgs verifies command-line arg filtering keeps only existing
+// files/dirs and drops flags, empties, and stale paths.
+func TestFilterFileArgs(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "a.txt")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := filterFileArgs([]string{
+		file,
+		dir,
+		filepath.Join(dir, "missing.bin"),
+		"--flag",
+		"-v",
+		"",
+	})
+
+	if len(got) != 2 || got[0] != file || got[1] != dir {
+		t.Errorf("filterFileArgs = %v, want [%s %s]", got, file, dir)
+	}
+}

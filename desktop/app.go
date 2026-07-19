@@ -29,6 +29,29 @@ const defaultServer = "https://api.floe.one"
 // webURL is the browser app, used to build the shareable link for a send.
 const webURL = "https://floe.one"
 
+// contextMenuBase is the per-user Explorer context-menu key for all file types.
+const contextMenuBase = `Software\Classes\*\shell\Floe`
+
+// expectedCommand is the context-menu launch command for the given executable.
+func expectedCommand(exe string) string {
+	return fmt.Sprintf(`"%s" "%%1"`, exe)
+}
+
+// filterFileArgs keeps only arguments that point at an existing file or
+// directory, dropping flags, empty strings, and stale paths.
+func filterFileArgs(args []string) []string {
+	var out []string
+	for _, arg := range args {
+		if arg == "" || strings.HasPrefix(arg, "-") {
+			continue
+		}
+		if _, err := os.Stat(arg); err == nil {
+			out = append(out, arg)
+		}
+	}
+	return out
+}
+
 // App struct
 type App struct {
 	ctx context.Context
@@ -39,6 +62,10 @@ type App struct {
 	mu      sync.Mutex
 	curSC   *signaling.Client
 	curConn *peer.Connection
+
+	// pendingFiles holds file paths passed on the command line (Explorer's
+	// "Send with Floe", drag-onto-exe) until the frontend pulls them.
+	pendingFiles []string
 }
 
 // NewApp creates a new App application struct
@@ -53,13 +80,70 @@ func (a *App) startup(ctx context.Context) {
 	// Best-effort: register the app for OS notifications (sets up the toast
 	// AppUserModelID on Windows). Errors are non-fatal.
 	_ = runtime.InitializeNotifications(ctx)
+
+	// Files passed on the command line are staged for the frontend to pull once
+	// it mounts (pull, not an event: startup runs before listeners exist).
+	a.mu.Lock()
+	a.pendingFiles = filterFileArgs(os.Args[1:])
+	a.mu.Unlock()
+
+	// Best-effort self-heal: if the user enabled the context menu and the exe
+	// has moved since, rewrite the entry to point here.
+	if goruntime.GOOS == "windows" {
+		if exe, err := os.Executable(); err == nil {
+			if cmd, ok := contextMenuCommand(contextMenuBase); ok && cmd != expectedCommand(exe) {
+				_ = registerContextMenu(contextMenuBase, exe)
+			}
+		}
+	}
 }
 
 // onSecondInstanceLaunch fires when Floe is launched again while already running.
-// Rather than open a second window, bring the existing one to the front.
-func (a *App) onSecondInstanceLaunch(_ options.SecondInstanceData) {
+// Rather than open a second window, bring the existing one to the front and
+// forward any file arguments (the Explorer context menu launches one process
+// per selected file; each lands here).
+func (a *App) onSecondInstanceLaunch(data options.SecondInstanceData) {
 	runtime.WindowUnminimise(a.ctx)
 	runtime.WindowShow(a.ctx)
+	if files := filterFileArgs(data.Args); len(files) > 0 {
+		runtime.EventsEmit(a.ctx, "files:open", files)
+	}
+}
+
+// GetPendingFiles returns files passed on the command line and clears them.
+// The frontend calls this once on mount.
+func (a *App) GetPendingFiles() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	p := a.pendingFiles
+	a.pendingFiles = nil
+	return p
+}
+
+// EnableContextMenu adds the "Send with Floe" entry to the Explorer right-click
+// menu for the current user (Windows only).
+func (a *App) EnableContextMenu() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	return registerContextMenu(contextMenuBase, exe)
+}
+
+// DisableContextMenu removes the Explorer entry.
+func (a *App) DisableContextMenu() error {
+	return unregisterContextMenu(contextMenuBase)
+}
+
+// ContextMenuEnabled reports whether the entry exists and points at the current
+// executable; a moved exe reads as disabled until re-enabled.
+func (a *App) ContextMenuEnabled() bool {
+	exe, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	cmd, ok := contextMenuCommand(contextMenuBase)
+	return ok && cmd == expectedCommand(exe)
 }
 
 // notify sends a best-effort OS notification. Failures are ignored so a transfer

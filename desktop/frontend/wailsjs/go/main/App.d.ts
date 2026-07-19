@@ -3,7 +3,15 @@
 
 export function CancelTransfer():Promise<void>;
 
+export function ContextMenuEnabled():Promise<boolean>;
+
+export function DisableContextMenu():Promise<void>;
+
+export function EnableContextMenu():Promise<void>;
+
 export function EngineProtocolVersion():Promise<number>;
+
+export function GetPendingFiles():Promise<Array<string>>;
 
 export function OpenFolder(arg1:string):Promise<void>;
 
