@@ -12,15 +12,15 @@
   "author": "Jan Carlo Paredes",
   "license": "MIT",
   "dependencies": {
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "helmet": "^8.0.0",
+    "helmet": "^8.3.0",
     "socket.io": "^4.8.3",
     "ws": "^8.21.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.11"
+    "nodemon": "^3.1.14"
   },
   "overrides": {
     "ws": "^8.21.0"
