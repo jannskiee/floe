@@ -71,11 +71,17 @@ export default defineConfig({
             },
         },
         {
-            command: 'pnpm dev',
+            // CI serves the production build (created by the "Build client
+            // (production)" workflow step): next dev compiles routes on
+            // demand, and on macOS runners that first compile repeatedly
+            // blew the 120s startup budget below. Local runs keep next dev
+            // so the edit-refresh flow is untouched.
+            command: process.env.CI ? 'pnpm start' : 'pnpm dev',
             cwd: __dirname,
             // URL readiness makes Playwright issue a real GET / before tests
-            // start, forcing next dev to compile the home page up front; on the
-            // slow Windows runner that first compile must not eat test timeouts.
+            // start. Under next dev that forces the home page to compile up
+            // front so the first test's timeout never pays for it; under
+            // next start it just confirms the server is routing.
             url: 'http://localhost:3000',
             reuseExistingServer: true,
             timeout: 120_000,
@@ -86,6 +92,11 @@ export default defineConfig({
                 // host "localhost", and setOffline alone never tears down an
                 // established WebSocket. Also the production code path, since
                 // real deployments never use "localhost".
+                // NEXT_PUBLIC_* is inlined at BUILD time, so this value only
+                // takes effect through next dev (local runs). On CI the same
+                // value is baked in by the "Build client (production)" step
+                // and next start ignores this block. reconnect.spec.ts
+                // asserts the effective value at runtime either way.
                 NEXT_PUBLIC_SOCKET_URL: 'http://127.0.0.1:3001',
             },
         },
