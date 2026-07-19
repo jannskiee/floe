@@ -1129,7 +1129,7 @@ function App() {
                                         <div className="space-y-2">
                                             <Eyebrow>Code or link</Eyebrow>
                                             <Input
-                                                placeholder="Paste a code like amber-otter-cloud"
+                                                placeholder="amber-otter-cloud"
                                                 value={code}
                                                 onChange={(e) => setCode(e.target.value)}
                                                 onKeyDown={(e) => { if (e.key === 'Enter' && !receiving && code.trim()) receive(); }}
