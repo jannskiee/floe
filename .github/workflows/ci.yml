@@ -403,3 +403,32 @@ jobs:
           path: client/test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  ci-green:
+    # The one required status check on main (see the main-protection
+    # ruleset). DO NOT rename this job or its name without updating the
+    # ruleset first: the ruleset matches the check by the name string
+    # "CI green", and after a rename every PR would block on a check that
+    # never reports again.
+    name: CI green
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Every job in this workflow must be listed here, or its failure is
+    # invisible to branch protection. if: always() is load-bearing and must
+    # never become !cancelled(): without always() a failed or cancelled
+    # dependency would skip this job, and GitHub counts a skipped required
+    # check as passing.
+    needs: [changes, build-and-lint, server, cli, e2e, back-compat]
+    if: always()
+    steps:
+      - name: Report dependency results
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: echo "$NEEDS_JSON"
+
+      - name: Fail if any dependency failed or was cancelled
+        # Skipped is a pass on purpose: docs-only PRs skip the heavy jobs.
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "A required job failed or was cancelled; see the results above."
+          exit 1
