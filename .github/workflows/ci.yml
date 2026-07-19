@@ -85,7 +85,7 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
         working-directory: server
 
       - name: Test
@@ -198,7 +198,7 @@ jobs:
         working-directory: client
 
       - name: Install server dependencies
-        run: npm install
+        run: npm ci
         working-directory: server
 
       - name: Install Playwright Chromium
@@ -289,7 +289,7 @@ jobs:
         working-directory: client
 
       - name: Install server dependencies
-        run: npm install
+        run: npm ci
         working-directory: server
 
       - name: Install Playwright Chromium
