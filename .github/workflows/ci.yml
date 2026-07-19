@@ -10,6 +10,12 @@ on:
     paths-ignore:
       - 'docs/**'
 
+# Least-privilege default for the GITHUB_TOKEN in every job. The only token
+# use is back-compat's gh release view/download against this repo's public
+# releases, which contents: read covers.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   # Cancel superseded runs on PRs; never cancel runs on main
@@ -85,7 +91,7 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
         working-directory: server
 
       - name: Test
@@ -198,7 +204,7 @@ jobs:
         working-directory: client
 
       - name: Install server dependencies
-        run: npm install
+        run: npm ci
         working-directory: server
 
       - name: Install Playwright Chromium
@@ -207,13 +213,22 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
         working-directory: client
 
-      - name: Run E2E tests (browser + CLI interop)
-        run: pnpm exec playwright test
+      - name: Build client (production)
+        # NEXT_PUBLIC_* is inlined into the bundle at BUILD time by Next.js,
+        # so the socket URL must be set here, not on the test step (next start
+        # never reads it). Each leg builds its own client: build-and-lint
+        # bakes the production https://api.floe.one URL, and a .next built on
+        # one OS is not reused on another.
+        run: pnpm build
         working-directory: client
         env:
           # 127.0.0.1, not localhost: see the webServer env note in
-          # client/playwright.config.ts (its env overrides this line anyway).
+          # client/playwright.config.ts.
           NEXT_PUBLIC_SOCKET_URL: http://127.0.0.1:3001
+
+      - name: Run E2E tests (browser + CLI interop)
+        run: pnpm exec playwright test
+        working-directory: client
 
       - name: Upload traces and test results on failure
         if: failure()
@@ -280,7 +295,7 @@ jobs:
         working-directory: client
 
       - name: Install server dependencies
-        run: npm install
+        run: npm ci
         working-directory: server
 
       - name: Install Playwright Chromium
@@ -288,6 +303,19 @@ jobs:
         # but the Linux system dependencies (--with-deps) still need installing.
         run: pnpm exec playwright install --with-deps chromium
         working-directory: client
+
+      - name: Build client (production)
+        # NEXT_PUBLIC_* is inlined into the bundle at BUILD time by Next.js,
+        # so the socket URL must be set here, not on the test step (next start
+        # never reads it). Each leg builds its own client: build-and-lint
+        # bakes the production https://api.floe.one URL, and a .next built on
+        # one OS is not reused on another.
+        run: pnpm build
+        working-directory: client
+        env:
+          # 127.0.0.1, not localhost: see the webServer env note in
+          # client/playwright.config.ts.
+          NEXT_PUBLIC_SOCKET_URL: http://127.0.0.1:3001
 
       - name: Download latest released CLI
         env:
@@ -311,10 +339,6 @@ jobs:
 
       - name: Run back-compat E2E tests
         working-directory: client
-        env:
-          # 127.0.0.1, not localhost: see the webServer env note in
-          # client/playwright.config.ts (its env overrides this line anyway).
-          NEXT_PUBLIC_SOCKET_URL: http://127.0.0.1:3001
         run: |
           # Fail loud if the export above ever regresses; otherwise the spec
           # would skip itself and this job would go green testing nothing.
