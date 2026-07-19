@@ -30,13 +30,17 @@ jobs:
       # purpose: anything not under docs/ counts as code, so a new top-level
       # file or directory can never silently skip CI.
       code: ${{ steps.filter.outputs.code }}
+      # 'true' when any changed file is under .github/workflows/. Gates the
+      # actionlint job; push events always report true, same as code.
+      workflows: ${{ steps.filter.outputs.workflows }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           # The pull_request checkout is the PR merged into its base; depth 2
           # brings in both parents so HEAD^1 (the base tip) is diffable.
           fetch-depth: 2
+          persist-credentials: false
 
       - name: Classify changed files
         id: filter
@@ -46,6 +50,7 @@ jobs:
           # diff under-classify the push.
           if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
             echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "workflows=true" >> "$GITHUB_OUTPUT"
             echo "push event: full suite"
             exit 0
           fi
@@ -66,6 +71,50 @@ jobs:
             echo "code=false" >> "$GITHUB_OUTPUT"
             echo "docs-only change: heavy jobs will be skipped"
           fi
+          # Same diff, second classification: workflow edits gate actionlint.
+          workflow_files="$(printf '%s\n' "$changed" | grep '^\.github/workflows/' || true)"
+          if [ -n "$workflow_files" ]; then
+            echo "workflows=true" >> "$GITHUB_OUTPUT"
+            echo "workflow changes:"
+            echo "$workflow_files"
+          else
+            echo "workflows=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  actionlint:
+    name: Lint workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [changes]
+    # Runs only when workflow files changed; the gate counts the skip as a
+    # pass, same as the docs fast path.
+    if: needs.changes.outputs.workflows == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Download actionlint
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Pinned release verified against a hardcoded digest, extending the
+          # commit-SHA pin philosophy to this download (the checksums file
+          # shipped with a release would match a compromised release). Bump
+          # version and hash together, deliberately.
+          ACTIONLINT_VERSION: v1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          gh release download "$ACTIONLINT_VERSION" --repo rhysd/actionlint \
+            --pattern 'actionlint_*_linux_amd64.tar.gz'
+          echo "$ACTIONLINT_SHA256  actionlint_${ACTIONLINT_VERSION#v}_linux_amd64.tar.gz" | sha256sum --check
+          tar -xzf actionlint_*_linux_amd64.tar.gz actionlint
+          chmod +x actionlint
+
+      - name: Lint workflows
+        # Zero ignore flags on purpose: the tree lints clean after the
+        # quoting fixes and must stay clean.
+        run: ./actionlint -color
 
   build-and-lint:
     name: Build & Lint
@@ -78,25 +127,27 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
         with:
           # Version comes from packageManager in client/package.json
           package_json_file: client/package.json
 
       - name: Get pnpm store directory
         id: pnpm-cache
-        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
 
       - name: Cache pnpm store
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
           key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
@@ -131,10 +182,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
 
@@ -160,10 +213,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version: '1.25'
           cache-dependency-path: cli/go.sum
@@ -195,21 +250,23 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version: '1.25'
           cache-dependency-path: cli/go.sum
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
         with:
           # Version comes from packageManager in client/package.json
           package_json_file: client/package.json
@@ -219,10 +276,10 @@ jobs:
         # $(...) and $GITHUB_OUTPUT appends are bash-isms; the Windows default
         # shell is pwsh, so pin bash for a portable step.
         shell: bash
-        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
 
       - name: Cache pnpm store
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
           key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
@@ -235,14 +292,14 @@ jobs:
         # Default per-OS browser paths: https://playwright.dev/docs/browsers
         run: |
           case "$RUNNER_OS" in
-            Linux)   echo "PLAYWRIGHT_CACHE=$HOME/.cache/ms-playwright" >> $GITHUB_OUTPUT ;;
-            macOS)   echo "PLAYWRIGHT_CACHE=$HOME/Library/Caches/ms-playwright" >> $GITHUB_OUTPUT ;;
-            Windows) echo "PLAYWRIGHT_CACHE=$LOCALAPPDATA/ms-playwright" >> $GITHUB_OUTPUT ;;
+            Linux)   echo "PLAYWRIGHT_CACHE=$HOME/.cache/ms-playwright" >> "$GITHUB_OUTPUT" ;;
+            macOS)   echo "PLAYWRIGHT_CACHE=$HOME/Library/Caches/ms-playwright" >> "$GITHUB_OUTPUT" ;;
+            Windows) echo "PLAYWRIGHT_CACHE=$LOCALAPPDATA/ms-playwright" >> "$GITHUB_OUTPUT" ;;
             *)       echo "Unknown RUNNER_OS: $RUNNER_OS" >&2; exit 1 ;;
           esac
 
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ steps.playwright-cache.outputs.PLAYWRIGHT_CACHE }}
           key: ${{ runner.os }}-playwright-${{ hashFiles('client/pnpm-lock.yaml') }}
@@ -282,7 +339,7 @@ jobs:
 
       - name: Upload traces and test results on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: e2e-traces-${{ matrix.os }}
           path: client/test-results/
@@ -299,31 +356,33 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version: '1.25'
           cache-dependency-path: cli/go.sum
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
         with:
           # Version comes from packageManager in client/package.json
           package_json_file: client/package.json
 
       - name: Get pnpm store directory
         id: pnpm-cache
-        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
 
       - name: Cache pnpm store
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
           key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
@@ -331,7 +390,7 @@ jobs:
             ${{ runner.os }}-pnpm-
 
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           # Linux-only job, so no per-OS path dance like the e2e matrix; same
           # cache key as the ubuntu e2e leg so this job rides its cache.
@@ -379,7 +438,7 @@ jobs:
           mkdir -p "$dest"
           gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir "$dest" \
             --pattern 'floe_*_linux_amd64.tar.gz' --pattern 'checksums.txt'
-          cd "$dest"
+          cd "$dest" || exit 1
           # checksums.txt covers every asset; verify just the one we fetched.
           sha256sum --check <(grep linux_amd64.tar.gz checksums.txt)
           tar -xzf floe_*_linux_amd64.tar.gz floe
@@ -397,7 +456,7 @@ jobs:
 
       - name: Upload traces and test results on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: back-compat-traces
           path: client/test-results/
@@ -418,7 +477,7 @@ jobs:
     # never become !cancelled(): without always() a failed or cancelled
     # dependency would skip this job, and GitHub counts a skipped required
     # check as passing.
-    needs: [changes, build-and-lint, server, cli, e2e, back-compat]
+    needs: [changes, actionlint, build-and-lint, server, cli, e2e, back-compat]
     if: always()
     steps:
       - name: Report dependency results
