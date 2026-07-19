@@ -37,6 +37,7 @@ jobs:
           # The pull_request checkout is the PR merged into its base; depth 2
           # brings in both parents so HEAD^1 (the base tip) is diffable.
           fetch-depth: 2
+          persist-credentials: false
 
       - name: Classify changed files
         id: filter
@@ -79,6 +80,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -93,7 +96,7 @@ jobs:
 
       - name: Get pnpm store directory
         id: pnpm-cache
-        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
 
       - name: Cache pnpm store
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -132,6 +135,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -161,6 +166,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
@@ -196,6 +203,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
@@ -219,7 +228,7 @@ jobs:
         # $(...) and $GITHUB_OUTPUT appends are bash-isms; the Windows default
         # shell is pwsh, so pin bash for a portable step.
         shell: bash
-        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
 
       - name: Cache pnpm store
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -235,9 +244,9 @@ jobs:
         # Default per-OS browser paths: https://playwright.dev/docs/browsers
         run: |
           case "$RUNNER_OS" in
-            Linux)   echo "PLAYWRIGHT_CACHE=$HOME/.cache/ms-playwright" >> $GITHUB_OUTPUT ;;
-            macOS)   echo "PLAYWRIGHT_CACHE=$HOME/Library/Caches/ms-playwright" >> $GITHUB_OUTPUT ;;
-            Windows) echo "PLAYWRIGHT_CACHE=$LOCALAPPDATA/ms-playwright" >> $GITHUB_OUTPUT ;;
+            Linux)   echo "PLAYWRIGHT_CACHE=$HOME/.cache/ms-playwright" >> "$GITHUB_OUTPUT" ;;
+            macOS)   echo "PLAYWRIGHT_CACHE=$HOME/Library/Caches/ms-playwright" >> "$GITHUB_OUTPUT" ;;
+            Windows) echo "PLAYWRIGHT_CACHE=$LOCALAPPDATA/ms-playwright" >> "$GITHUB_OUTPUT" ;;
             *)       echo "Unknown RUNNER_OS: $RUNNER_OS" >&2; exit 1 ;;
           esac
 
@@ -300,6 +309,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
@@ -320,7 +331,7 @@ jobs:
 
       - name: Get pnpm store directory
         id: pnpm-cache
-        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
 
       - name: Cache pnpm store
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -379,7 +390,7 @@ jobs:
           mkdir -p "$dest"
           gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir "$dest" \
             --pattern 'floe_*_linux_amd64.tar.gz' --pattern 'checksums.txt'
-          cd "$dest"
+          cd "$dest" || exit 1
           # checksums.txt covers every asset; verify just the one we fetched.
           sha256sum --check <(grep linux_amd64.tar.gz checksums.txt)
           tar -xzf floe_*_linux_amd64.tar.gz floe
