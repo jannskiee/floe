@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/binary"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -63,7 +64,9 @@ func parseDropFiles(data []byte) []string {
 // timestamped (like Snipping Tool / ShareX) so repeated pastes are distinct in
 // the send list and do not collide on the receiving end.
 func pastedImageName(t time.Time) string {
-	return "pasted-image-" + t.Format("20060102-150405") + ".png"
+	// Millisecond precision so pastes made within the same second (easy with
+	// paste, unlike a hand-taken screenshot) still get distinct names.
+	return fmt.Sprintf("pasted-image-%s-%03d.png", t.Format("20060102-150405"), t.Nanosecond()/1_000_000)
 }
 
 // writeImageTemp stages pasted image bytes as a timestamped pasted-image PNG

@@ -64,9 +64,9 @@ func TestParseDropFilesMalformed(t *testing.T) {
 
 // TestPastedImageName checks the timestamped, receiver-visible screenshot name.
 func TestPastedImageName(t *testing.T) {
-	ts := time.Date(2026, 7, 20, 21, 30, 45, 0, time.UTC)
-	if got := pastedImageName(ts); got != "pasted-image-20260720-213045.png" {
-		t.Errorf("pastedImageName = %q, want pasted-image-20260720-213045.png", got)
+	ts := time.Date(2026, 7, 20, 21, 30, 45, 146_000_000, time.UTC) // 146 ms
+	if got := pastedImageName(ts); got != "pasted-image-20260720-213045-146.png" {
+		t.Errorf("pastedImageName = %q, want pasted-image-20260720-213045-146.png", got)
 	}
 }
 
