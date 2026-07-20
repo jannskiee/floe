@@ -674,10 +674,12 @@ function App() {
 
     // Ctrl/Cmd+V pastes files (copied in Explorer) or a screenshot into the send
     // list, mirroring drag-drop. Ignored while typing in a field (so pasting a
-    // code or a text note is untouched) and while a transfer is busy.
+    // code or a text note is untouched), while a transfer is busy, and on OS
+    // key-repeat so holding the key pastes once instead of flooding the list.
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if (!((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V'))) return;
+            if (e.repeat) return;
             if (busyRef.current) return;
             const el = document.activeElement as HTMLElement | null;
             if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
