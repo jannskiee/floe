@@ -9,6 +9,7 @@ import {
     GetPendingFiles,
     GetVersion,
     OpenFolder,
+    PasteFiles,
     ReceiveByCode,
     SelectFiles,
     SelectFolder,
@@ -666,6 +667,22 @@ function App() {
                 e.preventDefault();
                 startOverRef.current();
             }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, []);
+
+    // Ctrl/Cmd+V pastes files (copied in Explorer) or a screenshot into the send
+    // list, mirroring drag-drop. Ignored while typing in a field (so pasting a
+    // code or a text note is untouched) and while a transfer is busy.
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (!((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V'))) return;
+            if (busyRef.current) return;
+            const el = document.activeElement as HTMLElement | null;
+            if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+            e.preventDefault();
+            PasteFiles().then((paths) => { if (paths && paths.length) addFiles(paths); }).catch(() => {});
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);

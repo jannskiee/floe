@@ -81,6 +81,9 @@ func (a *App) startup(ctx context.Context) {
 	// AppUserModelID on Windows). Errors are non-fatal.
 	_ = runtime.InitializeNotifications(ctx)
 
+	// Reclaim any pasted-image staging dirs left by a previous run.
+	sweepPasteTemps()
+
 	// Files passed on the command line are staged for the frontend to pull once
 	// it mounts (pull, not an event: startup runs before listeners exist).
 	a.mu.Lock()
@@ -118,6 +121,22 @@ func (a *App) GetPendingFiles() []string {
 	p := a.pendingFiles
 	a.pendingFiles = nil
 	return p
+}
+
+// PasteFiles returns files to send from the OS clipboard for a Ctrl+V paste:
+// file paths copied in Explorer (sent as-is, zero copy), or, failing that, a
+// screenshot / copied image staged as a pasted-image.png temp file. Best-effort
+// and Windows-only today; an empty or non-file clipboard yields nothing.
+func (a *App) PasteFiles() []string {
+	if paths := filterFileArgs(clipboardFilePaths()); len(paths) > 0 {
+		return paths
+	}
+	if png := clipboardImagePNG(); len(png) > 0 {
+		if path, err := writeImageTemp(png); err == nil {
+			return []string{path}
+		}
+	}
+	return nil
 }
 
 // EnableContextMenu adds the "Send with Floe" entry to the Explorer right-click
