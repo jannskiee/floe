@@ -16,7 +16,7 @@ Thank you for your interest in contributing! All contributions are welcome.
 
 Floe has three parts: a **Next.js client**, a **Node.js signaling server**, and a **Go CLI**.
 
-For most contributions (UI, pages, components), you only need to run the client. It connects to the live signaling server at `api.floe.one` by default.
+For most contributions (UI, pages, components), you only need to run the client. Point it at the live signaling server at `api.floe.one` so you do not need to run a server locally.
 
 ### Client Only (Recommended for most contributors)
 
@@ -25,11 +25,12 @@ git clone https://github.com/YOUR_USERNAME/floe.git
 cd floe/client
 
 cp .env.example .env.local
+# In .env.local, set NEXT_PUBLIC_SOCKET_URL=https://api.floe.one
 pnpm install
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The client connects to `api.floe.one` automatically.
+Open [http://localhost:3000](http://localhost:3000). With `NEXT_PUBLIC_SOCKET_URL` set to `https://api.floe.one`, the client uses the live signaling server, so you do not need to run one locally.
 
 ### Client + Server (Only needed if you're changing server code)
 
@@ -43,7 +44,7 @@ npm start
 # Terminal 2 - Client
 cd floe/client
 cp .env.example .env.local
-# Change NEXT_PUBLIC_SOCKET_URL to http://localhost:3001
+# NEXT_PUBLIC_SOCKET_URL is already http://localhost:3001 (the .env.example default)
 pnpm install
 pnpm dev
 ```
@@ -86,7 +87,8 @@ This is aimed at **self-hosting** (running your own instance) rather than active
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `NEXT_PUBLIC_SOCKET_URL` | Yes | Signaling server URL. Defaults to `https://api.floe.one`. No changes needed for UI contributions. |
+| `NEXT_PUBLIC_SOCKET_URL` | Yes | Signaling server URL the browser connects to. `client/.env.example` ships `http://localhost:3001`; for UI-only work set it to `https://api.floe.one` to use the live server without running one locally. |
+| `NEXT_PUBLIC_SITE_URL` | No | Public base URL for canonical links, Open Graph tags, and the sitemap. Defaults to `https://www.floe.one`. Set to your own domain when self-hosting. |
 | `NEXT_PUBLIC_SENTRY_DSN` | No | Your Sentry DSN for client-side error tracking. Leave empty to disable. |
 | `SENTRY_DSN` | No | Your Sentry DSN for server-side error tracking. Leave empty to disable. |
 | `SENTRY_ORG` | No | Your Sentry organization slug. |
@@ -102,8 +104,12 @@ This is aimed at **self-hosting** (running your own instance) rather than active
 | `NODE_ENV` | No | Standard Node.js runtime flag (`development` or `production`). |
 | `TRUSTED_PROXY_COUNT` | No | Trusted reverse-proxy hop count for correct client-IP parsing and rate limiting (default: `1`). Set to `0` for direct exposure with no proxy. |
 | `MAX_CONNECTIONS_PER_IP` | No | Connection rate limit ceiling per IP per 60 seconds (default: `30`). Raise in staging or test environments. |
-| `TURN_SECRET` | No | Shared secret for coturn HMAC credentials. Omit to use STUN-only (direct connections). |
-| `TURN_DOMAIN` | No | Your TURN relay server domain. |
+| `MAX_CODE_REQUESTS_PER_IP` | No | Rate limit for the `/api/code` endpoints per IP per 60 seconds (default: `60`), shared across registering and resolving codes. Raise in CI or staging. |
+| `MAX_ACTIVE_CODES` | No | Maximum number of simultaneously-live room codes (default: `10000`). `POST /api/code` returns `503` when the cap is reached. |
+| `CLOUDFLARE_TURN_KEY_ID` | No | Turn Token ID of a Cloudflare Realtime TURN key. With the API token below, enables managed TURN with no extra infrastructure. Takes precedence over the coturn variables. |
+| `CLOUDFLARE_TURN_KEY_API_TOKEN` | No | API token that pairs with `CLOUDFLARE_TURN_KEY_ID`. Keep it secret. |
+| `TURN_SECRET` | No | Shared secret for self-hosted coturn HMAC credentials, used only when the Cloudflare variables are unset. Omit both options to use STUN-only (direct connections). |
+| `TURN_DOMAIN` | No | Your self-hosted TURN relay server domain. |
 | `UPSTASH_REDIS_REST_URL` | No | Upstash Redis REST URL for the durable global transfer counter. Omit to run the counter in memory only (resets on restart). |
 | `UPSTASH_REDIS_REST_TOKEN` | No | Upstash Redis REST token, paired with the URL above. |
 | `MAX_REPORT_BYTES` | No | Max bytes accepted per `/api/stats/report` call (default: 5 TB). |

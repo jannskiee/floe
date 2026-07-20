@@ -1,6 +1,6 @@
 ---
-title: "Relay Connection"
-description: "How Floe uses a TURN server as an encrypted bridge when a direct connection is not possible."
+title: "TURN Relay Fallback Connection"
+description: "How Floe falls back to a TURN server as an encrypted bridge when strict NAT or firewalls block a direct peer-to-peer WebRTC connection."
 ---
 
 Some networks make it impossible for two devices to connect directly. This happens on strict corporate firewalls, university networks, and when a mobile carrier places many users behind a single shared IP address (carrier-grade NAT). In these cases, a direct path cannot be found and Floe falls back to a relay.
@@ -17,7 +17,7 @@ Some networks make it impossible for two devices to connect directly. This happe
 
 ## TURN fallback
 
-When a direct connection fails, Floe automatically routes through a **TURN server** (`turn.floe.one`). A TURN server acts as a secure bridge. Your data travels through it on the way to the recipient, like a courier carrying a locked box it cannot open.
+When a direct connection fails, Floe automatically routes through a **TURN server** on Cloudflare's global anycast network. A TURN server acts as a secure bridge. Your data travels through it on the way to the recipient, like a courier carrying a locked box it cannot open.
 
 ## Encryption
 
@@ -43,9 +43,9 @@ With relay disabled, the transfer fails if a direct path cannot be established.
 <Accordion title="Technical details">
   **TURN (Traversal Using Relays around NAT):** When ICE negotiation produces only `relay` candidates, both peers connect to the TURN server and the server forwards packets between them. The data is still DTLS-encrypted end-to-end before it reaches the TURN server.
 
-  **Credentials:** The signaling server issues time-limited HMAC-SHA1 credentials for coturn (`username: {expiry}:floeuser`, `password: base64(HMAC-SHA1(secret, username))`). Credentials are valid for 24 hours.
+  **Credentials:** The signaling server mints short-lived credentials from Cloudflare's Realtime TURN service and hands them to peers via `/api/turn-credentials`. Credentials are valid for up to 24 hours. (Self-hosted deployments can instead use coturn with time-limited HMAC-SHA1 credentials; see the self-hosting guide.)
 
-  **Endpoints:** `turn:turn.floe.one:3478` (STUN/TURN over UDP and TCP) and `turns:turn.floe.one:5349` (TURN over TLS).
+  **Endpoints:** the signaling server hands peers a minimal set of three: `stun:stun.cloudflare.com:3478` for address discovery, `turn:turn.cloudflare.com:3478` over UDP as the primary relay path, and `turns:turn.cloudflare.com:443` over TLS as the fallback on networks that block UDP (TLS on port 443 looks like ordinary HTTPS traffic). Cloudflare mints more endpoint variants, but every extra URL multiplies the connection checks each client runs during setup, so the redundant ones are trimmed before serving.
 
   **Relay detection:** The browser polls `RTCStatsReport` every 5 seconds and examines the nominated candidate pair. If either candidate is of type `relay`, the connection indicator shows amber.
 </Accordion>

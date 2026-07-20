@@ -1,6 +1,6 @@
 ---
 title: "Security and Privacy"
-description: "What Floe's servers can and cannot see, and how your files are protected."
+description: "Learn what Floe's signaling server and TURN relay can see, how end-to-end DTLS encryption protects file bytes, and how to opt out of stats."
 ---
 
 ## The short version
@@ -40,9 +40,13 @@ The counter is an honest best-effort metric protected by lightweight guardrails 
 - Browser: uncheck "Contribute to global stats" on the receiver view before the transfer completes. The preference is saved in your browser and applies to all future transfers from that device.
 - CLI: pass `--no-report` to `floe receive` for a single transfer, or set `FLOE_NO_STATS=1` in your environment to opt out permanently. When opted out, no request is made to the server and the counter is not incremented.
 
+## The room secret stays in the URL fragment
+
+Share links use a URL fragment (`https://floe.one/#room=...`), not a query string. The fragment portion of a URL is handled entirely by the browser and is never sent to any server in HTTP requests. As a result, the room secret is not included in `Referer` headers when you click outbound links, is not visible to server access logs, and is not captured by pageview analytics or third-party trackers. The signaling server only sees the room ID after the browser explicitly joins the room over the WebSocket, and even then, file bytes never reach the server.
+
 ## What the TURN relay sees
 
-When a direct connection cannot be established (strict firewalls, carrier-grade NAT), Floe routes traffic through a TURN relay server. The relay server acts as a forwarding intermediary.
+When a direct connection cannot be established (strict firewalls, carrier-grade NAT), Floe routes traffic through a TURN relay server. The relay server acts as a forwarding intermediary. On floe.one, the relay is Cloudflare's Realtime TURN network; self-hosted instances can run their own coturn relay instead.
 
 The relay sees: encrypted DTLS packets.
 
@@ -58,7 +62,7 @@ Key properties:
 - Encryption keys are generated uniquely for each transfer session.
 - Keys exist only on the two devices involved. There is no central key server.
 - Keys are ephemeral. They are discarded when the connection closes and cannot be recovered.
-- The signaling server exchanges certificate fingerprints during negotiation, so a compromised signaling channel cannot inject a different certificate (man-in-the-middle protection).
+- The DTLS handshake verifies each peer's certificate against the fingerprint exchanged during signaling, so an outside attacker on the network cannot inject a different certificate. Like every WebRTC application, Floe trusts the signaling server to relay those fingerprints faithfully. Running your own instance removes that dependency entirely (see [Self-hosted instances](#self-hosted-instances)).
 
 See [End-to-End Encryption](/how-it-works/encryption) for a deeper technical explanation.
 

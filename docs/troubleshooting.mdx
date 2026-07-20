@@ -1,6 +1,6 @@
 ---
-title: "Troubleshooting"
-description: "Fixes for the most common issues when sending, receiving, or self-hosting Floe."
+title: "Floe Troubleshooting Guide"
+description: "Fixes for common Floe issues: stuck connections, failed transfers, invalid room links, TURN relay problems, and self-hosting deployment errors."
 ---
 
 Most Floe transfers just work. When something goes wrong, it is almost always one of the cases below.
@@ -55,6 +55,18 @@ Most Floe transfers just work. When something goes wrong, it is almost always on
     A browser can only join by opening the link, not by entering a short code (there is no code field in the web UI). Share the **link** printed by `floe send` with browser recipients, and the **code** with CLI recipients.
   </Accordion>
 
+  <Accordion title="The CLI is slow to connect when a VPN or virtual machine is running">
+    A VPN (such as Tailscale) or virtualization software (VMware, VirtualBox, WSL, Hyper-V) adds extra network interfaces. The CLI probes each one while establishing the connection, so a machine with several of them can spend longer on "Connecting..." before settling on the working path. The transfer still completes, and the browser app is unaffected.
+
+    The CLI already skips dead auto-config interfaces automatically. If you still see slow connects, pin the CLI to your real interface by name:
+
+    ```bash
+    floe receive olive-tiger-castle --iface Ethernet   # or --iface Wi-Fi
+    ```
+
+    Pass `--iface` more than once to allow several interfaces. Temporarily quitting the VPN during a transfer also resolves it.
+  </Accordion>
+
   <Accordion title="The CLI says the version is incompatible">
     Peers on different floe versions normally transfer fine, so a small version difference (for example v1.5.4 and v1.5.5) is never a problem. This message only appears if a release changed the transfer protocol in a way the two versions cannot bridge. Whichever side is older should update:
 
@@ -92,7 +104,11 @@ Most Floe transfers just work. When something goes wrong, it is almost always on
   </Accordion>
 
   <Accordion title="The TURN relay is not working">
-    The bundled coturn service uses host networking, so it runs on a **Linux host** with a public IP, a domain, and TLS certificates. On macOS or Windows with Docker Desktop, run coturn separately or on a Linux VM. Confirm that `TURN_SECRET` and `TURN_DOMAIN` in `.env` match coturn's `static-auth-secret` and `realm`, then start the stack with `docker compose --profile turn up -d --build`. See [TURN Relay](/self-hosting/turn-relay).
+    First check which relay option your instance uses.
+
+    **Managed Cloudflare TURN:** confirm both `CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_KEY_API_TOKEN` are set in `.env`, then run `curl http://localhost:3001/api/turn-credentials`. A working setup returns `turn.cloudflare.com` entries with a username and credential. If it returns STUN servers only, one of the two variables is missing or the API token is invalid (roll it in the Cloudflare dashboard under Realtime, then TURN Server).
+
+    **Self-hosted coturn:** the bundled coturn service uses host networking, so it runs on a **Linux host** with a public IP, a domain, and TLS certificates. On macOS or Windows with Docker Desktop, run coturn separately or on a Linux VM. Confirm that `TURN_SECRET` and `TURN_DOMAIN` in `.env` match coturn's `static-auth-secret` and `realm`, then start the stack with `docker compose --profile turn up -d --build`. See [TURN Relay](/self-hosting/turn-relay).
   </Accordion>
 </AccordionGroup>
 

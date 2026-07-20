@@ -1,6 +1,6 @@
 ---
-title: "Architecture Reference"
-description: "Signaling protocol, HTTP endpoints, WebSocket events, and the data-channel binary protocol."
+title: "Floe Architecture Reference"
+description: "Reference for the Floe signaling protocol, HTTP endpoints, WebSocket events, and the WebRTC data-channel binary framing used for file transfers."
 ---
 
 This page is a technical reference for contributors and advanced self-hosters. For a plain-language overview, see [How It Works](/how-it-works/signaling).
@@ -12,9 +12,9 @@ This page is a technical reference for contributors and advanced self-hosters. F
 | Client | Next.js 16 (React 19) | 3000 | Browser UI, WebRTC peer (via simple-peer) |
 | Server | Node.js (Express 5, Socket.IO 4, ws 8) | 3001 | Signaling broker, TURN credential issuer |
 | CLI | Go 1.25 (Pion WebRTC v4) | - | Headless sender/receiver |
-| coturn | coturn (optional) | 3478, 5349 | TURN relay server |
+| TURN relay | Cloudflare Realtime TURN (floe.one) or self-hosted coturn | 3478, 5349 | Relays encrypted packets when a direct path fails |
 
-File data never passes through the server or coturn. All file bytes travel over encrypted WebRTC data channels between peers.
+File data never passes through the signaling server, and only end-to-end-encrypted packets ever transit the TURN relay. All file bytes travel over encrypted WebRTC data channels between peers.
 
 ## Signaling transports
 
@@ -31,15 +31,15 @@ The server exposes two transports. Both share the same `rooms` registry (`Map<ro
 |--------|------|-------------|
 | `GET` | `/` | Status check. Returns `{ "status": "ok", "timestamp": "..." }`. |
 | `GET` | `/health` | Liveness probe. Returns `{ "status": "healthy", "uptime": <seconds> }`. |
-| `GET` | `/api/turn-credentials` | Returns ICE server list. With `TURN_SECRET` set, includes coturn credentials. Without it, returns Google STUN servers only. Rate-limited to 20 requests per IP per 60 s. |
-| `POST` | `/api/code` | Registers a short code for a room ID. Body: `{ "roomId": "<uuid>" }`. Response: `{ "code": "word-word-word" }`. TTL: 10 minutes. |
-| `GET` | `/api/code/:code` | Resolves a short code to a room ID. Response: `{ "roomId": "<uuid>" }`. Returns 404 if expired or not found. |
+| `GET` | `/api/turn-credentials` | Returns ICE server list. Prefers Cloudflare Realtime TURN when `CLOUDFLARE_TURN_KEY_ID` / `CLOUDFLARE_TURN_KEY_API_TOKEN` are set, then self-hosted coturn when `TURN_SECRET` is set, otherwise Google STUN only. Rate-limited to 20 requests per IP per 60 s. |
+| `POST` | `/api/code` | Registers a short code for a room ID. Body: `{ "roomId": "<uuid>" }`. Response: `{ "code": "word-word-word" }`. TTL: 10 minutes. Rate-limited to 60 requests per IP per 60 s (shared with `GET /api/code/:code`, configurable via `MAX_CODE_REQUESTS_PER_IP`). Returns `503` when the live-code count hits `MAX_ACTIVE_CODES` (default 10000). |
+| `GET` | `/api/code/:code` | Resolves a short code to a room ID. Response: `{ "roomId": "<uuid>" }`. Returns 404 if expired or not found. Rate-limited to 60 requests per IP per 60 s (shared with `POST /api/code`, configurable via `MAX_CODE_REQUESTS_PER_IP`). |
 | `GET` | `/api/stats` | Returns the all-time global transfer counter: `{ "totalBytes": <integer> }`. Served from an in-memory cache (no Redis read per request). |
 | `POST` | `/api/stats/report` | Receiver peers report bytes after a completed transfer. Body: `{ "bytes": <positive integer> }`. Response: `{ "totalBytes": <integer> }`. Rate-limited to 60 requests per IP per 60 s; rejects values that are not positive integers or exceed `MAX_REPORT_BYTES` (default 5 TB). |
 
 ### TURN credentials response
 
-When `TURN_SECRET` and `TURN_DOMAIN` are set:
+On floe.one the endpoint returns short-lived Cloudflare Realtime TURN credentials (`turn.cloudflare.com`). For a self-hosted coturn relay, when `TURN_SECRET` and `TURN_DOMAIN` are set it returns:
 
 ```json
 [
@@ -58,7 +58,7 @@ When `TURN_SECRET` is unset:
 ]
 ```
 
-Credentials use HMAC-SHA1: `username = "{expiry_unix}:floeuser"`, `credential = base64(HMAC-SHA1(TURN_SECRET, username))`. Expiry is 24 hours from issuance.
+For self-hosted coturn, credentials use HMAC-SHA1: `username = "{expiry_unix}:floeuser"`, `credential = base64(HMAC-SHA1(TURN_SECRET, username))`. Expiry is 24 hours from issuance.
 
 ## Socket.IO events (browser)
 
@@ -111,9 +111,11 @@ All messages are JSON objects with a `type` field.
 |-------|-------|-----------|
 | Connection rate | 30 per IP per 60 s (configurable via `MAX_CONNECTIONS_PER_IP`) | Socket.IO connections and WebSocket `/ws` connections, shared |
 | TURN credential rate | 20 per IP per 60 s | `GET /api/turn-credentials` |
+| Code endpoint rate | 60 per IP per 60 s (configurable via `MAX_CODE_REQUESTS_PER_IP`) | `POST /api/code` and `GET /api/code/:code`, shared |
+| Active code cap | 10000 simultaneously-live codes (configurable via `MAX_ACTIVE_CODES`) | `POST /api/code`. Returns `503` when the registry is full. |
 | Stats report rate | 60 per IP per 60 s | `POST /api/stats/report` |
 
-Counters are tracked in memory (`Map<ip, timestamp[]>`) and cleaned every 60 seconds.
+Counters are tracked in memory (`Map<ip, timestamp[]>`) and cleaned every 60 seconds. Per-IP limits respond with `429`. The active-code cap responds with `503` and applies globally, not per-IP, because it guards the size of the in-memory code registry.
 
 ## Signaling flow
 
@@ -168,7 +170,7 @@ Once the WebRTC data channel is open, the sender runs the following sequence for
 
 **Binary chunks (raw bytes)**
 
-The CLI sends 16 KB chunks. The browser sender sends larger adaptive chunks.
+Both the CLI and the browser size chunks adaptively to the connection's negotiated maximum message size, capped at 256 KB. Chunk size is a local sender choice, not part of the wire protocol; receivers handle any size.
 
 **End marker (JSON, sender to receiver)**
 
@@ -223,7 +225,7 @@ The four-step sequence (metadata, ack, binary chunks, end) repeats for each file
 
 ## Room codes
 
-Codes are three random words joined by hyphens (e.g. `olive-tiger-castle`), sampled from a 288-word corpus in `server/words.json`. On collision (extremely rare), a fourth word is appended. Codes expire 10 minutes after registration.
+Codes are three random words joined by hyphens (e.g. `olive-tiger-castle`), sampled from a 288-word corpus in `server/words.json` using `crypto.randomInt` (a CSPRNG, bias-free), since the code phrase is the only secret guarding a transfer. On collision (extremely rare), a fourth word is appended. Codes expire 10 minutes after registration. The number of simultaneously-live codes is capped by `MAX_ACTIVE_CODES` (default 10000); `POST /api/code` returns `503` when the cap is reached.
 
 ## Global statistics counter
 

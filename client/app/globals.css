@@ -6,6 +6,9 @@
 @theme inline {
     /* Custom breakpoint: enables xs: variants (e.g. xs:grid-cols-2) for larger phones */
     --breakpoint-xs: 30rem;
+    /* Glacial accent for the landing sections below the hero (a floe is a sheet of ice) */
+    --color-ice: oklch(0.87 0.05 220);
+    --animate-blink: blink 1.1s step-end infinite;
     --color-background: var(--background);
     --color-foreground: var(--foreground);
     --font-sans: var(--font-geist-sans);
@@ -147,5 +150,12 @@
     .custom-scrollbar {
         scrollbar-width: thin;
         scrollbar-color: var(--muted-foreground) transparent;
+    }
+}
+
+/* Terminal cursor blink for the CLI demo (paired with --animate-blink in @theme) */
+@keyframes blink {
+    50% {
+        opacity: 0;
     }
 }

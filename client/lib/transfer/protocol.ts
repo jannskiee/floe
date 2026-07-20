@@ -8,6 +8,13 @@ export const READ_SLAB = 4 * 1024 * 1024;  // 4 MB — disk read slab size
 export const DEFAULT_CHUNK = 64 * 1024;    // 64 KB — fallback chunk size
 export const MAX_CHUNK = 256 * 1024;       // 256 KB — cap on adaptive chunk
 
+// Milliseconds the sender waits for the receiver's ack before failing. Mirrors
+// the CLI sender's 120 s ack deadline (cli/engine/transfer/sender.go). It must be
+// this generous because a CLI receiver only acks after a human answers its
+// interactive "Accept? [Y/n]" prompt; a shorter timeout aborts a browser→CLI
+// transfer whenever the person at the terminal is slow to accept.
+export const ACK_TIMEOUT_MS = 120_000;
+
 // ProtocolVersion is the highest wire protocol version this build speaks.
 // MinProtocolVersion is the lowest it still supports.
 //

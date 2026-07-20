@@ -3,41 +3,151 @@ name: CI
 on:
   pull_request:
     branches: [main]
-    paths-ignore:
-      - 'docs/**'
   push:
     branches: [main]
-    paths-ignore:
-      - 'docs/**'
+
+# Least-privilege default for the GITHUB_TOKEN in every job. The only token
+# use is back-compat's gh release view/download against this repo's public
+# releases, which contents: read covers.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Cancel superseded runs on PRs; never cancel runs on main
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      # 'true' unless every changed file is under docs/. Negation-based on
+      # purpose: anything not under docs/ counts as code, so a new top-level
+      # file or directory can never silently skip CI.
+      code: ${{ steps.filter.outputs.code }}
+      # 'true' when any changed file is under .github/workflows/. Gates the
+      # actionlint job; push events always report true, same as code.
+      workflows: ${{ steps.filter.outputs.workflows }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # The pull_request checkout is the PR merged into its base; depth 2
+          # brings in both parents so HEAD^1 (the base tip) is diffable.
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Classify changed files
+        id: filter
+        run: |
+          # Push events (main) always run the full suite: main only advances
+          # by PR merge, and a multi-commit (rebase) merge would make a HEAD^1
+          # diff under-classify the push.
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "workflows=true" >> "$GITHUB_OUTPUT"
+            echo "push event: full suite"
+            exit 0
+          fi
+          # First-parent diff of the merge commit = the PR's effective changes
+          # against the base tip. A bare assignment on purpose: under the
+          # default bash -e shell a failing git diff fails this job, every
+          # heavy job then skips, and the CI green gate goes red (fail
+          # closed). --no-renames lists a rename as delete plus add, so a
+          # file moved between docs/ and code paths always surfaces its code
+          # side.
+          changed="$(git diff --name-only --no-renames HEAD^1 HEAD)"
+          non_docs="$(printf '%s\n' "$changed" | grep -v '^docs/' || true)"
+          if [ -n "$non_docs" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "non-docs changes:"
+            echo "$non_docs"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+            echo "docs-only change: heavy jobs will be skipped"
+          fi
+          # Same diff, second classification: workflow edits gate actionlint.
+          workflow_files="$(printf '%s\n' "$changed" | grep '^\.github/workflows/' || true)"
+          if [ -n "$workflow_files" ]; then
+            echo "workflows=true" >> "$GITHUB_OUTPUT"
+            echo "workflow changes:"
+            echo "$workflow_files"
+          else
+            echo "workflows=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  actionlint:
+    name: Lint workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [changes]
+    # Runs only when workflow files changed; the gate counts the skip as a
+    # pass, same as the docs fast path.
+    if: needs.changes.outputs.workflows == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Download actionlint
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Pinned release verified against a hardcoded digest, extending the
+          # commit-SHA pin philosophy to this download (the checksums file
+          # shipped with a release would match a compromised release). Bump
+          # version and hash together, deliberately.
+          ACTIONLINT_VERSION: v1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          gh release download "$ACTIONLINT_VERSION" --repo rhysd/actionlint \
+            --pattern 'actionlint_*_linux_amd64.tar.gz'
+          echo "$ACTIONLINT_SHA256  actionlint_${ACTIONLINT_VERSION#v}_linux_amd64.tar.gz" | sha256sum --check
+          tar -xzf actionlint_*_linux_amd64.tar.gz actionlint
+          chmod +x actionlint
+
+      - name: Lint workflows
+        # Zero ignore flags on purpose: the tree lints clean after the
+        # quoting fixes and must stay clean.
+        run: ./actionlint -color
+
   build-and-lint:
     name: Build & Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [changes]
+    # changes must be listed in needs above, or this expression reads an
+    # empty context, evaluates false, and the job silently never runs again.
+    if: needs.changes.outputs.code == 'true'
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
-          version: 11.1.2
+          # Version comes from packageManager in client/package.json
+          package_json_file: client/package.json
 
       - name: Get pnpm store directory
         id: pnpm-cache
-        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
 
       - name: Cache pnpm store
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
           key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
@@ -66,18 +176,23 @@ jobs:
   server:
     name: Server (Node.js)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 20
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
         working-directory: server
 
       - name: Test
@@ -85,15 +200,25 @@ jobs:
         working-directory: server
 
   cli:
-    name: CLI (Go)
-    runs-on: ubuntu-latest
+    name: CLI (Go, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    strategy:
+      # One OS failing must not hide results from the others
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.25'
           cache-dependency-path: cli/go.sum
@@ -103,7 +228,8 @@ jobs:
         working-directory: cli
 
       - name: Test
-        run: go test ./...
+        # -count=1 bypasses Go's test-result cache so stability re-runs always execute
+        run: go test -count=1 ./...
         working-directory: cli
 
       - name: Build
@@ -111,57 +237,257 @@ jobs:
         working-directory: cli
 
   e2e:
-    name: E2E (browser + CLI interop)
-    runs-on: ubuntu-latest
+    name: E2E (browser + CLI interop, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     # Requires both Go (CLI binary) and Node (server + client + Playwright)
     needs: [cli, build-and-lint, server]
+    strategy:
+      # One OS failing must not hide results from the others
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.25'
           cache-dependency-path: cli/go.sum
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
-          version: 11.1.2
+          # Version comes from packageManager in client/package.json
+          package_json_file: client/package.json
 
       - name: Get pnpm store directory
         id: pnpm-cache
-        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+        # $(...) and $GITHUB_OUTPUT appends are bash-isms; the Windows default
+        # shell is pwsh, so pin bash for a portable step.
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
 
       - name: Cache pnpm store
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
           key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-pnpm-
 
+      - name: Get Playwright browser cache directory
+        id: playwright-cache
+        shell: bash
+        # Default per-OS browser paths: https://playwright.dev/docs/browsers
+        run: |
+          case "$RUNNER_OS" in
+            Linux)   echo "PLAYWRIGHT_CACHE=$HOME/.cache/ms-playwright" >> "$GITHUB_OUTPUT" ;;
+            macOS)   echo "PLAYWRIGHT_CACHE=$HOME/Library/Caches/ms-playwright" >> "$GITHUB_OUTPUT" ;;
+            Windows) echo "PLAYWRIGHT_CACHE=$LOCALAPPDATA/ms-playwright" >> "$GITHUB_OUTPUT" ;;
+            *)       echo "Unknown RUNNER_OS: $RUNNER_OS" >&2; exit 1 ;;
+          esac
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.playwright-cache.outputs.PLAYWRIGHT_CACHE }}
+          key: ${{ runner.os }}-playwright-${{ hashFiles('client/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
       - name: Install client dependencies
         run: pnpm install --frozen-lockfile
         working-directory: client
 
       - name: Install server dependencies
-        run: npm install
+        run: npm ci
         working-directory: server
 
       - name: Install Playwright Chromium
+        # Always run: on a browser-cache hit the download is skipped anyway,
+        # but the Linux system dependencies (--with-deps) still need installing.
         run: pnpm exec playwright install --with-deps chromium
         working-directory: client
+
+      - name: Build client (production)
+        # NEXT_PUBLIC_* is inlined into the bundle at BUILD time by Next.js,
+        # so the socket URL must be set here, not on the test step (next start
+        # never reads it). Each leg builds its own client: build-and-lint
+        # bakes the production https://api.floe.one URL, and a .next built on
+        # one OS is not reused on another.
+        run: pnpm build
+        working-directory: client
+        env:
+          # 127.0.0.1, not localhost: see the webServer env note in
+          # client/playwright.config.ts.
+          NEXT_PUBLIC_SOCKET_URL: http://127.0.0.1:3001
 
       - name: Run E2E tests (browser + CLI interop)
         run: pnpm exec playwright test
         working-directory: client
+
+      - name: Upload traces and test results on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-traces-${{ matrix.os }}
+          path: client/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  back-compat:
+    name: Back-compat (HEAD vs latest release)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Same toolchain needs as e2e; ubuntu-only because the wire protocol under
+    # test is OS-independent and one leg keeps the release download cheap.
+    needs: [cli, build-and-lint, server]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25'
+          cache-dependency-path: cli/go.sum
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          # Version comes from packageManager in client/package.json
+          package_json_file: client/package.json
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Linux-only job, so no per-OS path dance like the e2e matrix; same
+          # cache key as the ubuntu e2e leg so this job rides its cache.
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('client/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install client dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: client
+
+      - name: Install server dependencies
+        run: npm ci
+        working-directory: server
+
+      - name: Install Playwright Chromium
+        # Always run: on a browser-cache hit the download is skipped anyway,
+        # but the Linux system dependencies (--with-deps) still need installing.
+        run: pnpm exec playwright install --with-deps chromium
+        working-directory: client
+
+      - name: Build client (production)
+        # NEXT_PUBLIC_* is inlined into the bundle at BUILD time by Next.js,
+        # so the socket URL must be set here, not on the test step (next start
+        # never reads it). Each leg builds its own client: build-and-lint
+        # bakes the production https://api.floe.one URL, and a .next built on
+        # one OS is not reused on another.
+        run: pnpm build
+        working-directory: client
         env:
-          NEXT_PUBLIC_SOCKET_URL: http://localhost:3001
+          # 127.0.0.1, not localhost: see the webServer env note in
+          # client/playwright.config.ts.
+          NEXT_PUBLIC_SOCKET_URL: http://127.0.0.1:3001
+
+      - name: Download latest released CLI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Resolve the tag FIRST, then download BY TAG: if a release published
+          # mid-job, "latest" could otherwise change between the two gh calls.
+          tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)"
+          echo "Released tag: $tag"
+          dest="$RUNNER_TEMP/floe-released"
+          mkdir -p "$dest"
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir "$dest" \
+            --pattern 'floe_*_linux_amd64.tar.gz' --pattern 'checksums.txt'
+          cd "$dest" || exit 1
+          # checksums.txt covers every asset; verify just the one we fetched.
+          sha256sum --check <(grep linux_amd64.tar.gz checksums.txt)
+          tar -xzf floe_*_linux_amd64.tar.gz floe
+          chmod +x floe
+          echo "FLOE_RELEASED_CLI=$dest/floe" >> "$GITHUB_ENV"
+          echo "FLOE_RELEASED_VERSION=$tag" >> "$GITHUB_ENV"
+
+      - name: Run back-compat E2E tests
+        working-directory: client
+        run: |
+          # Fail loud if the export above ever regresses; otherwise the spec
+          # would skip itself and this job would go green testing nothing.
+          test -x "$FLOE_RELEASED_CLI"
+          pnpm exec playwright test e2e/back-compat.spec.ts
+
+      - name: Upload traces and test results on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: back-compat-traces
+          path: client/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  ci-green:
+    # The one required status check on main (see the main-protection
+    # ruleset). DO NOT rename this job or its name without updating the
+    # ruleset first: the ruleset matches the check by the name string
+    # "CI green", and after a rename every PR would block on a check that
+    # never reports again.
+    name: CI green
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Every job in this workflow must be listed here, or its failure is
+    # invisible to branch protection. if: always() is load-bearing and must
+    # never become !cancelled(): without always() a failed or cancelled
+    # dependency would skip this job, and GitHub counts a skipped required
+    # check as passing.
+    needs: [changes, actionlint, build-and-lint, server, cli, e2e, back-compat]
+    if: always()
+    steps:
+      - name: Report dependency results
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: echo "$NEEDS_JSON"
+
+      - name: Fail if any dependency failed or was cancelled
+        # Skipped is a pass on purpose: docs-only PRs skip the heavy jobs.
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "A required job failed or was cancelled; see the results above."
+          exit 1

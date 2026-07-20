@@ -68,7 +68,10 @@ const STUN_FALLBACK = [
 
 const turnRateLimits = new Map();
 const TURN_RATE_WINDOW = 60000;
-const TURN_MAX_REQUESTS = 20;
+// Default 20/min is ample for real users (one fetch per page load or CLI
+// invocation); raise via MAX_TURN_REQUESTS_PER_IP in CI/staging where many
+// CLI runs share one IP - a 429 silently degrades clients to Google STUN.
+const TURN_MAX_REQUESTS = parseInt(process.env.MAX_TURN_REQUESTS_PER_IP, 10) || 20;
 
 const statsRateLimits = new Map();
 const STATS_RATE_WINDOW = 60000;
@@ -120,7 +123,99 @@ function generateCoturnCredentials() {
     ];
 }
 
-app.get('/api/turn-credentials', (req, res) => {
+// ---------------------------------------------------------------------------
+// Cloudflare Realtime TURN
+//
+// When CLOUDFLARE_TURN_KEY_ID / CLOUDFLARE_TURN_KEY_API_TOKEN are set, mint
+// short-lived ICE servers from Cloudflare's global anycast TURN network. The
+// credentials are not per-user, so cache one set in memory and refresh well
+// before the 24h TTL instead of calling the API on every request. STUN and TURN
+// are returned as separate entries so the client's relay-off filter
+// (filterIceServers) can drop TURN while keeping STUN.
+// ---------------------------------------------------------------------------
+
+const CLOUDFLARE_TURN_KEY_ID = process.env.CLOUDFLARE_TURN_KEY_ID;
+const CLOUDFLARE_TURN_KEY_API_TOKEN = process.env.CLOUDFLARE_TURN_KEY_API_TOKEN;
+const CF_TURN_TTL = 24 * 3600;         // credential lifetime requested from Cloudflare (seconds)
+const CF_CACHE_MS = 12 * 3600 * 1000;  // refresh our cached copy every 12h (well within the TTL)
+
+let cfIceCache = { servers: null, expires: 0 };
+
+// selectMinimalIceUrls reduces Cloudflare's full URL list (8 entries: STUN on two
+// ports plus TURN duplicated across udp/tcp/tls on :53/:80/:443/:3478/:5349) to
+// one URL per connectivity class. WebRTC clients gather candidates and open TURN
+// allocations per URL per network interface, so redundant URLs multiply ICE work;
+// on multi-adapter machines (VPN, VMware, WSL) the full list pushed connection
+// setup from ~1s to 20-30s. Three classes cover every network:
+//   - STUN (server-reflexive discovery), prefer the standard :3478
+//   - TURN over UDP (the fast relay path)
+//   - TURN over TLS, prefer :443 (indistinguishable from HTTPS; the canonical
+//     fallback on UDP-blocking networks, covering what :53/:80/:5349 duplicated)
+// Pattern-based so it keeps working if Cloudflare reorders or extends its list.
+function selectMinimalIceUrls(stunUrls, turnUrls) {
+    const stun = stunUrls.find(u => u.includes(':3478')) || stunUrls[0];
+    // RFC 7065: a turn: URI without a transport param defaults to UDP.
+    const udp = turnUrls.find(u => u.startsWith('turn:') && (u.includes('transport=udp') || !u.includes('transport=')));
+    const tls =
+        turnUrls.find(u => u.startsWith('turns:') && u.includes(':443')) ||
+        turnUrls.find(u => u.startsWith('turns:')) ||
+        turnUrls.find(u => u.includes('transport=tcp'));
+    return {
+        stunUrls: stun ? [stun] : [],
+        turnUrls: [...new Set([udp, tls].filter(Boolean))],
+    };
+}
+
+async function generateCloudflareIceServers() {
+    if (!CLOUDFLARE_TURN_KEY_ID || !CLOUDFLARE_TURN_KEY_API_TOKEN) return null;
+    if (cfIceCache.servers && Date.now() < cfIceCache.expires) return cfIceCache.servers;
+    try {
+        const resp = await fetch(
+            `https://rtc.live.cloudflare.com/v1/turn/keys/${CLOUDFLARE_TURN_KEY_ID}/credentials/generate-ice-servers`,
+            {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${CLOUDFLARE_TURN_KEY_API_TOKEN}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ ttl: CF_TURN_TTL }),
+            }
+        );
+        if (!resp.ok) return cfIceCache.servers; // serve last good copy on a transient failure
+        const { iceServers } = await resp.json();
+        if (!iceServers) return cfIceCache.servers;
+
+        // Cloudflare returns one object with all URLs and a single credential.
+        // Split STUN from TURN so the client can strip TURN while keeping STUN
+        // when the user disables relay fallback.
+        const raw = Array.isArray(iceServers) ? iceServers : [iceServers];
+        const stunUrls = [];
+        const turnUrls = [];
+        let username;
+        let credential;
+        for (const s of raw) {
+            const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
+            for (const u of urls) {
+                (u.startsWith('stun:') ? stunUrls : turnUrls).push(u);
+            }
+            if (s.username) { username = s.username; credential = s.credential; }
+        }
+        // Trim to the minimal effective set before serving: fewer URLs means far
+        // less ICE gathering work on every client (see selectMinimalIceUrls).
+        const minimal = selectMinimalIceUrls(stunUrls, turnUrls);
+        const servers = [];
+        if (minimal.stunUrls.length) servers.push({ urls: minimal.stunUrls });
+        if (minimal.turnUrls.length) servers.push({ urls: minimal.turnUrls, username, credential });
+        if (!servers.length) return cfIceCache.servers;
+
+        cfIceCache = { servers, expires: Date.now() + CF_CACHE_MS };
+        return servers;
+    } catch {
+        return cfIceCache.servers; // network hiccup: last good copy (may be null, then we fall through)
+    }
+}
+
+app.get('/api/turn-credentials', async (req, res) => {
     const ip = req.ip;  // Express resolves this correctly via trust proxy
     const now = Date.now();
 
@@ -130,7 +225,8 @@ app.get('/api/turn-credentials', (req, res) => {
     timestamps.push(now);
     turnRateLimits.set(ip, timestamps);
 
-    const credentials = generateCoturnCredentials();
+    // Prefer Cloudflare's managed TURN, then self-hosted coturn, then public STUN.
+    const credentials = (await generateCloudflareIceServers()) || generateCoturnCredentials();
     res.json(credentials || STUN_FALLBACK);
 });
 
@@ -403,15 +499,16 @@ function handleDisconnect(peer) {
     const room = rooms.get(peer.roomId);
     if (!room) return;
 
-    // Notify the other peer in the room
-    room.forEach(p => {
-        if (p.id !== peer.id) {
-            p.send('peer-disconnected', {});
-            p.roomId = null;
-        }
-    });
-
-    rooms.delete(peer.roomId);
+    // Remove only the disconnecting peer (same shape as the leave-old-room
+    // block in handleJoinRoom). The remaining peer keeps its seat and roomId,
+    // so the room survives a one-sided drop: the departed side can rejoin the
+    // same room id after a Socket.IO auto-reconnect, and a stale socket's late
+    // ping-timeout disconnect removes just its own ghost entry instead of
+    // tearing down a room the same user has already rejoined.
+    const remaining = room.filter(p => p.id !== peer.id);
+    remaining.forEach(p => p.send('peer-disconnected', {}));
+    if (remaining.length === 0) rooms.delete(peer.roomId);
+    else rooms.set(peer.roomId, remaining);
     peer.roomId = null;
 }
 
@@ -579,4 +676,5 @@ module.exports = {
     statsRateLimits,
     makeRateLimiter,
     codeRateLimits,
+    selectMinimalIceUrls,
 };

@@ -36,9 +36,14 @@ export interface ReceiverCallbacks {
     onError?: (msg: string) => void;
 }
 
+// Report receive progress at least once per this many bytes. A byte-count
+// threshold (rather than an exact modulo) works for any negotiated chunk size.
+const PROGRESS_STEP = 1024 * 1024; // 1 MB
+
 interface PartialDownload {
     chunks: ArrayBuffer[];
     received: number;
+    lastReported: number; // `received` value at the last onProgress emission
 }
 
 /**
@@ -118,7 +123,7 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: U
                 if (existing) {
                     offset = existing.received;
                 } else {
-                    partialDownloads.set(msg.id, { chunks: [], received: 0 });
+                    partialDownloads.set(msg.id, { chunks: [], received: 0, lastReported: 0 });
                 }
 
                 // Send ack with protocol version fields so the sender can verify
@@ -185,9 +190,10 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: U
 
         if (
             currentMetadata.fileSize &&
-            (fileData.received % (160 * 1024 * 10) === 0 ||
+            (fileData.received - fileData.lastReported >= PROGRESS_STEP ||
                 fileData.received === currentMetadata.fileSize)
         ) {
+            fileData.lastReported = fileData.received;
             cb.onProgress?.(
                 Math.round((fileData.received / currentMetadata.fileSize) * 100),
                 fileData.received,

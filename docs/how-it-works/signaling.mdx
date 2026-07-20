@@ -1,6 +1,6 @@
 ---
-title: "Signaling"
-description: "How Floe brokers the initial connection between two peers."
+title: "How Floe Signaling Works"
+description: "How the Floe signaling server brokers the initial WebRTC handshake between sender and receiver without ever seeing the files being transferred."
 ---
 
 When you create a transfer in Floe, a unique room is created on the signaling server. The sender shares a code or link. When the recipient joins, the two devices introduce themselves through the server and exchange the information they need to connect directly. Once that handshake is complete, the server steps aside.
@@ -42,18 +42,18 @@ The signaling server never touches file data, never stores your files or any rec
   5. Both peers exchange ICE candidates via `signal` events (trickle ICE).
   6. Once ICE negotiation completes, the WebRTC data channel opens directly between the peers.
 
-  **Short codes:** Registered via `POST /api/code` with a room UUID. The server picks three random words from a 288-word list and maps them to the room ID with a 10-minute TTL. `GET /api/code/:code` resolves a code back to its room UUID.
+  **Short codes:** Registered via `POST /api/code` with a room UUID. The server picks three random words from a 288-word list using a cryptographically secure random source (`crypto.randomInt`, not `Math.random`), because the code phrase is the only secret guarding a transfer, and maps them to the room ID with a 10-minute TTL. `GET /api/code/:code` resolves a code back to its room UUID.
 
-  **TURN credentials:** Issued via `GET /api/turn-credentials`. Credentials use HMAC-SHA1 with a 24-hour expiry. If `TURN_SECRET` is not set, the endpoint returns STUN servers only.
+  **TURN credentials:** Issued via `GET /api/turn-credentials`. On floe.one the server mints short-lived credentials (up to 24 hours) from Cloudflare's Realtime TURN service. Self-hosted instances can instead use coturn with HMAC-SHA1 credentials via `TURN_SECRET`, or skip TURN entirely, in which case the endpoint returns public STUN servers only.
 
-  **Rate limiting:** 30 connections per IP per 60 seconds for Socket.IO and WebSocket; 20 requests per IP per 60 seconds for the TURN credential endpoint; 60 reports per IP per 60 seconds for the stats endpoint.
+  **Rate limiting:** 30 connections per IP per 60 seconds for Socket.IO and WebSocket; 20 requests per IP per 60 seconds for the TURN credential endpoint; 60 requests per IP per 60 seconds shared across `POST /api/code` and `GET /api/code/:code`; 60 reports per IP per 60 seconds for the stats endpoint. The signaling server also caps the number of simultaneously-live room codes (10000 by default); `POST /api/code` returns `503` when that cap is hit.
 
   **Global stats counter:** After a transfer completes, the receiver sends `POST /api/stats/report` with just the byte count. The sender never reports. The server keeps a single anonymous running total (cached in memory, optionally persisted to Upstash Redis) and serves it from `GET /api/stats` for the homepage counter. No file names, contents, or per-transfer records are stored. The total is viewable only in the browser; the CLI receiver contributes but never displays it. Both the browser receiver and CLI receiver can opt out (browser: "Contribute to global stats" toggle; CLI: `--no-report` flag or `FLOE_NO_STATS=1`). See the [architecture reference](/reference/architecture#global-statistics-counter) for details.
 
   **Data-channel transfer protocol:** Once the WebRTC data channel opens, the sender runs this sequence for each file:
   1. Sends a JSON `metadata` message with the filename, size in bytes, and the file's index and total count in the batch.
   2. Waits for the receiver to reply with a JSON `ack` message. The ack carries a byte offset, so a transfer can resume mid-file.
-  3. Streams the file as binary chunks until the whole file is sent. The CLI uses 16 KB chunks. The browser sender uses larger adaptive chunks and adds backpressure-based flow control, pausing when the data channel's send buffer fills.
+  3. Streams the file as binary chunks until the whole file is sent. Both senders size chunks adaptively to what the connection negotiates, up to 256 KB, and apply backpressure-based flow control, pausing when the data channel's send buffer fills.
   4. Sends a JSON `end` message to signal completion.
 
   For multi-file transfers, this four-step sequence repeats for each file in order.

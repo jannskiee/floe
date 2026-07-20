@@ -46,8 +46,10 @@ The CLI uses GoReleaser for cross-platform distribution; version is injected via
 ```
 CLIENT_URL=http://localhost:3000
 PORT=3001
-TURN_SECRET=                 # optional Coturn HMAC secret
-TURN_DOMAIN=                 # optional TURN server hostname
+CLOUDFLARE_TURN_KEY_ID=      # optional, managed Cloudflare Realtime TURN (takes precedence)
+CLOUDFLARE_TURN_KEY_API_TOKEN= # optional, pairs with the key ID above
+TURN_SECRET=                 # optional coturn HMAC secret (used when Cloudflare vars unset)
+TURN_DOMAIN=                 # optional coturn hostname
 UPSTASH_REDIS_REST_URL=      # optional, durable global stats counter
 UPSTASH_REDIS_REST_TOKEN=    # optional, pairs with the URL above
 MAX_REPORT_BYTES=            # optional, per-report cap (default 5 TB)
@@ -67,6 +69,8 @@ NEXT_PUBLIC_SENTRY_DSN=    # optional
 3. Peers exchange WebRTC `signal` messages (offer → answer → ICE candidates) via the server.
 4. Once WebRTC connects, the data channel is used directly (server is out of the loop).
 
+A disconnect removes only that peer from the room (the room is deleted once empty), and browser peers re-send `join-room` automatically after a Socket.IO reconnect until the WebRTC connection is up.
+
 Browser peers communicate via **Socket.IO**; CLI peers communicate via **WebSocket at `/ws`**. Both share the same `rooms` registry on the server (`Map<roomId, [peer, peer]>`), so browser-to-CLI transfers work transparently.
 
 ### Transfer Protocol Versioning
@@ -76,7 +80,7 @@ The data-channel transfer protocol carries its own version, independent of the r
 `POST /api/code` registers a short human-readable phrase (e.g. `olive-tiger-castle`) mapping to a room ID with 10-min TTL. `GET /api/code/:code` resolves it. Words come from `server/words.json`.
 
 ### TURN Credentials
-`GET /api/turn-credentials` issues short-lived (24h) Coturn HMAC-SHA1 credentials. Called by both client and CLI before connecting. If `TURN_SECRET` is unset, only STUN is returned.
+`GET /api/turn-credentials` returns the ICE server list; called by both client and CLI before connecting. Precedence: **Cloudflare Realtime TURN** when `CLOUDFLARE_TURN_KEY_ID` / `CLOUDFLARE_TURN_KEY_API_TOKEN` are set (what floe.one runs; short-lived credentials minted from Cloudflare's `generate-ice-servers` API, cached in memory ~12h, with STUN and TURN returned as separate entries so the client's relay-off filter can strip TURN while keeping STUN), then self-hosted **coturn** HMAC-SHA1 credentials (24h) when `TURN_SECRET` / `TURN_DOMAIN` are set, otherwise Google STUN only. Cloudflare's full 8-URL list is trimmed to a minimal 3-URL set (one STUN, one UDP TURN, one TLS TURN on 443) by `selectMinimalIceUrls` before serving; clients gather ICE candidates per URL per network interface, so redundant URLs multiply connection-setup time on multi-adapter machines.
 
 ### Global Stats Counter
 A public, all-time counter of total bytes transferred across every Floe user, shown on the homepage (`client/components/GlobalStats.tsx`) with a NumberFlow odometer animation. Because Floe is P2P and file bytes never reach the server, the **receiver** peer reports the byte count out-of-band over HTTP after a completed transfer. Only the receiver reports (browser receiver in `P2PTransfer.tsx`, CLI receiver in `cli/internal/transfer/receiver.go`), so each transfer is counted exactly once. The sender never reports. The data-channel protocol is unchanged, so no `ProtocolVersion` bump is needed.
@@ -92,7 +96,7 @@ The global total is viewable only in the browser (the `GlobalStats` component on
 - CLI: pass `--no-report` to `floe receive`, or set `FLOE_NO_STATS=1` in the environment. Both gate the report by passing an empty `statsURL` to `ReceiveFiles`, which hits the existing `if serverURL == "" { return }` guard in `reportBytesToServer` (`receiver.go:36-39`). No change to `ReceiveFiles` signature or `receiver.go` logic.
 
 ### Rate Limiting
-Four independent per-IP limiters, each over a 60s window, tracked in plain `Map`s and cleaned every 60s. Connection limiter: 30 per IP (configurable via `MAX_CONNECTIONS_PER_IP`), shared across Socket.IO and WebSocket connections (`checkRateLimit`). TURN endpoint: a separate 20 requests per IP for `GET /api/turn-credentials` (`turnRateLimits`). Stats endpoint: a separate 60 reports per IP for `POST /api/stats/report` (`statsRateLimits`). Code endpoint: a separate 60 requests per IP (configurable via `MAX_CODE_REQUESTS_PER_IP`), shared across `POST /api/code` and `GET /api/code/:code` (`codeRateLimits`), applied via the shared `makeRateLimiter` middleware factory. As a second guard, `POST /api/code` returns 503 once `codeToRoom` holds `MAX_ACTIVE_CODES` (default 10000) live codes, bounding memory regardless of source IP.
+Four independent per-IP limiters, each over a 60s window, tracked in plain `Map`s and cleaned every 60s. Connection limiter: 30 per IP (configurable via `MAX_CONNECTIONS_PER_IP`), shared across Socket.IO and WebSocket connections (`checkRateLimit`). TURN endpoint: a separate 20 requests per IP (configurable via `MAX_TURN_REQUESTS_PER_IP`) for `GET /api/turn-credentials` (`turnRateLimits`). Stats endpoint: a separate 60 reports per IP for `POST /api/stats/report` (`statsRateLimits`). Code endpoint: a separate 60 requests per IP (configurable via `MAX_CODE_REQUESTS_PER_IP`), shared across `POST /api/code` and `GET /api/code/:code` (`codeRateLimits`), applied via the shared `makeRateLimiter` middleware factory. As a second guard, `POST /api/code` returns 503 once `codeToRoom` holds `MAX_ACTIVE_CODES` (default 10000) live codes, bounding memory regardless of source IP.
 
 ### React Strict Mode is intentionally disabled
 `next.config.mjs` sets `reactStrictMode: false`. Strict Mode's double-mount breaks Socket.IO connections and `simple-peer` instances. All socket/peer logic uses refs and cleanup functions to handle component lifecycle correctly.
@@ -115,9 +119,13 @@ All under `cli/internal/`:
 The docs live in `docs/` (Mintlify), git-synced to `main`, and deploy to docs.floe.one.
 
 - `docs/changelog.mdx` is written by hand; do not auto-generate or restructure it.
-- CI on docs-only changes is skipped via `paths-ignore: docs/**` in `.github/workflows/ci.yml`, so doc-only PRs do not run the client/server/CLI/e2e suite.
+- Docs-only PRs stay fast without dodging branch protection: the `changes` job in `.github/workflows/ci.yml` diffs the PR and, when every changed file is under `docs/`, the heavy jobs skip and the `CI green` check reports success in under a minute, so docs and Mintlify PRs merge quickly without running the client/server/CLI/e2e suite.
 
 Automated doc-maintenance PRs (style, links, SEO) are managed in the Mintlify dashboard. They open PRs against `main`, only edit `docs/**`, and never auto-merge.
+
+## CI
+
+`CI green` is the single required status check on `main`. It is a gate job in `.github/workflows/ci.yml` that needs every other job; any new CI job must be added to its `needs` list or its failures are invisible to branch protection. New or experimental jobs should start OUTSIDE the gate's needs (visible but non-blocking) and be promoted in once stable. Deterministic linters (for example actionlint) are the exception and may enter the gate's `needs` immediately: their failures are reproducible locally, and their whole purpose is to block broken workflow edits, which a soak period outside the gate would defeat.
 
 ## Writing Style
 

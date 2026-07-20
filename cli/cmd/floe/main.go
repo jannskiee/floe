@@ -34,6 +34,7 @@ var (
 	flagServer  string
 	flagNoRelay bool
 	flagWebURL  string
+	flagIface   []string
 )
 
 // ── Root command ─────────────────────────────────────────────────────────────
@@ -55,6 +56,8 @@ func init() {
 		"disable TURN relay (direct connections only)")
 	rootCmd.PersistentFlags().StringVar(&flagWebURL, "web", "",
 		"web app URL shown in the browser link (auto-detected if not set)")
+	rootCmd.PersistentFlags().StringSliceVar(&flagIface, "iface", nil,
+		"restrict WebRTC to network interfaces matching these names (repeatable, e.g. --iface Ethernet); use when a VPN/VM adapter slows connection setup")
 
 	rootCmd.AddCommand(sendCmd)
 	rootCmd.AddCommand(receiveCmd)
@@ -158,7 +161,9 @@ func runSend(cmd *cobra.Command, args []string) error {
 			webURL = flagServer // self-hosted: same origin
 		}
 	}
-	link := webURL + "?room=" + roomId
+	// The room id goes in the URL fragment (#room=) so it never reaches the
+	// web server or its analytics when a browser opens this link.
+	link := webURL + "/#room=" + roomId
 
 	fmt.Printf("  Sending   %s\n", summary.Label)
 	var rows [][2]string
@@ -182,7 +187,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 	_ = peerId // used internally by signaling routing
 
 	// 8. Set up WebRTC as the initiator (sender creates offer + data channel)
-	conn, err := peer.New(iceServers, sc)
+	conn, err := peer.New(iceServers, sc, peer.WithInterfaceAllowlist(flagIface))
 	if err != nil {
 		return fmt.Errorf("failed to create peer connection: %w", err)
 	}
@@ -293,7 +298,7 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	fmt.Println("  Connecting to sender...")
 
 	// 6. Set up WebRTC as the responder (receiver waits for offer)
-	conn, err := peer.New(iceServers, sc)
+	conn, err := peer.New(iceServers, sc, peer.WithInterfaceAllowlist(flagIface))
 	if err != nil {
 		return fmt.Errorf("failed to create peer connection: %w", err)
 	}

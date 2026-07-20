@@ -1,11 +1,35 @@
 ---
-title: "TURN Relay (coturn)"
-description: "Add a TURN server to support peers behind strict NAT or CGNAT."
+title: "Add a TURN Relay to Self-Hosted Floe"
+description: "Add a coturn TURN relay to a self-hosted Floe instance so peers behind strict NAT, CGNAT, or corporate firewalls can still complete file transfers."
 ---
 
 A TURN server relays the (still end-to-end encrypted) stream when two peers cannot reach each other directly. This is common with symmetric NAT or carrier-grade NAT. Without TURN, those specific transfers fail. All other transfers still work over direct connections.
 
-## Infrastructure requirements
+You have two options: a managed TURN service (recommended) or a self-hosted coturn relay.
+
+## Managed TURN via Cloudflare (recommended)
+
+Cloudflare's Realtime TURN service runs on Cloudflare's global anycast network. It needs no public IP, no UDP port range, and no TLS certificates on your side, and it includes a generous free tier.
+
+<Steps>
+  <Step title="Create a TURN key">
+    In the [Cloudflare dashboard](https://dash.cloudflare.com), open **Realtime > TURN Server** and create a key. Copy the **Turn Token ID** and its **API token** (the token is shown only once).
+  </Step>
+  <Step title="Set the server environment">
+    In `.env`:
+
+    ```env
+    CLOUDFLARE_TURN_KEY_ID=<your Turn Token ID>
+    CLOUDFLARE_TURN_KEY_API_TOKEN=<your API token>
+    ```
+
+    The signaling server mints short-lived ICE credentials from Cloudflare and caches them. These variables take precedence over the coturn variables below, so you do not need to run coturn.
+  </Step>
+</Steps>
+
+## Self-hosting with coturn
+
+Prefer to run the relay yourself? Leave the Cloudflare variables unset and configure coturn instead.
 
 TURN requires a **public IP address**, a **domain name**, and **TLS certificates**. The bundled `coturn` service uses host networking and is intended for a Linux host with a public IP.
 
@@ -72,7 +96,7 @@ When TURN is configured, the response contains `turn:` and `turns:` entries, plu
 ]
 ```
 
-When `TURN_SECRET` and `TURN_DOMAIN` are unset, the endpoint instead returns the Google public STUN servers only.
+With Cloudflare configured, the response instead contains `turn.cloudflare.com` entries. When neither the Cloudflare variables nor `TURN_SECRET` / `TURN_DOMAIN` are set, the endpoint returns the Google public STUN servers only.
 
 ## How credentials work
 

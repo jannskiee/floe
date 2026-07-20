@@ -3,6 +3,41 @@ title: "Changelog"
 description: "Release history for Floe."
 ---
 
+<Update label="v1.7.5" description="2026-07-10">
+  **Accurate progress on slow connections, and a CLI relay fix**
+
+  - Fixed the sender's progress running far ahead of the receiver. The sender counted bytes handed to the connection's send buffer rather than bytes that actually reached the other side, so on slower or relayed connections its bar raced ahead by up to 8 MB, froze for up to a minute while the buffer drained, moved to the next file before the receiver finished the previous one, and showed "All Files Sent!" while the receiver was still downloading. The sender now reports delivered bytes: both sides move together at the real network speed, the file counter stays in step, and completion means the receiver has everything.
+  - Fixed the receiver's progress bar barely updating since the larger transfer blocks introduced in v1.7.3. It could sit still for minutes on slow connections (and never move at all for files under 6.25 MB), which looked like a stalled transfer. It now updates at least every 1 MB regardless of block size.
+  - Fixed `floe send` giving up with a "backpressure stall" error on relayed connections slower than roughly 70 KB/s. The CLI now aborts only when the connection makes no progress at all for a full minute, instead of whenever draining simply takes longer than a minute.
+  - Web app: the connection badge tooltip and the Network Relay Fallback description now explain that direct peer-to-peer connections are the norm even across different networks such as mobile data, and that the relay is only a fallback used when a direct path cannot be established.
+  - No transfer-protocol change, so v1.7.5 interoperates with older CLI and browser peers in every direction.
+</Update>
+
+<Update label="v1.7.4" description="2026-07-10">
+  **Faster connection setup**
+
+  - Fixed connections taking 20 to 30 seconds to establish on machines running VPN or virtual machine software (Tailscale, VMware, WSL, Hyper-V). Two causes were addressed: the signaling server handed every client a redundant list of eight relay endpoints where three suffice, and the CLI probed dead auto-configuration network interfaces during setup. The server-side fix is already live and speeds up all existing versions, browser included; this release adds the CLI-side hardening so connections stay fast against any server, including self-hosted ones.
+  - Added an advanced `--iface` flag to restrict the CLI to specific network interfaces by name (for example `--iface Ethernet`), useful for pinning a transfer to a chosen network. Most users never need it. See the [flags reference](/cli/flags).
+  - Web app: opening a fresh share link in a tab that already had Floe open now joins the new room correctly instead of reusing the old session.
+  - No transfer-protocol change, so v1.7.4 interoperates with older CLI and browser peers in every direction.
+</Update>
+
+<Update label="v1.7.3" description="2026-07-09">
+  **Faster CLI transfers, and a browser-to-CLI reliability fix**
+
+  - `floe send` now sends file data in larger blocks, sized to what the connection negotiates (up to 256 KB) rather than a fixed 16 KB. On fast paths such as a local network or a direct connection, this removes most of the per-block overhead and noticeably increases throughput. Relayed or slower connections are unaffected, since their speed is set by the link rather than the block size.
+  - Fixed browser-to-CLI transfers that could fail with a timeout when the person running `floe receive` took more than 15 seconds to accept the incoming files at the prompt. The browser now waits as patiently as the CLI already did.
+  - No transfer-protocol change, so v1.7.3 interoperates with older CLI and browser peers in every direction.
+</Update>
+
+<Update label="v1.7.2" description="2026-06-30">
+  **CLI: share links keep the room secret in the URL fragment**
+
+  - `floe send` now prints a `https://floe.one/#room=<id>` link. The room id sits in the URL fragment (after the `#`), which a browser never sends to the web server, never puts in the `Referer` header, and never exposes to pageview analytics. Previously it was a `?room=` query parameter that could reach those places when a recipient opened the link in a browser. This brings the CLI in line with the web app.
+  - `floe receive` resolves a `#room=` link, a legacy `?room=` link, or a short code, so links shared by any version keep working.
+  - No transfer-protocol change, so v1.7.2 interoperates with older CLI and browser peers in every direction.
+</Update>
+
 <Update label="v1.7.1" description="2026-06-22">
   **Reliable global-counter reporting for the CLI**
 

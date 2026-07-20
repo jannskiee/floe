@@ -21,6 +21,7 @@ const {
     statsRateLimits,
     makeRateLimiter,
     codeRateLimits,
+    selectMinimalIceUrls,
 } = require('./server');
 
 // ---------------------------------------------------------------------------
@@ -249,7 +250,7 @@ describe('handleSignal', () => {
 describe('handleDisconnect', () => {
     beforeEach(() => { rooms.clear(); });
 
-    it('notifies the remaining peer and removes the room', () => {
+    it('removes only the disconnecting peer; the room survives with the remaining peer', () => {
         const pA = makePeer('peer-A');
         const pB = makePeer('peer-B');
         handleJoinRoom(pA, ROOM_ID);
@@ -260,8 +261,8 @@ describe('handleDisconnect', () => {
         handleDisconnect(pA);
 
         assert.ok(pB.msgs.some(m => m.type === 'peer-disconnected'));
-        assert.equal(pB.roomId, null);
-        assert.equal(rooms.has(ROOM_ID), false);
+        assert.equal(pB.roomId, ROOM_ID, 'remaining peer must keep its roomId');
+        assert.deepEqual(rooms.get(ROOM_ID).map(p => p.id), ['peer-B']);
     });
 
     it('clears roomId on the disconnecting peer', () => {
@@ -278,6 +279,47 @@ describe('handleDisconnect', () => {
         const p = makePeer('lone');
         handleDisconnect(p); // should not throw
         assert.equal(p.msgs.length, 0);
+    });
+
+    it('an out-of-order stale disconnect removes only the ghost entry, not the rejoined peer', () => {
+        // A dirty network drop is only noticed via ping timeout, so the old
+        // socket's disconnect can arrive AFTER the same user already rejoined
+        // the room under a fresh socket id. It must evict only itself.
+        const pOld = makePeer('peer-A-old');
+        const pNew = makePeer('peer-A-new');
+        handleJoinRoom(pOld, ROOM_ID);
+        handleJoinRoom(pNew, ROOM_ID); // rejoin lands while the ghost still holds a seat
+        pNew.msgs.length = 0;
+
+        handleDisconnect(pOld);
+
+        assert.deepEqual(rooms.get(ROOM_ID).map(p => p.id), ['peer-A-new']);
+        assert.equal(pNew.roomId, ROOM_ID, 'rejoined peer must keep its seat');
+    });
+
+    it('deletes the room when the last peer disconnects', () => {
+        const pA = makePeer('peer-A');
+        const pB = makePeer('peer-B');
+        handleJoinRoom(pA, ROOM_ID);
+        handleJoinRoom(pB, ROOM_ID);
+
+        handleDisconnect(pA);
+        handleDisconnect(pB);
+
+        assert.equal(rooms.has(ROOM_ID), false);
+    });
+
+    it('a fresh join after a full disconnect recreates the room with sender role', () => {
+        const pA = makePeer('peer-A');
+        handleJoinRoom(pA, ROOM_ID);
+        handleDisconnect(pA); // sole peer leaving deletes the room
+
+        const pA2 = makePeer('peer-A2'); // same user, new socket id after reconnect
+        handleJoinRoom(pA2, ROOM_ID);
+
+        assert.equal(pA2.msgs[0].type, 'room-joined');
+        assert.equal(pA2.msgs[0].data.role, 'sender');
+        assert.deepEqual(rooms.get(ROOM_ID).map(p => p.id), ['peer-A2']);
     });
 });
 
@@ -409,5 +451,75 @@ describe('codeRateLimits', () => {
 
     it('is exported and starts empty', () => {
         assert.equal(codeRateLimits.size, 0);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// selectMinimalIceUrls
+// ---------------------------------------------------------------------------
+
+describe('selectMinimalIceUrls', () => {
+    // The exact shape Cloudflare's generate-ice-servers returned in production.
+    const cfStun = [
+        'stun:stun.cloudflare.com:3478',
+        'stun:stun.cloudflare.com:53',
+    ];
+    const cfTurn = [
+        'turn:turn.cloudflare.com:3478?transport=udp',
+        'turn:turn.cloudflare.com:3478?transport=tcp',
+        'turns:turn.cloudflare.com:5349?transport=tcp',
+        'turn:turn.cloudflare.com:53?transport=udp',
+        'turn:turn.cloudflare.com:80?transport=tcp',
+        'turns:turn.cloudflare.com:443?transport=tcp',
+    ];
+
+    it('reduces the Cloudflare production list to one URL per class', () => {
+        const { stunUrls, turnUrls } = selectMinimalIceUrls(cfStun, cfTurn);
+        assert.deepEqual(stunUrls, ['stun:stun.cloudflare.com:3478']);
+        assert.deepEqual(turnUrls, [
+            'turn:turn.cloudflare.com:3478?transport=udp',
+            'turns:turn.cloudflare.com:443?transport=tcp',
+        ]);
+    });
+
+    it('prefers the :3478 STUN URL regardless of order', () => {
+        const { stunUrls } = selectMinimalIceUrls(
+            ['stun:x:53', 'stun:x:3478'], []
+        );
+        assert.deepEqual(stunUrls, ['stun:x:3478']);
+    });
+
+    it('treats a turn: URL without a transport param as UDP (RFC 7065 default)', () => {
+        const { turnUrls } = selectMinimalIceUrls([], ['turn:host:3478', 'turns:host:5349']);
+        assert.deepEqual(turnUrls, ['turn:host:3478', 'turns:host:5349']);
+    });
+
+    it('falls back to any turns: URL when no :443 variant exists', () => {
+        const { turnUrls } = selectMinimalIceUrls([], [
+            'turn:host:3478?transport=udp',
+            'turns:host:5349?transport=tcp',
+        ]);
+        assert.deepEqual(turnUrls, [
+            'turn:host:3478?transport=udp',
+            'turns:host:5349?transport=tcp',
+        ]);
+    });
+
+    it('falls back to turn tcp when no turns: URL exists at all', () => {
+        const { turnUrls } = selectMinimalIceUrls([], [
+            'turn:host:80?transport=tcp',
+        ]);
+        assert.deepEqual(turnUrls, ['turn:host:80?transport=tcp']);
+    });
+
+    it('handles empty inputs', () => {
+        const { stunUrls, turnUrls } = selectMinimalIceUrls([], []);
+        assert.deepEqual(stunUrls, []);
+        assert.deepEqual(turnUrls, []);
+    });
+
+    it('never returns duplicate TURN URLs', () => {
+        const { turnUrls } = selectMinimalIceUrls([], ['turn:only:3478?transport=udp']);
+        assert.deepEqual(turnUrls, ['turn:only:3478?transport=udp']);
     });
 });

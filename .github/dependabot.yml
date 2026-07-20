@@ -1,0 +1,59 @@
+# Dependabot version updates. Monthly and grouped on purpose: this repo is
+# solo-maintained, so one grouped PR per ecosystem per month bounds the
+# review load. Security updates are unaffected by this schedule: they open
+# as soon as an advisory lands and have their own separate internal PR
+# limit, so the monthly cadence only throttles routine version bumps.
+version: 2
+updates:
+  # client/ (pnpm, packageManager pnpm@11.1.2) and server/ (plain npm) share
+  # one npm entry via the multi-directory form. Grouping is per directory,
+  # so client and server still arrive as separate single grouped PRs.
+  - package-ecosystem: "npm"
+    directories:
+      - "/client"
+      - "/server"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # Minor and patch only: a single incompatible major inside a 20-update
+      # group PR blocks every other update in it (day one: the TypeScript
+      # 5 -> 7 bump broke typescript-eslint and poisoned 22 good bumps).
+      # Majors fall out of the group and arrive as individual PRs instead,
+      # each judged on its own by the gated CI.
+      npm-deps:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "gomod"
+    directory: "/cli"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      go-deps:
+        patterns:
+          - "*"
+
+  # Weekly rather than monthly: this entry is what keeps the commit-SHA pins
+  # in .github/workflows/ fresh (Dependabot bumps the pinned SHA and
+  # maintains the trailing # vX.Y.Z comment), and grouped actions PRs are
+  # tiny to review.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions-deps:
+        patterns:
+          - "*"

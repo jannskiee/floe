@@ -1,6 +1,6 @@
 ---
-title: "Build-Time URL Caveat"
-description: "Why NEXT_PUBLIC_SOCKET_URL must be set before building the client image."
+title: "Build-Time Socket URL Caveat"
+description: "Why NEXT_PUBLIC_SOCKET_URL must be set before building the Floe client Docker image, and how to rebuild the image after changing your signaling URL."
 ---
 
 Next.js inlines `NEXT_PUBLIC_*` variables into the JavaScript bundle **at build time**, not at runtime. `NEXT_PUBLIC_SOCKET_URL` is therefore baked into the client image when it is built. Setting or changing it in a running container has no effect.

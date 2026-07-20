@@ -12,6 +12,7 @@ import {
     compatErrorMessage,
     PROTOCOL_VERSION,
     MIN_PROTOCOL_VERSION,
+    ACK_TIMEOUT_MS,
     type Ack,
     type Incompatible,
 } from './protocol';
@@ -49,6 +50,31 @@ export interface SenderDeps {
     sctpMaxMessageSize?: number | null;
 }
 
+// How often the progress ticker re-derives delivered bytes for the UI. It runs
+// through backpressure and ack waits, so the bar keeps moving while the send
+// loop itself is blocked on a slow link.
+const PROGRESS_TICK_MS = 500;
+
+// Buffer level to drain to before starting the next file's metadata/ack
+// handshake. The ack can only arrive after the receiver consumes the previous
+// file's tail (the channel is ordered), so draining first keeps the 120 s ack
+// deadline from having to absorb a multi-MB drain on a slow relay.
+const METADATA_DRAIN_THRESHOLD = 64 * 1024;
+
+// Tracks the file currently shown in the UI. Progress is derived from
+// DELIVERED bytes (queued offset minus what still sits in the channel buffer),
+// not queued bytes: with an 8 MB high-water mark the two can differ by a
+// minute's worth of data on a slow relay. The per-file ack guarantees the
+// buffer only ever holds the displayed file's unsent tail (plus <1 KB of
+// control messages), so the subtraction is sound.
+interface ProgressView {
+    active: boolean;
+    size: number;
+    offset: number; // bytes of this file queued into the channel so far
+    lastSpeedTime: number;
+    lastSpeedDelivered: number;
+}
+
 /**
  * Sends all files over the data channel in order.
  *
@@ -70,16 +96,90 @@ export async function sendFiles(
     const destroyed = cb.isDestroyed ?? (() => false);
     const totalBytes = files.reduce((s, e) => s + e.file.size, 0);
 
-    for (let i = 0; i < files.length; i++) {
-        if (destroyed()) break;
-        const entry = files[i];
-        cb.onFileStart?.(i, files.length, entry.file.name);
-        await sendSingleFile(deps, entry, i + 1, files.length, totalBytes, cb);
-    }
+    const view: ProgressView = {
+        active: false,
+        size: 0,
+        offset: 0,
+        lastSpeedTime: performance.now(),
+        lastSpeedDelivered: 0,
+    };
 
-    if (!destroyed()) {
+    const emitView = () => {
+        if (!view.active || destroyed()) return;
+        const delivered = Math.min(
+            view.size,
+            Math.max(0, view.offset - deps.channel.bufferedAmount)
+        );
+        cb.onProgress?.(
+            view.size > 0 ? Math.round((delivered / view.size) * 100) : 100
+        );
+        const now = performance.now();
+        const dt = (now - view.lastSpeedTime) / 1000;
+        if (dt >= 1 && delivered > view.lastSpeedDelivered) {
+            const bytesPerSec = (delivered - view.lastSpeedDelivered) / dt;
+            cb.onSpeed?.(bytesPerSec, (view.size - delivered) / bytesPerSec);
+            view.lastSpeedTime = now;
+            view.lastSpeedDelivered = delivered;
+        }
+    };
+
+    const ticker = setInterval(emitView, PROGRESS_TICK_MS);
+
+    try {
+        for (let i = 0; i < files.length; i++) {
+            if (destroyed()) return;
+            const entry = files[i];
+            const ok = await sendSingleFile(
+                deps, entry, i + 1, files.length, totalBytes, cb, view, emitView
+            );
+            if (!ok) return;
+        }
+
+        if (destroyed()) return;
+
+        // "All Files Sent!" must mean delivered, not queued: the last file's
+        // tail (up to HIGH_WATER bytes) can still be in the buffer here.
+        await drainBelow(deps.channel, 0, destroyed);
+        if (destroyed()) return;
+
+        emitView();
+        cb.onSpeedReset?.();
         cb.onAllSent?.();
+    } finally {
+        clearInterval(ticker);
     }
+}
+
+// Resolves once the channel buffer has drained to at most `threshold` bytes
+// (or the peer is destroyed). Uses the bufferedamountlow event plus a poll
+// fallback, since the event is unreliable when the threshold changes while a
+// drain is already in flight.
+function drainBelow(
+    channel: BufferChannel,
+    threshold: number,
+    destroyed: () => boolean
+): Promise<void> {
+    if (channel.bufferedAmount <= threshold || destroyed()) {
+        return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+        const prevThreshold = channel.bufferedAmountLowThreshold;
+        channel.bufferedAmountLowThreshold = threshold;
+        let poll: ReturnType<typeof setInterval> | null = null;
+        const finish = () => {
+            channel.removeEventListener('bufferedamountlow', onLow);
+            if (poll) clearInterval(poll);
+            channel.bufferedAmountLowThreshold = prevThreshold;
+            resolve();
+        };
+        const onLow = () => {
+            if (channel.bufferedAmount <= threshold) finish();
+        };
+        channel.addEventListener('bufferedamountlow', onLow);
+        poll = setInterval(() => {
+            if (destroyed() || channel.bufferedAmount <= threshold) finish();
+        }, 200);
+    });
 }
 
 // Result of waiting for the receiver's ack.
@@ -88,21 +188,30 @@ type AckResult =
     | { type: 'incompatible'; reason: string }
     | { type: 'timeout' };
 
+// Returns false when the transfer must stop (error already reported via cb).
 async function sendSingleFile(
     deps: SenderDeps,
     entry: FileEntry,
     index: number,
     total: number,
     totalBytes: number,
-    cb: SenderCallbacks
-): Promise<void> {
+    cb: SenderCallbacks,
+    view: ProgressView,
+    emitView: () => void
+): Promise<boolean> {
     const { file, id } = entry;
     const { send, onData, channel } = deps;
     const destroyed = cb.isDestroyed ?? (() => false);
 
-    if (destroyed()) return;
+    if (destroyed()) return true;
 
     const CHUNK_SIZE = chunkSize(deps.sctpMaxMessageSize);
+
+    // Let the previous file's tail drain before the handshake; the progress
+    // ticker keeps updating the previous file's bar during this wait. No-op on
+    // the first file (buffer is empty).
+    await drainBelow(channel, METADATA_DRAIN_THRESHOLD, destroyed);
+    if (destroyed()) return true;
 
     channel.bufferedAmountLowThreshold = LOW_WATER;
 
@@ -110,18 +219,18 @@ async function sendSingleFile(
     try {
         send(metadataMessage(id, file.name, file.size, index, total, totalBytes));
     } catch {
-        return;
+        return false;
     }
 
-    // 2. Wait for ack (15 s timeout), handling incompatible responses
+    // 2. Wait for ack (120 s timeout), handling incompatible responses
     const ackResult = await waitForAck(onData, id);
     if (ackResult.type === 'timeout') {
         cb.onError?.('Transfer timed out waiting for receiver. Please try again.');
-        return;
+        return false;
     }
     if (ackResult.type === 'incompatible') {
         cb.onError?.(ackResult.reason);
-        return;
+        return false;
     }
 
     // Defense in depth: verify protocol compat from the receiver's pv fields on
@@ -139,15 +248,22 @@ async function sendSingleFile(
                 MIN_PROTOCOL_VERSION, PROTOCOL_VERSION,
                 ackResult.pvMin ?? 1, ackResult.pv ?? 1
             ));
-            return;
+            return false;
         }
     }
 
+    // The ack means the receiver has consumed everything before this file and
+    // opened it — only now switch the displayed file, so the sender's label
+    // and bar stay in step with what the receiver is actually working on.
+    cb.onFileStart?.(index - 1, total, file.name);
+    view.active = true;
+    view.size = file.size;
+    view.offset = ackResult.offset;
+    view.lastSpeedTime = performance.now();
+    view.lastSpeedDelivered = ackResult.offset;
+    emitView();
+
     let offset = ackResult.offset;
-    let speedMeasureStart = performance.now();
-    let speedMeasureBytes = 0;
-    let lastSpeedUpdate = 0;
-    let chunkCount = 0;
 
     const waitForBuffer = () =>
         new Promise<void>((r) => {
@@ -162,7 +278,9 @@ async function sendSingleFile(
             }
         });
 
-    // 3. Send chunks
+    // 3. Send chunks. Progress/speed emission is owned by the ticker in
+    // sendFiles, which derives delivered bytes from view.offset minus the
+    // channel's bufferedAmount — this loop only advances view.offset.
     while (offset < file.size) {
         if (destroyed()) break;
 
@@ -196,34 +314,16 @@ async function sendSingleFile(
 
             slabOffset += chunkLen;
             offset += chunkLen;
-            speedMeasureBytes += chunkLen;
-            chunkCount++;
-
-            const now = performance.now();
-            if (now - lastSpeedUpdate > 1000) {
-                const elapsed = (now - speedMeasureStart) / 1000;
-                if (elapsed > 0) {
-                    const bytesPerSec = speedMeasureBytes / elapsed;
-                    const remaining = file.size - offset;
-                    cb.onSpeed?.(bytesPerSec, remaining / bytesPerSec);
-                }
-                speedMeasureStart = now;
-                speedMeasureBytes = 0;
-                lastSpeedUpdate = now;
-            }
-
-            if (chunkCount % 10 === 0 || offset >= file.size) {
-                cb.onProgress?.(Math.round((offset / file.size) * 100));
-            }
+            view.offset = offset;
         }
     }
-
-    cb.onSpeedReset?.();
 
     // 4. Send end marker
     try {
         send(endMessage());
     } catch { }
+
+    return true;
 }
 
 function waitForAck(
@@ -246,6 +346,6 @@ function waitForAck(
                 }
             });
         }),
-        new Promise<AckResult>((resolve) => setTimeout(() => resolve({ type: 'timeout' }), 15_000)),
+        new Promise<AckResult>((resolve) => setTimeout(() => resolve({ type: 'timeout' }), ACK_TIMEOUT_MS)),
     ]);
 }

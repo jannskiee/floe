@@ -4,7 +4,8 @@
 //   1. Sender → Receiver: metadata JSON  (file name, size, index, total, pv, pvMin, ver)
 //   2. Receiver → Sender: ack JSON       (confirms ready, offset for resume, pv, pvMin, ver)
 //      OR:       incompatible JSON       (sent instead of ack when protocol ranges do not overlap)
-//   3. Sender → Receiver: binary chunks  (raw file bytes, 16 KB each)
+//   3. Sender → Receiver: binary chunks  (raw file bytes; chunk size adapts to
+//      the negotiated SCTP max-message-size, capped at 256 KB — see chunkSizeFor)
 //   4. Sender → Receiver: end JSON       (signals end of this file)
 //   Repeat for each file.
 //
@@ -27,7 +28,30 @@ import (
 	"github.com/schollz/progressbar/v3"
 )
 
-const chunkSize = 16 * 1024
+const (
+	// defaultChunkSize is the safe fallback used when the negotiated SCTP
+	// max-message-size is unavailable (0). It matches the historical value.
+	defaultChunkSize = 16 * 1024
+	// maxChunkSize caps the adaptive chunk. Mirrors MAX_CHUNK in the browser
+	// sender (client/lib/transfer/protocol.ts).
+	maxChunkSize = 256 * 1024
+)
+
+// chunkSizeFor returns the send chunk size for a connection whose negotiated
+// SCTP max-message-size is sctpMax (read from dc.Transport().GetCapabilities()).
+// It caps at maxChunkSize and never exceeds the negotiated ceiling, so dc.Send
+// can never return ErrOutboundPacketTooLarge (pion/sctp enforces the limit on
+// send). A zero sctpMax (capabilities not yet available) falls back to the
+// proven default. Mirrors chunkSize() in client/lib/transfer/protocol.ts.
+func chunkSizeFor(sctpMax uint32) int {
+	if sctpMax == 0 {
+		return defaultChunkSize
+	}
+	if int(sctpMax) < maxChunkSize {
+		return int(sctpMax)
+	}
+	return maxChunkSize
+}
 
 // Backpressure watermarks mirror the browser sender (P2PTransfer.tsx): pause
 // sending once pion's SCTP send buffer reaches the high-water mark, resume once
@@ -39,6 +63,14 @@ const (
 	bufferedAmountHighWater = 8 * 1024 * 1024 // pause sending at/above 8 MB buffered
 	bufferedAmountLowWater  = 4 * 1024 * 1024 // resume sending below 4 MB buffered
 )
+
+// backpressureStalled reports whether a backpressure wait that just hit its
+// timeout should abort the transfer: only when the buffer failed to shrink at
+// all over the window. Any drain, however slow, means the peer is alive and
+// the wait should continue.
+func backpressureStalled(prev, cur uint64) bool {
+	return cur >= prev
+}
 
 // metadataMsg is sent before each file to describe it.
 type metadataMsg struct {
@@ -121,9 +153,18 @@ func SendFilesWithProgress(dc *webrtc.DataChannel, paths []string, localVer stri
 		}
 	})
 
+	// Size chunks to the connection's negotiated SCTP max-message-size (capped
+	// at maxChunkSize), matching the browser sender. Larger chunks mean far fewer
+	// dc.Send calls per file — the main throughput lever on fast links.
+	var sctpMax uint32
+	if t := dc.Transport(); t != nil {
+		sctpMax = t.GetCapabilities().MaxMessageSize
+	}
+	chunk := chunkSizeFor(sctpMax)
+
 	var sentSoFar int64
 	for i, entry := range files {
-		if err := sendFile(dc, ackCh, sendMore, entry, i+1, len(files), totalBytes, localVer, onProgress, sentSoFar); err != nil {
+		if err := sendFile(dc, ackCh, sendMore, entry, i+1, len(files), totalBytes, localVer, onProgress, sentSoFar, chunk); err != nil {
 			return fmt.Errorf("error sending %s: %w", entry.displayName, err)
 		}
 		sentSoFar += entry.size
@@ -222,7 +263,7 @@ func collectFiles(paths []string) ([]fileEntry, error) {
 }
 
 // sendFile handles the full send sequence for a single file.
-func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onProgress ProgressFunc, baseTotal int64) error {
+func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onProgress ProgressFunc, baseTotal int64, chunk int) error {
 	f, err := os.Open(entry.absPath)
 	if err != nil {
 		return err
@@ -348,18 +389,26 @@ ackLoop:
 		report(0) // emit the starting point (handles resume offset and 0-byte files)
 	}
 
-	buf := make([]byte, chunkSize)
+	buf := make([]byte, chunk)
 	for {
 		n, err := f.Read(buf)
 		if n > 0 {
 			// Backpressure: block until pion's buffer drains below the low-water
 			// mark before queuing more. The loop re-checks after each wakeup so a
-			// stale signal can't let us run away from the receiver.
+			// stale signal can't let us run away from the receiver. Abort only
+			// when the buffer makes no progress across a full 60 s window: a
+			// slow-but-draining relay (below ~70 KB/s the 4 MB drain takes over
+			// a minute) must not kill the transfer.
+			lastBuffered := dc.BufferedAmount()
 			for dc.BufferedAmount() >= bufferedAmountHighWater {
 				select {
 				case <-sendMore:
 				case <-time.After(60 * time.Second):
-					return fmt.Errorf("backpressure stall: peer not draining (%d bytes buffered)", dc.BufferedAmount())
+					cur := dc.BufferedAmount()
+					if backpressureStalled(lastBuffered, cur) {
+						return fmt.Errorf("backpressure stall: peer not draining (%d bytes buffered)", cur)
+					}
+					lastBuffered = cur
 				}
 			}
 			if sendErr := dc.Send(buf[:n]); sendErr != nil {
