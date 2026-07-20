@@ -4,7 +4,9 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 	"unicode/utf16"
 )
 
@@ -60,7 +62,15 @@ func TestParseDropFilesMalformed(t *testing.T) {
 	}
 }
 
-// TestWriteImageTemp verifies pasted-image staging: the fixed pasted-image.png
+// TestPastedImageName checks the timestamped, receiver-visible screenshot name.
+func TestPastedImageName(t *testing.T) {
+	ts := time.Date(2026, 7, 20, 21, 30, 45, 0, time.UTC)
+	if got := pastedImageName(ts); got != "pasted-image-20260720-213045.png" {
+		t.Errorf("pastedImageName = %q, want pasted-image-20260720-213045.png", got)
+	}
+}
+
+// TestWriteImageTemp verifies pasted-image staging: a timestamped pasted-image
 // name the receiver sees and an exact byte round-trip.
 func TestWriteImageTemp(t *testing.T) {
 	png := []byte("\x89PNG\r\n\x1a\n fake body")
@@ -70,8 +80,8 @@ func TestWriteImageTemp(t *testing.T) {
 	}
 	t.Cleanup(func() { os.RemoveAll(filepath.Dir(path)) })
 
-	if got := filepath.Base(path); got != "pasted-image.png" {
-		t.Errorf("name = %q, want pasted-image.png", got)
+	if base := filepath.Base(path); !strings.HasPrefix(base, "pasted-image-") || !strings.HasSuffix(base, ".png") {
+		t.Errorf("name = %q, want pasted-image-<timestamp>.png", base)
 	}
 	got, err := os.ReadFile(path)
 	if err != nil {

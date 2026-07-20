@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
+	"time"
 	"unicode/utf16"
 )
 
@@ -58,17 +59,24 @@ func parseDropFiles(data []byte) []string {
 	return out
 }
 
-// writeImageTemp stages pasted image bytes as pasted-image.png inside a fresh
-// temp directory and returns the file path. The fixed inner name is what the
-// receiver sees. The file must outlive this call (it sits in the send list until
-// the user sends it), so there is no cleanup here; sweepPasteTemps reclaims the
-// directory on the next launch.
+// pastedImageName is the receiver-visible name for a pasted screenshot. It is
+// timestamped (like Snipping Tool / ShareX) so repeated pastes are distinct in
+// the send list and do not collide on the receiving end.
+func pastedImageName(t time.Time) string {
+	return "pasted-image-" + t.Format("20060102-150405") + ".png"
+}
+
+// writeImageTemp stages pasted image bytes as a timestamped pasted-image PNG
+// inside a fresh temp directory and returns the file path. The inner name is
+// what the receiver sees. The file must outlive this call (it sits in the send
+// list until the user sends it), so there is no cleanup here; sweepPasteTemps
+// reclaims the directory on the next launch.
 func writeImageTemp(png []byte) (string, error) {
 	dir, err := os.MkdirTemp("", "floe-paste-")
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, "pasted-image.png")
+	path := filepath.Join(dir, pastedImageName(time.Now()))
 	if err := os.WriteFile(path, png, 0o600); err != nil {
 		os.RemoveAll(dir)
 		return "", err

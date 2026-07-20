@@ -331,3 +331,38 @@ func TestReportBytesToServer(t *testing.T) {
 		}
 	})
 }
+
+// TestCreateUnique verifies the receiver never overwrites: repeated creates of
+// the same name de-collide as "name (1).ext", "name (2).ext", and a name with
+// no extension gets the suffix appended at the end.
+func TestCreateUnique(t *testing.T) {
+	dir := t.TempDir()
+
+	base := filepath.Join(dir, "shot.png")
+	for _, want := range []string{"shot.png", "shot (1).png", "shot (2).png"} {
+		f, err := createUnique(base)
+		if err != nil {
+			t.Fatalf("createUnique(%q): %v", base, err)
+		}
+		if got := filepath.Base(f.Name()); got != want {
+			t.Errorf("createUnique = %q, want %q", got, want)
+		}
+		f.Close()
+	}
+
+	// No extension: the suffix goes at the end.
+	noExt := filepath.Join(dir, "NOTES")
+	f1, err := createUnique(noExt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f1.Close()
+	f2, err := createUnique(noExt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f2.Close()
+	if got := filepath.Base(f2.Name()); got != "NOTES (1)" {
+		t.Errorf("no-ext de-collision = %q, want %q", got, "NOTES (1)")
+	}
+}

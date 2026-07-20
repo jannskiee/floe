@@ -195,7 +195,7 @@ func ReceiveFilesWithProgress(dc *webrtc.DataChannel, outputDir string, autoAcce
 				if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 					return fmt.Errorf("cannot create directory: %w", err)
 				}
-				currentFile, err = os.Create(destPath)
+				currentFile, err = createUnique(destPath)
 				if err != nil {
 					return fmt.Errorf("cannot create file %s: %w", destPath, err)
 				}
@@ -414,4 +414,29 @@ func safeJoin(outputDir, fileName string) string {
 		safe = []string{"received_file"}
 	}
 	return filepath.Join(outputDir, filepath.Join(safe...))
+}
+
+// createUnique creates path for writing, but never overwrites an existing file:
+// if the name is taken it appends " (1)", " (2)", ... before the extension until
+// it finds a free name, claiming each candidate atomically with O_EXCL. This
+// mirrors how browsers and file managers de-duplicate downloads, so two files
+// with the same name (for example two pasted screenshots, or a repeat send into
+// the same folder) both survive instead of one clobbering the other.
+func createUnique(path string) (*os.File, error) {
+	ext := filepath.Ext(path)
+	stem := strings.TrimSuffix(path, ext)
+	for i := 0; i < 100000; i++ {
+		candidate := path
+		if i > 0 {
+			candidate = fmt.Sprintf("%s (%d)%s", stem, i, ext)
+		}
+		f, err := os.OpenFile(candidate, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0666)
+		if err == nil {
+			return f, nil
+		}
+		if !os.IsExist(err) {
+			return nil, err
+		}
+	}
+	return nil, fmt.Errorf("too many files named like %q", filepath.Base(path))
 }

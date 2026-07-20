@@ -233,3 +233,37 @@ func TestLoopbackSmallJSONFile(t *testing.T) {
 		t.Fatalf("JSON file corrupted in transit:\n got: %q\nwant: %q", got, data)
 	}
 }
+
+// TestLoopbackDuplicateNames is the end-to-end guard for the receiver's
+// never-overwrite rule: two files with the same base name (two pasted
+// screenshots, or a repeat send) must both survive, the second de-collided to
+// "name (1).ext", rather than one clobbering the other.
+func TestLoopbackDuplicateNames(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ICE loopback transfer in -short mode")
+	}
+
+	dirA, dirB := t.TempDir(), t.TempDir()
+	pathA := filepath.Join(dirA, "shot.png")
+	pathB := filepath.Join(dirB, "shot.png")
+	if err := os.WriteFile(pathA, []byte("AAA"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pathB, []byte("BBBB"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := runTransfer(t, []string{pathA, pathB})
+
+	first, err := os.ReadFile(filepath.Join(outDir, "shot.png"))
+	if err != nil {
+		t.Fatalf("read first file: %v", err)
+	}
+	second, err := os.ReadFile(filepath.Join(outDir, "shot (1).png"))
+	if err != nil {
+		t.Fatalf("read de-collided file: %v", err)
+	}
+	if string(first) != "AAA" || string(second) != "BBBB" {
+		t.Fatalf("contents = %q / %q, want AAA / BBBB (a same-name file was overwritten)", first, second)
+	}
+}
