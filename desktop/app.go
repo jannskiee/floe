@@ -220,6 +220,78 @@ func (a *App) OpenFolder(path string) error {
 	return cmd.Start()
 }
 
+// fileExists reports whether p exists and is a regular file (not a directory).
+func fileExists(p string) bool {
+	info, err := os.Stat(p)
+	return err == nil && !info.IsDir()
+}
+
+// revealCmd returns the command that opens the OS file manager with path
+// selected/highlighted. Windows uses `explorer /select,<path>` as a SINGLE
+// argument: explorer parses its own command line, and splitting it into two
+// args often opens the folder without selecting. The path must use backslashes,
+// which filepath.Join yields on Windows (do not introduce forward slashes).
+// macOS uses `open -R`. Linux has no portable "select this file" verb, so it
+// opens the folder instead (dir is passed in for exactly this, so we never call
+// filepath.Dir and the pure helper stays host-separator independent for tests).
+func revealCmd(goos, dir, path string) *exec.Cmd {
+	switch goos {
+	case "windows":
+		return exec.Command("explorer", "/select,"+path)
+	case "darwin":
+		return exec.Command("open", "-R", path)
+	default:
+		return exec.Command("xdg-open", dir)
+	}
+}
+
+// openCmd returns the command that opens path in its default application.
+// Windows uses rundll32's FileProtocolHandler, the reliable shell-open primitive
+// (it avoids cmd.exe's quoting hazards and explorer.exe's unreliability). It
+// treats the argument URL-ish, so a literal '#' or '%' in the path is a rare
+// unhandled edge; the fully correct fix (ShellExecuteW) would need a syscall
+// dependency and is not worth it here.
+func openCmd(goos, path string) *exec.Cmd {
+	switch goos {
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", path)
+	case "darwin":
+		return exec.Command("open", path)
+	default:
+		return exec.Command("xdg-open", path)
+	}
+}
+
+// RevealFile opens the OS file manager with the received file dir/name selected.
+// If the exact file is missing it falls back to opening the folder, so the
+// action is never broken. This happens when the receiver de-collided a
+// same-named file to "name (1).ext" (createUnique in the engine renames on
+// disk but the UI only knows the sender's original basename), or the file was
+// moved/deleted after the transfer.
+func (a *App) RevealFile(dir, name string) error {
+	if dir == "" {
+		return fmt.Errorf("no folder to open")
+	}
+	p := filepath.Join(dir, name)
+	if fileExists(p) {
+		return revealCmd(goruntime.GOOS, dir, p).Start()
+	}
+	return a.OpenFolder(dir)
+}
+
+// OpenFile opens the received file dir/name in its default application, falling
+// back to opening the folder if the exact file is missing (see RevealFile).
+func (a *App) OpenFile(dir, name string) error {
+	if dir == "" {
+		return fmt.Errorf("no file to open")
+	}
+	p := filepath.Join(dir, name)
+	if fileExists(p) {
+		return openCmd(goruntime.GOOS, p).Start()
+	}
+	return a.OpenFolder(dir)
+}
+
 // defaultReceiveDir returns a safe default save location (the user's Downloads
 // folder, or home) so a blank destination never writes into the app's working
 // directory and clobbers unrelated files.

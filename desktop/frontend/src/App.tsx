@@ -8,9 +8,11 @@ import {
     EngineProtocolVersion,
     GetPendingFiles,
     GetVersion,
+    OpenFile,
     OpenFolder,
     PasteFiles,
     ReceiveByCode,
+    RevealFile,
     SelectFiles,
     SelectFolder,
     StartSend,
@@ -34,6 +36,7 @@ import {
     QrCode,
     Send,
     Share2,
+    SquareArrowOutUpRight,
     UploadCloud,
     X,
 } from 'lucide-react';
@@ -1239,11 +1242,25 @@ function App() {
                                                 <span className="truncate">Saved to {recvDir}</span>
                                             </div>
                                         )}
-                                        {recvDir && !receiving && (
-                                            <Button variant="outline" className="animate-floe-in w-full" onClick={() => { OpenFolder(recvDir).catch(() => {}); }}>
-                                                <FolderOpen/> Show in folder
-                                            </Button>
-                                        )}
+                                        {recvDir && !receiving && (() => {
+                                            // recvNamesRef is a ref, but recvDir is set (setRecvDir) only after
+                                            // receive() completes, so the names are fully populated by this render.
+                                            const only = recvNamesRef.current.length === 1 ? recvNamesRef.current[0] : '';
+                                            return only ? (
+                                                <div className="animate-floe-in flex gap-2">
+                                                    <Button variant="outline" className="flex-1" onClick={() => { OpenFile(recvDir, only).catch(() => {}); }}>
+                                                        <SquareArrowOutUpRight/> Open
+                                                    </Button>
+                                                    <Button variant="outline" className="flex-1" onClick={() => { RevealFile(recvDir, only).catch(() => {}); }}>
+                                                        <FolderOpen/> Show in folder
+                                                    </Button>
+                                                </div>
+                                            ) : (
+                                                <Button variant="outline" className="animate-floe-in w-full" onClick={() => { OpenFolder(recvDir).catch(() => {}); }}>
+                                                    <FolderOpen/> Show in folder
+                                                </Button>
+                                            );
+                                        })()}
                                         <StatusLine text={recvStatus} busy={receiving}/>
                                     </div>
 
@@ -1317,7 +1334,7 @@ function App() {
                                                                 )}
                                                                 {h.kind === 'recv' && h.dir && (
                                                                     <button
-                                                                        onClick={(e) => { e.stopPropagation(); OpenFolder(h.dir!).catch(() => {}); }}
+                                                                        onClick={(e) => { e.stopPropagation(); (h.count === 1 ? RevealFile(h.dir!, h.names[0] || '') : OpenFolder(h.dir!)).catch(() => {}); }}
                                                                         aria-label="Show in folder"
                                                                         className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-500 opacity-0 transition-[color,background-color,opacity] hover:bg-white/10 hover:text-zinc-200 focus-visible:opacity-100 group-hover:opacity-100"
                                                                     >

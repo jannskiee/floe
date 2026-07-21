@@ -15,11 +15,15 @@ export function GetPendingFiles():Promise<Array<string>>;
 
 export function GetVersion():Promise<string>;
 
+export function OpenFile(arg1:string,arg2:string):Promise<void>;
+
 export function OpenFolder(arg1:string):Promise<void>;
 
 export function PasteFiles():Promise<Array<string>>;
 
 export function ReceiveByCode(arg1:string,arg2:string,arg3:boolean,arg4:boolean):Promise<string>;
+
+export function RevealFile(arg1:string,arg2:string):Promise<void>;
 
 export function SelectFiles():Promise<Array<string>>;
 

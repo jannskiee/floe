@@ -30,6 +30,10 @@ export function GetVersion() {
   return window['go']['main']['App']['GetVersion']();
 }
 
+export function OpenFile(arg1, arg2) {
+  return window['go']['main']['App']['OpenFile'](arg1, arg2);
+}
+
 export function OpenFolder(arg1) {
   return window['go']['main']['App']['OpenFolder'](arg1);
 }
@@ -40,6 +44,10 @@ export function PasteFiles() {
 
 export function ReceiveByCode(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['ReceiveByCode'](arg1, arg2, arg3, arg4);
+}
+
+export function RevealFile(arg1, arg2) {
+  return window['go']['main']['App']['RevealFile'](arg1, arg2);
 }
 
 export function SelectFiles() {
