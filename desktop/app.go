@@ -226,6 +226,25 @@ func fileExists(p string) bool {
 	return err == nil && !info.IsDir()
 }
 
+// safeLeaf reduces a peer-supplied name to a single in-directory path component
+// so it cannot escape the target dir when joined. It defeats path traversal
+// (.., absolute, UNC, drive-letter, and forward- or back-slash separators) by
+// normalizing every backslash to a forward slash and keeping only the final
+// component, independent of the build OS. Returns ("", false) when there is no
+// usable leaf (".", "..", ""), so the caller falls back to opening the folder.
+// This is the security boundary for RevealFile/OpenFile: the UI passes the raw
+// sender-controlled file name, so the guard must live here, not in the webview.
+func safeLeaf(name string) (string, bool) {
+	name = strings.ReplaceAll(name, "\\", "/")
+	if i := strings.LastIndexByte(name, '/'); i >= 0 {
+		name = name[i+1:]
+	}
+	if name == "." || name == ".." || name == "" {
+		return "", false
+	}
+	return name, true
+}
+
 // revealCmd returns the command that opens the OS file manager with path
 // selected/highlighted. Windows uses `explorer /select,<path>` as a SINGLE
 // argument: explorer parses its own command line, and splitting it into two
@@ -272,7 +291,11 @@ func (a *App) RevealFile(dir, name string) error {
 	if dir == "" {
 		return fmt.Errorf("no folder to open")
 	}
-	p := filepath.Join(dir, name)
+	leaf, ok := safeLeaf(name)
+	if !ok {
+		return a.OpenFolder(dir)
+	}
+	p := filepath.Join(dir, leaf)
 	if fileExists(p) {
 		return revealCmd(goruntime.GOOS, dir, p).Start()
 	}
@@ -285,7 +308,11 @@ func (a *App) OpenFile(dir, name string) error {
 	if dir == "" {
 		return fmt.Errorf("no file to open")
 	}
-	p := filepath.Join(dir, name)
+	leaf, ok := safeLeaf(name)
+	if !ok {
+		return a.OpenFolder(dir)
+	}
+	p := filepath.Join(dir, leaf)
 	if fileExists(p) {
 		return openCmd(goruntime.GOOS, p).Start()
 	}
