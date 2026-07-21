@@ -16,3 +16,7 @@ overrides:
   minimatch@9: ^9.0.7
   socket.io-parser: ^4.2.6
   flatted: ^3.4.2
+  # GHSA advisories 2026-07: DoS via pathological inputs in dev tooling.
+  # The @1 scope leaves the non-vulnerable 5.x line untouched.
+  brace-expansion@1: ^1.1.16
+  js-yaml: ^4.3.0
