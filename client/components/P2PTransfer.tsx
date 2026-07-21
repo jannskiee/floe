@@ -137,6 +137,10 @@ export function P2PTransfer() {
     // displayed link keeps pointing at this id, so a socket reconnect must
     // re-join it or the link goes dead.
     const createdRoomRef = useRef<string | null>(null);
+    // Fallback timer for the room-joined ack gate in handleCreateLink. Held in
+    // a ref so a repeated create-link click clears the previous timer instead
+    // of letting it later revert the displayed link to an abandoned room.
+    const linkAckFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const receivedFilesRef = useRef<ReceivedFile[]>([]);
     const transferCompleteRef = useRef(false);
     const progressRef = useRef(0);
@@ -157,6 +161,7 @@ export function P2PTransfer() {
         sendSignal,
         onUserConnected,
         onRoomFull,
+        onRoomJoined,
     } = useSignaling({
         onSignal: (data) => {
             const peer = peerRef.current;
@@ -522,8 +527,24 @@ export function P2PTransfer() {
         // the fragment (never sent to the server); the nonce carries no info.
         const nonce = uuidv4().slice(0, 8);
         const link = `${window.location.protocol}//${window.location.host}/?s=${nonce}#room=${newRoomId}`;
-        setGeneratedLink(link);
         createdRoomRef.current = newRoomId;
+        // Render the link only after the server confirms the join. The link is
+        // an invitation into this room, so the sender must hold the room's
+        // sender slot before the link is shareable: a receiver that follows
+        // the link into a room the server has not created yet is handed the
+        // sender role itself, and a CLI receiver then exits with "expected
+        // receiver role" (the dominant CI flake; the ack round-trip is one
+        // RTT, imperceptible next to it). A reconnect re-join re-fires this
+        // handler with the same link, a no-op re-render. If the ack never
+        // arrives (lossy path, misbehaving proxy), show the link after 3s
+        // anyway rather than leaving the user stuck; pre-ack render was the
+        // status quo of every release until now.
+        if (linkAckFallbackRef.current) clearTimeout(linkAckFallbackRef.current);
+        linkAckFallbackRef.current = setTimeout(() => setGeneratedLink(link), 3000);
+        onRoomJoined(() => {
+            if (linkAckFallbackRef.current) clearTimeout(linkAckFallbackRef.current);
+            setGeneratedLink(link);
+        });
         joinRoom(newRoomId);
         setStatus('Waiting for peer');
 

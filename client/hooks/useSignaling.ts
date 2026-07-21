@@ -88,6 +88,7 @@ export function useSignaling(callbacks: UseSignalingCallbacks) {
             socket.off('connect');
             socket.off('disconnect');
             socket.off('room-full');
+            socket.off('room-joined');
             socket.off('peer-disconnected');
             socket.off('connect_error');
             socket.io.off('reconnect');
@@ -115,6 +116,16 @@ export function useSignaling(callbacks: UseSignalingCallbacks) {
         socket.on('room-full', handler);
     }, []);
 
+    // The server acks every join-room with room-joined { role }. The sender
+    // gates its link render on this ack (see handleCreateLink): the room must
+    // exist server-side before the link is shareable, or a fast receiver can
+    // join first, be handed the sender role, and fail with "expected receiver
+    // role, got sender".
+    const onRoomJoined = useCallback((handler: (data: { role: string }) => void) => {
+        socket.off('room-joined');
+        socket.on('room-joined', handler);
+    }, []);
+
     return {
         isConnected,
         setIsConnected,
@@ -123,5 +134,6 @@ export function useSignaling(callbacks: UseSignalingCallbacks) {
         sendSignal,
         onUserConnected,
         onRoomFull,
+        onRoomJoined,
     };
 }
