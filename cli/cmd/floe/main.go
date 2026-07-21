@@ -287,7 +287,11 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	select {
 	case role := <-sc.Role:
 		if role != "receiver" {
-			return fmt.Errorf("expected receiver role, got %q (are you using the right code?)", role)
+			// The server only ever returns "sender" or "receiver"; a receiver
+			// getting "sender" means it joined an empty room, so nobody is sharing
+			// with this code (codes are single-use: the transfer already finished,
+			// or the sender left).
+			return fmt.Errorf("no one is sharing with this code (it was already used, or the sender left); ask the sender for a new code")
 		}
 	case <-sc.RoomFull:
 		return fmt.Errorf("room is full (someone else may already be receiving)")
