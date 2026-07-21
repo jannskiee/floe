@@ -36,4 +36,15 @@ describe('scrubUrl', () => {
         expect(scrubUrl(undefined)).toBeUndefined();
         expect(scrubUrl(null)).toBeUndefined();
     });
+
+    it('never mistakes a host starting with the dummy base for the base itself', () => {
+        // The base-strip must match "http://scrub.invalid/", not the bare
+        // prefix: this host merely starts with the same characters and must
+        // come back intact (still room-scrubbed), not sliced into garbage.
+        expect(scrubUrl('http://scrub.invalid.evil.com/path?room=secret-uuid')).toBe(
+            'http://scrub.invalid.evil.com/path?room=redacted'
+        );
+        // The dummy-base strip itself still works for relative inputs.
+        expect(scrubUrl('/path?room=secret-uuid')).toBe('/path?room=redacted');
+    });
 });
