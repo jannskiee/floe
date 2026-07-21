@@ -358,6 +358,11 @@ jobs:
             client/test-results/
           if-no-files-found: ignore
           retention-days: 7
+          # Artifact names are immutable within a run since upload-artifact
+          # v4, so without this a full re-run fails at upload. A re-run
+          # replaces the previous attempt's artifact: harvest evidence
+          # before re-running.
+          overwrite: true
 
   back-compat:
     name: Back-compat (HEAD vs latest release)
@@ -479,6 +484,8 @@ jobs:
             client/test-results/
           if-no-files-found: ignore
           retention-days: 7
+          # Same re-run rationale as the e2e leg.
+          overwrite: true
 
   ci-green:
     # The one required status check on main (see the main-protection
