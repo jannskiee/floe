@@ -15,7 +15,7 @@
  * hermetically without a TURN server or real network.
  */
 
-import { expect, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { createHash, randomBytes } from 'crypto';
 import { writeFileSync, mkdirSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
@@ -108,6 +108,39 @@ export async function browserSenderSetup(page: Page, fixturePath: string): Promi
 // ---------------------------------------------------------------------------
 
 /**
+ * Mirror a spawned CLI's stdout/stderr into a transcript, each data event
+ * prefixed with the milliseconds since spawn, and attach it to the current
+ * test's report when the process ends. Runs alongside the callers' own
+ * stream handlers (Node supports multiple 'data' listeners) so the existing
+ * link-matching and error-tail logic stays untouched.
+ *
+ * The attachment survives retry-passes: a flaky first attempt leaves the
+ * CLI's own timeline in the report artifact, alignable against the browser
+ * trace, instead of vanishing behind the green retry. Best-effort on
+ * purpose: attaching evidence must never fail a test, and a process that
+ * outlives its test (test.info() then throws) just drops the transcript.
+ */
+function captureTranscript(proc: ChildProcess, name: string): void {
+    const t0 = Date.now();
+    let transcript = '';
+    let attached = false;
+    const record = (stream: 'out' | 'err') => (chunk: Buffer) => {
+        transcript += `[+${Date.now() - t0}ms ${stream}] ${chunk.toString()}`;
+    };
+    const attach = () => {
+        if (attached) return;
+        attached = true;
+        try {
+            test.info().attach(name, { body: transcript, contentType: 'text/plain' }).catch(() => { });
+        } catch { }
+    };
+    proc.stdout?.on('data', record('out'));
+    proc.stderr?.on('data', record('err'));
+    proc.on('close', attach);
+    proc.on('error', attach);
+}
+
+/**
  * Spawn `floe send` and return a promise that resolves to the room link once
  * it appears in stdout, plus the process so the caller can await/kill it.
  * The caller owns the process and must kill it in a finally block.
@@ -126,6 +159,7 @@ export function spawnSend(path: string, binary: string = cliBinary()): {
         '--web', WEB_URL,
         '--no-relay',
     ]);
+    captureTranscript(proc, 'floe send transcript');
 
     const linkPromise = new Promise<string>((resolve, reject) => {
         let stdout = '';
@@ -176,6 +210,7 @@ export function spawnReceive(link: string, outputDir: string, binary: string = c
             '--yes',       // auto-accept
             '--no-relay',
         ]);
+        captureTranscript(proc, 'floe receive transcript');
 
         let stdout = '';
         let stderr = '';

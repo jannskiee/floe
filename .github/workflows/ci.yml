@@ -5,6 +5,12 @@ on:
     branches: [main]
   push:
     branches: [main]
+  # Manual full-suite run. Recovery for dropped push events (GitHub's event
+  # pipeline lost two main pushes on 2026-07-19; lost runs never fire
+  # retroactively) and a cheap way to re-roll the suite when investigating
+  # flaky tests. The changes job treats every non-pull_request event as a
+  # full-suite run, so no path skips apply here.
+  workflow_dispatch:
 
 # Least-privilege default for the GITHUB_TOKEN in every job. The only token
 # use is back-compat's gh release view/download against this repo's public
@@ -337,14 +343,26 @@ jobs:
         run: pnpm exec playwright test
         working-directory: client
 
-      - name: Upload traces and test results on failure
-        if: failure()
+      - name: Upload Playwright evidence
+        # Not failure()-gated: a test that fails once and passes on the CI
+        # retry leaves a green job, and its first-attempt trace plus the CLI
+        # transcripts attached by e2e/helpers.ts live in these directories.
+        # Uploading them on every non-cancelled run is what makes flaky
+        # attempts investigable at all.
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: e2e-traces-${{ matrix.os }}
-          path: client/test-results/
+          name: e2e-evidence-${{ matrix.os }}
+          path: |
+            client/playwright-report/
+            client/test-results/
           if-no-files-found: ignore
           retention-days: 7
+          # Artifact names are immutable within a run since upload-artifact
+          # v4, so without this a full re-run fails at upload. A re-run
+          # replaces the previous attempt's artifact: harvest evidence
+          # before re-running.
+          overwrite: true
 
   back-compat:
     name: Back-compat (HEAD vs latest release)
@@ -454,14 +472,20 @@ jobs:
           test -x "$FLOE_RELEASED_CLI"
           pnpm exec playwright test e2e/back-compat.spec.ts
 
-      - name: Upload traces and test results on failure
-        if: failure()
+      - name: Upload Playwright evidence
+        # Same reasoning as the e2e leg: keep first-attempt traces and CLI
+        # transcripts from retry-passed (green) runs.
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: back-compat-traces
-          path: client/test-results/
+          name: back-compat-evidence
+          path: |
+            client/playwright-report/
+            client/test-results/
           if-no-files-found: ignore
           retention-days: 7
+          # Same re-run rationale as the e2e leg.
+          overwrite: true
 
   ci-green:
     # The one required status check on main (see the main-protection
