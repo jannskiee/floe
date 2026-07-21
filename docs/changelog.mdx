@@ -3,6 +3,16 @@ title: "Changelog"
 description: "Release history for Floe."
 ---
 
+<Update label="v1.7.6" description="2026-07-21">
+  **Stalled transfers now fail fast with clear errors**
+
+  - Fixed transfers freezing forever when the connection silently broke right after setup. The receiver now reports "connected, but no data arrived from the sender" within 30 seconds if the transfer never starts, and "transfer stalled" with exact byte progress if data stops flowing mid-file for a full minute, instead of sitting on a frozen progress bar until you press Ctrl+C. These stalls are rare, but when one happened there was no way to tell it apart from a slow transfer.
+  - Fixed `floe send` waiting up to two minutes after the receiver declined the transfer or exited. It now reports "connection closed while waiting for the receiver" in about a second.
+  - Web app: the share link now appears only once the server has confirmed your room. This closes a rare race where a receiver that followed the link extremely quickly could be mistaken for the sender and fail with a role error.
+  - Updated the CLI's WebRTC stack (Pion) to the current releases.
+  - No transfer-protocol change, so v1.7.6 interoperates with older CLI and browser peers in every direction.
+</Update>
+
 <Update label="v1.7.5" description="2026-07-10">
   **Accurate progress on slow connections, and a CLI relay fix**
 
