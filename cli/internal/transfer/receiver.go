@@ -17,6 +17,19 @@ import (
 	"github.com/schollz/progressbar/v3"
 )
 
+// Receive-loop stall watchdog. Before the first metadata the sender needs no
+// human input and metadata is due about one RTT after the channel opens, so a
+// silent 30 s means the transfer path is dead (the captured CI failure mode:
+// both sides log Connected, then nothing). Mid-transfer the bar is higher:
+// pion/sctp's retransmission timeout backs off toward 60 s on a lossy path and
+// the sender's own backpressure abort uses a 60 s window, so anything shorter
+// would kill transfers that are still legitimately recovering. Vars, not
+// consts, so tests can shrink them.
+var (
+	receiveIdleTimeout  = 30 * time.Second
+	receiveStallTimeout = 60 * time.Second
+)
+
 // FileInfo describes an incoming file (parsed from metadata message).
 type FileInfo struct {
 	ID         string
@@ -92,6 +105,14 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, loc
 		}
 	}()
 
+	// Stall watchdog: armed only while the loop is actually blocked on an
+	// empty msgCh, so it measures exactly "no data for this long" and can
+	// never fire while messages are flowing. The interactive accept prompt
+	// runs synchronously inside the metadata case below, outside any select,
+	// so a slow human can never trip it either.
+	stallTimer := time.NewTimer(receiveIdleTimeout)
+	defer stallTimer.Stop()
+
 	for {
 		// Prefer draining buffered messages over reacting to a close: a normal
 		// transfer ends with the final "end" marker already queued in msgCh,
@@ -100,6 +121,15 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, loc
 		select {
 		case msg = <-msgCh:
 		default:
+			// Bare Reset without a Stop/drain is correct under the Go 1.23+
+			// timer semantics this module's go directive activates; lowering
+			// the directive (or GODEBUG=asynctimerchan=1) would let a stale
+			// expiry misfire the very next select.
+			if waitingForFirst {
+				stallTimer.Reset(receiveIdleTimeout)
+			} else {
+				stallTimer.Reset(receiveStallTimeout)
+			}
 			select {
 			case msg = <-msgCh:
 			case <-done:
@@ -109,6 +139,32 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, loc
 						currentInfo.FileName, bytesReceived, currentInfo.FileSize)
 				}
 				return nil
+			case <-stallTimer.C:
+				// If the close raced the timer, report the close: it is the
+				// more precise diagnosis, and it keeps behavior identical to
+				// the done case above.
+				select {
+				case <-done:
+					if currentFile != nil {
+						return fmt.Errorf("connection closed mid-transfer: %s (%d of %d bytes)",
+							currentInfo.FileName, bytesReceived, currentInfo.FileSize)
+					}
+					return nil
+				default:
+				}
+				// Phase-aware stall errors. Deliberately no protocol or
+				// version phrasing: the "floe update" hint belongs to the
+				// incompatible path only.
+				switch {
+				case waitingForFirst:
+					return fmt.Errorf("connected, but no data arrived from the sender within %s", receiveIdleTimeout)
+				case currentFile != nil:
+					return fmt.Errorf("transfer stalled: no data for %s (%d of %d bytes of %q)",
+						receiveStallTimeout, bytesReceived, currentInfo.FileSize, currentInfo.FileName)
+				default:
+					return fmt.Errorf("transfer stalled: no data for %s (%d of %d files received)",
+						receiveStallTimeout, filesReceived, currentInfo.Total)
+				}
 			}
 		}
 
