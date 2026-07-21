@@ -291,7 +291,7 @@ func runReceive(cmd *cobra.Command, args []string) error {
 			// getting "sender" means it joined an empty room, so nobody is sharing
 			// with this code (codes are single-use: the transfer already finished,
 			// or the sender left).
-			return fmt.Errorf("no one is sharing with this code (it was already used, or the sender left); ask the sender for a new code")
+			return fmt.Errorf("this code is no longer active; ask for a new one")
 		}
 	case <-sc.RoomFull:
 		return fmt.Errorf("room is full (someone else may already be receiving)")
