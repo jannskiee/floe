@@ -63,6 +63,10 @@ type App struct {
 	curSC   *signaling.Client
 	curConn *peer.Connection
 
+	// wake keeps the machine awake for the duration of a connected transfer
+	// (Windows only; a no-op on other platforms). See wake.go.
+	wake *wakeGuard
+
 	// pendingFiles holds file paths passed on the command line (Explorer's
 	// "Send with Floe", drag-onto-exe) until the frontend pulls them.
 	pendingFiles []string
@@ -70,7 +74,7 @@ type App struct {
 
 // NewApp creates a new App application struct
 func NewApp() *App {
-	return &App{}
+	return &App{wake: newWakeGuard()}
 }
 
 // startup is called when the app starts. The context is saved so we can call the
@@ -336,6 +340,10 @@ func (a *App) StartSendText(text string, hideIP bool) error {
 }
 
 func (a *App) runSend(paths []string, hideIP bool) {
+	// Release any sleep inhibitor on every exit (success, error, cancel, panic).
+	// Idempotent: a no-op if we never acquired it (e.g. no receiver ever joined).
+	defer a.wake.release()
+
 	fail := func(err error) {
 		runtime.EventsEmit(a.ctx, "send:error", err.Error())
 		a.notify("Floe - send failed", err.Error())
@@ -404,6 +412,11 @@ func (a *App) runSend(paths []string, hideIP bool) {
 	}
 	runtime.EventsEmit(a.ctx, "send:status", "Peer connected. Sending...")
 
+	// A peer is connected: keep the machine awake through WebRTC setup and the
+	// data transfer. Placed here, not at the top, so the unbounded wait for a
+	// receiver above never holds a laptop awake on an unanswered share link.
+	a.wake.acquire()
+
 	// Set up WebRTC as the initiator and send.
 	conn, err := peer.New(iceServers, sc, relayOpts(hideIP)...)
 	if err != nil {
@@ -453,6 +466,10 @@ func (a *App) runSend(paths []string, hideIP bool) {
 //
 // Returns the absolute output directory on success.
 func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool, reportStats bool) (string, error) {
+	// Release any sleep inhibitor on every exit (success, error, cancel, panic).
+	// Idempotent: a no-op if we return before acquiring it.
+	defer a.wake.release()
+
 	if outputDir == "" {
 		outputDir = defaultReceiveDir()
 	}
@@ -500,6 +517,10 @@ func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool, re
 	case <-time.After(20 * time.Second):
 		return "", fmt.Errorf("timed out waiting for the server to assign a role")
 	}
+
+	// A receiver role means a sender is already present: keep the machine awake
+	// through WebRTC setup and the data transfer.
+	a.wake.acquire()
 
 	conn, err := peer.New(iceServers, sc, relayOpts(hideIP)...)
 	if err != nil {
