@@ -1029,7 +1029,7 @@ function App() {
 
                         <div className="mt-10 space-y-6">
                             {[
-                                {n: '01', title: 'Direct & unlimited', note: 'Files stream device to device with no size cap.'},
+                                {n: '01', title: 'Direct & unlimited', note: 'Direct transfers stream device to device with no size cap. Relay fallback is capped at 2 GB.'},
                                 {n: '02', title: 'End-to-end encrypted', note: 'DTLS and SRTP, the same as a video call.'},
                                 {n: '03', title: 'Nothing is stored', note: 'The server only brokers the handshake.'},
                             ].map(({n, title, note}) => (
@@ -1077,7 +1077,7 @@ function App() {
                                     <span
                                         title={busy
                                             ? (route === 'relay' ? 'Relay connection' : route === 'direct' ? 'Direct peer connection' : 'Connecting')
-                                            : hideIP ? 'Hide my IP is on. Transfers go through the relay.' : 'Ready for a transfer'}
+                                            : hideIP ? 'Hide my IP is on. Transfers go through the relay (capped at 2 GB).' : 'Ready for a transfer'}
                                         className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500"
                                     >
                                         <StatusDot className={cn('transition-colors duration-500', relayTone ? 'bg-amber-500' : 'bg-green-500')} pulse={busy}/>
