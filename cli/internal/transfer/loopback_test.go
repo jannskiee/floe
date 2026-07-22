@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -231,5 +232,39 @@ func TestLoopbackSmallJSONFile(t *testing.T) {
 	}
 	if string(got) != string(data) {
 		t.Fatalf("JSON file corrupted in transit:\n got: %q\nwant: %q", got, data)
+	}
+}
+
+// TestLoopbackCloseBeforeFirstFile: a sender that connects and then closes
+// without sending anything (it was cancelled, or its relay gate blocked the
+// transfer) must surface an error on the receiver instead of reporting a
+// successful zero-file transfer.
+func TestLoopbackCloseBeforeFirstFile(t *testing.T) {
+	sender, recvCh, closeFn := newConnectedPair(t)
+	defer closeFn()
+
+	outDir := t.TempDir()
+	recvErr := make(chan error, 1)
+	go func() {
+		dc := <-recvCh
+		recvErr <- ReceiveFiles(dc, outDir, true, "", "")
+	}()
+
+	// Let the receiver wire its handlers, then walk away without sending.
+	time.Sleep(300 * time.Millisecond)
+	if err := sender.Close(); err != nil {
+		t.Fatalf("sender close: %v", err)
+	}
+
+	select {
+	case err := <-recvErr:
+		if err == nil {
+			t.Fatal("ReceiveFiles reported success for a session with no files; want an error")
+		}
+		if !strings.Contains(err.Error(), "before any file") {
+			t.Fatalf("expected a no-files close error, got: %v", err)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("ReceiveFiles did not return after the data channel closed")
 	}
 }
