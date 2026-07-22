@@ -551,10 +551,15 @@ func (a *App) runSend(paths []string, hideIP bool) {
 		runtime.EventsEmit(a.ctx, "send:progress", p)
 	}
 	if err := transfer.SendFilesWithProgress(dc, paths, version, onProgress); err != nil {
-		// The engine's relay cap fired while Hide my IP forces every transfer
-		// through the relay: tell the user which toggle to flip.
-		if errors.Is(err, transfer.ErrRelayOverLimit) && hideIP {
-			err = fmt.Errorf("%w. Hide my IP forces the relay; turn it off to allow a direct connection", err)
+		// The relay cap is a policy block, not a failure: skip the "transfer
+		// failed" wrapper, and when Hide my IP forced the relay, name the
+		// toggle that lifts the cap.
+		if errors.Is(err, transfer.ErrRelayOverLimit) {
+			if hideIP {
+				err = fmt.Errorf("%w. Turn off Hide my IP to send larger files", err)
+			}
+			fail(err)
+			return
 		}
 		fail(fmt.Errorf("transfer failed: %w", err))
 		return
