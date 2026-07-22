@@ -21,6 +21,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -148,6 +149,19 @@ func SendFilesWithProgress(dc *webrtc.DataChannel, paths []string, localVer stri
 		}
 	})
 
+	// done is closed when the data channel closes, letting every wait below
+	// fail fast instead of burning its full deadline. pion fires OnClose on
+	// GRACEFUL closes only (remote dc.Close/pc.Close/browser tab close send a
+	// close notification): a kill -9 or dead network never errors the read
+	// chain (sctp retransmits forever by design and an ICE failure does not
+	// unblock reads), so the 120 s ack and 60 s backpressure deadlines remain
+	// the backstop for ungraceful death.
+	done := make(chan struct{})
+	var closeOnce sync.Once
+	dc.OnClose(func() {
+		closeOnce.Do(func() { close(done) })
+	})
+
 	// Backpressure: pion calls OnBufferedAmountLow once the send buffer drains
 	// to bufferedAmountLowWater. The send loop blocks on sendMore whenever the
 	// buffer is full so we never enqueue faster than the peer can drain.
@@ -171,7 +185,7 @@ func SendFilesWithProgress(dc *webrtc.DataChannel, paths []string, localVer stri
 
 	var sentSoFar int64
 	for i, entry := range files {
-		if err := sendFile(dc, ackCh, sendMore, entry, i+1, len(files), totalBytes, localVer, onProgress, sentSoFar, chunk); err != nil {
+		if err := sendFile(dc, ackCh, sendMore, done, entry, i+1, len(files), totalBytes, localVer, onProgress, sentSoFar, chunk); err != nil {
 			return fmt.Errorf("error sending %s: %w", entry.displayName, err)
 		}
 		sentSoFar += entry.size
@@ -205,6 +219,31 @@ drainLoop:
 			if dc.BufferedAmount() == 0 {
 				break drainLoop
 			}
+		case <-done:
+			// Success must win this race. pion delivers OnMessage before
+			// OnClose from the same read goroutine, so a "received" the peer
+			// sent just before closing is already sitting in ackCh: consult it
+			// before judging the close. And BufferedAmount is untrustworthy
+			// here (the SACK race above), so a nonzero value only means
+			// delivery could not be confirmed, never that data was lost.
+		drainAcks:
+			for {
+				select {
+				case raw := <-ackCh:
+					var msg struct {
+						Type string `json:"type"`
+					}
+					if json.Unmarshal(raw, &msg) == nil && msg.Type == "received" {
+						break drainLoop
+					}
+				default:
+					break drainAcks
+				}
+			}
+			if dc.BufferedAmount() == 0 {
+				break drainLoop
+			}
+			return fmt.Errorf("connection closed before delivery was confirmed (%d bytes unacknowledged)", dc.BufferedAmount())
 		case <-drainDeadline:
 			return fmt.Errorf("timed out waiting for delivery confirmation from peer")
 		}
@@ -270,7 +309,7 @@ func collectFiles(paths []string) ([]fileEntry, error) {
 }
 
 // sendFile handles the full send sequence for a single file.
-func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onProgress ProgressFunc, baseTotal int64, chunk int) error {
+func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, done <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onProgress ProgressFunc, baseTotal int64, chunk int) error {
 	f, err := os.Open(entry.absPath)
 	if err != nil {
 		return err
@@ -356,6 +395,11 @@ ackLoop:
 				}
 			}
 			// Not our ack — keep waiting.
+		case <-done:
+			// A decline (the receiver's [Y/n] prompt closes the channel) or a
+			// receiver error-exit lands here in about a second instead of
+			// burning the full ack deadline.
+			return fmt.Errorf("connection closed while waiting for the receiver (transfer declined or receiver exited)")
 		case <-ackDeadline:
 			return fmt.Errorf("timed out waiting for ack")
 		}
@@ -410,6 +454,8 @@ ackLoop:
 			for dc.BufferedAmount() >= bufferedAmountHighWater {
 				select {
 				case <-sendMore:
+				case <-done:
+					return fmt.Errorf("connection closed mid-transfer (%d bytes still buffered)", dc.BufferedAmount())
 				case <-time.After(60 * time.Second):
 					cur := dc.BufferedAmount()
 					if backpressureStalled(lastBuffered, cur) {

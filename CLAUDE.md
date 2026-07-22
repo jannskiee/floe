@@ -76,6 +76,9 @@ Browser peers communicate via **Socket.IO**; CLI peers communicate via **WebSock
 ### Transfer Protocol Versioning
 The data-channel transfer protocol carries its own version, independent of the release version (1.x.y). Peers exchange `pv` (highest protocol version), `pvMin` (lowest supported), and `ver` (release string) inside the existing `metadata` and `ack` messages. Compatibility is a range-overlap check; if the ranges miss, the receiver sends an `incompatible` message before any file bytes move and both sides print a "run `floe update`" hint. Constants: `ProtocolVersion` / `MinProtocolVersion` in `cli/internal/transfer/protocol.go`, mirrored as `PROTOCOL_VERSION` / `MIN_PROTOCOL_VERSION` in `client/lib/transfer/protocol.ts`. Both are 1 today. Bump `ProtocolVersion` only on a breaking wire change; keep the two implementations in sync. Peers omitting the fields (pre-1.6.0) are treated as protocol 1.
 
+### Relay Size Limit
+Relayed (TURN) transfers are capped at 2 GB per session; direct transfers are unlimited. The cap is a sender-side, pre-transfer gate: once the connection is established the sender inspects the selected ICE candidate pair, and only a confirmed relay path with more than the limit queued blocks (strictly greater-than, so exactly 2 GB is allowed). Detection failures fail open so a probe hiccup never blocks a legitimate transfer. Constants: `RELAY_SIZE_LIMIT` in `client/lib/relay.ts` (browser) and `RelaySizeLimit` in `cli/internal/transfer/relay.go` (CLI); keep the two in sync. The gate is local policy on the sender, not part of the wire protocol, so changing it needs no `ProtocolVersion` bump; the receiver has no size check.
+
 ### Room Codes
 `POST /api/code` registers a short human-readable phrase (e.g. `olive-tiger-castle`) mapping to a room ID with 10-min TTL. `GET /api/code/:code` resolves it. Words come from `server/words.json`.
 
@@ -126,6 +129,8 @@ Automated doc-maintenance PRs (style, links, SEO) are managed in the Mintlify da
 ## CI
 
 `CI green` is the single required status check on `main`. It is a gate job in `.github/workflows/ci.yml` that needs every other job; any new CI job must be added to its `needs` list or its failures are invisible to branch protection. New or experimental jobs should start OUTSIDE the gate's needs (visible but non-blocking) and be promoted in once stable. Deterministic linters (for example actionlint) are the exception and may enter the gate's `needs` immediately: their failures are reproducible locally, and their whole purpose is to block broken workflow edits, which a soak period outside the gate would defeat.
+
+ci.yml also has a `workflow_dispatch` trigger: a dispatched run behaves exactly like a push (full suite, no path skips). Use it to recover from a lost push event or to re-roll the suite when investigating flaky tests. The e2e and back-compat jobs upload a Playwright evidence artifact (HTML report, traces, and stamped CLI transcripts) on every non-cancelled run, so a test that fails once and passes on the CI retry still leaves its first attempt inspectable.
 
 ## Writing Style
 

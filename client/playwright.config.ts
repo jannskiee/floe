@@ -18,6 +18,12 @@ export default defineConfig({
     // protocol break fails every attempt; the unit tests are the real correctness
     // guard, this just stops infra jitter from reddening the build.
     retries: process.env.CI ? 1 : 0,
+    // Terminal output stays list; the HTML report additionally persists every
+    // attempt's attachments (the stamped CLI transcripts from e2e/helpers.ts)
+    // and retried-test traces, so a flaky first attempt inside a green run
+    // leaves evidence in the uploaded CI artifact instead of vanishing.
+    // open: 'never' keeps local runs from popping a browser after failures.
+    reporter: [['list'], ['html', { open: 'never' }]],
     use: {
         baseURL: 'http://localhost:3000',
         headless: true,
