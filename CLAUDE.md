@@ -76,6 +76,9 @@ Browser peers communicate via **Socket.IO**; CLI peers communicate via **WebSock
 ### Transfer Protocol Versioning
 The data-channel transfer protocol carries its own version, independent of the release version (1.x.y). Peers exchange `pv` (highest protocol version), `pvMin` (lowest supported), and `ver` (release string) inside the existing `metadata` and `ack` messages. Compatibility is a range-overlap check; if the ranges miss, the receiver sends an `incompatible` message before any file bytes move and both sides print a "run `floe update`" hint. Constants: `ProtocolVersion` / `MinProtocolVersion` in `cli/internal/transfer/protocol.go`, mirrored as `PROTOCOL_VERSION` / `MIN_PROTOCOL_VERSION` in `client/lib/transfer/protocol.ts`. Both are 1 today. Bump `ProtocolVersion` only on a breaking wire change; keep the two implementations in sync. Peers omitting the fields (pre-1.6.0) are treated as protocol 1.
 
+### Relay Size Limit
+Relayed (TURN) transfers are capped at 2 GB per session; direct transfers are unlimited. The cap is a sender-side, pre-transfer gate: once the connection is established the sender inspects the selected ICE candidate pair, and only a confirmed relay path with more than the limit queued blocks (strictly greater-than, so exactly 2 GB is allowed). Detection failures fail open so a probe hiccup never blocks a legitimate transfer. Constants: `RELAY_SIZE_LIMIT` in `client/lib/relay.ts` (browser) and `RelaySizeLimit` in `cli/internal/transfer/relay.go` (CLI); keep the two in sync. The gate is local policy on the sender, not part of the wire protocol, so changing it needs no `ProtocolVersion` bump; the receiver has no size check.
+
 ### Room Codes
 `POST /api/code` registers a short human-readable phrase (e.g. `olive-tiger-castle`) mapping to a room ID with 10-min TTL. `GET /api/code/:code` resolves it. Words come from `server/words.json`.
 

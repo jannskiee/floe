@@ -23,5 +23,5 @@ If both peers are on typical consumer networks, a direct connection will almost 
 The 2 GB cap resets if the relay connection drops and reconnects. Each new WebRTC session starts with a fresh counter. However, intentionally cycling sessions to exceed the cap goes against the spirit of the free service.
 
 <Accordion title="Technical details">
-  The 2 GB cap is enforced in the browser client. When the total bytes sent via a relay connection reaches the limit, the transfer is stopped and an error is displayed. The limit applies per sender session, not per file. Direct connections bypass this check entirely, as no relay bandwidth is consumed.
+  The 2 GB cap is enforced by the Floe apps themselves, in both the web app and the CLI. Once the connection is established, the sender checks the selected route: if it runs through the TURN relay and the queued files total more than 2 GB, the transfer is blocked before any file data moves and an error is displayed. The limit applies per sender session, not per file. Direct connections bypass this check entirely, as no relay bandwidth is consumed.
 </Accordion>
