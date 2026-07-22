@@ -26,7 +26,7 @@ const RelaySizeLimit int64 = 2 * 1024 * 1024 * 1024 // 2 GB
 // ErrRelayOverLimit is returned by the send path when a relayed connection
 // would carry more than RelaySizeLimit bytes. Frontends can errors.Is against
 // it to show a tailored message.
-var ErrRelayOverLimit = errors.New("relayed transfers are capped at 2 GB")
+var ErrRelayOverLimit = errors.New("relay connections are capped at 2 GB")
 
 // pathTypeOf reports the selected ICE path for the data channel's connection:
 // "relay" when either side of the selected candidate pair is a TURN relay,
@@ -67,7 +67,7 @@ func pathTypeOf(dc *webrtc.DataChannel) (string, error) {
 // strictly over the cap blocks; direct and unknown paths always proceed.
 func checkRelayGate(pathType string, totalBytes int64) error {
 	if pathType == "relay" && totalBytes > RelaySizeLimit {
-		return fmt.Errorf("transfer blocked: %w (%s queued). Remove files, or switch to a network that allows a direct connection", ErrRelayOverLimit, formatBytes(totalBytes))
+		return fmt.Errorf("transfer blocked: %w (selected %s)", ErrRelayOverLimit, formatBytes(totalBytes))
 	}
 	return nil
 }
