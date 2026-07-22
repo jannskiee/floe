@@ -225,6 +225,7 @@ func ReceiveFilesWithProgress(dc *webrtc.DataChannel, outputDir string, autoAcce
 			case "end":
 				// Current file is complete
 				if currentFile != nil {
+					finalPath := currentFile.Name()
 					currentFile.Close()
 					currentFile = nil
 					fmt.Println()
@@ -236,6 +237,11 @@ func ReceiveFilesWithProgress(dc *webrtc.DataChannel, outputDir string, autoAcce
 						return fmt.Errorf("incomplete file %q: received %d of %d bytes",
 							currentInfo.FileName, bytesReceived, currentInfo.FileSize)
 					}
+
+					// Mark the completed file as internet-sourced (Windows MOTW) so
+					// SmartScreen / Office Protected View apply when it is opened,
+					// like a browser download. Best-effort and Windows-only.
+					_ = applyMOTW(finalPath)
 
 					filesReceived++
 					if filesReceived >= currentInfo.Total {
