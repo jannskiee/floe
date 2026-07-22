@@ -3,6 +3,15 @@ title: "Changelog"
 description: "Release history for Floe."
 ---
 
+<Update label="v1.8.0" description="2026-07-23">
+  **The 2 GB relay cap now applies to the CLI, plus honest receiver errors**
+
+  - `floe send` now enforces the same 2 GB relay session cap as the web app. Once the connection is established, the sender checks the selected route: if it runs through the TURN relay and the queued files total more than 2 GB, the transfer is blocked before any data moves, with a clear error. Direct connections keep no size limit, and a connection whose path cannot be determined is never blocked. See [The 2 GB Relay Limit](/how-it-works/2gb-limit).
+  - Fixed the receiver treating a sender that disconnected before the first file as a successful transfer: `floe receive` exited silently as if nothing was expected, and a multi-file batch interrupted between files was reported as complete. Both cases now end with a clear error describing what actually arrived.
+  - CLI errors no longer print the full usage reference after the message. A failed transfer or an expired code now shows the one-line error alone.
+  - No transfer-protocol change, so v1.8.0 interoperates with older CLI and browser peers in every direction.
+</Update>
+
 <Update label="v1.7.6" description="2026-07-21">
   **Stalled transfers now fail fast with clear errors**
 
