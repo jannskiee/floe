@@ -46,6 +46,9 @@ var rootCmd = &cobra.Command{
 Files are encrypted end-to-end. Nothing is stored on any server.
 
 Documentation: https://docs.floe.one`,
+	// Runtime failures (network, blocked transfers, spent codes) are not usage
+	// mistakes: print the error alone instead of dumping the flag reference.
+	SilenceUsage: true,
 }
 
 func init() {

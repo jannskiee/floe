@@ -133,10 +133,19 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, loc
 			select {
 			case msg = <-msgCh:
 			case <-done:
-				// Channel closed before the transfer finished normally.
+				// Channel closed before the transfer finished normally. A close
+				// with no completed files is never success: the sender cancelled
+				// or was blocked (for example by its relay size cap), so report
+				// it instead of returning a false "saved" outcome.
 				if currentFile != nil {
 					return fmt.Errorf("connection closed mid-transfer: %s (%d of %d bytes)",
 						currentInfo.FileName, bytesReceived, currentInfo.FileSize)
+				}
+				if filesReceived == 0 {
+					return fmt.Errorf("connection closed before any file arrived (the sender cancelled, or the transfer was blocked)")
+				}
+				if currentInfo.Total > 0 && filesReceived < currentInfo.Total {
+					return fmt.Errorf("connection closed after %d of %d files", filesReceived, currentInfo.Total)
 				}
 				return nil
 			case <-stallTimer.C:
@@ -148,6 +157,12 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, loc
 					if currentFile != nil {
 						return fmt.Errorf("connection closed mid-transfer: %s (%d of %d bytes)",
 							currentInfo.FileName, bytesReceived, currentInfo.FileSize)
+					}
+					if filesReceived == 0 {
+						return fmt.Errorf("connection closed before any file arrived (the sender cancelled, or the transfer was blocked)")
+					}
+					if currentInfo.Total > 0 && filesReceived < currentInfo.Total {
+						return fmt.Errorf("connection closed after %d of %d files", filesReceived, currentInfo.Total)
 					}
 					return nil
 				default:

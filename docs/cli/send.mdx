@@ -77,6 +77,7 @@ See [Flags Reference](/cli/flags) for `--server`, `--no-relay`, and `--web`.
 
 ## Notes
 
+- Relayed transfers are capped at 2 GB per session; direct connections have no size limit. When the selected route runs through the TURN relay and the queued files total more than 2 GB, `floe send` blocks the transfer before any file data moves. See [The 2 GB Relay Limit](/how-it-works/2gb-limit).
 - Press `Ctrl+C` at any time to cancel the transfer and close the session.
 - If the short code cannot be registered (for example, the signaling server is unreachable), Floe prints a warning and continues with the link only.
 - Files are streamed in the order they are listed. For multiple files, progress is shown per file.

@@ -120,6 +120,13 @@ func SendFiles(dc *webrtc.DataChannel, paths []string, localVer string) error {
 		totalBytes += e.size
 	}
 
+	// Relay size cap: decide before wiring acks or sending any metadata. The
+	// connection is already established by the time SendFiles runs, so the
+	// selected ICE pair is known. Mirrors the browser's relay gate.
+	if err := relayGate(dc, totalBytes); err != nil {
+		return err
+	}
+
 	start := time.Now()
 
 	// ackCh receives JSON ack messages from the receiver
