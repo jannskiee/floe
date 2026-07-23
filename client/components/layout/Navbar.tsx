@@ -93,7 +93,7 @@ export const Navbar = () => {
                         </button>
                     ))}
                     <a
-                        href="https://docs.floe.one"
+                        href="https://www.floe.one/docs"
                         target="_blank"
                         rel="noreferrer"
                         className="rounded-full px-2.5 max-[359px]:px-1.5 py-1.5 sm:px-3.5 sm:py-2 text-xs sm:text-sm font-medium text-zinc-400 transition hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-ice"

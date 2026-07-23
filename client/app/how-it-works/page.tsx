@@ -101,7 +101,7 @@ export default function HowItWorks() {
                         and the binary transfer protocol in depth.
                     </p>
                     <a
-                        href="https://docs.floe.one/how-it-works/signaling"
+                        href="https://www.floe.one/docs/how-it-works/signaling"
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-bold text-black transition hover:bg-zinc-200"
@@ -111,11 +111,11 @@ export default function HowItWorks() {
                     </a>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1">
                         {[
-                            { label: 'Signaling', href: 'https://docs.floe.one/how-it-works/signaling' },
-                            { label: 'Direct Connection', href: 'https://docs.floe.one/how-it-works/direct-connection' },
-                            { label: 'Relay Connection', href: 'https://docs.floe.one/how-it-works/relay-connection' },
-                            { label: '2 GB Limit', href: 'https://docs.floe.one/how-it-works/2gb-limit' },
-                            { label: 'Encryption', href: 'https://docs.floe.one/how-it-works/encryption' },
+                            { label: 'Signaling', href: 'https://www.floe.one/docs/how-it-works/signaling' },
+                            { label: 'Direct Connection', href: 'https://www.floe.one/docs/how-it-works/direct-connection' },
+                            { label: 'Relay Connection', href: 'https://www.floe.one/docs/how-it-works/relay-connection' },
+                            { label: '2 GB Limit', href: 'https://www.floe.one/docs/how-it-works/2gb-limit' },
+                            { label: 'Encryption', href: 'https://www.floe.one/docs/how-it-works/encryption' },
                         ].map(({ label, href }) => (
                             <a
                                 key={label}
@@ -132,7 +132,7 @@ export default function HowItWorks() {
 
                 {/* Footer nav */}
                 <div className="pt-4 border-t border-white/5 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10px] text-zinc-500 uppercase tracking-wide">
-                    <a href="https://docs.floe.one" target="_blank" rel="noreferrer" className="whitespace-nowrap hover:text-white transition-colors">Docs</a>
+                    <a href="https://www.floe.one/docs" target="_blank" rel="noreferrer" className="whitespace-nowrap hover:text-white transition-colors">Docs</a>
                     <span>•</span>
                     <Link href="/privacy" className="whitespace-nowrap hover:text-white transition-colors">Privacy Policy</Link>
                     <span>•</span>

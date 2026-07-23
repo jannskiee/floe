@@ -119,7 +119,7 @@ All under `cli/internal/`:
 
 ## Documentation Site
 
-The docs live in `docs/` (Mintlify), git-synced to `main`, and deploy to docs.floe.one.
+The docs live in `docs/` (Mintlify), git-synced to `main`, and are served at `floe.one/docs` (Mintlify deployment `floe` at base path `/docs`, reverse-proxied through the Vercel app's `next.config.mjs` rewrite to `floe.mintlify.site`; the old `docs.floe.one` 301-redirects there).
 
 - `docs/changelog.mdx` is written by hand; do not auto-generate or restructure it.
 - Docs-only PRs stay fast without dodging branch protection: the `changes` job in `.github/workflows/ci.yml` diffs the PR and, when every changed file is under `docs/`, the heavy jobs skip and the `CI green` check reports success in under a minute, so docs and Mintlify PRs merge quickly without running the client/server/CLI/e2e suite.

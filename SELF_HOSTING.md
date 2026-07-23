@@ -4,7 +4,7 @@ Run your own Floe instance (the web client and the signaling server) on your own
 infrastructure, independent of `floe.one`. File data still flows peer-to-peer; the
 server you run only brokers the WebRTC handshake.
 
-Full documentation is at **[docs.floe.one/self-hosting](https://docs.floe.one/self-hosting)**,
+Full documentation is at **[floe.one/docs/self-hosting](https://www.floe.one/docs/self-hosting)**,
 including production deployment, reverse-proxy and TLS setup, and the complete
 configuration reference.
 
