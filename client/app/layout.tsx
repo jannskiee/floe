@@ -71,6 +71,7 @@ export default function RootLayout({
                 suppressHydrationWarning={true}
                 className={`${geistSans.variable} ${geistMono.variable} antialiased`}
             >
+                <Script src="/runtime-config.js" strategy="beforeInteractive" />
                 <ServiceWorkerRegistration />
                 {children}
                 {process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID && (

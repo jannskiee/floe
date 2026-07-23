@@ -1,0 +1,91 @@
+---
+title: 'Deploy Floe on Unraid'
+description: 'Install the Floe client and signaling server as two coordinated Unraid containers, with direct LAN and reverse-proxy configuration examples.'
+---
+
+Floe is published as two containers because the web client and signaling server
+have separate network and security settings. Install both templates for a working
+instance.
+
+## Before you start
+
+Choose how browsers will open Floe:
+
+- **Direct LAN access:** for example `http://192.168.1.10:3000`.
+- **HTTPS through a reverse proxy:** for example `https://floe.example.com`, with
+  a separate public signaling URL such as `https://floe-api.example.com`.
+
+The exact client origin matters because the signaling server uses it as its CORS
+allow-list entry.
+
+## Direct LAN installation
+
+<Steps>
+  <Step title="Install Floe-Server">
+    Install the **Floe-Server** template first. Keep **Signaling Port** at `3001`
+    unless that host port is already used.
+
+    Set **Client URL** to the URL that browsers will use for the client. With the
+    default client port, an example is:
+
+    ```text
+    http://192.168.1.10:3000
+    ```
+
+    Keep **Trusted Proxy Count** at `0` for direct access.
+
+  </Step>
+  <Step title="Install Floe-Client">
+    Install the **Floe-Client** template. Keep **Web UI Port** at `3000` unless it
+    conflicts with another container.
+
+    Set **Signaling Server Port** to the server host port chosen in the previous
+    step. Leave **Signaling Server URL** empty. The client will use the hostname
+    in the browser address bar plus this port.
+
+  </Step>
+  <Step title="Open and test Floe">
+    Open the Floe-Client Web UI. Confirm that the connection indicator is online,
+    then create a link and open it in a second browser or device.
+  </Step>
+</Steps>
+
+<Warning>
+    If you change the Floe-Client host port, update the Floe-Server **Client
+    URL** to include that port. If you change the Floe-Server host port, update
+    the Floe-Client **Signaling Server Port** to match it.
+</Warning>
+
+## Reverse proxy and HTTPS
+
+Browsers require HTTPS for production use outside your trusted LAN. Proxy the
+client and server separately, and enable WebSocket forwarding for the server.
+
+1. Proxy the client hostname to the Floe-Client host port.
+2. Proxy the signaling hostname to the Floe-Server host port.
+3. Set Floe-Server **Client URL** to the public HTTPS client origin.
+4. Set Floe-Server **Trusted Proxy Count** to the number of proxy hops.
+5. Set Floe-Client **Signaling Server URL** to the complete public HTTPS server
+   origin. This value takes precedence over **Signaling Server Port**.
+
+For example:
+
+```text
+Client URL: https://floe.example.com
+Signaling Server URL: https://floe-api.example.com
+Trusted Proxy Count: 1
+```
+
+## TURN relay
+
+The default STUN-only configuration works on many networks. To support peers
+behind strict NAT or CGNAT, expand the advanced Floe-Server settings and add a
+Cloudflare Realtime TURN key. You can also run coturn separately and fill in the
+self-hosted TURN domain and secret. See [TURN Relay](/self-hosting/turn-relay).
+
+## Container updates
+
+Both templates follow the `latest` image tag, which changes only when Floe
+publishes a version tag. Use Unraid's normal container update flow to pull a new
+release. The containers store no files or application settings in volumes, so
+there is no appdata directory to migrate.

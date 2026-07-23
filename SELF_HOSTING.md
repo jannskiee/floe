@@ -29,6 +29,8 @@ Everything is set in the `.env` file you copied above. The values that matter mo
 | Variable | What it does |
 | --- | --- |
 | `NEXT_PUBLIC_SOCKET_URL` | URL the browser uses to reach your signaling server. |
+| `FLOE_SOCKET_URL` | Runtime signaling URL override for a prebuilt client image. |
+| `FLOE_SOCKET_PORT` | Runtime signaling port used with the browser hostname (default: `3001`). |
 | `NEXT_PUBLIC_SITE_URL` | Public URL of your client (canonical links, share previews, sitemap). |
 | `PORT` | Host port the server is published on. |
 | `CLIENT_URL` | Your client's origin, allowed by the server's CORS. |
@@ -44,6 +46,12 @@ one, rebuild the client image so the new value takes effect:
 ```bash
 docker compose build client && docker compose up -d
 ```
+
+Prebuilt client images can set `FLOE_SOCKET_URL` and `FLOE_SOCKET_PORT` at
+runtime instead. Restart the container after changing them. If the URL is empty,
+the client derives it from the hostname opened in the browser and the configured
+port. See the [Unraid deployment guide](docs/self-hosting/unraid.mdx) for the
+two-container setup.
 
 ## Connectivity: STUN vs TURN
 

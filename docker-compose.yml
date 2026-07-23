@@ -46,6 +46,11 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
+    environment:
+      # Runtime overrides used by published images and Unraid. Leave the URL
+      # empty to derive http(s)://<browser-host>:FLOE_SOCKET_PORT.
+      FLOE_SOCKET_URL: ${FLOE_SOCKET_URL:-}
+      FLOE_SOCKET_PORT: ${FLOE_SOCKET_PORT:-3001}
     depends_on:
       - server
 

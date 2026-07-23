@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>Floe-Server</Name>
+  <Repository>ghcr.io/jannskiee/floe-server:latest</Repository>
+  <Registry>https://github.com/jannskiee/floe/pkgs/container/floe-server</Registry>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/jannskiee/floe/issues</Support>
+  <Project>https://github.com/jannskiee/floe</Project>
+  <Overview>Signaling server for the Floe encrypted peer-to-peer file transfer app. Install this template before Floe-Client. File data does not pass through this server.[br][br]Set Client URL to the exact browser origin of Floe-Client, including its scheme and host port.</Overview>
+  <Category>Network:Other Productivity:</Category>
+  <TemplateURL>https://raw.githubusercontent.com/jannskiee/floe/main/unraid/floe-server.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/jannskiee/floe/main/client/public/icon-512.png</Icon>
+  <Config Name="Signaling Port" Target="3001" Default="3001" Mode="tcp" Description="Host port used by Floe-Client to reach the signaling server." Type="Port" Display="always" Required="true" Mask="false">3001</Config>
+  <Config Name="Client URL" Target="CLIENT_URL" Default="" Description="Required. Exact Floe-Client browser origin, for example http://192.168.1.10:3000. This controls the server CORS allow-list." Type="Variable" Display="always" Required="true" Mask="false"></Config>
+  <Config Name="Trusted Proxy Count" Target="TRUSTED_PROXY_COUNT" Default="0" Description="Use 0 for direct LAN access. Set the number of reverse-proxy hops when publishing through a proxy." Type="Variable" Display="always" Required="true" Mask="false">0</Config>
+  <Config Name="Maximum Connections Per IP" Target="MAX_CONNECTIONS_PER_IP" Default="30" Description="Maximum new signaling connections per IP per 60 seconds." Type="Variable" Display="advanced" Required="false" Mask="false">30</Config>
+  <Config Name="Cloudflare TURN Key ID" Target="CLOUDFLARE_TURN_KEY_ID" Default="" Description="Optional Cloudflare Realtime TURN Token ID." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Cloudflare TURN API Token" Target="CLOUDFLARE_TURN_KEY_API_TOKEN" Default="" Description="Optional API token paired with the Cloudflare TURN Key ID." Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+  <Config Name="Self-hosted TURN Secret" Target="TURN_SECRET" Default="" Description="Optional coturn HMAC secret. Must match static-auth-secret in coturn." Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+  <Config Name="Self-hosted TURN Domain" Target="TURN_DOMAIN" Default="" Description="Optional public hostname for a separate coturn relay." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Upstash Redis REST URL" Target="UPSTASH_REDIS_REST_URL" Default="" Description="Optional REST URL for durable aggregate transfer statistics." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Upstash Redis REST Token" Target="UPSTASH_REDIS_REST_TOKEN" Default="" Description="Optional read-write REST token paired with the Upstash URL." Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+</Container>

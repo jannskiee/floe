@@ -1,16 +1,19 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import io, { Socket } from 'socket.io-client';
+import { getSocketUrl } from '@/lib/runtimeConfig';
 
-// Module-level singleton: created once when this module is first imported.
-// Keep this the ONLY io() call in the app so the whole client shares one socket.
-// P2PTransfer (the only importer) therefore holds no direct socket reference.
-const socket: Socket = io(
-    process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001',
-    {
+// Module-level singleton, created lazily during the first client render. Waiting
+// until render gives the beforeInteractive runtime-config script time to load
+// before a published image chooses its signaling URL.
+let sharedSocket: Socket | undefined;
+
+function getSocket(): Socket {
+    sharedSocket ??= io(getSocketUrl(), {
         reconnectionDelay: 500,
         reconnectionDelayMax: 3000,
-    }
-);
+    });
+    return sharedSocket;
+}
 
 export interface SignalPayload {
     target: string | null;
@@ -41,6 +44,7 @@ export interface UseSignalingCallbacks {
  * the usePeerConnection extraction.)
  */
 export function useSignaling(callbacks: UseSignalingCallbacks) {
+    const socket = getSocket();
     const [isConnected, setIsConnected] = useState(false);
     const [ping, setPing] = useState(0);
 
@@ -93,15 +97,15 @@ export function useSignaling(callbacks: UseSignalingCallbacks) {
             socket.off('connect_error');
             socket.io.off('reconnect');
         };
-    }, []);
+    }, [socket]);
 
     const joinRoom = useCallback((roomId: string) => {
         socket.emit('join-room', roomId);
-    }, []);
+    }, [socket]);
 
     const sendSignal = useCallback((payload: SignalPayload) => {
         socket.emit('signal', payload);
-    }, []);
+    }, [socket]);
 
     // Dynamic, per-action registrations (sender on create-link, receiver on join).
     // The handler closes over current state, so it is replaced (off then on) each
@@ -109,12 +113,12 @@ export function useSignaling(callbacks: UseSignalingCallbacks) {
     const onUserConnected = useCallback((handler: (userId: string) => void) => {
         socket.off('user-connected');
         socket.on('user-connected', handler);
-    }, []);
+    }, [socket]);
 
     const onRoomFull = useCallback((handler: () => void) => {
         socket.off('room-full');
         socket.on('room-full', handler);
-    }, []);
+    }, [socket]);
 
     // The server acks every join-room with room-joined { role }. The sender
     // gates its link render on this ack (see handleCreateLink): the room must

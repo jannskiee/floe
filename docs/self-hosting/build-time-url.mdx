@@ -1,9 +1,15 @@
 ---
-title: "Build-Time Socket URL Caveat"
-description: "Why NEXT_PUBLIC_SOCKET_URL must be set before building the Floe client Docker image, and how to rebuild the image after changing your signaling URL."
+title: "Configure the Socket URL"
+description: "Configure the Floe signaling URL at build time for source builds or at container startup for published images and Unraid."
 ---
 
 Next.js inlines `NEXT_PUBLIC_*` variables into the JavaScript bundle **at build time**, not at runtime. `NEXT_PUBLIC_SOCKET_URL` is therefore baked into the client image when it is built. Setting or changing it in a running container has no effect.
+
+Published Floe images also support runtime configuration. Set `FLOE_SOCKET_URL`
+on the client container to a complete public signaling origin. If it is empty,
+the client combines the hostname opened in the browser with
+`FLOE_SOCKET_PORT` (default `3001`). This is how one published image can run on
+different Docker and Unraid hosts.
 
 ## After changing the URL, rebuild the client
 
@@ -13,9 +19,15 @@ docker compose up -d
 ```
 
 <Warning>
-  Forgetting to rebuild after changing `NEXT_PUBLIC_SOCKET_URL` is the most common reason a self-hosted Floe instance cannot connect to the signaling server.
+  Rebuilding is required only when using the build-time
+  `NEXT_PUBLIC_SOCKET_URL`. Restart the container after changing
+  `FLOE_SOCKET_URL` or `FLOE_SOCKET_PORT`.
 </Warning>
 
 ## The URL must be reachable by end-users' browsers
 
 `NEXT_PUBLIC_SOCKET_URL` is evaluated in the **browser**, not on the server. `http://localhost:3001` only works when the browser runs on the same machine as the server. For any other setup, use the server's LAN IP or public domain (e.g. `https://api.your-domain.com`).
+
+The same browser reachability rule applies to `FLOE_SOCKET_URL`. For direct LAN
+access you can usually leave it empty and set only `FLOE_SOCKET_PORT`. For HTTPS,
+a reverse proxy, or a different server hostname, set the complete URL explicitly.
