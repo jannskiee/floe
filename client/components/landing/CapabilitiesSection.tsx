@@ -41,7 +41,7 @@ const items: {
         icon: Server,
         title: 'Self-hostable',
         body: 'Run your own signaling server and relay with Docker. The docs cover production setup.',
-        href: 'https://docs.floe.one/self-hosting/overview',
+        href: 'https://www.floe.one/docs/self-hosting/overview',
     },
     {
         icon: Scale,

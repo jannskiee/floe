@@ -12,24 +12,24 @@ const columns: {
         links: [
             { name: 'How it works', href: '/how-it-works' },
             { name: 'FAQ', href: '#faq' },
-            { name: 'Docs', href: 'https://docs.floe.one', external: true },
-            { name: 'Changelog', href: 'https://docs.floe.one/changelog', external: true },
+            { name: 'Docs', href: 'https://www.floe.one/docs', external: true },
+            { name: 'Changelog', href: 'https://www.floe.one/docs/changelog', external: true },
         ],
     },
     {
         label: 'CLI',
         links: [
-            { name: 'Installation', href: 'https://docs.floe.one/cli/installation', external: true },
-            { name: 'Commands & flags', href: 'https://docs.floe.one/cli/flags', external: true },
-            { name: 'Self-hosted server', href: 'https://docs.floe.one/cli/self-hosted-server', external: true },
+            { name: 'Installation', href: 'https://www.floe.one/docs/cli/installation', external: true },
+            { name: 'Commands & flags', href: 'https://www.floe.one/docs/cli/flags', external: true },
+            { name: 'Self-hosted server', href: 'https://www.floe.one/docs/cli/self-hosted-server', external: true },
         ],
     },
     {
         label: 'Project',
         links: [
             { name: 'GitHub', href: 'https://github.com/jannskiee/floe', external: true },
-            { name: 'Self-hosting', href: 'https://docs.floe.one/self-hosting/overview', external: true },
-            { name: 'Security & privacy', href: 'https://docs.floe.one/security-privacy', external: true },
+            { name: 'Self-hosting', href: 'https://www.floe.one/docs/self-hosting/overview', external: true },
+            { name: 'Security & privacy', href: 'https://www.floe.one/docs/security-privacy', external: true },
         ],
     },
 ];
