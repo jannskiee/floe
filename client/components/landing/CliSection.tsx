@@ -98,7 +98,7 @@ export function CliSection() {
                         Also available via Scoop, a PowerShell one-liner, and{' '}
                         <code className="font-mono text-[12px]">go install</code>.{' '}
                         <a
-                            href="https://docs.floe.one/cli/installation"
+                            href="https://www.floe.one/docs/cli/installation"
                             target="_blank"
                             rel="noreferrer"
                             className="group inline-flex items-center gap-1 text-zinc-300 transition hover:text-ice"

@@ -45,7 +45,7 @@ var rootCmd = &cobra.Command{
 	Long: `Floe transfers files directly between devices using WebRTC.
 Files are encrypted end-to-end. Nothing is stored on any server.
 
-Documentation: https://docs.floe.one`,
+Documentation: https://www.floe.one/docs`,
 	// Runtime failures (network, blocked transfers, spent codes) are not usage
 	// mistakes: print the error alone instead of dumping the flag reference.
 	SilenceUsage: true,
@@ -329,7 +329,7 @@ var versionCmd = &cobra.Command{
 	Short: "Print the floe version",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Printf("floe %s\n", version)
-		fmt.Println("Docs: https://docs.floe.one")
+		fmt.Println("Docs: https://www.floe.one/docs")
 		if latest := selfupdate.CheckAvailable(version); latest != "" {
 			fmt.Printf("Update available: %s  run `floe update` to upgrade\n", latest)
 		}
