@@ -1052,7 +1052,7 @@ function App() {
                         </button>
                         <span aria-hidden className="h-3 w-px bg-white/10"/>
                         <button
-                            onClick={() => BrowserOpenURL('https://docs.floe.one')}
+                            onClick={() => BrowserOpenURL('https://www.floe.one/docs')}
                             className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500 transition-colors hover:text-zinc-300"
                         >
                             Docs
