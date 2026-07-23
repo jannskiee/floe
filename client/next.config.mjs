@@ -21,8 +21,8 @@ const nextConfig = {
     // /docs/:path* rule also covers Mintlify's re-rooted assets.
     async rewrites() {
         return [
-            { source: '/docs', destination: 'https://floe.mintlify.app/docs' },
-            { source: '/docs/:path*', destination: 'https://floe.mintlify.app/docs/:path*' },
+            { source: '/docs', destination: 'https://floe.mintlify.site/docs' },
+            { source: '/docs/:path*', destination: 'https://floe.mintlify.site/docs/:path*' },
         ];
     },
 
