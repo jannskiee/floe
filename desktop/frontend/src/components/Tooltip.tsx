@@ -25,9 +25,13 @@ interface Coords {
  *
  *  `className` lands on the wrapper span, not the trigger. Pass layout classes the
  *  trigger relies on from its parent flex row (e.g. `shrink-0`) so nothing reflows. */
-export function Tooltip({label, keys, className, children}: {
+export function Tooltip({label, keys, align = 'center', className, children}: {
     label: string;
     keys?: string;
+    /** 'end' right-aligns the bubble with the trigger. Use it for the last control
+     *  in a row: a centred bubble on an edge-adjacent trigger overhangs the panel
+     *  and reads as unanchored, while an edge-aligned one sits on the layout grid. */
+    align?: 'center' | 'end';
     className?: string;
     children: ReactNode;
 }) {
@@ -64,15 +68,18 @@ export function Tooltip({label, keys, className, children}: {
         const b = bubbleRef.current;
         if (!b) return;
         const {width, height} = b.getBoundingClientRect();
-        // Centre on the trigger, then clamp inside the viewport so a control flush
-        // with an edge (Close, the Floe lockup) still renders its bubble on screen.
-        let left = anchor.left + anchor.width / 2 - width / 2;
+        // Centre on the trigger (or hang from its right edge), then clamp inside the
+        // viewport so a control flush with an edge (Close, the Floe lockup) still
+        // renders its bubble on screen.
+        let left = align === 'end'
+            ? anchor.right - width
+            : anchor.left + anchor.width / 2 - width / 2;
         left = Math.min(Math.max(left, MARGIN), window.innerWidth - width - MARGIN);
         // Below by default, flipped above when there is no room.
         let top = anchor.bottom + GAP;
         if (top + height > window.innerHeight - MARGIN) top = anchor.top - height - GAP;
         setCoords({left, top});
-    }, [anchor]);
+    }, [anchor, align]);
 
     const show = useCallback((instant: boolean) => {
         window.clearTimeout(timer.current);
@@ -132,12 +139,12 @@ export function Tooltip({label, keys, className, children}: {
                     className={cn(
                         'animate-floe-in pointer-events-none fixed z-40 flex max-w-[240px] items-center gap-2.5',
                         'rounded-lg border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 shadow-2xl',
-                        'text-xs leading-relaxed text-zinc-100 motion-reduce:animate-none',
+                        'text-xs leading-snug text-zinc-100 motion-reduce:animate-none',
                     )}
                 >
                     <span>{label}</span>
                     {keys && (
-                        <kbd className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">
+                        <kbd className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 font-mono text-[10px] leading-none text-zinc-400">
                             {keys}
                         </kbd>
                     )}

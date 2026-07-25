@@ -390,7 +390,7 @@ function SharePanel({code, link}: {code: string; link: string}) {
                     <Eyebrow className="mb-2">Room code</Eyebrow>
                     <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-zinc-950 py-2 pl-3 pr-1.5 transition hover:border-white/20">
                         <span className="min-w-0 flex-1 break-all font-mono text-base font-semibold tracking-[0.2em] text-white">{code}</span>
-                        <Tooltip label="Copy code" className="shrink-0">
+                        <Tooltip label="Copy code" align="end" className="shrink-0">
                             <button
                                 onClick={() => copy('code', code)}
                                 aria-label="Copy code"
@@ -406,7 +406,7 @@ function SharePanel({code, link}: {code: string; link: string}) {
                 <Eyebrow className="mb-2">Share link</Eyebrow>
                 <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-zinc-950 py-2 pl-3 pr-1.5 transition hover:border-white/20">
                     <code className="min-w-0 flex-1 break-all font-mono text-xs leading-relaxed text-zinc-300">{link}</code>
-                    <Tooltip label="Copy link" className="shrink-0">
+                    <Tooltip label="Copy link" align="end" className="shrink-0">
                         <button
                             onClick={() => copy('link', link)}
                             aria-label="Copy link"
@@ -1175,7 +1175,7 @@ function App() {
                                             {busy ? (route ? (route === 'relay' ? 'Relay' : 'Direct') : 'Active') : 'Ready'}
                                         </span>
                                     </Tooltip>
-                                    <Tooltip label="History" keys={isMac ? '⌘Y' : 'Ctrl+H'}>
+                                    <Tooltip label="History" keys={isMac ? '⌘Y' : 'Ctrl+H'} align="end">
                                         <button
                                             onClick={toggleHistory}
                                             aria-label="History"
