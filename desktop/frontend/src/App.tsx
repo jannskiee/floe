@@ -693,6 +693,43 @@ function App() {
         return () => window.removeEventListener('keydown', onKey);
     }, []);
 
+    // Ctrl/Cmd + O / Enter / , / H — app-level shortcuts. One listener, once-
+    // registered like the paste/reset handlers; state-reading actions go through
+    // refs (openPickerRef / primaryActionRef / toggleHistoryRef) so this never
+    // re-binds. Fields keep their own Enter handlers, so Enter/O/H skip while
+    // typing (prevents a double-fire); comma is global, like a standard prefs key.
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (!(e.ctrlKey || e.metaKey) || e.repeat) return;
+            const el = document.activeElement as HTMLElement | null;
+            const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+            switch (e.key.toLowerCase()) {
+                case 'o': // add files: jump to Send > Files and open the picker
+                    if (typing) return;
+                    e.preventDefault();
+                    openPickerRef.current();
+                    break;
+                case 'enter': // the current tab's primary action (fields handle their own)
+                    if (typing) return;
+                    e.preventDefault();
+                    primaryActionRef.current();
+                    break;
+                case ',': // toggle Settings
+                    e.preventDefault();
+                    setSettingsOpen((o) => !o);
+                    break;
+                case 'h': // toggle History (also leaves the Settings screen)
+                    if (typing) return;
+                    e.preventDefault();
+                    setSettingsOpen(false);
+                    toggleHistoryRef.current();
+                    break;
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, []);
+
     async function pickFiles() {
         try {
             const picked = await SelectFiles();
@@ -912,6 +949,35 @@ function App() {
             setMode('history');
         }
     }
+
+    // Live refs to the shortcut actions so the once-registered keydown listener
+    // always sees current state without re-binding (mirrors startOverRef above).
+    const toggleHistoryRef = useRef(toggleHistory);
+    toggleHistoryRef.current = toggleHistory;
+
+    // Ctrl+O: leave Settings, land on Send > Files, open the native picker.
+    function openPicker() {
+        if (busy) return;
+        setSettingsOpen(false);
+        setMode('send');
+        setSendKind('files');
+        pickFiles();
+    }
+    const openPickerRef = useRef(openPicker);
+    openPickerRef.current = openPicker;
+
+    // Ctrl+Enter: the current tab's primary action, mirroring the action button's
+    // enabled rules. No-op in Settings, while busy, or in History (no action there).
+    function primaryAction() {
+        if (busy || settingsOpen) return;
+        if (mode === 'send') {
+            if (sendKind === 'text' ? sendText.trim() : files.length) send();
+        } else if (mode === 'receive') {
+            if (code.trim()) receive();
+        }
+    }
+    const primaryActionRef = useRef(primaryAction);
+    primaryActionRef.current = primaryAction;
 
     const modeBtn = (m: Mode, label: string) => (
         <button
