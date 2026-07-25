@@ -44,6 +44,7 @@ import QRCode from 'react-qr-code';
 import {BoltMark, Button, Eyebrow, Input, StatusDot, cn} from './components/ui';
 import TitleBar from './components/TitleBar';
 import FileIcon from './components/FileIcon';
+import {Tooltip} from './components/Tooltip';
 
 type Mode = 'send' | 'receive' | 'history';
 
@@ -389,13 +390,15 @@ function SharePanel({code, link}: {code: string; link: string}) {
                     <Eyebrow className="mb-2">Room code</Eyebrow>
                     <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-zinc-950 py-2 pl-3 pr-1.5 transition hover:border-white/20">
                         <span className="min-w-0 flex-1 break-all font-mono text-base font-semibold tracking-[0.2em] text-white">{code}</span>
-                        <button
-                            onClick={() => copy('code', code)}
-                            aria-label="Copy code"
-                            className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
-                        >
-                            {copied === 'code' ? <Check className="size-3.5 text-green-500"/> : <Copy className="size-3.5"/>}
-                        </button>
+                        <Tooltip label="Copy code" className="shrink-0">
+                            <button
+                                onClick={() => copy('code', code)}
+                                aria-label="Copy code"
+                                className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
+                            >
+                                {copied === 'code' ? <Check className="size-3.5 text-green-500"/> : <Copy className="size-3.5"/>}
+                            </button>
+                        </Tooltip>
                     </div>
                 </div>
             )}
@@ -403,13 +406,15 @@ function SharePanel({code, link}: {code: string; link: string}) {
                 <Eyebrow className="mb-2">Share link</Eyebrow>
                 <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-zinc-950 py-2 pl-3 pr-1.5 transition hover:border-white/20">
                     <code className="min-w-0 flex-1 break-all font-mono text-xs leading-relaxed text-zinc-300">{link}</code>
-                    <button
-                        onClick={() => copy('link', link)}
-                        aria-label="Copy link"
-                        className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
-                    >
-                        {copied === 'link' ? <Check className="size-3.5 text-green-500"/> : <Copy className="size-3.5"/>}
-                    </button>
+                    <Tooltip label="Copy link" className="shrink-0">
+                        <button
+                            onClick={() => copy('link', link)}
+                            aria-label="Copy link"
+                            className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
+                        >
+                            {copied === 'link' ? <Check className="size-3.5 text-green-500"/> : <Copy className="size-3.5"/>}
+                        </button>
+                    </Tooltip>
                 </div>
             </div>
             <div className="flex items-center justify-center gap-2 pt-0.5">
@@ -1019,13 +1024,15 @@ function App() {
                     <div className="custom-scrollbar flex-1 overflow-y-auto">
                         <div className="mx-auto w-full max-w-lg px-8 py-10">
                             <div className="flex items-center gap-3">
-                                <button
-                                    aria-label="Back"
-                                    onClick={() => setSettingsOpen(false)}
-                                    className="grid h-7 w-7 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
-                                >
-                                    <ArrowLeft className="size-4"/>
-                                </button>
+                                <Tooltip label="Back" keys="Esc">
+                                    <button
+                                        aria-label="Back"
+                                        onClick={() => setSettingsOpen(false)}
+                                        className="grid h-7 w-7 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
+                                    >
+                                        <ArrowLeft className="size-4"/>
+                                    </button>
+                                </Tooltip>
                                 <h2 className="text-base font-semibold tracking-tight text-white">Settings</h2>
                             </div>
 
@@ -1158,27 +1165,29 @@ function App() {
                                 <div className="flex items-center gap-3">
                                     {/* one-word status; the dot color carries the route (site parity:
                                         green = direct, amber = relay), details live in the tooltip */}
-                                    <span
-                                        title={busy
+                                    <Tooltip
+                                        label={busy
                                             ? (route === 'relay' ? 'Relay connection' : route === 'direct' ? 'Direct peer connection' : 'Connecting')
                                             : hideIP ? 'Hide my IP is on. Transfers go through the relay (capped at 2 GB).' : 'Ready for a transfer'}
-                                        className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500"
                                     >
-                                        <StatusDot className={cn('transition-colors duration-500', relayTone ? 'bg-amber-500' : 'bg-green-500')} pulse={busy}/>
-                                        {busy ? (route ? (route === 'relay' ? 'Relay' : 'Direct') : 'Active') : 'Ready'}
-                                    </span>
-                                    <button
-                                        onClick={toggleHistory}
-                                        aria-label="History"
-                                        aria-pressed={mode === 'history'}
-                                        title={`History (${isMac ? '⌘Y' : 'Ctrl+H'})`}
-                                        className={cn(
-                                            'grid h-7 w-7 place-items-center rounded-md transition-colors hover:bg-white/10',
-                                            mode === 'history' ? 'text-zinc-100' : 'text-zinc-500 hover:text-zinc-300',
-                                        )}
-                                    >
-                                        <History className="size-4"/>
-                                    </button>
+                                        <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+                                            <StatusDot className={cn('transition-colors duration-500', relayTone ? 'bg-amber-500' : 'bg-green-500')} pulse={busy}/>
+                                            {busy ? (route ? (route === 'relay' ? 'Relay' : 'Direct') : 'Active') : 'Ready'}
+                                        </span>
+                                    </Tooltip>
+                                    <Tooltip label="History" keys={isMac ? '⌘Y' : 'Ctrl+H'}>
+                                        <button
+                                            onClick={toggleHistory}
+                                            aria-label="History"
+                                            aria-pressed={mode === 'history'}
+                                            className={cn(
+                                                'grid h-7 w-7 place-items-center rounded-md transition-colors hover:bg-white/10',
+                                                mode === 'history' ? 'text-zinc-100' : 'text-zinc-500 hover:text-zinc-300',
+                                            )}
+                                        >
+                                            <History className="size-4"/>
+                                        </button>
+                                    </Tooltip>
                                 </div>
                             </div>
 

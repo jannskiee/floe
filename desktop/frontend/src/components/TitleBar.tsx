@@ -2,6 +2,7 @@ import type {CSSProperties} from 'react';
 import {Minus, Settings, Square, X} from 'lucide-react';
 import {WindowMinimise, WindowToggleMaximise, Quit} from '../../wailsjs/runtime/runtime';
 import {BoltMark, cn} from './ui';
+import {Tooltip} from './Tooltip';
 
 // Wails turns any element with `--wails-draggable: drag` into a window drag
 // handle; children marked `no-drag` (the window controls) stay clickable.
@@ -24,53 +25,62 @@ export default function TitleBar({onSettings, settingsActive, onStartOver}: {
         >
             {/* the brand lockup is a Start-over button: clears a messy state back
                 to a fresh app, mirroring the browser's click-the-logo reset */}
-            <button
-                style={noDrag}
-                onClick={onStartOver}
-                onDoubleClick={(e) => e.stopPropagation()}
-                aria-label="Start over"
-                title="Start over"
-                className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-white/[0.06] focus-visible:outline-2 focus-visible:outline-ice"
-            >
-                <BoltMark className="size-3.5 text-white"/>
-                <span className="text-[13px] font-semibold tracking-tight text-white">Floe</span>
-                <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-600">desktop</span>
-            </button>
+            <Tooltip label="Start over" keys="Ctrl+R">
+                <button
+                    style={noDrag}
+                    onClick={onStartOver}
+                    onDoubleClick={(e) => e.stopPropagation()}
+                    aria-label="Start over"
+                    className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-white/[0.06] focus-visible:outline-2 focus-visible:outline-ice"
+                >
+                    <BoltMark className="size-3.5 text-white"/>
+                    <span className="text-[13px] font-semibold tracking-tight text-white">Floe</span>
+                    <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-600">desktop</span>
+                </button>
+            </Tooltip>
 
             <div style={noDrag} onDoubleClick={(e) => e.stopPropagation()} className="flex items-center">
-                <button
-                    aria-label="Settings"
-                    aria-pressed={settingsActive}
-                    onClick={onSettings}
-                    className={cn(
-                        'grid h-9 w-11 place-items-center transition-colors hover:bg-white/10',
-                        settingsActive ? 'text-zinc-100' : 'text-zinc-500 hover:text-zinc-100',
-                    )}
-                >
-                    <Settings className="size-4"/>
-                </button>
+                <Tooltip label="Settings" keys="Ctrl+,">
+                    <button
+                        aria-label="Settings"
+                        aria-pressed={settingsActive}
+                        onClick={onSettings}
+                        className={cn(
+                            'grid h-9 w-11 place-items-center transition-colors hover:bg-white/10',
+                            settingsActive ? 'text-zinc-100' : 'text-zinc-500 hover:text-zinc-100',
+                        )}
+                    >
+                        <Settings className="size-4"/>
+                    </button>
+                </Tooltip>
                 <span aria-hidden className="mx-1 h-3.5 w-px bg-white/10"/>
-                <button
-                    aria-label="Minimise"
-                    onClick={() => WindowMinimise()}
-                    className="grid h-9 w-11 place-items-center text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-100"
-                >
-                    <Minus className="size-4"/>
-                </button>
-                <button
-                    aria-label="Maximise"
-                    onClick={() => WindowToggleMaximise()}
-                    className="grid h-9 w-11 place-items-center text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-100"
-                >
-                    <Square className="size-3.5"/>
-                </button>
-                <button
-                    aria-label="Close"
-                    onClick={() => Quit()}
-                    className="grid h-9 w-11 place-items-center text-zinc-500 transition-colors hover:bg-red-500/90 hover:text-white"
-                >
-                    <X className="size-4"/>
-                </button>
+                <Tooltip label="Minimise">
+                    <button
+                        aria-label="Minimise"
+                        onClick={() => WindowMinimise()}
+                        className="grid h-9 w-11 place-items-center text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-100"
+                    >
+                        <Minus className="size-4"/>
+                    </button>
+                </Tooltip>
+                <Tooltip label="Maximise">
+                    <button
+                        aria-label="Maximise"
+                        onClick={() => WindowToggleMaximise()}
+                        className="grid h-9 w-11 place-items-center text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-100"
+                    >
+                        <Square className="size-3.5"/>
+                    </button>
+                </Tooltip>
+                <Tooltip label="Close">
+                    <button
+                        aria-label="Close"
+                        onClick={() => Quit()}
+                        className="grid h-9 w-11 place-items-center text-zinc-500 transition-colors hover:bg-red-500/90 hover:text-white"
+                    >
+                        <X className="size-4"/>
+                    </button>
+                </Tooltip>
             </div>
         </div>
     );
