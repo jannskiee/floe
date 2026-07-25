@@ -28,10 +28,11 @@ interface Coords {
 export function Tooltip({label, keys, align = 'center', className, children}: {
     label: string;
     keys?: string;
-    /** 'end' right-aligns the bubble with the trigger. Use it for the last control
-     *  in a row: a centred bubble on an edge-adjacent trigger overhangs the panel
-     *  and reads as unanchored, while an edge-aligned one sits on the layout grid. */
-    align?: 'center' | 'end';
+    /** Edge-align the bubble with the trigger instead of centring it. Use 'start' on
+     *  the first control in a row and 'end' on the last: a centred bubble on an
+     *  edge-adjacent trigger overhangs the panel and reads as unanchored, while an
+     *  edge-aligned one sits on the layout grid. */
+    align?: 'center' | 'start' | 'end';
     className?: string;
     children: ReactNode;
 }) {
@@ -68,12 +69,22 @@ export function Tooltip({label, keys, align = 'center', className, children}: {
         const b = bubbleRef.current;
         if (!b) return;
         const {width, height} = b.getBoundingClientRect();
-        // Centre on the trigger (or hang from its right edge), then clamp inside the
-        // viewport so a control flush with an edge (Close, the Floe lockup) still
-        // renders its bubble on screen.
-        let left = align === 'end'
-            ? anchor.right - width
-            : anchor.left + anchor.width / 2 - width / 2;
+        // Edge-align to the trigger's CONTENT box, not its border box. A padded
+        // trigger (the Floe lockup carries px-2) would otherwise place the bubble
+        // level with an invisible edge, leaving it looking shifted outward against
+        // the glyph the eye actually aligns to.
+        const trigger = ref.current?.firstElementChild;
+        const ts = trigger ? getComputedStyle(trigger) : null;
+        const padL = ts ? parseFloat(ts.paddingLeft) || 0 : 0;
+        const padR = ts ? parseFloat(ts.paddingRight) || 0 : 0;
+
+        // Centre on the trigger (or hang from one of its content edges), then clamp
+        // inside the viewport so a control flush with a window edge (Close, the Floe
+        // lockup) still renders its bubble on screen.
+        let left;
+        if (align === 'end') left = anchor.right - padR - width;
+        else if (align === 'start') left = anchor.left + padL;
+        else left = anchor.left + anchor.width / 2 - width / 2;
         left = Math.min(Math.max(left, MARGIN), window.innerWidth - width - MARGIN);
         // Below by default, flipped above when there is no room.
         let top = anchor.bottom + GAP;
@@ -137,7 +148,7 @@ export function Tooltip({label, keys, align = 'center', className, children}: {
                         visibility: coords ? 'visible' : 'hidden',
                     }}
                     className={cn(
-                        'animate-floe-in pointer-events-none fixed z-40 flex max-w-[240px] items-center gap-2.5',
+                        'animate-floe-in pointer-events-none fixed z-40 flex max-w-[240px] items-center gap-2',
                         'rounded-lg border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 shadow-2xl',
                         'text-xs leading-snug text-zinc-100 motion-reduce:animate-none',
                     )}

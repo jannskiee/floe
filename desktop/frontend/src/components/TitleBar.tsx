@@ -25,7 +25,7 @@ export default function TitleBar({onSettings, settingsActive, onStartOver}: {
         >
             {/* the brand lockup is a Start-over button: clears a messy state back
                 to a fresh app, mirroring the browser's click-the-logo reset */}
-            <Tooltip label="Start over" keys="Ctrl+R">
+            <Tooltip label="Start over" keys="Ctrl+R" align="start">
                 <button
                     style={noDrag}
                     onClick={onStartOver}
