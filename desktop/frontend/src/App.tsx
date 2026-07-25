@@ -173,6 +173,10 @@ function StatusLine({text, busy}: {text: string; busy: boolean}) {
 // Windows paths compare case-insensitively; normalize for dedupe and removal but
 // keep the original strings for display and for the Go side.
 const isWindows = navigator.userAgent.includes('Windows');
+// macOS reserves some Cmd combos for its app menu, so a few shortcuts differ there.
+// WKWebView reports "Macintosh" even on Apple Silicon; the UA is synchronous, unlike
+// the Wails Environment() promise, so the once-registered key listener can read it.
+const isMac = navigator.userAgent.includes('Macintosh');
 const normPath = (p: string) => (isWindows ? p.toLowerCase() : p);
 const baseName = (p: string) => p.split(/[\\/]/).pop();
 
@@ -693,12 +697,17 @@ function App() {
         return () => window.removeEventListener('keydown', onKey);
     }, []);
 
-    // Ctrl/Cmd + O / Enter / , / H — app-level shortcuts. One listener, once-
-    // registered like the paste/reset handlers; state-reading actions go through
-    // refs (openPickerRef / primaryActionRef / toggleHistoryRef) so this never
-    // re-binds. Fields keep their own Enter handlers, so Enter/O/H skip while
-    // typing (prevents a double-fire); comma is global, like a standard prefs key.
+    // App-level shortcuts: Ctrl/Cmd + O / Enter / , and History on Ctrl+H
+    // (Windows, Linux) or Cmd+Y (macOS). One listener, once-registered like the
+    // paste/reset handlers; state-reading actions go through refs (openPickerRef /
+    // primaryActionRef / toggleHistoryRef) so this never re-binds. Fields keep
+    // their own Enter handlers, so the letter keys and Enter skip while typing
+    // (prevents a double-fire); comma is global, like a standard prefs key.
     useEffect(() => {
+        const openHistory = () => {
+            setSettingsOpen(false);
+            toggleHistoryRef.current();
+        };
         const onKey = (e: KeyboardEvent) => {
             if (!(e.ctrlKey || e.metaKey) || e.repeat) return;
             const el = document.activeElement as HTMLElement | null;
@@ -718,11 +727,20 @@ function App() {
                     e.preventDefault();
                     setSettingsOpen((o) => !o);
                     break;
-                case 'h': // toggle History (also leaves the Settings screen)
-                    if (typing) return;
+                // History (also leaves the Settings screen). The key is platform
+                // specific: macOS gets Cmd+Y, the Safari/Chrome/Edge/Firefox
+                // convention, because Cmd+H is the "Hide <App>" item in the default
+                // macOS app menu Wails installs when main.go sets no Menu. Binding
+                // it there would hide Floe instead of showing History.
+                case 'h':
+                    if (isMac || typing) return; // leave Cmd+H to the Hide menu item
                     e.preventDefault();
-                    setSettingsOpen(false);
-                    toggleHistoryRef.current();
+                    openHistory();
+                    break;
+                case 'y':
+                    if (!isMac || typing) return; // Ctrl+Y is Redo on Windows
+                    e.preventDefault();
+                    openHistory();
                     break;
             }
         };
@@ -1153,7 +1171,7 @@ function App() {
                                         onClick={toggleHistory}
                                         aria-label="History"
                                         aria-pressed={mode === 'history'}
-                                        title="History"
+                                        title={`History (${isMac ? '⌘Y' : 'Ctrl+H'})`}
                                         className={cn(
                                             'grid h-7 w-7 place-items-center rounded-md transition-colors hover:bg-white/10',
                                             mode === 'history' ? 'text-zinc-100' : 'text-zinc-500 hover:text-zinc-300',
