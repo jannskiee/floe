@@ -39,6 +39,9 @@ yarn-debug.log*
 yarn-error.log*
 
 # --- CLI build artifacts ---
+# a bare `go build ./cli/cmd/floe` from the repo root drops the binary here
+/floe
+/floe.exe
 cli/floe
 cli/floe.exe
 cli/floe-rpi
