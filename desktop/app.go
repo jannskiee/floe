@@ -38,6 +38,16 @@ func expectedCommand(exe string) string {
 	return fmt.Sprintf(`"%s" "%%1"`, exe)
 }
 
+// shareLink builds the browser link for a send. The room id is the transfer's only
+// secret, so it goes in the URL fragment: browsers never send a fragment to a
+// server, strip it from the Referer header, and ignore it in analytics. The nonce
+// goes in the query instead. It carries no information, and it makes every link a
+// distinct document so a phone that already has Floe open joins the new room rather
+// than reusing a stale tab. Mirrors client/components/P2PTransfer.tsx.
+func shareLink(base, nonce, roomID string) string {
+	return base + "/?s=" + nonce + "#room=" + roomID
+}
+
 // filterFileArgs keeps only arguments that point at an existing file or
 // directory, dropping flags, empty strings, and stale paths.
 func filterFileArgs(args []string) []string {
@@ -496,7 +506,7 @@ func (a *App) runSend(paths []string, hideIP bool) {
 	if err != nil {
 		codePhrase = ""
 	}
-	link := webURL + "?room=" + roomID
+	link := shareLink(webURL, uuid.New().String()[:8], roomID)
 	runtime.EventsEmit(a.ctx, "send:code", map[string]string{"code": codePhrase, "link": link})
 
 	// Wait for a receiver to join. This wait is intentionally unbounded (you may

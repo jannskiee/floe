@@ -3,8 +3,42 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+// TestShareLink guards the property that matters: the room id is the transfer's
+// only secret, so it must live in the URL fragment, which browsers never send to
+// a server. Anything before the '#' does reach the server, so the room id
+// appearing there would leak it into access logs, Referer headers, and analytics.
+func TestShareLink(t *testing.T) {
+	const (
+		base   = "https://floe.one"
+		nonce  = "deadbeef"
+		roomID = "6f207790-92a6-4662-bb68-4c4059f75139"
+	)
+
+	got := shareLink(base, nonce, roomID)
+
+	if want := base + "/?s=" + nonce + "#room=" + roomID; got != want {
+		t.Errorf("shareLink = %q, want %q", got, want)
+	}
+
+	// The invariant, asserted independently of the exact shape above.
+	beforeFragment, _, found := strings.Cut(got, "#")
+	if !found {
+		t.Fatalf("shareLink = %q, want a '#' fragment", got)
+	}
+	if strings.Contains(beforeFragment, roomID) {
+		t.Errorf("room id leaked into the server-visible part %q", beforeFragment)
+	}
+	if strings.Contains(got, "?room=") {
+		t.Errorf("shareLink = %q, must not use the leaky ?room= form", got)
+	}
+	if strings.Contains(got, base+"//") {
+		t.Errorf("shareLink = %q, has a double slash after the host", got)
+	}
+}
 
 // TestWriteTextTemp verifies the text-send staging: exact content round-trip,
 // the fixed message.txt name the receiver will see, and cleanup removing the
