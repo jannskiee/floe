@@ -52,21 +52,31 @@ export default withSentryConfig(nextConfig, {
     // Suppress non-error logs during build
     silent: !process.env.CI,
 
-    // Annotate React components with their names for clearer error reports
-    webpack: {
-        reactComponentAnnotation: {
+    // Annotate React components with their names, so Sentry breadcrumbs, UI
+    // click spans and Session Replay show component names instead of raw DOM
+    // nodes. The Babel transform writes data-sentry-component /
+    // data-sentry-element / data-sentry-source-file attributes into the JSX, so
+    // it still pays off with `sourcemaps.disable` set below: it annotates the
+    // DOM rather than symbolicating stack traces.
+    //
+    // This MUST be the _experimental key. Production builds use Turbopack (Next
+    // 16 defaults to it, and Next sets TURBOPACK=auto before this config is even
+    // loaded), and the `webpack.reactComponentAnnotation` equivalent is inert
+    // there: the webpack config is never constructed, and getBuildPluginOptions
+    // separately forces the option to undefined. It was configured under
+    // `webpack` here until 2026-07 and silently annotated nothing.
+    //
+    // Turbopack has no equivalent for `webpack.treeshake.removeDebugLogging`,
+    // so Sentry's debug logging stays in the production bundle. That was already
+    // true; the old comment claiming otherwise was wrong.
+    //
+    // _experimental options may be renamed without notice, so re-check on any
+    // @sentry/nextjs upgrade. Requires Next 16+.
+    _experimental: {
+        turbopackReactComponentAnnotation: {
             enabled: true,
         },
-        // Strip Sentry debug logging from the production bundle. Replaces the
-        // deprecated top-level `disableLogger`. This is webpack-only; Turbopack
-        // builds ignore it, which is fine as debug logging is already disabled.
-        treeshake: {
-            removeDebugLogging: true,
-        },
     },
-
-    // Hide Sentry source maps from the browser bundle
-    hideSourceMaps: true,
 
     // Source map uploads require SENTRY_AUTH_TOKEN env var.
     // Add it to Vercel project settings to enable detailed stack traces.
