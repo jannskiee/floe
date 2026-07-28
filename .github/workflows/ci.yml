@@ -487,6 +487,56 @@ jobs:
           # Same re-run rationale as the e2e leg.
           overwrite: true
 
+  docker-smoke:
+    # Self-hosting smoke test: proves `docker compose up` still produces a
+    # working stack from a clean checkout. The client image was silently
+    # unbuildable for 16 days once (fixed in 88a429b) because nothing in CI
+    # ever built it; this job is that missing guard.
+    #
+    # Deliberately OUTSIDE the ci-green gate's needs list while it soaks, per
+    # the promotion policy in CLAUDE.md. Promote it once it has proven stable.
+    name: Docker (self-hosting stack)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate compose file
+        run: |
+          docker compose config -q
+          docker compose --profile turn config -q
+
+      - name: Build images
+        run: docker compose build
+
+      - name: Start the stack
+        # No .env file, exactly what a first-time self-hoster gets. The stack
+        # must come up with zero configuration.
+        run: docker compose up -d --wait --wait-timeout 180
+
+      - name: Assert the server answers
+        run: |
+          curl --fail --silent --show-error --retry 5 --retry-delay 2 \
+            --retry-connrefused http://localhost:3001/health
+
+      - name: Assert the client serves the app
+        run: |
+          curl --fail --silent --show-error --retry 5 --retry-delay 2 \
+            --retry-connrefused -o /dev/null http://localhost:3000/
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
   ci-green:
     # The one required status check on main (see the main-protection
     # ruleset). DO NOT rename this job or its name without updating the
@@ -497,7 +547,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # Every job in this workflow must be listed here, or its failure is
-    # invisible to branch protection. if: always() is load-bearing and must
+    # invisible to branch protection. The one exception is a job still
+    # soaking outside the gate (currently docker-smoke); see CLAUDE.md for
+    # the promotion policy. if: always() is load-bearing and must
     # never become !cancelled(): without always() a failed or cancelled
     # dependency would skip this job, and GitHub counts a skipped required
     # check as passing.

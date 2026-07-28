@@ -31,7 +31,9 @@ Everything is set in the `.env` file you copied above. The values that matter mo
 | `NEXT_PUBLIC_SOCKET_URL` | URL the browser uses to reach your signaling server. |
 | `NEXT_PUBLIC_SITE_URL` | Public URL of your client (canonical links, share previews, sitemap). |
 | `PORT` | Host port the server is published on. |
-| `CLIENT_URL` | Your client's origin, allowed by the server's CORS. |
+| `CLIENT_PORT` | Host port the client is published on. |
+| `CLIENT_URL` | Your client's origin, allowed by the server's CORS. Matched exactly. |
+| `TRUSTED_PROXY_COUNT` | Reverse-proxy hops in front of the server. `0` direct, `1` behind a proxy. |
 | `CLOUDFLARE_TURN_KEY_ID` / `CLOUDFLARE_TURN_KEY_API_TOKEN` | Optional managed TURN via Cloudflare (see below). |
 | `TURN_SECRET` / `TURN_DOMAIN` | Optional self-hosted coturn credentials (see below). |
 
@@ -45,6 +47,16 @@ one, rebuild the client image so the new value takes effect:
 docker compose build client && docker compose up -d
 ```
 
+## One domain (recommended for production)
+
+You do not need two hostnames. Put the client and the signaling server behind a
+single reverse proxy, route `/socket.io/`, `/ws`, `/api/`, and `/health` to the
+server and everything else to the client, and the whole instance lives at one
+address. That means one certificate and one URL to configure.
+
+Copy-pasteable Caddy and nginx configuration is in
+[the reverse proxy guide](https://www.floe.one/docs/self-hosting/reverse-proxy).
+
 ## Connectivity: STUN vs TURN
 
 - **STUN only (default).** Works for most networks. Peers connect directly and no
@@ -55,14 +67,19 @@ docker compose build client && docker compose up -d
   `CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_KEY_API_TOKEN`. No public IP,
   extra ports, or TLS certificates needed. These take precedence over the coturn
   variables below.
-- **Self-hosted TURN relay (coturn).** Prefer to run the relay yourself? Set
-  `TURN_SECRET` and `TURN_DOMAIN`, then start the bundled coturn service:
+- **Self-hosted TURN relay (coturn).** Prefer to run the relay yourself? Create the
+  config first (it is gitignored because it holds your secret), set `TURN_SECRET`
+  and `TURN_DOMAIN` in `.env`, then start the bundled coturn service:
 
   ```bash
+  cp coturn/turnserver.conf.example coturn/turnserver.conf
   docker compose --profile turn up -d
   ```
 
-  `TURN_SECRET` must match `static-auth-secret` in `coturn/turnserver.conf`.
+  `TURN_SECRET` must match `static-auth-secret` in `coturn/turnserver.conf`. Skip
+  the copy and Docker creates a directory at that path and coturn fails to start.
+  TURN needs its own ports and cannot be served through an HTTP reverse proxy; see
+  [the TURN relay guide](https://www.floe.one/docs/self-hosting/turn-relay).
 
 ## Without Docker
 
