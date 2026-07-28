@@ -106,22 +106,22 @@ else to the client.
 
 ## Floe configuration
 
-With one domain, both URLs are the same value.
+Leave the socket URL **empty**. The browser then talks to whatever host it was
+loaded from, which behind this proxy is already the right answer.
 
 ```env
-NEXT_PUBLIC_SOCKET_URL=https://floe.example.com
+NEXT_PUBLIC_SOCKET_URL=
 NEXT_PUBLIC_SITE_URL=https://floe.example.com
 CLIENT_URL=https://floe.example.com
 TRUSTED_PROXY_COUNT=1
 ```
 
-`NEXT_PUBLIC_SOCKET_URL` is inlined at build time, so rebuild the client after
-setting it:
-
 ```bash
-docker compose build client
 docker compose up -d
 ```
+
+`NEXT_PUBLIC_SITE_URL` is the only build-time value here, so run
+`docker compose build client` if you change it.
 
 <Note>
   `CLIENT_URL` is matched exactly, including the scheme and with no trailing

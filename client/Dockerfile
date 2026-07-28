@@ -1,9 +1,14 @@
-# Floe web client — multi-stage production image.
+# Floe web client, multi-stage production image.
 #
-# IMPORTANT: NEXT_PUBLIC_SOCKET_URL is inlined into the bundle at BUILD time by
-# Next.js, not read at runtime. Pass it as a build arg pointing at your signaling
-# server's externally reachable URL. Changing it later requires rebuilding this
-# image (`docker compose build client`).
+# The signaling server address is resolved at RUNTIME. Set SOCKET_URL on the
+# running container and the browser picks it up from /api/config on next load, so
+# changing it needs only `docker compose up -d`, no rebuild. Leave SOCKET_URL
+# empty when the client and the signaling server share one origin behind a
+# reverse proxy; the browser then uses its own origin.
+#
+# NEXT_PUBLIC_SOCKET_URL still exists as a build arg and still wins when set, but
+# Next inlines it into the bundle, so a value baked here can never be changed
+# without rebuilding. It defaults to empty for exactly that reason.
 
 # ---- Builder ---------------------------------------------------------------
 FROM node:22-alpine AS builder
@@ -23,7 +28,10 @@ RUN pnpm install --frozen-lockfile
 # Build the standalone server. Sentry source-map upload stays disabled unless you
 # also provide SENTRY_* build args, so the build works with no extra config.
 COPY . .
-ARG NEXT_PUBLIC_SOCKET_URL=http://localhost:3001
+# Empty on purpose: an inlined URL cannot be changed at runtime, and a prebuilt
+# image can only ever bake one. Set it only if you deliberately want a fixed URL
+# compiled into this image.
+ARG NEXT_PUBLIC_SOCKET_URL=
 ENV NEXT_PUBLIC_SOCKET_URL=${NEXT_PUBLIC_SOCKET_URL}
 # Public origin of this client, used for canonical links, Open Graph tags, and the
 # sitemap. Empty falls back to floe.one, so self-hosters should set it.

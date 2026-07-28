@@ -1,21 +1,52 @@
 ---
-title: "Build-Time Socket URL Caveat"
-description: "Why NEXT_PUBLIC_SOCKET_URL must be set before building the Floe client Docker image, and how to rebuild the image after changing your signaling URL."
+title: "How the Client Finds the Signaling Server"
+description: "How a self-hosted Floe web client resolves its signaling server address at runtime with SOCKET_URL, and when a rebuild is still required."
 ---
 
-Next.js inlines `NEXT_PUBLIC_*` variables into the JavaScript bundle **at build time**, not at runtime. `NEXT_PUBLIC_SOCKET_URL` is therefore baked into the client image when it is built. Setting or changing it in a running container has no effect.
+The browser needs to know where your signaling server is. It works that out when the
+page loads, so changing the address takes effect on a restart with no image rebuild.
 
-## After changing the URL, rebuild the client
+## Resolution order
+
+The first match wins.
+
+| Order | Source | When it applies |
+|-------|--------|-----------------|
+| 1 | `NEXT_PUBLIC_SOCKET_URL` baked in at build time | Only if you deliberately built an image with a URL compiled in. Empty in the published image. |
+| 2 | `http://localhost:3001` | Development builds only (`pnpm dev`). |
+| 3 | `SOCKET_URL` on the running client container, served from `GET /api/config` | The normal path for a self-hosted instance. |
+| 4 | The page's own origin | When `SOCKET_URL` is empty, which is what you want [behind one domain](/self-hosting/reverse-proxy). |
+
+## Changing the address
+
+Set it in `.env` and recreate the container. No rebuild:
+
+```bash
+docker compose up -d
+```
+
+Docker Compose maps your `NEXT_PUBLIC_SOCKET_URL` value to the container's
+`SOCKET_URL`, so the variable name in `.env` has not changed.
+
+<Note>
+  Leave the value **empty** when the client and the signaling server share one
+  origin behind a reverse proxy. The browser then talks to whatever host it was
+  loaded from, so there is nothing to configure and nothing to keep in sync.
+</Note>
+
+## The address is used by the browser, not the server
+
+Whatever you set has to be reachable **from your users' browsers**, not from inside
+the container. `http://localhost:3001` only works when the browser runs on the same
+machine as the server. For anything else use the server's LAN IP or public domain.
+
+## What still needs a rebuild
+
+`NEXT_PUBLIC_SITE_URL` is genuinely build-time. It feeds canonical links, Open
+Graph tags, and the sitemap, which are rendered into the page. Change it and
+rebuild:
 
 ```bash
 docker compose build client
 docker compose up -d
 ```
-
-<Warning>
-  Forgetting to rebuild after changing `NEXT_PUBLIC_SOCKET_URL` is the most common reason a self-hosted Floe instance cannot connect to the signaling server.
-</Warning>
-
-## The URL must be reachable by end-users' browsers
-
-`NEXT_PUBLIC_SOCKET_URL` is evaluated in the **browser**, not on the server. `http://localhost:3001` only works when the browser runs on the same machine as the server. For any other setup, use the server's LAN IP or public domain (e.g. `https://api.your-domain.com`).

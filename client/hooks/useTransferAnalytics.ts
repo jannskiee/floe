@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { peekSocketUrl, resolveSocketUrl } from '@/lib/socketUrl';
 
 interface UmamiWindow extends Window {
     umami?: {
@@ -37,13 +38,25 @@ export function useTransferAnalytics() {
 
     const reportBytes = (bytes: number) => {
         if (!reportStatsEnabledRef.current) return;
-        const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
-        fetch(`${socketUrl}/api/stats/report`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ bytes }),
-            keepalive: true,
-        }).catch(() => {});
+
+        const send = (socketUrl: string) => {
+            fetch(`${socketUrl}/api/stats/report`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bytes }),
+                keepalive: true,
+            }).catch(() => {});
+        };
+
+        // Prefer the synchronous path: this can fire while the page is being torn
+        // down, and `keepalive` only survives that if the request is issued in the
+        // current task. By the time any bytes exist to report the socket has long
+        // since connected, so the cache is warm and the async branch is a
+        // formality.
+        const cached = peekSocketUrl();
+        if (cached !== null) send(cached);
+        else void resolveSocketUrl().then(send);
+
         window.dispatchEvent(
             new CustomEvent('floe:bytes-reported', { detail: { bytes } })
         );
