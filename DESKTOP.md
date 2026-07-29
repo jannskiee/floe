@@ -79,6 +79,10 @@ go.work                ties cli + desktop for local dev (to be added)
       dashed drop zone, mono room code + copy-link, polished progress/verify/status. (QR deferred.)
 - [x] Folder sends, a "Browse..." save-folder picker, and "Show in folder" after receive
 - [x] OS notifications on transfer complete / failure (native Wails; auto toast AppUserModelID on Windows)
+- [x] Self-hosting: a Server section in Settings (server address plus an optional web address for share
+      links) persisted to `os.UserConfigDir()/floe/desktop.json`, with a Test button that probes
+      `/health`, `/ws` and `/api/turn-credentials` from Go. Leave both blank to use Floe's own servers.
+      The WebView cannot probe directly: `index.html` sets `connect-src 'self'`.
 - [ ] System tray / minimize-to-tray (NOT in Wails v2 - `onhold`, deferred to the v3 migration). Transfers already keep running while the window is minimized.
 - [ ] Dark mode toggle (the app already ships dark by default)
 - [ ] App auto-update (Sparkle on macOS, WinSparkle on Windows)

@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState} from 'react';
-import type {CSSProperties, MutableRefObject} from 'react';
+import type {CSSProperties, MutableRefObject, ReactNode} from 'react';
 import {
     CancelTransfer,
     ContextMenuEnabled,
@@ -7,6 +7,7 @@ import {
     EnableContextMenu,
     EngineProtocolVersion,
     GetPendingFiles,
+    GetServerSettings,
     GetVersion,
     OpenFile,
     OpenFolder,
@@ -15,8 +16,10 @@ import {
     RevealFile,
     SelectFiles,
     SelectFolder,
+    SetServerSettings,
     StartSend,
     StartSendText,
+    TestServer,
 } from "../wailsjs/go/main/App";
 import {EventsOn, EventsOff, OnFileDrop, OnFileDropOff, BrowserOpenURL} from "../wailsjs/runtime/runtime";
 import {
@@ -159,6 +162,16 @@ function ProgressRow({prog}: {prog: {pct: number; label: string}}) {
     );
 }
 
+/** webPlaceholder shows what the Web address field falls back to when left blank,
+ *  so the derivation is visible instead of implied. Mirrors engine/serverurl.Web,
+ *  which is what actually builds the link; keep the two in step. */
+function webPlaceholder(server: string): string {
+    const s = server.trim().replace(/\/+$/, '');
+    if (s === '' || s === 'https://api.floe.one') return 'https://floe.one';
+    if (s === 'http://localhost:3001') return 'http://localhost:3000';
+    return s;
+}
+
 function StatusLine({text, busy}: {text: string; busy: boolean}) {
     if (!text) return null;
     const isError = text.startsWith('Error');
@@ -237,6 +250,23 @@ function SettingRow({checked, onChange, label, description}: {
             </span>
             <Switch checked={checked} onChange={onChange}/>
         </label>
+    );
+}
+
+/** SettingField is the text-input counterpart to SettingRow: the same label and
+ *  description treatment, but the control sits underneath, because a settings row
+ *  is too narrow to hold a description and a usable text field side by side. */
+function SettingField({label, description, children}: {
+    label: string;
+    description: string;
+    children: ReactNode;
+}) {
+    return (
+        <div className="p-3.5">
+            <span className="block text-sm font-medium text-zinc-200">{label}</span>
+            <span className="mt-0.5 block text-xs leading-relaxed text-zinc-500">{description}</span>
+            <div className="mt-2.5">{children}</div>
+        </div>
     );
 }
 
@@ -464,6 +494,14 @@ function App() {
     const [confirmReset, setConfirmReset] = useState(false);
     const [hideIP, setHideIP] = useState(() => localStorage.getItem('floe:hideIP') === '1');
 
+    // Self-hosting: the signaling server this app talks to, and the web app its
+    // share links point at. Both empty means Floe's own servers. These are read
+    // from Go on mount rather than seeded from localStorage, because Go owns them.
+    const [serverAddr, setServerAddr] = useState('');
+    const [webAddr, setWebAddr] = useState('');
+    const [testStatus, setTestStatus] = useState('');
+    const [testing, setTesting] = useState(false);
+
     // Send state
     const [files, setFiles] = useState<string[]>([]);
     // What the send view is staging: a file selection or a typed text note.
@@ -548,6 +586,32 @@ function App() {
             localStorage.setItem('floe:ctx-menu', v ? '1' : '0');
         } catch {
             setCtxMenu(!v); // revert on failure, marker untouched
+        }
+    }
+
+    // Saved on blur rather than per keystroke: a half-typed address written to
+    // disk would be picked up by a transfer started before typing finished.
+    async function saveServerSettings() {
+        try {
+            await SetServerSettings(serverAddr.trim(), webAddr.trim());
+        } catch (e) {
+            setTestStatus('Error: could not save. ' + e);
+        }
+    }
+
+    // The check runs in Go: the WebView's own content-security policy blocks
+    // cross-origin requests, so the frontend cannot reach a server itself.
+    async function testServer() {
+        setTesting(true);
+        setTestStatus('Checking...');
+        try {
+            await SetServerSettings(serverAddr.trim(), webAddr.trim());
+            const r = await TestServer(serverAddr.trim());
+            setTestStatus(r.ok ? (r.message || 'Connected.') : 'Error: ' + r.message);
+        } catch (e) {
+            setTestStatus('Error: ' + e);
+        } finally {
+            setTesting(false);
         }
     }
 
@@ -644,6 +708,15 @@ function App() {
     useEffect(() => {
         GetVersion().then(setAppVer).catch(() => {});
         EngineProtocolVersion().then(setProto).catch(() => {});
+    }, []);
+
+    // Server override lives in a Go-owned file, not localStorage, so it survives
+    // the app being installed under a different executable name. Pulled once, the
+    // same way the About rows are.
+    useEffect(() => {
+        GetServerSettings()
+            .then((c) => { setServerAddr(c.server || ''); setWebAddr(c.web || ''); })
+            .catch(() => {});
     }, []);
 
     // Persist lightweight UI preferences so they survive a relaunch.
@@ -1068,6 +1141,45 @@ function App() {
                                         </div>
                                     </section>
                                 )}
+
+                                <section className="space-y-2">
+                                    <Eyebrow>Server</Eyebrow>
+                                    <div className="divide-y divide-white/[0.06] rounded-lg border border-white/[0.06] bg-white/[0.02]">
+                                        <SettingField
+                                            label="Server address"
+                                            description="Where this app connects for signaling. Leave blank to use Floe's own server. Both peers must use the same one."
+                                        >
+                                            <div className="flex gap-2">
+                                                <Input
+                                                    className="flex-1"
+                                                    placeholder="https://api.floe.one"
+                                                    value={serverAddr}
+                                                    onChange={(e) => { setServerAddr(e.target.value); setTestStatus(''); }}
+                                                    onBlur={saveServerSettings}
+                                                    spellCheck={false}
+                                                    autoComplete="off"
+                                                />
+                                                <Button variant="outline" onClick={testServer} disabled={testing}>
+                                                    Test
+                                                </Button>
+                                            </div>
+                                        </SettingField>
+                                        <SettingField
+                                            label="Web address"
+                                            description="Used to build share links. Leave blank to match the server address, which is right unless your web app is on a separate host."
+                                        >
+                                            <Input
+                                                placeholder={webPlaceholder(serverAddr)}
+                                                value={webAddr}
+                                                onChange={(e) => setWebAddr(e.target.value)}
+                                                onBlur={saveServerSettings}
+                                                spellCheck={false}
+                                                autoComplete="off"
+                                            />
+                                        </SettingField>
+                                    </div>
+                                    <StatusLine text={testStatus} busy={testing}/>
+                                </section>
 
                                 <section className="space-y-2">
                                     <Eyebrow>About</Eyebrow>

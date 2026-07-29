@@ -16,6 +16,7 @@ import (
 	"github.com/jannskiee/floe/cli/engine/code"
 	"github.com/jannskiee/floe/cli/engine/ice"
 	"github.com/jannskiee/floe/cli/engine/peer"
+	"github.com/jannskiee/floe/cli/engine/serverurl"
 	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/jannskiee/floe/cli/engine/transfer"
 	"github.com/jannskiee/floe/cli/engine/verify"
@@ -23,12 +24,15 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// defaultServer is the production Floe signaling server. The desktop app talks to
-// the same infrastructure as the browser and CLI, so transfers interoperate.
+// defaultServer is the production Floe signaling server, used unless Settings
+// names another one. On the default the desktop app talks to the same
+// infrastructure as the browser and CLI, so transfers interoperate; point it at
+// a self-hosted server and it interoperates with peers on that server instead.
 const defaultServer = "https://api.floe.one"
 
-// webURL is the browser app, used to build the shareable link for a send.
-const webURL = "https://floe.one"
+// The share-link origin is no longer a constant here. It is derived from the
+// signaling origin by engine/serverurl, which the CLI uses too, so both surfaces
+// emit identical links. See App.endpoints.
 
 // contextMenuBase is the per-user Explorer context-menu key for all file types.
 const contextMenuBase = `Software\Classes\*\shell\Floe`
@@ -81,11 +85,65 @@ type App struct {
 	// pendingFiles holds file paths passed on the command line (Explorer's
 	// "Send with Floe", drag-onto-exe) until the frontend pulls them.
 	pendingFiles []string
+
+	// cfg is the persisted server override. Written from the UI goroutine when
+	// the user saves Settings and read from the transfer goroutine, so it is
+	// guarded by mu like everything else here.
+	cfg serverConfig
 }
 
 // NewApp creates a new App application struct
 func NewApp() *App {
-	return &App{wake: newWakeGuard()}
+	// Loaded here rather than in startup: startup runs on a goroutine after the
+	// window exists, which would leave a window where a transfer could begin
+	// against the wrong server. Failures fall back to the Floe defaults.
+	return &App{wake: newWakeGuard(), cfg: loadConfig()}
+}
+
+// endpoints resolves the signaling origin and the share-link origin to use for
+// one transfer.
+//
+// Callers take a single snapshot and pass it down, so changing the setting while
+// a transfer is running cannot split that transfer across two servers.
+func (a *App) endpoints() (server, web string) {
+	a.mu.Lock()
+	cfg := a.cfg
+	a.mu.Unlock()
+
+	server = cfg.Server
+	if server == "" {
+		server = defaultServer
+	}
+	web = cfg.Web
+	if web == "" {
+		// serverurl.Web maps the production and local-dev pairs to their web
+		// hosts and leaves a one-domain self-hosted address alone. Shared with
+		// the CLI so both surfaces emit identical links.
+		web = serverurl.Web(server)
+	}
+	return server, web
+}
+
+// GetServerSettings returns the stored override for the Settings screen. Empty
+// fields mean "using the Floe defaults" and render as placeholders.
+func (a *App) GetServerSettings() serverConfig {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.cfg
+}
+
+// SetServerSettings persists a server override. Either field may be empty to
+// fall back to the default. It does not verify the address; TestServer does that
+// on demand, so a user can save an address for a server that is not up yet.
+func (a *App) SetServerSettings(server, web string) error {
+	cfg := normalizeConfig(serverConfig{Server: server, Web: web})
+	if err := saveConfig(cfg); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.cfg = cfg
+	a.mu.Unlock()
+	return nil
 }
 
 // startup is called when the app starts. The context is saved so we can call the
@@ -461,13 +519,17 @@ func (a *App) runSend(paths []string, hideIP bool) {
 
 	roomID := uuid.New().String()
 
-	iceServers, err := ice.Fetch(defaultServer)
+	// One snapshot for the whole send: changing the setting mid-transfer must
+	// not move the second half onto a different server.
+	server, web := a.endpoints()
+
+	iceServers, err := ice.Fetch(server)
 	if err != nil {
 		fail(fmt.Errorf("failed to fetch ICE credentials: %w", err))
 		return
 	}
 
-	sc, err := signaling.Connect(defaultServer)
+	sc, err := signaling.Connect(server)
 	if err != nil {
 		fail(fmt.Errorf("failed to connect to signaling server: %w", err))
 		return
@@ -502,11 +564,11 @@ func (a *App) runSend(paths []string, hideIP bool) {
 	}
 
 	// Register a short shareable code and emit it to the UI immediately.
-	codePhrase, err := code.Register(defaultServer, roomID)
+	codePhrase, err := code.Register(server, roomID)
 	if err != nil {
 		codePhrase = ""
 	}
-	link := shareLink(webURL, uuid.New().String()[:8], roomID)
+	link := shareLink(web, uuid.New().String()[:8], roomID)
 	runtime.EventsEmit(a.ctx, "send:code", map[string]string{"code": codePhrase, "link": link})
 
 	// Wait for a receiver to join. This wait is intentionally unbounded (you may
@@ -601,17 +663,20 @@ func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool, re
 		return "", fmt.Errorf("cannot create output directory: %w", err)
 	}
 
-	roomID, err := code.Resolve(defaultServer, codeOrLink)
+	// One snapshot for the whole receive, for the same reason as runSend.
+	server, _ := a.endpoints()
+
+	roomID, err := code.Resolve(server, codeOrLink)
 	if err != nil {
 		return "", fmt.Errorf("could not resolve %q: %w", codeOrLink, err)
 	}
 
-	iceServers, err := ice.Fetch(defaultServer)
+	iceServers, err := ice.Fetch(server)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch ICE credentials: %w", err)
 	}
 
-	sc, err := signaling.Connect(defaultServer)
+	sc, err := signaling.Connect(server)
 	if err != nil {
 		return "", fmt.Errorf("failed to connect to signaling server: %w", err)
 	}
@@ -671,7 +736,7 @@ func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool, re
 	// engine skips the report when statsURL is empty).
 	statsURL := ""
 	if reportStats {
-		statsURL = defaultServer
+		statsURL = server
 	}
 	lastEmit := time.Now()
 	onProgress := func(p transfer.Progress) {

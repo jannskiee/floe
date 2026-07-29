@@ -26,6 +26,10 @@ export function GetPendingFiles() {
   return window['go']['main']['App']['GetPendingFiles']();
 }
 
+export function GetServerSettings() {
+  return window['go']['main']['App']['GetServerSettings']();
+}
+
 export function GetVersion() {
   return window['go']['main']['App']['GetVersion']();
 }
@@ -58,10 +62,18 @@ export function SelectFolder() {
   return window['go']['main']['App']['SelectFolder']();
 }
 
+export function SetServerSettings(arg1, arg2) {
+  return window['go']['main']['App']['SetServerSettings'](arg1, arg2);
+}
+
 export function StartSend(arg1, arg2) {
   return window['go']['main']['App']['StartSend'](arg1, arg2);
 }
 
 export function StartSendText(arg1, arg2) {
   return window['go']['main']['App']['StartSendText'](arg1, arg2);
+}
+
+export function TestServer(arg1) {
+  return window['go']['main']['App']['TestServer'](arg1);
 }
