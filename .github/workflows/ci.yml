@@ -78,7 +78,10 @@ jobs:
             echo "docs-only change: heavy jobs will be skipped"
           fi
           # Same diff, second classification: workflow edits gate actionlint.
-          workflow_files="$(printf '%s\n' "$changed" | grep '^\.github/workflows/' || true)"
+          # scripts/ counts too. images.yml calls .github/scripts/smoke-image.sh,
+          # and a change to only that script would otherwise skip the lint job
+          # entirely, leaving the shell CI actually runs completely unchecked.
+          workflow_files="$(printf '%s\n' "$changed" | grep -E '^\.github/(workflows|scripts)/' || true)"
           if [ -n "$workflow_files" ]; then
             echo "workflows=true" >> "$GITHUB_OUTPUT"
             echo "workflow changes:"
@@ -121,6 +124,13 @@ jobs:
         # Zero ignore flags on purpose: the tree lints clean after the
         # quoting fixes and must stay clean.
         run: ./actionlint -color
+
+      - name: Lint shell scripts
+        # actionlint shellchecks the shell embedded in workflow YAML, but not the
+        # scripts that YAML calls out to. images.yml runs
+        # .github/scripts/smoke-image.sh, so check it directly. shellcheck is
+        # preinstalled on ubuntu-latest.
+        run: shellcheck .github/scripts/*.sh
 
   build-and-lint:
     name: Build & Lint

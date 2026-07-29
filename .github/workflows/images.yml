@@ -24,7 +24,11 @@ permissions: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  # Never cancel a publish. ci.yml cancels superseded runs because a stale test
+  # result is merely useless, but this workflow mutates a registry: a run killed
+  # between the staging push and the retag leaves the release tags pointing at
+  # the previous digest with no indication anything went wrong.
+  cancel-in-progress: false
 
 env:
   SERVER: ghcr.io/jannskiee/floe-server
@@ -170,6 +174,13 @@ jobs:
             while IFS= read -r t; do
               [ -n "$t" ] && args+=(-t "$t")
             done <<< "$tags"
+            # Without this, an empty tag list would run imagetools with no -t,
+            # which succeeds having published nothing: a green run that shipped
+            # no release tags.
+            if [ "${#args[@]}" -eq 0 ]; then
+              echo "::error::no tags resolved for ${image}"
+              exit 1
+            fi
             docker buildx imagetools create "${args[@]}" "${image}@${digest}"
           }
           retag "$SERVER" "$DIGEST_SERVER" "$TAGS_SERVER"
