@@ -210,16 +210,21 @@ jobs:
           TAGS_SERVER: ${{ steps.meta_server.outputs.tags }}
           TAGS_CLIENT: ${{ steps.meta_client.outputs.tags }}
         run: |
+          # A plain loop rather than sed: a `s/$/.../` replacement puts a $
+          # inside single quotes, which trips shellcheck SC2016 and CI lints
+          # workflows with zero ignore flags.
+          section() {
+            local image="$1" digest="$2" tags="$3"
+            echo "### ${image}"
+            echo
+            echo "Digest: \`${digest}\`"
+            echo
+            while IFS= read -r t; do
+              [ -n "$t" ] && echo "- \`${t}\`"
+            done <<< "$tags"
+            echo
+          }
           {
-            echo "### ${SERVER}"
-            echo
-            echo "Digest: \`${DIGEST_SERVER}\`"
-            echo
-            echo "$TAGS_SERVER" | sed 's/^/- `/;s/$/`/'
-            echo
-            echo "### ${CLIENT}"
-            echo
-            echo "Digest: \`${DIGEST_CLIENT}\`"
-            echo
-            echo "$TAGS_CLIENT" | sed 's/^/- `/;s/$/`/'
+            section "$SERVER" "$DIGEST_SERVER" "$TAGS_SERVER"
+            section "$CLIENT" "$DIGEST_CLIENT" "$TAGS_CLIENT"
           } >> "$GITHUB_STEP_SUMMARY"
