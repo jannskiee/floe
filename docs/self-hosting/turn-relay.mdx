@@ -45,6 +45,8 @@ TURN requires a **public IP address**, a **domain name**, and **TLS certificates
     cp coturn/turnserver.conf.example coturn/turnserver.conf
     ```
 
+    This file is gitignored because it holds your shared secret, so it does not exist in a fresh clone. Skip this step and Docker creates a directory at that path, and coturn fails to start.
+
     Edit `coturn/turnserver.conf` and set:
     - `static-auth-secret` to a strong random value (e.g. `openssl rand -hex 32`)
     - `realm` to your TURN hostname (e.g. `turn.your-domain.com`)
@@ -70,6 +72,10 @@ TURN requires a **public IP address**, a **domain name**, and **TLS certificates
     | `3478` | UDP/TCP | STUN and TURN |
     | `5349` | UDP/TCP | TURNS (TURN over TLS) |
     | `49152-65535` | UDP | Relay data range (configurable in `turnserver.conf`) |
+
+    <Warning>
+      These ports must be reachable directly. TURN is not HTTP, so it cannot be routed through the reverse proxy that fronts the web client and signaling server. Even on a [one-domain deployment](/self-hosting/reverse-proxy), coturn keeps its own ports and its own TLS certificate.
+    </Warning>
   </Step>
   <Step title="Start the stack with the TURN profile">
     ```bash

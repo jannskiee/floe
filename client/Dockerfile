@@ -25,6 +25,10 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 ARG NEXT_PUBLIC_SOCKET_URL=http://localhost:3001
 ENV NEXT_PUBLIC_SOCKET_URL=${NEXT_PUBLIC_SOCKET_URL}
+# Public origin of this client, used for canonical links, Open Graph tags, and the
+# sitemap. Empty falls back to floe.one, so self-hosters should set it.
+ARG NEXT_PUBLIC_SITE_URL=
+ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 

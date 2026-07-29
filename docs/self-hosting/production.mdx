@@ -5,6 +5,14 @@ description: "Deploy a self-hosted Floe instance in production with HTTPS, a rev
 
 For a deployment accessible beyond a single machine, follow these steps.
 
+<Note>
+  The simplest production layout puts the client and the signaling server behind
+  **one** domain, so there is a single certificate and a single URL to configure.
+  See [Reverse Proxy](/self-hosting/reverse-proxy) for copy-pasteable Caddy and
+  nginx configuration. This page covers the two-subdomain layout, which is still
+  fully supported.
+</Note>
+
 ## Steps
 
 <Steps>
@@ -46,6 +54,8 @@ For a deployment accessible beyond a single machine, follow these steps.
     ```env
     TRUSTED_PROXY_COUNT=1
     ```
+
+    One reverse proxy is `1`, a CDN in front of that proxy is `2`. The default is `0`, which is correct only when the container ports are published directly. Setting it higher than your real hop count lets clients forge `X-Forwarded-For` and bypass the per-IP rate limits.
   </Step>
 </Steps>
 

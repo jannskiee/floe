@@ -1,4 +1,4 @@
-# Floe — self-hosting stack.
+# Floe self-hosting stack.
 #
 # Quick start:
 #   cp .env.docker.example .env
@@ -6,9 +6,9 @@
 #   open http://localhost:3000
 #
 # The `client` and `server` services run out of the box (STUN-only, which works on
-# most home and mobile networks). The optional `coturn` relay is only started with
-# the `turn` profile and requires a public IP, domain, and TLS certificates — see
-# SELF_HOSTING.md.
+# most home and mobile networks). For a production deployment behind one domain,
+# see docs/self-hosting/reverse-proxy. The optional `coturn` relay is only started
+# with the `turn` profile and requires a public IP, domain, and TLS certificates.
 
 services:
   server:
@@ -22,8 +22,15 @@ services:
       # is what changes. Everything else is interpolated from .env.
       PORT: 3001
       CLIENT_URL: ${CLIENT_URL:-http://localhost:3000}
-      TRUSTED_PROXY_COUNT: ${TRUSTED_PROXY_COUNT:-1}
+      # Reverse-proxy hops in front of the server. This stack publishes ports
+      # directly, so the default is 0. Set it to 1 when you put a proxy in front
+      # (see docs/self-hosting/reverse-proxy), or the per-IP rate limits read a
+      # client-supplied X-Forwarded-For and can be bypassed.
+      TRUSTED_PROXY_COUNT: ${TRUSTED_PROXY_COUNT:-0}
       MAX_CONNECTIONS_PER_IP: ${MAX_CONNECTIONS_PER_IP:-30}
+      MAX_TURN_REQUESTS_PER_IP: ${MAX_TURN_REQUESTS_PER_IP:-}
+      MAX_CODE_REQUESTS_PER_IP: ${MAX_CODE_REQUESTS_PER_IP:-}
+      MAX_ACTIVE_CODES: ${MAX_ACTIVE_CODES:-}
       # Managed TURN via Cloudflare Realtime (takes precedence over coturn below).
       CLOUDFLARE_TURN_KEY_ID: ${CLOUDFLARE_TURN_KEY_ID:-}
       CLOUDFLARE_TURN_KEY_API_TOKEN: ${CLOUDFLARE_TURN_KEY_API_TOKEN:-}
@@ -39,25 +46,31 @@ services:
     build:
       context: ./client
       args:
-        # Baked into the bundle at build time — must point at the server URL that
-        # browsers can reach. Rebuild this service after changing it.
+        # Baked into the bundle at build time. NEXT_PUBLIC_SOCKET_URL must point at
+        # the server URL that browsers can reach, and NEXT_PUBLIC_SITE_URL at this
+        # client's own public origin. Rebuild this service after changing either.
         NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL:-http://localhost:3001}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-}
     image: floe-client
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${CLIENT_PORT:-3000}:3000"
     depends_on:
-      - server
+      server:
+        condition: service_healthy
 
   # Optional TURN relay. Start with: docker compose --profile turn up -d
   # Uses host networking because relaying needs a wide UDP port range and the
   # client's real public IP. Linux hosts with a public IP only.
   coturn:
-    image: coturn/coturn:latest
+    image: coturn/coturn:4.15
     profiles: ["turn"]
     restart: unless-stopped
     network_mode: host
     volumes:
+      # This file is gitignored because it holds your TURN_SECRET. Create it first:
+      #   cp coturn/turnserver.conf.example coturn/turnserver.conf
+      # Without that step Docker creates a directory here and coturn fails to start.
       - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
       # Mount your TLS cert/key here and reference them in turnserver.conf, e.g.:
       # - ./coturn/certs:/etc/coturn/certs:ro
