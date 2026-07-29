@@ -40,7 +40,7 @@ This starts the stack in **STUN-only** mode. Direct peer-to-peer connections are
 To support peers behind strict firewalls, symmetric NAT, or CGNAT, add a [TURN relay](/self-hosting/turn-relay).
 
 <Note>
-  The defaults assume the browser and the server are on the same machine. To reach the app from another device on your network, set **both** of these in `.env` to your machine's LAN IP, then rebuild:
+  The defaults assume the browser and the server are on the same machine. To reach the app from another device on your network, set **both** of these in `.env` to your machine's LAN IP:
 
   ```env
   NEXT_PUBLIC_SOCKET_URL=http://192.168.1.x:3001
@@ -48,11 +48,10 @@ To support peers behind strict firewalls, symmetric NAT, or CGNAT, add a [TURN r
   ```
 
   ```bash
-  docker compose build client
   docker compose up -d
   ```
 
-  `CLIENT_URL` matters as much as the socket URL: it is the origin the server's CORS check allows, and without it the browser is blocked even though the page loads. See [Build-Time URL Caveat](/self-hosting/build-time-url) for why the rebuild is needed.
+  No rebuild: the client reads its server address at runtime. `CLIENT_URL` matters as much as the socket URL, because it is the origin the server's CORS check allows, and without it the browser is blocked even though the page loads.
 </Note>
 
 <Tip>

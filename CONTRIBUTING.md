@@ -87,7 +87,7 @@ This is aimed at **self-hosting** (running your own instance) rather than active
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `NEXT_PUBLIC_SOCKET_URL` | Yes | Signaling server URL the browser connects to. `client/.env.example` ships `http://localhost:3001`; for UI-only work set it to `https://api.floe.one` to use the live server without running one locally. |
+| `NEXT_PUBLIC_SOCKET_URL` | No | Signaling server URL the browser connects to. `pnpm dev` already defaults to `http://localhost:3001`; for UI-only work set it to `https://api.floe.one` to use the live server without running one locally. Inlined at build time when set. Self-hosted Docker instances leave it unset and resolve the address at runtime instead. |
 | `NEXT_PUBLIC_SITE_URL` | No | Public base URL for canonical links, Open Graph tags, and the sitemap. Defaults to `https://www.floe.one`. Set to your own domain when self-hosting. |
 | `NEXT_PUBLIC_SENTRY_DSN` | No | Your Sentry DSN for client-side error tracking. Leave empty to disable. |
 | `SENTRY_DSN` | No | Your Sentry DSN for server-side error tracking. Leave empty to disable. |

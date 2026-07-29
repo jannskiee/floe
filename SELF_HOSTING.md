@@ -37,11 +37,18 @@ Everything is set in the `.env` file you copied above. The values that matter mo
 | `CLOUDFLARE_TURN_KEY_ID` / `CLOUDFLARE_TURN_KEY_API_TOKEN` | Optional managed TURN via Cloudflare (see below). |
 | `TURN_SECRET` / `TURN_DOMAIN` | Optional self-hosted coturn credentials (see below). |
 
-### Build-time variables (important)
+### Applying a change
 
-`NEXT_PUBLIC_SOCKET_URL` and `NEXT_PUBLIC_SITE_URL` are inlined into the client
-**at build time** (a Next.js behaviour, not specific to Floe). If you change either
-one, rebuild the client image so the new value takes effect:
+`NEXT_PUBLIC_SOCKET_URL` is read at runtime, so changing where the browser looks
+for your signaling server needs only a restart:
+
+```bash
+docker compose up -d
+```
+
+`NEXT_PUBLIC_SITE_URL` is the exception. It feeds canonical links, Open Graph
+tags, and the sitemap, which Next renders into the page at build time, so changing
+it needs a rebuild:
 
 ```bash
 docker compose build client && docker compose up -d

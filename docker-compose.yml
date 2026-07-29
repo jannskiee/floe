@@ -46,15 +46,23 @@ services:
     build:
       context: ./client
       args:
-        # Baked into the bundle at build time. NEXT_PUBLIC_SOCKET_URL must point at
-        # the server URL that browsers can reach, and NEXT_PUBLIC_SITE_URL at this
-        # client's own public origin. Rebuild this service after changing either.
-        NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL:-http://localhost:3001}
+        # SEO metadata (canonical links, Open Graph, sitemap). Next inlines this
+        # at build time, so rebuild the client after changing it.
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-}
     image: floe-client
     restart: unless-stopped
     ports:
       - "${CLIENT_PORT:-3000}:3000"
+    environment:
+      # Where browsers reach the signaling server. Read at request time and
+      # served from /api/config, so changing it takes effect on the next
+      # `docker compose up -d` with no rebuild. Set it EMPTY when both services
+      # share one origin behind a reverse proxy; the browser then uses its own.
+      #
+      # `-` and not `:-` on purpose: the default applies only when the variable
+      # is absent. An explicitly empty value must stay empty, or the one-domain
+      # setup above would silently fall back to localhost.
+      SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL-http://localhost:3001}
     depends_on:
       server:
         condition: service_healthy
