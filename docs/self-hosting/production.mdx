@@ -32,10 +32,9 @@ For a deployment accessible beyond a single machine, follow these steps.
     NEXT_PUBLIC_SOCKET_URL=https://api.your-domain.com
     ```
 
-    Then rebuild the client image (required because this value is inlined at build time):
+    Then restart. No rebuild: the client reads this address at runtime.
 
     ```bash
-    docker compose build client
     docker compose up -d
     ```
   </Step>

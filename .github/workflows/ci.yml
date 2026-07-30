@@ -498,10 +498,15 @@ jobs:
           overwrite: true
 
   docker-smoke:
-    # Self-hosting smoke test: proves `docker compose up` still produces a
-    # working stack from a clean checkout. The client image was silently
-    # unbuildable for 16 days once (fixed in 88a429b) because nothing in CI
-    # ever built it; this job is that missing guard.
+    # Self-hosting smoke test: proves the source still produces a working stack
+    # from a clean checkout. The client image was silently unbuildable for 16
+    # days once (fixed in 88a429b) because nothing in CI ever built it; this job
+    # is that missing guard.
+    #
+    # It runs through docker-compose.build.yml. docker-compose.yml alone now
+    # PULLS the published images, so without the overlay this job would only
+    # prove that ghcr.io serves what it served yesterday, not that this commit
+    # still builds. The published images have their own gate in images.yml.
     #
     # Deliberately OUTSIDE the ci-green gate's needs list while it soaks, per
     # the promotion policy in CLAUDE.md. Promote it once it has proven stable.
@@ -516,18 +521,23 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Validate compose file
+      - name: Validate compose files
         run: |
+          # Both the pull-only file a self-hoster downloads and the contributor
+          # overlay have to stay valid.
           docker compose config -q
           docker compose --profile turn config -q
+          docker compose -f docker-compose.yml -f docker-compose.build.yml config -q
 
       - name: Build images
-        run: docker compose build
+        run: docker compose -f docker-compose.yml -f docker-compose.build.yml build
 
       - name: Start the stack
         # No .env file, exactly what a first-time self-hoster gets. The stack
         # must come up with zero configuration.
-        run: docker compose up -d --wait --wait-timeout 180
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.build.yml \
+            up -d --wait --wait-timeout 180
 
       - name: Assert the server answers
         run: |
@@ -541,7 +551,9 @@ jobs:
 
       - name: Dump logs on failure
         if: failure()
-        run: docker compose logs --no-color --tail 200
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.build.yml \
+            logs --no-color --tail 200
 
       - name: Tear down
         if: always()

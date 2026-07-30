@@ -42,10 +42,17 @@ TURN requires a **public IP address**, a **domain name**, and **TLS certificates
 <Steps>
   <Step title="Create the coturn config">
     ```bash
-    cp coturn/turnserver.conf.example coturn/turnserver.conf
+    curl -fsSL --create-dirs -o coturn/turnserver.conf \
+      https://raw.githubusercontent.com/jannskiee/floe/main/coturn/turnserver.conf.example
     ```
 
-    This file is gitignored because it holds your shared secret, so it does not exist in a fresh clone. Skip this step and Docker creates a directory at that path, and coturn fails to start.
+    This file holds your shared secret, so it is never shipped and you always create it yourself.
+
+    <Warning>
+      Do not skip this. Docker creates a **directory** at that path instead, and coturn then **starts anyway** and reports healthy, running on built-in defaults with no auth secret. Relaying silently fails for exactly the peers TURN exists to serve. The giveaway is `Default realm: localdomain` in `docker compose logs coturn`.
+
+      Recovering needs `rmdir coturn/turnserver.conf` **first**: copying onto a directory succeeds and writes the file inside it, so the obvious fix appears to work and does not.
+    </Warning>
 
     Edit `coturn/turnserver.conf` and set:
     - `static-auth-secret` to a strong random value (e.g. `openssl rand -hex 32`)
@@ -79,8 +86,12 @@ TURN requires a **public IP address**, a **domain name**, and **TLS certificates
   </Step>
   <Step title="Start the stack with the TURN profile">
     ```bash
-    docker compose --profile turn up -d --build
+    docker compose --profile turn up -d
     ```
+
+    <Warning>
+      Create `coturn/turnserver.conf` first, as the earlier step describes. Starting the profile without it looks successful and is not.
+    </Warning>
   </Step>
 </Steps>
 

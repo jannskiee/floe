@@ -4,10 +4,7 @@ import './globals.css';
 import { ServiceWorkerRegistration } from '@/components/ServiceWorkerRegistration';
 import Script from 'next/script';
 
-// Public-facing base URL. Defaults to floe.one for the canonical deploy; set
-// NEXT_PUBLIC_SITE_URL when self-hosting so canonical/OG/sitemap point at your
-// own domain instead.
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.floe.one';
+import { siteUrl, metadataBase } from '@/lib/siteUrl';
 
 const geistSans = Geist({
     variable: '--font-geist-sans',
@@ -23,7 +20,10 @@ export const metadata: Metadata = {
     title: 'Floe',
     description:
         'Send files directly to anyone. No uploads, no accounts, end-to-end encrypted. Works on any device, any browser.',
-    metadataBase: new URL(siteUrl),
+    metadataBase,
+    // Left unconditional on purpose. Next passes a RELATIVE canonical through
+    // verbatim when metadataBase is null, so this stays a valid self-referencing
+    // canonical on whatever host serves it.
     alternates: {
         canonical: '/',
     },
@@ -32,24 +32,34 @@ export const metadata: Metadata = {
         description:
             'Send files directly from your device to anyone in the world. No accounts, no file storage, no size limits on direct transfers. Fully end-to-end encrypted with WebRTC.',
         siteName: 'Floe',
-        images: [
-            {
-                // Relative path resolves against metadataBase (siteUrl above).
-                url: '/og.png?v=3',
-                width: 1200,
-                height: 630,
-                alt: 'Floe — Encrypted peer-to-peer file transfer',
-            },
-        ],
+        // Images are the opposite case to canonical: a relative image with no
+        // metadataBase resolves against http://localhost:3000, which renders
+        // nothing in a link preview. Omitting beats emitting a broken URL.
+        //
+        // Both image arrays must stay conditional TOGETHER. Next copies the
+        // resolved Open Graph images into twitter when twitter declares none, so
+        // dropping only one of them still leaks localhost into the other.
+        images: siteUrl
+            ? [
+                  {
+                      // Relative path resolves against metadataBase above.
+                      url: '/og.png?v=3',
+                      width: 1200,
+                      height: 630,
+                      alt: 'Floe — Encrypted peer-to-peer file transfer',
+                  },
+              ]
+            : undefined,
         type: 'website',
         locale: 'en_US',
     },
     twitter: {
-        card: 'summary_large_image',
+        // Without an image, a large-image card renders as an empty box.
+        card: siteUrl ? 'summary_large_image' : 'summary',
         title: 'Floe — Encrypted P2P File Transfer. No Uploads.',
         description:
             'Send files directly from your device to anyone in the world. No accounts, no file storage, fully end-to-end encrypted.',
-        images: ['/og.png?v=3'],
+        images: siteUrl ? ['/og.png?v=3'] : undefined,
     },
 };
 
@@ -89,7 +99,10 @@ export default function RootLayout({
                             '@context': 'https://schema.org',
                             '@type': 'WebApplication',
                             name: 'Floe',
-                            url: siteUrl,
+                            // Omitted entirely when the origin is unknown. This
+                            // block is hand-rolled rather than part of the
+                            // Metadata API, so nothing else would strip it.
+                            ...(siteUrl && { url: siteUrl }),
                             description: 'Secure, encrypted P2P file transfer. No accounts, no file storage, no registration required.',
                             applicationCategory: 'UtilitiesApplication',
                             operatingSystem: 'Any',

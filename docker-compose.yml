@@ -1,9 +1,16 @@
 # Floe self-hosting stack.
 #
-# Quick start:
-#   cp .env.docker.example .env
-#   docker compose up -d --build
+# Quick start, no clone and no toolchain needed:
+#   curl -fsSLO https://raw.githubusercontent.com/jannskiee/floe/main/docker-compose.yml
+#   docker compose up -d
 #   open http://localhost:3000
+#
+# A .env file is optional; every value below has a working default. To customise,
+# fetch the annotated example alongside this file:
+#   curl -fsSL https://raw.githubusercontent.com/jannskiee/floe/main/.env.docker.example -o .env
+#
+# Images are prebuilt and published to ghcr.io. To build from source instead, add
+# the overlay: docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 #
 # The `client` and `server` services run out of the box (STUN-only, which works on
 # most home and mobile networks). For a production deployment behind one domain,
@@ -12,8 +19,10 @@
 
 services:
   server:
-    build: ./server
-    image: floe-server
+    # FLOE_IMAGE_TAG pins a version, for example FLOE_IMAGE_TAG=1.9.0. Deliberately
+    # NOT named FLOE_VERSION: that already belongs to the CLI installer and is
+    # documented as v1.2.0, with a leading v that image tags do not carry.
+    image: ghcr.io/jannskiee/floe-server:${FLOE_IMAGE_TAG:-main}
     restart: unless-stopped
     ports:
       - "${PORT:-3001}:3001"
@@ -43,13 +52,7 @@ services:
       MAX_REPORT_BYTES: ${MAX_REPORT_BYTES:-}
 
   client:
-    build:
-      context: ./client
-      args:
-        # SEO metadata (canonical links, Open Graph, sitemap). Next inlines this
-        # at build time, so rebuild the client after changing it.
-        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-}
-    image: floe-client
+    image: ghcr.io/jannskiee/floe-client:${FLOE_IMAGE_TAG:-main}
     restart: unless-stopped
     ports:
       - "${CLIENT_PORT:-3000}:3000"
@@ -76,9 +79,16 @@ services:
     restart: unless-stopped
     network_mode: host
     volumes:
-      # This file is gitignored because it holds your TURN_SECRET. Create it first:
-      #   cp coturn/turnserver.conf.example coturn/turnserver.conf
-      # Without that step Docker creates a directory here and coturn fails to start.
+      # This file holds your TURN_SECRET, so it is never shipped. Create it first:
+      #   curl -fsSL --create-dirs -o coturn/turnserver.conf \
+      #     https://raw.githubusercontent.com/jannskiee/floe/main/coturn/turnserver.conf.example
+      #
+      # Skip that and Docker creates a DIRECTORY at this path. coturn then starts
+      # anyway and reports healthy, running on built-in defaults with no auth
+      # secret, so relaying silently fails for the CGNAT peers it exists to serve.
+      # The giveaway is "Default realm: localdomain" in its logs. Recovery needs
+      # `rmdir coturn/turnserver.conf` FIRST: copying onto a directory succeeds and
+      # writes the file inside it.
       - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
       # Mount your TLS cert/key here and reference them in turnserver.conf, e.g.:
       # - ./coturn/certs:/etc/coturn/certs:ro

@@ -10,26 +10,38 @@ configuration reference.
 
 ## Quick start (Docker)
 
-Both the client and the server ship with a `Dockerfile`, and `docker-compose.yml`
-wires them together (plus an optional coturn relay).
+Prebuilt images are published to ghcr.io and `docker-compose.yml` pulls them, so
+there is nothing to clone and no toolchain to install.
 
 ```bash
-git clone https://github.com/jannskiee/floe.git
-cd floe
-cp .env.docker.example .env
-docker compose up -d --build
+curl -fsSLO https://raw.githubusercontent.com/jannskiee/floe/main/docker-compose.yml
+docker compose up -d
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
 
+A `.env` file is optional; every value has a working default. To change something,
+fetch the annotated example next to the compose file:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jannskiee/floe/main/.env.docker.example -o .env
+```
+
+To build from source instead, add the overlay:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
+
 ## Configuration
 
-Everything is set in the `.env` file you copied above. The values that matter most:
+Everything is set in an optional `.env` file next to the compose file. The values
+that matter most:
 
 | Variable | What it does |
 | --- | --- |
+| `FLOE_IMAGE_TAG` | Which published image tag to run. Defaults to `main`. |
 | `NEXT_PUBLIC_SOCKET_URL` | URL the browser uses to reach your signaling server. |
-| `NEXT_PUBLIC_SITE_URL` | Public URL of your client (canonical links, share previews, sitemap). |
 | `PORT` | Host port the server is published on. |
 | `CLIENT_PORT` | Host port the client is published on. |
 | `CLIENT_URL` | Your client's origin, allowed by the server's CORS. Matched exactly. |
@@ -47,12 +59,18 @@ docker compose up -d
 ```
 
 `NEXT_PUBLIC_SITE_URL` is the exception. It feeds canonical links, Open Graph
-tags, and the sitemap, which Next renders into the page at build time, so changing
-it needs a rebuild:
+tags, and the sitemap, which Next renders into the page at build time, so a shared
+image cannot carry it. The published client simply omits those tags rather than
+advertising a domain that is not yours. To set your own, build the client:
 
 ```bash
-docker compose build client && docker compose up -d
+NEXT_PUBLIC_SITE_URL=https://files.example.com \
+  docker compose -f docker-compose.yml -f docker-compose.build.yml build client
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d
 ```
+
+This affects only SEO and link previews. Transfers, signaling, and the relay are
+all configured at runtime.
 
 ## One domain (recommended for production)
 
@@ -79,12 +97,17 @@ Copy-pasteable Caddy and nginx configuration is in
   and `TURN_DOMAIN` in `.env`, then start the bundled coturn service:
 
   ```bash
-  cp coturn/turnserver.conf.example coturn/turnserver.conf
+  curl -fsSL --create-dirs -o coturn/turnserver.conf \
+    https://raw.githubusercontent.com/jannskiee/floe/main/coturn/turnserver.conf.example
   docker compose --profile turn up -d
   ```
 
   `TURN_SECRET` must match `static-auth-secret` in `coturn/turnserver.conf`. Skip
-  the copy and Docker creates a directory at that path and coturn fails to start.
+  that download and Docker creates a **directory** at the path; coturn then starts
+  anyway and reports healthy on built-in defaults with no auth secret, so relaying
+  silently fails. The giveaway is `Default realm: localdomain` in its logs, and
+  recovery needs `rmdir coturn/turnserver.conf` first, because copying onto a
+  directory succeeds and writes the file inside it.
   TURN needs its own ports and cannot be served through an HTTP reverse proxy; see
   [the TURN relay guide](https://www.floe.one/docs/self-hosting/turn-relay).
 

@@ -1,0 +1,31 @@
+# Build-from-source overlay for contributors.
+#
+# docker-compose.yml pulls prebuilt images from ghcr.io, which is what a
+# self-hoster wants. Layer this on top to build from the working tree instead:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+#
+# It is also the way to bake your own NEXT_PUBLIC_SITE_URL into the client, which
+# the published image cannot carry: Next writes canonical links, Open Graph tags
+# and the sitemap into the prerendered HTML at build time, so that one value is
+# the single thing a shared image genuinely cannot resolve at runtime.
+#
+# The image: overrides matter as much as the build: blocks. Without them a local
+# build would be tagged ghcr.io/jannskiee/floe-*:main and silently replace the
+# pulled image under that exact name, so a later `docker compose up` would run
+# your working tree while appearing to run the published release.
+
+services:
+  server:
+    build: ./server
+    image: floe-server:dev
+
+  client:
+    build:
+      context: ./client
+      args:
+        # Public origin of your instance, used for canonical links, Open Graph
+        # share previews and the sitemap. Leave it unset and the client simply
+        # omits those rather than claiming someone else's domain.
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-}
+    image: floe-client:dev
