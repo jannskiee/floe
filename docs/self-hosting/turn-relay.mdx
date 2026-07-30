@@ -79,8 +79,18 @@ TURN requires a **public IP address**, a **domain name**, and **TLS certificates
   </Step>
   <Step title="Start the stack with the TURN profile">
     ```bash
-    docker compose --profile turn up -d --build
+    docker compose --profile turn up -d
     ```
+
+    <Warning>
+      Create `coturn/turnserver.conf` first, as the previous step describes. If that path does not exist, Docker creates a **directory** there and coturn fails to start with a confusing error. Downloading it alongside the compose file works too:
+
+      ```bash
+      curl -fsSL --create-dirs \
+        https://raw.githubusercontent.com/jannskiee/floe/main/coturn/turnserver.conf.example \
+        -o coturn/turnserver.conf
+      ```
+    </Warning>
   </Step>
 </Steps>
 

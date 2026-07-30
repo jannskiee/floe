@@ -70,12 +70,15 @@ Open [http://localhost:3000](http://localhost:3000) to preview the docs locally.
 
 ### Full stack with Docker (no local toolchain needed)
 
-To run the client and signaling server together in containers (without installing Node, pnpm, or Go locally), use the Docker Compose setup:
+To run the client and signaling server together in containers (without installing Node, pnpm, or Go locally), use the Docker Compose setup. Add the build overlay so it compiles your working tree rather than pulling the published images:
 
 ```bash
-cp .env.docker.example .env
-docker compose up -d --build
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
+
+The overlay tags its output `floe-client:dev` and `floe-server:dev`, so a local build never replaces a pulled image under the same name.
+
+Without the overlay, `docker compose up -d` pulls the prebuilt images from ghcr.io and ignores your working tree entirely, which is what a self-hoster wants but almost never what a contributor wants.
 
 This is aimed at **self-hosting** (running your own instance) rather than active development, since the client image is a production build. See [SELF_HOSTING.md](SELF_HOSTING.md) for configuration and deployment details.
 

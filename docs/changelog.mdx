@@ -3,6 +3,17 @@ title: "Changelog"
 description: "Release history for Floe."
 ---
 
+<Update label="Self-hosting" description="2026-07-30">
+  **Self-hosting no longer needs a clone or a build**
+
+  - Prebuilt images are published to `ghcr.io/jannskiee/floe-server` and `ghcr.io/jannskiee/floe-client`, and `docker-compose.yml` now pulls them. Getting a working instance is two commands: download the compose file, then `docker compose up -d`. No repository, no Node, no Go, nothing compiled locally. See [Container Images](/self-hosting/images).
+  - A `.env` file is now genuinely optional. Every setting has a working default.
+  - Pin a version with `FLOE_IMAGE_TAG`, or pin a digest for a build that can never move. Every published tag is verified to resolve to a digest that passed a smoke test before the tag was applied.
+  - Contributors and anyone wanting their own domain in share previews build from source with `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
+  - The published client no longer emits canonical links, Open Graph images, or sitemap entries pointing at `floe.one`. A shared image cannot know which domain it will be served from, so it now claims nothing rather than advertising somebody else's site.
+  - `linux/amd64` only for now. ARM hosts build from source.
+</Update>
+
 <Update label="v1.8.0" description="2026-07-23">
   **The 2 GB relay cap now applies to the CLI, plus honest receiver errors**
 

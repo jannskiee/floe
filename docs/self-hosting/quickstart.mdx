@@ -10,28 +10,30 @@ description: "Spin up a local Floe instance with Docker Compose in a few minutes
 ## Steps
 
 <Steps>
-  <Step title="Clone the repository">
+  <Step title="Download the compose file">
     ```bash
-    git clone https://github.com/jannskiee/floe.git
-    cd floe
+    curl -fsSLO https://raw.githubusercontent.com/jannskiee/floe/main/docker-compose.yml
     ```
-  </Step>
-  <Step title="Copy the environment file">
-    ```bash
-    cp .env.docker.example .env
-    ```
-    The defaults work for a local single-machine setup. No changes are needed to try it out.
+    That is the only file you need. There is nothing to clone and no toolchain to install.
   </Step>
   <Step title="Start the stack">
     ```bash
-    docker compose up -d --build
+    docker compose up -d
     ```
-    Docker builds and starts the client and server containers. The first build takes a few minutes.
+    Docker pulls the [prebuilt images](/self-hosting/images) and starts the client and server containers. Nothing is compiled locally.
   </Step>
   <Step title="Open the app">
     Open [http://localhost:3000](http://localhost:3000) in your browser. Open the same URL in a second tab (or on another device on the same network), start a transfer in one tab, and join with the room code in the other.
   </Step>
 </Steps>
+
+<Tip>
+  A `.env` file is optional. Every setting has a working default, so the two commands above are genuinely all you need to try it. To change something, fetch the annotated example alongside the compose file:
+
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/jannskiee/floe/main/.env.docker.example -o .env
+  ```
+</Tip>
 
 ## What this runs
 
@@ -55,5 +57,5 @@ To support peers behind strict firewalls, symmetric NAT, or CGNAT, add a [TURN r
 </Note>
 
 <Tip>
-  Ports are configurable. Set `CLIENT_PORT` and `PORT` in `.env` to publish the web app and the signaling server somewhere other than 3000 and 3001. If you change `PORT`, update `NEXT_PUBLIC_SOCKET_URL` to match and rebuild the client, or the browser will keep looking for the old port.
+  Ports are configurable. Set `CLIENT_PORT` and `PORT` in `.env` to publish the web app and the signaling server somewhere other than 3000 and 3001. If you change `PORT`, update `NEXT_PUBLIC_SOCKET_URL` to match and run `docker compose up -d`, or the browser will keep looking for the old port. No rebuild is needed; the client reads that address at runtime.
 </Tip>

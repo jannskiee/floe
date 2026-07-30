@@ -34,9 +34,20 @@ COPY . .
 ARG NEXT_PUBLIC_SOCKET_URL=
 ENV NEXT_PUBLIC_SOCKET_URL=${NEXT_PUBLIC_SOCKET_URL}
 # Public origin of this client, used for canonical links, Open Graph tags, and the
-# sitemap. Empty falls back to floe.one, so self-hosters should set it.
+# sitemap. Unlike the signaling URL this CANNOT be resolved at runtime, because
+# Next bakes metadata into the prerendered HTML at build time. Set it only if you
+# are building this image yourself and want your own domain in share previews;
+# the image published to ghcr.io leaves it empty by necessity.
 ARG NEXT_PUBLIC_SITE_URL=
 ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
+# Marks this build as an image we hand to strangers. lib/siteUrl.ts reads it and,
+# when no explicit site URL was given, emits NO absolute URL anywhere rather than
+# falling back to floe.one, which every self-hosted instance would otherwise
+# claim as its canonical, share-preview host, and sitemap host.
+#
+# It is a build flag rather than a plain removal of that fallback so the change is
+# a provable no-op for every other build, including the canonical floe.one deploy.
+ENV FLOE_DISTRIBUTABLE_IMAGE=1
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 

@@ -40,13 +40,24 @@ Whatever you set has to be reachable **from your users' browsers**, not from ins
 the container. `http://localhost:3001` only works when the browser runs on the same
 machine as the server. For anything else use the server's LAN IP or public domain.
 
-## What still needs a rebuild
+## What is still build-time
 
 `NEXT_PUBLIC_SITE_URL` is genuinely build-time. It feeds canonical links, Open
-Graph tags, and the sitemap, which are rendered into the page. Change it and
-rebuild:
+Graph tags, and the sitemap, which are rendered into the page rather than fetched.
+
+That is the one value a shared image cannot carry, because it would have to know
+which domain it will be served from before anyone downloads it. So the published
+image **omits** those tags rather than pointing them at floe.one, which would mean
+every self-hosted instance advertising somebody else's site as its canonical.
+
+To put your own domain in them, build the client yourself:
 
 ```bash
-docker compose build client
-docker compose up -d
+NEXT_PUBLIC_SITE_URL=https://files.example.com \
+  docker compose -f docker-compose.yml -f docker-compose.build.yml build client
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d
 ```
+
+This affects only SEO and link previews. Transfers, signaling, and the relay are
+unaffected, and all of those are configured at runtime. See
+[Container Images](/self-hosting/images).

@@ -120,8 +120,10 @@ TRUSTED_PROXY_COUNT=1
 docker compose up -d
 ```
 
-`NEXT_PUBLIC_SITE_URL` is the only build-time value here, so run
-`docker compose build client` if you change it.
+`NEXT_PUBLIC_SITE_URL` is the only build-time value here. The published image
+cannot carry it, so canonical links and share previews are omitted rather than
+pointed somewhere wrong. See [Container Images](/self-hosting/images) to build the
+client with your own domain baked in.
 
 <Note>
   `CLIENT_URL` is matched exactly, including the scheme and with no trailing

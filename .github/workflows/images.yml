@@ -70,9 +70,14 @@ jobs:
         id: stage
         run: echo "tag=sha-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
 
-      # flavor latest=auto (the default) already emits `latest` for semver tags
-      # and never for a branch push, so there is deliberately no type=raw latest
-      # line: it would double-emit. No {{major}} either, a bare `1` tag would
+      # flavor latest=auto (the default) emits `latest` for semver tags and never
+      # for a branch push, which is what we want: `latest` means newest RELEASE.
+      # A type=raw,value=latest,enable={{is_default_branch}} line is deliberately
+      # absent, and not because it would conflict: is_default_branch is false on a
+      # tag push, so the two would not overlap. It is absent because it would make
+      # `latest` mean "newest main" or "newest release" depending on which
+      # happened more recently, which is the worst possible behaviour for the tag
+      # self-hosters pull by default. No {{major}} either: a bare `1` would
       # silently carry users across a breaking change.
       - name: Metadata (server)
         id: meta_server
