@@ -56,6 +56,13 @@ FROM node:22-alpine AS runner
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+# Repeated from the builder stage on purpose. Every metadata route is statically
+# prerendered today, so the build-time value is already baked into the output and
+# this is redundant. It stops being redundant the moment any of them turns
+# dynamic: FLOE_DISTRIBUTABLE_IMAGE is not a NEXT_PUBLIC_ variable, so Next does
+# not inline it, and a route rendered at request time would read it from the
+# running container and fall back to floe.one. One line to make that impossible.
+ENV FLOE_DISTRIBUTABLE_IMAGE=1
 # The standalone server reads HOSTNAME/PORT; bind all interfaces for Docker.
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000

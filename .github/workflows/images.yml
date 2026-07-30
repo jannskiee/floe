@@ -36,8 +36,8 @@ env:
 
 jobs:
   # ONE job, deliberately not a matrix. The two images are released as a pair:
-  # docker-compose.yml pins both to the same ${FLOE_VERSION:-latest}. A matrix
-  # with fail-fast:false would move floe-server:latest while floe-client:latest
+  # docker-compose.yml pins both to the same ${FLOE_IMAGE_TAG:-main}. A matrix
+  # with fail-fast:false would move floe-server:main while floe-client:main
   # stayed behind if only one leg failed, leaving self-hosters on a mismatched
   # pair. Release tags are therefore applied only after BOTH images pass.
   publish:

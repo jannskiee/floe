@@ -77,7 +77,15 @@ The overlay tags its output `floe-server:dev` and `floe-client:dev`, so a local 
 
 ## Share previews and canonical links
 
-The published client image omits canonical links, Open Graph images, and sitemap entries. Those have to be written into the HTML when the app is built, so a shared image cannot know which domain it will be served from, and claiming one would mean every self-hosted instance advertising somebody else's site.
+These have to be written into the HTML when the app is built, so a shared image cannot know which domain it will be served from. Claiming one would mean every self-hosted instance advertising somebody else's site to crawlers, so the published image emits only what is true without knowing its own origin:
+
+| Tag | In the published image |
+|-----|------------------------|
+| `<link rel="canonical">` | Emitted, but **relative** (`/privacy`). Valid and self-referencing on any host. |
+| `og:image`, `twitter:image` | Omitted. A relative image URL would resolve against `localhost` and render nothing. |
+| JSON-LD `url` | Omitted. |
+| `/sitemap.xml` | Valid but empty. Sitemaps require absolute URLs. |
+| `/robots.txt` | Served, with no `Sitemap:` line. |
 
 To put your own domain in them, build the client yourself:
 

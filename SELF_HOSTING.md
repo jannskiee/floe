@@ -97,12 +97,17 @@ Copy-pasteable Caddy and nginx configuration is in
   and `TURN_DOMAIN` in `.env`, then start the bundled coturn service:
 
   ```bash
-  cp coturn/turnserver.conf.example coturn/turnserver.conf
+  curl -fsSL --create-dirs -o coturn/turnserver.conf \
+    https://raw.githubusercontent.com/jannskiee/floe/main/coturn/turnserver.conf.example
   docker compose --profile turn up -d
   ```
 
   `TURN_SECRET` must match `static-auth-secret` in `coturn/turnserver.conf`. Skip
-  the copy and Docker creates a directory at that path and coturn fails to start.
+  that download and Docker creates a **directory** at the path; coturn then starts
+  anyway and reports healthy on built-in defaults with no auth secret, so relaying
+  silently fails. The giveaway is `Default realm: localdomain` in its logs, and
+  recovery needs `rmdir coturn/turnserver.conf` first, because copying onto a
+  directory succeeds and writes the file inside it.
   TURN needs its own ports and cannot be served through an HTTP reverse proxy; see
   [the TURN relay guide](https://www.floe.one/docs/self-hosting/turn-relay).
 

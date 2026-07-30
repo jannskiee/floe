@@ -79,9 +79,16 @@ services:
     restart: unless-stopped
     network_mode: host
     volumes:
-      # This file is gitignored because it holds your TURN_SECRET. Create it first:
-      #   cp coturn/turnserver.conf.example coturn/turnserver.conf
-      # Without that step Docker creates a directory here and coturn fails to start.
+      # This file holds your TURN_SECRET, so it is never shipped. Create it first:
+      #   curl -fsSL --create-dirs -o coturn/turnserver.conf \
+      #     https://raw.githubusercontent.com/jannskiee/floe/main/coturn/turnserver.conf.example
+      #
+      # Skip that and Docker creates a DIRECTORY at this path. coturn then starts
+      # anyway and reports healthy, running on built-in defaults with no auth
+      # secret, so relaying silently fails for the CGNAT peers it exists to serve.
+      # The giveaway is "Default realm: localdomain" in its logs. Recovery needs
+      # `rmdir coturn/turnserver.conf` FIRST: copying onto a directory succeeds and
+      # writes the file inside it.
       - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
       # Mount your TLS cert/key here and reference them in turnserver.conf, e.g.:
       # - ./coturn/certs:/etc/coturn/certs:ro
