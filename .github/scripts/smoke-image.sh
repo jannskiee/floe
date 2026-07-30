@@ -70,16 +70,34 @@ floe-client)
         || fail "/api/config was $cfg, expected the SOCKET_URL value"
     echo "OK  /api/config reflects SOCKET_URL"
 
+    img_url='http://localhost:3000/_next/image?url=%2Fgithub-mark-white.png&w=32&q=75'
+
     # A broken sharp does NOT 500. Next silently falls back to serving the
     # original PNG, so status alone proves nothing: the content type is the only
     # signal. This is the guard for the recorded ERR_DLOPEN_FAILED failure mode
     # under pnpm + alpine + standalone.
     ct="$(curl --fail --silent -H 'Accept: image/webp' -o /dev/null \
-        -w '%{content_type}' \
-        'http://localhost:3000/_next/image?url=%2Fgithub-mark-white.png&w=32&q=75')"
+        -w '%{content_type}' "$img_url")"
     [ "$ct" = "image/webp" ] \
         || fail "/_next/image returned '$ct', expected image/webp (sharp is broken)"
     echo "OK  /_next/image -> image/webp (sharp works)"
+
+    # The check above passed for the entire time the cache was broken, which is
+    # exactly how v1.9.0 shipped with /app/.next owned by root while the server
+    # runs as `node`. Next could not create /app/.next/cache, so every request
+    # re-encoded the image and logged an unhandled rejection, while still
+    # returning a correct 200 WebP. Nothing in the response said so.
+    #
+    # The cache header is the only signal that separates the two. Measured on the
+    # published digests: the broken image reports MISS on every request forever,
+    # the fixed one reports MISS then HIT. Asserting only the second request is
+    # deliberate; whether the first is a MISS depends on request ordering, but a
+    # HIT is unambiguous proof the cache was actually written.
+    cache="$(curl --fail --silent -H 'Accept: image/webp' -o /dev/null -D - "$img_url" \
+        | tr -d '\r' | awk 'tolower($1) == "x-nextjs-cache:" { print $2 }')"
+    [ "$cache" = "HIT" ] \
+        || fail "repeat /_next/image reported cache '$cache', expected HIT (the image cache is not writable)"
+    echo "OK  /_next/image is cached (repeat request -> HIT)"
 
     # Second run, different address. If the URL were baked at build time this
     # would still report the first value.
