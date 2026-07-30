@@ -532,6 +532,23 @@ jobs:
       - name: Build images
         run: docker compose -f docker-compose.yml -f docker-compose.build.yml build
 
+      - name: Smoke the built images
+        # The same assertions images.yml gates publishing on, run here so a
+        # Dockerfile change is judged at PR time rather than after merge.
+        #
+        # Starting the stack and curling / is not enough on its own. A broken
+        # image optimiser does not fail: Next quietly serves the original PNG, so
+        # / still returns 200 while every visitor silently loses optimisation.
+        # Measured: a working optimiser answers image/webp, the fallback answers
+        # image/png, and the content type is the only thing that separates them.
+        #
+        # Runs BEFORE the stack starts, not after: the script publishes 3000 and
+        # 3001 itself, the same ports the compose stack uses. It removes its own
+        # containers on exit.
+        run: |
+          bash .github/scripts/smoke-image.sh floe-server floe-server:dev
+          bash .github/scripts/smoke-image.sh floe-client floe-client:dev
+
       - name: Start the stack
         # No .env file, exactly what a first-time self-hoster gets. The stack
         # must come up with zero configuration.
