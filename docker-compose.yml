@@ -22,7 +22,7 @@ services:
     # FLOE_IMAGE_TAG pins a version, for example FLOE_IMAGE_TAG=1.9.0. Deliberately
     # NOT named FLOE_VERSION: that already belongs to the CLI installer and is
     # documented as v1.2.0, with a leading v that image tags do not carry.
-    image: ghcr.io/jannskiee/floe-server:${FLOE_IMAGE_TAG:-main}
+    image: ghcr.io/jannskiee/floe-server:${FLOE_IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "${PORT:-3001}:3001"
@@ -52,7 +52,7 @@ services:
       MAX_REPORT_BYTES: ${MAX_REPORT_BYTES:-}
 
   client:
-    image: ghcr.io/jannskiee/floe-client:${FLOE_IMAGE_TAG:-main}
+    image: ghcr.io/jannskiee/floe-client:${FLOE_IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "${CLIENT_PORT:-3000}:3000"
