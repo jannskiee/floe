@@ -42,6 +42,24 @@ updates:
         patterns:
           - "*"
 
+  # The two Dockerfile base images. Unmanaged until now because the images were
+  # only ever built locally by self-hosters; once they are published to ghcr.io
+  # they are an artifact this repo ships, so a stale base image becomes our CVE
+  # surface rather than the builder's.
+  - package-ecosystem: "docker"
+    directories:
+      - "/client"
+      - "/server"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      docker-deps:
+        patterns:
+          - "*"
+
   # Weekly rather than monthly: this entry is what keeps the commit-SHA pins
   # in .github/workflows/ fresh (Dependabot bumps the pinned SHA and
   # maintains the trailing # vX.Y.Z comment), and grouped actions PRs are
