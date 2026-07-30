@@ -23,7 +23,7 @@ describe('hostOf', () => {
 describe('advancedSummary', () => {
     it('offers the capability when nothing is overridden', () => {
         const s = advancedSummary('', '');
-        expect(s).toBe("Connect to your own Floe server instead of the one Floe runs.");
+        expect(s).toBe("Use your own server instead of Floe's.");
         expect(s).not.toMatch(/custom/i);
     });
 

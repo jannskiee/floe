@@ -220,7 +220,11 @@ function mergePaths(prev: string[], add: string[]): string[] {
 }
 
 /** Switch is the settings toggle: a small track/thumb pair driven by an
- *  sr-only checkbox so keyboard and screen-reader behavior come for free. */
+ *  sr-only checkbox so keyboard and screen-reader behavior come for free.
+ *  32x18 with a 14px thumb (travel 32 - 14 - 2*2 = 14px = translate-x-3.5),
+ *  desktop proportions rather than the chunkier mobile 36x20. Deliberately no
+ *  group-hover coupling: the primitive stays context-free, and the row's own
+ *  hover fill already signals interactivity. */
 function Switch({checked, onChange}: {checked: boolean; onChange: (v: boolean) => void}) {
     return (
         <span className="relative inline-flex shrink-0">
@@ -232,14 +236,14 @@ function Switch({checked, onChange}: {checked: boolean; onChange: (v: boolean) =
             />
             <span
                 className={cn(
-                    'relative h-5 w-9 rounded-full transition-colors peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ice/60',
+                    'relative h-[18px] w-8 rounded-full transition-colors peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ice/60',
                     checked ? 'bg-white' : 'bg-white/10 ring-1 ring-inset ring-white/15',
                 )}
             >
                 <span
                     className={cn(
-                        'absolute left-0.5 top-0.5 size-4 rounded-full transition-transform',
-                        checked ? 'translate-x-4 bg-zinc-950' : 'bg-zinc-400',
+                        'absolute left-0.5 top-0.5 size-3.5 rounded-full transition-transform duration-150 ease-out',
+                        checked ? 'translate-x-3.5 bg-zinc-950' : 'bg-zinc-400',
                     )}
                 />
             </span>
@@ -249,22 +253,39 @@ function Switch({checked, onChange}: {checked: boolean; onChange: (v: boolean) =
 
 // One geometry, three call sites: SettingRow, SettingField, and the Advanced
 // disclosure button. Kept as consts so the three cannot drift apart.
-const rowLabelClass = 'block text-sm font-medium text-zinc-200';
-const rowDescClass = 'mt-0.5 block text-xs leading-relaxed text-zinc-500';
+//
+// 13px labels match the TitleBar wordmark; 12/16 descriptions are one line under
+// the 12-word copy rule. About rows flip the emphasis: dim key, legible mono
+// value, with the label at zinc-400 rather than zinc-500 so it keeps AA contrast.
+const rowLabelClass = 'block text-[13px] font-medium leading-5 text-zinc-200';
+const rowDescClass = 'mt-0.5 block text-xs leading-4 text-zinc-500';
+const aboutLabelClass = 'text-[13px] leading-5 text-zinc-400';
+const aboutValueClass = 'shrink-0 font-mono text-xs text-zinc-300';
 
-/** SettingRow is one settings entry: stacked label and description with a
- *  trailing switch, sized so long descriptions wrap instead of truncating. */
+// The settings card. overflow-hidden clips full-bleed row hover fills to the
+// rounded corners.
+const cardClass = 'overflow-hidden rounded-lg border border-white/[0.06] bg-white/[0.02]';
+// Inset separators between card rows, replacing divide-y: they start 14px inside
+// the card edges (the macOS/Linear read), and unlike divide-y they are drawn by
+// each row's own before: pseudo, so they cannot leak a stray line under the
+// collapsed Advanced disclosure (v4 divide-y compiles to :not(:last-child)
+// border-bottom with no hidden/collapsed escape).
+const insetHairline = '[&>*+*]:relative [&>*+*]:before:absolute [&>*+*]:before:inset-x-3.5 [&>*+*]:before:top-0 [&>*+*]:before:h-px [&>*+*]:before:bg-white/[0.05]';
+
+/** SettingRow is one settings entry: stacked label and one-line description with
+ *  a trailing switch. The hover fill is the row's interactivity signal (the card
+ *  clips it to the rounded corners); the whole row stays one click target. */
 function SettingRow({checked, onChange, label, description}: {
     checked: boolean;
     onChange: (v: boolean) => void;
     label: string;
-    description: string;
+    description?: string;
 }) {
     return (
-        <label className="flex cursor-pointer select-none items-center justify-between gap-4 p-3.5">
+        <label className="flex cursor-pointer select-none items-center justify-between gap-4 px-3.5 py-2.5 transition-colors hover:bg-white/[0.04]">
             <span className="min-w-0">
                 <span className={rowLabelClass}>{label}</span>
-                <span className={rowDescClass}>{description}</span>
+                {description && <span className={rowDescClass}>{description}</span>}
             </span>
             <Switch checked={checked} onChange={onChange}/>
         </label>
@@ -283,19 +304,27 @@ function SettingRow({checked, onChange, label, description}: {
  *  wrong. aria-describedby has to sit on the control itself; on a wrapping element
  *  it associates with nothing and silently does nothing. Handing the ids to the
  *  caller means a new field is spelled the same way as the existing ones or it
- *  does not compile. */
-function SettingField({htmlFor, label, description, children}: {
+ *  does not compile.
+ *
+ *  description is optional under the 12-word copy rule; when absent the ids
+ *  object OMITS the aria-describedby key entirely, never a dangling id. Padding
+ *  comes from the caller, so the same field works inside a card row and inside
+ *  the Advanced panel. */
+function SettingField({htmlFor, label, description, className, children}: {
     htmlFor: string;
     label: string;
-    description: string;
-    children: (ids: {id: string; 'aria-describedby': string}) => ReactNode;
+    description?: string;
+    className?: string;
+    children: (ids: {id: string; 'aria-describedby'?: string}) => ReactNode;
 }) {
     const descId = `${htmlFor}-description`;
     return (
-        <div className="p-3.5">
+        <div className={className}>
             <label htmlFor={htmlFor} className={rowLabelClass}>{label}</label>
-            <p id={descId} className={rowDescClass}>{description}</p>
-            <div className="mt-2.5">{children({id: htmlFor, 'aria-describedby': descId})}</div>
+            {description && <p id={descId} className={rowDescClass}>{description}</p>}
+            <div className="mt-2">
+                {children(description ? {id: htmlFor, 'aria-describedby': descId} : {id: htmlFor})}
+            </div>
         </div>
     );
 }
@@ -1263,7 +1292,10 @@ function App() {
             /* ── SETTINGS SCREEN ─────────────────────────────────────────── */
                 <div className="flex flex-1 flex-col overflow-hidden">
                     <div className="custom-scrollbar flex-1 overflow-y-auto">
-                        <div className="mx-auto w-full max-w-lg px-8 py-10">
+                        {/* The one entry animation: the whole column rises once. No
+                            per-section stagger, nothing else on this screen animates
+                            on mount. */}
+                        <div className="mx-auto w-full max-w-lg px-8 py-8 animate-floe-in motion-reduce:animate-none">
                             <div className="flex items-center gap-3">
                                 <Tooltip label="Back" keys="Esc">
                                     <button
@@ -1280,24 +1312,26 @@ function App() {
                             <div className="mt-6 space-y-6">
                                 <section className="space-y-2">
                                     <Eyebrow as="h3">Transfers</Eyebrow>
-                                    <div className="divide-y divide-white/[0.06] rounded-lg border border-white/[0.06] bg-white/[0.02]">
+                                    <div className={cardClass}>
+                                        {/* No description on purpose: the label plus the "Ask every
+                                            time" placeholder say everything the copy said. */}
                                         <SettingField
                                             htmlFor="floe-save-folder"
                                             label="Save received files to"
-                                            description="Where files you receive are saved. Leave blank to be asked each time."
+                                            className="px-3.5 py-3"
                                         >
                                             {(ids) => (
                                                 <div className="flex gap-2">
                                                     <Input
                                                         {...ids}
-                                                        className="flex-1"
+                                                        className="h-8 min-w-0 flex-1 font-mono text-xs"
                                                         placeholder="Ask every time"
                                                         value={output}
                                                         onChange={(e) => setOutput(e.target.value)}
                                                         spellCheck={false}
                                                         autoComplete="off"
                                                     />
-                                                    <Button variant="outline" onClick={pickSaveFolder}>
+                                                    <Button variant="outline" className="h-8 shrink-0" onClick={pickSaveFolder}>
                                                         Browse
                                                     </Button>
                                                 </div>
@@ -1308,18 +1342,21 @@ function App() {
 
                                 <section className="space-y-2">
                                     <Eyebrow as="h3">Privacy</Eyebrow>
-                                    <div className="divide-y divide-white/[0.06] rounded-lg border border-white/[0.06] bg-white/[0.02]">
+                                    {/* The dropped detail (relay rationale, receiver-only stats,
+                                        byte-count-only) lives in the docs; see the launch list in
+                                        desktop/README.md. */}
+                                    <div className={cn(cardClass, insetHairline)}>
                                         <SettingRow
                                             checked={hideIP}
                                             onChange={(v) => { setHideIP(v); void saveSettings({hideIP: v}); }}
                                             label="Hide my IP address"
-                                            description="Sends transfers through a relay so the other person never sees your IP address. Relayed transfers are slower and limited to 2 GB. Takes effect on your next transfer."
+                                            description="Relays your next transfers. Slower, 2 GB limit."
                                         />
                                         <SettingRow
                                             checked={reportStats}
                                             onChange={(v) => { setReportStats(v); void saveSettings({reportStats: v}); }}
                                             label="Contribute to global stats"
-                                            description="Adds the size of each transfer you receive to the public total on floe.one. Only the byte count is sent, never file names or contents."
+                                            description="Adds transfer sizes to floe.one's public total. Nothing else is sent."
                                         />
                                     </div>
                                 </section>
@@ -1327,18 +1364,19 @@ function App() {
                                 {isWindows && (
                                     <section className="space-y-2">
                                         <Eyebrow as="h3">Windows</Eyebrow>
-                                        <div className="divide-y divide-white/[0.06] rounded-lg border border-white/[0.06] bg-white/[0.02]">
+                                        <div className={cardClass}>
                                             {/* The wording of this description is tied to contextmenu_windows.go:
                                                 the entry is a legacy per-user verb under
                                                 Software\Classes\*\shell\Floe, which Windows 11 files under
                                                 "Show more options", and the `*` means files only. If that
                                                 registration ever moves to IExplorerCommand, this text becomes
-                                                wrong and has to change with it. */}
+                                                wrong and has to change with it. The per-user/no-admin detail
+                                                moved to the docs. */}
                                             <SettingRow
                                                 checked={ctxMenu}
                                                 onChange={toggleCtxMenu}
-                                                label="Add Floe to the right-click menu"
-                                                description="Puts Send with Floe under Show more options when you right-click a file in File Explorer. It applies to your Windows account only, so it needs no administrator approval."
+                                                label="Show in right-click menu"
+                                                description="Adds Send with Floe under Show more options."
                                             />
                                         </div>
                                     </section>
@@ -1346,7 +1384,11 @@ function App() {
 
                                 <section className="space-y-2">
                                     <Eyebrow as="h3">Advanced</Eyebrow>
-                                    <div className="divide-y divide-white/[0.06] rounded-lg border border-white/[0.06] bg-white/[0.02]">
+                                    {/* cardClass ALONE, never insetHairline or divide-y: a separator
+                                        drawn on the card's second child would paint a stray line under
+                                        the collapsed disclosure. The only interior linework lives inside
+                                        the panel's clip, where the collapse animation hides it. */}
+                                    <div className={cardClass}>
                                         {/* A button with aria-expanded rather than <details>. The same idiom
                                             as the history row below, and <details> would paint its open state
                                             before a controlled handler could run, because the toggle event is
@@ -1356,7 +1398,7 @@ function App() {
                                             onClick={() => setAdvOpen(!advExpanded)}
                                             aria-expanded={advExpanded}
                                             aria-controls="floe-advanced-panel"
-                                            className="flex w-full items-center justify-between gap-4 rounded-lg p-3.5 text-left transition-colors hover:bg-white/[0.02] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ice/40"
+                                            className="flex w-full items-center justify-between gap-4 px-3.5 py-2.5 text-left transition-colors hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ice/60"
                                         >
                                             <span className="min-w-0">
                                                 <span className={rowLabelClass}>Server</span>
@@ -1364,107 +1406,140 @@ function App() {
                                             </span>
                                             <span className="flex shrink-0 items-center gap-2">
                                                 {usingCustomServer && <StatusDot className="bg-ice"/>}
-                                                <ChevronDown className={cn('size-4 text-zinc-500 transition-transform', advExpanded && 'rotate-180')}/>
+                                                <ChevronDown className={cn('size-4 text-zinc-500 transition-transform duration-200 motion-reduce:transition-none', advExpanded && 'rotate-180')}/>
                                             </span>
                                         </button>
 
-                                        {/* divide-y is repeated here because the card's own divide-y
-                                            only reaches its direct children, and these fields are one
-                                            level deeper now that they live inside the panel. */}
-                                        <div id="floe-advanced-panel" hidden={!advExpanded} className="divide-y divide-white/[0.06]">
-                                            <SettingField
-                                                htmlFor="floe-server-address"
-                                                label="Server address"
-                                                description="Where this app connects to set up transfers. Leave blank to use Floe's server."
-                                            >
-                                                {(ids) => (
-                                                    <div className="flex gap-2">
-                                                        <Input
-                                                            {...ids}
-                                                            className="flex-1"
-                                                            placeholder="https://api.floe.one"
-                                                            value={serverAddr}
-                                                            onChange={(e) => { setServerAddr(e.target.value); setTestStatus(''); }}
-                                                            onBlur={saveOnBlur}
-                                                            spellCheck={false}
-                                                            autoComplete="off"
-                                                        />
-                                                        <Button
-                                                            variant="outline"
-                                                            onClick={testServer}
-                                                            aria-disabled={testing}
-                                                            className={cn(testing && 'opacity-50')}
-                                                        >
-                                                            {testing ? 'Testing' : 'Test'}
-                                                        </Button>
-                                                    </div>
-                                                )}
-                                            </SettingField>
-                                            <SettingField
-                                                htmlFor="floe-share-link-address"
-                                                label="Share link address"
-                                                description="The address used in the links you share. Leave blank when your server and web app share one address, which is the recommended setup."
-                                            >
-                                                {(ids) => (
-                                                    <Input
-                                                        {...ids}
-                                                        placeholder={webPlaceholder(serverAddr)}
-                                                        value={webAddr}
-                                                        onChange={(e) => setWebAddr(e.target.value)}
-                                                        onBlur={saveOnBlur}
-                                                        spellCheck={false}
-                                                        autoComplete="off"
-                                                    />
-                                                )}
-                                            </SettingField>
-                                            {usingCustomServer && (
-                                                <div className="flex items-center justify-between gap-4 p-3.5">
-                                                    <span className={rowDescClass}>Clears both addresses so this app connects to api.floe.one again.</span>
-                                                    <Button variant="outline" className="shrink-0" onClick={useFloeServer}>
-                                                        Use Floe's server
-                                                    </Button>
-                                                </div>
+                                        {/* The animated collapse: grid-rows 0fr/1fr plus visibility.
+                                            `invisible` removes the collapsed content from the
+                                            accessibility tree and tab order exactly as `hidden` did, and
+                                            visibility interpolates discretely, so the panel stays visible
+                                            through the whole 200ms collapse and from the first expanding
+                                            frame. WebView2 and WKWebView 16+ animate it; older engines
+                                            snap open, fully functional. Nothing may ever depend on
+                                            transitionend. */}
+                                        <div
+                                            id="floe-advanced-panel"
+                                            className={cn(
+                                                'grid transition-[grid-template-rows,visibility] duration-200 ease-out motion-reduce:transition-none',
+                                                advExpanded ? 'visible grid-rows-[1fr]' : 'invisible grid-rows-[0fr]',
                                             )}
+                                        >
+                                            <div className="min-h-0 overflow-hidden">
+                                                {/* The div's own before: is the hairline under the
+                                                    disclosure button, revealed by the height animation and
+                                                    clipped to nothing while collapsed; insetHairline draws
+                                                    the separators between the fields. */}
+                                                <div className={cn('relative before:absolute before:inset-x-3.5 before:top-0 before:h-px before:bg-white/[0.05]', insetHairline)}>
+                                                    <SettingField
+                                                        htmlFor="floe-server-address"
+                                                        label="Server address"
+                                                        description="Leave blank to use Floe's server."
+                                                        className="px-3.5 py-3"
+                                                    >
+                                                        {(ids) => (
+                                                            <div className="flex gap-2">
+                                                                <Input
+                                                                    {...ids}
+                                                                    className="h-8 min-w-0 flex-1 font-mono text-xs"
+                                                                    placeholder="https://api.floe.one"
+                                                                    value={serverAddr}
+                                                                    onChange={(e) => { setServerAddr(e.target.value); setTestStatus(''); }}
+                                                                    onBlur={saveOnBlur}
+                                                                    spellCheck={false}
+                                                                    autoComplete="off"
+                                                                />
+                                                                <Button
+                                                                    variant="outline"
+                                                                    onClick={testServer}
+                                                                    aria-disabled={testing}
+                                                                    className={cn('h-8 shrink-0', testing && 'opacity-50')}
+                                                                >
+                                                                    {testing ? 'Testing' : 'Test'}
+                                                                </Button>
+                                                            </div>
+                                                        )}
+                                                    </SettingField>
+                                                    <SettingField
+                                                        htmlFor="floe-share-link-address"
+                                                        label="Share link address"
+                                                        description="Leave blank to match the server address."
+                                                        className="px-3.5 py-3"
+                                                    >
+                                                        {(ids) => (
+                                                            <Input
+                                                                {...ids}
+                                                                className="h-8 font-mono text-xs"
+                                                                placeholder={webPlaceholder(serverAddr)}
+                                                                value={webAddr}
+                                                                onChange={(e) => setWebAddr(e.target.value)}
+                                                                onBlur={saveOnBlur}
+                                                                spellCheck={false}
+                                                                autoComplete="off"
+                                                            />
+                                                        )}
+                                                    </SettingField>
+                                                    {usingCustomServer && (
+                                                        <div className="flex items-center justify-between gap-4 px-3.5 py-2.5 animate-floe-in motion-reduce:animate-none">
+                                                            <span className="text-xs leading-4 text-zinc-500">Clears both addresses.</span>
+                                                            <Button variant="outline" className="h-7 shrink-0 text-xs" onClick={useFloeServer}>
+                                                                Use Floe's server
+                                                            </Button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
-                                    {/* Deliberately outside the collapsible panel. A `hidden` ancestor
-                                        removes the element from the accessibility tree entirely, so an
-                                        aria-live region inside it would announce nothing, and collapsing
-                                        mid-probe would discard a result the user is waiting for. */}
-                                    <StatusLine text={testStatus} busy={testing} live/>
+                                    {/* Deliberately outside the collapsible panel. An invisible or
+                                        hidden ancestor removes the element from the accessibility tree
+                                        entirely, so an aria-live region inside it would announce nothing,
+                                        and collapsing mid-probe would discard a result the user is
+                                        waiting for. */}
+                                    <div className="px-3.5 pt-1.5">
+                                        <StatusLine text={testStatus} busy={testing} live/>
+                                    </div>
                                 </section>
 
                                 <section className="space-y-2">
                                     <Eyebrow as="h3">About</Eyebrow>
-                                    <div className="divide-y divide-white/[0.06] rounded-lg border border-white/[0.06] bg-white/[0.02]">
-                                        <div className="flex items-center justify-between gap-4 p-3.5">
-                                            <span className={rowLabelClass}>App version</span>
-                                            <span className="shrink-0 font-mono text-xs text-zinc-500">{appVer || 'dev'}</span>
+                                    {/* Readout rows flip the emphasis: dim label, legible mono value.
+                                        No hover fills; nothing here is interactive except Copy. */}
+                                    <div className={cn(cardClass, insetHairline)}>
+                                        <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
+                                            <span className={aboutLabelClass}>App version</span>
+                                            <span className={aboutValueClass}>{appVer || 'dev'}</span>
                                         </div>
-                                        <div className="flex items-center justify-between gap-4 p-3.5">
-                                            <Tooltip label="Both devices must use the same transfer protocol. Floe checks this before any files move.">
-                                                <span className={cn(rowLabelClass, 'cursor-default')}>Transfer protocol</span>
+                                        <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
+                                            {/* The dotted underline is the tooltip's discoverability
+                                                affordance; without it the tooltip exists but nothing
+                                                invites the hover. */}
+                                            <Tooltip label="Must match on both devices.">
+                                                <span className={cn(aboutLabelClass, 'cursor-default underline decoration-dotted decoration-zinc-600 underline-offset-4')}>Transfer protocol</span>
                                             </Tooltip>
-                                            <span className="shrink-0 font-mono text-xs text-zinc-500">{proto == null ? '...' : `Version ${proto}`}</span>
+                                            <span className={aboutValueClass}>{proto == null ? '...' : `Version ${proto}`}</span>
                                         </div>
                                         {/* The permanent record of which server this app is on. It lives here,
                                             in a section that can never be collapsed, so that collapsing
                                             Advanced can never hide the fact that a custom server is set. */}
-                                        <div className="flex items-center justify-between gap-4 p-3.5">
-                                            <span className={rowLabelClass}>Server</span>
-                                            <span className="min-w-0 break-all text-right font-mono text-xs text-zinc-500">
-                                                {usingCustomServer ? hostOf(serverAddr) : 'api.floe.one (default)'}
+                                        <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
+                                            <span className={aboutLabelClass}>Server</span>
+                                            <span className="flex min-w-0 items-center justify-end gap-2">
+                                                {usingCustomServer && <StatusDot className="bg-ice"/>}
+                                                <span className="min-w-0 break-all text-right font-mono text-xs text-zinc-300">
+                                                    {usingCustomServer ? hostOf(serverAddr) : 'api.floe.one (default)'}
+                                                </span>
                                             </span>
                                         </div>
                                         {usingCustomWeb && (
-                                            <div className="flex items-center justify-between gap-4 p-3.5">
-                                                <span className={rowLabelClass}>Share links</span>
-                                                <span className="min-w-0 break-all text-right font-mono text-xs text-zinc-500">{hostOf(webAddr)}</span>
+                                            <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
+                                                <span className={aboutLabelClass}>Share links</span>
+                                                <span className="min-w-0 break-all text-right font-mono text-xs text-zinc-300">{hostOf(webAddr)}</span>
                                             </div>
                                         )}
-                                        <div className="flex items-center justify-between gap-4 p-3.5">
-                                            <span className={rowDescClass}>Version, protocol and server details for a bug report.</span>
-                                            <Button variant="outline" className="shrink-0" onClick={copyAbout}>
+                                        <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
+                                            <span className="text-xs leading-4 text-zinc-500">Details for a bug report.</span>
+                                            <Button variant="outline" className="h-7 shrink-0 text-xs" onClick={copyAbout}>
                                                 {aboutCopied ? 'Copied' : 'Copy'}
                                             </Button>
                                         </div>
