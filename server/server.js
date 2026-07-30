@@ -1,7 +1,13 @@
 // Load server/.env into process.env for direct (non-Docker) runs. dotenv does not
 // override variables already set in the environment, so Docker/platform-injected
-// values take precedence and containers without a .env file are unaffected.
-require('dotenv').config();
+// values take precedence.
+//
+// quiet is explicit because dotenv 17 flipped its default to false. Without it,
+// every start prints "injected env (N) from .env" followed by a rotating
+// advertisement for the maintainer's paid product. That line is emitted even when
+// no .env exists, which is exactly the case in our containers, so it would be the
+// first thing in every self-hoster's logs and in every crash-loop iteration.
+require('dotenv').config({ quiet: true });
 
 const express = require('express');
 const http = require('http');
