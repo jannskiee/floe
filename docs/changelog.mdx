@@ -14,6 +14,15 @@ description: "Release history for Floe."
   - `linux/amd64` only for now. ARM hosts build from source.
 </Update>
 
+<Update label="ARM support" description="2026-07-30">
+  **Images now run on ARM, and both images move to Node 24 LTS**
+
+  - `linux/arm64` is published alongside `linux/amd64`, so Raspberry Pi, Oracle Ampere, AWS Graviton, and Apple silicon run the same two commands as everyone else. Docker selects the right architecture automatically.
+  - Each architecture is built and smoke-tested on its own hardware, and a tag is published only after every architecture of both images passes. A partly-built release is never visible. This matters because the image optimiser fails silently: when it cannot load, it serves the original file rather than erroring, so a broken ARM image would look healthy to anything that only checks whether the page loads.
+  - Both images move from Node 22 and Node 20 to **Node 24**, the Active LTS. The server was on a Maintenance release, which is the more meaningful half of that change.
+  - 32-bit ARM (`linux/arm/v7`) is not published: Node dropped support for it and no prebuilt image-processing binaries exist.
+</Update>
+
 <Update label="v1.8.0" description="2026-07-23">
   **The 2 GB relay cap now applies to the CLI, plus honest receiver errors**
 

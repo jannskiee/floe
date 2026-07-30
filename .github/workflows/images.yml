@@ -19,15 +19,13 @@ on:
       - '.github/scripts/smoke-image.sh'
   workflow_dispatch:
 
-# No workflow-level grants. The publish job escalates on its own.
+# No workflow-level grants. Each job escalates on its own.
 permissions: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   # Never cancel a publish. ci.yml cancels superseded runs because a stale test
-  # result is merely useless, but this workflow mutates a registry: a run killed
-  # between the staging push and the retag leaves the release tags pointing at
-  # the previous digest with no indication anything went wrong.
+  # result is merely useless, but this workflow mutates a registry.
   cancel-in-progress: false
 
 env:
@@ -35,19 +33,116 @@ env:
   CLIENT: ghcr.io/jannskiee/floe-client
 
 jobs:
-  # ONE job, deliberately not a matrix. The two images are released as a pair:
-  # docker-compose.yml pins both to the same ${FLOE_IMAGE_TAG:-main}. A matrix
-  # with fail-fast:false would move floe-server:main while floe-client:main
-  # stayed behind if only one leg failed, leaving self-hosters on a mismatched
-  # pair. Release tags are therefore applied only after BOTH images pass.
-  publish:
-    name: Publish images
-    runs-on: ubuntu-latest
+  # Four legs: two images across two architectures. Each pushes BY DIGEST with no
+  # tag attached, so nothing a user can pull by name exists until every leg has
+  # passed its own smoke test.
+  #
+  # arm64 builds on a native runner rather than under QEMU. Emulation does work,
+  # measured end to end on both images, so this is not a correctness argument. It
+  # is cost (the CPU-bound build step measured 9.5x slower emulated) and honesty:
+  # a QEMU pass is a statement about instruction translation, not about how the
+  # image behaves on a Raspberry Pi. Native runners are free for public repos.
+  build:
+    name: Build ${{ matrix.image }} (${{ matrix.platform }})
+    runs-on: ${{ matrix.platform == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 45
     permissions:
       contents: read
-      # Only this job needs to write packages, and GITHUB_TOKEN is enough for a
-      # package owned by this repo. No PAT.
+      packages: write
+    strategy:
+      # No fail-fast: one architecture failing should still show the others, and
+      # the publish job below refuses to run unless all four succeed anyway.
+      fail-fast: false
+      matrix:
+        image: [server, client]
+        platform: [amd64, arm64]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The whole point of native runners is that the smoke test exercises real
+      # hardware. Assert it rather than trusting the runs-on expression: if a
+      # future edit points an arm64 leg at an x64 runner, the image would run
+      # under emulation and report a pass that means much less than it appears to.
+      - name: Assert the runner architecture matches the target
+        env:
+          WANT: ${{ matrix.platform }}
+        run: |
+          got="$(docker version --format '{{.Server.Arch}}')"
+          if [ "$got" != "$WANT" ]; then
+            echo "::error::runner arch is $got but this leg targets $WANT"
+            exit 1
+          fi
+          echo "runner arch $got matches target $WANT"
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Built EXACTLY ONCE per image per platform. pnpm install and next build are
+      # not bit-reproducible, so any rebuild risks publishing bytes no smoke test
+      # ever saw.
+      #
+      # Do not add `load: true`: build-push-action drops the default provenance
+      # attestation whenever a docker exporter is present, which changes the
+      # artifact. Leave `provenance` unset for the same reason; the public-repo
+      # default makes each leg an OCI index, which is what imagetools can flatten.
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: ./${{ matrix.image }}
+          platforms: linux/${{ matrix.platform }}
+          outputs: type=image,name=ghcr.io/jannskiee/floe-${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.platform }}
+
+      # Runs on this leg's own architecture, against the digest just pushed. The
+      # /_next/image assertion inside is the one that matters: a broken image
+      # optimiser does not fail, Next quietly serves the original PNG, so only the
+      # content type distinguishes it. Verified as a real tripwire by hiding
+      # libvips in an arm64 image and watching the response flip to image/png.
+      - name: Smoke test the pushed digest
+        env:
+          NAME: floe-${{ matrix.image }}
+          REF: ghcr.io/jannskiee/floe-${{ matrix.image }}@${{ steps.build.outputs.digest }}
+        run: bash .github/scripts/smoke-image.sh "$NAME" "$REF"
+
+      - name: Record the verified digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p digests
+          echo "$DIGEST" > "digests/${{ matrix.image }}-${{ matrix.platform }}"
+
+      - name: Upload the digest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: digest-${{ matrix.image }}-${{ matrix.platform }}
+          path: digests/*
+          retention-days: 1
+          if-no-files-found: error
+
+  # Needs the WHOLE build matrix, so a single failed leg means no tag moves for
+  # either image on either architecture. That preserves the original invariant
+  # (both images release as a pair, since docker-compose.yml pins them to the same
+  # tag) and extends it across architectures.
+  publish:
+    name: Publish multi-arch tags
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    needs: [build]
+    permissions:
+      contents: read
       packages: write
 
     steps:
@@ -66,19 +161,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Staging tag
-        id: stage
-        run: echo "tag=sha-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+      - name: Download the verified digests
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          # Scoped to this run by default, so a previous run's digests can never
+          # be picked up.
+          pattern: digest-*
+          path: digests
+          merge-multiple: true
 
       # flavor latest=auto (the default) emits `latest` for semver tags and never
-      # for a branch push, which is what we want: `latest` means newest RELEASE.
-      # A type=raw,value=latest,enable={{is_default_branch}} line is deliberately
-      # absent, and not because it would conflict: is_default_branch is false on a
-      # tag push, so the two would not overlap. It is absent because it would make
-      # `latest` mean "newest main" or "newest release" depending on which
-      # happened more recently, which is the worst possible behaviour for the tag
-      # self-hosters pull by default. No {{major}} either: a bare `1` would
-      # silently carry users across a breaking change.
+      # for a branch push, so `latest` means the newest RELEASE. A
+      # type=raw,value=latest,enable={{is_default_branch}} line is deliberately
+      # absent: not because it would conflict, but because it would make `latest`
+      # mean "newest main" or "newest release" depending on which happened last,
+      # the worst possible behaviour for the tag self-hosters pull by default.
       - name: Metadata (server)
         id: meta_server
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
@@ -107,133 +204,34 @@ jobs:
             org.opencontainers.image.title=Floe web client
             org.opencontainers.image.description=Browser client for Floe peer-to-peer file transfer.
 
-      # Each image is built EXACTLY ONCE and pushed under the per-commit staging
-      # tag only. No release tag can then point at bytes the smoke test has not
-      # seen.
-      #
-      # Do not add `load: true` here. build-push-action disables the default
-      # provenance attestation when a docker exporter is present, so a load build
-      # and a push build produce different artifacts; a "build, test, rebuild and
-      # push" shape would publish something the test never ran against. Leave
-      # `provenance` unset for the same reason: the public-repo default (mode=max)
-      # makes the pushed artifact an OCI index, and imagetools only re-tags an
-      # index verbatim. Given a bare manifest it re-wraps and the digest changes.
-      #
-      # linux/amd64 only. A broken arm64 entry would be worse than none, because
-      # Docker auto-selects it on Apple silicon and sharp fails at dlopen time,
-      # at runtime, not at build time. amd64-only is also today's status quo.
-      #
-      # mode=max provenance records build-arg VALUES publicly. No secret may ever
-      # become a build arg in this workflow.
-      - name: Build and push server (staging tag)
-        id: build_server
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: ./server
-          platforms: linux/amd64
-          push: true
-          tags: ${{ env.SERVER }}:${{ steps.stage.outputs.tag }}
-          labels: ${{ steps.meta_server.outputs.labels }}
-          cache-from: type=gha,scope=floe-server
-          cache-to: type=gha,mode=max,scope=floe-server
-
-      - name: Build and push client (staging tag)
-        id: build_client
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: ./client
-          platforms: linux/amd64
-          push: true
-          tags: ${{ env.CLIENT }}:${{ steps.stage.outputs.tag }}
-          labels: ${{ steps.meta_client.outputs.labels }}
-          cache-from: type=gha,scope=floe-client
-          cache-to: type=gha,mode=max,scope=floe-client
-
-      # Both legs must pass before anything is tagged. Invoked via bash rather
-      # than executed directly: the repo is developed on Windows, where git does
-      # not reliably record mode 755.
-      - name: Smoke test the server digest
-        env:
-          REF: ${{ env.SERVER }}@${{ steps.build_server.outputs.digest }}
-        run: bash .github/scripts/smoke-image.sh floe-server "$REF"
-
-      - name: Smoke test the client digest
-        env:
-          REF: ${{ env.CLIENT }}@${{ steps.build_client.outputs.digest }}
-        run: bash .github/scripts/smoke-image.sh floe-client "$REF"
-
-      # Metadata-only copy, no rebuild. Reached only when both images passed, so
-      # the pair always moves together.
-      - name: Apply release tags to the verified digests
+      # Every check for BOTH images runs before either tag moves. Validating one
+      # image and publishing it before validating the other would put two network
+      # round-trips between the two tag moves, so a transient ghcr error could
+      # leave the server released and the client behind.
+      - name: Publish the multi-arch indexes
         env:
           TAGS_SERVER: ${{ steps.meta_server.outputs.tags }}
           TAGS_CLIENT: ${{ steps.meta_client.outputs.tags }}
-          DIGEST_SERVER: ${{ steps.build_server.outputs.digest }}
-          DIGEST_CLIENT: ${{ steps.build_client.outputs.digest }}
-        run: |
-          retag() {
-            local image="$1" digest="$2" tags="$3"
-            local args=()
-            # Built as an array rather than interpolating a command substitution,
-            # so a tag can never word-split.
-            while IFS= read -r t; do
-              [ -n "$t" ] && args+=(-t "$t")
-            done <<< "$tags"
-            # Without this, an empty tag list would run imagetools with no -t,
-            # which succeeds having published nothing: a green run that shipped
-            # no release tags.
-            if [ "${#args[@]}" -eq 0 ]; then
-              echo "::error::no tags resolved for ${image}"
-              exit 1
-            fi
-            docker buildx imagetools create "${args[@]}" "${image}@${digest}"
-          }
-          retag "$SERVER" "$DIGEST_SERVER" "$TAGS_SERVER"
-          retag "$CLIENT" "$DIGEST_CLIENT" "$TAGS_CLIENT"
+        run: bash .github/scripts/publish-indexes.sh
 
-      # Closes the loop: proves every tag a user can pull resolves to the exact
-      # digest that was smoke-tested, rather than assuming imagetools copied
-      # verbatim.
-      - name: Verify every tag resolves to the verified digest
+      # Detection, not prevention: this necessarily runs after the tags moved. It
+      # exists so a bad publish is loud rather than silent.
+      - name: Verify every tag is multi-arch and points at verified bytes
         env:
           TAGS_SERVER: ${{ steps.meta_server.outputs.tags }}
           TAGS_CLIENT: ${{ steps.meta_client.outputs.tags }}
-          DIGEST_SERVER: ${{ steps.build_server.outputs.digest }}
-          DIGEST_CLIENT: ${{ steps.build_client.outputs.digest }}
-        run: |
-          check() {
-            local want="$1" tags="$2" got
-            while IFS= read -r t; do
-              [ -z "$t" ] && continue
-              # '{{.Manifest.Digest}}' silently falls back to human output on
-              # some buildx versions; go through json instead.
-              got="$(docker buildx imagetools inspect "$t" \
-                       --format '{{json .Manifest}}' | jq -r .digest)"
-              if [ "$got" != "$want" ]; then
-                echo "::error::$t resolves to $got, expected $want"
-                exit 1
-              fi
-              echo "ok  $t -> $got"
-            done <<< "$tags"
-          }
-          check "$DIGEST_SERVER" "$TAGS_SERVER"
-          check "$DIGEST_CLIENT" "$TAGS_CLIENT"
+        run: bash .github/scripts/verify-indexes.sh
 
       - name: Summary
         env:
-          DIGEST_SERVER: ${{ steps.build_server.outputs.digest }}
-          DIGEST_CLIENT: ${{ steps.build_client.outputs.digest }}
           TAGS_SERVER: ${{ steps.meta_server.outputs.tags }}
           TAGS_CLIENT: ${{ steps.meta_client.outputs.tags }}
         run: |
-          # A plain loop rather than sed: a `s/$/.../` replacement puts a $
-          # inside single quotes, which trips shellcheck SC2016 and CI lints
-          # workflows with zero ignore flags.
           section() {
-            local image="$1" digest="$2" tags="$3"
+            local image="$1" tags="$2"
             echo "### ${image}"
             echo
-            echo "Digest: \`${digest}\`"
+            echo "Platforms: \`linux/amd64\`, \`linux/arm64\`"
             echo
             while IFS= read -r t; do
               [ -n "$t" ] && echo "- \`${t}\`"
@@ -241,6 +239,6 @@ jobs:
             echo
           }
           {
-            section "$SERVER" "$DIGEST_SERVER" "$TAGS_SERVER"
-            section "$CLIENT" "$DIGEST_CLIENT" "$TAGS_CLIENT"
+            section "$SERVER" "$TAGS_SERVER"
+            section "$CLIENT" "$TAGS_CLIENT"
           } >> "$GITHUB_STEP_SUMMARY"

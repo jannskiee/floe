@@ -11,11 +11,13 @@
 # without rebuilding. It defaults to empty for exactly that reason.
 
 # ---- Builder ---------------------------------------------------------------
-FROM node:22-alpine AS builder
+FROM node:24-alpine AS builder
 
 # Pin pnpm to package.json's `packageManager` version so `--frozen-lockfile`
-# matches the lockfile exactly. pnpm 11.x requires Node 22+ (it uses the
-# node:sqlite builtin), which is why the base image is node:22, not node:20.
+# matches the lockfile exactly. pnpm 11.x needs Node 22+ (it uses the node:sqlite
+# builtin), which the Active LTS satisfies. Track LTS rather than Current here:
+# this image is run unattended by self-hosters, so a runtime with a long support
+# window matters more than a new one.
 RUN npm install -g pnpm@11.1.2
 WORKDIR /app
 
@@ -52,7 +54,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 
 # ---- Runner ----------------------------------------------------------------
-FROM node:22-alpine AS runner
+FROM node:24-alpine AS runner
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
