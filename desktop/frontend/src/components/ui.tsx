@@ -12,18 +12,27 @@ export function BoltMark({className, ...props}: SVGProps<SVGSVGElement>) {
     );
 }
 
-/** Eyebrow is the site's mono all-caps label ("SEND", "SHARE LINK", ...). */
+/** Eyebrow is the site's mono all-caps label ("SEND", "SHARE LINK", ...).
+ *
+ *  `as` is opt-in and defaults to <p> on purpose. Most Eyebrows label a control or
+ *  a panel region, not a document section: the ice "Peer to peer" hero label,
+ *  "Code or link", "Save to", "Files", "Room code", "Share link". Promoting all of
+ *  them to headings would litter the accessibility tree with a dozen same-level
+ *  headings that mean nothing to someone navigating by heading. Only the Settings
+ *  section labels are genuine headings, so only they pass as="h3". */
 export function Eyebrow({
     children,
     tone,
     className,
+    as: Tag = 'p',
 }: {
     children: ReactNode;
     tone?: 'ice' | 'muted';
     className?: string;
+    as?: 'p' | 'h3';
 }) {
     return (
-        <p
+        <Tag
             className={cn(
                 'font-mono text-[10px] font-medium uppercase tracking-[0.2em]',
                 tone === 'ice' ? 'text-ice' : 'text-zinc-500',
@@ -31,7 +40,7 @@ export function Eyebrow({
             )}
         >
             {children}
-        </p>
+        </Tag>
     );
 }
 

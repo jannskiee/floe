@@ -26,8 +26,8 @@ export function GetPendingFiles() {
   return window['go']['main']['App']['GetPendingFiles']();
 }
 
-export function GetServerSettings() {
-  return window['go']['main']['App']['GetServerSettings']();
+export function GetSettings() {
+  return window['go']['main']['App']['GetSettings']();
 }
 
 export function GetVersion() {
@@ -62,8 +62,8 @@ export function SelectFolder() {
   return window['go']['main']['App']['SelectFolder']();
 }
 
-export function SetServerSettings(arg1, arg2) {
-  return window['go']['main']['App']['SetServerSettings'](arg1, arg2);
+export function SetSettings(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['SetSettings'](arg1, arg2, arg3, arg4);
 }
 
 export function StartSend(arg1, arg2) {

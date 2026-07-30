@@ -14,7 +14,7 @@ export function EngineProtocolVersion():Promise<number>;
 
 export function GetPendingFiles():Promise<Array<string>>;
 
-export function GetServerSettings():Promise<main.serverConfig>;
+export function GetSettings():Promise<main.appConfig>;
 
 export function GetVersion():Promise<string>;
 
@@ -32,7 +32,7 @@ export function SelectFiles():Promise<Array<string>>;
 
 export function SelectFolder():Promise<string>;
 
-export function SetServerSettings(arg1:string,arg2:string):Promise<void>;
+export function SetSettings(arg1:string,arg2:string,arg3:boolean,arg4:boolean):Promise<void>;
 
 export function StartSend(arg1:Array<string>,arg2:boolean):Promise<void>;
 

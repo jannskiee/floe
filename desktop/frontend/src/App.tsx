@@ -7,7 +7,7 @@ import {
     EnableContextMenu,
     EngineProtocolVersion,
     GetPendingFiles,
-    GetServerSettings,
+    GetSettings,
     GetVersion,
     OpenFile,
     OpenFolder,
@@ -16,7 +16,7 @@ import {
     RevealFile,
     SelectFiles,
     SelectFolder,
-    SetServerSettings,
+    SetSettings,
     StartSend,
     StartSendText,
     TestServer,
@@ -45,6 +45,7 @@ import {
 } from 'lucide-react';
 import QRCode from 'react-qr-code';
 import {BoltMark, Button, Eyebrow, Input, StatusDot, cn} from './components/ui';
+import {advancedSummary, hostOf} from './settings';
 import TitleBar from './components/TitleBar';
 import FileIcon from './components/FileIcon';
 import {Tooltip} from './components/Tooltip';
@@ -172,17 +173,29 @@ function webPlaceholder(server: string): string {
     return s;
 }
 
-function StatusLine({text, busy}: {text: string; busy: boolean}) {
-    if (!text) return null;
+/** StatusLine is the small centred status/error line under a card.
+ *
+ *  `live` is opt-in. An aria-live region only announces changes while it is in the
+ *  DOM, so the element has to stay mounted through the empty state to work, which
+ *  costs a permanently reserved 20px. That is right for the Settings server test,
+ *  where the result arrives seconds later and is the entire point of pressing the
+ *  button, and wrong for the send and receive lines, which sit in tight layouts and
+ *  should collapse to nothing when idle. */
+function StatusLine({text, busy, live}: {text: string; busy: boolean; live?: boolean}) {
+    if (!text && !live) return null;
     const isError = text.startsWith('Error');
     return (
-        <p className={cn('flex min-h-5 items-center justify-center gap-2 text-center text-xs', isError ? 'text-red-400' : 'text-zinc-500')}>
+        <p
+            {...(live ? {role: 'status' as const, 'aria-live': 'polite' as const} : {})}
+            className={cn('flex min-h-5 items-center justify-center gap-2 text-center text-xs', isError ? 'text-red-400' : 'text-zinc-500')}
+        >
             {busy && <Loader2 className="size-3.5 shrink-0 animate-spin"/>}
             {isError && <AlertCircle className="size-3.5 shrink-0"/>}
             <span>{text}</span>
         </p>
     );
 }
+
 
 // Windows paths compare case-insensitively; normalize for dedupe and removal but
 // keep the original strings for display and for the Go side.
@@ -234,6 +247,11 @@ function Switch({checked, onChange}: {checked: boolean; onChange: (v: boolean) =
     );
 }
 
+// One geometry, three call sites: SettingRow, SettingField, and the Advanced
+// disclosure button. Kept as consts so the three cannot drift apart.
+const rowLabelClass = 'block text-sm font-medium text-zinc-200';
+const rowDescClass = 'mt-0.5 block text-xs leading-relaxed text-zinc-500';
+
 /** SettingRow is one settings entry: stacked label and description with a
  *  trailing switch, sized so long descriptions wrap instead of truncating. */
 function SettingRow({checked, onChange, label, description}: {
@@ -245,8 +263,8 @@ function SettingRow({checked, onChange, label, description}: {
     return (
         <label className="flex cursor-pointer select-none items-center justify-between gap-4 p-3.5">
             <span className="min-w-0">
-                <span className="block text-sm font-medium text-zinc-200">{label}</span>
-                <span className="mt-0.5 block text-xs leading-relaxed text-zinc-500">{description}</span>
+                <span className={rowLabelClass}>{label}</span>
+                <span className={rowDescClass}>{description}</span>
             </span>
             <Switch checked={checked} onChange={onChange}/>
         </label>
@@ -255,17 +273,29 @@ function SettingRow({checked, onChange, label, description}: {
 
 /** SettingField is the text-input counterpart to SettingRow: the same label and
  *  description treatment, but the control sits underneath, because a settings row
- *  is too narrow to hold a description and a usable text field side by side. */
-function SettingField({label, description, children}: {
+ *  is too narrow to hold a description and a usable text field side by side.
+ *
+ *  This used to render its label as a <span>, which looks identical but is not a
+ *  label, so both address inputs had no accessible name at all and announced as
+ *  "edit text, blank".
+ *
+ *  children is a render prop rather than a plain node so the wiring cannot be got
+ *  wrong. aria-describedby has to sit on the control itself; on a wrapping element
+ *  it associates with nothing and silently does nothing. Handing the ids to the
+ *  caller means a new field is spelled the same way as the existing ones or it
+ *  does not compile. */
+function SettingField({htmlFor, label, description, children}: {
+    htmlFor: string;
     label: string;
     description: string;
-    children: ReactNode;
+    children: (ids: {id: string; 'aria-describedby': string}) => ReactNode;
 }) {
+    const descId = `${htmlFor}-description`;
     return (
         <div className="p-3.5">
-            <span className="block text-sm font-medium text-zinc-200">{label}</span>
-            <span className="mt-0.5 block text-xs leading-relaxed text-zinc-500">{description}</span>
-            <div className="mt-2.5">{children}</div>
+            <label htmlFor={htmlFor} className={rowLabelClass}>{label}</label>
+            <p id={descId} className={rowDescClass}>{description}</p>
+            <div className="mt-2.5">{children({id: htmlFor, 'aria-describedby': descId})}</div>
         </div>
     );
 }
@@ -492,6 +522,8 @@ function App() {
     const [settingsOpen, setSettingsOpen] = useState(false);
     // Whether the "start over while transferring?" confirm overlay is showing.
     const [confirmReset, setConfirmReset] = useState(false);
+    // Seeded from the key this used to live in, then replaced by the Go-owned
+    // record on mount. See the GetSettings effect for why both steps exist.
     const [hideIP, setHideIP] = useState(() => localStorage.getItem('floe:hideIP') === '1');
 
     // Self-hosting: the signaling server this app talks to, and the web app its
@@ -501,6 +533,24 @@ function App() {
     const [webAddr, setWebAddr] = useState('');
     const [testStatus, setTestStatus] = useState('');
     const [testing, setTesting] = useState(false);
+    // Transient label flip on the About Copy button.
+    const [aboutCopied, setAboutCopied] = useState(false);
+
+    // Whether the Advanced section is open. null means "not touched this visit",
+    // which is what lets a configured server force it open without preventing the
+    // user from collapsing it again. Resolved into advExpanded further down.
+    const [advOpen, setAdvOpen] = useState<boolean | null>(null);
+
+    // Mirrors of the settings values, following the file's existing ref idiom.
+    // Two callers need them: saveSettings, which must not read a stale render
+    // closure, and the send:error handler, which is registered once with an empty
+    // dependency array and so can never see current state.
+    const serverAddrRef = useRef('');
+    serverAddrRef.current = serverAddr;
+    const webAddrRef = useRef('');
+    webAddrRef.current = webAddr;
+    const hideIPRef = useRef(false);
+    hideIPRef.current = hideIP;
 
     // Send state
     const [files, setFiles] = useState<string[]>([]);
@@ -528,8 +578,11 @@ function App() {
     // Receive state
     const [code, setCode] = useState('');
     const [output, setOutput] = useState(() => localStorage.getItem('floe:saveDir') || '');
-    // Opt-OUT model like the browser: report unless explicitly disabled.
+    // Opt-OUT model like the browser: report unless explicitly disabled. Seeded
+    // from localStorage, then replaced by the Go-owned record on mount.
     const [reportStats, setReportStats] = useState(() => localStorage.getItem('floe:report-stats') !== '0');
+    const reportStatsRef = useRef(true);
+    reportStatsRef.current = reportStats;
     const [recvStatus, setRecvStatus] = useState(INITIAL_RECV_STATUS);
     const [receiving, setReceiving] = useState(false);
     const [recvProg, setRecvProg] = useState<{pct: number; label: string} | null>(null);
@@ -589,30 +642,98 @@ function App() {
         }
     }
 
-    // Saved on blur rather than per keystroke: a half-typed address written to
-    // disk would be picked up by a transfer started before typing finished.
-    async function saveServerSettings() {
-        try {
-            await SetServerSettings(serverAddr.trim(), webAddr.trim());
-        } catch (e) {
-            setTestStatus('Error: could not save. ' + e);
-        }
+    // saveSettings writes the whole record, because Go persists it as one file.
+    //
+    // Every value is read from a ref rather than from the render closure, and a
+    // changed value is passed in explicitly. React state updates are asynchronous,
+    // so a handler that calls setHideIP(v) and then saves would otherwise persist
+    // the value it just replaced.
+    function saveSettings(next?: {hideIP?: boolean; reportStats?: boolean}) {
+        return SetSettings(
+            serverAddrRef.current.trim(),
+            webAddrRef.current.trim(),
+            next?.hideIP ?? hideIPRef.current,
+            next?.reportStats ?? reportStatsRef.current,
+        ).catch((e) => { setTestStatus('Error: could not save settings. ' + e); });
     }
+
+    // Addresses are saved on blur rather than per keystroke: a half-typed address
+    // written to disk would be picked up by a transfer started before typing
+    // finished. Blur alone is not enough, though. React does not fire blur on
+    // unmount, and Escape, the Back button and the history shortcut all close
+    // Settings directly, so a typed address was previously discarded while the UI
+    // still showed it. The closing-edge effect below covers those exits.
+    //
+    // Wrapped rather than passed straight to onBlur: React would hand the
+    // FocusEvent to saveSettings as its `next` argument.
+    const saveOnBlur = () => { void saveSettings(); };
 
     // The check runs in Go: the WebView's own content-security policy blocks
     // cross-origin requests, so the frontend cannot reach a server itself.
     async function testServer() {
+        // Guarded rather than disabled. A disabled button loses focus to <body>,
+        // and this probe runs three stages at six seconds each, so a keyboard user
+        // could be stranded for eighteen seconds. The button stays focusable and
+        // reports aria-disabled instead.
+        if (testing) return;
         setTesting(true);
-        setTestStatus('Checking...');
+        setTestStatus('Checking the server...');
         try {
-            await SetServerSettings(serverAddr.trim(), webAddr.trim());
-            const r = await TestServer(serverAddr.trim());
+            await saveSettings();
+            const r = await TestServer(serverAddrRef.current.trim());
             setTestStatus(r.ok ? (r.message || 'Connected.') : 'Error: ' + r.message);
         } catch (e) {
             setTestStatus('Error: ' + e);
         } finally {
             setTesting(false);
         }
+    }
+
+    // serverNote is appended to transfer failures while a custom server is set.
+    //
+    // This is the moment a forgotten server override actually costs somebody
+    // something: two people on different servers simply never find each other, and
+    // every message they see describes a network problem. Settings can explain the
+    // setting perfectly and still not reach a user who is not in Settings, so the
+    // explanation has to come to them. Reads a ref because the send:error handler
+    // is registered once and cannot see current state.
+    function serverNote(): string {
+        const s = serverAddrRef.current.trim();
+        return s ? ` This app uses ${hostOf(s)}. Both people must be on the same server.` : '';
+    }
+
+    // Copies the About rows for pasting into a bug report. Mirrors SharePanel's
+    // copy handler, including the 1500ms label flip.
+    //
+    // The server line is the whole reason this button is worth having: almost every
+    // confusing report about a transfer that will not connect comes down to the two
+    // people being on different servers, and that is invisible in a screenshot.
+    async function copyAbout() {
+        const lines = [
+            'Floe desktop',
+            `App version: ${appVer || 'dev'}`,
+            `Transfer protocol: ${proto == null ? 'unknown' : proto}`,
+            `Server: ${serverAddrRef.current.trim() || 'api.floe.one (default)'}`,
+        ];
+        if (webAddrRef.current.trim()) lines.push(`Share links: ${webAddrRef.current.trim()}`);
+        try {
+            await navigator.clipboard.writeText(lines.join('\n'));
+            setAboutCopied(true);
+            setTimeout(() => setAboutCopied(false), 1500);
+        } catch {
+            // clipboard unavailable
+        }
+    }
+
+    // Clears both addresses and persists immediately. It cannot rely on the blur
+    // path, because no input was focused when the button was pressed.
+    async function useFloeServer() {
+        setServerAddr('');
+        setWebAddr('');
+        setTestStatus('');
+        serverAddrRef.current = '';
+        webAddrRef.current = '';
+        await saveSettings();
     }
 
     useEffect(() => {
@@ -646,7 +767,7 @@ function App() {
         });
         EventsOn('send:error', (msg: string) => {
             if (sendCancel.current) return;
-            setSendStatus('Error: ' + msg);
+            setSendStatus('Error: ' + msg + serverNote());
             setSending(false);
             // The room is dead after an error; drop the stale code and link.
             setSendCode('');
@@ -710,22 +831,57 @@ function App() {
         EngineProtocolVersion().then(setProto).catch(() => {});
     }, []);
 
-    // Server override lives in a Go-owned file, not localStorage, so it survives
-    // the app being installed under a different executable name. Pulled once, the
-    // same way the About rows are.
+    // Settings live in a Go-owned file, not localStorage, so they survive the app
+    // being installed under a different executable name: the WebView2 profile is
+    // keyed to the executable's basename, and this binary ships as both
+    // desktop.exe and floe-desktop.exe. Pulled once, the same way the About rows are.
+    //
+    // The toggles used to live in localStorage and are imported here exactly once.
+    // `migrated` is what makes that safe in both directions: Go's zero value for a
+    // bool is false while reportStats defaults to TRUE, so a fresh file is
+    // indistinguishable from "switched everything off" without it, and re-running
+    // the import would resurrect a preference the user had since changed.
     useEffect(() => {
-        GetServerSettings()
-            .then((c) => { setServerAddr(c.server || ''); setWebAddr(c.web || ''); })
+        GetSettings()
+            .then((c) => {
+                setServerAddr(c.server || '');
+                setWebAddr(c.web || '');
+                if (c.migrated) {
+                    setHideIP(c.hideIP);
+                    setReportStats(c.reportStats);
+                    return;
+                }
+                const hip = localStorage.getItem('floe:hideIP') === '1';
+                const rep = localStorage.getItem('floe:report-stats') !== '0';
+                setHideIP(hip);
+                setReportStats(rep);
+                void SetSettings(c.server || '', c.web || '', hip, rep);
+            })
             .catch(() => {});
     }, []);
 
-    // Persist lightweight UI preferences so they survive a relaunch.
-    useEffect(() => { localStorage.setItem('floe:hideIP', hideIP ? '1' : '0'); }, [hideIP]);
     // Persist only the transfer tabs; relaunching into History would be odd.
     useEffect(() => { if (mode !== 'history') localStorage.setItem('floe:mode', mode); }, [mode]);
     useEffect(() => { localStorage.setItem('floe:history', JSON.stringify(history)); }, [history]);
     useEffect(() => { localStorage.setItem('floe:saveDir', output); }, [output]);
-    useEffect(() => { localStorage.setItem('floe:report-stats', reportStats ? '1' : '0'); }, [reportStats]);
+
+    // Collapsing Advanced is a per-visit choice, so forget it when Settings closes.
+    // Reopening Settings with a custom server configured always shows the fields
+    // again, which is what makes "set it and forget it" structurally hard to do.
+    useEffect(() => { if (!settingsOpen) setAdvOpen(null); }, [settingsOpen]);
+
+    // Flush the addresses whenever Settings closes, by any route.
+    //
+    // The inputs save on blur, but React does not fire blur on unmount, and three
+    // exits bypass it entirely: Escape, the Back button, and the Ctrl+H history
+    // shortcut. Typing an address and pressing Escape used to discard it silently
+    // while the field still showed the value, so the setting looked saved and was
+    // not. Keyed on the closing edge only, so it does not run on mount.
+    const wasSettingsOpen = useRef(false);
+    useEffect(() => {
+        if (wasSettingsOpen.current && !settingsOpen) void saveSettings();
+        wasSettingsOpen.current = settingsOpen;
+    }, [settingsOpen]);
 
     useEffect(() => { busyRef.current = sending || receiving; }, [sending, receiving]);
 
@@ -930,7 +1086,7 @@ function App() {
             const names = recvNamesRef.current;
             setHistory((prev) => [{kind: 'recv' as const, names, count: names.length, dir, bytes: recvBytesRef.current || undefined, at: Date.now()}, ...prev].slice(0, HISTORY_CAP));
         } catch (e: any) {
-            setRecvStatus(recvCancel.current ? 'Cancelled.' : 'Error: ' + e);
+            setRecvStatus(recvCancel.current ? 'Cancelled.' : 'Error: ' + e + serverNote());
         } finally {
             setReceiving(false);
         }
@@ -1087,6 +1243,18 @@ function App() {
         </button>
     );
 
+    // Advanced is open when the user says so, and otherwise whenever a non-default
+    // address is configured. Derived rather than an effect: it is correct on the
+    // very first render after GetSettings resolves, needs no guard against React's
+    // double-invocation in development, and cannot fall out of step with the state
+    // it describes.
+    const usingCustomServer = serverAddr.trim() !== '';
+    const usingCustomWeb = webAddr.trim() !== '';
+    const advExpanded = advOpen ?? (usingCustomServer || usingCustomWeb);
+
+    // Three states, not two. See settings.ts and its test.
+    const advSummary = advancedSummary(serverAddr, webAddr);
+
     return (
         <div className="flex h-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100 selection:bg-ice/20">
             <TitleBar onSettings={() => setSettingsOpen((o) => !o)} settingsActive={settingsOpen} onStartOver={startOver}/>
@@ -1111,86 +1279,194 @@ function App() {
 
                             <div className="mt-6 space-y-6">
                                 <section className="space-y-2">
-                                    <Eyebrow>Privacy</Eyebrow>
+                                    <Eyebrow as="h3">Transfers</Eyebrow>
+                                    <div className="divide-y divide-white/[0.06] rounded-lg border border-white/[0.06] bg-white/[0.02]">
+                                        <SettingField
+                                            htmlFor="floe-save-folder"
+                                            label="Save received files to"
+                                            description="Where files you receive are saved. Leave blank to be asked each time."
+                                        >
+                                            {(ids) => (
+                                                <div className="flex gap-2">
+                                                    <Input
+                                                        {...ids}
+                                                        className="flex-1"
+                                                        placeholder="Ask every time"
+                                                        value={output}
+                                                        onChange={(e) => setOutput(e.target.value)}
+                                                        spellCheck={false}
+                                                        autoComplete="off"
+                                                    />
+                                                    <Button variant="outline" onClick={pickSaveFolder}>
+                                                        Browse
+                                                    </Button>
+                                                </div>
+                                            )}
+                                        </SettingField>
+                                    </div>
+                                </section>
+
+                                <section className="space-y-2">
+                                    <Eyebrow as="h3">Privacy</Eyebrow>
                                     <div className="divide-y divide-white/[0.06] rounded-lg border border-white/[0.06] bg-white/[0.02]">
                                         <SettingRow
                                             checked={hideIP}
-                                            onChange={setHideIP}
-                                            label="Hide my IP"
-                                            description="Route transfers through the relay so peers never see your IP address. Slower; applies to new transfers."
+                                            onChange={(v) => { setHideIP(v); void saveSettings({hideIP: v}); }}
+                                            label="Hide my IP address"
+                                            description="Sends transfers through a relay so the other person never sees your IP address. Relayed transfers are slower and limited to 2 GB. Takes effect on your next transfer."
                                         />
                                         <SettingRow
                                             checked={reportStats}
-                                            onChange={setReportStats}
+                                            onChange={(v) => { setReportStats(v); void saveSettings({reportStats: v}); }}
                                             label="Contribute to global stats"
-                                            description="After a transfer completes, only the total byte count is added to the public counter on floe.one."
+                                            description="Adds the size of each transfer you receive to the public total on floe.one. Only the byte count is sent, never file names or contents."
                                         />
                                     </div>
                                 </section>
 
                                 {isWindows && (
                                     <section className="space-y-2">
-                                        <Eyebrow>System</Eyebrow>
+                                        <Eyebrow as="h3">Windows</Eyebrow>
                                         <div className="divide-y divide-white/[0.06] rounded-lg border border-white/[0.06] bg-white/[0.02]">
+                                            {/* The wording of this description is tied to contextmenu_windows.go:
+                                                the entry is a legacy per-user verb under
+                                                Software\Classes\*\shell\Floe, which Windows 11 files under
+                                                "Show more options", and the `*` means files only. If that
+                                                registration ever moves to IExplorerCommand, this text becomes
+                                                wrong and has to change with it. */}
                                             <SettingRow
                                                 checked={ctxMenu}
                                                 onChange={toggleCtxMenu}
-                                                label="Right-click menu"
-                                                description="Adds a Send with Floe entry to the Explorer right-click menu for your user account."
+                                                label="Add Floe to the right-click menu"
+                                                description="Puts Send with Floe under Show more options when you right-click a file in File Explorer. It applies to your Windows account only, so it needs no administrator approval."
                                             />
                                         </div>
                                     </section>
                                 )}
 
                                 <section className="space-y-2">
-                                    <Eyebrow>Server</Eyebrow>
+                                    <Eyebrow as="h3">Advanced</Eyebrow>
                                     <div className="divide-y divide-white/[0.06] rounded-lg border border-white/[0.06] bg-white/[0.02]">
-                                        <SettingField
-                                            label="Server address"
-                                            description="Where this app connects for signaling. Leave blank to use Floe's own server. Both peers must use the same one."
+                                        {/* A button with aria-expanded rather than <details>. The same idiom
+                                            as the history row below, and <details> would paint its open state
+                                            before a controlled handler could run, because the toggle event is
+                                            not cancelable. */}
+                                        <button
+                                            type="button"
+                                            onClick={() => setAdvOpen(!advExpanded)}
+                                            aria-expanded={advExpanded}
+                                            aria-controls="floe-advanced-panel"
+                                            className="flex w-full items-center justify-between gap-4 rounded-lg p-3.5 text-left transition-colors hover:bg-white/[0.02] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ice/40"
                                         >
-                                            <div className="flex gap-2">
-                                                <Input
-                                                    className="flex-1"
-                                                    placeholder="https://api.floe.one"
-                                                    value={serverAddr}
-                                                    onChange={(e) => { setServerAddr(e.target.value); setTestStatus(''); }}
-                                                    onBlur={saveServerSettings}
-                                                    spellCheck={false}
-                                                    autoComplete="off"
-                                                />
-                                                <Button variant="outline" onClick={testServer} disabled={testing}>
-                                                    Test
-                                                </Button>
-                                            </div>
-                                        </SettingField>
-                                        <SettingField
-                                            label="Web address"
-                                            description="Used to build share links. Leave blank to match the server address, which is right unless your web app is on a separate host."
-                                        >
-                                            <Input
-                                                placeholder={webPlaceholder(serverAddr)}
-                                                value={webAddr}
-                                                onChange={(e) => setWebAddr(e.target.value)}
-                                                onBlur={saveServerSettings}
-                                                spellCheck={false}
-                                                autoComplete="off"
-                                            />
-                                        </SettingField>
+                                            <span className="min-w-0">
+                                                <span className={rowLabelClass}>Server</span>
+                                                <span className={rowDescClass}>{advSummary}</span>
+                                            </span>
+                                            <span className="flex shrink-0 items-center gap-2">
+                                                {usingCustomServer && <StatusDot className="bg-ice"/>}
+                                                <ChevronDown className={cn('size-4 text-zinc-500 transition-transform', advExpanded && 'rotate-180')}/>
+                                            </span>
+                                        </button>
+
+                                        {/* divide-y is repeated here because the card's own divide-y
+                                            only reaches its direct children, and these fields are one
+                                            level deeper now that they live inside the panel. */}
+                                        <div id="floe-advanced-panel" hidden={!advExpanded} className="divide-y divide-white/[0.06]">
+                                            <SettingField
+                                                htmlFor="floe-server-address"
+                                                label="Server address"
+                                                description="Where this app connects to set up transfers. Leave blank to use Floe's server."
+                                            >
+                                                {(ids) => (
+                                                    <div className="flex gap-2">
+                                                        <Input
+                                                            {...ids}
+                                                            className="flex-1"
+                                                            placeholder="https://api.floe.one"
+                                                            value={serverAddr}
+                                                            onChange={(e) => { setServerAddr(e.target.value); setTestStatus(''); }}
+                                                            onBlur={saveOnBlur}
+                                                            spellCheck={false}
+                                                            autoComplete="off"
+                                                        />
+                                                        <Button
+                                                            variant="outline"
+                                                            onClick={testServer}
+                                                            aria-disabled={testing}
+                                                            className={cn(testing && 'opacity-50')}
+                                                        >
+                                                            {testing ? 'Testing' : 'Test'}
+                                                        </Button>
+                                                    </div>
+                                                )}
+                                            </SettingField>
+                                            <SettingField
+                                                htmlFor="floe-share-link-address"
+                                                label="Share link address"
+                                                description="The address used in the links you share. Leave blank when your server and web app share one address, which is the recommended setup."
+                                            >
+                                                {(ids) => (
+                                                    <Input
+                                                        {...ids}
+                                                        placeholder={webPlaceholder(serverAddr)}
+                                                        value={webAddr}
+                                                        onChange={(e) => setWebAddr(e.target.value)}
+                                                        onBlur={saveOnBlur}
+                                                        spellCheck={false}
+                                                        autoComplete="off"
+                                                    />
+                                                )}
+                                            </SettingField>
+                                            {usingCustomServer && (
+                                                <div className="flex items-center justify-between gap-4 p-3.5">
+                                                    <span className={rowDescClass}>Clears both addresses so this app connects to api.floe.one again.</span>
+                                                    <Button variant="outline" className="shrink-0" onClick={useFloeServer}>
+                                                        Use Floe's server
+                                                    </Button>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
-                                    <StatusLine text={testStatus} busy={testing}/>
+                                    {/* Deliberately outside the collapsible panel. A `hidden` ancestor
+                                        removes the element from the accessibility tree entirely, so an
+                                        aria-live region inside it would announce nothing, and collapsing
+                                        mid-probe would discard a result the user is waiting for. */}
+                                    <StatusLine text={testStatus} busy={testing} live/>
                                 </section>
 
                                 <section className="space-y-2">
-                                    <Eyebrow>About</Eyebrow>
+                                    <Eyebrow as="h3">About</Eyebrow>
                                     <div className="divide-y divide-white/[0.06] rounded-lg border border-white/[0.06] bg-white/[0.02]">
-                                        <div className="flex items-center justify-between p-3.5">
-                                            <span className="text-sm font-medium text-zinc-200">Version</span>
-                                            <span className="font-mono text-xs text-zinc-500">{appVer || 'dev'}</span>
+                                        <div className="flex items-center justify-between gap-4 p-3.5">
+                                            <span className={rowLabelClass}>App version</span>
+                                            <span className="shrink-0 font-mono text-xs text-zinc-500">{appVer || 'dev'}</span>
                                         </div>
-                                        <div className="flex items-center justify-between p-3.5">
-                                            <span className="text-sm font-medium text-zinc-200">Protocol</span>
-                                            <span className="font-mono text-xs text-zinc-500">{proto ?? '…'}</span>
+                                        <div className="flex items-center justify-between gap-4 p-3.5">
+                                            <Tooltip label="Both devices must use the same transfer protocol. Floe checks this before any files move.">
+                                                <span className={cn(rowLabelClass, 'cursor-default')}>Transfer protocol</span>
+                                            </Tooltip>
+                                            <span className="shrink-0 font-mono text-xs text-zinc-500">{proto == null ? '...' : `Version ${proto}`}</span>
+                                        </div>
+                                        {/* The permanent record of which server this app is on. It lives here,
+                                            in a section that can never be collapsed, so that collapsing
+                                            Advanced can never hide the fact that a custom server is set. */}
+                                        <div className="flex items-center justify-between gap-4 p-3.5">
+                                            <span className={rowLabelClass}>Server</span>
+                                            <span className="min-w-0 break-all text-right font-mono text-xs text-zinc-500">
+                                                {usingCustomServer ? hostOf(serverAddr) : 'api.floe.one (default)'}
+                                            </span>
+                                        </div>
+                                        {usingCustomWeb && (
+                                            <div className="flex items-center justify-between gap-4 p-3.5">
+                                                <span className={rowLabelClass}>Share links</span>
+                                                <span className="min-w-0 break-all text-right font-mono text-xs text-zinc-500">{hostOf(webAddr)}</span>
+                                            </div>
+                                        )}
+                                        <div className="flex items-center justify-between gap-4 p-3.5">
+                                            <span className={rowDescClass}>Version, protocol and server details for a bug report.</span>
+                                            <Button variant="outline" className="shrink-0" onClick={copyAbout}>
+                                                {aboutCopied ? 'Copied' : 'Copy'}
+                                            </Button>
                                         </div>
                                     </div>
                                 </section>

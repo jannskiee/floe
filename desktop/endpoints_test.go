@@ -24,31 +24,31 @@ func TestEndpointsDefaults(t *testing.T) {
 func TestEndpointsSelfHosted(t *testing.T) {
 	cases := []struct {
 		name       string
-		cfg        serverConfig
+		cfg        appConfig
 		wantServer string
 		wantWeb    string
 	}{
 		{
 			name:       "one domain derives the web origin",
-			cfg:        serverConfig{Server: "https://floe.example.com"},
+			cfg:        appConfig{Server: "https://floe.example.com"},
 			wantServer: "https://floe.example.com",
 			wantWeb:    "https://floe.example.com",
 		},
 		{
 			name:       "split hosts need the override",
-			cfg:        serverConfig{Server: "https://api.example.com", Web: "https://app.example.com"},
+			cfg:        appConfig{Server: "https://api.example.com", Web: "https://app.example.com"},
 			wantServer: "https://api.example.com",
 			wantWeb:    "https://app.example.com",
 		},
 		{
 			name:       "local dev pair is special-cased",
-			cfg:        serverConfig{Server: "http://localhost:3001"},
+			cfg:        appConfig{Server: "http://localhost:3001"},
 			wantServer: "http://localhost:3001",
 			wantWeb:    "http://localhost:3000",
 		},
 		{
 			name:       "web override alone still uses the default server",
-			cfg:        serverConfig{Web: "https://app.example.com"},
+			cfg:        appConfig{Web: "https://app.example.com"},
 			wantServer: defaultServer,
 			wantWeb:    "https://app.example.com",
 		},
@@ -70,7 +70,7 @@ func TestEndpointsSelfHosted(t *testing.T) {
 // returns has to survive shareLink, which appends "/?s=". A trailing slash that
 // slipped through would produce "//?s=" and a link that does not open.
 func TestEndpointsFeedShareLinkCleanly(t *testing.T) {
-	for _, cfg := range []serverConfig{
+	for _, cfg := range []appConfig{
 		{Server: "https://floe.example.com/"},
 		{Server: "https://api.example.com//", Web: "https://app.example.com///"},
 		{Server: " http://localhost:3001/ "},

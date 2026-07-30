@@ -86,10 +86,10 @@ type App struct {
 	// "Send with Floe", drag-onto-exe) until the frontend pulls them.
 	pendingFiles []string
 
-	// cfg is the persisted server override. Written from the UI goroutine when
-	// the user saves Settings and read from the transfer goroutine, so it is
-	// guarded by mu like everything else here.
-	cfg serverConfig
+	// cfg is every persisted setting: the server override plus the preference
+	// toggles. Written from the UI goroutine when the user saves Settings and read
+	// from the transfer goroutine, so it is guarded by mu like everything else here.
+	cfg appConfig
 }
 
 // NewApp creates a new App application struct
@@ -124,19 +124,31 @@ func (a *App) endpoints() (server, web string) {
 	return server, web
 }
 
-// GetServerSettings returns the stored override for the Settings screen. Empty
-// fields mean "using the Floe defaults" and render as placeholders.
-func (a *App) GetServerSettings() serverConfig {
+// GetSettings returns every persisted setting for the Settings screen. Empty
+// address fields mean "using the Floe defaults" and render as placeholders.
+//
+// When Migrated is false the toggles have never been written here, and the
+// frontend imports them once from the localStorage keys they used to live in.
+func (a *App) GetSettings() appConfig {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.cfg
 }
 
-// SetServerSettings persists a server override. Either field may be empty to
+// SetSettings persists the whole settings record. Either address may be empty to
 // fall back to the default. It does not verify the address; TestServer does that
 // on demand, so a user can save an address for a server that is not up yet.
-func (a *App) SetServerSettings(server, web string) error {
-	cfg := normalizeConfig(serverConfig{Server: server, Web: web})
+//
+// Writing always marks the record migrated, so the one-time localStorage import
+// cannot run twice and re-resurrect a preference the user has since changed.
+func (a *App) SetSettings(server, web string, hideIP, reportStats bool) error {
+	cfg := normalizeConfig(appConfig{
+		Server:      server,
+		Web:         web,
+		HideIP:      hideIP,
+		ReportStats: reportStats,
+		Migrated:    true,
+	})
 	if err := saveConfig(cfg); err != nil {
 		return err
 	}
