@@ -3,6 +3,16 @@ title: "Changelog"
 description: "Release history for Floe."
 ---
 
+<Update label="v1.9.1" description="2026-07-30">
+  **A self-hosting image fix. The CLI is unchanged.**
+
+  - Fixed the self-hosted web client re-encoding every image on every request instead of caching it. `/app/.next` was owned by `root` while the server runs as `node`, so the image cache could never be written. Pages rendered correctly throughout, which is why it went unnoticed: the only symptoms were wasted CPU on every request and an `EACCES` unhandled rejection in the container logs each time. This affects `1.9.0`, and `latest` as it stood before this release.
+  - To pick it up: `docker compose pull` then `docker compose up -d`. If you pinned `FLOE_IMAGE_TAG=1.9.0`, move to `1.9.1`.
+  - **The CLI is identical to v1.9.0.** It is republished only because the CLI and the container images share one version number, so a `floe` upgrade offered by Homebrew, Scoop, or winget changes nothing for you. There is no need to update it.
+  - The smoke test that every image must pass before a tag points at it now asserts that a repeat image request is served from cache. The existing checks all passed while this was broken, since the response stayed a valid WebP with a 200 status, so nothing in it revealed the problem.
+  - No transfer-protocol change, so v1.9.1 interoperates with older CLI and browser peers in every direction.
+</Update>
+
 <Update label="v1.9.0" description="2026-07-30">
   **Self-hosting without a clone, on any common hardware**
 
