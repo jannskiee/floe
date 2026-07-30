@@ -71,9 +71,16 @@ ENV PORT=3000
 WORKDIR /app
 
 # Copy only the self-contained output produced by `output: 'standalone'`.
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
+#
+# --chown matters, it is not tidiness. COPY writes as root by default, so
+# /app/.next ends up root-owned while the server runs as `node` below. Next then
+# cannot create /app/.next/cache, and every /_next/image request fails to write
+# its cache entry: the response is still a correct WebP, so nothing looks broken,
+# but the image is re-encoded on every single request and an unhandled rejection
+# is logged each time. Silent CPU burn plus log noise for every self-hoster.
+COPY --from=builder --chown=node:node /app/public ./public
+COPY --from=builder --chown=node:node /app/.next/standalone ./
+COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 
 USER node
 EXPOSE 3000
