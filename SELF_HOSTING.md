@@ -40,7 +40,7 @@ that matter most:
 
 | Variable | What it does |
 | --- | --- |
-| `FLOE_IMAGE_TAG` | Which published image tag to run. Defaults to `main`. |
+| `FLOE_IMAGE_TAG` | Which published image tag to run. Defaults to `latest`, the newest release. |
 | `NEXT_PUBLIC_SOCKET_URL` | URL the browser uses to reach your signaling server. |
 | `PORT` | Host port the server is published on. |
 | `CLIENT_PORT` | Host port the client is published on. |
