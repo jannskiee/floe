@@ -3,24 +3,20 @@ title: "Changelog"
 description: "Release history for Floe."
 ---
 
-<Update label="Self-hosting" description="2026-07-30">
-  **Self-hosting no longer needs a clone or a build**
+<Update label="v1.9.0" description="2026-07-30">
+  **Self-hosting without a clone, on any common hardware**
 
-  - Prebuilt images are published to `ghcr.io/jannskiee/floe-server` and `ghcr.io/jannskiee/floe-client`, and `docker-compose.yml` now pulls them. Getting a working instance is two commands: download the compose file, then `docker compose up -d`. No repository, no Node, no Go, nothing compiled locally. See [Container Images](/self-hosting/images).
-  - A `.env` file is now genuinely optional. Every setting has a working default.
-  - Pin a version with `FLOE_IMAGE_TAG`, or pin a digest for a build that can never move. Every published tag is verified to resolve to a digest that passed a smoke test before the tag was applied.
-  - Contributors and anyone wanting their own domain in share previews build from source with `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
-  - The published client no longer emits canonical links, Open Graph images, or sitemap entries pointing at `floe.one`. A shared image cannot know which domain it will be served from, so it now claims nothing rather than advertising somebody else's site.
-  - `linux/amd64` only for now. ARM hosts build from source.
-</Update>
-
-<Update label="ARM support" description="2026-07-30">
-  **Images now run on ARM, and both images move to Node 24 LTS**
-
-  - `linux/arm64` is published alongside `linux/amd64`, so Raspberry Pi, Oracle Ampere, AWS Graviton, and Apple silicon run the same two commands as everyone else. Docker selects the right architecture automatically.
-  - Each architecture is built and smoke-tested on its own hardware, and a tag is published only after every architecture of both images passes. A partly-built release is never visible. This matters because the image optimiser fails silently: when it cannot load, it serves the original file rather than erroring, so a broken ARM image would look healthy to anything that only checks whether the page loads.
-  - Both images move from Node 22 and Node 20 to **Node 24**, the Active LTS. The server was on a Maintenance release, which is the more meaningful half of that change.
+  - Prebuilt images are published to `ghcr.io/jannskiee/floe-server` and `ghcr.io/jannskiee/floe-client`, and `docker-compose.yml` pulls them. A working instance is two commands: download the compose file, then `docker compose up -d`. No repository, no Node, no Go, nothing compiled locally. See [Container Images](/self-hosting/images).
+  - Both images are published for **`linux/amd64` and `linux/arm64`**, so Raspberry Pi, Oracle Ampere, AWS Graviton, and Apple silicon run exactly the same two commands. Docker selects the right architecture automatically.
+  - A `.env` file is genuinely optional. Every setting has a working default.
+  - Pin a version with `FLOE_IMAGE_TAG`, or pin a digest for a build that can never move.
+  - Each architecture is built and smoke-tested on its own hardware, and a tag is published only after every architecture of both images passes, so a partly-built release is never visible. That matters because the image optimiser fails silently: when it cannot load it serves the original file rather than erroring, so a broken image would look healthy to anything that only checks whether the page loads.
+  - The published client no longer emits canonical links, Open Graph images, or sitemap entries pointing at `floe.one`. A shared image cannot know which domain it will be served from, so it claims nothing rather than advertising somebody else's site. To use your own domain, build the client with `NEXT_PUBLIC_SITE_URL` set.
+  - Contributors build from source with `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
+  - Both images move to **Node 24**, the Active LTS. The server was on Node 20, a Maintenance release.
+  - CLI: `floe version` and the help text now point at `floe.one/docs` rather than the retired `docs.floe.one`, and the WebRTC stack moves to pion 4.2.18.
   - 32-bit ARM (`linux/arm/v7`) is not published: Node dropped support for it and no prebuilt image-processing binaries exist.
+  - No transfer-protocol change, so v1.9.0 interoperates with older CLI and browser peers in every direction.
 </Update>
 
 <Update label="v1.8.0" description="2026-07-23">
