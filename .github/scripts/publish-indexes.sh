@@ -36,8 +36,20 @@ for pair in "server:$SERVER" "client:$CLIENT"; do
     done
 done
 
-mapfile -t SERVER_ARGS < <(tag_args "$TAGS_SERVER")
-mapfile -t CLIENT_ARGS < <(tag_args "$TAGS_CLIENT")
+# Captured into a variable first, deliberately. `mapfile -t X < <(f)` runs f in a
+# process substitution whose exit status set -e never observes, so a failing
+# tag_args would be silently discarded and imagetools would run with zero -t
+# arguments: a green run that published nothing. Verified: that form survives
+# with count=0.
+server_tag_args="$(tag_args "$TAGS_SERVER")"
+client_tag_args="$(tag_args "$TAGS_CLIENT")"
+mapfile -t SERVER_ARGS <<< "$server_tag_args"
+mapfile -t CLIENT_ARGS <<< "$client_tag_args"
+
+if [ "${#SERVER_ARGS[@]}" -eq 0 ] || [ "${#CLIENT_ARGS[@]}" -eq 0 ]; then
+    echo "::error::refusing to publish with an empty tag list" >&2
+    exit 1
+fi
 
 # ---- publish, with nothing between the two creates ---------------------------
 

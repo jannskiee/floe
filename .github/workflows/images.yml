@@ -16,7 +16,10 @@ on:
       - 'client/**'
       - 'server/**'
       - '.github/workflows/images.yml'
-      - '.github/scripts/smoke-image.sh'
+      # All of them, not just smoke-image.sh: the publish and verify scripts are
+      # part of this pipeline too, and a change to only those would otherwise
+      # never exercise the path it just modified.
+      - '.github/scripts/*.sh'
   workflow_dispatch:
 
 # No workflow-level grants. Each job escalates on its own.
@@ -56,6 +59,14 @@ jobs:
       matrix:
         image: [server, client]
         platform: [amd64, arm64]
+        # Decorates the existing four combinations; adds no legs.
+        include:
+          - image: server
+            title: Floe signaling server
+            description: WebRTC signaling and TURN credentials for Floe. Never touches file data.
+          - image: client
+            title: Floe web client
+            description: Browser client for Floe peer-to-peer file transfer.
 
     steps:
       - name: Checkout
@@ -88,6 +99,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Labels have to be applied HERE, at build time. They live in each
+      # platform's image config, and imagetools copies children byte for byte
+      # when it merges, so a label missing from a leg can never be added later.
+      # org.opencontainers.image.source is the one that matters: it is what links
+      # the GHCR package back to this repository.
+      - name: Metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/jannskiee/floe-${{ matrix.image }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.title }}
+            org.opencontainers.image.description=${{ matrix.description }}
+
       # Built EXACTLY ONCE per image per platform. pnpm install and next build are
       # not bit-reproducible, so any rebuild risks publishing bytes no smoke test
       # ever saw.
@@ -102,6 +127,7 @@ jobs:
         with:
           context: ./${{ matrix.image }}
           platforms: linux/${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,name=ghcr.io/jannskiee/floe-${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.platform }}
@@ -125,7 +151,7 @@ jobs:
           echo "$DIGEST" > "digests/${{ matrix.image }}-${{ matrix.platform }}"
 
       - name: Upload the digest
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: digest-${{ matrix.image }}-${{ matrix.platform }}
           path: digests/*
@@ -162,7 +188,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download the verified digests
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           # Scoped to this run by default, so a previous run's digests can never
           # be picked up.
@@ -186,9 +212,6 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=ref,event=branch
             type=sha
-          labels: |
-            org.opencontainers.image.title=Floe signaling server
-            org.opencontainers.image.description=WebRTC signaling and TURN credentials for Floe. Never touches file data.
 
       - name: Metadata (client)
         id: meta_client
@@ -200,9 +223,6 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=ref,event=branch
             type=sha
-          labels: |
-            org.opencontainers.image.title=Floe web client
-            org.opencontainers.image.description=Browser client for Floe peer-to-peer file transfer.
 
       # Every check for BOTH images runs before either tag moves. Validating one
       # image and publishing it before validating the other would put two network
