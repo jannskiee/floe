@@ -49,21 +49,19 @@ Every tag is verified to resolve to a digest that passed a smoke test before it 
 
 ## Architectures
 
-`linux/amd64` only, which covers ordinary VPS and desktop hosts.
-
-There is no `linux/arm64` image yet, so Raspberry Pi and ARM cloud instances need to build from source:
+Both images are published for **`linux/amd64`** and **`linux/arm64`**. Docker picks the right one automatically, so Raspberry Pi, Oracle Ampere, AWS Graviton, and Apple silicon all work with the same commands as anywhere else.
 
 ```bash
-git clone https://github.com/jannskiee/floe.git
-cd floe
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+docker buildx imagetools inspect ghcr.io/jannskiee/floe-client:main
 ```
 
-Building from source needs the repository, since the overlay compiles the working tree.
-
 <Note>
-  ARM is not published rather than published-and-broken on purpose. Docker selects the ARM entry automatically on Apple silicon, and the image optimiser fails at load time rather than at build time, so a broken ARM image would look healthy in CI and fail on a user's machine.
+  Each architecture is built and smoke-tested on its own hardware before any tag points at it, and a tag is only published once every architecture of both images has passed. A partly-built release is never visible.
+
+  That matters more than it sounds. The image optimiser fails at load time rather than at build time, and when it fails it does not error: it quietly serves the original file. So a broken ARM image would look perfectly healthy to anything that only checks whether the page loads. The smoke test asserts the optimiser actually returns WebP, on real ARM.
 </Note>
+
+32-bit ARM (`linux/arm/v7`, older Raspberry Pi models) is not published. Node dropped support for it and no prebuilt image-processing binaries exist.
 
 ## Building from source
 
