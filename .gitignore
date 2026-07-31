@@ -41,6 +41,12 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# --- Go workspace ---
+# go.work is tracked (local multi-module dev); its lock-ish sum file is not.
+# Release builds use GOWORK=off plus the replace in desktop/go.mod, and no CI
+# command consults go.work.sum.
+go.work.sum
+
 # --- CLI build artifacts ---
 # a bare `go build ./cli/cmd/floe` from the repo root drops the binary here
 /floe

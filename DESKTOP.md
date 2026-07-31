@@ -142,7 +142,9 @@ send and receive paths. The only remaining unbounded wait is the sender waiting 
 receiver, which is deliberate (share a link and wait) and cancellable.
 
 ### Phase 4 - Release pipeline
-- [ ] `.goreleaser.desktop.yml` plus a native-runner matrix workflow
+- [x] Release workflow: a plain `desktop-release.yml` on `desktop-v*` tags
+      (Windows-only for the beta; GoReleaser adds nothing for a Wails NSIS
+      build, and the native-runner matrix waits for the macOS/Linux era)
 - [ ] Windows signing via SignPath Foundation
 - [ ] macOS notarization (deferred until the Apple Developer account is funded)
 - [ ] Build .dmg, .exe/.msi (NSIS), and .AppImage; attach to the same release
