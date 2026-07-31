@@ -172,8 +172,11 @@ items off as they land; details live with each step's implementation.
       (2026-08-01, rehearsed end to end with a throwaway desktop-v0.0.0 tag:
       published, assets verified by download + checksum + install round-trip,
       latest pointer untouched, then deleted)
-- [ ] 3. Tag `desktop-v0.1.0` with three assets: `floe-desktop-setup-0.1.0.exe`,
-      `floe-desktop-0.1.0-windows-amd64.zip`, `SHA256SUMS.txt`
+- [x] 3. Tag `desktop-v0.1.0` with three assets: `floe-desktop-setup-0.1.0.exe`,
+      `floe-desktop-0.1.0-windows-amd64.zip`, `SHA256SUMS.txt` (RELEASED
+      2026-08-01: checksums verified from a fresh download, the released
+      installer round-tripped, and a real CLI-to-desktop transfer ran through
+      production signaling on the shipped binary; latest pointer untouched)
 - [ ] 4. floe.one download page that links to the GitHub release (never hosts the
       binary; never uses the releases/latest permalink, which resolves to the CLI)
 - [ ] 5. Docs page: SmartScreen click-through with screenshots, checksum
