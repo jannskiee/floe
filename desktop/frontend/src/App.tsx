@@ -1515,10 +1515,7 @@ function App() {
                                                 <span className={rowLabelClass}>Server</span>
                                                 <span className={rowDescClass}>{advSummary}</span>
                                             </span>
-                                            <span className="flex shrink-0 items-center gap-2">
-                                                {usingCustomServer && <StatusDot className="bg-ice"/>}
-                                                <ChevronDown className={cn('size-4 text-zinc-500 transition-transform duration-200 motion-reduce:transition-none', advExpanded && 'rotate-180')}/>
-                                            </span>
+                                            <ChevronDown className={cn('size-4 shrink-0 text-zinc-500 transition-transform duration-200 motion-reduce:transition-none', advExpanded && 'rotate-180')}/>
                                         </button>
 
                                         {/* The animated collapse: grid-rows 0fr/1fr plus visibility.
@@ -1592,9 +1589,9 @@ function App() {
                                                     </SettingField>
                                                     {usingCustomServer && (
                                                         <div className="flex items-center justify-between gap-4 px-3.5 py-2.5 animate-floe-in motion-reduce:animate-none">
-                                                            <span className="text-xs leading-4 text-zinc-500">This clears both addresses and puts you back on Floe's server.</span>
+                                                            <span className="text-xs leading-4 text-zinc-500">This removes both addresses and returns the app to api.floe.one.</span>
                                                             <Button variant="outline" className="h-7 shrink-0 text-xs" onClick={useFloeServer}>
-                                                                Use Floe's server
+                                                                Use default server
                                                             </Button>
                                                         </div>
                                                     )}
@@ -1634,14 +1631,16 @@ function App() {
                                         </div>
                                         {/* The permanent record of which server this app is on. It lives here,
                                             in a section that can never be collapsed, so that collapsing
-                                            Advanced can never hide the fact that a custom server is set. */}
+                                            Advanced can never hide the fact that a custom server is set.
+                                            This row and the Advanced summary sentence are now the only two
+                                            places that report it: an accent dot used to sit here and on the
+                                            disclosure row, and both were removed deliberately. If a signal
+                                            is ever wanted again, prefer words over a coloured mark, which
+                                            carries nothing on its own for anyone who cannot see it. */}
                                         <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
                                             <span className={aboutLabelClass}>Server</span>
-                                            <span className="flex min-w-0 items-center justify-end gap-2">
-                                                {usingCustomServer && <StatusDot className="bg-ice"/>}
-                                                <span className="min-w-0 break-all text-right font-mono text-xs text-zinc-300">
-                                                    {usingCustomServer ? hostOf(serverAddr) : 'api.floe.one (default)'}
-                                                </span>
+                                            <span className="min-w-0 break-all text-right font-mono text-xs text-zinc-300">
+                                                {usingCustomServer ? hostOf(serverAddr) : 'api.floe.one (default)'}
                                             </span>
                                         </div>
                                         {usingCustomWeb && (
