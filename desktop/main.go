@@ -2,10 +2,13 @@ package main
 
 import (
 	"embed"
+	"os"
+	"path/filepath"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
 
 //go:embed all:frontend/dist
@@ -19,8 +22,21 @@ func main() {
 	// Create an instance of the app structure
 	app := NewApp()
 
+	// Pin the WebView2 profile to a path that does not depend on the exe name,
+	// adopting the profile from the historical %APPDATA%\<exe>.exe locations on
+	// first run so history and settings carry over.
+	webviewData := webviewDataPath()
+	if appData := os.Getenv("APPDATA"); appData != "" {
+		migrateWebviewProfile(webviewData,
+			filepath.Join(appData, "floe-desktop.exe"),
+			filepath.Join(appData, "desktop.exe"))
+	}
+
 	// Create application with options
 	err := wails.Run(&options.App{
+		Windows: &windows.Options{
+			WebviewUserDataPath: webviewData,
+		},
 		Title:     "Floe",
 		Width:     1140,
 		Height:    720,

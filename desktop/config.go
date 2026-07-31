@@ -11,12 +11,15 @@ import (
 
 // appConfig is every persisted setting the app keeps outside the WebView.
 //
-// It lives in a Go-owned file rather than localStorage because the WebView2
-// profile is keyed to the executable's basename, and this binary ships under two
-// names (wails.json builds desktop.exe; the installer lays it down as
-// floe-desktop.exe). A value stored in localStorage would silently revert to the
-// Floe defaults when the user moved between those builds, and because ice.Fetch
-// fails open nothing would report the fallback.
+// It lives in a Go-owned file rather than localStorage because settings must
+// survive the webview profile. Historically the binary shipped under two names
+// (desktop.exe from wails build, floe-desktop.exe from the installer) and the
+// profile was keyed to the exe basename, so localStorage values silently
+// reverted to the Floe defaults when the user moved between builds, and because
+// ice.Fetch fails open nothing would report the fallback. The name is unified
+// and the profile pinned now (webviewDataPath), but the Go-owned file keeps two
+// properties localStorage cannot offer: atomic writes, and readability before
+// the webview exists.
 //
 // That reasoning was written for the server addresses but applies just as much to
 // the preference toggles, which is why they moved here too. History and the save
@@ -50,6 +53,49 @@ func configPath() string {
 		return ""
 	}
 	return filepath.Join(dir, "floe", "desktop.json")
+}
+
+// webviewDataPath returns the pinned WebView2 user-data directory, or "" if the
+// OS config directory cannot be determined ("" makes Wails fall back to its
+// default; a non-empty invalid path would be a message box and exit instead).
+//
+// Pinning matters: without it the profile lands in %APPDATA%\<exe basename>, so
+// renaming or moving the executable orphans everything in localStorage (history,
+// the save folder, the context-menu choice marker). Pinned, the portable build
+// can live anywhere under any name and keep its state.
+func webviewDataPath() string {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "floe", "webview")
+}
+
+// migrateWebviewProfile adopts a profile from the old exe-basename location the
+// first time the pinned path is used, so history and settings survive the
+// switch. Best-effort: runs before the webview exists (no locks yet), first
+// come wins, and any failure just means starting with a fresh profile.
+func migrateWebviewProfile(newPath string, oldPaths ...string) {
+	if newPath == "" {
+		return
+	}
+	if _, err := os.Stat(newPath); err == nil || !errors.Is(err, os.ErrNotExist) {
+		return // already exists (or unknowable): never overwrite
+	}
+	for _, old := range oldPaths {
+		if old == "" {
+			continue
+		}
+		if info, err := os.Stat(old); err != nil || !info.IsDir() {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(newPath), 0o755); err != nil {
+			return
+		}
+		if os.Rename(old, newPath) == nil {
+			return
+		}
+	}
 }
 
 // loadConfig reads the settings file, falling back to defaults on any problem.

@@ -932,10 +932,11 @@ function App() {
         EngineProtocolVersion().then(setProto).catch(() => {});
     }, []);
 
-    // Settings live in a Go-owned file, not localStorage, so they survive the app
-    // being installed under a different executable name: the WebView2 profile is
-    // keyed to the executable's basename, and this binary ships as both
-    // desktop.exe and floe-desktop.exe. Pulled once, the same way the About rows are.
+    // Settings live in a Go-owned file, not localStorage, so they survive the
+    // webview profile. The profile is pinned to a stable path now (it used to be
+    // keyed to the exe basename, which is how these toggles got stranded when the
+    // binary shipped under two names), but the Go file also gives atomic writes
+    // and pre-webview readability. Pulled once, the same way the About rows are.
     //
     // The toggles used to live in localStorage and are imported here exactly once.
     // `migrated` is what makes that safe in both directions: Go's zero value for a

@@ -3,5 +3,4 @@ node_modules
 frontend/dist
 
 # stray `go build` output (use `wails build` -> build/bin instead)
-/desktop.exe
 *.exe

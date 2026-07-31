@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -215,4 +216,78 @@ func TestResetWritesDefaults(t *testing.T) {
 	if got.ReportStats != true {
 		t.Error("reset left stats opted out; true is the shipped default and the Go zero value is the wrong answer here")
 	}
+}
+
+func TestWebviewDataPathIsStable(t *testing.T) {
+	p := webviewDataPath()
+	if p == "" {
+		t.Skip("no user config dir on this system")
+	}
+	if filepath.Base(p) != "webview" || filepath.Base(filepath.Dir(p)) != "floe" {
+		t.Errorf("webviewDataPath() = %q, want .../floe/webview", p)
+	}
+	if p != webviewDataPath() {
+		t.Error("webviewDataPath is not deterministic")
+	}
+}
+
+func TestMigrateWebviewProfileAdoptsOldDir(t *testing.T) {
+	root := t.TempDir()
+	old := filepath.Join(root, "floe-desktop.exe")
+	if err := os.MkdirAll(filepath.Join(old, "EBWebView"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(old, "EBWebView", "marker.txt")
+	if err := os.WriteFile(marker, []byte("history"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	newPath := filepath.Join(root, "floe", "webview")
+	migrateWebviewProfile(newPath, filepath.Join(root, "missing"), old)
+
+	got, err := os.ReadFile(filepath.Join(newPath, "EBWebView", "marker.txt"))
+	if err != nil {
+		t.Fatalf("profile was not adopted: %v", err)
+	}
+	if string(got) != "history" {
+		t.Errorf("marker = %q, want %q", got, "history")
+	}
+	if _, err := os.Stat(old); !errors.Is(err, os.ErrNotExist) {
+		t.Error("old profile dir should have been renamed away")
+	}
+}
+
+func TestMigrateWebviewProfileNeverOverwrites(t *testing.T) {
+	root := t.TempDir()
+	newPath := filepath.Join(root, "webview")
+	if err := os.MkdirAll(newPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(newPath, "keep.txt"), []byte("pinned"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(root, "desktop.exe")
+	if err := os.MkdirAll(old, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	migrateWebviewProfile(newPath, old)
+
+	if _, err := os.Stat(old); err != nil {
+		t.Error("existing pinned profile must win; the old dir should be untouched")
+	}
+	if _, err := os.Stat(filepath.Join(newPath, "keep.txt")); err != nil {
+		t.Error("pinned profile contents were disturbed")
+	}
+}
+
+func TestMigrateWebviewProfileHandlesNothingToDo(t *testing.T) {
+	root := t.TempDir()
+	// No old dirs at all: must not create the new path or panic.
+	newPath := filepath.Join(root, "webview")
+	migrateWebviewProfile(newPath, filepath.Join(root, "a"), "", filepath.Join(root, "b"))
+	if _, err := os.Stat(newPath); !errors.Is(err, os.ErrNotExist) {
+		t.Error("nothing to migrate should create nothing")
+	}
+	migrateWebviewProfile("", filepath.Join(root, "a")) // "" target is a no-op
 }
