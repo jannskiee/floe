@@ -1871,7 +1871,7 @@ function App() {
                                                 placeholder="amber-otter-cloud"
                                                 value={code}
                                                 onChange={(e) => setCode(e.target.value)}
-                                                onKeyDown={(e) => { if (e.key === 'Enter' && !receiving && code.trim()) receive(); }}
+                                                onKeyDown={(e) => { if (e.key === 'Enter' && !busy && code.trim()) receive(); }}
                                                 disabled={receiving}
                                                 autoFocus
                                                 autoComplete="off"
