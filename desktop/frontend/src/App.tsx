@@ -45,7 +45,7 @@ import {
 } from 'lucide-react';
 import QRCode from 'react-qr-code';
 import {BoltMark, Button, Eyebrow, Input, StatusDot, cn} from './components/ui';
-import {advancedSummary, hostOf, isDefaultSettings} from './settings';
+import {advancedSummary, hostOf} from './settings';
 import TitleBar from './components/TitleBar';
 import FileIcon from './components/FileIcon';
 import {Tooltip} from './components/Tooltip';
@@ -1364,10 +1364,6 @@ function App() {
     // Three states, not two. See settings.ts and its test.
     const advSummary = advancedSummary(serverAddr, webAddr);
 
-    // Drives the Reset caption only. The trigger itself is never disabled: the
-    // action is idempotent, the dialog is the speed bump, and greying out the last
-    // control on the screen is a poor look on the clean install most people have.
-    const atDefaults = isDefaultSettings({saveDir: output, hideIP, reportStats, server: serverAddr, web: webAddr});
 
     return (
         <div className="flex h-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100 selection:bg-ice/20">
@@ -1392,7 +1388,24 @@ function App() {
                                     </button>
                                 </Tooltip>
                                 <h2 className="text-base font-semibold tracking-tight text-white">Settings</h2>
+                                {/* Screen-scoped action, in the same quiet mono idiom as the
+                                    History Clear control. It sits in the header rather than in a
+                                    section of its own because it acts on the whole screen, and a
+                                    whole card for one button read as heavier than what it does.
+                                    align="end" keeps the bubble on the panel edge. */}
+                                <Tooltip label="Reset all settings" align="end" className="ml-auto">
+                                    <button
+                                        id="floe-reset-trigger"
+                                        onClick={() => { setResetDone(''); setResetErr(''); setConfirmDefaults(true); }}
+                                        className="rounded px-1 py-0.5 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-600 transition-colors hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice/60"
+                                    >
+                                        Reset
+                                    </button>
+                                </Tooltip>
                             </div>
+                            {/* Zero height. Sighted users watch the rows change by themselves;
+                                this exists so screen readers are not left with silence. */}
+                            <span className="sr-only" role="status" aria-live="polite">{resetDone}</span>
 
                             <div className="mt-6 space-y-6">
                                 <section className="space-y-2">
@@ -1638,35 +1651,6 @@ function App() {
                                     </div>
                                 </section>
 
-                                {/* Last, after About. The eyebrow column is this screen's only
-                                    index, and "Reset" is the only word in it that answers "how do
-                                    I put this back". The row is the same caption-plus-small-button
-                                    shape as the Advanced reset and the About copy row, so it
-                                    introduces no new vocabulary. */}
-                                <section className="space-y-2">
-                                    <Eyebrow as="h3">Reset</Eyebrow>
-                                    <div className={cardClass}>
-                                        <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
-                                            <span className="text-xs leading-4 text-zinc-500">
-                                                {atDefaults
-                                                    ? 'Your save folder, privacy and server settings are already at their defaults.'
-                                                    : 'This puts your save folder, privacy and server settings back to the way Floe shipped.'}
-                                            </span>
-                                            <Button
-                                                id="floe-reset-trigger"
-                                                variant="outline"
-                                                className="h-7 shrink-0 text-xs"
-                                                onClick={() => { setResetDone(''); setResetErr(''); setConfirmDefaults(true); }}
-                                            >
-                                                Reset all settings
-                                            </Button>
-                                        </div>
-                                    </div>
-                                    {/* Zero height. Sighted users watch the rows above change by
-                                        themselves; this exists so screen readers are not left with
-                                        silence after the dialog closes. */}
-                                    <span className="sr-only" role="status" aria-live="polite">{resetDone}</span>
-                                </section>
                             </div>
                         </div>
                     </div>
