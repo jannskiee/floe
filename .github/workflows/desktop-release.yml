@@ -210,6 +210,7 @@ jobs:
             echo "  \"unknown publisher\" warning: choose \"More info\", then \"Run anyway\"."
             echo "- Verify a download with \`sha256sum -c SHA256SUMS.txt\` or"
             echo "  \`Get-FileHash\` against SHA256SUMS.txt."
+            echo "- Found a bug? Report it: https://github.com/jannskiee/floe/issues"
           } > "$notes_file"
           prerelease_flag=""
           case "$v" in
