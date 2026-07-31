@@ -25,14 +25,16 @@ the same Go transfer engine as the CLI and the same visual design as the web app
    `go install github.com/jannskiee/floe/cli/cmd/floe@latest`. Keeping the engine
    in the `cli` module preserves `go install` with zero go.mod churn. The desktop
    app depends on the `cli` module and imports `cli/engine/...`.
-4. **Monorepo.** Browser, server, CLI, and desktop stay in one repo. One
-   `vX.Y.Z` tag releases the CLI plus the desktop. The desktop needs native OS
-   runners (macOS, Windows, Linux) because Wails cannot cross compile, unlike the
-   pure Go CLI.
+4. **Monorepo.** Browser, server, CLI, and desktop stay in one repo. The desktop
+   releases on its own `desktop-vX.Y.Z` tag series, separate from the CLI's
+   `vX.Y.Z` tags, because release.yml fires GoReleaser on any `v*` tag and a
+   shared tag would republish the CLI on every desktop release. The desktop
+   needs native OS runners (macOS, Windows, Linux) because Wails cannot cross
+   compile, unlike the pure Go CLI.
 5. **Protocol version source of truth** is `cli/engine/transfer/protocol.go`,
    mirrored once in `client/lib/transfer/protocol.ts`.
 
-## Repo layout (target)
+## Repo layout
 
 ```
 cli/
@@ -45,11 +47,11 @@ cli/
     code/              short room-code register and resolve
   internal/
     selfupdate/        CLI-only self updater (stays private)
-desktop/               Wails app (to be created): imports cli/engine/...
+desktop/               Wails app: imports cli/engine/...
   frontend/            web UI (shared design with client/)
   app.go               Go methods bound to the UI
   main.go              Wails bootstrap
-go.work                ties cli + desktop for local dev (to be added)
+go.work                ties cli + desktop for local dev
 ```
 
 ## Phases
@@ -65,7 +67,8 @@ go.work                ties cli + desktop for local dev (to be added)
 - [x] Scaffold the Wails app in `desktop/`, depending on the `cli` module
 - [x] Add `go.work` (use ./cli and ./desktop) plus a replace in desktop/go.mod
 - [x] Bind a minimal "receive by code" Go method that uses the engine (`ReceiveByCode`)
-- [x] Full app builds: `wails build` produces a 16.5 MB `desktop.exe`, engine linked
+- [x] Full app builds: `wails build` produces a 16.5 MB exe (`desktop.exe` then,
+      renamed `floe-desktop.exe` for release), engine linked
 - [x] Proved interop: desktop received files sent from floe.one (browser) AND the `floe` CLI
 
 ### Phase 2 - Real app  [IN PROGRESS]
@@ -118,7 +121,9 @@ verify the connection independently of the server.
 
 **3d - Quick wins**
 - [x] Dedupe/expand `server/words.json` (was 275 unique with 13 dupes; now 288 unique)
-- [x] Shorten TURN credential TTL (24h -> 2h)
+- [~] Shorten TURN credential TTL (24h -> 2h; REVERTED to 24h 2026-07-31: senders
+      fetch ICE before an unbounded share-link wait and nothing refreshes, so the
+      credential must outlive the wait, not the transfer)
 - [x] "Hide my IP" mode: engine (`peer.WithRelayOnly()` -> `iceTransportPolicy: 'relay'`), desktop
       (checkbox), and browser sender toggle. Follow-up: a receiver-side toggle in the browser.
 
@@ -129,11 +134,12 @@ verify the connection independently of the server.
 - [x] Client CVEs: overrides live in `client/pnpm-workspace.yaml`; `corepack pnpm audit`
       (prod + full) reports "No known vulnerabilities found."
 
-**Open robustness gap (found 2026-07-04):** desktop `runSend` / `ReceiveByCode` (`app.go`)
-block indefinitely on peer-connect and WebRTC setup with NO timeout and NO cancel, so a
-wrong code / firewalled peer spins the UI forever (the CLI user can Ctrl+C; a desktop user
-cannot). Add a connection timeout + a bound `Cancel()` that closes the signaling/peer conn.
-Needs no context refactor (closing `sc`/`conn` unblocks the reads).
+**Robustness gap (found 2026-07-04)  [RESOLVED 2026-07]:** desktop `runSend` /
+`ReceiveByCode` used to block indefinitely on peer-connect and WebRTC setup with no
+timeout and no cancel. Fixed since: `CancelTransfer` (app.go) closes the signaling and
+peer connections to unblock both flows, and role selection carries a 20s timeout on the
+send and receive paths. The only remaining unbounded wait is the sender waiting for a
+receiver, which is deliberate (share a link and wait) and cancellable.
 
 ### Phase 4 - Release pipeline
 - [ ] `.goreleaser.desktop.yml` plus a native-runner matrix workflow
@@ -146,6 +152,34 @@ Needs no context refactor (closing `sc`/`conn` unblocks the reads).
 - [ ] Flathub, .deb/.rpm
 - [ ] Microsoft Store (free, unpackaged Win32)
 - [ ] Docs page and homepage download buttons
+
+## Release plan (0.1.0 beta)
+
+The verified order for the first public desktop release (research + independent
+checks, 2026-07-31). Windows-only beta at 0.1.0, then 1.0.0 when stable. Tick
+items off as they land; details live with each step's implementation.
+
+- [ ] 1. Pre-tag fixes: one exe name (`floe-desktop`), product info block in
+      wails.json, per-user NSIS install (no UAC prompt), uninstaller deletes the
+      context-menu HKCU key, pinned WebView2 profile path
+- [ ] 2. Desktop release workflow: fires on `desktop-v*` tags only, installs NSIS
+      on the runner, injects the version via ldflags, publishes with the
+      pre-release flag during 0.x and `make_latest: false` permanently (the
+      back-compat job, install scripts, and `floe update` all resolve "latest")
+- [ ] 3. Tag `desktop-v0.1.0` with three assets: `floe-desktop-setup-0.1.0.exe`,
+      `floe-desktop-0.1.0-windows-amd64.zip`, `SHA256SUMS.txt`
+- [ ] 4. floe.one download page that links to the GitHub release (never hosts the
+      binary; never uses the releases/latest permalink, which resolves to the CLI)
+- [ ] 5. Docs page: SmartScreen click-through with screenshots, checksum
+      verification, note that Smart App Control machines cannot run unsigned apps
+- [ ] 6. Every release: submit the exe to Microsoft's false-positive form, link a
+      VirusTotal scan, never UPX-pack
+- [ ] 7. Signing: follow up SignPath Foundation (pending since 2026-07-20); wire
+      it in immediately if approved, buy Certum Open Source within days if
+      rejected. 1.0.0 ships signed.
+- [ ] 8. After the beta settles: winget entry, passive in-app update check,
+      Microsoft Store MSIX at 1.0 (free registration, Microsoft signs, no
+      SmartScreen)
 
 ## Feature roadmap (what makes it best in class)
 
