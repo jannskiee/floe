@@ -111,7 +111,12 @@ function generateCoturnCredentials() {
     const turnDomain = process.env.TURN_DOMAIN;
     if (!turnSecret || !turnDomain) return null;
 
-    const ttl = 2 * 3600; // 2h: ample for any transfer, but limits reuse of a leaked credential vs the old 24h
+    // 24h, matching CF_TURN_TTL below. Do not shorten: every sender fetches ICE
+    // credentials BEFORE its wait for a peer, that wait is intentionally
+    // unbounded (share a link, wait for hours), and no surface ever refreshes
+    // the list. A shorter TTL silently kills relayed transfers for any receiver
+    // who opens the link after the credentials expire.
+    const ttl = 24 * 3600;
     const expiry = Math.floor(Date.now() / 1000) + ttl;
     const username = `${expiry}:floeuser`;
     const password = crypto.createHmac('sha1', turnSecret).update(username).digest('base64');
