@@ -175,3 +175,44 @@ func TestUnmigratedConfigIsDetectable(t *testing.T) {
 		t.Error("a saved config lost its Migrated flag, so the import would run again")
 	}
 }
+
+// TestResetWritesDefaults simulates what "Reset all settings" puts on disk.
+//
+// The frontend calls SetSettings("", "", false, true), which normalizes and
+// writes exactly this record. The invariant worth pinning is Migrated: if a reset
+// ever wrote it false, the next launch would re-run the one-time localStorage
+// import and resurrect the very values the user just cleared.
+func TestResetWritesDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "floe", "desktop.json")
+
+	// A thoroughly customised install: both addresses set, both toggles flipped
+	// away from their defaults.
+	custom := appConfig{
+		Server:      "https://files.example.com",
+		Web:         "https://app.example.com",
+		HideIP:      true,
+		ReportStats: false,
+		Migrated:    true,
+	}
+	if err := saveConfigTo(path, custom); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Exactly what SetSettings("", "", false, true) constructs.
+	reset := normalizeConfig(appConfig{Server: "", Web: "", HideIP: false, ReportStats: true, Migrated: true})
+	if err := saveConfigTo(path, reset); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+
+	got := loadConfigFrom(path)
+	want := appConfig{Server: "", Web: "", HideIP: false, ReportStats: true, Migrated: true}
+	if got != want {
+		t.Errorf("after reset config = %+v, want %+v", got, want)
+	}
+	if !got.Migrated {
+		t.Error("reset cleared Migrated, so the next launch would re-import the old values from localStorage")
+	}
+	if got.ReportStats != true {
+		t.Error("reset left stats opted out; true is the shipped default and the Go zero value is the wrong answer here")
+	}
+}

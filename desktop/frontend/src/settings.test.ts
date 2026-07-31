@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {advancedSummary, hostOf} from './settings';
+import {advancedSummary, hostOf, isDefaultSettings} from './settings';
 
 describe('hostOf', () => {
     it('reduces a full address to its host', () => {
@@ -66,5 +66,39 @@ describe('advancedSummary', () => {
         ]) {
             expect(s).not.toContain('—');
         }
+    });
+});
+
+describe('isDefaultSettings', () => {
+    const defaults = {saveDir: '', hideIP: false, reportStats: true, server: '', web: ''};
+
+    it('reports a fresh install as default', () => {
+        expect(isDefaultSettings(defaults)).toBe(true);
+    });
+
+    // The regression guard. Every consumer trims before use, so a folder of
+    // spaces IS the default; reporting it as customised would make the Reset
+    // caption claim there is something to undo when there is not.
+    it('treats a whitespace-only save folder as default', () => {
+        expect(isDefaultSettings({...defaults, saveDir: '   '})).toBe(true);
+        expect(isDefaultSettings({...defaults, server: '  '})).toBe(true);
+        expect(isDefaultSettings({...defaults, web: '\t'})).toBe(true);
+    });
+
+    // Each field on its own must be enough to flip it, or the caption and the
+    // dialog would disagree with the screen for that one setting.
+    it('detects each setting individually', () => {
+        expect(isDefaultSettings({...defaults, saveDir: 'C:\\Users\\Admin\\Desktop\\supoclip'})).toBe(false);
+        expect(isDefaultSettings({...defaults, hideIP: true})).toBe(false);
+        expect(isDefaultSettings({...defaults, reportStats: false})).toBe(false);
+        expect(isDefaultSettings({...defaults, server: 'https://files.example.com'})).toBe(false);
+        expect(isDefaultSettings({...defaults, web: 'https://app.example.com'})).toBe(false);
+    });
+
+    // reportStats defaults to TRUE, so its "changed" direction is the opposite of
+    // every other boolean here. Worth pinning explicitly.
+    it('treats stats ON as the default and OFF as a change', () => {
+        expect(isDefaultSettings({...defaults, reportStats: true})).toBe(true);
+        expect(isDefaultSettings({...defaults, reportStats: false})).toBe(false);
     });
 });

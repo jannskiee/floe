@@ -37,6 +37,12 @@ what is still missing.
   and the web app; when a split setup needs this field.
 - **Transfer protocol.** Compatibility is a range overlap, not an exact match, and the check runs
   before any file data moves.
+- **Reset all settings, what it covers.** It restores the save folder, both privacy switches and
+  the two server addresses. It leaves the transfer history, the files already received, and the
+  Windows right-click menu alone. The right-click exclusion is deliberate and should not be
+  "fixed": that entry is registry state, enabling it writes the running executable's path, and
+  clearing its marker without re-registering would make the app write the registry silently on the
+  next launch. See the comment on resetAllSettings in App.tsx.
 
 ## Live Development
 

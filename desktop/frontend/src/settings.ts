@@ -46,3 +46,29 @@ export function advancedSummary(server: string, web: string): string {
     }
     return "This app uses Floe's server. You can point it at your own instead.";
 }
+
+/** isDefaultSettings reports whether every setting the Reset section writes is
+ *  already at the value Floe ships with.
+ *
+ *  It trims. The app already treats a whitespace-only value as blank everywhere
+ *  it is consumed: ReceiveByCode is handed output.trim(), saveSettings sends both
+ *  addresses trimmed, and Go trims again in normalizeConfig. A folder of spaces is
+ *  therefore the default, and reporting it as a custom value would be the one
+ *  place in the app that disagreed.
+ *
+ *  Deliberately does NOT consider the Windows right-click menu. That entry is
+ *  registry state rather than a setting this reset writes, and the confirm dialog
+ *  says so. See resetAllSettings in App.tsx. */
+export function isDefaultSettings(s: {
+    saveDir: string;
+    hideIP: boolean;
+    reportStats: boolean;
+    server: string;
+    web: string;
+}): boolean {
+    return s.saveDir.trim() === ''
+        && !s.hideIP
+        && s.reportStats
+        && s.server.trim() === ''
+        && s.web.trim() === '';
+}

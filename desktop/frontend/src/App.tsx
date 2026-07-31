@@ -45,7 +45,7 @@ import {
 } from 'lucide-react';
 import QRCode from 'react-qr-code';
 import {BoltMark, Button, Eyebrow, Input, StatusDot, cn} from './components/ui';
-import {advancedSummary, hostOf} from './settings';
+import {advancedSummary, hostOf, isDefaultSettings} from './settings';
 import TitleBar from './components/TitleBar';
 import FileIcon from './components/FileIcon';
 import {Tooltip} from './components/Tooltip';
@@ -551,6 +551,19 @@ function App() {
     const [settingsOpen, setSettingsOpen] = useState(false);
     // Whether the "start over while transferring?" confirm overlay is showing.
     const [confirmReset, setConfirmReset] = useState(false);
+    // Whether the "reset all settings?" confirm overlay is showing. Deliberately
+    // NOT named confirmReset: that one guards Start over, which clears the
+    // transfer UI and keeps every preference. This one is the opposite.
+    const [confirmDefaults, setConfirmDefaults] = useState(false);
+    // Failure text, rendered inside the open dialog. It cannot borrow testStatus,
+    // which lives in the Advanced section: that section is usually collapsed and
+    // below the fold, so a failed reset would report itself somewhere hidden,
+    // beside a button nobody pressed.
+    const [resetErr, setResetErr] = useState('');
+    // Success announcement for the zero-height live region under the Reset card.
+    // Sighted users see the rows change by themselves, so this exists for screen
+    // readers, which otherwise get silence.
+    const [resetDone, setResetDone] = useState('');
     // Seeded from the key this used to live in, then replaced by the Go-owned
     // record on mount. See the GetSettings effect for why both steps exist.
     const [hideIP, setHideIP] = useState(() => localStorage.getItem('floe:hideIP') === '1');
@@ -765,6 +778,57 @@ function App() {
         await saveSettings();
     }
 
+    // Puts every setting this screen owns back to the value Floe ships with.
+    //
+    // Writes FIRST, then updates React state, so a failed write leaves the screen
+    // showing what is actually still on disk. There is nothing to roll back.
+    //
+    // Calls SetSettings with explicit literals rather than going through
+    // saveSettings(), which reads serverAddrRef and friends. Those refs are
+    // assigned during render, so calling it in the same tick as setServerAddr('')
+    // would persist the values being cleared. The refs are updated by hand here
+    // for the same reason.
+    //
+    // It deliberately does NOT call EnableContextMenu. The Windows right-click
+    // entry is registry state, not a setting this screen owns: enabling it writes
+    // the running executable's path (and this binary ships under two names), and
+    // clearing the 'floe:ctx-menu' marker alone would make the auto-enable branch
+    // in the mount effect write the registry silently on the NEXT launch. Touch
+    // both or neither, and the answer is neither. The dialog says so out loud.
+    // Do not "fix" this by wiring the context menu in.
+    async function resetAllSettings() {
+        setResetErr('');
+        try {
+            await SetSettings('', '', false, true);
+        } catch (e) {
+            setResetErr('Error: could not save settings. ' + e);
+            return;
+        }
+        setServerAddr('');
+        setWebAddr('');
+        setHideIP(false);
+        setReportStats(true);
+        setOutput('');
+        setTestStatus('');
+        serverAddrRef.current = '';
+        webAddrRef.current = '';
+        setConfirmDefaults(false);
+        setResetDone('Settings are back to their defaults.');
+        focusResetTrigger();
+    }
+
+    // Returns focus to the trigger after the dialog closes, so a keyboard user is
+    // not dropped at the top of the document. The trigger is never unmounted, so
+    // this always has somewhere to land.
+    //
+    // Looked up by id rather than by ref because Button is a plain React 18
+    // function component shared with the transfer screen: accepting a ref would
+    // mean wrapping it in forwardRef, and this is not worth widening that surface.
+    // The rAF waits for the dialog to unmount before moving focus.
+    function focusResetTrigger() {
+        requestAnimationFrame(() => document.getElementById('floe-reset-trigger')?.focus());
+    }
+
     useEffect(() => {
         EventsOn('send:code', (data: {code: string; link: string}) => {
             if (sendCancel.current) return;
@@ -894,10 +958,20 @@ function App() {
     useEffect(() => { localStorage.setItem('floe:history', JSON.stringify(history)); }, [history]);
     useEffect(() => { localStorage.setItem('floe:saveDir', output); }, [output]);
 
-    // Collapsing Advanced is a per-visit choice, so forget it when Settings closes.
-    // Reopening Settings with a custom server configured always shows the fields
-    // again, which is what makes "set it and forget it" structurally hard to do.
-    useEffect(() => { if (!settingsOpen) setAdvOpen(null); }, [settingsOpen]);
+    // Per-visit settings-screen state, forgotten when Settings closes by ANY route.
+    // Collapsing Advanced is a per-visit choice, so reopening Settings with a
+    // custom server configured always shows the fields again, which is what makes
+    // "set it and forget it" structurally hard to do. The reset dialog and its
+    // messages ride along here rather than being cleared at each exit point,
+    // because doReset, addFiles and the history shortcut all close Settings
+    // directly and would each need their own line otherwise.
+    useEffect(() => {
+        if (settingsOpen) return;
+        setAdvOpen(null);
+        setConfirmDefaults(false);
+        setResetErr('');
+        setResetDone('');
+    }, [settingsOpen]);
 
     // Flush the addresses whenever Settings closes, by any route.
     //
@@ -917,17 +991,23 @@ function App() {
     // Leaving the history view abandons a pending Clear confirmation.
     useEffect(() => { if (mode !== 'history') setConfirmClear(false); }, [mode]);
 
-    // Escape dismisses the confirm overlay first, else the settings screen.
+    // Escape dismisses whichever overlay is on top, else the settings screen.
+    //
+    // The branch order matches the paint order below: Start over renders last and
+    // so sits on top, and it is dismissed first. No guard is needed for
+    // confirmDefaults, because its trigger only exists inside the settingsOpen
+    // branch, so confirmDefaults implies settingsOpen.
     useEffect(() => {
         if (!settingsOpen && !confirmReset) return;
         const onKey = (e: KeyboardEvent) => {
             if (e.key !== 'Escape') return;
             if (confirmReset) setConfirmReset(false);
+            else if (confirmDefaults) { setConfirmDefaults(false); focusResetTrigger(); }
             else setSettingsOpen(false);
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [settingsOpen, confirmReset]);
+    }, [settingsOpen, confirmReset, confirmDefaults]);
 
     // Ctrl/Cmd+R starts over (muscle memory for "reload"). preventDefault stops
     // WebView2 from doing a real reload, which would orphan a running transfer.
@@ -1284,6 +1364,11 @@ function App() {
     // Three states, not two. See settings.ts and its test.
     const advSummary = advancedSummary(serverAddr, webAddr);
 
+    // Drives the Reset caption only. The trigger itself is never disabled: the
+    // action is idempotent, the dialog is the speed bump, and greying out the last
+    // control on the screen is a poor look on the clean install most people have.
+    const atDefaults = isDefaultSettings({saveDir: output, hideIP, reportStats, server: serverAddr, web: webAddr});
+
     return (
         <div className="flex h-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100 selection:bg-ice/20">
             <TitleBar onSettings={() => setSettingsOpen((o) => !o)} settingsActive={settingsOpen} onStartOver={startOver}/>
@@ -1551,6 +1636,36 @@ function App() {
                                             </Button>
                                         </div>
                                     </div>
+                                </section>
+
+                                {/* Last, after About. The eyebrow column is this screen's only
+                                    index, and "Reset" is the only word in it that answers "how do
+                                    I put this back". The row is the same caption-plus-small-button
+                                    shape as the Advanced reset and the About copy row, so it
+                                    introduces no new vocabulary. */}
+                                <section className="space-y-2">
+                                    <Eyebrow as="h3">Reset</Eyebrow>
+                                    <div className={cardClass}>
+                                        <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
+                                            <span className="text-xs leading-4 text-zinc-500">
+                                                {atDefaults
+                                                    ? 'Your save folder, privacy and server settings are already at their defaults.'
+                                                    : 'This puts your save folder, privacy and server settings back to the way Floe shipped.'}
+                                            </span>
+                                            <Button
+                                                id="floe-reset-trigger"
+                                                variant="outline"
+                                                className="h-7 shrink-0 text-xs"
+                                                onClick={() => { setResetDone(''); setResetErr(''); setConfirmDefaults(true); }}
+                                            >
+                                                Reset all settings
+                                            </Button>
+                                        </div>
+                                    </div>
+                                    {/* Zero height. Sighted users watch the rows above change by
+                                        themselves; this exists so screen readers are not left with
+                                        silence after the dialog closes. */}
+                                    <span className="sr-only" role="status" aria-live="polite">{resetDone}</span>
                                 </section>
                             </div>
                         </div>
@@ -1938,13 +2053,62 @@ function App() {
             </div>
             )}
 
+            {/* Rendered BEFORE the start-over guard on purpose. Paint order and
+                Escape order have to agree: the guard protects a live transfer, so
+                it must sit on top and be dismissed first, and a preferences dialog
+                must never occlude it. */}
+            {confirmDefaults && (
+                <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/60 backdrop-blur-sm">
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="floe-reset-title"
+                        className="animate-floe-in mx-4 w-full max-w-sm rounded-xl border border-white/10 bg-zinc-900 p-5 shadow-2xl"
+                    >
+                        <h2 id="floe-reset-title" className="text-sm font-semibold text-white">Reset all settings?</h2>
+                        <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">
+                            Your save folder, both privacy switches and the server addresses go back to the way Floe shipped.
+                        </p>
+                        {/* Names what the user will actually notice. The path is the
+                            thing they cannot retype from memory, so it is shown in
+                            full rather than summarised. */}
+                        {(output.trim() !== '' || !reportStats) && (
+                            <p className="mt-2 text-xs leading-relaxed text-zinc-400">
+                                {output.trim() !== '' && (
+                                    <>Floe will forget <span className="break-all font-mono text-zinc-300">{output.trim()}</span> and save to your Downloads folder again.</>
+                                )}
+                                {output.trim() !== '' && !reportStats && ' '}
+                                {!reportStats && (
+                                    <>Floe will {output.trim() !== '' ? 'also ' : ''}start adding the size of transfers you receive to the public total again.</>
+                                )}
+                            </p>
+                        )}
+                        {/* The exclusions, stated rather than left to be discovered.
+                            An unstated exclusion is what makes a reset feel dishonest. */}
+                        <p className="mt-2 text-xs leading-relaxed text-zinc-500">
+                            Your transfer history and the files you have already received are left alone{isWindows ? ', and so is your right-click menu, because that entry lives in Windows rather than in Floe' : ''}.
+                        </p>
+                        <StatusLine text={resetErr} busy={false}/>
+                        <div className="mt-4 flex justify-end gap-2">
+                            <Button variant="outline" onClick={() => { setConfirmDefaults(false); focusResetTrigger(); }}>Cancel</Button>
+                            <Button onClick={resetAllSettings}>Reset all settings</Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* start-over guard: only shown when a transfer is actively moving
                 bytes, so escaping a stuck state stays one click. Sits below the
                 titlebar so the window controls remain reachable. */}
             {confirmReset && (
                 <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/60 backdrop-blur-sm">
-                    <div className="animate-floe-in mx-4 w-full max-w-sm rounded-xl border border-white/10 bg-zinc-900 p-5 shadow-2xl">
-                        <h2 className="text-sm font-semibold text-white">Start over?</h2>
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="floe-startover-title"
+                        className="animate-floe-in mx-4 w-full max-w-sm rounded-xl border border-white/10 bg-zinc-900 p-5 shadow-2xl"
+                    >
+                        <h2 id="floe-startover-title" className="text-sm font-semibold text-white">Start over?</h2>
                         <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">A transfer is in progress. Starting over will cancel it.</p>
                         <div className="mt-4 flex justify-end gap-2">
                             <Button variant="outline" onClick={() => setConfirmReset(false)}>Keep going</Button>
