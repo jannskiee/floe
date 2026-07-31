@@ -39,10 +39,10 @@ export function hostOf(raw: string): string {
  *  likely regression here, which is why it has its own test. */
 export function advancedSummary(server: string, web: string): string {
     if (server.trim() !== '') {
-        return `Custom server: ${hostOf(server)}. People on floe.one cannot connect to you.`;
+        return `This app uses ${hostOf(server)}, so people on floe.one cannot connect to you.`;
     }
     if (web.trim() !== '') {
-        return `Custom share links: ${hostOf(web)}. This app still uses Floe's server.`;
+        return `Share links point to ${hostOf(web)}, but this app still uses Floe's server.`;
     }
-    return "Use your own server instead of Floe's.";
+    return "This app uses Floe's server. You can point it at your own instead.";
 }

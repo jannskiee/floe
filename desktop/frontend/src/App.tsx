@@ -1313,11 +1313,14 @@ function App() {
                                 <section className="space-y-2">
                                     <Eyebrow as="h3">Transfers</Eyebrow>
                                     <div className={cardClass}>
-                                        {/* No description on purpose: the label plus the "Ask every
-                                            time" placeholder say everything the copy said. */}
+                                        {/* The placeholder must stay in step with defaultReceiveDir
+                                            (app.go:406) and with the receive screen's own field: a
+                                            blank value saves to ~/Downloads, it does NOT prompt.
+                                            An earlier "Ask every time" here was simply false. */}
                                         <SettingField
                                             htmlFor="floe-save-folder"
                                             label="Save received files to"
+                                            description="Everything you receive is saved here. Leave it blank to use your Downloads folder."
                                             className="px-3.5 py-3"
                                         >
                                             {(ids) => (
@@ -1325,7 +1328,7 @@ function App() {
                                                     <Input
                                                         {...ids}
                                                         className="h-8 min-w-0 flex-1 font-mono text-xs"
-                                                        placeholder="Ask every time"
+                                                        placeholder="Downloads (default)"
                                                         value={output}
                                                         onChange={(e) => setOutput(e.target.value)}
                                                         spellCheck={false}
@@ -1342,21 +1345,23 @@ function App() {
 
                                 <section className="space-y-2">
                                     <Eyebrow as="h3">Privacy</Eyebrow>
-                                    {/* The dropped detail (relay rationale, receiver-only stats,
-                                        byte-count-only) lives in the docs; see the launch list in
-                                        desktop/README.md. */}
+                                    {/* Both rows state the benefit first, then the cost, because a
+                                        toggle described only by its cost reads as a trap. What is
+                                        still missing (why the relay caps at 2 GB, that only the
+                                        RECEIVER reports, relay-only failing on a server with no
+                                        TURN) is on the launch list in desktop/README.md. */}
                                     <div className={cn(cardClass, insetHairline)}>
                                         <SettingRow
                                             checked={hideIP}
                                             onChange={(v) => { setHideIP(v); void saveSettings({hideIP: v}); }}
                                             label="Hide my IP address"
-                                            description="Relays your next transfers. Slower, 2 GB limit."
+                                            description="The other person never sees your IP. Transfers go through a relay, so they are slower and capped at 2 GB."
                                         />
                                         <SettingRow
                                             checked={reportStats}
                                             onChange={(v) => { setReportStats(v); void saveSettings({reportStats: v}); }}
                                             label="Contribute to global stats"
-                                            description="Adds transfer sizes to floe.one's public total. Nothing else is sent."
+                                            description="Each transfer you receive adds its size to a public total. Floe never sends file names or contents."
                                         />
                                     </div>
                                 </section>
@@ -1376,7 +1381,7 @@ function App() {
                                                 checked={ctxMenu}
                                                 onChange={toggleCtxMenu}
                                                 label="Show in right-click menu"
-                                                description="Adds Send with Floe under Show more options."
+                                                description="Right-click any file in File Explorer and pick Send with Floe. On Windows 11 it sits under Show more options."
                                             />
                                         </div>
                                     </section>
@@ -1434,7 +1439,7 @@ function App() {
                                                     <SettingField
                                                         htmlFor="floe-server-address"
                                                         label="Server address"
-                                                        description="Leave blank to use Floe's server."
+                                                        description="This server introduces the two devices and never touches your files. Both people need to be on the same one."
                                                         className="px-3.5 py-3"
                                                     >
                                                         {(ids) => (
@@ -1463,7 +1468,7 @@ function App() {
                                                     <SettingField
                                                         htmlFor="floe-share-link-address"
                                                         label="Share link address"
-                                                        description="Leave blank to match the server address."
+                                                        description="Set this only if your web app has its own address. Leave it blank and Floe uses the server address."
                                                         className="px-3.5 py-3"
                                                     >
                                                         {(ids) => (
@@ -1481,7 +1486,7 @@ function App() {
                                                     </SettingField>
                                                     {usingCustomServer && (
                                                         <div className="flex items-center justify-between gap-4 px-3.5 py-2.5 animate-floe-in motion-reduce:animate-none">
-                                                            <span className="text-xs leading-4 text-zinc-500">Clears both addresses.</span>
+                                                            <span className="text-xs leading-4 text-zinc-500">This clears both addresses and puts you back on Floe's server.</span>
                                                             <Button variant="outline" className="h-7 shrink-0 text-xs" onClick={useFloeServer}>
                                                                 Use Floe's server
                                                             </Button>
@@ -1514,7 +1519,9 @@ function App() {
                                             {/* The dotted underline is the tooltip's discoverability
                                                 affordance; without it the tooltip exists but nothing
                                                 invites the hover. */}
-                                            <Tooltip label="Must match on both devices.">
+                                            {/* Not "must match": CheckCompat is a range-overlap test,
+                                                not equality, so compatible versions can differ. */}
+                                            <Tooltip label="Both devices need compatible versions. Update the older app if a transfer will not start.">
                                                 <span className={cn(aboutLabelClass, 'cursor-default underline decoration-dotted decoration-zinc-600 underline-offset-4')}>Transfer protocol</span>
                                             </Tooltip>
                                             <span className={aboutValueClass}>{proto == null ? '...' : `Version ${proto}`}</span>
@@ -1538,7 +1545,7 @@ function App() {
                                             </div>
                                         )}
                                         <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
-                                            <span className="text-xs leading-4 text-zinc-500">Details for a bug report.</span>
+                                            <span className="text-xs leading-4 text-zinc-500">These are the details to include in a bug report.</span>
                                             <Button variant="outline" className="h-7 shrink-0 text-xs" onClick={copyAbout}>
                                                 {aboutCopied ? 'Copied' : 'Copy'}
                                             </Button>

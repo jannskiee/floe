@@ -10,27 +10,33 @@ here: https://wails.io/docs/reference/project-config
 
 ## Docs to write at desktop launch
 
-The Settings screen keeps every description to 12 words or fewer, on the promise that the full
-detail lives at floe.one/docs. These facts were deliberately removed from the UI copy and MUST
-land on a desktop settings docs page before or with the first desktop release, or they are lost
-rather than relocated:
+Settings descriptions state what each setting does and the one consequence that changes a
+decision. The facts below are the ones that genuinely do not fit a settings row, so they must land
+on a desktop settings docs page before or with the first desktop release. Anything already covered
+in the UI has been removed from this list; keep it that way, so it stays an accurate statement of
+what is still missing.
 
-- Save folder: leaving the field blank means Floe asks where to save on every transfer.
-- Hide my IP: transfers route through a relay so the other peer never sees your IP; takes full
-  effect on the next transfer; relayed transfers are capped at 2 GB while direct transfers are
-  unlimited, and why.
-- Global stats: only the receiving side reports; only the byte count is sent, never file names
-  or contents; the total is public on floe.one; opt-out parity with the browser toggle and the
-  CLI `--no-report` / `FLOE_NO_STATS`.
-- Right-click menu (Windows): a per-user registry entry, needs no administrator approval,
-  applies to files only, appears under "Show more options" on Windows 11.
-- Custom server: what the signaling server does (brokers connection setup; file bytes never
-  touch it) and what "people on floe.one cannot connect to you" means for reachability.
-- Share link address: the recommended self-host topology is one address for server and web app;
-  how the link address derives from the server address when blank.
-- Use Floe's server: the reset clears both addresses and reconnects the app to api.floe.one.
-- Transfer protocol: both devices must run compatible protocol versions; the check runs before
-  any file bytes move; the `floe update` hint when versions miss.
+- **Hide my IP, the relay cap.** Why relayed sessions stop at 2 GB while direct transfers are
+  uncapped, and that an oversized relayed transfer is refused before any bytes move rather than
+  failing partway.
+- **Hide my IP against a self-hosted server.** Relay-only requires TURN. If a custom server offers
+  none, ICE falls back to public STUN, the relay-only connection finds no candidates, and the
+  transfer dies with a generic WebRTC error. This is the highest-value item on the list.
+- **Global stats, who reports.** Only the receiving side reports, and only on a completed
+  transfer. Opt-out parity with the browser toggle and the CLI `--no-report` / `FLOE_NO_STATS`.
+  Note the counter follows the configured server, so a self-hoster's bytes go to their own server,
+  not floe.one.
+- **Right-click menu, how it is installed.** A per-user registry entry needing no administrator
+  approval, scoped to files rather than folders.
+- **Save folder, name collisions.** An arriving file never overwrites an existing one; it is kept
+  as `name (1).ext`. Worth documenting precisely, because a user told "nothing is overwritten"
+  who then cannot find the file by its original name is worse off than one told nothing.
+- **Custom server, reachability.** What "people on floe.one cannot connect to you" means in
+  practice, and that reaching you still requires the room id.
+- **Share link address.** The recommended self-host topology is one address serving both the API
+  and the web app; when a split setup needs this field.
+- **Transfer protocol.** Compatibility is a range overlap, not an exact match, and the check runs
+  before any file data moves.
 
 ## Live Development
 
