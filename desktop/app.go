@@ -364,10 +364,10 @@ func openCmd(goos, path string) *exec.Cmd {
 
 // RevealFile opens the OS file manager with the received file dir/name selected.
 // If the exact file is missing it falls back to opening the folder, so the
-// action is never broken. This happens when the receiver de-collided a
-// same-named file to "name (1).ext" (createUnique in the engine renames on
-// disk but the UI only knows the sender's original basename), or the file was
-// moved/deleted after the transfer.
+// action is never broken. Live transfers pass the engine's SavedName (the real
+// on-disk name, de-collided by createUnique), so the fallback now covers only
+// history entries persisted before SavedName existed (those hold the sender's
+// name forever) and files moved/deleted after the transfer.
 func (a *App) RevealFile(dir, name string) error {
 	if dir == "" {
 		return fmt.Errorf("no folder to open")

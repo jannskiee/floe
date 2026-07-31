@@ -97,6 +97,7 @@ func ReceiveFilesWithProgress(dc *webrtc.DataChannel, outputDir string, autoAcce
 	// Process messages sequentially
 	var currentFile *os.File
 	var currentInfo FileInfo
+	var currentSavedName string // on-disk name of the open file, relative to outputDir (see Progress.SavedName)
 	var bytesReceived int64
 	var totalReceived int64
 	var bar *progressbar.ProgressBar
@@ -270,10 +271,17 @@ func ReceiveFilesWithProgress(dc *webrtc.DataChannel, outputDir string, autoAcce
 				if err != nil {
 					return fmt.Errorf("cannot create file %s: %w", destPath, err)
 				}
+				// The name actually claimed on disk, which differs from the
+				// sender's whenever createUnique de-collided or safeJoin
+				// sanitized. Everything user-facing below reports this name.
+				currentSavedName = currentInfo.FileName
+				if rel, relErr := filepath.Rel(outputDir, currentFile.Name()); relErr == nil {
+					currentSavedName = filepath.ToSlash(rel)
+				}
 
 				// Progress bar for this file (CLI). GUIs get callback updates instead.
 				if onProgress == nil {
-					bar = newProgressBar(info.FileSize, info.Index, info.Total, info.FileName)
+					bar = newProgressBar(info.FileSize, info.Index, info.Total, currentSavedName)
 				}
 
 				// Send ack as BINARY with protocol version fields so the sender
@@ -381,6 +389,7 @@ func ReceiveFilesWithProgress(dc *webrtc.DataChannel, outputDir string, autoAcce
 				FileSize:   currentInfo.FileSize,
 				TotalBytes: totalReceived,
 				GrandTotal: currentInfo.TotalBytes,
+				SavedName:  currentSavedName,
 			})
 		}
 	}

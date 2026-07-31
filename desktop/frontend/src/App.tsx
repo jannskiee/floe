@@ -102,6 +102,10 @@ interface Prog {
     fileSize: number;
     totalBytes: number;
     grandTotal: number;
+    // On-disk name the receiver wrote, relative to the save folder. Differs from
+    // fileName when a collision was de-duplicated to "name (1).ext". Empty on
+    // send events. Anything that opens or reveals a received file must use this.
+    savedName: string;
 }
 
 type Marker = {t: number; bytes: number} | null;
@@ -138,7 +142,7 @@ function track(ref: MutableRefObject<Marker>, p: Prog): {pct: number; label: str
     const eta = speed > 0 ? (denom - num) / speed : Infinity;
 
     const tag = p.fileCount > 1 ? `[${p.fileIndex}/${p.fileCount}] ` : '';
-    let label = `${tag}${p.fileName} - ${pct}%  (${fmtBytes(num)} / ${fmtBytes(denom)})`;
+    let label = `${tag}${p.savedName || p.fileName} - ${pct}%  (${fmtBytes(num)} / ${fmtBytes(denom)})`;
     const s = fmtSpeed(speed);
     const e = fmtEta(eta);
     if (s) label += `, ${s}`;
@@ -871,7 +875,11 @@ function App() {
             if (recvCancel.current) return;
             recvBytesRef.current = p.grandTotal || p.totalBytes;
             setRecvProg(track(recvStart, p));
-            if (p.fileName && !recvNamesRef.current.includes(p.fileName)) recvNamesRef.current.push(p.fileName);
+            // Collect the on-disk names (savedName): after a collision the file
+            // lands as "name (1).ext", and Open/Reveal and history must target
+            // that, not the sender's name, or they act on the pre-existing file.
+            const name = p.savedName || p.fileName;
+            if (name && !recvNamesRef.current.includes(name)) recvNamesRef.current.push(name);
         });
         EventsOn('send:route', (r: string) => {
             if (sendCancel.current) return;
