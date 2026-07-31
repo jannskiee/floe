@@ -56,15 +56,19 @@ jobs:
                    "NSIS VIProductVersion rejects suffixes." >&2
               exit 1
             fi
-            echo "version=$version" >> "$GITHUB_OUTPUT"
-            echo "appver=desktop-v$version" >> "$GITHUB_OUTPUT"
-            echo "publish=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "version=$version"
+              echo "appver=desktop-v$version"
+              echo "publish=true"
+            } >> "$GITHUB_OUTPUT"
             echo "Release build: $version"
           else
             version="$(grep -o '"productVersion": *"[^"]*"' desktop/wails.json | grep -o '[0-9.]\+')"
-            echo "version=$version" >> "$GITHUB_OUTPUT"
-            echo "appver=dev" >> "$GITHUB_OUTPUT"
-            echo "publish=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "version=$version"
+              echo "appver=dev"
+              echo "publish=false"
+            } >> "$GITHUB_OUTPUT"
             echo "Dry run: building as $version, publishing nothing"
           fi
 
@@ -132,7 +136,8 @@ jobs:
         run: |
           # cygpath: go env prints a Windows path whose drive-letter colon
           # would split a bash PATH entry.
-          export PATH="$PATH:/c/Program Files (x86)/NSIS:$(cygpath -u "$(go env GOPATH)")/bin"
+          gopath_bin="$(cygpath -u "$(go env GOPATH)")/bin"
+          export PATH="$PATH:/c/Program Files (x86)/NSIS:$gopath_bin"
           wails build -s -nsis -ldflags "-X main.version=${{ steps.ver.outputs.appver }}"
 
       - name: Verify build artifacts
