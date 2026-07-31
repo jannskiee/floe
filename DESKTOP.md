@@ -159,9 +159,10 @@ The verified order for the first public desktop release (research + independent
 checks, 2026-07-31). Windows-only beta at 0.1.0, then 1.0.0 when stable. Tick
 items off as they land; details live with each step's implementation.
 
-- [ ] 1. Pre-tag fixes: one exe name (`floe-desktop`), product info block in
+- [x] 1. Pre-tag fixes: one exe name (`floe-desktop`), product info block in
       wails.json, per-user NSIS install (no UAC prompt), uninstaller deletes the
-      context-menu HKCU key, pinned WebView2 profile path
+      context-menu HKCU key, pinned WebView2 profile path (2026-08-01, verified
+      by a live install/uninstall round-trip plus profile adoption)
 - [ ] 2. Desktop release workflow: fires on `desktop-v*` tags only, installs NSIS
       on the runner, injects the version via ldflags, publishes with the
       pre-release flag during 0.x and `make_latest: false` permanently (the
