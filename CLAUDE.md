@@ -134,7 +134,7 @@ All under `cli/engine/`, imported by both the CLI (`cli/cmd/floe`) and the deskt
 - `transfer/sender.go` / `transfer/receiver.go` - binary protocol over the data channel
 - `ice/` - fetches STUN/TURN credentials from server
 - `code/` - registers and resolves short room codes
-- `serverurl/` - normalizes user-supplied server URLs (schemes, trailing slashes)
+- `serverurl/` - normalizes user-supplied server URLs (whitespace, trailing slashes)
 - `verify/` - short authentication string for out-of-band MITM verification
 
 `cli/internal/` still exists but holds only `selfupdate/`, which stays private to the CLI on purpose (`floe update` has no meaning for the desktop app).
