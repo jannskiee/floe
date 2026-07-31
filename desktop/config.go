@@ -75,12 +75,24 @@ func webviewDataPath() string {
 // first time the pinned path is used, so history and settings survive the
 // switch. Best-effort: runs before the webview exists (no locks yet), first
 // come wins, and any failure just means starting with a fresh profile.
+//
+// A FILELESS tree at the target does not count as an existing profile: bare
+// directories hold nothing to protect, and an early scaffold left exactly such
+// a husk behind (webview/EBWebView with no files), which would otherwise
+// permanently block the adoption.
 func migrateWebviewProfile(newPath string, oldPaths ...string) {
 	if newPath == "" {
 		return
 	}
-	if _, err := os.Stat(newPath); err == nil || !errors.Is(err, os.ErrNotExist) {
-		return // already exists (or unknowable): never overwrite
+	if _, err := os.Stat(newPath); err == nil {
+		if dirHasFiles(newPath) {
+			return // a real profile lives here: never overwrite
+		}
+		if os.RemoveAll(newPath) != nil {
+			return // fileless but unremovable; leave it be
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return // unknowable state: do nothing
 	}
 	for _, old := range oldPaths {
 		if old == "" {
@@ -96,6 +108,23 @@ func migrateWebviewProfile(newPath string, oldPaths ...string) {
 			return
 		}
 	}
+}
+
+// dirHasFiles reports whether any regular file exists anywhere under root.
+// Errors count as "has files": when the tree cannot be inspected, the caller
+// must treat it as data worth protecting.
+func dirHasFiles(root string) bool {
+	found := errors.New("found")
+	err := filepath.WalkDir(root, func(_ string, d os.DirEntry, err error) error {
+		if err != nil {
+			return found
+		}
+		if !d.IsDir() {
+			return found
+		}
+		return nil
+	})
+	return err != nil
 }
 
 // loadConfig reads the settings file, falling back to defaults on any problem.

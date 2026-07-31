@@ -291,3 +291,26 @@ func TestMigrateWebviewProfileHandlesNothingToDo(t *testing.T) {
 	}
 	migrateWebviewProfile("", filepath.Join(root, "a")) // "" target is a no-op
 }
+
+func TestMigrateWebviewProfileAdoptsOverEmptyHusk(t *testing.T) {
+	root := t.TempDir()
+	newPath := filepath.Join(root, "floe", "webview")
+	// A fileless husk exactly like the 2026-06-28 scaffold left behind:
+	// nested directories, zero files.
+	if err := os.MkdirAll(filepath.Join(newPath, "EBWebView", "Default"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(root, "floe-desktop.exe")
+	if err := os.MkdirAll(old, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(old, "data.txt"), []byte("real"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	migrateWebviewProfile(newPath, old)
+
+	if got, err := os.ReadFile(filepath.Join(newPath, "data.txt")); err != nil || string(got) != "real" {
+		t.Errorf("empty husk must not block adoption: %v %q", err, got)
+	}
+}
