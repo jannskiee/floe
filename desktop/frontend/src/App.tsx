@@ -1388,16 +1388,24 @@ function App() {
                                     </button>
                                 </Tooltip>
                                 <h2 className="text-base font-semibold tracking-tight text-white">Settings</h2>
-                                {/* Screen-scoped action, in the same quiet mono idiom as the
-                                    History Clear control. It sits in the header rather than in a
-                                    section of its own because it acts on the whole screen, and a
-                                    whole card for one button read as heavier than what it does.
+                                {/* Screen-scoped action: it acts on everything below it, so the
+                                    header is where it belongs, and a whole card for one button was
+                                    heavier than what it does.
+
+                                    Deliberately NOT the mono uppercase of the History Clear
+                                    control. That is the eyebrow voice, and it works there because
+                                    it sits beside an actual Eyebrow; here its neighbour is the
+                                    Settings h2 in sans, so mono read as a stray label rather than
+                                    a control. It was also zinc-600 on zinc-950, which is 2.57:1
+                                    and fails the 4.5:1 AA floor for text this size. zinc-400 is
+                                    7.76:1, and the hover fill mirrors the Back button at the other
+                                    end of the same row so the two read as a pair.
                                     align="end" keeps the bubble on the panel edge. */}
                                 <Tooltip label="Reset all settings" align="end" className="ml-auto">
                                     <button
                                         id="floe-reset-trigger"
                                         onClick={() => { setResetDone(''); setResetErr(''); setConfirmDefaults(true); }}
-                                        className="rounded px-1 py-0.5 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-600 transition-colors hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice/60"
+                                        className="rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice/60"
                                     >
                                         Reset
                                     </button>
