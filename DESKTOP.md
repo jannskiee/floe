@@ -165,10 +165,13 @@ items off as they land; details live with each step's implementation.
       wails.json, per-user NSIS install (no UAC prompt), uninstaller deletes the
       context-menu HKCU key, pinned WebView2 profile path (2026-08-01, verified
       by a live install/uninstall round-trip plus profile adoption)
-- [ ] 2. Desktop release workflow: fires on `desktop-v*` tags only, installs NSIS
+- [x] 2. Desktop release workflow: fires on `desktop-v*` tags only, installs NSIS
       on the runner, injects the version via ldflags, publishes with the
       pre-release flag during 0.x and `make_latest: false` permanently (the
-      back-compat job, install scripts, and `floe update` all resolve "latest")
+      back-compat job, install scripts, and `floe update` all resolve "latest").
+      (2026-08-01, rehearsed end to end with a throwaway desktop-v0.0.0 tag:
+      published, assets verified by download + checksum + install round-trip,
+      latest pointer untouched, then deleted)
 - [ ] 3. Tag `desktop-v0.1.0` with three assets: `floe-desktop-setup-0.1.0.exe`,
       `floe-desktop-0.1.0-windows-amd64.zip`, `SHA256SUMS.txt`
 - [ ] 4. floe.one download page that links to the GitHub release (never hosts the
