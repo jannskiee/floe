@@ -30,8 +30,11 @@ Thumbs.db
 coturn/turnserver.conf
 
 # --- Build Outputs ---
-dist/
-build/
+# Anchored to the repo root on purpose: the unanchored forms reached into
+# desktop/build/, hiding the Wails installer sources that must be tracked
+# (desktop/.gitignore handles that package's own outputs).
+/dist/
+/build/
 
 # --- Logs ---
 npm-debug.log*
