@@ -14,7 +14,7 @@ Thank you for your interest in contributing! All contributions are welcome.
 
 ## Development Setup
 
-Floe has three parts: a **Next.js client**, a **Node.js signaling server**, and a **Go CLI**.
+Floe has four parts: a **Next.js client**, a **Node.js signaling server**, a **Go CLI**, and a **Wails desktop app**. The CLI and the desktop app share the Go transfer engine in `cli/engine/`, joined by the `go.work` workspace at the repository root.
 
 For most contributions (UI, pages, components), you only need to run the client. Point it at the live signaling server at `api.floe.one` so you do not need to run a server locally.
 
@@ -56,6 +56,22 @@ cd floe/cli
 go build ./cmd/floe
 go test ./...
 ```
+
+### Desktop app (Only needed if you're changing the desktop app)
+
+Build the frontend first: the Go build embeds `desktop/frontend/dist`, which is not checked in, so Go commands in `desktop/` fail on a fresh clone until it exists.
+
+```bash
+cd floe/desktop/frontend
+npm install
+npm run build
+npm test
+
+cd ..
+go test ./...
+```
+
+For a live-reload development window, install the [Wails CLI](https://wails.io/docs/gettingstarted/installation) and run `wails dev` from `desktop/`.
 
 ### Documentation (Only needed if you're changing docs)
 
@@ -126,7 +142,8 @@ This is aimed at **self-hosting** (running your own instance) rather than active
 4. Run the linter: `pnpm lint` (in `client/`)
 5. Run client tests: `pnpm test` (in `client/`)
 6. Run CLI tests: `go test ./...` (in `cli/`)
-7. Submit a pull request with a clear title and description
+7. If you touched `desktop/`, run its tests too: `go test ./...` (in `desktop/`, after building the frontend) and `npm test` (in `desktop/frontend/`)
+8. Submit a pull request with a clear title and description
 
 ---
 
