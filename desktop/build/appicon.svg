@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- background gradient: zinc-800 top-left → zinc-950 bottom-right -->
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#27272a"/>
+      <stop offset="100%" stop-color="#09090b"/>
+    </linearGradient>
+
+    <!-- top-center highlight (glass rim) -->
+    <radialGradient id="highlight" cx="50%" cy="0%" r="60%" fx="50%" fy="0%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- soft glow filter for the bolt -->
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="18" result="blur"/>
+      <feComposite in="blur" in2="blur" operator="over"/>
+    </filter>
+
+    <!-- drop shadow for the bolt -->
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="12" flood-color="#000000" flood-opacity="0.5"/>
+    </filter>
+
+    <!-- clip to the squircle shape -->
+    <clipPath id="squircle">
+      <rect x="40" y="40" width="944" height="944" rx="192" ry="192"/>
+    </clipPath>
+  </defs>
+
+  <!-- squircle background -->
+  <rect x="40" y="40" width="944" height="944" rx="192" ry="192" fill="url(#bg)"/>
+
+  <!-- top glass highlight -->
+  <rect x="40" y="40" width="944" height="944" rx="192" ry="192" fill="url(#highlight)"/>
+
+  <!-- rim-light (inner stroke) -->
+  <rect x="41" y="41" width="942" height="942" rx="191" ry="191" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="2"/>
+
+  <!-- bolt glow layer (behind, blurred) -->
+  <g clip-path="url(#squircle)">
+    <path
+      d="M13 2L3 14H12L11 22L21 10H12L13 2Z"
+      transform="translate(248,248) scale(22)"
+      fill="#ffffff"
+      opacity="0.18"
+      filter="url(#glow)"
+    />
+  </g>
+
+  <!-- bolt mark -->
+  <path
+    d="M13 2L3 14H12L11 22L21 10H12L13 2Z"
+    transform="translate(248,248) scale(22)"
+    fill="#fafafa"
+    filter="url(#shadow)"
+  />
+</svg>

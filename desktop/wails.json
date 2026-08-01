@@ -1,0 +1,20 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "floe-desktop",
+  "outputfilename": "floe-desktop",
+  "info": {
+    "companyName": "Jc Paredes",
+    "productName": "Floe",
+    "productVersion": "0.1.0",
+    "copyright": "(c) 2026 Jc Paredes",
+    "comments": "Peer-to-peer file transfer"
+  },
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "Jc Paredes",
+    "email": "paredesjancarlo99@gmail.com"
+  }
+}

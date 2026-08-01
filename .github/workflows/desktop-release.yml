@@ -1,0 +1,236 @@
+# Builds and publishes the Floe desktop app for Windows when a desktop-v* tag
+# (e.g. desktop-v0.1.0) is pushed. The desktop has its own tag series on
+# purpose: release.yml fires GoReleaser on any v* tag, so a shared series would
+# republish the CLI on every desktop release.
+#
+# workflow_dispatch is the DRY RUN: it builds and verifies the exact same
+# assets and uploads them as a workflow artifact, but publishes nothing. Use it
+# to test this pipeline without a tag.
+#
+# Publishing rules (load-bearing, do not relax):
+#   - --latest=false ALWAYS. The back-compat CI job, the floe.one install
+#     scripts, and `floe update` all resolve GitHub's "latest" release and must
+#     keep resolving to CLI releases, forever.
+#   - --prerelease while the version starts with 0., so the beta series is
+#     labeled honestly and 1.0.0 graduates by itself.
+name: Desktop Release
+
+on:
+  push:
+    tags:
+      - 'desktop-v*'
+  workflow_dispatch:
+
+# No workflow-level grants: the build job declares the contents: write it
+# needs, and any job added later starts from zero permissions.
+permissions: {}
+
+jobs:
+  build:
+    name: Build & publish (windows)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      # Create the GitHub Release and upload its assets (tag path only).
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Derive version
+        id: ver
+        shell: bash
+        run: |
+          # Tag path: desktop-v0.1.0 -> 0.1.0. Dispatch path: keep wails.json's
+          # version for asset names, mark the run dry, and ship "dev" as the
+          # in-app version string so a dry-run binary never claims to be a
+          # release.
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            tag="${GITHUB_REF_NAME}"
+            version="${tag#desktop-v}"
+            if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "Tag $tag must carry a strictly numeric X.Y.Z version:" \
+                   "NSIS VIProductVersion rejects suffixes." >&2
+              exit 1
+            fi
+            {
+              echo "version=$version"
+              echo "appver=desktop-v$version"
+              echo "publish=true"
+            } >> "$GITHUB_OUTPUT"
+            echo "Release build: $version"
+          else
+            version="$(grep -o '"productVersion": *"[^"]*"' desktop/wails.json | grep -o '[0-9.]\+')"
+            {
+              echo "version=$version"
+              echo "appver=dev"
+              echo "publish=false"
+            } >> "$GITHUB_OUTPUT"
+            echo "Dry run: building as $version, publishing nothing"
+          fi
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25'
+          # Release builds run without the shared module cache: a cache entry
+          # poisoned by any other workflow would flow straight into the shipped
+          # artifacts.
+          cache: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Frontend install, test, build
+        # Must precede any Go command in desktop/: main.go embeds frontend/dist,
+        # which does not exist on a fresh checkout.
+        working-directory: desktop/frontend
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: Go tests
+        # A release must not outrun its tests. The workspace (go.work) resolves
+        # the ../cli engine inside this checkout.
+        working-directory: desktop
+        run: go test -count=1 ./...
+
+      - name: Install Wails CLI
+        shell: bash
+        # Pinned to the version in desktop/go.mod. GOWORK=off so `go install`
+        # of an external tool is never influenced by this repo's workspace.
+        run: GOWORK=off go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      - name: Install NSIS
+        shell: bash
+        run: |
+          choco install nsis -y --no-progress
+          # wails build -nsis silently skips the installer when makensis is
+          # missing (it warns and returns success), so resolve it now or fail.
+          export PATH="$PATH:/c/Program Files (x86)/NSIS"
+          command -v makensis || { echo "makensis not resolvable after install" >&2; exit 1; }
+
+      - name: Stamp release version into wails.json
+        if: steps.ver.outputs.publish == 'true'
+        shell: pwsh
+        # The tag is the source of truth for the exe's version resource and the
+        # installer's VIProductVersion. Working-tree only, never committed.
+        run: |
+          $path = "desktop/wails.json"
+          $json = Get-Content $path -Raw | ConvertFrom-Json
+          $json.info.productVersion = "${{ steps.ver.outputs.version }}"
+          $json | ConvertTo-Json -Depth 10 | Set-Content $path -Encoding utf8
+          Get-Content $path | Select-String productVersion
+
+      - name: Build app + installer
+        working-directory: desktop
+        shell: bash
+        # -s skips the frontend build: the npm ci output from the earlier step
+        # is what ships, not a second `npm install` from wails.json.
+        run: |
+          # cygpath: go env prints a Windows path whose drive-letter colon
+          # would split a bash PATH entry.
+          gopath_bin="$(cygpath -u "$(go env GOPATH)")/bin"
+          export PATH="$PATH:/c/Program Files (x86)/NSIS:$gopath_bin"
+          wails build -s -nsis -ldflags "-X main.version=${{ steps.ver.outputs.appver }}"
+
+      - name: Verify build artifacts
+        shell: pwsh
+        # wails build can exit 0 on silent failure; trust nothing it printed.
+        run: |
+          $exe = "desktop/build/bin/floe-desktop.exe"
+          $installer = "desktop/build/bin/floe-desktop-amd64-installer.exe"
+          foreach ($f in @($exe, $installer)) {
+            if (-not (Test-Path $f)) { Write-Error "missing artifact: $f"; exit 1 }
+            $age = (Get-Date) - (Get-Item $f).LastWriteTime
+            if ($age.TotalMinutes -gt 30) { Write-Error "stale artifact: $f ($age old)"; exit 1 }
+          }
+          # The exe's version strings live under \StringFileInfo\040904b0; the
+          # VarFileInfo translation table is zeroed by a winres quirk, so .NET's
+          # FileVersionInfo defaults read blanks. Query the subblock directly.
+          Add-Type @"
+          using System;
+          using System.Runtime.InteropServices;
+          public class VerQ {
+            [DllImport("version.dll", CharSet=CharSet.Unicode)] public static extern int GetFileVersionInfoSize(string f, out int h);
+            [DllImport("version.dll", CharSet=CharSet.Unicode)] public static extern bool GetFileVersionInfo(string f, int h, int len, byte[] d);
+            [DllImport("version.dll", CharSet=CharSet.Unicode)] public static extern bool VerQueryValue(byte[] b, string sub, out IntPtr val, out int len);
+            public static string Q(string file, string key) {
+              int h; int size = GetFileVersionInfoSize(file, out h);
+              if (size == 0) return "";
+              byte[] buf = new byte[size];
+              GetFileVersionInfo(file, 0, size, buf);
+              IntPtr p; int l;
+              if (!VerQueryValue(buf, "\\StringFileInfo\\040904b0\\" + key, out p, out l)) return "";
+              return Marshal.PtrToStringUni(p);
+            }
+          }
+          "@
+          $got = [VerQ]::Q((Resolve-Path $exe), "ProductVersion")
+          $want = "${{ steps.ver.outputs.version }}"
+          if ($got -ne $want) { Write-Error "exe ProductVersion is '$got', want '$want'"; exit 1 }
+          "verified: floe-desktop.exe ProductVersion $got"
+
+      - name: Assemble assets
+        id: assets
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          $stage = "dist-desktop"
+          New-Item -ItemType Directory $stage | Out-Null
+          Copy-Item desktop/build/bin/floe-desktop-amd64-installer.exe "$stage/floe-desktop-setup-$v.exe"
+          Compress-Archive -Path desktop/build/bin/floe-desktop.exe, LICENSE -DestinationPath "$stage/floe-desktop-$v-windows-amd64.zip"
+          # sha256sum format so `sha256sum -c SHA256SUMS.txt` works.
+          $lines = Get-ChildItem $stage | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          }
+          [System.IO.File]::WriteAllLines("$stage/SHA256SUMS.txt", $lines)
+          Get-Content "$stage/SHA256SUMS.txt"
+
+      - name: Publish release
+        if: steps.ver.outputs.publish == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${{ steps.ver.outputs.version }}"
+          notes_file="$RUNNER_TEMP/notes.md"
+          {
+            echo "Floe Desktop $v for Windows."
+            echo
+            echo "- **floe-desktop-setup-$v.exe** is the installer (per-user, no admin prompt)."
+            echo "- **floe-desktop-$v-windows-amd64.zip** is the portable build."
+            echo "- This build is not code-signed yet, so SmartScreen shows an"
+            echo "  \"unknown publisher\" warning: choose \"More info\", then \"Run anyway\"."
+            echo "- Verify a download with \`sha256sum -c SHA256SUMS.txt\` or"
+            echo "  \`Get-FileHash\` against SHA256SUMS.txt."
+            echo "- Found a bug? Report it: https://github.com/jannskiee/floe/issues"
+          } > "$notes_file"
+          prerelease_flag=""
+          case "$v" in
+            0.*) prerelease_flag="--prerelease" ;;
+          esac
+          # --latest=false is unconditional and permanent: "latest" must keep
+          # resolving to CLI releases (back-compat CI, install scripts, floe
+          # update). --prerelease only while the version starts with 0.
+          gh release create "$GITHUB_REF_NAME" \
+            dist-desktop/* \
+            --verify-tag \
+            --latest=false \
+            $prerelease_flag \
+            --title "Floe Desktop $v" \
+            --notes-file "$notes_file"
+
+      - name: Upload dry-run artifact
+        if: steps.ver.outputs.publish != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-dryrun-run${{ github.run_number }}
+          path: dist-desktop/
+          if-no-files-found: error
