@@ -1,4 +1,4 @@
-const CACHE_NAME = 'floe-cache-v2';
+const CACHE_NAME = 'floe-cache-v3';
 const STATIC_ASSETS = [
     '/',
     '/download',
@@ -41,9 +41,6 @@ self.addEventListener('fetch', (event) => {
     // one-domain reverse proxy the signaling server's own /api/ routes are
     // same-origin too, and the cache-first branch below would freeze those.
     if (url.pathname.startsWith('/api/')) return;
-    // The evergreen installer redirect resolves the newest release server-side;
-    // a cached copy would pin visitors to an old installer.
-    if (url.pathname.startsWith('/download/windows')) return;
     if (url.hostname !== self.location.hostname) return;
 
     if (request.mode === 'navigate') {

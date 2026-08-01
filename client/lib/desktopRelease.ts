@@ -17,6 +17,18 @@
 export const DESKTOP_VERSION = '0.1.0';
 export const DESKTOP_RELEASE_DATE = 'Aug 1, 2026';
 
+/**
+ * The Microsoft Store listing: the primary Windows install path. The Store
+ * build is re-signed by Microsoft, so it installs with no SmartScreen warning
+ * and updates automatically; the GitHub assets below remain the fallback for
+ * machines without Store access. The https URL works in any browser on any
+ * OS (the ms-windows-store: protocol form does not, so it is not used).
+ * NOTE: this URL 404s until the listing is public, which is why this branch
+ * merges only after the Store submission goes live.
+ */
+export const DESKTOP_STORE_ID = '9NBQ8ZQ1065L';
+export const DESKTOP_STORE_URL = `https://apps.microsoft.com/detail/${DESKTOP_STORE_ID}`;
+
 export const DESKTOP_TAG = `desktop-v${DESKTOP_VERSION}`;
 
 const RELEASE_BASE = `https://github.com/jannskiee/floe/releases/download/${DESKTOP_TAG}`;

@@ -2,15 +2,22 @@
 
 import React, { useSyncExternalStore } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { detectOs, type VisitorOs } from '@/lib/detectOs';
-import { DESKTOP_SETUP_URL } from '@/lib/desktopRelease';
+import { DESKTOP_STORE_URL } from '@/lib/desktopRelease';
 
 /**
- * The hero CTA row: one filled pill and one de-emphasized secondary. Detection
- * swaps which action leads, never the geometry: the server renders the Windows
- * arrangement (the only OS the beta runs on), the client corrects on hydration,
- * and both arrangements share the same single-row flex container, so the swap
- * never reflows the page.
+ * The hero CTA row: the official Microsoft Store badge and one de-emphasized
+ * secondary. Detection swaps which action leads, never the geometry: the
+ * server renders the Windows arrangement (the only OS the beta runs on), the
+ * client corrects on hydration, and both arrangements share the same
+ * single-row flex container, so the swap never reflows the page.
+ *
+ * The badge is Microsoft's own "Get it from Microsoft" asset (en-US dark
+ * variant), self-hosted from /public so the page makes no external requests.
+ * Brand rules: never recolor or redraw it, keep it at its native aspect
+ * ratio, and do not shrink it below ~120px wide. The Store page URL works in
+ * any browser on any OS, so the badge stays clickable everywhere.
  */
 
 type NavigatorWithUAData = Navigator & { userAgentData?: { platform?: string } };
@@ -30,28 +37,46 @@ const pillClass =
 
 // The Obsidian de-emphasis recipe: same weight as the primary, one size step
 // down, dimmed white rather than the accent, no box, no underline, no arrow.
-// White keeps the pair monochrome, so the filled pill stays the only thing
-// competing for the eye.
 const secondaryClass =
     'text-[13px] font-bold text-white/70 transition hover:text-white focus-visible:outline-2 focus-visible:outline-ice';
+
+// The badge ships at 161x44; rendered a touch larger so it carries the same
+// visual weight the filled pill used to. Opacity lift on hover mirrors the
+// pill's hover shift without recoloring Microsoft's artwork.
+const badgeClass =
+    'inline-flex items-center opacity-95 transition hover:opacity-100 focus-visible:outline-2 focus-visible:outline-ice';
+
+function StoreBadge({ source }: { source: string }) {
+    return (
+        <a
+            href={DESKTOP_STORE_URL}
+            target="_blank"
+            rel="noreferrer"
+            data-umami-event="download-desktop"
+            data-umami-event-file="store"
+            data-umami-event-source={source}
+            className={badgeClass}
+        >
+            <Image
+                src="/ms-store-badge.svg"
+                alt="Get Floe Desktop from the Microsoft Store"
+                width={176}
+                height={48}
+                priority
+            />
+        </a>
+    );
+}
 
 export function DownloadCta() {
     const os = useSyncExternalStore(subscribeNever, getOsSnapshot, getServerOsSnapshot);
     const windowsArrangement = os === 'windows';
 
     return (
-        <div className="flex min-h-10 flex-wrap items-baseline justify-center gap-x-5 gap-y-3">
+        <div className="flex min-h-12 flex-wrap items-center justify-center gap-x-5 gap-y-3">
             {windowsArrangement ? (
                 <>
-                    <a
-                        href={DESKTOP_SETUP_URL}
-                        data-umami-event="download-desktop"
-                        data-umami-event-file="installer"
-                        data-umami-event-source="hero-primary"
-                        className={pillClass}
-                    >
-                        Download for Windows
-                    </a>
+                    <StoreBadge source="hero-primary" />
                     <Link
                         href="/"
                         data-umami-event="download-page-webapp"
@@ -71,15 +96,7 @@ export function DownloadCta() {
                     >
                         Open the web app
                     </Link>
-                    <a
-                        href={DESKTOP_SETUP_URL}
-                        data-umami-event="download-desktop"
-                        data-umami-event-file="installer"
-                        data-umami-event-source="hero-secondary"
-                        className={secondaryClass}
-                    >
-                        or download the Windows beta
-                    </a>
+                    <StoreBadge source="hero-secondary" />
                 </>
             )}
         </div>

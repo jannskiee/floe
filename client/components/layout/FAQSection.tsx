@@ -81,9 +81,9 @@ export const FAQSection = () => {
                         <p>
                             Yes, in beta. Floe Desktop is a small native app for Windows that speaks
                             the same protocol as the web app and the CLI, so any two can transfer to
-                            each other. It adds a right-click &quot;Send with Floe&quot; entry in
-                            Explorer, sends folders without zipping, and keeps transfers running
-                            while minimized. Get it on the{' '}
+                            each other. It sends folders without zipping, pastes screenshots and
+                            copied files straight from the clipboard, and keeps transfers running
+                            while minimized. Install it from the Microsoft Store via the{' '}
                             <a
                                 href="/download"
                                 className="text-zinc-300 underline decoration-white/20 underline-offset-2 transition hover:text-ice"

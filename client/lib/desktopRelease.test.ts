@@ -3,6 +3,8 @@ import {
     DESKTOP_VERSION,
     DESKTOP_RELEASE_DATE,
     DESKTOP_TAG,
+    DESKTOP_STORE_ID,
+    DESKTOP_STORE_URL,
     DESKTOP_SETUP_URL,
     DESKTOP_ZIP_URL,
     DESKTOP_SHA_URL,
@@ -49,5 +51,15 @@ describe('desktopRelease', () => {
         ]) {
             expect(url).not.toContain('/releases/latest');
         }
+    });
+
+    it('links the Microsoft Store listing by product id (the primary install path)', () => {
+        // The Store ID is assigned by Partner Center and never changes, even
+        // across renames; the https detail URL works in any browser on any OS.
+        expect(DESKTOP_STORE_ID).toMatch(/^9[A-Z0-9]{11}$/);
+        expect(DESKTOP_STORE_URL).toBe(`https://apps.microsoft.com/detail/${DESKTOP_STORE_ID}`);
+        // The ms-windows-store: protocol form errors on non-Windows, so it must
+        // never appear here.
+        expect(DESKTOP_STORE_URL).not.toContain('ms-windows-store');
     });
 });

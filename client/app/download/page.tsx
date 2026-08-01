@@ -7,19 +7,20 @@ import { DownloadCta } from './DownloadCta';
 import {
     DESKTOP_VERSION,
     DESKTOP_RELEASE_DATE,
+    DESKTOP_SETUP_URL,
     DESKTOP_ZIP_URL,
     DESKTOP_SHA_URL,
     DESKTOP_RELEASE_NOTES_URL,
     ALL_RELEASES_URL,
 } from '@/lib/desktopRelease';
 
-// Utility-index download page: one filled CTA, one artifact, one quiet table,
-// global chrome. The version, date, and every asset URL derive from
+// Utility-index download page: one Store badge CTA, one artifact, one quiet
+// table, global chrome. The version, date, and every asset URL derive from
 // lib/desktopRelease so a release bump touches exactly one file.
 export const metadata: Metadata = {
     title: 'Download | Floe',
     description:
-        'Download Floe Desktop for Windows (beta), install the CLI, or use Floe in your browser: free, encrypted, peer-to-peer file transfer.',
+        'Get Floe Desktop for Windows from the Microsoft Store (beta), install the CLI, or use Floe in your browser: free, encrypted, peer-to-peer file transfer.',
     alternates: { canonical: '/download' },
 };
 
@@ -29,16 +30,27 @@ const OTHER_WAYS: {
     actions: { name: string; href: string; external?: boolean; umami?: Record<string, string> }[];
 }[] = [
     {
-        label: 'Portable zip',
+        label: 'GitHub release',
         desc: (
             <>
-                The same app in a folder, no installer. Unzip and run{' '}
-                <span className="font-mono text-[13px] text-zinc-400">floe-desktop.exe</span>.
+                For machines without Store access: the installer and a portable zip (unzip and
+                run <span className="font-mono text-[13px] text-zinc-400">floe-desktop.exe</span>).
+                These builds are unsigned, so SmartScreen warns on first run: choose &quot;More
+                info&quot;, then &quot;Run anyway&quot;.
             </>
         ),
         actions: [
             {
-                name: 'Download .zip',
+                name: 'Installer .exe',
+                href: DESKTOP_SETUP_URL,
+                external: true,
+                umami: {
+                    'data-umami-event': 'download-desktop',
+                    'data-umami-event-file': 'installer',
+                },
+            },
+            {
+                name: 'Portable .zip',
                 href: DESKTOP_ZIP_URL,
                 external: true,
                 umami: {
@@ -120,8 +132,8 @@ export default function Download() {
                     <div className="mt-4 space-y-1 text-[13px] leading-relaxed text-zinc-400">
                         <p>Requires Windows 10 or later, 64-bit, with Microsoft WebView2.</p>
                         <p>
-                            Unsigned beta: SmartScreen will warn on first run. Choose &quot;More
-                            info&quot;, then &quot;Run anyway&quot;.
+                            Installs from the Microsoft Store: no warnings, and updates arrive
+                            automatically.
                         </p>
                     </div>
                 </div>
