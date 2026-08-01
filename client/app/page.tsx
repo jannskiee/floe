@@ -3,6 +3,7 @@ import { Navbar } from '@/components/layout/Navbar';
 import { HowItWorksSection } from '@/components/landing/HowItWorksSection';
 import { PrivacySection } from '@/components/landing/PrivacySection';
 import { CliSection } from '@/components/landing/CliSection';
+import { DesktopSection } from '@/components/landing/DesktopSection';
 import { CapabilitiesSection } from '@/components/landing/CapabilitiesSection';
 import { FAQSection } from '@/components/layout/FAQSection';
 import { Footer } from '@/components/layout/Footer';
@@ -40,6 +41,7 @@ export default function Home() {
             <HowItWorksSection />
             <PrivacySection />
             <CliSection />
+            <DesktopSection />
             <CapabilitiesSection />
             <FAQSection />
 

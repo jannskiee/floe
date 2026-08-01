@@ -10,8 +10,9 @@ const columns: {
     {
         label: 'Product',
         links: [
+            { name: 'Download', href: '/download' },
             { name: 'How it works', href: '/how-it-works' },
-            { name: 'FAQ', href: '#faq' },
+            { name: 'FAQ', href: '/#faq' },
             { name: 'Docs', href: 'https://www.floe.one/docs', external: true },
             { name: 'Changelog', href: 'https://www.floe.one/docs/changelog', external: true },
         ],
@@ -84,13 +85,6 @@ export function Footer() {
                                                 href={link.href}
                                                 target="_blank"
                                                 rel="noreferrer"
-                                                className="text-sm text-zinc-400 transition-colors hover:text-zinc-100"
-                                            >
-                                                {link.name}
-                                            </a>
-                                        ) : link.href.startsWith('#') ? (
-                                            <a
-                                                href={link.href}
                                                 className="text-sm text-zinc-400 transition-colors hover:text-zinc-100"
                                             >
                                                 {link.name}

@@ -1,0 +1,37 @@
+/**
+ * The pinned Floe Desktop release: single source of truth for every download
+ * link on the site.
+ *
+ * The desktop app releases on its own desktop-v* tag series, separate from the
+ * CLI's v* tags, and always as a GitHub pre-release with make_latest false, so
+ * GitHub's /releases/latest permalinks can NEVER reach it (they resolve to the
+ * CLI release, on purpose: the install scripts, `floe update`, and the
+ * back-compat CI job all depend on that). Links must therefore pin an explicit
+ * tag; asset URLs are fully deterministic from the version alone.
+ *
+ * Bump DESKTOP_VERSION when a new desktop release ships. A stale pin is never a
+ * broken link, because release assets are immutable.
+ */
+
+// Bump these two together on every desktop release.
+export const DESKTOP_VERSION = '0.1.0';
+export const DESKTOP_RELEASE_DATE = 'Aug 1, 2026';
+
+export const DESKTOP_TAG = `desktop-v${DESKTOP_VERSION}`;
+
+const RELEASE_BASE = `https://github.com/jannskiee/floe/releases/download/${DESKTOP_TAG}`;
+
+/** The NSIS installer (per-user, no admin prompt). The primary download. */
+export const DESKTOP_SETUP_URL = `${RELEASE_BASE}/floe-desktop-setup-${DESKTOP_VERSION}.exe`;
+
+/** The portable zip (floe-desktop.exe + LICENSE). */
+export const DESKTOP_ZIP_URL = `${RELEASE_BASE}/floe-desktop-${DESKTOP_VERSION}-windows-amd64.zip`;
+
+/** sha256sum-format checksums for both assets. */
+export const DESKTOP_SHA_URL = `${RELEASE_BASE}/SHA256SUMS.txt`;
+
+/** The release page (notes, SmartScreen guidance, issue link). */
+export const DESKTOP_RELEASE_NOTES_URL = `https://github.com/jannskiee/floe/releases/tag/${DESKTOP_TAG}`;
+
+/** Every release, desktop and CLI alike. */
+export const ALL_RELEASES_URL = 'https://github.com/jannskiee/floe/releases';
