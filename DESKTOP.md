@@ -152,43 +152,78 @@ receiver, which is deliberate (share a link and wait) and cancellable.
 ### Phase 5 - Distribution
 - [ ] Homebrew Cask, Winget, Scoop (existing shared repos)
 - [ ] Flathub, .deb/.rpm
-- [ ] Microsoft Store (free, unpackaged Win32)
+- [x] Microsoft Store as MSIX, the primary Windows channel (see the Store plan
+      below; the old "unpackaged Win32" idea was wrong: the EXE submission path
+      requires a purchased certificate and delivers no updates, while only MSIX
+      is re-signed free by Microsoft)
 - [ ] Docs page and homepage download buttons
 
 ## Release plan (0.1.0 beta)
 
 The verified order for the first public desktop release (research + independent
-checks, 2026-07-31). Windows-only beta at 0.1.0, then 1.0.0 when stable. Tick
-items off as they land; details live with each step's implementation.
+checks, 2026-07-31). Steps 1-3 shipped the GitHub beta; the plan then pivoted
+to the Microsoft Store as the primary Windows channel (see the Store plan
+below), which replaces the old steps 4-8.
 
 - [x] 1. Pre-tag fixes: one exe name (`floe-desktop`), product info block in
       wails.json, per-user NSIS install (no UAC prompt), uninstaller deletes the
       context-menu HKCU key, pinned WebView2 profile path (2026-08-01, verified
       by a live install/uninstall round-trip plus profile adoption)
 - [x] 2. Desktop release workflow: fires on `desktop-v*` tags only, installs NSIS
-      on the runner, injects the version via ldflags, publishes with the
-      pre-release flag during 0.x and `make_latest: false` permanently (the
-      back-compat job, install scripts, and `floe update` all resolve "latest").
-      (2026-08-01, rehearsed end to end with a throwaway desktop-v0.0.0 tag:
-      published, assets verified by download + checksum + install round-trip,
-      latest pointer untouched, then deleted)
+      on the runner, injects the version via ldflags, publishes with
+      `--prerelease` and `make_latest: false`, both now unconditional (the
+      back-compat job, install scripts, and `floe update` all resolve "latest",
+      and prereleases are structurally excluded from that endpoint).
+      (2026-08-01, rehearsed end to end with a throwaway desktop-v0.0.0 tag)
 - [x] 3. Tag `desktop-v0.1.0` with three assets: `floe-desktop-setup-0.1.0.exe`,
       `floe-desktop-0.1.0-windows-amd64.zip`, `SHA256SUMS.txt` (RELEASED
-      2026-08-01: checksums verified from a fresh download, the released
-      installer round-tripped, and a real CLI-to-desktop transfer ran through
-      production signaling on the shipped binary; latest pointer untouched)
-- [ ] 4. floe.one download page that links to the GitHub release (never hosts the
-      binary; never uses the releases/latest permalink, which resolves to the CLI)
-- [ ] 5. Docs page: SmartScreen click-through with screenshots, checksum
-      verification, note that Smart App Control machines cannot run unsigned apps
-- [ ] 6. Every release: submit the exe to Microsoft's false-positive form, link a
-      VirusTotal scan, never UPX-pack
-- [ ] 7. Signing: follow up SignPath Foundation (pending since 2026-07-20); wire
-      it in immediately if approved, buy Certum Open Source within days if
-      rejected. 1.0.0 ships signed.
-- [ ] 8. After the beta settles: winget entry, passive in-app update check,
-      Microsoft Store MSIX at 1.0 (free registration, Microsoft signs, no
-      SmartScreen)
+      2026-08-01; checksums, install round-trip, and a real CLI-to-desktop
+      transfer verified on the shipped binary)
+
+## Microsoft Store plan (the primary Windows channel)
+
+Partner Center product "Floe Desktop", Store ID 9NBQ8ZQ1065L, identity
+`JanCarloParedes.FloeDesktop` / `CN=5D497A40-D927-4850-8A83-E21F677E80E3`.
+Registration was free; the Philippines is eligible for an individual account.
+The Store re-signs MSIX with a Microsoft certificate, which is the only
+zero-cost route to a warning-free install (no purchased certificate removes
+the SmartScreen warning). GitHub releases continue in parallel, permanently:
+the exe/zip serve Store-blocked machines and are the hotfix/rollback path
+(LocalSend's Store ban is the cautionary precedent).
+
+Versioning: the MSIX Identity Version's first octet cannot be 0 and the fourth
+is reserved, so `pack.ps1` derives it mechanically as (major+1).minor.patch.0
+(0.2.0 -> 1.2.0.0, 1.0.0 -> 2.0.0.0). The product's own 0.x string stays in
+wails.json, the exe version resource, and all marketing.
+
+Packaged-build behavior (verified empirically 2026-08-02 on a loose-layout
+package of this app): the app's HKCU registry writes are virtualized into the
+package's private hive (Explorer never sees them) while its file writes reach
+the real `%APPDATA%\floe` (so the CLI-shared config and settings survive), and
+the single-instance mutex crosses the package boundary (an NSIS build launched
+alongside the Store build focuses it instead of starting). The "Send with
+Floe" Explorer toggle is therefore hidden when packaged (`packaged_windows.go`
+gates it, fail-open to unpackaged); everything else runs unchanged from one
+binary.
+
+- [x] a. Packaged detection + context-menu gating; MSIX manifest template,
+      assets, and `desktop/build/msix/pack.ps1`; workflow packs an UNSIGNED
+      .msix into a CI artifact (its only consumer is Partner Center; end users
+      cannot install unsigned exe-activation packages)
+- [ ] b. Tag `desktop-v0.2.0`: GitHub release + MSIX artifact from one tag
+- [ ] c. Partner Center submission, PRIVATE audience first (public->private is
+      permanently forbidden): upload the .msix, category Utilities & tools >
+      File managers, age ratings, privacy URL https://www.floe.one/privacy,
+      support URL = GitHub issues, screenshots at 1366x768 or larger, and
+      certification notes that explain testing with floe.one in a browser as
+      the second peer (the desktop receive field accepts share links)
+- [ ] d. Private beta: install from the Store, verify transfers against web and
+      CLI, verify no SmartScreen, settings survive an update, context-menu row
+      hidden; then promote to PUBLIC
+- [ ] e. Only after the listing is public: flip the floe.one /download hero to
+      the Store badge (the listing URL 404s until then)
+- [ ] f. Each release after: false-positive form + VirusTotal link for the
+      GitHub exe, never UPX-pack
 
 ## Feature roadmap (what makes it best in class)
 

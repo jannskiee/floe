@@ -11,8 +11,12 @@
 #   - --latest=false ALWAYS. The back-compat CI job, the floe.one install
 #     scripts, and `floe update` all resolve GitHub's "latest" release and must
 #     keep resolving to CLI releases, forever.
-#   - --prerelease while the version starts with 0., so the beta series is
-#     labeled honestly and 1.0.0 graduates by itself.
+#   - --prerelease ALWAYS. Prereleases are structurally excluded from
+#     /releases/latest, which is the defense the four "latest" consumers
+#     actually rely on (make_latest=false alone is contradicted by GitHub's
+#     own docs on that endpoint). It is also honest labeling: the Microsoft
+#     Store is the stable desktop channel; the GitHub exe/zip are the
+#     fallback for machines without Store access.
 name: Desktop Release
 
 on:
@@ -177,6 +181,25 @@ jobs:
           if ($got -ne $want) { Write-Error "exe ProductVersion is '$got', want '$want'"; exit 1 }
           "verified: floe-desktop.exe ProductVersion $got"
 
+      - name: Pack MSIX for the Microsoft Store
+        shell: pwsh
+        # Unsigned by design: Partner Center re-signs with a Microsoft
+        # certificate. The .msix goes into dist-msix/ (NEVER dist-desktop/,
+        # whose glob is attached to the GitHub release below) and ships only
+        # as a workflow artifact: an unsigned exe-activation package cannot be
+        # installed by end users, so its sole consumer is the Store upload.
+        run: |
+          desktop/build/msix/pack.ps1 -Version "${{ steps.ver.outputs.version }}" `
+            -ExePath desktop/build/bin/floe-desktop.exe -OutDir dist-msix
+          Remove-Item dist-msix/layout -Recurse -Force
+
+      - name: Upload MSIX artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: floe-desktop-msix-${{ steps.ver.outputs.version }}-run${{ github.run_number }}
+          path: dist-msix/
+          if-no-files-found: error
+
       - name: Assemble assets
         id: assets
         shell: pwsh
@@ -212,18 +235,16 @@ jobs:
             echo "  \`Get-FileHash\` against SHA256SUMS.txt."
             echo "- Found a bug? Report it: https://github.com/jannskiee/floe/issues"
           } > "$notes_file"
-          prerelease_flag=""
-          case "$v" in
-            0.*) prerelease_flag="--prerelease" ;;
-          esac
-          # --latest=false is unconditional and permanent: "latest" must keep
-          # resolving to CLI releases (back-compat CI, install scripts, floe
-          # update). --prerelease only while the version starts with 0.
+          # --latest=false AND --prerelease are unconditional and permanent:
+          # "latest" must keep resolving to CLI releases (back-compat CI,
+          # install scripts, floe update), and prereleases are structurally
+          # excluded from /releases/latest, which is the guarantee those four
+          # consumers actually rely on. The Store is the stable channel.
           gh release create "$GITHUB_REF_NAME" \
             dist-desktop/* \
             --verify-tag \
             --latest=false \
-            $prerelease_flag \
+            --prerelease \
             --title "Floe Desktop $v" \
             --notes-file "$notes_file"
 

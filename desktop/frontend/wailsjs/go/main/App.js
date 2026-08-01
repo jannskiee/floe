@@ -34,6 +34,10 @@ export function GetVersion() {
   return window['go']['main']['App']['GetVersion']();
 }
 
+export function IsPackaged() {
+  return window['go']['main']['App']['IsPackaged']();
+}
+
 export function OpenFile(arg1, arg2) {
   return window['go']['main']['App']['OpenFile'](arg1, arg2);
 }

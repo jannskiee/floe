@@ -18,6 +18,8 @@ export function GetSettings():Promise<main.appConfig>;
 
 export function GetVersion():Promise<string>;
 
+export function IsPackaged():Promise<boolean>;
+
 export function OpenFile(arg1:string,arg2:string):Promise<void>;
 
 export function OpenFolder(arg1:string):Promise<void>;
