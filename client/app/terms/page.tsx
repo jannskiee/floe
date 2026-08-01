@@ -21,6 +21,7 @@ const toc = [
     { id: 'responsibility', label: 'User responsibility' },
     { id: 'license', label: 'Copyright & license' },
     { id: 'relay', label: 'Relay usage' },
+    { id: 'contact', label: 'Contact & abuse reports' },
 ];
 
 export default function TermsOfUse() {
@@ -80,6 +81,24 @@ export default function TermsOfUse() {
                     session. Excessive or automated abuse of relay bandwidth may result in rate
                     limiting or temporary access restrictions. These limits exist to keep Floe free for
                     all users.
+                </p>
+            </LegalSection>
+
+            <LegalSection id="contact" index="05" title="Contact & abuse reports">
+                <p>
+                    Questions about these terms, bug reports, and abuse reports all go to our public
+                    issue tracker:{' '}
+                    <a
+                        href="https://github.com/jannskiee/floe/issues"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-zinc-300 underline decoration-white/20 underline-offset-4 transition hover:text-ice"
+                    >
+                        github.com/jannskiee/floe/issues
+                    </a>
+                    . Because transfers are peer-to-peer, we cannot inspect or remove content sent
+                    between users; reports of misuse are acted on by restricting access to the
+                    signaling and relay infrastructure.
                 </p>
             </LegalSection>
         </LegalShell>
