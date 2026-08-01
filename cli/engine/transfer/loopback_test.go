@@ -235,6 +235,107 @@ func TestLoopbackSmallJSONFile(t *testing.T) {
 	}
 }
 
+// TestLoopbackDuplicateNames is the end-to-end guard for the receiver's
+// never-overwrite rule: two files with the same base name (two pasted
+// screenshots, or a repeat send) must both survive, the second de-collided to
+// "name (1).ext", rather than one clobbering the other.
+func TestLoopbackDuplicateNames(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ICE loopback transfer in -short mode")
+	}
+
+	dirA, dirB := t.TempDir(), t.TempDir()
+	pathA := filepath.Join(dirA, "shot.png")
+	pathB := filepath.Join(dirB, "shot.png")
+	if err := os.WriteFile(pathA, []byte("AAA"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pathB, []byte("BBBB"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := runTransfer(t, []string{pathA, pathB})
+
+	first, err := os.ReadFile(filepath.Join(outDir, "shot.png"))
+	if err != nil {
+		t.Fatalf("read first file: %v", err)
+	}
+	second, err := os.ReadFile(filepath.Join(outDir, "shot (1).png"))
+	if err != nil {
+		t.Fatalf("read de-collided file: %v", err)
+	}
+	if string(first) != "AAA" || string(second) != "BBBB" {
+		t.Fatalf("contents = %q / %q, want AAA / BBBB (a same-name file was overwritten)", first, second)
+	}
+}
+
+// TestLoopbackProgressSavedName pins the contract GUIs depend on to open the
+// right file: progress events carry the on-disk name (SavedName), which matches
+// the sender's name normally and the de-collided "name (1).ext" after a
+// collision. Also the only test driving ReceiveFilesWithProgress with a real
+// callback rather than the CLI's nil.
+func TestLoopbackProgressSavedName(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ICE loopback transfer in -short mode")
+	}
+
+	dirA, dirB := t.TempDir(), t.TempDir()
+	pathA := filepath.Join(dirA, "shot.png")
+	pathB := filepath.Join(dirB, "shot.png")
+	if err := os.WriteFile(pathA, []byte("AAA"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pathB, []byte("BBBB"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	sender, recvCh, closeFn := newConnectedPair(t)
+	defer closeFn()
+
+	outDir := t.TempDir()
+	var events []Progress
+	recvErr := make(chan error, 1)
+	go func() {
+		dc := <-recvCh
+		recvErr <- ReceiveFilesWithProgress(dc, outDir, true, "", "", func(p Progress) {
+			events = append(events, p)
+		})
+	}()
+
+	// Let the receiver register its OnMessage handler before any data is sent.
+	time.Sleep(300 * time.Millisecond)
+
+	if err := SendFiles(sender, []string{pathA, pathB}, ""); err != nil {
+		t.Fatalf("SendFiles: %v", err)
+	}
+	select {
+	case err := <-recvErr:
+		if err != nil {
+			t.Fatalf("ReceiveFilesWithProgress: %v", err)
+		}
+	case <-time.After(60 * time.Second):
+		t.Fatal("ReceiveFilesWithProgress did not complete")
+	}
+
+	// The last event per file is the one a UI acts on.
+	final := map[int]Progress{}
+	for _, p := range events {
+		final[p.FileIndex] = p
+	}
+	if len(final) != 2 {
+		t.Fatalf("progress covered %d files, want 2 (events: %d)", len(final), len(events))
+	}
+	if p := final[1]; p.FileName != "shot.png" || p.SavedName != "shot.png" {
+		t.Fatalf("first file: FileName %q SavedName %q, want shot.png for both", p.FileName, p.SavedName)
+	}
+	if p := final[2]; p.FileName != "shot.png" || p.SavedName != "shot (1).png" {
+		t.Fatalf("second file: FileName %q SavedName %q, want shot.png / shot (1).png", p.FileName, p.SavedName)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, final[2].SavedName)); err != nil {
+		t.Fatalf("SavedName does not point at a real file: %v", err)
+	}
+}
+
 // TestLoopbackCloseBeforeFirstFile: a sender that connects and then closes
 // without sending anything (it was cancelled, or its relay gate blocked the
 // transfer) must surface an error on the receiver instead of reporting a

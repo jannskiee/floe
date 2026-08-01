@@ -67,6 +67,13 @@ func reportBytesToServer(serverURL string, byteCount int64) {
 // serverURL is the signaling server base URL used to report transfer stats;
 // pass "" to skip reporting (e.g. in tests).
 func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, localVer string, serverURL string) error {
+	return ReceiveFilesWithProgress(dc, outputDir, autoAccept, localVer, serverURL, nil)
+}
+
+// ReceiveFilesWithProgress is ReceiveFiles with a progress callback for GUI
+// clients. When onProgress is non-nil, per-chunk progress is reported through it
+// and the terminal progress bar is suppressed.
+func ReceiveFilesWithProgress(dc *webrtc.DataChannel, outputDir string, autoAccept bool, localVer string, serverURL string, onProgress ProgressFunc) error {
 	// msgCh collects ALL incoming data channel messages.
 	// We use a channel so the OnMessage callback (goroutine) feeds a sequential loop.
 	msgCh := make(chan webrtc.DataChannelMessage, 256)
@@ -90,6 +97,7 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, loc
 	// Process messages sequentially
 	var currentFile *os.File
 	var currentInfo FileInfo
+	var currentSavedName string // on-disk name of the open file, relative to outputDir (see Progress.SavedName)
 	var bytesReceived int64
 	var totalReceived int64
 	var bar *progressbar.ProgressBar
@@ -259,13 +267,22 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, loc
 				if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 					return fmt.Errorf("cannot create directory: %w", err)
 				}
-				currentFile, err = os.Create(destPath)
+				currentFile, err = createUnique(destPath)
 				if err != nil {
 					return fmt.Errorf("cannot create file %s: %w", destPath, err)
 				}
+				// The name actually claimed on disk, which differs from the
+				// sender's whenever createUnique de-collided or safeJoin
+				// sanitized. Everything user-facing below reports this name.
+				currentSavedName = currentInfo.FileName
+				if rel, relErr := filepath.Rel(outputDir, currentFile.Name()); relErr == nil {
+					currentSavedName = filepath.ToSlash(rel)
+				}
 
-				// Progress bar for this file
-				bar = newProgressBar(info.FileSize, info.Index, info.Total, info.FileName)
+				// Progress bar for this file (CLI). GUIs get callback updates instead.
+				if onProgress == nil {
+					bar = newProgressBar(info.FileSize, info.Index, info.Total, currentSavedName)
+				}
 
 				// Send ack as BINARY with protocol version fields so the sender
 				// can verify compat from its side and show the optional peer-version
@@ -287,6 +304,7 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, loc
 			case "end":
 				// Current file is complete
 				if currentFile != nil {
+					finalPath := currentFile.Name()
 					currentFile.Close()
 					currentFile = nil
 					fmt.Println()
@@ -298,6 +316,11 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, loc
 						return fmt.Errorf("incomplete file %q: received %d of %d bytes",
 							currentInfo.FileName, bytesReceived, currentInfo.FileSize)
 					}
+
+					// Mark the completed file as internet-sourced (Windows MOTW) so
+					// SmartScreen / Office Protected View apply when it is opened,
+					// like a browser download. Best-effort and Windows-only.
+					_ = applyMOTW(finalPath)
 
 					filesReceived++
 					if filesReceived >= currentInfo.Total {
@@ -355,7 +378,20 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, loc
 		}
 		bytesReceived += int64(n)
 		totalReceived += int64(n)
-		bar.Add(n)
+		if bar != nil {
+			bar.Add(n)
+		} else {
+			onProgress(Progress{
+				FileName:   currentInfo.FileName,
+				FileIndex:  currentInfo.Index,
+				FileCount:  currentInfo.Total,
+				FileBytes:  bytesReceived,
+				FileSize:   currentInfo.FileSize,
+				TotalBytes: totalReceived,
+				GrandTotal: currentInfo.TotalBytes,
+				SavedName:  currentSavedName,
+			})
+		}
 	}
 }
 
@@ -464,4 +500,29 @@ func safeJoin(outputDir, fileName string) string {
 		safe = []string{"received_file"}
 	}
 	return filepath.Join(outputDir, filepath.Join(safe...))
+}
+
+// createUnique creates path for writing, but never overwrites an existing file:
+// if the name is taken it appends " (1)", " (2)", ... before the extension until
+// it finds a free name, claiming each candidate atomically with O_EXCL. This
+// mirrors how browsers and file managers de-duplicate downloads, so two files
+// with the same name (for example two pasted screenshots, or a repeat send into
+// the same folder) both survive instead of one clobbering the other.
+func createUnique(path string) (*os.File, error) {
+	ext := filepath.Ext(path)
+	stem := strings.TrimSuffix(path, ext)
+	for i := 0; i < 100000; i++ {
+		candidate := path
+		if i > 0 {
+			candidate = fmt.Sprintf("%s (%d)%s", stem, i, ext)
+		}
+		f, err := os.OpenFile(candidate, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0666)
+		if err == nil {
+			return f, nil
+		}
+		if !os.IsExist(err) {
+			return nil, err
+		}
+	}
+	return nil, fmt.Errorf("too many files named like %q", filepath.Base(path))
 }
