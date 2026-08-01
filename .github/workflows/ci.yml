@@ -252,6 +252,54 @@ jobs:
         run: go build ./cmd/floe
         working-directory: cli
 
+  desktop:
+    name: Desktop (Wails, windows-latest)
+    # Windows-only on purpose: the desktop app ships Windows-only for the beta,
+    # and the Go code is thick with windows build tags that other runners skip.
+    #
+    # NOT in the ci-green gate yet: per the repo convention, new jobs start
+    # outside the gate's needs (visible but non-blocking) and get promoted in
+    # once stable. Promote by adding "desktop" to ci-green's needs list.
+    runs-on: windows-latest
+    timeout-minutes: 15
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25'
+          cache-dependency-path: desktop/go.sum
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Frontend install, test, build
+        # Must precede any Go command in desktop/: main.go embeds
+        # frontend/dist, which does not exist on a fresh checkout.
+        working-directory: desktop/frontend
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: Vet
+        run: go vet ./...
+        working-directory: desktop
+
+      - name: Test
+        # -count=1 bypasses Go's test-result cache so stability re-runs always execute
+        run: go test -count=1 ./...
+        working-directory: desktop
+
   e2e:
     name: E2E (browser + CLI interop, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
