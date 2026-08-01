@@ -117,6 +117,11 @@ function generateCoturnCredentials() {
     const turnDomain = process.env.TURN_DOMAIN;
     if (!turnSecret || !turnDomain) return null;
 
+    // 24h, matching CF_TURN_TTL below. Do not shorten: every sender fetches ICE
+    // credentials BEFORE its wait for a peer, that wait is intentionally
+    // unbounded (share a link, wait for hours), and no surface ever refreshes
+    // the list. A shorter TTL silently kills relayed transfers for any receiver
+    // who opens the link after the credentials expire.
     const ttl = 24 * 3600;
     const expiry = Math.floor(Date.now() / 1000) + ttl;
     const username = `${expiry}:floeuser`;

@@ -8,9 +8,20 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 
-	"github.com/jannskiee/floe/cli/internal/signaling"
+	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/pion/webrtc/v4"
+)
+
+// Connection timeouts guard the WebRTC connect phase so a peer that never
+// completes ICE/DTLS (restrictive NAT, no working relay, vanished peer) fails
+// fast with a clear error instead of hanging forever. The file transfer itself
+// carries its own timeouts (see the transfer package).
+const (
+	signalWaitTimeout = 30 * time.Second // waiting for the peer's SDP offer/answer
+	connectTimeout    = 30 * time.Second // waiting for ICE/DTLS + the data channel to open
+	connectGrace      = 10 * time.Second // extra grace for the data channel after "connected"
 )
 
 // keepICEIP reports whether an interface IP should be used for ICE candidate
@@ -55,20 +66,6 @@ func makeInterfaceAllowFilter(names []string) func(string) bool {
 	}
 }
 
-// Option configures a Connection created by New.
-type Option func(*settings)
-
-type settings struct {
-	ifaceAllowlist []string
-}
-
-// WithInterfaceAllowlist restricts ICE candidate gathering to network interfaces
-// whose name contains one of the given substrings (case-insensitive). Empty or
-// nil leaves the default (gather on all non-link-local interfaces).
-func WithInterfaceAllowlist(names []string) Option {
-	return func(s *settings) { s.ifaceAllowlist = names }
-}
-
 // signalPayload is the JSON structure for WebRTC signals sent over the
 // signaling channel. It can be either an SDP (offer/answer) or an ICE candidate.
 type signalPayload struct {
@@ -99,6 +96,30 @@ type Connection struct {
 	connected chan error
 }
 
+// Option configures a Connection created by New.
+type Option func(*settings)
+
+// settings collects the optional knobs applied by Options before New builds the
+// peer connection.
+type settings struct {
+	ifaceAllowlist []string // opt-in `--iface` filter (empty = all non-link-local)
+	relayOnly      bool     // force TURN relay (hide-my-IP)
+}
+
+// WithRelayOnly forces all traffic through the TURN relay (ICE "relay" transport
+// policy) so the peer sees only the relay's IP, not this device's. Requires TURN
+// to be available; a direct connection is not attempted.
+func WithRelayOnly() Option {
+	return func(s *settings) { s.relayOnly = true }
+}
+
+// WithInterfaceAllowlist restricts ICE candidate gathering to network interfaces
+// whose name contains one of the given substrings (case-insensitive). Empty or
+// nil leaves the default (gather on all non-link-local interfaces).
+func WithInterfaceAllowlist(names []string) Option {
+	return func(s *settings) { s.ifaceAllowlist = names }
+}
+
 // New creates a pion RTCPeerConnection with the given ICE servers and starts
 // the signal dispatcher. Call SetupAsSender or SetupAsReceiver next.
 func New(iceServers []webrtc.ICEServer, sc *signaling.Client, opts ...Option) (*Connection, error) {
@@ -108,6 +129,9 @@ func New(iceServers []webrtc.ICEServer, sc *signaling.Client, opts ...Option) (*
 	}
 
 	config := webrtc.Configuration{ICEServers: iceServers}
+	if cfg.relayOnly {
+		config.ICETransportPolicy = webrtc.ICETransportPolicyRelay
+	}
 
 	// Configure SCTP to accept large messages from browsers.
 	// Chrome sends data channel chunks of 160–256 KB. pion's defaults may
@@ -206,22 +230,44 @@ func (conn *Connection) SetupAsSender() (*webrtc.DataChannel, error) {
 		return nil, fmt.Errorf("failed to send offer: %w", err)
 	}
 
-	// Wait for the receiver's SDP answer
-	answer, ok := <-conn.answers
-	if !ok {
-		return nil, fmt.Errorf("signaling closed before answer was received")
+	// Wait for the receiver's SDP answer (bounded so a vanished peer fails fast).
+	var answer webrtc.SessionDescription
+	select {
+	case a, ok := <-conn.answers:
+		if !ok {
+			return nil, fmt.Errorf("signaling closed before answer was received")
+		}
+		answer = a
+	case <-time.After(signalWaitTimeout):
+		return nil, fmt.Errorf("timed out waiting for the peer to answer")
 	}
 
 	if err := conn.setRemoteDesc(answer); err != nil {
 		return nil, err
 	}
 
-	// Wait for the data channel to open (ICE + DTLS must complete first)
+	// Wait for the data channel to open (ICE + DTLS must complete first). Fail
+	// fast if the connection reports failure/closure or never establishes,
+	// instead of blocking forever.
 	dcOpen := make(chan struct{})
 	dc.OnOpen(func() { close(dcOpen) })
-	<-dcOpen
-
-	return dc, nil
+	select {
+	case <-dcOpen:
+		return dc, nil
+	case err := <-conn.connected:
+		if err != nil {
+			return nil, err
+		}
+		// Reached "connected"; give the data channel a brief grace to open.
+		select {
+		case <-dcOpen:
+			return dc, nil
+		case <-time.After(connectGrace):
+			return nil, fmt.Errorf("connected but the data channel did not open")
+		}
+	case <-time.After(connectTimeout):
+		return nil, fmt.Errorf("timed out establishing a connection")
+	}
 }
 
 // SetupAsReceiver is called by `floe receive`.
@@ -236,10 +282,16 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 		})
 	})
 
-	// Wait for the sender's SDP offer
-	offer, ok := <-conn.offers
-	if !ok {
-		return nil, fmt.Errorf("signaling closed before offer was received")
+	// Wait for the sender's SDP offer (bounded so a vanished peer fails fast).
+	var offer webrtc.SessionDescription
+	select {
+	case o, ok := <-conn.offers:
+		if !ok {
+			return nil, fmt.Errorf("signaling closed before offer was received")
+		}
+		offer = o
+	case <-time.After(signalWaitTimeout):
+		return nil, fmt.Errorf("timed out waiting for the peer's offer")
 	}
 
 	if err := conn.setRemoteDesc(offer); err != nil {
@@ -268,9 +320,24 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 		return nil, fmt.Errorf("failed to send answer: %w", err)
 	}
 
-	// Wait for the data channel to arrive from the sender
-	dc := <-dcChan
-	return dc, nil
+	// Wait for the data channel to arrive from the sender. Fail fast if the
+	// connection reports failure/closure or never establishes.
+	select {
+	case dc := <-dcChan:
+		return dc, nil
+	case err := <-conn.connected:
+		if err != nil {
+			return nil, err
+		}
+		select {
+		case dc := <-dcChan:
+			return dc, nil
+		case <-time.After(connectGrace):
+			return nil, fmt.Errorf("connected but the data channel did not open")
+		}
+	case <-time.After(connectTimeout):
+		return nil, fmt.Errorf("timed out establishing a connection")
+	}
 }
 
 // WaitConnected blocks until the peer connection reaches "connected" state or fails.
@@ -281,6 +348,66 @@ func (conn *Connection) WaitConnected() error {
 // Close tears down the peer connection.
 func (conn *Connection) Close() {
 	conn.pc.Close()
+}
+
+// Fingerprints returns the local and remote DTLS certificate fingerprints from
+// the negotiated SDPs (e.g. "sha-256 AB:CD:..."). Call after the data channel is
+// open, when both descriptions are set. These feed the connection verification
+// code (see engine/verify) so peers can detect a man-in-the-middle.
+func (conn *Connection) Fingerprints() (local, remote string, err error) {
+	ld := conn.pc.LocalDescription()
+	rd := conn.pc.RemoteDescription()
+	if ld == nil || rd == nil {
+		return "", "", fmt.Errorf("connection not established")
+	}
+	local = extractFingerprint(ld.SDP)
+	remote = extractFingerprint(rd.SDP)
+	if local == "" || remote == "" {
+		return "", "", fmt.Errorf("no DTLS fingerprint in SDP")
+	}
+	return local, remote, nil
+}
+
+// ConnectionType reports the selected ICE path: "relay" when either side of the
+// selected candidate pair is a TURN relay, "direct" otherwise. Only meaningful
+// once the connection is established (call after SetupAsSender/SetupAsReceiver
+// returns); before that it returns an error.
+func (conn *Connection) ConnectionType() (string, error) {
+	sctp := conn.pc.SCTP()
+	if sctp == nil {
+		return "", fmt.Errorf("no SCTP transport")
+	}
+	dtls := sctp.Transport()
+	if dtls == nil {
+		return "", fmt.Errorf("no DTLS transport")
+	}
+	ice := dtls.ICETransport()
+	if ice == nil {
+		return "", fmt.Errorf("no ICE transport")
+	}
+	pair, err := ice.GetSelectedCandidatePair()
+	if err != nil {
+		return "", err
+	}
+	if pair == nil || pair.Local == nil || pair.Remote == nil {
+		return "", fmt.Errorf("no candidate pair selected")
+	}
+	if pair.Local.Typ == webrtc.ICECandidateTypeRelay || pair.Remote.Typ == webrtc.ICECandidateTypeRelay {
+		return "relay", nil
+	}
+	return "direct", nil
+}
+
+// extractFingerprint returns the value of the first "a=fingerprint:" attribute
+// in an SDP (e.g. "sha-256 AB:CD:..."), or "" if absent.
+func extractFingerprint(sdp string) string {
+	for _, line := range strings.Split(sdp, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "a=fingerprint:") {
+			return strings.TrimSpace(line[len("a=fingerprint:"):])
+		}
+	}
+	return ""
 }
 
 // setRemoteDesc sets the remote SDP and flushes any buffered ICE candidates.

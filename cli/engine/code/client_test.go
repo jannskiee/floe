@@ -14,6 +14,9 @@ func TestResolveURL(t *testing.T) {
 		{"fragment", "https://floe.one/#room=abc-123", "abc-123"},
 		{"query", "https://floe.one/?room=abc-123", "abc-123"},
 		{"query without slash", "https://floe.one?room=abc-123", "abc-123"},
+		// The browser and the desktop app pair the fragment with a meaningless
+		// ?s= cache-buster; the query lookup must miss it and fall through.
+		{"fragment with nonce", "https://floe.one/?s=deadbeef#room=abc-123", "abc-123"},
 		{"local fragment", "http://localhost:3000/#room=xyz", "xyz"},
 	}
 	for _, tc := range cases {

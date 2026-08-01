@@ -89,8 +89,9 @@ See [Flags Reference](/cli/flags) for global flags (`--server`, `--no-relay`) an
 
 ## Notes
 
-- Received files are saved to the output directory. **Existing files with the same name are overwritten without warning.** Use `-o` to point to an empty directory if you want to avoid collisions.
+- Received files are saved to the output directory. Existing files are never overwritten: if a name is already taken, the incoming file is saved with a numbered suffix before the extension (`report.pdf`, then `report (1).pdf`), the same way browsers de-duplicate downloads. The progress line shows the name actually written.
 - Directory structure is preserved when the sender sends a folder. Files land at the same relative paths inside your output directory.
+- On Windows, received files are tagged with the mark of the web (a `Zone.Identifier` stream), so SmartScreen and Office Protected View treat them like browser downloads when opened.
 - Press `Ctrl+C` to cancel the transfer at any time.
 - Short codes expire 10 minutes after the sender starts the session. After that, only the full link works (and only while the sender is still connected).
 - After the transfer completes, the receiver posts only the total byte count to the signaling server for the public global counter. No file names or contents are included. Use `--no-report` or `FLOE_NO_STATS=1` to skip this. The sender never reports.

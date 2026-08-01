@@ -213,7 +213,7 @@ The transfer protocol carries its own version, independent of the floe release v
 - When the ranges do not overlap, the receiver sends an `incompatible` message and both sides print an actionable message: the older peer is told to run `floe update`, or to ask the other side to update.
 - `ver` is the human release string (for example `v1.6.0`). It is informational only, used for the optional peer-version note, and never gates a transfer.
 
-The constants live in `cli/internal/transfer/protocol.go` (`ProtocolVersion`, `MinProtocolVersion`) and `client/lib/transfer/protocol.ts` (`PROTOCOL_VERSION`, `MIN_PROTOCOL_VERSION`). Bump `ProtocolVersion` only on a breaking wire change; raise `MinProtocolVersion` only when deliberately dropping support for an old wire format.
+The constants live in `cli/engine/transfer/protocol.go` (`ProtocolVersion`, `MinProtocolVersion`) and `client/lib/transfer/protocol.ts` (`PROTOCOL_VERSION`, `MIN_PROTOCOL_VERSION`). Bump `ProtocolVersion` only on a breaking wire change; raise `MinProtocolVersion` only when deliberately dropping support for an old wire format.
 
 ### Backpressure
 
