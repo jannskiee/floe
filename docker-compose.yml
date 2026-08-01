@@ -1,19 +1,28 @@
-# Floe — self-hosting stack.
+# Floe self-hosting stack.
 #
-# Quick start:
-#   cp .env.docker.example .env
-#   docker compose up -d --build
+# Quick start, no clone and no toolchain needed:
+#   curl -fsSLO https://raw.githubusercontent.com/jannskiee/floe/main/docker-compose.yml
+#   docker compose up -d
 #   open http://localhost:3000
 #
+# A .env file is optional; every value below has a working default. To customise,
+# fetch the annotated example alongside this file:
+#   curl -fsSL https://raw.githubusercontent.com/jannskiee/floe/main/.env.docker.example -o .env
+#
+# Images are prebuilt and published to ghcr.io. To build from source instead, add
+# the overlay: docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+#
 # The `client` and `server` services run out of the box (STUN-only, which works on
-# most home and mobile networks). The optional `coturn` relay is only started with
-# the `turn` profile and requires a public IP, domain, and TLS certificates — see
-# SELF_HOSTING.md.
+# most home and mobile networks). For a production deployment behind one domain,
+# see docs/self-hosting/reverse-proxy. The optional `coturn` relay is only started
+# with the `turn` profile and requires a public IP, domain, and TLS certificates.
 
 services:
   server:
-    build: ./server
-    image: floe-server
+    # FLOE_IMAGE_TAG pins a version, for example FLOE_IMAGE_TAG=1.9.1. Deliberately
+    # NOT named FLOE_VERSION: that already belongs to the CLI installer and is
+    # documented as v1.9.1, with a leading v that image tags do not carry.
+    image: ghcr.io/jannskiee/floe-server:${FLOE_IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "${PORT:-3001}:3001"
@@ -22,8 +31,15 @@ services:
       # is what changes. Everything else is interpolated from .env.
       PORT: 3001
       CLIENT_URL: ${CLIENT_URL:-http://localhost:3000}
-      TRUSTED_PROXY_COUNT: ${TRUSTED_PROXY_COUNT:-1}
+      # Reverse-proxy hops in front of the server. This stack publishes ports
+      # directly, so the default is 0. Set it to 1 when you put a proxy in front
+      # (see docs/self-hosting/reverse-proxy), or the per-IP rate limits read a
+      # client-supplied X-Forwarded-For and can be bypassed.
+      TRUSTED_PROXY_COUNT: ${TRUSTED_PROXY_COUNT:-0}
       MAX_CONNECTIONS_PER_IP: ${MAX_CONNECTIONS_PER_IP:-30}
+      MAX_TURN_REQUESTS_PER_IP: ${MAX_TURN_REQUESTS_PER_IP:-}
+      MAX_CODE_REQUESTS_PER_IP: ${MAX_CODE_REQUESTS_PER_IP:-}
+      MAX_ACTIVE_CODES: ${MAX_ACTIVE_CODES:-}
       # Managed TURN via Cloudflare Realtime (takes precedence over coturn below).
       CLOUDFLARE_TURN_KEY_ID: ${CLOUDFLARE_TURN_KEY_ID:-}
       CLOUDFLARE_TURN_KEY_API_TOKEN: ${CLOUDFLARE_TURN_KEY_API_TOKEN:-}
@@ -36,28 +52,43 @@ services:
       MAX_REPORT_BYTES: ${MAX_REPORT_BYTES:-}
 
   client:
-    build:
-      context: ./client
-      args:
-        # Baked into the bundle at build time — must point at the server URL that
-        # browsers can reach. Rebuild this service after changing it.
-        NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL:-http://localhost:3001}
-    image: floe-client
+    image: ghcr.io/jannskiee/floe-client:${FLOE_IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${CLIENT_PORT:-3000}:3000"
+    environment:
+      # Where browsers reach the signaling server. Read at request time and
+      # served from /api/config, so changing it takes effect on the next
+      # `docker compose up -d` with no rebuild. Set it EMPTY when both services
+      # share one origin behind a reverse proxy; the browser then uses its own.
+      #
+      # `-` and not `:-` on purpose: the default applies only when the variable
+      # is absent. An explicitly empty value must stay empty, or the one-domain
+      # setup above would silently fall back to localhost.
+      SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL-http://localhost:3001}
     depends_on:
-      - server
+      server:
+        condition: service_healthy
 
   # Optional TURN relay. Start with: docker compose --profile turn up -d
   # Uses host networking because relaying needs a wide UDP port range and the
   # client's real public IP. Linux hosts with a public IP only.
   coturn:
-    image: coturn/coturn:latest
+    image: coturn/coturn:4.15
     profiles: ["turn"]
     restart: unless-stopped
     network_mode: host
     volumes:
+      # This file holds your TURN_SECRET, so it is never shipped. Create it first:
+      #   curl -fsSL --create-dirs -o coturn/turnserver.conf \
+      #     https://raw.githubusercontent.com/jannskiee/floe/main/coturn/turnserver.conf.example
+      #
+      # Skip that and Docker creates a DIRECTORY at this path. coturn then starts
+      # anyway and reports healthy, running on built-in defaults with no auth
+      # secret, so relaying silently fails for the CGNAT peers it exists to serve.
+      # The giveaway is "Default realm: localdomain" in its logs. Recovery needs
+      # `rmdir coturn/turnserver.conf` FIRST: copying onto a directory succeeds and
+      # writes the file inside it.
       - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
       # Mount your TLS cert/key here and reference them in turnserver.conf, e.g.:
       # - ./coturn/certs:/etc/coturn/certs:ro

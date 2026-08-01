@@ -17,6 +17,14 @@ overrides:
   socket.io-parser: ^4.2.6
   flatted: ^3.4.2
   # GHSA advisories 2026-07: DoS via pathological inputs in dev tooling.
-  # The @1 scope leaves the non-vulnerable 5.x line untouched.
+  # brace-expansion needs a pin per major line. GHSA-mh99-v99m-4gvg
+  # (CVE-2026-14257) declares a single affected range, <= 5.0.7, with no
+  # per-major carve-out, so the 1.x line is nominally in scope as well. It
+  # cannot be moved: minimatch@3 (via eslint's config-array and eslintrc)
+  # CommonJS-requires brace-expansion's default export, and 5.x changed that
+  # shape, so forcing 5.0.8 there fails with "expand is not a function" and
+  # breaks eslint outright. 1.x has no patched release. The 5.x instance does
+  # move to the fixed 5.0.8. Both lines are dev tooling that never ships.
   brace-expansion@1: ^1.1.16
+  brace-expansion@5: ^5.0.8
   js-yaml: ^4.3.0

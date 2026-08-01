@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/nextjs';
+import { BROWSER_EXTENSION_URL_PATTERNS } from './lib/browserExtensions';
 import { isStaleBundleError } from './lib/staleBundle';
 import { scrubUrl } from './lib/scrubUrl';
 
@@ -27,6 +28,15 @@ Sentry.init({
         // Safari/iOS ResizeObserver noise
         'ResizeObserver loop',
     ],
+
+    // Drop errors thrown by browser extensions' injected content scripts: not
+    // Floe code, never actionable. Matched on the frame's URL scheme rather
+    // than its message, so this covers every extension without needing a
+    // per-wording entry above. It has to be denyUrls and not beforeSend:
+    // EventFilters runs first, before @sentry/nextjs rewrites every frame
+    // origin to "app://" (see lib/browserExtensions.ts). Fixes FLOE-E,
+    // MetaMask's inpage.js rejecting with "Failed to connect to MetaMask".
+    denyUrls: BROWSER_EXTENSION_URL_PATTERNS,
 
     // Sample 10% of transactions. Tracing every page load (1.0) flooded the
     // performance detectors with low-signal "Degraded HTTP Operation" issues on

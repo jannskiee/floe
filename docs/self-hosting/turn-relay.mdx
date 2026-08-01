@@ -42,8 +42,17 @@ TURN requires a **public IP address**, a **domain name**, and **TLS certificates
 <Steps>
   <Step title="Create the coturn config">
     ```bash
-    cp coturn/turnserver.conf.example coturn/turnserver.conf
+    curl -fsSL --create-dirs -o coturn/turnserver.conf \
+      https://raw.githubusercontent.com/jannskiee/floe/main/coturn/turnserver.conf.example
     ```
+
+    This file holds your shared secret, so it is never shipped and you always create it yourself.
+
+    <Warning>
+      Do not skip this. Docker creates a **directory** at that path instead, and coturn then **starts anyway** and reports healthy, running on built-in defaults with no auth secret. Relaying silently fails for exactly the peers TURN exists to serve. The giveaway is `Default realm: localdomain` in `docker compose logs coturn`.
+
+      Recovering needs `rmdir coturn/turnserver.conf` **first**: copying onto a directory succeeds and writes the file inside it, so the obvious fix appears to work and does not.
+    </Warning>
 
     Edit `coturn/turnserver.conf` and set:
     - `static-auth-secret` to a strong random value (e.g. `openssl rand -hex 32`)
@@ -70,11 +79,19 @@ TURN requires a **public IP address**, a **domain name**, and **TLS certificates
     | `3478` | UDP/TCP | STUN and TURN |
     | `5349` | UDP/TCP | TURNS (TURN over TLS) |
     | `49152-65535` | UDP | Relay data range (configurable in `turnserver.conf`) |
+
+    <Warning>
+      These ports must be reachable directly. TURN is not HTTP, so it cannot be routed through the reverse proxy that fronts the web client and signaling server. Even on a [one-domain deployment](/self-hosting/reverse-proxy), coturn keeps its own ports and its own TLS certificate.
+    </Warning>
   </Step>
   <Step title="Start the stack with the TURN profile">
     ```bash
-    docker compose --profile turn up -d --build
+    docker compose --profile turn up -d
     ```
+
+    <Warning>
+      Create `coturn/turnserver.conf` first, as the earlier step describes. Starting the profile without it looks successful and is not.
+    </Warning>
   </Step>
 </Steps>
 

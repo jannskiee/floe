@@ -95,8 +95,10 @@
         "pages": [
           "self-hosting/overview",
           "self-hosting/quickstart",
+          "self-hosting/images",
           "self-hosting/configuration",
           "self-hosting/build-time-url",
+          "self-hosting/reverse-proxy",
           "self-hosting/production",
           "self-hosting/turn-relay",
           "self-hosting/operations",

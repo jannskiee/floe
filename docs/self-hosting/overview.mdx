@@ -13,9 +13,13 @@ The signaling server brokers WebRTC connection setup (offer, answer, ICE candida
 
 | Component | Description |
 |-----------|-------------|
-| `client` | Next.js web app, served on port 3000 |
-| `server` | Node.js signaling server, on port 3001 |
+| `client` | Next.js web app, on container port 3000 |
+| `server` | Node.js signaling server, on container port 3001 |
 | `coturn` | Optional self-hosted TURN relay (profile-gated in Docker Compose). Alternatively, use managed Cloudflare Realtime TURN with no extra container. |
+
+Those are the ports inside the containers. In production you normally put both
+behind a single domain, so your users never see either one. See
+[Reverse Proxy](/self-hosting/reverse-proxy).
 
 ## Contents
 
@@ -23,13 +27,22 @@ The signaling server brokers WebRTC connection setup (offer, answer, ICE candida
   <Card title="Quick Start" href="/self-hosting/quickstart">
     Get the stack running with Docker Compose in minutes.
   </Card>
+  <Card title="Container Images" href="/self-hosting/images">
+    The prebuilt images on ghcr.io: tags, pinning a version or digest, and supported architectures.
+  </Card>
   <Card title="Configuration" href="/self-hosting/configuration">
     Environment variable reference for all settings.
   </Card>
+  <Card title="Reverse Proxy" href="/self-hosting/reverse-proxy">
+    Serve the client and signaling server from one domain, with Caddy and nginx examples.
+  </Card>
   <Card title="Production Deployment" href="/self-hosting/production">
-    HTTPS, reverse proxy, and domain setup.
+    HTTPS, custom domains, and the two-subdomain layout.
   </Card>
   <Card title="TURN Relay" href="/self-hosting/turn-relay">
     Use Cloudflare's managed TURN or add coturn to support peers behind strict NAT or CGNAT.
+  </Card>
+  <Card title="Operations" href="/self-hosting/operations">
+    Day-to-day commands, updates, and health checks.
   </Card>
 </CardGroup>

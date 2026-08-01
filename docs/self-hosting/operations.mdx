@@ -15,12 +15,14 @@ docker compose restart server           # restart only the signaling server
 ## Update to the latest code
 
 ```bash
-git pull
-docker compose pull && docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
+That pulls the newest [published images](/self-hosting/images) and restarts. Nothing is built locally, so there is no repository to keep in sync.
+
 <Note>
-  After updating, run `docker compose build client` and `docker compose up -d` if you changed any environment variables. The client image must be rebuilt when `NEXT_PUBLIC_SOCKET_URL` changes. See [Build-Time URL Caveat](/self-hosting/build-time-url).
+  Changing `NEXT_PUBLIC_SOCKET_URL` needs only `docker compose up -d`; the client reads it at runtime. See [How the Client Finds the Signaling Server](/self-hosting/build-time-url). `NEXT_PUBLIC_SITE_URL` is the exception: it is written into the page at build time, so the published image omits those tags entirely rather than pointing them at somebody else's domain. See [Container Images](/self-hosting/images) if you want your own.
 </Note>
 
 ## Health endpoints

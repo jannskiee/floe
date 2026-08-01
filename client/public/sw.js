@@ -35,6 +35,11 @@ self.addEventListener('fetch', (event) => {
 
     if (request.method !== 'GET') return;
     if (url.pathname.includes('socket.io')) return;
+    // Never cache API traffic. /api/config carries the runtime server address, so
+    // a cached copy would pin the client to a stale one forever. Behind a
+    // one-domain reverse proxy the signaling server's own /api/ routes are
+    // same-origin too, and the cache-first branch below would freeze those.
+    if (url.pathname.startsWith('/api/')) return;
     if (url.hostname !== self.location.hostname) return;
 
     if (request.mode === 'navigate') {

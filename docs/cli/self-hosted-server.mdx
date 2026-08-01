@@ -10,21 +10,27 @@ The `floe` CLI connects to `https://api.floe.one` by default. You can point it a
 Both sender and receiver must use the same server:
 
 ```bash
-floe send photo.jpg --server https://api.your-domain.com
-floe receive olive-tiger-castle --server https://api.your-domain.com
+floe send photo.jpg --server https://floe.example.com
+floe receive olive-tiger-castle --server https://floe.example.com
 ```
 
-The `--server` value must be the URL of the **signaling server**, not the web client.
+Point `--server` at the origin that serves `/api` and `/ws`. On a
+[one-domain deployment](/self-hosting/reverse-proxy) that is the same address your
+users open in a browser, so this is all you need: the share link that `floe send`
+prints resolves to the same origin and opens the web client correctly.
 
-## Separating the web client URL
+## When the web client is on a different host
 
-When using `--server`, the browser link printed by `floe send` defaults to the same origin as the server. If your web client is hosted at a different URL, override it with `--web`:
+The browser link printed by `floe send` defaults to the same origin as `--server`.
+If your web client lives somewhere else, such as the two-subdomain layout, override
+it with `--web`:
 
 ```bash
 floe send photo.jpg --server https://api.your-domain.com --web https://app.your-domain.com
 ```
 
-This is common when the client and server run on separate subdomains.
+Without `--web`, that split deployment prints a link pointing at the signaling
+server, which serves no web app.
 
 ## Local testing
 

@@ -110,11 +110,11 @@ For all commands, flags, and advanced usage, see the [documentation](https://www
 
 ## Self-Hosting
 
-Prefer to run your own instance instead of using `floe.one`? The web client and signaling server ship with Docker support, so the full stack comes up with one command:
+Prefer to run your own instance instead of using `floe.one`? Prebuilt images are published to ghcr.io, so the full stack comes up in two commands with no clone and no toolchain:
 
 ```sh
-cp .env.docker.example .env
-docker compose up -d --build
+curl -fsSLO https://raw.githubusercontent.com/jannskiee/floe/main/docker-compose.yml
+docker compose up -d
 ```
 
 This runs the client on `:3000` and the signaling server on `:3001` (STUN-only, which works on most networks). See **[SELF_HOSTING.md](SELF_HOSTING.md)** for configuration, production deployment behind HTTPS, and the optional TURN relay.

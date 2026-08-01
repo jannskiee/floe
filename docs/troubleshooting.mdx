@@ -85,14 +85,19 @@ Most Floe transfers just work. When something goes wrong, it is almost always on
 
 <AccordionGroup>
   <Accordion title="The browser cannot connect to my signaling server">
-    This is the most common self-hosting issue. `NEXT_PUBLIC_SOCKET_URL` is inlined into the client **at build time**, so changing it on a running container has no effect. After changing it, rebuild the client image:
+    Set `NEXT_PUBLIC_SOCKET_URL` in `.env` and recreate the container. No rebuild is needed, because the client reads its server address at runtime:
 
     ```bash
-    docker compose build client
     docker compose up -d
     ```
 
-    Also confirm the URL is reachable from the end user's browser. `http://localhost:3001` only works when the browser runs on the same machine as the server. See [Build-Time URL Caveat](/self-hosting/build-time-url).
+    Check what the client is actually resolving:
+
+    ```bash
+    curl http://localhost:3000/api/config
+    ```
+
+    An empty `socketUrl` means the browser will use its own origin, which is correct only when both services sit behind [one reverse proxy](/self-hosting/reverse-proxy). Otherwise confirm the URL is reachable from the end user's browser: `http://localhost:3001` only works when the browser runs on the same machine as the server. See [how the client finds the server](/self-hosting/build-time-url).
   </Accordion>
 
   <Accordion title="Browser requests are blocked by CORS">
@@ -108,7 +113,7 @@ Most Floe transfers just work. When something goes wrong, it is almost always on
 
     **Managed Cloudflare TURN:** confirm both `CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_KEY_API_TOKEN` are set in `.env`, then run `curl http://localhost:3001/api/turn-credentials`. A working setup returns `turn.cloudflare.com` entries with a username and credential. If it returns STUN servers only, one of the two variables is missing or the API token is invalid (roll it in the Cloudflare dashboard under Realtime, then TURN Server).
 
-    **Self-hosted coturn:** the bundled coturn service uses host networking, so it runs on a **Linux host** with a public IP, a domain, and TLS certificates. On macOS or Windows with Docker Desktop, run coturn separately or on a Linux VM. Confirm that `TURN_SECRET` and `TURN_DOMAIN` in `.env` match coturn's `static-auth-secret` and `realm`, then start the stack with `docker compose --profile turn up -d --build`. See [TURN Relay](/self-hosting/turn-relay).
+    **Self-hosted coturn:** the bundled coturn service uses host networking, so it runs on a **Linux host** with a public IP, a domain, and TLS certificates. On macOS or Windows with Docker Desktop, run coturn separately or on a Linux VM. Confirm that `TURN_SECRET` and `TURN_DOMAIN` in `.env` match coturn's `static-auth-secret` and `realm`, then start the stack with `docker compose --profile turn up -d`. See [TURN Relay](/self-hosting/turn-relay).
   </Accordion>
 </AccordionGroup>
 

@@ -25,6 +25,7 @@ import { useTransferAnalytics } from '@/hooks/useTransferAnalytics';
 import { useRelayConfiguration } from '@/hooks/useRelayConfiguration';
 import { RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, isRelayPair } from '@/lib/relay';
 import { classifyPeerError } from '@/lib/peerErrors';
+import { resolveSocketUrl } from '@/lib/socketUrl';
 
 import {
     Card,
@@ -239,9 +240,8 @@ export function P2PTransfer() {
 
     const fetchIceServers = async () => {
         try {
-            const response = await fetch(
-                `${process.env.NEXT_PUBLIC_SOCKET_URL}/api/turn-credentials`
-            );
+            const base = await resolveSocketUrl();
+            const response = await fetch(`${base}/api/turn-credentials`);
             const iceServers = await response.json();
             if (Array.isArray(iceServers) && iceServers.length > 0) {
                 iceServersRef.current = iceServers;
