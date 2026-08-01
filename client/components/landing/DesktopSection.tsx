@@ -11,7 +11,6 @@ import { DESKTOP_VERSION } from '@/lib/desktopRelease';
 const FEATURES = [
     { name: 'Paste to send', desc: 'Ctrl+V a screenshot or files copied in Explorer' },
     { name: 'Folders', desc: 'Sent as folders, no zipping' },
-    { name: 'Minimized', desc: 'Transfers keep running while the window is minimized' },
     { name: 'History', desc: 'What you sent and received, stored locally' },
 ];
 
@@ -27,7 +26,7 @@ export function DesktopSection() {
             <SectionHeader
                 eyebrow="Desktop"
                 headline="Transfers that outlive the tab."
-                lede="Floe Desktop is the same app, running natively on Windows. Drop a folder to send it without zipping, minimize the window while it transfers, get a notification when it lands. Same rooms, same end-to-end encryption as browser and CLI peers."
+                lede="Floe Desktop is the same app, running natively on Windows. Drop a folder to send it without zipping, paste a screenshot straight from the clipboard, get a notification when a transfer lands. Same rooms, same end-to-end encryption as browser and CLI peers."
             />
             <div className="mt-12 grid gap-10 lg:grid-cols-12 lg:gap-12">
                 <div className="min-w-0 lg:order-2 lg:col-span-5">

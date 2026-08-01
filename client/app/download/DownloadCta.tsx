@@ -40,9 +40,11 @@ const pillClass =
 const secondaryClass =
     'text-[13px] font-bold text-white/70 transition hover:text-white focus-visible:outline-2 focus-visible:outline-ice';
 
-// The badge ships at 161x44; rendered a touch larger so it carries the same
-// visual weight the filled pill used to. Opacity lift on hover mirrors the
-// pill's hover shift without recoloring Microsoft's artwork.
+// The badge ships at 161x44 and is rendered at 220x60 (same ratio): the hero
+// action of the page, so it carries more weight than the pill it replaced.
+// `unoptimized` serves the raw SVG vector, so it stays crisp at any size and
+// DPI. Opacity lift on hover mirrors the old pill's hover shift without
+// recoloring Microsoft's artwork.
 const badgeClass =
     'inline-flex items-center opacity-95 transition hover:opacity-100 focus-visible:outline-2 focus-visible:outline-ice';
 
@@ -60,9 +62,10 @@ function StoreBadge({ source }: { source: string }) {
             <Image
                 src="/ms-store-badge.svg"
                 alt="Get Floe Desktop from the Microsoft Store"
-                width={176}
-                height={48}
+                width={220}
+                height={60}
                 priority
+                unoptimized
             />
         </a>
     );
@@ -73,7 +76,7 @@ export function DownloadCta() {
     const windowsArrangement = os === 'windows';
 
     return (
-        <div className="flex min-h-12 flex-wrap items-center justify-center gap-x-5 gap-y-3">
+        <div className="flex min-h-[60px] flex-wrap items-center justify-center gap-x-5 gap-y-3">
             {windowsArrangement ? (
                 <>
                     <StoreBadge source="hero-primary" />
