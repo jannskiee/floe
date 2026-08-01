@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MSIX manifest template for the Microsoft Store build. pack.ps1 stamps
+  __IDENTITY_VERSION__ and assembles the layout; the packed .msix is uploaded
+  UNSIGNED to Partner Center, which re-signs it with a Microsoft certificate
+  (that re-signing is the entire point: zero SmartScreen warnings, no
+  purchased certificate).
+
+  Identity values come from Partner Center > Product identity and are
+  case- and punctuation-sensitive; a mismatch is an upload failure. The
+  Identity Version's first octet must not be 0 and the fourth must be 0, so
+  pack.ps1 derives it from the product version as (major+1).minor.patch.0
+  (0.2.0 -> 1.2.0.0), which stays monotonic forever. The product's own
+  0.x.y string stays in wails.json and the exe's version resource.
+
+  No file-type associations, protocols, or context-menu extensions are
+  declared: Floe registers none, and the runtime HKCU context-menu verb is
+  deliberately hidden in packaged builds (see desktop/packaged_windows.go).
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap10 rescap">
+
+  <Identity
+    Name="JanCarloParedes.FloeDesktop"
+    Publisher="CN=5D497A40-D927-4850-8A83-E21F677E80E3"
+    Version="__IDENTITY_VERSION__"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Floe Desktop</DisplayName>
+    <PublisherDisplayName>Jan Carlo Paredes</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+
+  <Applications>
+    <Application Id="FloeDesktop" Executable="floe-desktop.exe" EntryPoint="Windows.FullTrustApplication"
+                 uap10:RuntimeBehavior="packagedClassicApp" uap10:TrustLevel="mediumIL">
+      <uap:VisualElements
+        DisplayName="Floe Desktop"
+        Description="Secure, encrypted peer-to-peer file transfer"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" ShortName="Floe" />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+</Package>

@@ -9,6 +9,7 @@ import {
     GetPendingFiles,
     GetSettings,
     GetVersion,
+    IsPackaged,
     OpenFile,
     OpenFolder,
     PasteFiles,
@@ -659,6 +660,12 @@ function App() {
 
     // Windows Explorer right-click menu registration state.
     const [ctxMenu, setCtxMenu] = useState(false);
+    // Whether this build runs from an MSIX package (Microsoft Store install).
+    // Packaged builds hide the right-click toggle: an MSIX process's registry
+    // writes land in a private view Explorer never reads, so the entry cannot
+    // work there. Defaults to false (fail-open, matching the Go probe), so the
+    // NSIS/portable builds never lose the row to a detection hiccup.
+    const [packaged, setPackaged] = useState(false);
 
     // About row data, fetched once from the Go side.
     const [appVer, setAppVer] = useState('');
@@ -901,16 +908,32 @@ function App() {
         // First run defaults it ON; an explicit user OFF (floe:ctx-menu = '0')
         // stays off. The auto-enable never writes the marker, so it records
         // user choice only and the default self-heals if the key vanishes.
+        //
+        // Skipped entirely in a packaged (Microsoft Store) build: the write
+        // would land in the package's private registry view, Explorer would
+        // never show the entry, and ContextMenuEnabled could then read the
+        // private copy back as "on" while the menu shows nothing. A failed
+        // IsPackaged probe falls through to the unpackaged flow, matching the
+        // Go side's fail-open default.
         if (isWindows) {
-            ContextMenuEnabled().then((on) => {
-                if (on) {
-                    setCtxMenu(true);
+            const initCtxMenu = () => {
+                ContextMenuEnabled().then((on) => {
+                    if (on) {
+                        setCtxMenu(true);
+                        return;
+                    }
+                    if (localStorage.getItem('floe:ctx-menu') === null) {
+                        EnableContextMenu().then(() => setCtxMenu(true)).catch(() => {});
+                    }
+                }).catch(() => {});
+            };
+            IsPackaged().then((p) => {
+                if (p) {
+                    setPackaged(true);
                     return;
                 }
-                if (localStorage.getItem('floe:ctx-menu') === null) {
-                    EnableContextMenu().then(() => setCtxMenu(true)).catch(() => {});
-                }
-            }).catch(() => {});
+                initCtxMenu();
+            }).catch(initCtxMenu);
         }
         return () => {
             EventsOff('send:code');
@@ -1481,7 +1504,7 @@ function App() {
                                     </div>
                                 </section>
 
-                                {isWindows && (
+                                {isWindows && !packaged && (
                                     <section className="space-y-2">
                                         <Eyebrow as="h3">Windows</Eyebrow>
                                         <div className={cardClass}>

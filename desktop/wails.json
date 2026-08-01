@@ -3,10 +3,10 @@
   "name": "floe-desktop",
   "outputfilename": "floe-desktop",
   "info": {
-    "companyName": "Jc Paredes",
+    "companyName": "Jan Carlo Paredes",
     "productName": "Floe",
     "productVersion": "0.1.0",
-    "copyright": "(c) 2026 Jc Paredes",
+    "copyright": "(c) 2026 Jan Carlo Paredes",
     "comments": "Peer-to-peer file transfer"
   },
   "frontend:install": "npm install",

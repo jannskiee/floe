@@ -176,8 +176,10 @@ func (a *App) startup(ctx context.Context) {
 	a.mu.Unlock()
 
 	// Best-effort self-heal: if the user enabled the context menu and the exe
-	// has moved since, rewrite the entry to point here.
-	if goruntime.GOOS == "windows" {
+	// has moved since, rewrite the entry to point here. Skipped when packaged:
+	// an MSIX process's HKCU write lands in a private view Explorer never
+	// reads, so the rewrite could only produce a lie (see packaged_windows.go).
+	if goruntime.GOOS == "windows" && !isPackaged() {
 		if exe, err := os.Executable(); err == nil {
 			if cmd, ok := contextMenuCommand(contextMenuBase); ok && cmd != expectedCommand(exe) {
 				_ = registerContextMenu(contextMenuBase, exe)
@@ -224,9 +226,23 @@ func (a *App) PasteFiles() []string {
 	return nil
 }
 
+// IsPackaged reports whether this build runs with MSIX package identity (the
+// Microsoft Store install). The Settings screen hides the Explorer
+// context-menu toggle when it does: a packaged process's HKCU writes land in
+// a private registry view that Explorer never reads, so the verb cannot work,
+// and a Store uninstall runs no cleanup that could remove a stale entry.
+func (a *App) IsPackaged() bool {
+	return isPackaged()
+}
+
 // EnableContextMenu adds the "Send with Floe" entry to the Explorer right-click
-// menu for the current user (Windows only).
+// menu for the current user (Windows only, unpackaged builds only).
 func (a *App) EnableContextMenu() error {
+	if isPackaged() {
+		// Unreachable through the UI (the toggle is hidden when packaged);
+		// a clear error beats a write that would silently do nothing.
+		return fmt.Errorf("the right-click menu is not available in the Microsoft Store build")
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return err
@@ -234,14 +250,21 @@ func (a *App) EnableContextMenu() error {
 	return registerContextMenu(contextMenuBase, exe)
 }
 
-// DisableContextMenu removes the Explorer entry.
+// DisableContextMenu removes the Explorer entry. Deliberately not gated on
+// isPackaged: removal is harmless everywhere, so a cleanup call can never fail
+// for channel reasons.
 func (a *App) DisableContextMenu() error {
 	return unregisterContextMenu(contextMenuBase)
 }
 
 // ContextMenuEnabled reports whether the entry exists and points at the current
-// executable; a moved exe reads as disabled until re-enabled.
+// executable; a moved exe reads as disabled until re-enabled. Always false when
+// packaged: the merged registry view could report an entry that Explorer does
+// not actually show, and false is the truth that matters (the feature is off).
 func (a *App) ContextMenuEnabled() bool {
+	if isPackaged() {
+		return false
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return false
