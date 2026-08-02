@@ -14,7 +14,7 @@
  */
 
 // Bump these two together on every desktop release.
-export const DESKTOP_VERSION = '0.2.0';
+export const DESKTOP_VERSION = '0.2.1';
 export const DESKTOP_RELEASE_DATE = 'Aug 2, 2026';
 
 /**
