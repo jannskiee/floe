@@ -101,13 +101,29 @@ export default function Download() {
             <main className="w-full max-w-5xl">
                 {/* Hero: static server HTML; only the CTA row is a client island */}
                 <div className="flex flex-col items-center pt-28 text-center sm:pt-32">
-                    <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-zinc-100">
+                    {/* text-ice, not zinc-100: every other eyebrow on the site is either the
+                        ice accent (SectionHeader, and the privacy/terms page hero) or quiet
+                        zinc-500. At zinc-100 this one rendered the exact same value as the h1
+                        four pixels below it, so the eye met two headlines instead of a label
+                        and its subject, and the hero carried no accent at all.
+                        pl-[0.2em] repays the letter-space that tracking adds AFTER the final
+                        glyph: centred letterspaced text otherwise sits half a space left of
+                        true centre (measured 2.25px off the headline's ink). */}
+                    <p className="pl-[0.2em] font-mono text-[11px] uppercase tracking-[0.2em] text-ice">
                         Download
                     </p>
-                    <h1 className="mt-4 text-4xl font-semibold tracking-tight text-zinc-100 sm:text-5xl">
+                    {/* lg:text-6xl only: 320-1023px renders exactly as before, while on the
+                        wide screens where the 1024px container leaves the most air the
+                        headline gains the presence it was missing. */}
+                    <h1 className="mt-4 text-4xl font-semibold tracking-tight text-zinc-100 sm:text-5xl lg:text-6xl">
                         Floe Desktop
                     </h1>
-                    <p className="mt-5 max-w-xl text-base leading-relaxed text-zinc-400">
+                    {/* max-w-lg + text-balance: at max-w-xl this set as a 540px line over a
+                        102px orphan ("Windows app."), which under a centred headline is the
+                        most visible flaw in the block. Balanced it resolves into two even
+                        lines. mt-6 also tiers the rhythm 16/24/32 down to the CTA, so the
+                        eyebrow binds to the headline instead of floating between beats. */}
+                    <p className="mt-6 max-w-lg text-base leading-relaxed text-balance text-zinc-400">
                         The same encrypted, peer-to-peer transfer as floe.one, running as a native
                         Windows app.
                     </p>
