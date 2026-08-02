@@ -140,7 +140,7 @@ export function CliTerminal() {
                     dropped on short-landscape viewports where a 480px reservation cannot fit */}
                 {/* Below sm the widest session lines scroll horizontally; the right-edge
                     fade makes the cut look intentional instead of amputated. */}
-                <div className="custom-scrollbar [@media(min-height:481px)]:min-h-[480px] overflow-x-auto px-4 py-4 max-sm:[mask-image:linear-gradient(to_right,black_calc(100%-24px),transparent)]" aria-hidden="true">
+                <div className="custom-scrollbar [@media(min-height:481px)]:min-h-[480px] overflow-x-auto px-4 py-4 max-sm:[mask-image:linear-gradient(to_right,black_calc(100%_-_24px),transparent)]" aria-hidden="true">
                     <div className="min-w-max whitespace-pre font-mono text-[12.5px] leading-[1.7] text-zinc-300">
                         <div>
                             <span className="text-ice">$ </span>

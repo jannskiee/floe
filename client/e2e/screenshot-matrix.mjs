@@ -72,10 +72,20 @@ const overflowEval = () => {
 const index = [];
 async function capture(page, name, vp) {
     await page.setViewportSize(vp);
-    // The fixed nav paints at the current scroll offset in a full-page capture;
-    // settle at the top so it lands over the hero, not mid-page content.
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await page.waitForTimeout(250);
+    // Force every lazy image to finish loading (short landscape viewports can
+    // otherwise capture an empty AppWindow frame), then settle at the top so
+    // the fixed nav lands over the hero, not mid-page content.
+    await page.evaluate(async () => {
+        window.scrollTo(0, document.body.scrollHeight);
+        await Promise.all(
+            Array.from(document.images).map((img) => {
+                img.loading = 'eager';
+                return img.complete ? null : new Promise((r) => { img.onload = img.onerror = r; });
+            }),
+        );
+        window.scrollTo(0, 0);
+    });
+    await page.waitForTimeout(300);
     const r = await page.evaluate(overflowEval);
     const file = `${name}--${KEY(vp)}.png`;
     await page.screenshot({ path: join(OUT, file), fullPage: true });
