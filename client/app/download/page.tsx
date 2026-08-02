@@ -101,11 +101,11 @@ export default function Download() {
             <main className="w-full max-w-5xl">
                 {/* Hero: static server HTML; only the CTA row is a client island */}
                 <div className="flex flex-col items-center pt-28 text-center sm:pt-32">
-                    <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ice">
+                    <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-zinc-100">
                         Download
                     </p>
                     <h1 className="mt-4 text-4xl font-semibold tracking-tight text-zinc-100 sm:text-5xl">
-                        Floe Desktop.
+                        Floe Desktop
                     </h1>
                     <p className="mt-5 max-w-xl text-base leading-relaxed text-zinc-400">
                         The same encrypted, peer-to-peer transfer as floe.one, running as a native
@@ -130,11 +130,8 @@ export default function Download() {
                     </p>
 
                     <div className="mt-4 space-y-1 text-[13px] leading-relaxed text-zinc-400">
+                        <p>Installs with no warnings, and updates arrive automatically.</p>
                         <p>Requires Windows 10 or later, 64-bit, with Microsoft WebView2.</p>
-                        <p>
-                            Installs from the Microsoft Store: no warnings, and updates arrive
-                            automatically.
-                        </p>
                     </div>
                 </div>
 
