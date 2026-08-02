@@ -96,8 +96,11 @@ export const Navbar = () => {
                         Floe
                     </Link>
                 )}
-                <div className="h-4 w-px bg-white/10 mx-1 max-[359px]:mx-0" />
-                <div className="flex items-center gap-0.5 sm:gap-1">
+                {/* Section anchors are scroll shortcuts: below sm they cost more
+                    width than the 320-568px pill can afford (the fixed pill just
+                    clips), so phones show brand + destinations only. */}
+                <div className="hidden sm:block h-4 w-px bg-white/10 mx-1" />
+                <div className="hidden sm:flex items-center gap-0.5 sm:gap-1">
                     {SECTIONS.map((section) => {
                         const pillClass = `rounded-full px-2.5 max-[359px]:px-1 py-1.5 sm:px-3.5 sm:py-2 text-xs sm:text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-ice ${
                             activeSection === section.id
@@ -118,18 +121,11 @@ export const Navbar = () => {
                     })}
                 </div>
                 <div className="h-4 w-px bg-white/10 mx-1 max-[359px]:mx-0" />
-                {/* Destinations, split from the section anchors above: Docs and
-                    Download side by side, then the GitHub pill keeps its filled
-                    endpoint treatment. */}
+                <div className="h-4 w-px bg-white/10 mx-1 max-[359px]:mx-0" />
+                {/* Destinations, split from the section anchors: Download then Docs
+                    side by side, then the GitHub pill keeps its filled endpoint
+                    treatment. */}
                 <div className="flex items-center gap-0.5 sm:gap-1">
-                    <a
-                        href="https://www.floe.one/docs"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="rounded-full px-2.5 max-[359px]:px-1 py-1.5 sm:px-3.5 sm:py-2 text-xs sm:text-sm font-medium text-zinc-400 transition hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-ice"
-                    >
-                        Docs
-                    </a>
                     {/* md: on purpose: the extra pill clips the untested 640-767px band,
                         and phone visitors cannot run the Windows build anyway (footer +
                         the homepage Desktop section carry discovery below md). */}
@@ -144,6 +140,14 @@ export const Navbar = () => {
                     >
                         Download
                     </Link>
+                    <a
+                        href="https://www.floe.one/docs"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-full px-2.5 max-[359px]:px-1 py-1.5 sm:px-3.5 sm:py-2 text-xs sm:text-sm font-medium text-zinc-400 transition hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-ice"
+                    >
+                        Docs
+                    </a>
                 </div>
                 <div className="h-4 w-px bg-white/10 mx-1 max-[359px]:mx-0" />
                 <a
