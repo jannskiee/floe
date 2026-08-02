@@ -100,7 +100,9 @@ export default function Download() {
 
             <main className="w-full max-w-5xl">
                 {/* Hero: static server HTML; only the CTA row is a client island */}
-                <div className="flex flex-col items-center pt-28 text-center sm:pt-32">
+                {/* pt-24/28, not 28/32: the fixed navbar ends around 74px, so the old
+                    values left ~55px of dead space before the first word. */}
+                <div className="flex flex-col items-center pt-24 text-center sm:pt-28">
                     {/* text-ice, not zinc-100: every other eyebrow on the site is either the
                         ice accent (SectionHeader, and the privacy/terms page hero) or quiet
                         zinc-500. At zinc-100 this one rendered the exact same value as the h1
@@ -109,13 +111,17 @@ export default function Download() {
                         pl-[0.2em] repays the letter-space that tracking adds AFTER the final
                         glyph: centred letterspaced text otherwise sits half a space left of
                         true centre (measured 2.25px off the headline's ink). */}
-                    <p className="pl-[0.2em] font-mono text-[11px] uppercase tracking-[0.2em] text-ice">
+                    {/* leading-none: an 11px label otherwise sits in a 16.5px line box, and
+                        that dead half-leading reads as extra gap under the label. */}
+                    <p className="pl-[0.2em] font-mono text-[11px] leading-none uppercase tracking-[0.2em] text-ice">
                         Download
                     </p>
                     {/* lg:text-6xl only: 320-1023px renders exactly as before, while on the
                         wide screens where the 1024px container leaves the most air the
                         headline gains the presence it was missing. */}
-                    <h1 className="mt-4 text-4xl font-semibold tracking-tight text-zinc-100 sm:text-5xl lg:text-6xl">
+                    {/* mt-3, not mt-4: the headline's line box already carries ~14px of
+                        leading above its caps, so the margin reads about double its value. */}
+                    <h1 className="mt-3 text-4xl font-semibold tracking-tight text-zinc-100 sm:text-5xl lg:text-6xl">
                         Floe Desktop
                     </h1>
                     {/* max-w-lg + text-balance: at max-w-xl this set as a 540px line over a
