@@ -121,6 +121,7 @@ export function AppWindow({
                         type="button"
                         onClick={replay}
                         aria-label="Replay the desktop demo"
+                        tabIndex={isDone && !reduced ? 0 : -1}
                         className={`relative before:absolute before:-inset-3 rounded p-1 text-zinc-600 transition hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-ice ${
                             isDone && !reduced ? 'opacity-100' : 'pointer-events-none opacity-0'
                         }`}

@@ -6,7 +6,7 @@ import { RotateCcw } from 'lucide-react';
 // Mirrors the real `floe send` output format (cli/cmd/floe): keep this session
 // consistent with what the CLI actually prints.
 const COMMAND = 'floe send vacation-photos/';
-const DIVIDER = '─'.repeat(44);
+const DIVIDER = '─'.repeat(49);
 // Narrower than the real CLI's bar so the widest progress line stays ~50ch:
 // phones scroll the session horizontally, and every column narrower than the
 // bar run is the difference between "peek at the numbers" and "amputated".
@@ -129,6 +129,7 @@ export function CliTerminal() {
                         type="button"
                         onClick={replay}
                         aria-label="Replay the transfer demo"
+                        tabIndex={done && !reduced ? 0 : -1}
                         className={`relative before:absolute before:-inset-3 rounded p-1 text-zinc-600 transition hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-ice ${
                             done && !reduced ? 'opacity-100' : 'pointer-events-none opacity-0'
                         }`}
@@ -140,7 +141,7 @@ export function CliTerminal() {
                     dropped on short-landscape viewports where a 480px reservation cannot fit */}
                 {/* Below sm the widest session lines scroll horizontally; the right-edge
                     fade makes the cut look intentional instead of amputated. */}
-                <div className="custom-scrollbar [@media(min-height:481px)]:min-h-[480px] overflow-x-auto px-4 py-4 max-sm:[mask-image:linear-gradient(to_right,black_calc(100%_-_24px),transparent)]" aria-hidden="true">
+                <div tabIndex={-1} className="custom-scrollbar [@media(min-height:481px)]:min-h-[480px] overflow-x-auto px-4 py-4 max-sm:[mask-image:linear-gradient(to_right,black_calc(100%_-_24px),transparent)]" aria-hidden="true">
                     <div className="min-w-max whitespace-pre font-mono text-[12.5px] leading-[1.7] text-zinc-300">
                         <div>
                             <span className="text-ice">$ </span>
@@ -152,7 +153,7 @@ export function CliTerminal() {
                                 <div> </div>
                                 <div>
                                     <span className="text-zinc-500">{'  Sending'}</span>
-                                    {'   3 files · 11.8 MB'}
+                                    {'   3 files · 10.1 MB'}
                                 </div>
                             </>
                         )}
@@ -201,14 +202,14 @@ export function CliTerminal() {
                         {shownStage >= 10 && (
                             <div>
                                 <span className="text-zinc-500">{'  Sent'}</span>
-                                {'   3 files (11.8 MB)'}
+                                {'   3 files (10.1 MB)'}
                             </div>
                         )}
                         {shownStage >= 11 && (
                             <>
                                 <div>
                                     <span className="text-zinc-500">{'  Time'}</span>
-                                    {'   8s · avg 1.4 MB/s'}
+                                    {'   8s · avg 1.3 MB/s'}
                                 </div>
                                 <div className="text-zinc-700">{`  ${DIVIDER}`}</div>
                             </>
@@ -223,9 +224,9 @@ export function CliTerminal() {
                 </div>
             </div>
             <p className="sr-only">
-                Example terminal session: floe send shares three files totaling 11.8 MB, prints the
+                Example terminal session: floe send shares three files totaling 10.1 MB, prints the
                 short code olive-tiger-castle and a link, connects to the peer, and completes the
-                transfer in 8 seconds at an average of 1.4 MB per second.
+                transfer in 8 seconds at an average of 1.3 MB per second.
             </p>
         </div>
     );

@@ -51,7 +51,7 @@ export function Footer() {
                             href="https://github.com/jannskiee/floe"
                             target="_blank"
                             rel="noreferrer"
-                            className="flex items-center gap-2 text-sm text-zinc-400 hover:text-white transition-colors"
+                            className="flex items-center gap-2 text-sm text-zinc-400 hover:text-white transition-colors focus-visible:outline-2 focus-visible:outline-ice"
                         >
                             <Image
                                 src="/github-mark-white.png"
@@ -66,7 +66,7 @@ export function Footer() {
                             href="https://ko-fi.com/jannskiee"
                             target="_blank"
                             rel="noreferrer"
-                            className="flex items-center gap-2 text-sm text-zinc-400 hover:text-[#FF5E5B] transition-colors"
+                            className="flex items-center gap-2 text-sm text-zinc-400 hover:text-[#FF5E5B] transition-colors focus-visible:outline-2 focus-visible:outline-ice"
                         >
                             <Heart className="h-4 w-4" />
                             <span className="font-medium">Support on Ko-fi</span>
@@ -87,14 +87,14 @@ export function Footer() {
                                                 href={link.href}
                                                 target="_blank"
                                                 rel="noreferrer"
-                                                className="text-sm text-zinc-400 transition-colors hover:text-zinc-100"
+                                                className="text-sm text-zinc-400 transition-colors hover:text-zinc-100 focus-visible:outline-2 focus-visible:outline-ice"
                                             >
                                                 {link.name}
                                             </a>
                                         ) : (
                                             <Link
                                                 href={link.href}
-                                                className="text-sm text-zinc-400 transition-colors hover:text-zinc-100"
+                                                className="text-sm text-zinc-400 transition-colors hover:text-zinc-100 focus-visible:outline-2 focus-visible:outline-ice"
                                             >
                                                 {link.name}
                                             </Link>
@@ -109,10 +109,10 @@ export function Footer() {
             <div className="mt-12 flex flex-col items-center justify-between gap-3 border-t border-white/[0.06] pt-6 text-xs text-zinc-600 sm:flex-row">
                 <p>&copy; {new Date().getFullYear()} Floe. Built on WebRTC.</p>
                 <div className="flex gap-5">
-                    <Link href="/privacy" className="transition-colors hover:text-zinc-300">
+                    <Link href="/privacy" className="transition-colors hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-ice">
                         Privacy
                     </Link>
-                    <Link href="/terms" className="transition-colors hover:text-zinc-300">
+                    <Link href="/terms" className="transition-colors hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-ice">
                         Terms
                     </Link>
                 </div>

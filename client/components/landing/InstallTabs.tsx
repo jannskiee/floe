@@ -26,7 +26,8 @@ export function InstallTabs() {
 
     return (
         <div>
-            <div className="flex gap-1 border-b border-white/[0.06]" aria-label="Install command by operating system">
+            {/* role="group": an aria-label on a plain div is ignored by AT */}
+            <div role="group" className="flex gap-1 border-b border-white/[0.06]" aria-label="Install command by operating system">
                 {CLI_INSTALL_TABS.map((tab, i) => (
                     <button
                         key={tab.label}
@@ -56,7 +57,7 @@ export function InstallTabs() {
                 <button
                     type="button"
                     onClick={copy}
-                    aria-label="Copy install command"
+                    aria-label={copied ? 'Copied' : 'Copy install command'}
                     className="relative before:absolute before:-inset-2 shrink-0 rounded p-1.5 text-zinc-500 transition hover:text-zinc-200 focus-visible:outline-2 focus-visible:outline-ice"
                 >
                     {copied ? <Check className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4" />}

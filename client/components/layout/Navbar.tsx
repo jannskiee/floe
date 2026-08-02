@@ -84,7 +84,8 @@ export const Navbar = () => {
                             <span className={`h-1.5 w-1.5 rounded-full ${status.color} transition-colors duration-500`} />
                         </span>
                         Floe
-                        <span className="sr-only">, {status.label}</span>
+                        {/* aria-live so a status change (direct -> offline) is announced */}
+                        <span className="sr-only" aria-live="polite">, {status.label}</span>
                     </button>
                 ) : (
                     /* Off the homepage there is no peer connection to report or clear:
