@@ -54,7 +54,7 @@
       <uap:VisualElements
         DisplayName="Floe Desktop"
         Description="Secure, encrypted peer-to-peer file transfer"
-        BackgroundColor="transparent"
+        BackgroundColor="#18181B"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">
         <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" ShortName="Floe" />
