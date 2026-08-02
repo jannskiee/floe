@@ -76,6 +76,11 @@ export const Navbar = () => {
                     /* Button with hard-nav: forces full reload, clearing all peer/transfer state */
                     <button
                         onClick={() => { window.location.href = '/'; }}
+                        // Without this the button's accessible name is computed from the
+                        // status text, so screen readers announced it as "Connected"
+                        // rather than as the control that returns you home. The status
+                        // still announces on change via the aria-live span below.
+                        aria-label="Floe home"
                         title={status.label}
                         className="flex items-center gap-2 rounded-full px-2.5 max-[359px]:px-2 py-1.5 sm:px-4 sm:py-2 text-sm font-extrabold tracking-tighter text-white transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-ice"
                     >

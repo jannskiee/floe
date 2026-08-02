@@ -8,6 +8,9 @@ const handled: ReactNode[] = [
     'A short room code that expires after 10 minutes',
     'Short-lived TURN relay credentials',
     'One anonymous running total of bytes for the public counter',
+    // The lede promises this is the COMPLETE list, so the per-IP rate limiting in
+    // server.js has to appear here or the promise is false.
+    'Your IP address, held in memory only long enough to rate-limit abuse',
 ];
 
 const neverSees: ReactNode[] = [

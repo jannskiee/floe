@@ -21,7 +21,12 @@ const FAQItem = ({ question, answer }: { question: string; answer: ReactNode }) 
             {/* 0fr -> 1fr grid rows track the answer's true height at every viewport width,
                 unlike a fixed max-h cap that silently clips long answers on narrow screens */}
             <div className={`grid transition-[grid-template-rows] duration-300 ${isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
-                <div className="overflow-hidden">
+                {/* invisible, not just clipped: a 0fr row still leaves its links in the
+                    tab order and in the accessibility tree, so keyboard users could land
+                    on a link inside a collapsed answer and screen readers read every
+                    answer aloud while aria-expanded says false. visibility:hidden removes
+                    it from both and still animates. */}
+                <div className={`overflow-hidden ${isOpen ? '' : 'invisible'}`}>
                     <div className="pb-5 text-sm leading-relaxed text-zinc-400">{answer}</div>
                 </div>
             </div>

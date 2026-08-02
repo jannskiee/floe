@@ -132,8 +132,13 @@ export default function Download() {
                     </p>
 
                     <div className="mt-4 space-y-1 text-[13px] leading-relaxed text-zinc-400">
-                        <p>Installs with no warnings, and updates arrive automatically.</p>
-                        <p>Requires Windows 10 or later, 64-bit, with Microsoft WebView2.</p>
+                        {/* Name the channel: the no-warnings/auto-update promise is true of
+                            the Store build only, and this same page tells visitors two
+                            sections later that the GitHub builds trip SmartScreen. The
+                            version floor is what the MSIX manifest actually declares
+                            (MinVersion 10.0.19041), not a generic "Windows 10 or later". */}
+                        <p>From the Microsoft Store it installs with no warnings, and updates arrive automatically.</p>
+                        <p>Requires Windows 10 version 2004 (build 19041) or later, 64-bit, with Microsoft WebView2.</p>
                     </div>
                 </div>
 

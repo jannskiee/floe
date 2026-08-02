@@ -876,6 +876,9 @@ export function P2PTransfer() {
                                     <Input
                                         type="file"
                                         multiple
+                                        // The visible prompt is a sibling <p>, so without this
+                                        // the product's primary control is an unnamed input.
+                                        aria-label="Choose files to send"
                                         onChange={handleFileSelection}
                                         className="absolute inset-0 h-full w-full opacity-0 cursor-pointer"
                                     />
@@ -899,6 +902,7 @@ export function P2PTransfer() {
                                     <Input
                                         type="file"
                                         multiple
+                                        aria-label="Add more files to send"
                                         onChange={handleFileSelection}
                                         className="absolute inset-0 h-full w-full opacity-0 cursor-pointer"
                                     />

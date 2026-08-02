@@ -116,6 +116,8 @@ export function AppWindow({
     // With reduced motion the finished session renders statically, no timers.
     const shownStage = reduced ? FINAL : stage;
     const isDone = reduced || done;
+    // The frame painted first, and therefore the one worth preloading.
+    const heroIndex = reduced ? FINAL : 0;
 
     return (
         <div ref={containerRef} className="w-full">
@@ -129,6 +131,9 @@ export function AppWindow({
                         onClick={replay}
                         aria-label="Replay the desktop demo"
                         tabIndex={isDone && !reduced ? 0 : -1}
+                        // Hidden from AT while it is invisible and pointer-events:none,
+                        // otherwise screen readers offer a button nothing can activate.
+                        aria-hidden={!(isDone && !reduced)}
                         className={`relative before:absolute before:-inset-3 rounded p-1 text-zinc-600 transition hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-ice ${
                             isDone && !reduced ? 'opacity-100' : 'pointer-events-none opacity-0'
                         }`}
@@ -149,24 +154,33 @@ export function AppWindow({
                             // 10-13px mono glyphs and mangles the QR. Requires the matching
                             // entry in images.qualities (next.config.mjs) or Next rejects it.
                             quality={90}
-                            // All three frames load together: a lazy frame can otherwise swap
-                            // in mid-crossfade, before it has decoded.
-                            priority={priority && i === 0}
+                            // Preload the frame that is actually shown first. With reduced
+                            // motion the sequence renders its FINAL state immediately, so
+                            // preloading frame 0 would fetch a frame nobody sees and leave
+                            // the real LCP image lazy.
+                            priority={priority && i === heroIndex}
+                            // Next derives loading/preload from `priority` but never sets
+                            // fetchPriority, so the LCP image otherwise races 12 other
+                            // requests at default priority.
+                            fetchPriority={priority && i === heroIndex ? 'high' : undefined}
                             className={`pointer-events-none absolute inset-0 h-full w-full select-none transition-opacity duration-500 [transition-timing-function:cubic-bezier(0.16,1,0.3,1)] ${
                                 i === shownStage ? 'opacity-100' : 'opacity-0'
                             }`}
                         />
                     ))}
                 </div>
+                {/* flex-wrap + nowrap spans: at 320px this row used to break INSIDE its
+                    items, stacking "room"/"open", stranding the separator in the gutter
+                    and hyphen-splitting the room code across two lines. */}
                 <div
-                    className="flex items-center gap-2 border-t border-white/[0.06] px-4 py-2.5 font-mono text-[12.5px] text-zinc-500"
+                    className="flex flex-wrap items-center gap-x-2 border-t border-white/[0.06] px-4 py-2.5 font-mono text-[12.5px] text-zinc-500"
                     aria-hidden="true"
                 >
-                    <span>{STATES[shownStage].caption}</span>
+                    <span className="whitespace-nowrap">{STATES[shownStage].caption}</span>
                     {shownStage === FINAL && (
                         <>
                             <span className="text-zinc-700">·</span>
-                            <span>
+                            <span className="whitespace-nowrap">
                                 code <span className="text-ice">yacht-metro-poppy</span>
                             </span>
                         </>
