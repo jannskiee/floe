@@ -18,13 +18,13 @@ const nextConfig = {
         // Next 16 treats this as an allow-list, not a default: any quality the
         // components request must appear here or the optimizer answers 400.
         // The app screenshots need 90 because their content (10-13px mono type
-        // and a QR code) is exactly what lossy compression destroys first.
+        // and hairline UI borders) is exactly what lossy compression destroys first.
         // 100 was measured and rejected: +0.5% sharpness for +37% bytes. The
         // lossy step costs ~1% here; the master's pixel count is what matters.
         qualities: [75, 90],
         // WebP only, deliberately. AVIF wins on photographs but its artifact
         // profile is edge softening, which is the worst possible failure mode
-        // for fine UI text and QR modules.
+        // for fine UI text and hairline borders.
         formats: ['image/webp'],
     },
 

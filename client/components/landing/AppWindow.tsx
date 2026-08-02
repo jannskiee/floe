@@ -23,7 +23,10 @@ import { DESKTOP_VERSION } from '@/lib/desktopRelease';
 const STATES = [
     { src: '/screenshots/desktop-idle-2x.png', caption: 'waiting for files' },
     { src: '/screenshots/desktop-staged-2x.png', caption: '3 files staged' },
-    { src: '/screenshots/desktop-share-2x.png', caption: 'room open' },
+    // -noqr-: shot with the QR panel collapsed. Expanded, the panel is ~770 CSS
+    // px against the app's 684, so the capture baked in a scrollbar and a card
+    // clipped by the bottom edge. Collapsed it fits with room to spare.
+    { src: '/screenshots/desktop-share-noqr-2x.png', caption: 'room open' },
 ] as const;
 
 const FINAL = STATES.length - 1;
@@ -151,8 +154,9 @@ export function AppWindow({
                             height={SHOT_H}
                             sizes={sizes}
                             // 90, not the default 75: at 75 the WebP re-encode rings around
-                            // 10-13px mono glyphs and mangles the QR. Requires the matching
-                            // entry in images.qualities (next.config.mjs) or Next rejects it.
+                            // the 10-13px mono glyphs these captures are made of. Requires the
+                            // matching entry in images.qualities (next.config.mjs) or Next
+                            // rejects the request outright.
                             quality={90}
                             // Preload the frame that is actually shown first. With reduced
                             // motion the sequence renders its FINAL state immediately, so
@@ -181,16 +185,20 @@ export function AppWindow({
                         <>
                             <span className="text-zinc-700">·</span>
                             <span className="whitespace-nowrap">
-                                code <span className="text-ice">yacht-metro-poppy</span>
+                                code <span className="text-ice">frost-tint-ulnar</span>
                             </span>
                         </>
                     )}
                 </div>
             </div>
+            {/* Must describe what the captures actually show: this is the only
+                description assistive tech gets, since the images are alt="" and
+                the caption row is aria-hidden. The QR is one click away in the
+                app but is not visible in the shot, so it is not claimed here. */}
             <p className="sr-only">
                 Demo of the Floe desktop app: three files are pasted and staged, then a share panel
-                opens a live room with the code yacht-metro-poppy, a share link, and a QR code,
-                waiting for the receiver.
+                opens a live room with the code frost-tint-ulnar and a share link, waiting for the
+                receiver.
             </p>
         </div>
     );
