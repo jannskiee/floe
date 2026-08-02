@@ -256,10 +256,6 @@ jobs:
     name: Desktop (Wails, windows-latest)
     # Windows-only on purpose: the desktop app ships Windows-only for the beta,
     # and the Go code is thick with windows build tags that other runners skip.
-    #
-    # NOT in the ci-green gate yet: per the repo convention, new jobs start
-    # outside the gate's needs (visible but non-blocking) and get promoted in
-    # once stable. Promote by adding "desktop" to ci-green's needs list.
     runs-on: windows-latest
     timeout-minutes: 15
     needs: [changes]
@@ -640,7 +636,7 @@ jobs:
     # never become !cancelled(): without always() a failed or cancelled
     # dependency would skip this job, and GitHub counts a skipped required
     # check as passing.
-    needs: [changes, actionlint, build-and-lint, server, cli, e2e, back-compat]
+    needs: [changes, actionlint, build-and-lint, server, cli, desktop, e2e, back-compat]
     if: always()
     steps:
       - name: Report dependency results

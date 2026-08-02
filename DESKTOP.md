@@ -210,13 +210,17 @@ binary.
       assets, and `desktop/build/msix/pack.ps1`; workflow packs an UNSIGNED
       .msix into a CI artifact (its only consumer is Partner Center; end users
       cannot install unsigned exe-activation packages)
-- [ ] b. Tag `desktop-v0.2.0`: GitHub release + MSIX artifact from one tag
-- [ ] c. Partner Center submission, PRIVATE audience first (public->private is
+- [x] b. Tag `desktop-v0.2.0`: GitHub release + MSIX artifact from one tag
+      (released 2026-08-01; all three assets verified live, and the
+      FloeDesktop_1.2.0.0_x64.msix artifact validated in Partner Center)
+- [x] c. Partner Center submission, PRIVATE audience first (public->private is
       permanently forbidden): upload the .msix, category Utilities & tools >
       File managers, age ratings, privacy URL https://www.floe.one/privacy,
       support URL = GitHub issues, screenshots at 1366x768 or larger, and
       certification notes that explain testing with floe.one in a browser as
       the second peer (the desktop receive field accepts share links)
+      (submitted 2026-08-02 to the private audience, in certification; every
+      section re-verified against the saved state before submit)
 - [ ] d. Private beta: install from the Store, verify transfers against web and
       CLI, verify no SmartScreen, settings survive an update, context-menu row
       hidden; then promote to PUBLIC
