@@ -24,7 +24,9 @@ const VIEWPORTS = [
     { width: 820, height: 1180 },  // iPad Air portrait
     { width: 1024, height: 768 },  // iPad landscape
     { width: 1280, height: 800 },  // small laptop
+    { width: 1366, height: 768 },  // most common laptop
     { width: 1440, height: 900 },  // laptop
+    { width: 1536, height: 864 },  // FHD at 125% scale
     { width: 1920, height: 1080 }, // desktop FHD
     { width: 2560, height: 1440 }, // desktop QHD / ultra-wide half
 ];
@@ -130,6 +132,13 @@ test('home: no horizontal overflow at any viewport', async ({ page }) => {
     await expect(page.getByText('Drop files or click to browse')).toBeVisible();
     await expect(page.getByText('floe send vacation-photos/')).toBeVisible(); // terminal hydrated
     await sweepViewports(page, '/', true);
+});
+
+test('download: no horizontal overflow at any viewport', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/download');
+    await expect(page.getByRole('heading', { name: 'Floe Desktop' })).toBeVisible();
+    await sweepViewports(page, '/download', true);
 });
 
 test('how-it-works: no horizontal overflow at any viewport', async ({ page }) => {
