@@ -7,8 +7,8 @@ import { DESKTOP_VERSION } from '@/lib/desktopRelease';
 
 /**
  * The desktop counterpart of CliTerminal: real screenshots of Floe Desktop
- * 0.1.0 performing a send, sequenced inside the house chrome frame. Only a
- * real capture can prove the app's actual pitch (the same design, native), so
+ * performing a send, sequenced inside the house chrome frame. Only a real
+ * capture can prove the app's actual pitch (the same design, native), so
  * this is the one place the site ships raster imagery. The captures' own
  * zinc-950 canvas continues the page background inside a frame the site
  * already owns.
