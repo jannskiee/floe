@@ -121,7 +121,6 @@ export const Navbar = () => {
                     })}
                 </div>
                 <div className="h-4 w-px bg-white/10 mx-1 max-[359px]:mx-0" />
-                <div className="h-4 w-px bg-white/10 mx-1 max-[359px]:mx-0" />
                 {/* Destinations, split from the section anchors: Download then Docs
                     side by side, then the GitHub pill keeps its filled endpoint
                     treatment. */}
