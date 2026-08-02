@@ -17,18 +17,25 @@ import { DESKTOP_VERSION } from '@/lib/desktopRelease';
  * with the code the server actually issued.
  */
 
+// The -2x suffix is part of the contract, not decoration: a re-capture must
+// land on a NEW filename or the image optimizer and the CDN keep serving the
+// old bytes under the old URL.
 const STATES = [
-    { src: '/screenshots/desktop-idle.png', caption: 'waiting for files' },
-    { src: '/screenshots/desktop-staged.png', caption: '3 files staged' },
-    { src: '/screenshots/desktop-share.png', caption: 'room open' },
+    { src: '/screenshots/desktop-idle-2x.png', caption: 'waiting for files' },
+    { src: '/screenshots/desktop-staged-2x.png', caption: '3 files staged' },
+    { src: '/screenshots/desktop-share-2x.png', caption: 'room open' },
 ] as const;
 
 const FINAL = STATES.length - 1;
 
-// Captures are the app's client area at 1140x684 (its own titlebar cropped:
-// the frame header below replaces the window chrome).
-const SHOT_W = 1140;
-const SHOT_H = 684;
+// Captures are the app's client area at 2280x1368: the 1140x684 layout shot at
+// device-pixel-ratio 2 (its own titlebar cropped, since the frame header below
+// replaces the window chrome). The intrinsic size must stay 2x the largest CSS
+// box this frame is rendered in, or HiDPI displays upscale it. next/image caps
+// every srcset candidate at the source width, so a 1x master silently degrades
+// to a blurry stretch on any retina screen with no error anywhere.
+const SHOT_W = 2280;
+const SHOT_H = 1368;
 
 const HOLD_MS = [1200, 1600];
 
@@ -138,6 +145,12 @@ export function AppWindow({
                             width={SHOT_W}
                             height={SHOT_H}
                             sizes={sizes}
+                            // 90, not the default 75: at 75 the WebP re-encode rings around
+                            // 10-13px mono glyphs and mangles the QR. Requires the matching
+                            // entry in images.qualities (next.config.mjs) or Next rejects it.
+                            quality={90}
+                            // All three frames load together: a lazy frame can otherwise swap
+                            // in mid-crossfade, before it has decoded.
                             priority={priority && i === 0}
                             className={`pointer-events-none absolute inset-0 h-full w-full select-none transition-opacity duration-500 [transition-timing-function:cubic-bezier(0.16,1,0.3,1)] ${
                                 i === shownStage ? 'opacity-100' : 'opacity-0'
@@ -154,7 +167,7 @@ export function AppWindow({
                         <>
                             <span className="text-zinc-700">·</span>
                             <span>
-                                code <span className="text-ice">spray-turf-finch</span>
+                                code <span className="text-ice">yacht-metro-poppy</span>
                             </span>
                         </>
                     )}
@@ -162,8 +175,8 @@ export function AppWindow({
             </div>
             <p className="sr-only">
                 Demo of the Floe desktop app: three files are pasted and staged, then a share panel
-                opens a live room with the code spray-turf-finch, a share link, and a QR code, waiting
-                for the receiver.
+                opens a live room with the code yacht-metro-poppy, a share link, and a QR code,
+                waiting for the receiver.
             </p>
         </div>
     );

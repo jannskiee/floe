@@ -141,7 +141,11 @@ export default function Download() {
                 <div className="mt-14 sm:mt-16">
                     <AppWindow
                         priority
-                        sizes="(min-width: 1072px) 1024px, calc(100vw - 2rem)"
+                        // The shell pads 1.5rem from sm up, so the fallback is 100vw-3rem.
+                        // Written as a bare vw term because Next's sizes parser only
+                        // matches NNvw at a word boundary: inside calc(100vw - 2rem) it
+                        // saw no vw at all and emitted all 15 candidates, down to 32w.
+                        sizes="(min-width: 1072px) 1024px, 100vw"
                         className="shadow-[0_25px_50px_-12px_rgb(0_0_0/0.4),inset_0_1px_0_1px_rgba(255,255,255,0.024)]"
                     />
                 </div>

@@ -56,7 +56,10 @@ export function DesktopSection() {
                     </div>
                 </div>
                 <div className="min-w-0 lg:order-1 lg:col-span-7">
-                    <AppWindow sizes="(min-width: 1024px) 560px, 100vw" />
+                    {/* 580px, not 560: the lg 12-col track math puts this frame at
+                        577.33px, and understating it makes the browser pick a
+                        candidate below what the box actually needs. */}
+                    <AppWindow sizes="(min-width: 1024px) 580px, 100vw" />
                 </div>
             </div>
         </section>

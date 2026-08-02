@@ -154,6 +154,25 @@ const run = async () => {
         await capture(macPage, 'download-mac', vp);
     }
 
+    // Retina pass. Every capture above runs at deviceScaleFactor 1, which is the
+    // one density where an undersized image master looks fine, so a 1x-only
+    // matrix cannot see blurry screenshots at all. These shots are for judging
+    // image sharpness the way most laptops and phones actually render it.
+    const hiCtx = await browser.newContext({
+        reducedMotion: 'reduce',
+        viewport: { width: 1280, height: 800 },
+        deviceScaleFactor: 2,
+    });
+    const hiPage = await hiCtx.newPage();
+    for (const [route, name, ready] of [
+        ['/', 'home-2x', () => hiPage.getByText('Drop files or click to browse').waitFor()],
+        ['/download', 'download-2x', () => hiPage.getByRole('heading', { name: 'Floe Desktop' }).waitFor()],
+    ]) {
+        await hiPage.goto(BASE + route, { waitUntil: 'networkidle' });
+        await ready();
+        for (const vp of VIEWPORTS.filter((v) => SUBSET.includes(KEY(v)))) await capture(hiPage, name, vp);
+    }
+
     writeFileSync(join(OUT, 'index.json'), JSON.stringify(index, null, 2));
     const flagged = index.filter((i) => i.flag === 'OVERFLOW');
     process.stdout.write(`\n${index.length} captures, ${flagged.length} flagged\n`);
