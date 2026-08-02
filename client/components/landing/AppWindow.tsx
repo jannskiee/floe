@@ -43,10 +43,14 @@ const getServerReducedMotion = () => false;
 export function AppWindow({
     priority = false,
     className = '',
+    sizes = '100vw',
 }: {
     priority?: boolean;
     /** Extra classes merged onto the rounded frame (e.g. a page-specific shadow). */
     className?: string;
+    /** Rendered-width hint for next/image; pass the caller's real layout so
+     *  phones stop downloading the full 1140px master. */
+    sizes?: string;
 }) {
     const containerRef = useRef<HTMLDivElement>(null);
     const reduced = useSyncExternalStore(subscribeReducedMotion, getReducedMotion, getServerReducedMotion);
@@ -132,6 +136,7 @@ export function AppWindow({
                             alt=""
                             width={SHOT_W}
                             height={SHOT_H}
+                            sizes={sizes}
                             priority={priority && i === 0}
                             className={`pointer-events-none absolute inset-0 h-full w-full select-none transition-opacity duration-500 [transition-timing-function:cubic-bezier(0.16,1,0.3,1)] ${
                                 i === shownStage ? 'opacity-100' : 'opacity-0'

@@ -119,11 +119,13 @@ export default function Download() {
                     <p className="mt-6 font-mono text-xs text-zinc-500">
                         v{DESKTOP_VERSION} beta <span className="text-zinc-700">·</span>{' '}
                         {DESKTOP_RELEASE_DATE} <span className="text-zinc-700">·</span>{' '}
+                        {/* whitespace-nowrap: when the meta line wraps at 320px the link
+                            drops to the next line whole instead of splitting mid-label */}
                         <a
                             href={DESKTOP_RELEASE_NOTES_URL}
                             target="_blank"
                             rel="noreferrer"
-                            className="text-zinc-400 underline decoration-white/20 underline-offset-4 transition hover:text-zinc-200 hover:decoration-white/50 focus-visible:outline-2 focus-visible:outline-ice"
+                            className="whitespace-nowrap text-zinc-400 underline decoration-white/20 underline-offset-4 transition hover:text-zinc-200 hover:decoration-white/50 focus-visible:outline-2 focus-visible:outline-ice"
                         >
                             Release notes
                         </a>
@@ -139,6 +141,7 @@ export default function Download() {
                 <div className="mt-14 sm:mt-16">
                     <AppWindow
                         priority
+                        sizes="(min-width: 1072px) 1024px, calc(100vw - 2rem)"
                         className="shadow-[0_25px_50px_-12px_rgb(0_0_0/0.4),inset_0_1px_0_1px_rgba(255,255,255,0.024)]"
                     />
                 </div>
@@ -149,18 +152,21 @@ export default function Download() {
                         Other ways to run Floe
                     </h2>
                     <ul className="mt-2 divide-y divide-white/[0.06] border-y border-white/[0.06]">
+                        {/* The 12-col rows wait for md: at 640 the side columns are only
+                            ~124px, one font-metric wobble from clipping SHA256SUMS.txt;
+                            every other grid on the site also splits at md or later. */}
                         {OTHER_WAYS.map((row) => (
                             <li
                                 key={row.label}
-                                className="grid gap-y-1.5 py-5 sm:grid-cols-12 sm:items-baseline sm:gap-x-8 sm:py-6"
+                                className="grid gap-y-1.5 py-5 sm:py-6 md:grid-cols-12 md:items-baseline md:gap-x-8"
                             >
-                                <span className="text-lg font-semibold tracking-tight text-zinc-100 sm:col-span-3">
+                                <span className="text-lg font-semibold tracking-tight text-zinc-100 md:col-span-3">
                                     {row.label}
                                 </span>
-                                <span className="text-sm leading-relaxed text-zinc-500 sm:col-span-6">
+                                <span className="text-sm leading-relaxed text-zinc-500 md:col-span-6">
                                     {row.desc}
                                 </span>
-                                <span className="flex flex-wrap gap-x-3 gap-y-1 sm:col-span-3 sm:justify-end">
+                                <span className="flex flex-wrap gap-x-4 gap-y-1 md:col-span-3 md:justify-end">
                                     {row.actions.map((action) => (
                                         <a
                                             key={action.name}
@@ -169,7 +175,7 @@ export default function Download() {
                                                 ? { target: '_blank', rel: 'noreferrer' }
                                                 : {})}
                                             {...(action.umami ?? {})}
-                                            className="text-sm font-medium text-zinc-300 transition hover:text-ice focus-visible:outline-2 focus-visible:outline-ice"
+                                            className="inline-flex min-h-10 items-center text-sm font-medium text-zinc-300 transition hover:text-ice focus-visible:outline-2 focus-visible:outline-ice md:min-h-0"
                                         >
                                             {action.name}
                                         </a>

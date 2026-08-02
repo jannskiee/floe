@@ -920,12 +920,14 @@ export function P2PTransfer() {
                                             />
                                         )}
 
+                                        {/* flex-wrap on the count row: the relay-mode string can
+                                            outgrow a 320px card; wrapping drops it whole under the label */}
                                         {files.length > 0 && (
-                                            <div className="mb-2 flex items-baseline justify-between px-0.5">
+                                            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-2 px-0.5">
                                                 <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-600">
                                                     Files
                                                 </span>
-                                                <span className={`font-mono text-[10px] uppercase tracking-[0.2em] ${isRelayOverLimit ? 'text-amber-500' : 'text-zinc-600'
+                                                <span className={`text-right font-mono text-[10px] uppercase tracking-[0.2em] ${isRelayOverLimit ? 'text-amber-500' : 'text-zinc-600'
                                                     }`}>
                                                     {files.length} · {formatBytes(totalBytes)}{connectionType === 'relay' ? ' / 2.0 GB' : ''}
                                                 </span>

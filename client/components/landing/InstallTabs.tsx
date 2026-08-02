@@ -47,7 +47,9 @@ export function InstallTabs() {
                 ))}
             </div>
             <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/40 px-4 py-3">
-                <code className="custom-scrollbar min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-xs text-zinc-200">
+                {/* Long commands scroll inside the pill on phones; the right-edge fade
+                    signals the cut instead of hard-clipping against the copy button. */}
+                <code className="custom-scrollbar min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-xs text-zinc-200 max-sm:[mask-image:linear-gradient(to_right,black_calc(100%-20px),transparent)]">
                     <span className="select-none text-zinc-600">{CLI_INSTALL_TABS[active].prompt} </span>
                     {CLI_INSTALL_TABS[active].command}
                 </code>

@@ -27,8 +27,10 @@ export function CliSection() {
                                 key={c.cmd}
                                 className="flex flex-col gap-1 py-3 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4"
                             >
-                                <code className="font-mono text-[13px] text-zinc-200">{c.cmd}</code>
-                                <span className="text-[13px] text-zinc-500">{c.desc}</span>
+                                <code className="shrink-0 font-mono text-[13px] text-zinc-200">{c.cmd}</code>
+                                {/* sm:text-right: in the narrow lg text column the desc wraps to
+                                    two lines; ragging it right matches DesktopSection's rows */}
+                                <span className="text-[13px] text-zinc-500 sm:text-right">{c.desc}</span>
                             </li>
                         ))}
                     </ul>

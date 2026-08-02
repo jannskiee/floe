@@ -7,7 +7,10 @@ import { RotateCcw } from 'lucide-react';
 // consistent with what the CLI actually prints.
 const COMMAND = 'floe send vacation-photos/';
 const DIVIDER = '─'.repeat(44);
-const BAR_WIDTH = 16;
+// Narrower than the real CLI's bar so the widest progress line stays ~50ch:
+// phones scroll the session horizontally, and every column narrower than the
+// bar run is the difference between "peek at the numbers" and "amputated".
+const BAR_WIDTH = 12;
 const FINAL_STAGE = 11;
 
 const FILES = [
@@ -135,7 +138,9 @@ export function CliTerminal() {
                 </div>
                 {/* min-height matches the completed session so replay does not shift the layout;
                     dropped on short-landscape viewports where a 480px reservation cannot fit */}
-                <div className="custom-scrollbar [@media(min-height:481px)]:min-h-[480px] overflow-x-auto px-4 py-4" aria-hidden="true">
+                {/* Below sm the widest session lines scroll horizontally; the right-edge
+                    fade makes the cut look intentional instead of amputated. */}
+                <div className="custom-scrollbar [@media(min-height:481px)]:min-h-[480px] overflow-x-auto px-4 py-4 max-sm:[mask-image:linear-gradient(to_right,black_calc(100%-24px),transparent)]" aria-hidden="true">
                     <div className="min-w-max whitespace-pre font-mono text-[12.5px] leading-[1.7] text-zinc-300">
                         <div>
                             <span className="text-ice">$ </span>

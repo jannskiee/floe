@@ -50,12 +50,13 @@ export function DesktopSection() {
                             Get the desktop app
                         </Link>
                         <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.2em] text-zinc-600">
-                            v{DESKTOP_VERSION} beta · Windows · macOS and Linux planned
+                            v{DESKTOP_VERSION} beta · Windows ·{' '}
+                            <span className="whitespace-nowrap">macOS and Linux planned</span>
                         </p>
                     </div>
                 </div>
                 <div className="min-w-0 lg:order-1 lg:col-span-7">
-                    <AppWindow />
+                    <AppWindow sizes="(min-width: 1024px) 560px, 100vw" />
                 </div>
             </div>
         </section>

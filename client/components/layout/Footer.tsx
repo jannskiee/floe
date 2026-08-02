@@ -38,11 +38,13 @@ const columns: {
 export function Footer() {
     return (
         <footer className="mt-24 w-full max-w-5xl border-t border-white/[0.06] pt-12 pb-10">
-            <div className="grid gap-12 md:grid-cols-12">
-                <div className="md:col-span-5">
+            {/* lg, not md: at 768 the 12-col split + gap-12 leaves ~112px link
+                columns, NARROWER than the same cells in the sm 3-col layout. */}
+            <div className="grid gap-12 lg:grid-cols-12">
+                <div className="lg:col-span-5">
                     <p className="text-lg font-extrabold tracking-tighter text-white">Floe</p>
                     <p className="mt-3 max-w-xs text-sm leading-relaxed text-zinc-500">
-                        Open-source, peer-to-peer file transfer. MIT licensed.
+                        Open-source, peer-to-peer file transfer. <span className="whitespace-nowrap">MIT licensed.</span>
                     </p>
                     <div className="mt-6 flex items-center gap-6">
                         <a
@@ -71,7 +73,7 @@ export function Footer() {
                         </a>
                     </div>
                 </div>
-                <div className="grid grid-cols-2 gap-8 sm:grid-cols-3 md:col-span-7">
+                <div className="grid grid-cols-2 gap-8 sm:grid-cols-3 lg:col-span-7">
                     {columns.map((column) => (
                         <div key={column.label}>
                             <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-zinc-600">
