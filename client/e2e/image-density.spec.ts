@@ -46,8 +46,11 @@ async function measureImages(page: Page): Promise<ImageReport[]> {
             // file in its `url` param, so read that. Taking the last path segment
             // instead labels every single row "image", which makes the failure
             // message below unable to name the file it is telling you to re-capture.
+            // Only the pathname needs decoding: URLSearchParams already decoded the
+            // param, and decoding it twice throws URIError on a literal percent in
+            // a filename, which would kill the run with an opaque error.
             const parsed = new URL(src, location.href);
-            const label = decodeURIComponent(parsed.searchParams.get('url') ?? parsed.pathname)
+            const label = (parsed.searchParams.get('url') ?? decodeURIComponent(parsed.pathname))
                 .split('/')
                 .filter(Boolean)
                 .pop() as string;
