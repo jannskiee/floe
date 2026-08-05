@@ -60,6 +60,31 @@ async function measureImages(page: Page): Promise<ImageReport[]> {
     });
 }
 
+/**
+ * Makes every image on the page actually load, then waits for all of them.
+ *
+ * Chromium only starts a lazy image once it is within roughly 1250px of the
+ * viewport, and both routes here sit close to that line: on /download the
+ * footer mark is about 1200px below the fold, and on / the app-window frames
+ * end up a similar distance above it, because prefers-reduced-motion turns the
+ * scroll into an instant jump that never passes them. Either way the image
+ * never loads, `complete` never turns true, and this would fail as a timeout
+ * rather than as a density report. Forcing eager is what screenshot-matrix.mjs
+ * already does for the same reason.
+ */
+async function settleImages(page: Page) {
+    await page.evaluate(() => {
+        for (const img of Array.from(document.querySelectorAll('img'))) {
+            img.loading = 'eager';
+        }
+    });
+    await page.waitForFunction(
+        () => Array.from(document.querySelectorAll('img')).every((i) => i.complete),
+        undefined,
+        { timeout: 15_000 }
+    );
+}
+
 async function assertDensity(page: Page, route: string, dpr: number) {
     const images = await measureImages(page);
     expect(images.length, `[${route} @ dpr${dpr}] expected at least one rendered image`).toBeGreaterThan(0);
@@ -88,11 +113,7 @@ for (const dpr of [1, 2]) {
             await expect(page.getByText('Drop files or click to browse')).toBeVisible();
             // The app-window frame is below the fold and lazily decoded.
             await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-            await page.waitForFunction(
-                () => Array.from(document.querySelectorAll('img')).every((i) => i.complete),
-                undefined,
-                { timeout: 15_000 }
-            );
+            await settleImages(page);
             await assertDensity(page, '/', dpr);
         });
 
@@ -100,11 +121,7 @@ for (const dpr of [1, 2]) {
             await page.emulateMedia({ reducedMotion: 'reduce' });
             await page.goto('/download');
             await expect(page.getByRole('heading', { name: 'Floe Desktop' })).toBeVisible();
-            await page.waitForFunction(
-                () => Array.from(document.querySelectorAll('img')).every((i) => i.complete),
-                undefined,
-                { timeout: 15_000 }
-            );
+            await settleImages(page);
             await assertDensity(page, '/download', dpr);
         });
     });
