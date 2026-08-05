@@ -21,7 +21,12 @@ const FAQItem = ({ question, answer }: { question: string; answer: ReactNode }) 
             {/* 0fr -> 1fr grid rows track the answer's true height at every viewport width,
                 unlike a fixed max-h cap that silently clips long answers on narrow screens */}
             <div className={`grid transition-[grid-template-rows] duration-300 ${isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
-                <div className="overflow-hidden">
+                {/* invisible, not just clipped: a 0fr row still leaves its links in the
+                    tab order and in the accessibility tree, so keyboard users could land
+                    on a link inside a collapsed answer and screen readers read every
+                    answer aloud while aria-expanded says false. visibility:hidden removes
+                    it from both and still animates. */}
+                <div className={`overflow-hidden ${isOpen ? '' : 'invisible'}`}>
                     <div className="pb-5 text-sm leading-relaxed text-zinc-400">{answer}</div>
                 </div>
             </div>
@@ -36,7 +41,7 @@ export const FAQSection = () => {
             <div className="mt-10 max-w-3xl border-t border-white/[0.06]">
                 <FAQItem
                     question="What is Floe?"
-                    answer="Floe is a free file-sharing tool that lets you send files directly to another person, with no sign-up, no app download, and no files stored on any server. Think of it like handing a USB drive to someone, but over the internet. Direct connections have no size limit; relay connections are capped at 2 GB per session."
+                    answer="Floe is a free file-sharing tool that lets you send files directly to another person: no sign-up, no files stored on any server, and nothing to install: it runs right in your browser, with an optional desktop app and CLI if you want them. Think of it like handing a USB drive to someone, but over the internet. Direct connections have no size limit; relay connections are capped at 2 GB per session."
                 />
                 <FAQItem
                     question="What does 'Peer-to-Peer' (P2P) mean?"
@@ -74,6 +79,25 @@ export const FAQSection = () => {
                 <FAQItem
                     question="Can I use Floe from the terminal?"
                     answer="Yes. The floe CLI installs as a single binary and talks to the same infrastructure as the web app, so browser-to-terminal transfers work in every direction. Run floe send with a file or folder, share the printed code or link, and the other side receives it in a browser or with floe receive."
+                />
+                <FAQItem
+                    question="Is there a desktop app?"
+                    answer={
+                        <p>
+                            Yes, in beta. Floe Desktop is a small native app for Windows that speaks
+                            the same protocol as the web app and the CLI, so any two can transfer to
+                            each other. It sends folders without zipping, pastes screenshots and
+                            copied files straight from the clipboard, and shows a notification when
+                            a transfer finishes. Install it from the Microsoft Store via the{' '}
+                            <a
+                                href="/download"
+                                className="text-zinc-300 underline decoration-white/20 underline-offset-2 transition hover:text-ice"
+                            >
+                                download page
+                            </a>
+                            . macOS and Linux builds are planned.
+                        </p>
+                    }
                 />
                 <FAQItem
                     question="Where are my files stored?"

@@ -1,6 +1,7 @@
-const CACHE_NAME = 'floe-cache-v1';
+const CACHE_NAME = 'floe-cache-v3';
 const STATIC_ASSETS = [
     '/',
+    '/download',
     '/how-it-works',
     '/privacy',
     '/terms',

@@ -14,6 +14,20 @@ const nextConfig = {
     // cleanup functions to avoid the double-mount problem if re-enabled later.
     reactStrictMode: false,
 
+    images: {
+        // Next 16 treats this as an allow-list, not a default: any quality the
+        // components request must appear here or the optimizer answers 400.
+        // The app screenshots need 90 because their content (10-13px mono type
+        // and hairline UI borders) is exactly what lossy compression destroys first.
+        // 100 was measured and rejected: +0.5% sharpness for +37% bytes. The
+        // lossy step costs ~1% here; the master's pixel count is what matters.
+        qualities: [75, 90],
+        // WebP only, deliberately. AVIF wins on photographs but its artifact
+        // profile is edge softening, which is the worst possible failure mode
+        // for fine UI text and hairline borders.
+        formats: ['image/webp'],
+    },
+
     // Documentation lives on Mintlify and is served at floe.one/docs (a subpath
     // of the primary domain, for SEO) via a reverse proxy: every /docs request
     // is rewritten to the Mintlify deployment, which is configured with base

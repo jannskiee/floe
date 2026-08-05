@@ -31,7 +31,7 @@
  */
 import { test, expect, type Page } from '@playwright/test';
 
-const ROUTES = ['/', '/how-it-works', '/privacy', '/terms'] as const;
+const ROUTES = ['/', '/download', '/how-it-works', '/privacy', '/terms'] as const;
 
 const HYDRATION_ERROR =
     /react\.dev\/errors\/(418|422|423|425)\b|Minified React error #(418|422|423|425)\b|Hydration failed because the server rendered|(did not match|didn't match) the client|Text content does not match/i;
