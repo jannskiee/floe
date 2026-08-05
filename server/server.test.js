@@ -4,10 +4,11 @@
 // Uses Node's built-in test runner (node:test), available from Node 18+.
 // Run with: npm test
 
-const { describe, it, beforeEach } = require('node:test');
+const { describe, it, beforeEach, after } = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+    errorHandler,
     getClientIp,
     generateCode,
     checkRateLimit,
@@ -521,5 +522,85 @@ describe('selectMinimalIceUrls', () => {
     it('never returns duplicate TURN URLs', () => {
         const { turnUrls } = selectMinimalIceUrls([], ['turn:only:3478?transport=udp']);
         assert.deepEqual(turnUrls, ['turn:only:3478?transport=udp']);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Final error handler — errorHandler
+// ---------------------------------------------------------------------------
+
+describe('errorHandler', () => {
+    function fakeRes() {
+        return {
+            statusCode: 200,
+            body: null,
+            headersSent: false,
+            status(code) { this.statusCode = code; return this; },
+            json(payload) { this.body = payload; return this; },
+        };
+    }
+
+    // Silence the deliberate console.error while these run; restore after.
+    let realError;
+    beforeEach(() => {
+        realError = console.error;
+        console.error = () => {};
+    });
+    after(() => { console.error = realError; });
+
+    // The real shape body-parser produces for a malformed JSON body: a
+    // SyntaxError carrying a filesystem-path stack, tagged status 400.
+    function malformedBodyError() {
+        const err = new SyntaxError("Expected property name or '}' in JSON at position 1");
+        err.status = 400;
+        err.statusCode = 400;
+        err.expose = true;
+        err.type = 'entity.parse.failed';
+        err.stack = [
+            "SyntaxError: Expected property name or '}' in JSON at position 1",
+            '    at JSON.parse (<anonymous>)',
+            '    at parse (/home/azureuser/floe/server/node_modules/body-parser/lib/types/json.js:91:21)',
+            '    at /home/azureuser/floe/server/node_modules/body-parser/lib/read.js:162:18',
+        ].join('\n');
+        return err;
+    }
+
+    it('never puts a stack, a filesystem path, or a source location in the body', () => {
+        const res = fakeRes();
+        errorHandler(malformedBodyError(), {}, res, () => {});
+
+        const serialized = JSON.stringify(res.body);
+        // These three are the leak, asserted independently of NODE_ENV. Express's
+        // built-in handler emits err.stack whenever env is not exactly
+        // 'production' and never consults err.expose, so a 400 leaks as readily
+        // as a 500. This is the regression guard for that.
+        assert.ok(!serialized.includes('/'), `body must contain no path separator: ${serialized}`);
+        assert.ok(!serialized.includes('.js:'), `body must contain no source location: ${serialized}`);
+        assert.ok(!/\bat\s/.test(serialized), `body must contain no stack frame: ${serialized}`);
+        assert.ok(!serialized.includes('azureuser'), 'body must not name the deploy user');
+    });
+
+    it('preserves a client-error status and answers with JSON', () => {
+        const res = fakeRes();
+        errorHandler(malformedBodyError(), {}, res, () => {});
+        assert.equal(res.statusCode, 400);
+        assert.deepEqual(res.body, { error: 'Bad request' });
+    });
+
+    it('reports anything without a usable status as a 500', () => {
+        for (const err of [new Error('Not allowed by CORS'), null, undefined, 'a string', { status: 99 }, { status: 700 }]) {
+            const res = fakeRes();
+            errorHandler(err, {}, res, () => {});
+            assert.equal(res.statusCode, 500, `unexpected status for ${JSON.stringify(err)}`);
+            assert.deepEqual(res.body, { error: 'Internal server error' });
+        }
+    });
+
+    it('does not write once headers are already flushed', () => {
+        const res = fakeRes();
+        res.headersSent = true;
+        errorHandler(malformedBodyError(), {}, res, () => {});
+        assert.equal(res.statusCode, 200, 'must not touch the status mid-response');
+        assert.equal(res.body, null, 'must not append a second body');
     });
 });

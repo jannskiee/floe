@@ -54,7 +54,7 @@ For a deployment accessible beyond a single machine, follow these steps.
     TRUSTED_PROXY_COUNT=1
     ```
 
-    One reverse proxy is `1`, a CDN in front of that proxy is `2`. The default is `0`, which is correct only when the container ports are published directly. Setting it higher than your real hop count lets clients forge `X-Forwarded-For` and bypass the per-IP rate limits.
+    One reverse proxy is `1`, a CDN in front of that proxy is `2`. The server's own default is `1`; Docker Compose passes `0` explicitly, which is correct only when the container ports are published directly. Setting it higher than your real hop count lets clients forge `X-Forwarded-For` and bypass the per-IP rate limits, so if you expose the server directly with no proxy, set `0` deliberately rather than leaving it unset.
   </Step>
 </Steps>
 
