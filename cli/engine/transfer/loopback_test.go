@@ -1,0 +1,371 @@
+package transfer
+
+import (
+	"crypto/rand"
+	"crypto/sha256"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/pion/webrtc/v4"
+)
+
+// newConnectedPair wires two in-process pion PeerConnections together over
+// loopback ICE and returns the sender's open data channel plus a channel that
+// yields the receiver's data channel once it opens. Non-trickle signaling
+// (gather-then-exchange) keeps the handshake free of candidate-ordering races.
+func newConnectedPair(t *testing.T) (sender *webrtc.DataChannel, recvCh <-chan *webrtc.DataChannel, closeFn func()) {
+	t.Helper()
+
+	se := webrtc.SettingEngine{}
+	se.SetIncludeLoopbackCandidate(true) // ensure connectivity on isolated hosts
+	api := webrtc.NewAPI(webrtc.WithSettingEngine(se))
+
+	pcSender, err := api.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatalf("create sender PC: %v", err)
+	}
+	pcReceiver, err := api.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatalf("create receiver PC: %v", err)
+	}
+
+	got := make(chan *webrtc.DataChannel, 1)
+	pcReceiver.OnDataChannel(func(dc *webrtc.DataChannel) {
+		dc.OnOpen(func() { got <- dc })
+	})
+
+	dc, err := pcSender.CreateDataChannel("floe", nil)
+	if err != nil {
+		t.Fatalf("create data channel: %v", err)
+	}
+	senderOpen := make(chan struct{})
+	dc.OnOpen(func() { close(senderOpen) })
+
+	// Offer (sender) → fully gather → receiver.
+	offer, err := pcSender.CreateOffer(nil)
+	if err != nil {
+		t.Fatalf("create offer: %v", err)
+	}
+	gatherSender := webrtc.GatheringCompletePromise(pcSender)
+	if err := pcSender.SetLocalDescription(offer); err != nil {
+		t.Fatalf("sender SetLocalDescription: %v", err)
+	}
+	<-gatherSender
+	if err := pcReceiver.SetRemoteDescription(*pcSender.LocalDescription()); err != nil {
+		t.Fatalf("receiver SetRemoteDescription: %v", err)
+	}
+
+	// Answer (receiver) → fully gather → sender.
+	answer, err := pcReceiver.CreateAnswer(nil)
+	if err != nil {
+		t.Fatalf("create answer: %v", err)
+	}
+	gatherReceiver := webrtc.GatheringCompletePromise(pcReceiver)
+	if err := pcReceiver.SetLocalDescription(answer); err != nil {
+		t.Fatalf("receiver SetLocalDescription: %v", err)
+	}
+	<-gatherReceiver
+	if err := pcSender.SetRemoteDescription(*pcReceiver.LocalDescription()); err != nil {
+		t.Fatalf("sender SetRemoteDescription: %v", err)
+	}
+
+	select {
+	case <-senderOpen:
+	case <-time.After(20 * time.Second):
+		pcSender.Close()
+		pcReceiver.Close()
+		t.Fatal("sender data channel never opened")
+	}
+
+	return dc, got, func() {
+		pcSender.Close()
+		pcReceiver.Close()
+	}
+}
+
+// runTransfer sends srcPaths over a connected pair into a fresh output dir and
+// returns it. The receiver's OnMessage handler (registered inside ReceiveFiles)
+// must be set before the first byte is sent; since the test controls when
+// SendFiles runs, a short delay after starting the receiver guarantees that.
+func runTransfer(t *testing.T, srcPaths []string) string {
+	t.Helper()
+
+	sender, recvCh, closeFn := newConnectedPair(t)
+	defer closeFn()
+
+	outDir := t.TempDir()
+	recvErr := make(chan error, 1)
+	go func() {
+		dc := <-recvCh
+		recvErr <- ReceiveFiles(dc, outDir, true, "", "")
+	}()
+
+	// Let the receiver register its OnMessage handler before any data is sent.
+	time.Sleep(300 * time.Millisecond)
+
+	if err := SendFiles(sender, srcPaths, ""); err != nil {
+		t.Fatalf("SendFiles: %v", err)
+	}
+
+	select {
+	case err := <-recvErr:
+		if err != nil {
+			t.Fatalf("ReceiveFiles: %v", err)
+		}
+	case <-time.After(60 * time.Second):
+		t.Fatal("ReceiveFiles did not complete")
+	}
+	return outDir
+}
+
+// TestLoopbackLargeFile is the end-to-end regression guard for the backpressure
+// and flush fixes: a 20 MB file exceeds the 8 MB high-water mark, so it exercises
+// multiple drain cycles. The received bytes must match the source exactly.
+func TestLoopbackLargeFile(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ICE loopback transfer in -short mode")
+	}
+
+	srcDir := t.TempDir()
+	srcPath := filepath.Join(srcDir, "blob.bin")
+	data := make([]byte, 20*1024*1024)
+	if _, err := rand.Read(data); err != nil {
+		t.Fatalf("generate random data: %v", err)
+	}
+	if err := os.WriteFile(srcPath, data, 0644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	want := sha256.Sum256(data)
+
+	outDir := runTransfer(t, []string{srcPath})
+
+	got, err := os.ReadFile(filepath.Join(outDir, "blob.bin"))
+	if err != nil {
+		t.Fatalf("read received file: %v", err)
+	}
+	if len(got) != len(data) {
+		t.Fatalf("size mismatch: got %d bytes, want %d", len(got), len(data))
+	}
+	if sha256.Sum256(got) != want {
+		t.Fatal("content hash mismatch: received file is corrupt")
+	}
+}
+
+// TestLoopbackImmediateReceiverClose reproduces the CLI-to-CLI race where the
+// receiver closes its PeerConnection immediately after ReceiveFiles returns.
+// Before the fix the sender's SCTP buffer stalled at a non-zero value because
+// the final SACKs never arrived, causing "timed out flushing" errors even
+// though the file was fully received.
+func TestLoopbackImmediateReceiverClose(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ICE loopback transfer in -short mode")
+	}
+
+	srcDir := t.TempDir()
+	srcPath := filepath.Join(srcDir, "blob.bin")
+	data := make([]byte, 5*1024*1024) // 5 MB — enough to exercise backpressure
+	if _, err := rand.Read(data); err != nil {
+		t.Fatalf("generate random data: %v", err)
+	}
+	if err := os.WriteFile(srcPath, data, 0644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	senderDC, recvCh, closeFn := newConnectedPair(t)
+	// Do NOT defer closeFn — we close the receiver PC ourselves immediately
+	// after ReceiveFiles returns to reproduce the race.
+
+	outDir := t.TempDir()
+	recvDone := make(chan error, 1)
+
+	go func() {
+		dc := <-recvCh
+		err := ReceiveFiles(dc, outDir, true, "", "")
+		// Close receiver immediately — this is what `defer conn.Close()` does
+		// in `runReceive`. The SCTP teardown races the final SACK to the sender.
+		dc.Close()
+		recvDone <- err
+	}()
+
+	time.Sleep(300 * time.Millisecond)
+
+	sendErr := SendFiles(senderDC, []string{srcPath}, "")
+	closeFn() // clean up sender PC after SendFiles returns
+
+	if sendErr != nil {
+		t.Fatalf("SendFiles returned error after receiver closed immediately: %v", sendErr)
+	}
+
+	select {
+	case err := <-recvDone:
+		if err != nil {
+			t.Fatalf("ReceiveFiles: %v", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("ReceiveFiles did not complete")
+	}
+}
+
+// TestLoopbackSmallJSONFile guards the framing fix end to end: a file whose
+// bytes are a sub-1 KB JSON object must arrive byte-identical, not be mistaken
+// for a control message and dropped.
+func TestLoopbackSmallJSONFile(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ICE loopback transfer in -short mode")
+	}
+
+	srcDir := t.TempDir()
+	srcPath := filepath.Join(srcDir, "config.json")
+	data := []byte(`{"name":"floe","type":"settings","values":[1,2,3],"nested":{"k":"v"}}`)
+	if err := os.WriteFile(srcPath, data, 0644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	outDir := runTransfer(t, []string{srcPath})
+
+	got, err := os.ReadFile(filepath.Join(outDir, "config.json"))
+	if err != nil {
+		t.Fatalf("read received file: %v", err)
+	}
+	if string(got) != string(data) {
+		t.Fatalf("JSON file corrupted in transit:\n got: %q\nwant: %q", got, data)
+	}
+}
+
+// TestLoopbackDuplicateNames is the end-to-end guard for the receiver's
+// never-overwrite rule: two files with the same base name (two pasted
+// screenshots, or a repeat send) must both survive, the second de-collided to
+// "name (1).ext", rather than one clobbering the other.
+func TestLoopbackDuplicateNames(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ICE loopback transfer in -short mode")
+	}
+
+	dirA, dirB := t.TempDir(), t.TempDir()
+	pathA := filepath.Join(dirA, "shot.png")
+	pathB := filepath.Join(dirB, "shot.png")
+	if err := os.WriteFile(pathA, []byte("AAA"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pathB, []byte("BBBB"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := runTransfer(t, []string{pathA, pathB})
+
+	first, err := os.ReadFile(filepath.Join(outDir, "shot.png"))
+	if err != nil {
+		t.Fatalf("read first file: %v", err)
+	}
+	second, err := os.ReadFile(filepath.Join(outDir, "shot (1).png"))
+	if err != nil {
+		t.Fatalf("read de-collided file: %v", err)
+	}
+	if string(first) != "AAA" || string(second) != "BBBB" {
+		t.Fatalf("contents = %q / %q, want AAA / BBBB (a same-name file was overwritten)", first, second)
+	}
+}
+
+// TestLoopbackProgressSavedName pins the contract GUIs depend on to open the
+// right file: progress events carry the on-disk name (SavedName), which matches
+// the sender's name normally and the de-collided "name (1).ext" after a
+// collision. Also the only test driving ReceiveFilesWithProgress with a real
+// callback rather than the CLI's nil.
+func TestLoopbackProgressSavedName(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ICE loopback transfer in -short mode")
+	}
+
+	dirA, dirB := t.TempDir(), t.TempDir()
+	pathA := filepath.Join(dirA, "shot.png")
+	pathB := filepath.Join(dirB, "shot.png")
+	if err := os.WriteFile(pathA, []byte("AAA"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pathB, []byte("BBBB"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	sender, recvCh, closeFn := newConnectedPair(t)
+	defer closeFn()
+
+	outDir := t.TempDir()
+	var events []Progress
+	recvErr := make(chan error, 1)
+	go func() {
+		dc := <-recvCh
+		recvErr <- ReceiveFilesWithProgress(dc, outDir, true, "", "", func(p Progress) {
+			events = append(events, p)
+		})
+	}()
+
+	// Let the receiver register its OnMessage handler before any data is sent.
+	time.Sleep(300 * time.Millisecond)
+
+	if err := SendFiles(sender, []string{pathA, pathB}, ""); err != nil {
+		t.Fatalf("SendFiles: %v", err)
+	}
+	select {
+	case err := <-recvErr:
+		if err != nil {
+			t.Fatalf("ReceiveFilesWithProgress: %v", err)
+		}
+	case <-time.After(60 * time.Second):
+		t.Fatal("ReceiveFilesWithProgress did not complete")
+	}
+
+	// The last event per file is the one a UI acts on.
+	final := map[int]Progress{}
+	for _, p := range events {
+		final[p.FileIndex] = p
+	}
+	if len(final) != 2 {
+		t.Fatalf("progress covered %d files, want 2 (events: %d)", len(final), len(events))
+	}
+	if p := final[1]; p.FileName != "shot.png" || p.SavedName != "shot.png" {
+		t.Fatalf("first file: FileName %q SavedName %q, want shot.png for both", p.FileName, p.SavedName)
+	}
+	if p := final[2]; p.FileName != "shot.png" || p.SavedName != "shot (1).png" {
+		t.Fatalf("second file: FileName %q SavedName %q, want shot.png / shot (1).png", p.FileName, p.SavedName)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, final[2].SavedName)); err != nil {
+		t.Fatalf("SavedName does not point at a real file: %v", err)
+	}
+}
+
+// TestLoopbackCloseBeforeFirstFile: a sender that connects and then closes
+// without sending anything (it was cancelled, or its relay gate blocked the
+// transfer) must surface an error on the receiver instead of reporting a
+// successful zero-file transfer.
+func TestLoopbackCloseBeforeFirstFile(t *testing.T) {
+	sender, recvCh, closeFn := newConnectedPair(t)
+	defer closeFn()
+
+	outDir := t.TempDir()
+	recvErr := make(chan error, 1)
+	go func() {
+		dc := <-recvCh
+		recvErr <- ReceiveFiles(dc, outDir, true, "", "")
+	}()
+
+	// Let the receiver wire its handlers, then walk away without sending.
+	time.Sleep(300 * time.Millisecond)
+	if err := sender.Close(); err != nil {
+		t.Fatalf("sender close: %v", err)
+	}
+
+	select {
+	case err := <-recvErr:
+		if err == nil {
+			t.Fatal("ReceiveFiles reported success for a session with no files; want an error")
+		}
+		if !strings.Contains(err.Error(), "before any file") {
+			t.Fatalf("expected a no-files close error, got: %v", err)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("ReceiveFiles did not return after the data channel closed")
+	}
+}

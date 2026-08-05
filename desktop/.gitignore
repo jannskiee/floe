@@ -1,0 +1,9 @@
+build/bin
+node_modules
+frontend/dist
+
+# wails build -nsis drops the WebView2 bootstrapper (~1.5 MB) here each build
+build/windows/installer/tmp/
+
+# stray `go build` output (use `wails build` -> build/bin instead)
+*.exe

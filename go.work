@@ -1,0 +1,9 @@
+go 1.25.0
+
+// Local multi-module workspace: the desktop app and the CLI both build against
+// the shared engine in ./cli/engine without needing it published. Release/CI
+// builds can set GOWORK=off and rely on the replace directive in desktop/go.mod.
+use (
+	./cli
+	./desktop
+)
