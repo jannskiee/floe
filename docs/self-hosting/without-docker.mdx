@@ -41,3 +41,34 @@ cp client/.env.example client/.env.local
 Set at minimum:
 - In `server/.env`: `CLIENT_URL=http://localhost:3000`
 - In `client/.env.local`: `NEXT_PUBLIC_SOCKET_URL=http://localhost:3001`
+
+For anything reachable from the internet, also set `NODE_ENV=production` in `server/.env`. Docker sets it for you; a direct Node run does not, and Express only suppresses stack traces in its built-in error responses when the value is exactly `production`.
+
+## Updating an existing deployment
+
+The Docker instructions in [Operations](/self-hosting/operations) assume there is no repository to keep in sync. Running directly with Node means there is, so pull, reinstall, then restart:
+
+```bash
+cd /path/to/floe
+git pull
+cd server
+npm ci --omit=dev
+```
+
+Then restart the server with whatever supervises it (`pm2 restart <name>`, `systemctl restart <unit>`, or your own runner).
+
+<Warning>
+  Reinstall before you restart, and do not skip it. A dependency update that only moves a lockfile changes no source file, so a restart on its own re-executes the same `node_modules` and the update silently does not take effect. The process comes back healthy and the old version is still running.
+</Warning>
+
+Confirm the restart landed by checking that uptime reset:
+
+```bash
+curl -s http://localhost:3001/health
+```
+
+To confirm a specific dependency actually moved, read the installed version rather than trusting the restart:
+
+```bash
+npm --prefix server ls <package-name>
+```
