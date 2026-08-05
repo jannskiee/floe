@@ -22,7 +22,7 @@ const toc = [
     { id: 'collect', label: 'Information we collect' },
     { id: 'third-parties', label: 'Third-party services' },
     { id: 'relay', label: 'Relay server' },
-    { id: 'errors', label: 'Error monitoring & session replay' },
+    { id: 'errors', label: 'Error monitoring' },
     { id: 'analytics', label: 'Usage analytics' },
     { id: 'desktop', label: 'The desktop app' },
     { id: 'contact', label: 'Contact & abuse reports' },
@@ -138,7 +138,7 @@ export default function PrivacyPolicy() {
                 </p>
             </LegalSection>
 
-            <LegalSection id="errors" index="05" title="Error monitoring & session replay">
+            <LegalSection id="errors" index="05" title="Error monitoring">
                 <p>
                     The <strong className="font-semibold text-zinc-200">web app</strong> uses Sentry
                     to monitor application errors and performance. This applies to floe.one in the
@@ -149,18 +149,19 @@ export default function PrivacyPolicy() {
                     items={[
                         'Error stack traces and browser metadata (browser version, OS, device type)',
                         'Connection type (direct or relay), transfer progress, file count, and total size at the time of an error',
-                        <>
-                            <strong className="font-semibold text-zinc-200">Session replay.</strong> An
-                            anonymized, video-like recording of a small sample of browser sessions,
-                            plus any session where an error occurs. All on-screen text and media are
-                            masked, so file names and file contents are never captured.
-                        </>,
                     ]}
                 />
                 <p>
+                    Session replay is{' '}
+                    <strong className="font-semibold text-zinc-200">not</strong> enabled. Floe used to
+                    record a sample of browser sessions. A recording reported the page address, and on
+                    a receiver page that address contains the room link, so replay was removed rather
+                    than kept: the room link is the only thing protecting a transfer.
+                </p>
+                <p>
                     Sentry does <strong className="font-semibold text-zinc-200">not</strong> capture
-                    file names, file contents, or any personally identifiable information. Session
-                    recordings are used solely for debugging technical issues.{' '}
+                    file names, file contents, or any personally identifiable information. The room
+                    link is stripped from every error report and breadcrumb before it is sent.{' '}
                     <a
                         href="https://sentry.io/privacy/"
                         target="_blank"
