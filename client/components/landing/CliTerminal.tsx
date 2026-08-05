@@ -145,10 +145,19 @@ export function CliTerminal() {
                     fade makes the cut look intentional instead of amputated. */}
                 {/* tabIndex 0, not -1: below sm the session scrolls horizontally and a
                     keyboard-only user has no other way to reach the clipped columns.
-                    The region stays aria-hidden because the sr-only transcript below
-                    carries the same content in prose. */}
-                <div tabIndex={0} className="custom-scrollbar [@media(min-height:481px)]:min-h-[480px] overflow-x-auto px-4 py-4 focus-visible:outline-2 focus-visible:outline-ice max-sm:[mask-image:linear-gradient(to_right,black_calc(100%_-_24px),transparent)]" aria-hidden="true">
-                    <div className="min-w-max whitespace-pre font-mono text-[12.5px] leading-[1.7] text-zinc-300">
+                    aria-hidden sits on the INNER div, not this one: a focusable element
+                    inside an aria-hidden subtree is a WCAG 4.1.2 failure, because the
+                    focus lands somewhere assistive tech has been told does not exist.
+                    So the scroller stays in the tree with a name, and only the ASCII
+                    session is hidden, since the sr-only transcript below carries the
+                    same content in prose. */}
+                <div
+                    tabIndex={0}
+                    role="group"
+                    aria-label="Example terminal session, scrollable"
+                    className="custom-scrollbar [@media(min-height:481px)]:min-h-[480px] overflow-x-auto px-4 py-4 focus-visible:outline-2 focus-visible:outline-ice max-sm:[mask-image:linear-gradient(to_right,black_calc(100%_-_24px),transparent)]"
+                >
+                    <div className="min-w-max whitespace-pre font-mono text-[12.5px] leading-[1.7] text-zinc-300" aria-hidden="true">
                         <div>
                             <span className="text-ice">$ </span>
                             <span className="text-zinc-100">{shownTyped}</span>

@@ -20,6 +20,7 @@ interface ImageReport {
     cssWidth: number;
     realWidth: number;
     ratio: number;
+    broken: boolean;
 }
 
 /**
@@ -40,6 +41,26 @@ async function measureImages(page: Page): Promise<ImageReport[]> {
             const src = img.currentSrc || img.src;
             // Zero-width (never laid out) and SVGs (resolution independent) are exempt.
             if (rect.width <= 1 || !src || /\.svg(\?|$)/.test(src)) continue;
+
+            // The optimizer serves everything from /_next/image and carries the real
+            // file in its `url` param, so read that. Taking the last path segment
+            // instead labels every single row "image", which makes the failure
+            // message below unable to name the file it is telling you to re-capture.
+            const parsed = new URL(src, location.href);
+            const label = decodeURIComponent(parsed.searchParams.get('url') ?? parsed.pathname)
+                .split('/')
+                .filter(Boolean)
+                .pop() as string;
+
+            // `complete` also goes true for a 404, so it cannot tell loaded from
+            // broken; naturalWidth 0 on a complete image is the broken case. Report
+            // it rather than skipping, otherwise all three screenshots could 404 and
+            // this guard would still pass on the footer mark alone.
+            if (img.complete && img.naturalWidth === 0) {
+                out.push({ src: label, cssWidth: rect.width, realWidth: 0, ratio: 0, broken: true });
+                continue;
+            }
+
             let realWidth = 0;
             try {
                 const bmp = await createImageBitmap(await (await fetch(src)).blob());
@@ -49,11 +70,11 @@ async function measureImages(page: Page): Promise<ImageReport[]> {
                 continue; // undecodable here (e.g. cross-origin); not this guard's business
             }
             out.push({
-                // File name only: the optimizer URL carries a query string.
-                src: decodeURIComponent(src).replace(/[?&].*$/, '').split('/').pop() as string,
+                src: label,
                 cssWidth: rect.width,
                 realWidth,
                 ratio: realWidth / rect.width,
+                broken: false,
             });
         }
         return out;
@@ -88,6 +109,10 @@ async function settleImages(page: Page) {
 async function assertDensity(page: Page, route: string, dpr: number) {
     const images = await measureImages(page);
     expect(images.length, `[${route} @ dpr${dpr}] expected at least one rendered image`).toBeGreaterThan(0);
+    expect(
+        images.filter((i) => i.broken).map((i) => i.src),
+        `[${route} @ dpr${dpr}] image(s) rendered but failed to load at all`
+    ).toEqual([]);
     for (const img of images) {
         // Allow a 2% tolerance for fractional layout boxes.
         expect
