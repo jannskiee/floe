@@ -28,6 +28,51 @@ const nextConfig = {
         formats: ['image/webp'],
     },
 
+    // Security response headers. floe.one previously sent none at all: the only
+    // one on the wire was Vercel's own HSTS, while api.floe.one has had the full
+    // helmet set all along.
+    //
+    // frame-ancestors is the one that actually matters here, and it is not a
+    // checkbox. A receiver page joins its room on mount and creates an
+    // ICE-gathering peer with no user interaction (P2PTransfer.tsx), so a hidden
+    // iframe pointed at an attacker's room made every visitor silently relay
+    // their host and server-reflexive candidates, which is their LAN and public
+    // IP, with zero clicks. X-Frame-Options repeats it for user agents that
+    // predate frame-ancestors.
+    //
+    // Deliberately no script-src or connect-src. Next inlines the RSC payload as
+    // ~17 bootstrap <script> blocks and only emits a nonce when it can parse one
+    // out of an inbound request header, which a static headers() cannot provide,
+    // so a script-src here would need 'unsafe-inline' and buy nothing. The
+    // directives below are enforced regardless of inline script, which is
+    // precisely why they are the ones worth having. connect-src and worker-src
+    // are also quietly load-bearing: both would need blob:, or the fflate zip
+    // worker and the ZIP download stop working.
+    async headers() {
+        return [
+            {
+                source: '/:path*',
+                headers: [
+                    {
+                        key: 'Content-Security-Policy',
+                        value: "frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'",
+                    },
+                    { key: 'X-Frame-Options', value: 'DENY' },
+                    { key: 'X-Content-Type-Options', value: 'nosniff' },
+                    // Room links carry their secret in the fragment, which is never
+                    // sent as a referrer. Older links used ?room= in the query
+                    // string (see lib/scrubUrl.ts), which is, so this closes a real
+                    // if legacy leak to every outbound link on the page.
+                    { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+                    {
+                        key: 'Permissions-Policy',
+                        value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()',
+                    },
+                ],
+            },
+        ];
+    },
+
     // Documentation lives on Mintlify and is served at floe.one/docs (a subpath
     // of the primary domain, for SEO) via a reverse proxy: every /docs request
     // is rewritten to the Mintlify deployment, which is configured with base
