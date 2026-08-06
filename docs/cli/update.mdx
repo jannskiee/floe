@@ -6,12 +6,28 @@ description: "Keep the floe CLI up to date on macOS, Windows, and Linux using th
 ## Package manager installs
 
 If you installed floe via a package manager, use the standard upgrade command for that tool.
+`floe update` detects a package-managed install from the binary's path and stops with a message
+pointing you at the right command, rather than replacing the binary behind your package
+manager's back. The same guard applies to `floe update --check`.
 
 | Install method | Upgrade command |
 | -------------- | --------------- |
 | Homebrew (macOS) | `brew upgrade floe` |
 | Winget (Windows) | `winget upgrade jannskiee.floe` |
 | Scoop (Windows) | `scoop update floe` |
+
+Detection is a substring match for `homebrew`, `cellar`, `linuxbrew`, `scoop`, or `winget`
+anywhere in the binary's path, so a script install that happens to live under a directory
+containing one of those words is treated as package-managed too.
+
+<Note>
+  This page covers the `floe` command-line tool. Floe Desktop updates on its own track: the
+  Microsoft Store build updates itself, while the GitHub `.exe` and `.zip` builds have no
+  in-app updater, so you download and run the current build again. `floe update` never touches
+  the desktop app, and desktop builds ship on their own `desktop-v*` tags as GitHub
+  pre-releases, so they are never picked up by `floe update` or the install scripts. See
+  [Update Floe Desktop](/desktop/installation#update).
+</Note>
 
 ## Script and manual installs
 
@@ -24,13 +40,18 @@ floe update
 This checks the latest release on GitHub, downloads the correct archive for your OS and
 architecture, verifies the SHA-256 checksum, and replaces the running binary in place.
 
+On macOS and Linux, if floe lives in a root-owned directory such as `/usr/local/bin` (the
+install script's default), the final swap needs elevation, so floe asks for your sudo password
+once. Everything before that step (download, checksum, extraction) runs as your normal user. If
+sudo is not installed, the update stops and tells you to re-run as root or reinstall with the
+install script. On Windows no elevation is involved: floe renames the running executable aside
+and moves the new one into place.
+
 To check for an update without installing:
 
 ```bash
 floe update --check
 ```
-
-To suppress the update hint shown by `floe version`, set `FLOE_NO_UPDATE_CHECK=1`.
 
 You can also re-run the original install script at any time to upgrade:
 
@@ -41,6 +62,23 @@ curl -fsSL https://floe.one/install.sh | sh
 # Windows
 irm https://floe.one/install.ps1 | iex
 ```
+
+## The update hint
+
+When a newer release exists, `floe version` prints an extra line:
+
+```
+Update available: v1.x.x  run `floe update` to upgrade
+```
+
+Only `floe version` runs this check automatically, never `send` or `receive`. The result is
+cached for 24 hours in `floe/update-check.json` inside your user config directory (`~/.config`
+on Linux, `~/Library/Application Support` on macOS, `%AppData%` on Windows), so deleting that
+file forces a fresh check. `floe update --check` is a separate, deliberate check: it asks GitHub
+directly and ignores the cache.
+
+Set `FLOE_NO_UPDATE_CHECK=1` to suppress the hint entirely. Binaries compiled from source never
+check.
 
 ## Version compatibility
 

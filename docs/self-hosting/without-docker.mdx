@@ -7,18 +7,26 @@ If you prefer to run the components without Docker, the complete manual setup st
 
 ## Running each component
 
+The signaling server and the web client are two long-lived processes, so each
+needs its own terminal (or a supervisor, as below). Run each block from the
+repository root.
+
 ```bash
-# Signaling server (Node.js)
+# Signaling server (Node.js). Stays in the foreground.
 cd server
 npm install
 npm start
+```
 
-# Web client (Next.js)
+```bash
+# Web client (Next.js). Stays in the foreground.
 cd client
 pnpm install
 pnpm build
 pnpm start
+```
 
+```bash
 # CLI (optional, for local testing against your server)
 cd cli
 go build ./cmd/floe
@@ -42,7 +50,9 @@ Set at minimum:
 - In `server/.env`: `CLIENT_URL=http://localhost:3000`
 - In `client/.env.local`: `NEXT_PUBLIC_SOCKET_URL=http://localhost:3001`
 
-For anything reachable from the internet, also set `NODE_ENV=production` in `server/.env`. Docker sets it for you; a direct Node run does not, and Express only suppresses stack traces in its built-in error responses when the value is exactly `production`.
+`NEXT_PUBLIC_SOCKET_URL` is inlined when the client is built, so on this path changing it later needs another `pnpm build`. To change the address without rebuilding, leave it unset and set the unprefixed `SOCKET_URL` in the environment of the process that runs `pnpm start` instead; the browser then reads it per request from `/api/config`. See [How the Client Finds the Signaling Server](/self-hosting/build-time-url). Leave both empty when the client and the signaling server share one origin behind a reverse proxy.
+
+Also set `NODE_ENV=production` in `server/.env`. Docker sets it for you; a direct Node run does not. Floe registers its own final error handler that returns a generic JSON error at every setting, so this is not a stack-trace leak. Set it anyway: `production` is what both the published image and `server/.env.example` use, so a direct Node run matches what is tested.
 
 ## Updating an existing deployment
 
@@ -51,11 +61,18 @@ The Docker instructions in [Operations](/self-hosting/operations) assume there i
 ```bash
 cd /path/to/floe
 git pull
+
+# Signaling server
 cd server
 npm ci --omit=dev
+
+# Web client: a compiled build, so it has to be rebuilt
+cd ../client
+pnpm install --frozen-lockfile
+pnpm build
 ```
 
-Then restart the server with whatever supervises it (`pm2 restart <name>`, `systemctl restart <unit>`, or your own runner).
+Then restart both processes with whatever supervises them (`pm2 restart <name>`, `systemctl restart <unit>`, or your own runner). `pnpm start` serves whatever `pnpm build` last produced, so skipping the client rebuild leaves the old client running with nothing to indicate it is stale.
 
 <Warning>
   Reinstall before you restart, and do not skip it. A dependency update that only moves a lockfile changes no source file, so a restart on its own re-executes the same `node_modules` and the update silently does not take effect. The process comes back healthy and the old version is still running.

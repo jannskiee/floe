@@ -42,14 +42,14 @@ Running `floe receive olive-tiger-castle -o ~/Downloads`:
 ```
   Connecting to sender...
   Connected
+
   ─────────────────────────────────────────────────
   Incoming   2 files · 2.3 MB
   ─────────────────────────────────────────────────
 
   Accept? [Y/n] y
-
-  [1/2] photo.jpg  [████████████████] 2.3 MB/2.3 MB
-  [2/2] notes.txt  [████████████████] 14 KB/14 KB
+  [1/2] photo.jpg 100% [███████████████] (480 kB/s)
+  [2/2] notes.txt 100% [███████████████] (14 kB/s)
 
   ─────────────────────────────────────────────────
   Received   2 files (2.3 MB)
@@ -72,8 +72,8 @@ When the first file's metadata arrives, Floe shows a summary of what is incoming
   Accept? [Y/n]
 ```
 
-- Press **Enter**, `y`, or `Y` to accept and begin receiving.
-- Type `n` or `no` to decline. The transfer is cancelled and the connection closes.
+- Type `n` or `no`, in any capitalization, to decline. The transfer is cancelled and the connection closes.
+- Press **Enter** or type anything else to accept and begin receiving. The prompt only looks for a decline, so a typo counts as yes.
 
 Pass `-y` to skip this prompt and accept automatically.
 
@@ -85,7 +85,7 @@ Pass `-y` to skip this prompt and accept automatically.
 | `--yes` | `-y` | `false` | Accept incoming files without the confirmation prompt. |
 | `--no-report` | | `false` | Do not report the transferred byte count to Floe's public global counter. Set `FLOE_NO_STATS=1` to opt out permanently. |
 
-See [Flags Reference](/cli/flags) for global flags (`--server`, `--no-relay`) and full opt-out documentation.
+See [Flags Reference](/cli/flags) for the global flags that matter here (`--server`, `--no-relay`, `--iface`) and full opt-out documentation.
 
 ## Notes
 

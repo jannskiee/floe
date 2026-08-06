@@ -9,23 +9,27 @@ description: "Answers to common questions about Floe: how peer-to-peer file tran
   <Accordion title="Where do my files go?">
     Your files go directly to the recipient's device. In most cases they never touch a server at all. When a direct path cannot be found (strict corporate firewalls, carrier-grade NAT), Floe automatically falls back to an encrypted TURN relay. Even through a relay, the server sees only encrypted packets and cannot read your files.
 
+    On floe.one that relay is Cloudflare's managed TURN service rather than a Floe machine, so a relayed transfer does transit third-party infrastructure. It carries opaque encrypted packets either way, and if you self-host you point Floe at your own relay instead.
+
     See [How It Works](/how-it-works/signaling) for a full explanation.
   </Accordion>
 
   <Accordion title="Is there a file size limit?">
-    Direct connections have no size limit. Files transfer directly between the two devices and no server bandwidth is consumed.
+    Direct connections have no size limit imposed by Floe. Files transfer directly between the two devices and no server bandwidth is consumed.
 
-    Relay connections are capped at **2 GB per session** to keep the service free. The cap applies in both the web app and the CLI. Most home and mobile network transfers connect directly and have no limit. See [The 2 GB Relay Limit](/how-it-works/2gb-limit) for details and tips on obtaining a direct connection.
+    Relay connections are capped at **2 GB per session** to keep the service free. The cap applies everywhere: the web app, the CLI, and Floe Desktop all enforce it. On Floe Desktop, turning on "Hide my IP address" routes every transfer through the relay, so the cap applies to every transfer while that setting is on. Most home and mobile network transfers connect directly and have no limit. See [The 2 GB Relay Limit](/how-it-works/2gb-limit) for details and tips on obtaining a direct connection.
+
+    One practical note about the browser: a browser receiver holds each incoming file in memory until that file is complete, so a very large file can exhaust a phone or a laptop tab. The CLI and desktop receivers write straight to disk and have no such ceiling, which makes them the better choice for multi-gigabyte transfers.
   </Accordion>
 
   <Accordion title="Can I send multiple files or a whole folder?">
-    Yes. In the browser, select multiple files in the file picker. In the CLI, pass multiple files or folder paths to `floe send`:
+    Yes, with one caveat about folders. In the browser you can select or drop multiple files, but not a folder: the web app has no folder picker, and dropping a folder does not add its contents. The CLI and Floe Desktop can send whole folders. Pass file or folder paths to `floe send`, or drop a folder onto Floe Desktop.
 
     ```bash
     floe send file1.pdf file2.jpg notes/
     ```
 
-    Folder transfers preserve the directory structure. The recipient receives files at the same relative paths.
+    Folder transfers preserve the directory structure when the receiver is the CLI or the desktop app, which rebuild the tree on disk. A browser receiver gets the same files, but as a flat list, because a browser download cannot create folders.
   </Accordion>
 
   <Accordion title="How fast is it?">
@@ -33,11 +37,15 @@ description: "Answers to common questions about Floe: how peer-to-peer file tran
   </Accordion>
 
   <Accordion title="How long does the sender have to stay connected?">
-    For the full duration of the transfer. Files stream directly from the sender's device, so the browser tab or CLI process must remain open and active. If the sender closes the tab or cancels mid-transfer, the session ends and any partially received files are incomplete.
+    For the full duration of the transfer. Files stream directly from the sender's device, so the browser tab, the CLI process, or the Floe Desktop window must stay open. The browser and the desktop app both ask the device to stay awake while a transfer is connected. The CLI does not, so check your machine's own sleep settings before a long headless transfer.
+
+    If the sender closes the tab or window, quits, or cancels mid-transfer, the session ends. A CLI or desktop receiver is left with a truncated file on disk. A browser receiver gets no download at all for the file that was in flight, because it only turns a file into a download once the whole file has arrived.
   </Accordion>
 
   <Accordion title="Are my files stored anywhere?">
-    No. Files are never stored on any server. They travel directly between the two devices in real time. Once the session closes, nothing about your transfer is retained.
+    No. Files are never stored on any server. They travel directly between the two devices in real time, and once the session closes the server keeps nothing about them: no file names, no contents, no per-transfer record. If a short code was issued for the room, that code maps to the room ID for up to 10 minutes and is then deleted. The only thing that survives for good is one anonymous number, the running total of bytes Floe has moved (see the counter question below).
+
+    Floe Desktop also keeps a short local list of your recent transfers on your own machine, so you can find where files landed. That list never leaves the device.
   </Accordion>
 </AccordionGroup>
 
@@ -47,21 +55,24 @@ description: "Answers to common questions about Floe: how peer-to-peer file tran
   <Accordion title="Which browsers are supported?">
     Any modern browser with WebRTC support works: Chrome, Firefox, Safari, Edge, and most Chromium-based browsers. A secure context (HTTPS or localhost) is required.
 
-    WebRTC is not available in some in-app browsers (the web views embedded in Facebook, Instagram, TikTok, and similar apps). Floe detects these and prompts you to open the page in Chrome or Safari instead.
+    In-app browsers (the web views embedded in Facebook, Messenger, Instagram, TikTok, Snapchat, LINE, X (Twitter), and WeChat, plus generic Android web views) have limited support for file transfers. Floe recognizes these by their user agent and shows a full-screen prompt with instructions for opening the page in Chrome or Safari, plus a button that copies the link. The transfer UI is held back until you leave the in-app browser, so the page does not join the room in the meantime. A "Continue anyway" link lets you try regardless.
   </Accordion>
 
   <Accordion title="I'm on iOS. Why are downloads behaving oddly?">
     On iOS, use **Download ZIP** rather than downloading files individually. This is the most reliable option on Safari and iOS web views. Individual file downloads can behave inconsistently on iOS due to browser sandboxing.
+
+    The ZIP option only appears when a transfer contains more than one file, and only once every file has arrived. A single file has just its own download button, and that is the only way to save it.
   </Accordion>
 
   <Accordion title="What does the connection indicator color mean?">
-    The indicator in the corner of the page shows connection state:
+    The indicator in the transfer card's header shows connection state:
 
     - **Green (Direct):** Files transfer directly between devices, whether they share a network or connect peer-to-peer across the internet. No server involved. No size limit.
     - **Amber (Relay):** Files route through the encrypted TURN relay. The 2 GB cap applies.
-    - **Connecting:** Negotiating the WebRTC connection. This usually takes a few seconds.
+    - **Green (Ready):** Floe has reached the signaling server and is still negotiating the peer-to-peer path. It switches to Direct or Relay within a few seconds of the two sides meeting.
+    - **Red (Offline):** The connection to the signaling server is down. Floe reconnects on its own.
 
-    If the connection stays in "Connecting" for more than 30 seconds, see [Troubleshooting](/troubleshooting).
+    If the indicator stays on "Ready" for more than 30 seconds after both sides have joined, see [Troubleshooting](/troubleshooting).
   </Accordion>
 
   <Accordion title="Why does it say Direct when my phone is on mobile data?">
@@ -72,17 +83,85 @@ description: "Answers to common questions about Floe: how peer-to-peer file tran
     Transfer speed on a direct connection is set by the slower of the two internet connections involved (typically the sender's upload speed or the receiver's mobile signal), not by Floe. See [Direct Connection](/how-it-works/direct-connection) for the full story.
   </Accordion>
 
-  <Accordion title="Does turning off Network Relay Fallback stop or cancel my transfer?">
-    No. The toggle only controls whether Floe may fall back to a relay server when a direct connection cannot be established. It is checked once, when the connection is being set up.
+  <Accordion title="Does turning off Network relay fallback stop or cancel my transfer?">
+    This toggle appears on the sending side only. A browser receiver has no relay control at all.
+
+    No, turning it off does not cancel anything. The toggle only controls whether Floe may fall back to a relay server when a direct connection cannot be established. It is checked once, when the connection is being set up.
 
     - If the connection is **direct**, the toggle has no effect. The transfer proceeds whether relay fallback is on or off, because no relay is involved.
-    - If the connection would need a **relay** and the toggle is off, Floe blocks the transfer before any file data moves.
+    - If the connection would need a **relay** and the toggle is off, Floe leaves the relay servers out of its own connection setup, so it can only offer a direct path. Should the path end up relayed anyway, because the other side can still offer a relay of its own, Floe blocks the transfer before any file data moves. The sender is told to enable Network Relay to connect across restrictive networks, and the receiver is told to ask the sender to do it.
 
     The toggle cannot affect a connection that is already established, which is why it is only shown before the share link is created.
   </Accordion>
 
   <Accordion title="Can I enter a short code in the browser to receive?">
-    No. The browser UI does not have a code entry field. To receive in the browser, the recipient must open the full link (or scan the QR code). Short codes are for the CLI only: `floe receive olive-tiger-castle`.
+    No. The browser UI does not have a code entry field. To receive in the browser, the recipient must open the full link (or scan the QR code). Short codes work in the CLI (`floe receive olive-tiger-castle`) and in Floe Desktop, whose receive field accepts either a short code or a full link.
+  </Accordion>
+</AccordionGroup>
+
+## Desktop
+
+<AccordionGroup>
+  <Accordion title="Is there a desktop app?">
+    Yes, in beta for Windows. Floe Desktop is a small native app that speaks the same protocol as the web app and the CLI, so any two Floe clients can transfer to each other. It sends folders without zipping, pastes screenshots and copied files straight from the clipboard, saves received files to a folder you choose, and posts a notification when a transfer finishes.
+
+    Install it from the [download page](https://floe.one/download). It requires Windows 10 or later on an x64 machine, with the Microsoft Edge WebView2 runtime. The Microsoft Store build additionally needs Windows 10 version 2004 (build 19041). See [Install Floe Desktop](/desktop/installation) for the full walkthrough.
+  </Accordion>
+
+  <Accordion title="How do I receive a transfer in the desktop app?">
+    Paste either a short code or a full share link into the receive field and choose where the files should land. Unlike the browser, the desktop app writes files straight to disk and rebuilds any folder structure the sender used. See [Receiving Files with Floe Desktop](/desktop/receiving).
+  </Accordion>
+
+  <Accordion title="What does Hide my IP address do?">
+    It routes every transfer through the encrypted relay so the other side never sees your IP. Because the connection is always relayed, transfers are slower and the 2 GB per-session cap applies to every transfer while the setting is on. Turn it off to send larger files.
+
+    This is the inverse of the browser's "Network relay fallback" checkbox, which permits a relay but prefers a direct path. Floe Desktop has no direct-only mode, and the browser has no relay-only mode. See [Floe Desktop Settings](/desktop/settings).
+  </Accordion>
+
+  <Accordion title="How do I update the desktop app?">
+    Microsoft Store installs update themselves. A build installed from GitHub, including the portable zip, does not: download the current installer and run it over your existing install. There is no in-app updater yet. `floe update` applies to the CLI only and has no effect on Floe Desktop.
+  </Accordion>
+</AccordionGroup>
+
+## CLI
+
+<AccordionGroup>
+  <Accordion title="How do I install the CLI?">
+    See [CLI Installation](/cli/installation) for platform-specific steps. The quick version:
+
+    ```bash macOS and Linux
+    # macOS, with Homebrew
+    brew install --cask jannskiee/tap/floe
+
+    # macOS or Linux, no package manager
+    curl -fsSL https://floe.one/install.sh | sh
+    ```
+
+    ```powershell Windows
+    # winget
+    winget install jannskiee.floe
+
+    # scoop
+    scoop bucket add jannskiee https://github.com/jannskiee/scoop-bucket
+    scoop install floe
+
+    # no package manager
+    irm https://floe.one/install.ps1 | iex
+    ```
+  </Accordion>
+
+  <Accordion title="Do the browser, CLI, and desktop apps all talk to each other?">
+    Yes. All three clients speak the same WebRTC transfer protocol, so any combination works: browser to CLI, CLI to desktop, desktop to browser, and so on. The CLI prints a browser link and the desktop app shows one, either of which any recipient can open, and a browser sender's link can be pasted into `floe receive` or into Floe Desktop's receive field. See the [cross-platform transfers table](/quickstart#cross-platform-transfers).
+  </Accordion>
+
+  <Accordion title="How do I keep the CLI up to date?">
+    Run `floe update` for script and manual installs. For package manager installs, use `brew upgrade floe`, `winget upgrade jannskiee.floe`, or `scoop update floe`. See [Updating](/cli/update).
+  </Accordion>
+
+  <Accordion title="Do both peers need the same version?">
+    No. Floe peers on different versions interoperate, so you do not need to coordinate updates with the person on the other end. A patch or minor difference (for example v1.5.4 sending to v1.5.5) transfers normally.
+
+    Floe negotiates a transfer protocol version separate from the release version. The only time a transfer is blocked is the rare case where a release changes the wire format in a breaking way and the two versions cannot bridge it. If that happens, Floe tells you before any data moves and shows the older side what to do: refresh the page in the browser, or run `floe update` on the CLI. Floe Desktop shows the same engine message, but there you update through the Microsoft Store or by reinstalling from GitHub. See the [Protocol versioning](/reference/architecture#protocol-versioning) reference for how this works.
   </Accordion>
 </AccordionGroup>
 
@@ -90,11 +169,13 @@ description: "Answers to common questions about Floe: how peer-to-peer file tran
 
 <AccordionGroup>
   <Accordion title="Do I need an account?">
-    No. Floe requires no account, no sign-up, and no registration. Open [floe.one](https://floe.one) or run the CLI and share the link or short code with your recipient.
+    No. Floe requires no account, no sign-up, and no registration. Open [floe.one](https://floe.one), install Floe Desktop from the [download page](https://floe.one/download), or run the CLI, then share the link or short code with your recipient.
   </Accordion>
 
   <Accordion title="Does Floe collect any data?">
-    The signaling server tracks room IDs and connection metadata only for the duration of the session. No file content, file names, or transfer records are stored. Room state is discarded once both peers disconnect.
+    The signaling server tracks room IDs and connection metadata only for the duration of the session. No file content, file names, or transfer records are stored. Room state is discarded once both peers disconnect. If a short code was issued for the room, that code maps to the room ID for at most 10 minutes and is then deleted, so a room ID can outlive the session by that much. Nothing about the files themselves is ever stored.
+
+    If a transfer falls back to a relay, its encrypted packets pass through Cloudflare's managed TURN service on floe.one, which is infrastructure Floe does not own. The relay cannot read the packets, and a self-hosted instance uses whatever relay you configure.
 
     The one persistent value Floe keeps is a single anonymous total of bytes transferred across all users, shown by the counter on the homepage. It is a plain running number with no file names, no per-transfer records, and no link to you. See [Security and Privacy](/security-privacy) for details.
   </Accordion>
@@ -102,13 +183,13 @@ description: "Answers to common questions about Floe: how peer-to-peer file tran
   <Accordion title="What is the counter on the homepage?">
     It is a public, all-time total of how many bytes Floe has helped move across all users. When a transfer finishes, the receiving side reports just the size (never the file name or contents), and that size is added to one shared total. The figure is an honest best-effort metric, not an audited count, and reporting it never slows or blocks your transfer.
 
-    The counter is viewable only in the browser. The CLI receiver contributes to it but never fetches or displays the total. The sender (browser or CLI) never reports.
+    The counter is viewable only in the browser. The CLI and desktop receivers contribute to it but never fetch or display the total. Senders never report, in any client.
   </Accordion>
 
   <Accordion title="Can I opt out of the transfer counter?">
     Yes. The byte-count report is on by default but can be turned off on the receiving side.
 
-    **Browser:** Uncheck "Contribute to global stats" on the receiver view before the transfer completes. The preference is saved in your browser and applies to all future transfers from that device.
+    **Browser:** Uncheck "Contribute to global stats" on the receiver view before the first file arrives. The checkbox is hidden once files start landing. The preference is saved in your browser and applies to all future transfers from that device.
 
     **CLI - single transfer:**
     ```bash
@@ -120,43 +201,12 @@ description: "Answers to common questions about Floe: how peer-to-peer file tran
     export FLOE_NO_STATS=1
     ```
 
+    **Desktop:** Open Settings and turn off "Contribute to global stats". The preference is stored with your other Floe Desktop settings and applies to every future transfer you receive.
+
     When opted out, no request is sent to Floe's server and the global counter is not incremented for that transfer. The transfer itself is unaffected.
   </Accordion>
 
   <Accordion title="Is Floe open source?">
-    Yes. The full source for the client, server, and CLI is available on [GitHub](https://github.com/jannskiee/floe) under the MIT license. You can also [self-host](/self-hosting/overview) your own instance on your own infrastructure.
-  </Accordion>
-</AccordionGroup>
-
-## CLI
-
-<AccordionGroup>
-  <Accordion title="How do I install the CLI?">
-    See [CLI Installation](/cli/installation) for platform-specific steps. The quick version:
-
-    ```bash
-    # macOS
-    brew install --cask jannskiee/tap/floe
-
-    # Windows (winget)
-    winget install jannskiee.floe
-
-    # Linux / any OS
-    curl -fsSL https://floe.one/install.sh | sh
-    ```
-  </Accordion>
-
-  <Accordion title="Can a CLI sender transfer to a browser receiver (or vice versa)?">
-    Yes. Browser and CLI clients are fully interoperable. The CLI sender prints a browser link that any recipient can open, and the browser sender's link can be passed directly to `floe receive`. See the [cross-platform transfers table](/quickstart#cross-platform-transfers).
-  </Accordion>
-
-  <Accordion title="How do I keep the CLI up to date?">
-    Run `floe update` for script and manual installs. For package manager installs, use `brew upgrade floe`, `winget upgrade jannskiee.floe`, or `scoop update floe`. See [Updating](/cli/update).
-  </Accordion>
-
-  <Accordion title="Do both peers need the same version?">
-    No. Floe peers on different versions interoperate, so you do not need to coordinate updates with the person on the other end. A patch or minor difference (for example v1.5.4 sending to v1.5.5) transfers normally.
-
-    Floe negotiates a transfer protocol version separate from the release version. The only time a transfer is blocked is the rare case where a release changes the wire format in a breaking way and the two versions cannot bridge it. If that happens, Floe tells you before any data moves and points whichever side is older to `floe update`. See the [Protocol versioning](/reference/architecture#protocol-versioning) reference for how this works.
+    Yes. The full source for the web client, the signaling server, the CLI, and the desktop app is available on [GitHub](https://github.com/jannskiee/floe) under the MIT license. You can also [self-host](/self-hosting/overview) your own instance on your own infrastructure.
   </Accordion>
 </AccordionGroup>

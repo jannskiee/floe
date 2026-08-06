@@ -5,66 +5,83 @@ description: "Send files from the Floe web app at floe.one by generating a share
 
 Open [floe.one](https://floe.one) in any modern browser. No account or installation required.
 
+<Note>
+  In-app browsers (the ones embedded in Facebook, Messenger, Instagram, TikTok, Snapchat, LINE, X (Twitter), WeChat, and generic Android WebViews) have limited support for file transfers. Floe recognizes them by user agent and, instead of loading the transfer card, shows a full-screen prompt to open the page in Chrome or Safari. The card loads only once you move to a real browser or tap **Continue anyway** at the bottom of the prompt, where some features may not work.
+</Note>
+
 ## Add files
 
-Drop files directly onto the page, or click the drop zone to open the file picker. You can add:
+Drop files onto the dashed drop zone inside the transfer card, or click it to open the file picker. Dropping a file anywhere else on the page makes your browser open that file and navigate away from Floe. You can add:
 - A single file of any type.
 - Multiple files at once (the picker accepts multi-select).
+
+Once files are queued, the large drop zone shrinks to an **Add more files** strip above the file list.
 
 There is no file size limit on direct connections. Relay connections are capped at 2 GB per session. See [The 2 GB Relay Limit](/how-it-works/2gb-limit).
 
 <Note>
-  Folder transfers are a CLI-only feature. To send a folder from the browser, either zip it first or use `floe send ./folder` from the terminal.
+  Folder transfers are not supported in the browser. To send a folder, zip it first, or use `floe send ./folder` from the terminal, which walks the folder for you. The [Floe Desktop app](/desktop/sending) also has a folder picker.
 </Note>
 
-## Network Relay Fallback toggle
+## Network relay fallback
 
-Below the drop zone is a **Network Relay Fallback** toggle. It is on by default and recommended for most users.
+Once at least one file is queued, a **Network relay fallback** checkbox appears below the file list and directly above the Create secure link button. It is on by default and recommended for most users.
 
 | Setting | Behavior |
 |---------|----------|
 | On (default) | Floe attempts a direct connection first. If that fails, it automatically falls back to the encrypted TURN relay. |
 | Off | Only direct connections are attempted. If a direct path cannot be established, the transfer fails. |
 
-Turn relay off only if you need to ensure files never pass through a relay (for example, for compliance reasons or to transfer very large files over a direct connection).
+Unchecking it shows an amber warning that transfers may fail if either device is on mobile data or a restricted network. The checkbox disappears once you create the link, so set it before you click Create secure link. The choice lasts for the current session only and is not remembered between visits.
+
+Turn relay off only if you need to be certain files never pass through a relay, for example for compliance reasons. You do not need to turn it off to send more than 2 GB: the cap applies only when the connection actually ends up relayed, so leaving fallback on costs a direct transfer nothing.
 
 ## Create the link
 
-Click **Create Secure Link & Share**. Floe connects to the signaling server, assigns a room, and generates two ways to share:
+Click **Create secure link**. The button carries the count you are about to send, for example "Create secure link (3 files)".
 
-- **Link** - a URL containing the room ID (e.g. `https://floe.one/#room=...`). Send this via any messaging app, email, or chat.
-- **QR code** - scan it with a phone camera to open the link instantly. Useful for nearby transfers.
+Your browser generates the room id itself, joins that room on the signaling server, and shows the share panel once the server confirms the join. The panel holds the link, a live status line, and three controls:
 
-The link is valid for as long as your browser tab stays open.
+- **Copy** puts the link on your clipboard.
+- **Show QR** reveals a QR code, which is hidden by default. Scan it with a phone camera to open the link instantly. Press **Hide QR** to collapse it again.
+- **Share** opens your device's native share sheet. It appears only on browsers that expose one, mostly mobile.
+
+The link has the form `https://floe.one/?s=<nonce>#room=<uuid>`. The room id sits in the fragment, so it never reaches the server. The `?s=` nonce only makes each link a distinct page, so scanning a new QR code cannot reuse a stale tab.
+
+The link stays valid for as long as your browser tab is open, but it admits exactly **one** recipient. Once someone has joined the room, anyone else opening the same link gets a "Link Invalid" card. Create a fresh link for each person you want to send to.
 
 ## Connection indicator
 
-Once you share the link, a small connection indicator appears in the corner of the page. Its color tells you what is happening:
+The top-right of the transfer card shows a status dot with a label, plus a live ping readout that only senders see. Hover or tap the info icon next to Direct or Relay for a short in-product explanation.
 
-| Color | Meaning |
+| Label | Meaning |
 |-------|---------|
-| Pulsing (no color) | Waiting for the recipient to open the link. |
-| Green - Direct | Connected directly. Files travel peer-to-peer, no server involved. No size limit. |
-| Amber - Relay | Connected via the encrypted TURN relay. The 2 GB cap applies. |
+| Offline (red) | Not connected to Floe's signaling server, for example in the first moments after page load, or if your network drops. |
+| Ready (green) | Connected to the signaling server. It stays on Ready while you wait for a recipient, and after the recipient connects until Floe has worked out which path the connection took. |
+| Direct (green) | Connected directly. Files travel peer-to-peer, no server involved. No size limit. |
+| Relay (amber) | Connected via the encrypted TURN relay. The 2 GB cap applies. |
+
+The dot tracks your own link to the signaling server until the peer connection resolves, so it does not tell you whether the recipient has arrived. The status line under the share link does that: it reads "Waiting for peer", then "Peer joined. Starting transfer".
 
 ## Transfer
 
-The transfer starts automatically the moment the recipient opens the link. You do not need to click anything.
+The transfer starts on its own a couple of seconds after the recipient opens the link. You do not need to click anything.
+
+Floe checks the path before sending any bytes, so two things can stop it:
+
+- If the only available path is the relay and you turned relay fallback off, the card shows the error **Connection failed. Enable "Network Relay" to connect across restrictive networks.** and the connection is torn down.
+- If the path is relayed and your queue is over 2 GB, the status line reads **Transfer blocked. Relay limit exceeded.** and nothing is sent. Remove files, or move to a network that allows a direct connection.
 
 Keep the browser tab open and active for the entire transfer. If you close or navigate away from the tab, the session ends immediately and the recipient loses the connection.
 
-## Short code
+## Short codes
 
-The sender always sees a short code in the share panel (e.g. `olive-tiger-castle`). This code can be used by a **CLI recipient** to join without opening the link:
+The browser sender does not create a short code. `floe send` and Floe Desktop both register one when the send starts, and both `floe receive` and the Floe Desktop **Receive** tab can resolve one. A browser recipient always needs the full link or the QR code.
 
-```bash
-floe receive olive-tiger-castle
-```
-
-The code expires 10 minutes after the link is created. Browser recipients must use the full link.
+If you want a short code, send from the terminal or from Floe Desktop instead. See [floe send](/cli/send) or [Sending Files with Floe Desktop](/desktop/sending).
 
 ## Tips
 
 - On mobile, keep the browser in the foreground. Background tabs may be throttled and slow the transfer.
-- If the connection indicator stays in "Connecting" for more than 30 seconds, see [Troubleshooting](/troubleshooting).
+- If the status line under the share link stays on "Waiting for peer" for more than 30 seconds after the recipient has opened the link, see [Troubleshooting](/troubleshooting).
 - For large files on a corporate or university network, try a personal mobile hotspot to get a direct connection instead of relay.
