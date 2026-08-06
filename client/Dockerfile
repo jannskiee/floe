@@ -11,7 +11,7 @@
 # without rebuilding. It defaults to empty for exactly that reason.
 
 # ---- Builder ---------------------------------------------------------------
-FROM node:24-alpine AS builder
+FROM node:25-alpine AS builder
 
 # Pin pnpm to package.json's `packageManager` version so `--frozen-lockfile`
 # matches the lockfile exactly. pnpm 11.x needs Node 22+ (it uses the node:sqlite
@@ -54,7 +54,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 
 # ---- Runner ----------------------------------------------------------------
-FROM node:24-alpine AS runner
+FROM node:25-alpine AS runner
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1

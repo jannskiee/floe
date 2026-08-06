@@ -3,7 +3,7 @@
 # touches file data. It binds 0.0.0.0:$PORT (default 3001) and reads its config
 # from environment variables (see server/.env.example).
 
-FROM node:24-alpine
+FROM node:25-alpine
 
 # dumb-init reaps zombies and forwards SIGTERM/SIGINT so the server's graceful
 # shutdown handlers fire cleanly on `docker stop`.
