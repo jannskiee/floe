@@ -102,9 +102,11 @@ export default function Download() {
 
             <main className="w-full max-w-5xl">
                 {/* Hero: static server HTML; only the CTA row is a client island */}
-                {/* pt-24/28, not 28/32: the fixed navbar ends around 74px, so the old
-                    values left ~55px of dead space before the first word. */}
-                <div className="flex flex-col items-center pt-24 text-center sm:pt-28">
+                {/* pt-28 flat: the fixed navbar ends at about 82px below sm (44px
+                    touch targets) and 74px above it, so the narrow viewport is the
+                    one that needs the larger clearance. pt-32 would put back the
+                    ~55px of dead space this was trimmed to remove. */}
+                <div className="flex flex-col items-center pt-28 text-center">
                     {/* text-ice, not zinc-100: every other eyebrow on the site is either the
                         ice accent (SectionHeader, and the privacy/terms page hero) or quiet
                         zinc-500. At zinc-100 this one rendered the exact same value as the h1

@@ -18,7 +18,10 @@ export default function Home() {
 
             {/* Near-full-viewport hero: the next section's top hairline peeks at the
                 fold as the scroll cue, while its content stays below it */}
-            <section className="relative flex min-h-[calc(100dvh-2rem)] w-full flex-col items-center justify-center pb-14 pt-24 sm:pt-28">
+            {/* pt-28 flat, no sm: step. The pill is taller below sm than above it
+                now (44px touch targets vs the old 32px), so the narrow viewport
+                needs the larger clearance, not the smaller one. */}
+            <section className="relative flex min-h-[calc(100dvh-2rem)] w-full flex-col items-center justify-center pb-14 pt-28">
                 <div className="mx-auto max-w-3xl text-center mb-8 space-y-4">
                     <h1 className="text-5xl sm:text-7xl font-extrabold tracking-tighter text-white lg:text-9xl drop-shadow-2xl">
                         Floe

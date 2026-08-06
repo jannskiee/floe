@@ -125,7 +125,9 @@ async function assertNavbarFits(page: Page, label: string, expectPill: boolean) 
         };
     });
     if (!r) {
-        expect(r, `[${label}] expected a [data-nav-pill] element and found none`).not.toBeNull();
+        if (expectPill) {
+            expect(r, `[${label}] expected a [data-nav-pill] element and found none`).not.toBeNull();
+        }
         return;
     }
     expect.soft(r.left, `[${label}] navbar pill left edge`).toBeGreaterThanOrEqual(-1);
