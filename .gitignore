@@ -69,4 +69,11 @@ client/package-lock.json
 client/test-results/
 client/playwright-report/
 client/blob-report/
-client/.playwright/
+client/.playwright/
+
+# --- Throwaway measurement and screenshot scripts ---
+# One-off scripts written to measure a layout or shoot a screenshot, then kept
+# around for the next pass. They were untracked and unignored, which is one
+# `git add -A` away from landing in an unrelated commit.
+*.local.mjs
+.*-tmp.mjs

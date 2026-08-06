@@ -79,7 +79,10 @@ go.work                ties cli + desktop for local dev
 - [x] Drag and drop files onto the window to send
 - [x] Polished UI matching the web app's design: Tailwind v4 (`@tailwindcss/vite`, Vite 3->6 bump)
       + Geist fonts + lucide-react; dark zinc theme, elevated card, segmented tabs, custom toggle,
-      dashed drop zone, mono room code + copy-link, polished progress/verify/status. (QR deferred.)
+      dashed drop zone, mono room code + copy-link, polished progress/verify/status, and a
+      QR panel behind a Show QR toggle (react-qr-code; shipped, the earlier "deferred" note
+      was stale). No Share button on Windows: WebView2 does not expose `navigator.share`,
+      and the button is feature-gated on it.
 - [x] Folder sends, a "Browse..." save-folder picker, and "Show in folder" after receive
 - [x] OS notifications on transfer complete / failure (native Wails; auto toast AppUserModelID on Windows)
 - [x] Self-hosting: a Server section in Settings (server address plus an optional web address for share
@@ -124,8 +127,13 @@ verify the connection independently of the server.
 - [~] Shorten TURN credential TTL (24h -> 2h; REVERTED to 24h 2026-07-31: senders
       fetch ICE before an unbounded share-link wait and nothing refreshes, so the
       credential must outlive the wait, not the transfer)
-- [x] "Hide my IP" mode: engine (`peer.WithRelayOnly()` -> `iceTransportPolicy: 'relay'`), desktop
-      (checkbox), and browser sender toggle. Follow-up: a receiver-side toggle in the browser.
+- [~] "Hide my IP" mode: engine (`peer.WithRelayOnly()` -> `iceTransportPolicy: 'relay'`) and
+      desktop (checkbox) shipped. The browser sender toggle did NOT: nothing in `client/`
+      sets `iceTransportPolicy`, and a grep for `hideIP` there returns nothing, so the half
+      this line used to claim was lost. The browser's only relay control is "Network relay
+      fallback", which is the opposite switch (off = direct only). Documented as an
+      asymmetry in `docs/how-it-works/relay-connection.mdx` rather than papered over.
+      Follow-up: ship the browser toggle, sender and receiver.
 
 **Hardening audited 2026-07-04 (already solid, no change needed):**
 - [x] Receiver path-traversal: `transfer.safeJoin` strips volume names + `..`/`.`/empty
@@ -156,7 +164,8 @@ receiver, which is deliberate (share a link and wait) and cancellable.
       below; the old "unpackaged Win32" idea was wrong: the EXE submission path
       requires a purchased certificate and delivers no updates, while only MSIX
       is re-signed free by Microsoft)
-- [ ] Docs page and homepage download buttons
+- [x] Homepage download buttons and the /download page (#235), and a five-page "Desktop App"
+      docs group: installation, sending, receiving, settings, keyboard-shortcuts
 
 ## Release plan (0.1.0 beta)
 
@@ -221,13 +230,22 @@ binary.
       the second peer (the desktop receive field accepts share links)
       (submitted 2026-08-02 to the private audience, in certification; every
       section re-verified against the saved state before submit)
-- [ ] d. Private beta: install from the Store, verify transfers against web and
-      CLI, verify no SmartScreen, settings survive an update, context-menu row
-      hidden; then promote to PUBLIC
-- [ ] e. Only after the listing is public: flip the floe.one /download hero to
-      the Store badge (the listing URL 404s until then)
+- [x] d. Private beta, then promoted to PUBLIC. The listing is live: the detail
+      URL answers 200, and winget resolves it
+      (`winget install --id 9NBQ8ZQ1065L --source msstore`)
+- [x] e. floe.one /download leads with the Store badge (aeed0b4)
 - [ ] f. Each release after: false-positive form + VirusTotal link for the
       GitHub exe, never UPX-pack
+- [ ] g. Each release after: write the changelog entry BEFORE tagging. Add it
+      under `Unreleased` in `docs/changelog.mdx`, merge, then relabel it to
+      `desktop-vX.Y.Z` with the date at tag time, the way the CLI already does
+      (see commit b5bc70e). The generated GitHub release body is boilerplate and
+      carries no account of what changed, and /download's "Release notes" link
+      points at the docs changelog, so skipping this leaves that link empty.
+      Then paste a plain-text condensation into Partner Center's "What's new in
+      this version" (optional, 1500 characters, no markdown). A release with
+      nothing user-visible gets no entry, which is the point of writing it by
+      hand: `desktop-v0.2.1` correctly has none.
 
 ## Feature roadmap (what makes it best in class)
 

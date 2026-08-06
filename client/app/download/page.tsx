@@ -11,6 +11,7 @@ import {
     DESKTOP_ZIP_URL,
     DESKTOP_SHA_URL,
     DESKTOP_RELEASE_NOTES_URL,
+    DESKTOP_RELEASE_PAGE_URL,
     ALL_RELEASES_URL,
 } from '@/lib/desktopRelease';
 
@@ -74,9 +75,10 @@ const OTHER_WAYS: {
     },
     {
         label: 'Checksums',
-        desc: 'SHA-256 sums for every asset, and the full release history.',
+        desc: 'SHA-256 sums for every asset, this release on GitHub, and the full release history.',
         actions: [
             { name: 'SHA256SUMS.txt', href: DESKTOP_SHA_URL, external: true },
+            { name: 'This release', href: DESKTOP_RELEASE_PAGE_URL, external: true },
             { name: 'All releases', href: ALL_RELEASES_URL, external: true },
         ],
     },
