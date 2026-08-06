@@ -101,7 +101,10 @@ export default function Download() {
             <Navbar />
 
             <main className="w-full max-w-5xl">
-                {/* Hero: static server HTML; only the CTA row is a client island */}
+                {/* Hero: static server HTML throughout. The CTA row used to be a
+                    client island so it could sniff the OS and lead non-Windows
+                    visitors with a web-app pill; that pill is gone, so the whole
+                    page is server-rendered again. */}
                 {/* pt-24/28, not 28/32: the fixed navbar ends around 74px, so the old
                     values left ~55px of dead space before the first word. */}
                 <div className="flex flex-col items-center pt-24 text-center sm:pt-28">
