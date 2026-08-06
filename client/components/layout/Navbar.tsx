@@ -71,7 +71,13 @@ export const Navbar = () => {
 
     return (
         <nav aria-label="Main" className="fixed top-0 left-0 right-0 z-50 flex justify-center pb-6 pt-[calc(1.5rem+env(safe-area-inset-top))] pointer-events-none">
-            <div className="pointer-events-auto flex items-center gap-1 max-[359px]:gap-0.5 rounded-full border border-white/10 bg-zinc-900/70 p-1.5 max-[359px]:p-1 shadow-2xl backdrop-blur-xl">
+            {/* data-nav-pill is the stable hook for e2e/responsive.spec.ts and
+                e2e/screenshot-matrix.mjs. Both also assert this stays <nav>'s only
+                element child, since they locate the pill from there. */}
+            <div
+                data-nav-pill
+                className="pointer-events-auto flex items-center gap-1 max-[359px]:gap-0.5 rounded-full border border-white/10 bg-zinc-900/70 p-1.5 max-[359px]:p-1 shadow-2xl backdrop-blur-xl"
+            >
                 {isHome ? (
                     /* Button with hard-nav: forces full reload, clearing all peer/transfer state */
                     <button

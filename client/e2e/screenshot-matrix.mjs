@@ -62,9 +62,21 @@ const overflowEval = () => {
             }
         }
     }
-    const pill = document.querySelector('nav > div');
+    // The pill caps itself with max-width and scrolls internally, so its bounding
+    // box can no longer exceed the viewport. scroll vs client is the figure that
+    // still moves when the tiers outgrow the space.
+    const pill = document.querySelector('[data-nav-pill]');
     const nav = pill
-        ? (() => { const r = pill.getBoundingClientRect(); return { left: Math.round(r.left), right: Math.round(r.right) }; })()
+        ? (() => {
+            const r = pill.getBoundingClientRect();
+            return {
+                left: Math.round(r.left),
+                right: Math.round(r.right),
+                scroll: pill.scrollWidth,
+                client: pill.clientWidth,
+                children: pill.parentElement ? pill.parentElement.childElementCount : -1,
+            };
+        })()
         : null;
     return { innerWidth, doc: doc.scrollWidth, body: body.scrollWidth, offenders, nav };
 };
@@ -89,7 +101,12 @@ async function capture(page, name, vp) {
     const r = await page.evaluate(overflowEval);
     const file = `${name}--${KEY(vp)}.png`;
     await page.screenshot({ path: join(OUT, file), fullPage: true });
-    const navBad = r.nav && (r.nav.left < -1 || r.nav.right > r.innerWidth + 1);
+    const navBad =
+        r.nav &&
+        (r.nav.left < -1 ||
+            r.nav.right > r.innerWidth + 1 ||
+            r.nav.scroll > r.nav.client + 1 ||
+            r.nav.children !== 1);
     const docBad = r.doc > r.innerWidth + 1 || r.body > r.innerWidth + 1;
     index.push({ file, page: name, ...vp, ...r, flag: navBad || docBad ? 'OVERFLOW' : 'ok' });
     process.stdout.write(`${navBad || docBad ? '!! ' : '   '}${file}  doc=${r.doc}/${r.innerWidth}${r.nav ? ` nav=[${r.nav.left},${r.nav.right}]` : ''}\n`);
