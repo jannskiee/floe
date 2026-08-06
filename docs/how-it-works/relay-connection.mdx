@@ -40,6 +40,12 @@ floe send photo.jpg --no-relay
 
 With relay disabled, the transfer fails if a direct path cannot be established.
 
+<Warning>
+  The desktop app has no relay-fallback switch. Its **Hide my IP** setting is the opposite
+  control: it makes the relay the only path, so every transfer is relayed and capped at 2 GB.
+  See [Hide my IP address](/desktop/settings#hide-my-ip-address).
+</Warning>
+
 <Accordion title="Technical details">
   **TURN (Traversal Using Relays around NAT):** When ICE negotiation produces only `relay` candidates, both peers connect to the TURN server and the server forwards packets between them. The data is still DTLS-encrypted end-to-end before it reaches the TURN server.
 
