@@ -1,0 +1,249 @@
+---
+title: "Floe Desktop Settings"
+description: "Every Floe Desktop setting: where received files are saved, Hide my IP, global stats, the File Explorer entry, and pointing the app at your own server."
+---
+
+Open Settings with the gear in the title bar, or press `Ctrl` `,`. Press `Esc` to go back.
+Changes save as you make them.
+
+<Frame caption="Settings in the build from GitHub. The Microsoft Store build shows the same screen without the Windows section.">
+  <img src="/images/desktop/settings.png" alt="Floe Desktop settings showing Transfers, Privacy, Windows, and Advanced sections" />
+</Frame>
+
+## Transfers
+
+### Save received files to
+
+Where everything you receive is written. Leave it blank and Floe uses your **Downloads** folder.
+It never asks per transfer.
+
+An arriving file never replaces one you already have. See
+[Nothing is ever overwritten](/desktop/receiving#nothing-is-ever-overwritten).
+
+## Privacy
+
+### Hide my IP address
+
+Off by default.
+
+A normal Floe transfer connects the two devices directly, which is why it is fast and
+unmetered. Connecting directly means each side learns the other's IP address, in the same way
+a video call does.
+
+Turn this on and Floe stops trying for a direct path. Everything goes through the TURN relay
+instead, so the other person only ever sees the relay's address. Two consequences follow, and
+both are unavoidable rather than bugs:
+
+- **Transfers are slower**, because every byte takes a detour through the relay.
+- **Transfers are capped at 2 GB per session**, because relay bandwidth costs real money. A
+  larger transfer is refused before any data moves, not partway through. See
+  [The 2 GB Relay Limit](/how-it-works/2gb-limit).
+
+The setting applies to your side only, and the person on the other end does not need it on.
+Their app shows the connection as **Relay**, which is exactly what it shows whenever a direct
+path is impossible, so it does not single you out.
+
+<Note>
+  This is not the web app's **Network relay fallback** toggle, despite the similar subject.
+  That one lets you turn the relay **off**. This one makes the relay the **only** path. The
+  desktop app has no direct-only mode.
+</Note>
+
+<Warning>
+  **Hide my IP needs a relay to exist.** On Floe's own server there is always one. If you point
+  the app at [your own server](#server) that has no TURN relay configured, a relay-only
+  connection has nowhere to go, and the transfer fails with a generic connection error rather
+  than a message explaining why. If transfers stop working right after you switch servers, turn
+  Hide my IP off and try again. To keep using it, add a relay to your instance. See
+  [TURN Relay](/self-hosting/turn-relay).
+</Warning>
+
+### Contribute to global stats
+
+On by default.
+
+Floe's homepage shows a public, all-time total of bytes transferred by everyone. When a
+transfer finishes, the **receiving** side reports the byte count and nothing else. No file
+names, no contents, no record of who sent what, and no link to you.
+
+The sender never reports, so this setting only matters for transfers you receive. Turn it off
+and no request is made at all.
+
+The same opt-out exists on every surface: a checkbox on the receiver view in the browser, and
+`--no-report` or `FLOE_NO_STATS=1` for the CLI. See
+[Security and Privacy](/security-privacy#aggregate-statistics).
+
+<Note>
+  The report follows whichever server the app is set to. Point Floe at your own server and your
+  byte counts go to your server's counter, not to floe.one.
+</Note>
+
+## Windows
+
+This section is only shown in the build from GitHub. The Microsoft Store build hides it,
+because a packaged app cannot register the entry in a way File Explorer would read. See
+[Installation](/desktop/installation#choose-a-channel).
+
+### Show in right-click menu
+
+On by default. Floe registers the entry the first time it runs, and remembers if you switch it
+off, so it does not come back on its own.
+
+It adds **Send with Floe** to the File Explorer right-click menu. On Windows 11 it sits under
+**Show more options**.
+
+The entry is written to your own user's part of the registry. It needs no administrator
+approval, changes nothing for anyone else using the machine, and turning it off (or
+uninstalling Floe) removes it again.
+
+Two details worth knowing:
+
+- The entry applies to **files**, not folders. To send a folder, use **Folder** in the app.
+- It stores the path to the Floe that registered it. If you move the app, Floe repairs the
+  entry the next time it starts. Uninstalling removes the entry outright, so after a reinstall
+  check the switch is still on.
+
+If the switch flips back by itself, the registry write was refused, which usually means a
+managed or locked-down machine.
+
+## Advanced
+
+<Frame caption="Advanced, expanded">
+  <img src="/images/desktop/settings-server.png" alt="The expanded Server section showing the server address field, a Test button, and the share link address field" />
+</Frame>
+
+### Server
+
+Floe uses `api.floe.one` unless you tell it otherwise. That server introduces the two devices
+and hands out relay credentials. It never receives your files.
+
+To use your own instance, put its address in **Server address**. Leave the field blank to go
+back to Floe's server, or use the **Use default server** button that appears once a custom
+address is set.
+
+<Warning>
+  **Both people must be on the same server.** Servers do not talk to each other. Once you point
+  Floe at your own instance, you can no longer transfer with someone on floe.one, and they
+  cannot reach you. That is the point of self-hosting, but it does surprise people.
+
+  Being on the same server is not enough on its own to reach you: whoever wants to receive still
+  needs the room code or link, which only exists while you are sharing.
+</Warning>
+
+Click **Test** to check an address before relying on it. The check runs three stages, because
+each one catches a failure the others cannot:
+
+| Stage | What it proves |
+|---|---|
+| `/health` | Something is there, and it is a Floe signaling server. |
+| `/ws` | The realtime connection gets through, which is what a transfer actually uses. |
+| `/api/` | Room codes and relay credentials get through. |
+
+The third stage matters more than it looks. A reverse proxy that forwards the first two but
+drops `/api/` produces no visible error at all: relay credentials silently fall back to public
+STUN, and the room code quietly fails to register, so you get a share link with no code and no
+explanation.
+
+What Test tells you:
+
+| Result | Meaning |
+|---|---|
+| Connected. | All three stages passed. |
+| Enter a server address. | The field is empty. |
+| That does not look like an address. Include https:// and the host name. | Missing scheme or host. |
+| The address must start with https:// or http://. | Some other scheme, such as `ftp://`. |
+| That host could not be found. Check the address for typos. | DNS did not resolve. |
+| Timed out reaching that address. | Nothing answered in time. |
+| Could not connect. Check that the server is running and reachable from this machine. | The address resolved but the connection was refused or dropped. |
+| The server's security certificate could not be verified. | A TLS problem, often a self-signed certificate. |
+| The address answered with HTTP ... This may be the web app rather than the signaling server. | Something answered, but not with a health check. Usually the website rather than the API. |
+| Something answered at that address, but it is not a Floe signaling server. | Something else is on that address. |
+| The server answered, but the realtime connection was refused. If it is behind a reverse proxy, check that /ws is being forwarded. | Stage two failed. |
+| The server is running, but its API answered with HTTP ... If it is behind a reverse proxy, check that /api/ is being forwarded. | Stage three failed. |
+| The server is running, but it did not return usable connection details. | Stage three answered, but with no ICE servers in the list. |
+
+See [Run Floe Behind One Domain](/self-hosting/reverse-proxy) for a proxy configuration that
+forwards all three.
+
+### Share link address
+
+Leave this blank unless your web app is on a different address than your signaling server.
+
+The recommended way to self-host is one address serving both, in which case Floe works out the
+share link from the server address and this field stays empty. Only a split setup, where the
+API is on `api.example.com` and the web app on `app.example.com`, needs it. Without it the
+share link would point at the API, which serves no web app, and the link would be dead.
+
+This mirrors the CLI's `--web` flag. See
+[Use the Floe CLI with a Self-Hosted Server](/cli/self-hosted-server).
+
+## About
+
+### App version
+
+The release you are running, for example `desktop-v0.2.1`. A build you compiled yourself reads
+`dev`.
+
+### Transfer protocol
+
+The version of the wire format the app speaks.
+
+You do not need to match versions with the person on the other end. Compatibility is a range
+check, not an exact match, so different releases transfer normally. If a future release ever
+does change the format in a way the two sides cannot bridge, they detect it **before any file
+data moves** and say which side should update, rather than failing halfway or writing a corrupt
+file.
+
+### Server in use
+
+Which signaling server the app is using, always visible even with Advanced collapsed, so a
+custom server can never be hiding behind a closed section. **Share links** appears too if you
+set a separate share link address.
+
+**Copy** puts the version, the protocol version, and the server on the clipboard. Those are the
+details to include in a bug report.
+
+## Reset
+
+**Reset** at the top of Settings restores the save folder, both privacy switches, and both
+server addresses to the way Floe shipped. It asks first, and tells you what it is about to
+forget.
+
+It deliberately leaves alone:
+
+- **Your transfer history**, and the files you have already received.
+- **The File Explorer right-click entry**, because that lives in Windows rather than in Floe.
+  Reset would have to either leave it dangling or silently rewrite the registry, and neither is
+  something a Reset button should do. Turn it off in [Windows](#show-in-right-click-menu)
+  instead.
+
+## Where settings are stored
+
+Settings live in a plain JSON file at `%APPDATA%\floe\desktop.json`:
+
+```json
+{
+  "server": "",
+  "web": "",
+  "hideIP": false,
+  "reportStats": true,
+  "migrated": true
+}
+```
+
+Empty address fields mean "use Floe's defaults", so a fresh install and a cleared field behave
+identically. The file is written atomically, so an interrupted write cannot corrupt it.
+
+<Warning>
+  Edit it only while Floe is closed. The app rewrites the whole record whenever any setting
+  changes, so an edit made while it is running is overwritten. Leave `migrated` set to `true`:
+  without it Floe treats the two privacy switches as never having been set and re-imports them
+  from its older storage, discarding whatever you wrote.
+</Warning>
+
+Both the Microsoft Store build and the GitHub build use this same file, and the `floe` CLI keeps
+its own files in that same `floe` folder, so the two coexist. The file survives an uninstall on
+purpose, so reinstalling picks up where you left off.
+
+Your save folder and transfer history are not in this file. They live in the app's local data,
+which is also kept across an uninstall.

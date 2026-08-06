@@ -79,6 +79,16 @@
         ]
       },
       {
+        "group": "Desktop App",
+        "pages": [
+          "desktop/installation",
+          "desktop/sending",
+          "desktop/receiving",
+          "desktop/settings",
+          "desktop/keyboard-shortcuts"
+        ]
+      },
+      {
         "group": "CLI",
         "pages": [
           "cli/installation",
