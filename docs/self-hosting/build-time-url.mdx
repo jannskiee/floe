@@ -17,6 +17,16 @@ The first match wins.
 | 3 | `SOCKET_URL` on the running client container, served from `GET /api/config` | The normal path for a self-hosted instance. |
 | 4 | The page's own origin | When `SOCKET_URL` is empty, which is what you want [behind one domain](/self-hosting/reverse-proxy). |
 
+<Warning>
+  `GET /api/config` is served by the **client**, not the signaling server. If
+  both sit behind one reverse proxy, do not route all of `/api/` to the server,
+  or step 3 always returns 404 and any `SOCKET_URL` you set is silently
+  discarded in favor of step 4. With an empty `SOCKET_URL` step 4 is the answer
+  you wanted anyway, so the mistake stays invisible until the day you set one.
+  See [Run Floe Behind One Domain](/self-hosting/reverse-proxy) for the
+  exact-path rule that keeps `/api/config` on the client.
+</Warning>
+
 ## Changing the address
 
 Set it in `.env` and recreate the container. No rebuild:

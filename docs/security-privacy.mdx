@@ -9,18 +9,18 @@ Your files travel directly between devices, encrypted end-to-end. Floe's servers
 
 ## What the signaling server does
 
-The signaling server at `api.floe.one` handles one task: helping two devices find each other so they can connect directly.
+The signaling server at `api.floe.one` exists to help two devices find each other so they can connect directly. It never touches the file itself.
 
 It:
 - Assigns each peer a role (sender or receiver) within a room.
 - Relays the WebRTC offer, answer, and ICE candidates that the two devices exchange to establish a connection.
-- Issues short-lived TURN credentials when a TURN server is configured.
+- Issues TURN credentials, valid for 24 hours, when a TURN server is configured. They are not tied to your identity or to an account: on floe.one a single credential set is minted from Cloudflare and served to every client until the cached copy is refreshed.
 - Registers short codes (e.g. `olive-tiger-castle`) that map to room IDs with a 10-minute TTL.
 - Keeps a single anonymous running total of bytes transferred, for the public counter on the homepage (see [Aggregate statistics](#aggregate-statistics) below).
 
 It never:
 - Receives, stores, or inspects file data.
-- Persists room or peer information after the session ends.
+- Persists room or peer information beyond the session, apart from a short code's mapping to its room ID, which stops working 10 minutes after the code is created.
 - Logs what you transfer, your file names, or to whom.
 
 Once the WebRTC data channel is established, the signaling server plays no further part.
@@ -33,7 +33,7 @@ What is recorded: a single cumulative integer (total bytes, the sum across every
 
 What is not recorded: file names, file contents, per-transfer records, who sent or received, or any link to your identity or IP address. The reported figure is just a size, added to one global running total.
 
-The counter is an honest best-effort metric protected by lightweight guardrails (a per-IP rate limit and a per-report size cap). It is not a tamper-proof audited figure, and reporting never blocks or slows a transfer. Self-hosted instances can leave this disabled, in which case nothing is recorded at all.
+The counter is an honest best-effort metric protected by lightweight guardrails (a per-IP rate limit and a per-report size cap). It is not a tamper-proof audited figure, and reporting never blocks or slows a transfer. On a self-hosted instance the counter is local to that server, and without an Upstash Redis database configured it is held in memory only and resets whenever the server restarts. There is no server-side switch that refuses reports, so opting out is a choice each receiver makes on its own device.
 
 **Opting out:** every receiver supports opting out.
 
@@ -43,15 +43,37 @@ The counter is an honest best-effort metric protected by lightweight guardrails 
 
 When opted out, no request is made to the server and the counter is not incremented. The report always goes to whichever signaling server the client is pointed at, so a self-hosted instance feeds its own counter rather than the one on floe.one.
 
+## Error monitoring and analytics
+
+These apply to the floe.one website only. The CLI and the desktop app contain no analytics, no error monitoring, and no telemetry. The only thing either one sends is the optional byte-count report described above, and you can turn that off.
+
+- **Sentry** records application errors and a 10% sample of browser performance traces. It is configured never to attach cookies, headers, or your IP address, and the room secret is stripped out of every error report and breadcrumb before it is sent.
+- **Session replay is not enabled, and will not be added.** A replay reports the page address, and on a receiver page that address contains the room link, which is the only thing protecting a transfer.
+- **Umami** records aggregate, cookieless page views and transfer outcomes (file count, total bytes, direct or relay, success or failure). It is configured to send neither the URL fragment nor the query string, so the room secret never reaches it. It does not track individuals across sessions or sites.
+
+Sentry and Umami are each enabled only when their key is supplied. The published container image sets neither, so a self-hosted instance ships with both off unless you add your own.
+
+See the full [Privacy Policy](https://floe.one/privacy) for the site-wide detail.
+
 ## The room secret stays in the URL fragment
 
-Share links use a URL fragment (`https://floe.one/#room=...`), not a query string. The fragment portion of a URL is handled entirely by the browser and is never sent to any server in HTTP requests. As a result, the room secret is not included in `Referer` headers when you click outbound links, is not visible to server access logs, and is not captured by pageview analytics or third-party trackers. The signaling server only sees the room ID after the browser explicitly joins the room over the WebSocket, and even then, file bytes never reach the server.
+Share links keep the room secret in the URL fragment, after the `#`, never in the query string. A link from the web app or the desktop app looks like `https://floe.one/?s=a1b2c3d4#room=...`, and one from the CLI looks like `https://floe.one/#room=...`. The `?s=` value is a random per-link marker that carries no information. It exists only so that each link is a distinct page, which stops a device that already has Floe open from reusing a stale tab instead of joining the new room.
+
+The fragment portion of a URL is handled entirely by the browser and is never sent to any server in HTTP requests. As a result, the room secret is not included in `Referer` headers when you click outbound links, is not visible to server access logs, and is not captured by pageview analytics or third-party trackers. The signaling server only sees the room ID after the peer explicitly joins the room over its signaling connection, and even then, file bytes never reach the server.
+
+## Browser hardening
+
+floe.one sends a Content-Security-Policy with `frame-ancestors 'none'`, repeated as `X-Frame-Options: DENY` for older browsers, so no other site can embed Floe in an iframe. That matters more here than on a typical site: a receiver page joins its room automatically on load and then answers the sender's offer with its own network candidates, so an invisible embedded copy pointed at an attacker's room could otherwise disclose a visitor's local and public IP addresses without a single click.
+
+The same header set blocks plugin content and `<base>` rewriting, restricts form submissions to floe.one, sends `X-Content-Type-Options: nosniff`, sets `Referrer-Policy: strict-origin-when-cross-origin`, denies camera, microphone, geolocation, payment, and USB access outright, and opts the site out of ad interest cohorts (`interest-cohort=()`). The signaling server sends the standard hardening headers too.
 
 ## What the TURN relay sees
 
 When a direct connection cannot be established (strict firewalls, carrier-grade NAT), Floe routes traffic through a TURN relay server. The relay server acts as a forwarding intermediary. On floe.one, the relay is Cloudflare's Realtime TURN network; self-hosted instances can run their own coturn relay instead.
 
-The relay sees: encrypted DTLS packets.
+Routing through the relay also changes who sees your IP address. On a direct connection, the two devices learn each other's IP addresses. That is how any peer-to-peer connection works: ICE exchanges candidate addresses through the signaling server so the two devices can find a path between them. If you would rather not reveal yours to the person you are transferring with, force the relay path instead, so they see the relay's address rather than yours. The desktop app has a ["Hide my IP address" setting](/desktop/settings#hide-my-ip-address) that does exactly this, trading some speed and the 2 GB session cap for keeping your address behind the relay. The browser and the CLI have no equivalent switch today.
+
+The relay sees: encrypted DTLS packets, plus the connection metadata that being the middle hop entails. It is an endpoint both peers connect to, so it observes both IP addresses and the timing and size of the traffic it forwards. Your infrastructure provider may log that metadata for security purposes.
 
 It does not see: the plaintext contents of those packets. File data is encrypted before it reaches the relay, and decrypted only on the recipient's device. The relay cannot read, store, or inspect your files.
 
