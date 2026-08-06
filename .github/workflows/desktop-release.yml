@@ -234,6 +234,16 @@ jobs:
             echo "- Verify a download with \`sha256sum -c SHA256SUMS.txt\` or"
             echo "  \`Get-FileHash\` against SHA256SUMS.txt."
             echo "- Found a bug? Report it: https://github.com/jannskiee/floe/issues"
+            echo
+            # This body is the same boilerplate on every tag, so it says nothing
+            # about what changed. The docs changelog is hand-written and is the
+            # only place that does; /download's "Release notes" link points there
+            # too. Do not try to generate an account of the release here.
+            echo "**What changed:** https://www.floe.one/docs/changelog"
+            echo
+            echo "Most people should install from the Microsoft Store instead, which is"
+            echo "signed by Microsoft and updates itself:"
+            echo "https://apps.microsoft.com/detail/9NBQ8ZQ1065L"
           } > "$notes_file"
           # --latest=false AND --prerelease are unconditional and permanent:
           # "latest" must keep resolving to CLI releases (back-compat CI,

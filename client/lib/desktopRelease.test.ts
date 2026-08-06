@@ -9,6 +9,7 @@ import {
     DESKTOP_ZIP_URL,
     DESKTOP_SHA_URL,
     DESKTOP_RELEASE_NOTES_URL,
+    DESKTOP_RELEASE_PAGE_URL,
     ALL_RELEASES_URL,
 } from './desktopRelease';
 
@@ -38,7 +39,15 @@ describe('desktopRelease', () => {
             `https://github.com/jannskiee/floe/releases/download/desktop-v${DESKTOP_VERSION}/floe-desktop-${DESKTOP_VERSION}-windows-amd64.zip`
         );
         expect(DESKTOP_SHA_URL).toContain('/SHA256SUMS.txt');
-        expect(DESKTOP_RELEASE_NOTES_URL).toContain(`/releases/tag/desktop-v${DESKTOP_VERSION}`);
+        expect(DESKTOP_RELEASE_PAGE_URL).toContain(`/releases/tag/desktop-v${DESKTOP_VERSION}`);
+    });
+
+    it('points "release notes" at the changelog, not the generated GitHub body', () => {
+        // desktop-release.yml writes the same boilerplate body on every tag, so
+        // the GitHub release page carries no account of what changed. The docs
+        // changelog is the only place that does.
+        expect(DESKTOP_RELEASE_NOTES_URL).toBe('https://www.floe.one/docs/changelog');
+        expect(DESKTOP_RELEASE_NOTES_URL).not.toContain('github.com');
     });
 
     it('never uses the releases/latest permalink, which resolves to the CLI', () => {
@@ -46,7 +55,7 @@ describe('desktopRelease', () => {
             DESKTOP_SETUP_URL,
             DESKTOP_ZIP_URL,
             DESKTOP_SHA_URL,
-            DESKTOP_RELEASE_NOTES_URL,
+            DESKTOP_RELEASE_PAGE_URL,
             ALL_RELEASES_URL,
         ]) {
             expect(url).not.toContain('/releases/latest');
