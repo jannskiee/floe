@@ -206,11 +206,11 @@ export const Navbar = () => {
                 </div>
                 <div className="h-4 w-px bg-white/10 mx-0.5 sm:mx-1" />
                 {/* Below sm the target and the mark are deliberately different sizes.
-                    The anchor is a transparent 44x44 hit area, and the white circle
-                    inside it is only 32px, which is the compact endpoint this header
-                    has always had. Sizing the whole control to the touch target made a
-                    filled circle that nearly spanned the pill's height and read as a
-                    different, much louder button.
+                    The anchor is a transparent 44x44 hit area, and the white shape
+                    inside it is the original 34x26 stadium, which is the compact
+                    endpoint this header has always had. Sizing the whole control to
+                    the touch target made a filled circle that nearly spanned the
+                    pill's height and read as a different, much louder button.
 
                     From sm up the chip drops its own fill and collapses to the mark's
                     own size, and the white moves to the anchor, which grows the label
@@ -225,11 +225,15 @@ export const Navbar = () => {
                     rel="noreferrer"
                     className="group inline-flex size-11 items-center justify-center rounded-full text-xs font-bold transition focus-visible:outline-2 focus-visible:outline-ice sm:size-auto sm:gap-1.5 sm:bg-white sm:px-4 sm:py-2 sm:text-sm sm:text-black sm:hover:bg-zinc-200"
                 >
-                    <span className="flex size-8 items-center justify-center rounded-full bg-white text-black transition group-hover:bg-zinc-200 sm:size-auto sm:bg-transparent sm:group-hover:bg-transparent">
-                        {/* 16px in the 32px circle, 14px beside the label. The glyph
-                            carries the control alone on a phone, so it wants the
-                            larger of the two. */}
-                        <svg viewBox="0 0 24 24" className="size-4 flex-shrink-0 sm:size-3.5" fill="currentColor" aria-hidden="true">
+                    <span className="flex items-center rounded-full bg-white px-2.5 py-1.5 text-black transition group-hover:bg-zinc-200 sm:bg-transparent sm:px-0 sm:py-0 sm:group-hover:bg-transparent">
+                        {/* px-2.5 py-1.5 around a 14px mark is the original endpoint
+                            geometry: 34x26, wider than it is tall, so rounded-full
+                            reads as a stadium rather than a circle. Squaring it off
+                            (size-8) changed the shape, not just the scale.
+                            sm:px-0/sm:py-0, not sm:p-0: Tailwind orders the padding
+                            shorthand ahead of the longhands, so the shorthand would
+                            have lost to px-2.5 at every width. */}
+                        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 flex-shrink-0" fill="currentColor" aria-hidden="true">
                             <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
                         </svg>
                     </span>
