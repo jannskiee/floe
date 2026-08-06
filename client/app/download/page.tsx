@@ -102,11 +102,12 @@ export default function Download() {
 
             <main className="w-full max-w-5xl">
                 {/* Hero: static server HTML; only the CTA row is a client island */}
-                {/* pt-28 flat: the fixed navbar ends at about 82px below sm (44px
-                    touch targets) and 74px above it, so the narrow viewport is the
-                    one that needs the larger clearance. pt-32 would put back the
-                    ~55px of dead space this was trimmed to remove. */}
-                <div className="flex flex-col items-center pt-28 text-center">
+                {/* The fixed navbar ends at 78px below sm (a 54px pill under 24px of
+                    nav padding, the pill being taller there for 44px touch targets)
+                    and at 74px above it. 6.5rem/7rem puts the first word 26px under
+                    each, which is the gap this hero has always had. A flat pt-28
+                    would have been 34px below sm: 8px of fold spent on nothing. */}
+                <div className="flex flex-col items-center pt-[6.5rem] text-center sm:pt-28">
                     {/* text-ice, not zinc-100: every other eyebrow on the site is either the
                         ice accent (SectionHeader, and the privacy/terms page hero) or quiet
                         zinc-500. At zinc-100 this one rendered the exact same value as the h1
