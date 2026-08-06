@@ -47,6 +47,7 @@ import {
 import QRCode from 'react-qr-code';
 import {BoltMark, Button, Eyebrow, Input, StatusDot, cn} from './components/ui';
 import {advancedSummary, hostOf} from './settings';
+import {resetWarning} from './reset';
 import TitleBar from './components/TitleBar';
 import FileIcon from './components/FileIcon';
 import {Tooltip} from './components/Tooltip';
@@ -1041,12 +1042,28 @@ function App() {
         return () => window.removeEventListener('keydown', onKey);
     }, [settingsOpen, confirmReset, confirmDefaults]);
 
-    // Ctrl/Cmd+R starts over (muscle memory for "reload"). preventDefault stops
-    // WebView2 from doing a real reload, which would orphan a running transfer.
+    // Ctrl/Cmd+R starts over (muscle memory for "reload").
+    //
+    // Skipped while a field has focus, like the o/Enter/h shortcuts below, but
+    // for a sharper reason than theirs: this one destroys. doReset calls
+    // setSendText(''), and a half-typed note lives in that state field and
+    // nowhere else, so Ctrl+R with the caret in the textarea used to erase it
+    // with no prompt and no undo. startOver's guard did not catch it either,
+    // because nothing was transferring yet.
+    //
+    // preventDefault is belt and braces, not the mechanism. Wails disables the
+    // webview's browser accelerator keys outright during setup
+    // (PutAreBrowserAcceleratorKeysEnabled(false), frontend.go:589, ungated and
+    // fatal on failure), and Ctrl+R is on that list, so this key has never been
+    // able to reload the app. An earlier comment here claimed otherwise. It is
+    // kept because it costs nothing and would still be right if Wails ever
+    // stopped doing that.
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if ((e.ctrlKey || e.metaKey) && (e.key === 'r' || e.key === 'R')) {
                 e.preventDefault();
+                const el = document.activeElement as HTMLElement | null;
+                if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
                 startOverRef.current();
             }
         };
@@ -1315,7 +1332,7 @@ function App() {
     // bytes are actively moving, so escaping a stuck (connecting/idle) state is
     // instant while a real transfer is protected from a fat-finger.
     function startOver() {
-        if (sendProg || recvProg) {
+        if (resetLoss) {
             setConfirmReset(true);
             return;
         }
@@ -1328,6 +1345,16 @@ function App() {
     startOverRef.current = startOver;
 
     const busy = sending || receiving;
+    // What Start over would destroy, phrased for its own dialog, so the decision
+    // to interrupt and the sentence explaining why can never drift apart. Empty
+    // means nothing worth a prompt and the reset runs on the first click or
+    // keypress, exactly as it did before.
+    const resetLoss = resetWarning({
+        transferring: !!(sendProg || recvProg),
+        busy,
+        justSent: sendDone,
+        text: sendText,
+    });
     // Amber marks anything relay-flavored: a known relayed route, or (before
     // the route is known / while idle) the Hide-my-IP preference forcing one.
     const relayTone = route ? route === 'relay' : hideIP;
@@ -2120,9 +2147,11 @@ function App() {
                 </div>
             )}
 
-            {/* start-over guard: only shown when a transfer is actively moving
-                bytes, so escaping a stuck state stays one click. Sits below the
-                titlebar so the window controls remain reachable. */}
+            {/* start-over guard: shown only when the reset would destroy moving
+                bytes or an unsent text note, so escaping a stuck state still
+                stays one click. See resetWarning in reset.ts for exactly which
+                states earn a prompt and which deliberately do not. Sits below
+                the titlebar so the window controls remain reachable. */}
             {confirmReset && (
                 <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/60 backdrop-blur-sm">
                     <div
@@ -2132,7 +2161,10 @@ function App() {
                         className="animate-floe-in mx-4 w-full max-w-sm rounded-xl border border-white/10 bg-zinc-900 p-5 shadow-2xl"
                     >
                         <h2 id="floe-startover-title" className="text-sm font-semibold text-white">Start over?</h2>
-                        <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">A transfer is in progress. Starting over will cancel it.</p>
+                        {/* resetWarning decided to open this dialog, so it also
+                            supplies the sentence. One source, so the guard and
+                            the copy cannot disagree about why you were stopped. */}
+                        <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">{resetLoss}</p>
                         <div className="mt-4 flex justify-end gap-2">
                             <Button variant="outline" onClick={() => setConfirmReset(false)}>Keep going</Button>
                             <Button onClick={doReset}>Start over</Button>
