@@ -205,30 +205,37 @@ export const Navbar = () => {
                     </a>
                 </div>
                 <div className="h-4 w-px bg-white/10 mx-0.5 sm:mx-1" />
-                {/* The one control whose shape changes at the breakpoint: a 44x44
-                    white circle while its label is sr-only, the labelled white pill
-                    once the label shows. The fill is the same white at both widths on
-                    purpose, so the endpoint reads as one control that grows a label
-                    rather than two different buttons. An earlier pass made this a
-                    translucent squircle below sm to leave Download as the only bright
-                    thing on a phone; that lost the endpoint treatment entirely, so the
-                    white is back and Download stays a text pill. */}
+                {/* Below sm the target and the mark are deliberately different sizes.
+                    The anchor is a transparent 44x44 hit area, and the white circle
+                    inside it is only 32px, which is the compact endpoint this header
+                    has always had. Sizing the whole control to the touch target made a
+                    filled circle that nearly spanned the pill's height and read as a
+                    different, much louder button.
+
+                    From sm up the chip drops its own fill and collapses to the mark's
+                    own size, and the white moves to the anchor, which grows the label
+                    beside it. One control that gains a label, not two buttons.
+                    (Deliberately not display:contents for that collapse: it is the
+                    tidier mechanism but Tailwind did not emit the sm: variant of it
+                    here, and a box that quietly stops existing is a poor thing to
+                    depend on when a transparent one behaves identically.) */}
                 <a
                     href="https://github.com/jannskiee/floe"
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex size-11 items-center justify-center gap-1.5 rounded-full bg-white text-xs font-bold text-black transition hover:bg-zinc-200 focus-visible:outline-2 focus-visible:outline-ice sm:size-auto sm:px-4 sm:py-2 sm:text-sm"
+                    className="group inline-flex size-11 items-center justify-center rounded-full text-xs font-bold transition focus-visible:outline-2 focus-visible:outline-ice sm:size-auto sm:gap-1.5 sm:bg-white sm:px-4 sm:py-2 sm:text-sm sm:text-black sm:hover:bg-zinc-200"
                 >
-                    {/* 20px below sm, 14px from sm up. The glyph carries the whole
-                        control on a phone, where there is no label beside it, and at
-                        14px in a 44px circle it read as a dot in a field of white.
-                        From sm up it sits next to the word, where 14px is right. */}
-                    <svg viewBox="0 0 24 24" className="size-5 flex-shrink-0 sm:size-3.5" fill="currentColor" aria-hidden="true">
-                        <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
-                    </svg>
-                    {/* sr-only below sm keeps the accessible name when only the icon
+                    <span className="flex size-8 items-center justify-center rounded-full bg-white text-black transition group-hover:bg-zinc-200 sm:size-auto sm:bg-transparent sm:group-hover:bg-transparent">
+                        {/* 16px in the 32px circle, 14px beside the label. The glyph
+                            carries the control alone on a phone, so it wants the
+                            larger of the two. */}
+                        <svg viewBox="0 0 24 24" className="size-4 flex-shrink-0 sm:size-3.5" fill="currentColor" aria-hidden="true">
+                            <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+                        </svg>
+                    </span>
+                    {/* sr-only below sm keeps the accessible name when only the mark
                         shows. It is position:absolute, so it is not a flex item and
-                        adds no gap: the square really is 44px, not 44 plus a gap. */}
+                        adds no gap: the hit area really is 44px, not 44 plus a gap. */}
                     <span className="sr-only sm:not-sr-only">GitHub</span>
                 </a>
             </div>
