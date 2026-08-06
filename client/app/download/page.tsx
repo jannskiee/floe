@@ -102,12 +102,9 @@ export default function Download() {
 
             <main className="w-full max-w-5xl">
                 {/* Hero: static server HTML; only the CTA row is a client island */}
-                {/* The fixed navbar ends at 78px below sm (a 54px pill under 24px of
-                    nav padding, the pill being taller there for 44px touch targets)
-                    and at 74px above it. 6.5rem/7rem puts the first word 26px under
-                    each, which is the gap this hero has always had. A flat pt-28
-                    would have been 34px below sm: 8px of fold spent on nothing. */}
-                <div className="flex flex-col items-center pt-[6.5rem] text-center sm:pt-28">
+                {/* pt-24/28, not 28/32: the fixed navbar ends around 74px, so the old
+                    values left ~55px of dead space before the first word. */}
+                <div className="flex flex-col items-center pt-24 text-center sm:pt-28">
                     {/* text-ice, not zinc-100: every other eyebrow on the site is either the
                         ice accent (SectionHeader, and the privacy/terms page hero) or quiet
                         zinc-500. At zinc-100 this one rendered the exact same value as the h1

@@ -18,13 +18,7 @@ export default function Home() {
 
             {/* Near-full-viewport hero: the next section's top hairline peeks at the
                 fold as the scroll cue, while its content stays below it */}
-            {/* Both values are the navbar's bottom edge plus 26px, which is the gap
-                this hero has always had. The pill is 54px tall below sm (44px touch
-                targets vs the old 26-32px) and 50px above it, and the nav's own
-                pt is 24px, so the edge sits at 78px then 74px. 6.5rem/7rem keeps the
-                gap constant instead of spending the difference on dead space: a flat
-                pt-28 cost a 320x568 phone 8px of fold for nothing. */}
-            <section className="relative flex min-h-[calc(100dvh-2rem)] w-full flex-col items-center justify-center pb-14 pt-[6.5rem] sm:pt-28">
+            <section className="relative flex min-h-[calc(100dvh-2rem)] w-full flex-col items-center justify-center pb-14 pt-24 sm:pt-28">
                 <div className="mx-auto max-w-3xl text-center mb-8 space-y-4">
                     <h1 className="text-5xl sm:text-7xl font-extrabold tracking-tighter text-white lg:text-9xl drop-shadow-2xl">
                         Floe
