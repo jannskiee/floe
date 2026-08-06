@@ -11,14 +11,17 @@ Floe transfers files directly between devices using WebRTC. Files are end-to-end
 - **End-to-end encrypted.** Every transfer is encrypted with DTLS. No one, including Floe's servers, can read your files.
 - **No accounts or storage.** No sign-up, no uploads, no data retained after the transfer completes.
 - **No size limit on direct transfers.** Relay connections are capped at 2 GB per session to keep the service free.
-- **Browser and CLI.** Use the web app at floe.one or the `floe` command-line tool. Both are fully compatible with each other.
+- **Browser, desktop, and CLI.** Use the web app at floe.one, Floe Desktop for Windows, or the `floe` command-line tool. All three speak the same protocol, so any two of them can transfer to each other.
 - **Open source and self-hostable.** Run your own instance on your own infrastructure with Docker Compose.
 
 ## Use Floe
 
-<CardGroup cols={2}>
+<CardGroup cols={3}>
   <Card title="Browser" icon="globe" href="https://floe.one">
     Open floe.one in any modern browser. No installation required.
+  </Card>
+  <Card title="Desktop" icon="desktop" href="/desktop/installation">
+    Floe Desktop for Windows, from the Microsoft Store. Beta.
   </Card>
   <Card title="CLI" icon="terminal" href="/cli/installation">
     Install the `floe` binary for headless, scriptable transfers.
