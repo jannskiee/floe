@@ -1,24 +1,27 @@
 ---
 title: "Introduction to Floe"
-description: "Floe is a secure, encrypted peer-to-peer file transfer tool that sends files directly between browsers over WebRTC with no accounts and no uploads."
+description: "Floe is a secure, encrypted peer-to-peer file transfer tool that sends files directly between devices over WebRTC, with no accounts and no uploads."
 ---
 
-Floe transfers files directly between devices using WebRTC. Files are end-to-end encrypted and never stored on any server. The signaling server only brokers the initial connection setup. Once both peers are connected, it steps aside.
+Floe transfers files directly between devices using WebRTC. Files are end-to-end encrypted and never stored on any server. The signaling server only brokers the initial connection setup. Once both peers are connected, it steps aside and no file data passes through it.
 
 ## What Floe does
 
 - **Direct, peer-to-peer transfers.** Files travel straight from your device to the recipient's device.
 - **End-to-end encrypted.** Every transfer is encrypted with DTLS. No one, including Floe's servers, can read your files.
-- **No accounts or storage.** No sign-up, no uploads, no data retained after the transfer completes.
-- **No size limit on direct transfers.** Relay connections are capped at 2 GB per session to keep the service free.
-- **Browser and CLI.** Use the web app at floe.one or the `floe` command-line tool. Both are fully compatible with each other.
+- **No accounts or storage.** No sign-up, no uploads, and no file names or contents ever sent to a server. After a transfer, floe.one adds an anonymous byte count to its public counter, which the receiver can switch off, and the site itself records cookieless aggregate analytics and error reports. The desktop app and the CLI carry no analytics at all. See [Security and Privacy](/security-privacy).
+- **No size limit on direct transfers.** Relay connections are capped at 2 GB per session to keep the service free. A browser receiver holds each incoming file in memory until that file is complete, so very large files are bounded by the receiving device's RAM. The desktop app and the CLI write straight to disk and have no such ceiling.
+- **Browser, desktop, and CLI.** Use the web app at floe.one, Floe Desktop for Windows, or the `floe` command-line tool. All three speak the same protocol, so any two of them can transfer to each other.
 - **Open source and self-hostable.** Run your own instance on your own infrastructure with Docker Compose.
 
 ## Use Floe
 
-<CardGroup cols={2}>
+<CardGroup cols={3}>
   <Card title="Browser" icon="globe" href="https://floe.one">
     Open floe.one in any modern browser. No installation required.
+  </Card>
+  <Card title="Desktop" icon="desktop" href="/desktop/installation">
+    Floe Desktop for Windows, from the Microsoft Store. Beta.
   </Card>
   <Card title="CLI" icon="terminal" href="/cli/installation">
     Install the `floe` binary for headless, scriptable transfers.

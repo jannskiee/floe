@@ -1,6 +1,6 @@
 ---
 title: "Floe Quick Start"
-description: "Send your first file with Floe in under a minute using the web app at floe.one, with peer-to-peer WebRTC transfer and no signup or install required."
+description: "Send your first file with Floe in under a minute from the browser, Floe Desktop, or the command line, using peer-to-peer WebRTC with no signup required."
 ---
 
 ## Browser
@@ -9,10 +9,10 @@ description: "Send your first file with Floe in under a minute using the web app
 
 1. Open [floe.one](https://floe.one) in your browser.
 2. Drop files onto the page or click to open the file picker. Multiple files are supported.
-3. (Optional) Toggle **Network Relay Fallback** on or off. It is on by default and recommended. When disabled, only direct connections are attempted; transfers may fail on mobile data or restricted networks.
-4. Click **Create Secure Link & Share**.
-5. Floe displays a shareable link and a QR code. Share either with your recipient.
-6. A connection indicator appears in the corner showing the connection state. Once the recipient opens the link, it turns green (Direct) or amber (Relay) and the transfer begins automatically.
+3. (Optional) Toggle **Network relay fallback** on or off. It is on by default and recommended. When disabled, only direct connections are attempted, and transfers may fail if either device is on mobile data or a restricted network.
+4. Click **Create secure link**. The button also shows the file count, for example "Create secure link (3 files)".
+5. Floe displays the shareable link with **Copy** and **Show QR** beside it. Send the link, or click **Show QR** to reveal a QR code the recipient can scan.
+6. A connection indicator sits in the top bar of the transfer card. Read its label rather than the dot alone: **Offline** (red) means your browser is not connected to Floe's signaling server, **Ready** (green) means that signaling connection is up, which happens on page load and does not by itself mean anyone has joined, then **Direct** (green) or **Relay** (amber) once Floe works out the route. A direct connection always starts transferring. A relayed one starts only if you left relay fallback on and the payload is 2 GB or smaller.
 
 ### Receiver
 
@@ -23,12 +23,14 @@ description: "Send your first file with Floe in under a minute using the web app
    - **Download All** triggers individual downloads for every file.
    - **Download ZIP** bundles everything into a single archive.
 
+   **Download All** and **Download ZIP** appear only when the transfer contained more than one file. A single file has just its own download button.
+
 <Tip>
-  On iOS, use Download ZIP for the most reliable experience.
+  On iOS, use **Download ZIP** when the transfer has more than one file. Individual file downloads can behave inconsistently on Safari and iOS web views due to browser sandboxing.
 </Tip>
 
 <Note>
-  The receiver view has a **Contribute to global stats** checkbox (on by default) that adds only this transfer's byte count to Floe's public homepage counter. Uncheck it to opt out. File names and contents are never sent. See [Receiving Files](/web-app/receiving#contribute-to-global-stats).
+  The receiver view has a **Contribute to global stats** checkbox (on by default) that adds only this transfer's byte count to Floe's public homepage counter. It is shown while you wait, before the first file arrives, so uncheck it then. Your choice is saved in the browser and applies to later transfers. File names and contents are never sent. See [Receiving Files](/web-app/receiving#contribute-to-global-stats).
 </Note>
 
 <Note>
@@ -37,11 +39,27 @@ description: "Send your first file with Floe in under a minute using the web app
 
 ---
 
+## Desktop (Windows)
+
+<Steps>
+  <Step title="Install">
+    Get Floe Desktop from the [Microsoft Store](https://apps.microsoft.com/detail/9NBQ8ZQ1065L), or download the installer or the portable zip from [floe.one/download](https://floe.one/download). The app is in beta and Windows only today. The GitHub builds are not code-signed, so SmartScreen warns on first run. See [Install Floe Desktop](/desktop/installation).
+  </Step>
+  <Step title="Send">
+    Stay on the **Send** tab. Drop files onto the window, click **Files** or **Folder** to browse, or press `Ctrl` `V` to paste files copied in File Explorer or an image from the clipboard. Click **Send**. Floe shows a **Room code** and a **Share link**, each with a copy button, plus a **Show QR** toggle. Hand over whichever suits the recipient. See [Sending Files](/desktop/sending).
+  </Step>
+  <Step title="Receive">
+    Switch to the **Receive** tab, paste the code or the link into **Code or link**, optionally pick a **Save to** folder with **Browse** (Downloads by default), then click **Receive**. Files are written straight to disk as they arrive, so there is no size ceiling on a direct connection. See [Receiving Files](/desktop/receiving).
+  </Step>
+</Steps>
+
+---
+
 ## CLI
 
 <Steps>
   <Step title="Install">
-    Download the binary for your platform from [GitHub Releases](https://github.com/jannskiee/floe/releases). See [Installation](/cli/installation) for platform-specific steps.
+    Install with a package manager: `brew install --cask jannskiee/tap/floe` on macOS, `winget install jannskiee.floe` on Windows, or `curl -fsSL https://floe.one/install.sh | sh` on macOS and Linux. See [Installation](/cli/installation) for every option, including scoop, `go install`, and direct binary downloads.
   </Step>
   <Step title="Send">
     ```bash
@@ -60,7 +78,7 @@ description: "Send your first file with Floe in under a minute using the web app
       Waiting for peer...
     ```
 
-    Share the **code** (CLI recipients) or the **link** (browser recipients). The short code is valid for 10 minutes.
+    Share the **link** with anyone. Share the **code** with CLI or desktop recipients, who can paste either form. The short code is valid for 10 minutes.
   </Step>
   <Step title="Receive">
     The recipient runs:
@@ -97,19 +115,24 @@ description: "Send your first file with Floe in under a minute using the web app
 
 ## Cross-platform transfers
 
-The browser and CLI clients are fully interoperable. Any combination of sender and receiver works.
+The browser, desktop, and CLI clients are fully interoperable. Any combination of sender and receiver works.
 
 | Sender | Receiver | How the receiver joins |
 |--------|----------|------------------------|
 | Browser | Browser | Opens the shared link or scans the QR code |
+| Browser | Desktop | Pastes the link into the Receive tab |
 | Browser | CLI | `floe receive <link>` (paste the full URL) |
+| Desktop | Browser | Opens the shared link or scans the QR code |
+| Desktop | Desktop | Pastes the code or the link into the Receive tab |
+| Desktop | CLI | `floe receive <code>` or `floe receive <link>` |
 | CLI | Browser | Opens the shared link or scans the QR code |
+| CLI | Desktop | Pastes the code or the link into the Receive tab |
 | CLI | CLI | `floe receive <code>` or `floe receive <link>` |
 
-**How it works:** The browser connects via Socket.IO and the CLI connects via WebSocket, but both share the same room on the signaling server. Signals (WebRTC offer, answer, ICE candidates) are routed between them automatically. Neither side needs to know which client the other is using.
+**How it works:** The browser connects via Socket.IO, while the CLI and the desktop app connect via WebSocket, but all of them share the same room on the signaling server. Signals (WebRTC offer, answer, ICE candidates) are routed between them automatically. Neither side needs to know which client the other is using.
 
-**Key difference:** The browser can only join a transfer by opening the link directly. There is no short-code entry field in the web UI. The CLI accepts either the short code or the full link.
+**Key difference:** The browser can only join a transfer by opening the link directly. There is no short-code entry field in the web UI, and a browser sender never mints a short code, only a link. The CLI and the desktop app both accept either the short code or the full link.
 
 <Note>
-  Folder transfers are a CLI feature. When you `floe send ./folder`, all files are transferred recursively and the directory structure is preserved on the receiver's end. A browser receiver gets the same files but sees them as a flat list.
+  Folder transfers work in the CLI and the desktop app. Run `floe send ./folder`, or click **Folder** in the desktop send area. All files are transferred recursively, and the directory structure is preserved when the receiver is a CLI or desktop client. A browser receiver gets the same files but sees them as a flat list.
 </Note>

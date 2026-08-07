@@ -10,8 +10,9 @@ const columns: {
     {
         label: 'Product',
         links: [
+            { name: 'Download', href: '/download' },
             { name: 'How it works', href: '/how-it-works' },
-            { name: 'FAQ', href: '#faq' },
+            { name: 'FAQ', href: '/#faq' },
             { name: 'Docs', href: 'https://www.floe.one/docs', external: true },
             { name: 'Changelog', href: 'https://www.floe.one/docs/changelog', external: true },
         ],
@@ -37,18 +38,20 @@ const columns: {
 export function Footer() {
     return (
         <footer className="mt-24 w-full max-w-5xl border-t border-white/[0.06] pt-12 pb-10">
-            <div className="grid gap-12 md:grid-cols-12">
-                <div className="md:col-span-5">
+            {/* lg, not md: at 768 the 12-col split + gap-12 leaves ~112px link
+                columns, NARROWER than the same cells in the sm 3-col layout. */}
+            <div className="grid gap-12 lg:grid-cols-12">
+                <div className="lg:col-span-5">
                     <p className="text-lg font-extrabold tracking-tighter text-white">Floe</p>
                     <p className="mt-3 max-w-xs text-sm leading-relaxed text-zinc-500">
-                        Open-source, peer-to-peer file transfer. MIT licensed.
+                        Open-source, peer-to-peer file transfer. <span className="whitespace-nowrap">MIT licensed.</span>
                     </p>
                     <div className="mt-6 flex items-center gap-6">
                         <a
                             href="https://github.com/jannskiee/floe"
                             target="_blank"
                             rel="noreferrer"
-                            className="flex items-center gap-2 text-sm text-zinc-400 hover:text-white transition-colors"
+                            className="flex items-center gap-2 text-sm text-zinc-400 hover:text-white transition-colors focus-visible:outline-2 focus-visible:outline-ice"
                         >
                             <Image
                                 src="/github-mark-white.png"
@@ -63,14 +66,14 @@ export function Footer() {
                             href="https://ko-fi.com/jannskiee"
                             target="_blank"
                             rel="noreferrer"
-                            className="flex items-center gap-2 text-sm text-zinc-400 hover:text-[#FF5E5B] transition-colors"
+                            className="flex items-center gap-2 text-sm text-zinc-400 hover:text-[#FF5E5B] transition-colors focus-visible:outline-2 focus-visible:outline-ice"
                         >
                             <Heart className="h-4 w-4" />
                             <span className="font-medium">Support on Ko-fi</span>
                         </a>
                     </div>
                 </div>
-                <div className="grid grid-cols-2 gap-8 sm:grid-cols-3 md:col-span-7">
+                <div className="grid grid-cols-2 gap-8 sm:grid-cols-3 lg:col-span-7">
                     {columns.map((column) => (
                         <div key={column.label}>
                             <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-zinc-600">
@@ -84,21 +87,14 @@ export function Footer() {
                                                 href={link.href}
                                                 target="_blank"
                                                 rel="noreferrer"
-                                                className="text-sm text-zinc-400 transition-colors hover:text-zinc-100"
-                                            >
-                                                {link.name}
-                                            </a>
-                                        ) : link.href.startsWith('#') ? (
-                                            <a
-                                                href={link.href}
-                                                className="text-sm text-zinc-400 transition-colors hover:text-zinc-100"
+                                                className="text-sm text-zinc-400 transition-colors hover:text-zinc-100 focus-visible:outline-2 focus-visible:outline-ice"
                                             >
                                                 {link.name}
                                             </a>
                                         ) : (
                                             <Link
                                                 href={link.href}
-                                                className="text-sm text-zinc-400 transition-colors hover:text-zinc-100"
+                                                className="text-sm text-zinc-400 transition-colors hover:text-zinc-100 focus-visible:outline-2 focus-visible:outline-ice"
                                             >
                                                 {link.name}
                                             </Link>
@@ -113,10 +109,10 @@ export function Footer() {
             <div className="mt-12 flex flex-col items-center justify-between gap-3 border-t border-white/[0.06] pt-6 text-xs text-zinc-600 sm:flex-row">
                 <p>&copy; {new Date().getFullYear()} Floe. Built on WebRTC.</p>
                 <div className="flex gap-5">
-                    <Link href="/privacy" className="transition-colors hover:text-zinc-300">
+                    <Link href="/privacy" className="transition-colors hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-ice">
                         Privacy
                     </Link>
-                    <Link href="/terms" className="transition-colors hover:text-zinc-300">
+                    <Link href="/terms" className="transition-colors hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-ice">
                         Terms
                     </Link>
                 </div>

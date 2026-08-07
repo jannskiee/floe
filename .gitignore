@@ -30,15 +30,27 @@ Thumbs.db
 coturn/turnserver.conf
 
 # --- Build Outputs ---
-dist/
-build/
+# Anchored to the repo root on purpose: the unanchored forms reached into
+# desktop/build/, hiding the Wails installer sources that must be tracked
+# (desktop/.gitignore handles that package's own outputs).
+/dist/
+/build/
 
 # --- Logs ---
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# --- Go workspace ---
+# go.work is tracked (local multi-module dev); its lock-ish sum file is not.
+# Release builds use GOWORK=off plus the replace in desktop/go.mod, and no CI
+# command consults go.work.sum.
+go.work.sum
+
 # --- CLI build artifacts ---
+# a bare `go build ./cli/cmd/floe` from the repo root drops the binary here
+/floe
+/floe.exe
 cli/floe
 cli/floe.exe
 cli/floe-rpi
@@ -57,4 +69,11 @@ client/package-lock.json
 client/test-results/
 client/playwright-report/
 client/blob-report/
-client/.playwright/
+client/.playwright/
+
+# --- Throwaway measurement and screenshot scripts ---
+# One-off scripts written to measure a layout or shoot a screenshot, then kept
+# around for the next pass. They were untracked and unignored, which is one
+# `git add -A` away from landing in an unrelated commit.
+*.local.mjs
+.*-tmp.mjs

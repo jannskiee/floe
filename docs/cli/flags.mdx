@@ -1,6 +1,6 @@
 ---
 title: "Floe CLI Flags Reference"
-description: "Complete reference for every floe CLI flag, covering send, receive, self-hosted server URLs, output paths, timeouts, and verbose logging options."
+description: "Complete reference for every floe CLI flag, covering the global server, relay and interface options, the receive and update flags, and the environment variables."
 ---
 
 ## Global flags
@@ -11,8 +11,40 @@ Available on all commands (`send`, `receive`, `update`, `version`).
 |------|---------|-------------|
 | `--server <url>` | `https://api.floe.one` | Signaling server URL. Use `http://localhost:3001` for local testing or your self-hosted server URL. |
 | `--no-relay` | `false` | Disable the TURN relay. Only direct (STUN) connections are attempted. The transfer fails if a direct path cannot be established. Useful for ensuring files never pass through a relay. |
-| `--web <url>` | _(auto-detected)_ | Web app URL included in the browser link printed by `floe send`. Auto-detected from `--server`: the production server defaults to `https://floe.one`, and `localhost:3001` defaults to `http://localhost:3000`. |
+| `--web <url>` | _(auto-detected)_ | Web app URL included in the browser link printed by `floe send`. Auto-detected from `--server`: `https://api.floe.one` maps to `https://floe.one`, `http://localhost:3001` maps to `http://localhost:3000`, and any other server maps to itself, on the assumption that one origin serves both the API and the web app. Set `--web` only when your web app has its own hostname. |
 | `--iface <name>` | _(all interfaces)_ | Restrict WebRTC to network interfaces whose name contains this value (case-insensitive). Repeatable. Use when a VPN or virtual-machine adapter (Tailscale, VMware, WSL, Hyper-V) slows connection setup, for example `--iface Ethernet`. See [Troubleshooting](/troubleshooting). |
+
+The desktop app has equivalents for two of these. `--server` and `--web` are **Server address** and **Share link address**, under Advanced in **Settings**. `--no-relay` has no desktop equivalent: the **Hide my IP address** toggle does the opposite, forcing every transfer through the relay rather than refusing it. See [Desktop Settings](/desktop/settings).
+
+## Environment variables
+
+Floe reads four environment variables. If you run your own signaling server, set it once in your environment instead of passing `--server` on every command.
+
+| Variable | Equivalent flag | Description |
+|----------|-----------------|-------------|
+| `FLOE_SERVER` | `--server` | Signaling server URL, used by every command. |
+| `FLOE_WEB` | `--web` | Web app URL used for the browser link printed by `floe send`. |
+| `FLOE_NO_STATS` | `--no-report` | Set to `1` to never report byte counts. Applies to `floe receive`. See [Opting out of the global counter](#opting-out-of-the-global-counter). |
+| `FLOE_NO_UPDATE_CHECK` | _(no flag)_ | Set to `1` to suppress the "Update available" hint that `floe version` prints. It does not affect transfers or `floe update` itself. |
+
+A flag always beats its variable, so you can override the setting for a single command without unsetting anything:
+
+```bash
+export FLOE_SERVER=https://floe.example.com
+floe send photo.jpg                                # uses floe.example.com
+floe send photo.jpg --server https://api.floe.one  # the flag wins, just this once
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:FLOE_SERVER = "https://floe.example.com"
+floe send photo.jpg
+```
+
+Trailing slashes are trimmed, so `https://floe.example.com/` and `https://floe.example.com` behave the same.
+
+Set `FLOE_WEB` only when your web app runs on a different host than your signaling server. Leave it unset and share links point at the same host as your server, which is what you want when one domain serves both. The only exceptions are Floe's own deployment and the local dev pair, which are special-cased to their web hosts as described under `--web` above.
 
 ## `floe receive` flags
 
@@ -24,9 +56,19 @@ Specific to the `receive` command.
 | `--yes` | `-y` | `false` | Accept incoming files without the confirmation prompt. |
 | `--no-report` | | `false` | Do not report the transferred byte count to Floe's public global counter. See [Opting out of the global counter](#opting-out-of-the-global-counter) below. |
 
+## `floe update` flags
+
+Specific to the `update` command.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--check` | `false` | Report whether a newer release exists and exit without installing it. On an up-to-date binary the flag changes nothing: `floe update` prints `Already up to date (v1.9.1)` and stops either way. On a package-managed install the update guard runs first, so `--check` stops with the upgrade command for your package manager instead of a version report. See [Update the CLI](/cli/update). |
+
 ## Opting out of the global counter
 
-After a successful transfer, the **receiver** sends only the total byte count to Floe's signaling server to power the public "transferred globally" counter on the homepage. No file names, contents, or identity are included, and reporting is always fire-and-forget (it never blocks or slows a transfer). The **sender** never reports.
+After a successful transfer, the **receiver** sends only the total byte count to the signaling server it is connected to (`api.floe.one` by default, or your own server when you set `--server` or `FLOE_SERVER`) to power the public "transferred globally" counter. No file names, contents, or identity are included. The **sender** never reports.
+
+Errors are ignored, so a failed report never changes the outcome of a transfer. The request goes out after every file is written and the summary has printed, and it carries a 5 second timeout, so an unreachable server can delay `floe receive` from exiting by a few seconds but never affects the files.
 
 To opt out for a single transfer, pass `--no-report`:
 
@@ -42,6 +84,8 @@ floe receive olive-tiger-castle
 ```
 
 When opted out, no request is sent to the server and the global counter is not incremented for that transfer. The transfer itself is unaffected.
+
+In the desktop app the same choice is the **Contribute to global stats** toggle in **Settings**, and turning it off is the equivalent of `--no-report`.
 
 ## Examples
 

@@ -23,7 +23,7 @@ description: "Spin up a local Floe instance with Docker Compose in a few minutes
     Docker pulls the [prebuilt images](/self-hosting/images) and starts the client and server containers. Nothing is compiled locally.
   </Step>
   <Step title="Open the app">
-    Open [http://localhost:3000](http://localhost:3000) in your browser. Open the same URL in a second tab (or on another device on the same network), start a transfer in one tab, and join with the room code in the other.
+    Open [http://localhost:3000](http://localhost:3000) in your browser. Pick a file and press **Create secure link**, then paste that link into a second tab to join as the receiver. **Show QR** renders the same link as a scannable code, which is how you receive on a phone once the app is reachable from one (see the note below).
   </Step>
 </Steps>
 
@@ -52,6 +52,8 @@ To support peers behind strict firewalls, symmetric NAT, or CGNAT, add a [TURN r
   ```bash
   docker compose up -d
   ```
+
+  Then open the app at `http://192.168.1.x:3000` on the sending machine too, not `localhost:3000`. The share link and its QR code carry whichever address the page was loaded from, so a sender sitting on `localhost` hands the phone an address that only resolves back to the phone.
 
   No rebuild: the client reads its server address at runtime. `CLIENT_URL` matters as much as the socket URL, because it is the origin the server's CORS check allows, and without it the browser is blocked even though the page loads.
 </Note>

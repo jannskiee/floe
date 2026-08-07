@@ -57,9 +57,20 @@ TURN requires a **public IP address**, a **domain name**, and **TLS certificates
     Edit `coturn/turnserver.conf` and set:
     - `static-auth-secret` to a strong random value (e.g. `openssl rand -hex 32`)
     - `realm` to your TURN hostname (e.g. `turn.your-domain.com`)
-    - `cert` and `pkey` to the paths of your TLS certificate and key
+    - `cert` and `pkey` (both commented out) to the paths of your TLS certificate and key
+    - `external-ip` to the machine's public IP, if the interface itself holds a private address
 
-    See the volume mounts in `docker-compose.yml` for how to make certificates available inside the container.
+    `external-ip` is commented out in the example file, and uncommenting it is the normal case on AWS, GCP, Azure, and any VPS behind 1:1 NAT. Leave it commented out only when the public address is bound directly to the interface. Get it wrong and coturn advertises a relay candidate nobody can route to, so relayed transfers fail with no error message.
+
+    The certificate mount is shipped commented out too. Uncomment it in `docker-compose.yml` so the paths you just set in `turnserver.conf` exist inside the container:
+
+    ```yaml
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+      - ./coturn/certs:/etc/coturn/certs:ro
+    ```
+
+    If you started from the `curl` quickstart rather than a clone, that means editing your downloaded `docker-compose.yml`. Skip it and the signaling server still advertises a `turns:` URL, pointing at a port that cannot complete a TLS handshake.
   </Step>
   <Step title="Match the server environment">
     In `.env`:
@@ -118,3 +129,7 @@ With Cloudflare configured, the response instead contains `turn.cloudflare.com` 
 ## How credentials work
 
 The signaling server generates time-limited credentials using HMAC-SHA1. The username is `{expiry_unix_timestamp}:floeuser` and the password is `base64(HMAC-SHA1(TURN_SECRET, username))`. coturn validates these against the shared secret without needing a database of user accounts.
+
+<Note>
+  Relayed transfers stay capped at 2 GB per session even on a relay you run yourself. The cap is compiled into the browser client, the CLI, and the desktop app, not read from your server, so raising it means building all three from modified source. Direct connections are unaffected and have no size limit. See [The 2 GB Relay Limit](/how-it-works/2gb-limit).
+</Note>

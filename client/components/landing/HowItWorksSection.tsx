@@ -35,7 +35,10 @@ export function HowItWorksSection() {
                 headline="Your files never make a stop."
                 lede="Two devices open an encrypted WebRTC channel and stream bytes to each other. The signaling server brokers the handshake, then steps out of the way."
             />
-            <div className="mt-12 grid gap-10 sm:grid-cols-3 sm:gap-8">
+            {/* md, not sm: 640-767px would give ~155px text columns (a ~22ch measure)
+                while PrivacySection next door is still single-column; every landing
+                grid now splits at md or later. */}
+            <div className="mt-12 grid gap-10 md:grid-cols-3 md:gap-8">
                 {steps.map((step) => (
                     <div key={step.index} className="border-l border-white/10 pl-5">
                         <span className="font-mono text-xs text-zinc-600">{step.index}</span>

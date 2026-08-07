@@ -1,0 +1,140 @@
+---
+title: "Sending Files with Floe Desktop"
+description: "Send files, folders, or a typed note from Floe Desktop on Windows by dragging, pasting, or picking them, then sharing a room code, link, or QR code."
+---
+
+Open Floe and stay on the **Send** tab. Add what you want to send, click **Send**, then share
+the code or link with the person receiving.
+
+<Frame caption="The Send tab with one file staged">
+  <img src="/images/desktop/send-files.png" alt="Floe Desktop showing one file staged and a Send button" />
+</Frame>
+
+## Add files
+
+There are four ways to stage files, and you can mix them:
+
+| How | What happens |
+|---|---|
+| **Files** | Opens the Windows file picker. Select as many files as you like. |
+| **Folder** | Opens the folder picker. The whole folder is sent as a folder. |
+| Drag and drop | Drop files or folders anywhere on the window, not just on the drop zone. |
+| `Ctrl` `V` | Pastes files you copied in File Explorer, or an image from the clipboard. |
+
+Everything you add appears in a list under **Files**. Remove a single entry with the `X` on its
+row. `Ctrl` `R` starts over, which clears the selection along with everything else on the card,
+and only asks first if a transfer is already moving bytes.
+
+Adding the same path twice does nothing, so dragging a file you already staged is safe. One
+edge worth knowing: if you add a folder **and** a file that lives inside it, that file is sent
+twice, because the folder is walked separately.
+
+### Paste to send
+
+`Ctrl` `V` handles two different clipboard contents:
+
+- **Files copied in File Explorer** are staged by path, so nothing is duplicated on disk no
+  matter how large they are.
+- **An image**, such as a screenshot from `Win` `Shift` `S`, is written to a temporary file
+  named `pasted-image-<date>-<time>.png` and staged from there. The timestamp keeps repeated
+  pastes apart, and it is also the name the person receiving sees. Floe clears these temporary
+  files the next time it starts.
+
+Paste is ignored while you are typing in a text field, so pasting a room code into the Receive
+tab still works normally.
+
+### Folders
+
+Folders are sent as folders. Floe walks the folder, sends each file, and the person receiving
+gets the same structure inside their save folder. There is no zipping step on either side, and
+no size limit on a direct connection.
+
+## Send a text note
+
+Switch from **Files** to **Text** and type or paste into the box. Floe sends the text as a file
+called `message.txt`, so the person receiving does not need Floe Desktop: any Floe peer, in a
+browser or on the command line, receives it as an ordinary file.
+
+Press `Ctrl` `Enter` in the box to send without reaching for the button.
+
+## Share the code or link
+
+Click **Send**. Floe registers a room and shows three ways to hand it over.
+
+<Frame caption="The share panel, with the QR code shown">
+  <img src="/images/desktop/send-share.png" alt="Floe Desktop share panel showing a room code, a share link, and a QR code" />
+</Frame>
+
+| | Use it for |
+|---|---|
+| **Room code** | Someone on the `floe` CLI, or another Floe Desktop. Three words, valid for 10 minutes. |
+| **Share link** | Anyone with a browser. Opens the web app and joins the room. |
+| **QR code** | A phone. Click **Show QR**, then have them point their camera at it. |
+
+A phone receives in its browser. On iOS, tell them to use **Download ZIP** rather than saving
+files one at a time, which behaves inconsistently there. See
+[Receiving Files with the Floe Web App](/web-app/receiving).
+
+The room code expires 10 minutes after you click Send. The link keeps working for as long as
+Floe is still waiting, so for a longer wait, share the link.
+
+<Note>
+  A room takes exactly one receiver. Once someone joins, the code and link are spent, and a
+  second person opening the same link gets an error. Send again for a second recipient.
+
+  Floe handles one transfer at a time, so wait for the current one to finish before starting
+  the next. There is no queue.
+</Note>
+
+## While it sends
+
+The transfer starts by itself as soon as the other side joins. Nothing to confirm.
+
+The badge at the top right of the card tells you what is happening:
+
+| Badge | Meaning |
+|---|---|
+| **READY** | Idle, nothing in flight. |
+| **ACTIVE** | A transfer is under way: either waiting for the other side to join, or connected and still working out which route it took. |
+| **DIRECT** | Connected device to device. No server in the middle, and no size limit. |
+| **RELAY** | Connected through the encrypted TURN relay. The 2 GB cap applies. |
+
+Below it, a progress bar shows the current file, the percentage, the speed, and the estimated
+time remaining. **Cancel** stops the transfer at any point.
+
+You can minimise the window and the transfer keeps running, because the transfer happens in
+Floe's core rather than in the window. Windows is also asked not to sleep while a transfer is
+connected. Closing the window ends the transfer.
+
+When it finishes you get a Windows notification and the card reads **Sent 1 item**.
+
+## Send from File Explorer
+
+If you turned on [**Show in right-click menu**](/desktop/settings#show-in-right-click-menu),
+right-click any file in File Explorer and choose **Send with Floe**. On Windows 11 it sits
+under **Show more options**. Floe opens with that file already staged, or, if Floe is already
+running, brings the existing window forward and adds the file to it.
+
+This entry is only available in the build from GitHub. See
+[Installation](/desktop/installation#choose-a-channel).
+
+## Size limits
+
+Direct connections have no size limit. If the connection has to fall back to the encrypted
+relay, transfers are capped at **2 GB per session**. When Floe can confirm the route is
+relayed, it blocks an oversized transfer before any data moves, with the error
+"relay connections are capped at 2 GB".
+
+If the route cannot be determined, Floe lets the transfer start rather than block a legitimate
+one, so in that case a relayed transfer over 2 GB can still fail partway through.
+
+Turning on [**Hide my IP**](/desktop/settings#hide-my-ip-address) forces every transfer through
+the relay, so the 2 GB cap always applies while it is on. Floe says so in the error when that
+is what caused the block.
+
+See [The 2 GB Relay Limit](/how-it-works/2gb-limit).
+
+## Keyboard
+
+`Ctrl` `O` adds files, `Ctrl` `Enter` sends, `Ctrl` `R` starts over. The full list is in
+[Keyboard shortcuts](/desktop/keyboard-shortcuts).

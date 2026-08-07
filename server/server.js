@@ -23,7 +23,6 @@ const crypto = require('crypto');
 
 const app = express();
 app.use(helmet());
-app.use(express.json());
 
 // Trust N proxy hops so req.ip resolves to the real client IP.
 // Set TRUSTED_PROXY_COUNT=0 for direct exposure, 1 (default) behind one proxy (Render/Fly/Vercel).
@@ -59,6 +58,12 @@ app.use(
         credentials: true,
     })
 );
+
+// After cors on purpose. A malformed body makes this middleware throw, and the
+// error short-circuits straight to the error handler; if cors ran later, that
+// response would carry no Access-Control-Allow-Origin and the browser would
+// surface a readable 400 as an opaque CORS failure instead.
+app.use(express.json());
 
 app.get('/', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 app.get('/health', (_req, res) => res.json({ status: 'healthy', uptime: process.uptime() }));
@@ -117,6 +122,11 @@ function generateCoturnCredentials() {
     const turnDomain = process.env.TURN_DOMAIN;
     if (!turnSecret || !turnDomain) return null;
 
+    // 24h, matching CF_TURN_TTL below. Do not shorten: every sender fetches ICE
+    // credentials BEFORE its wait for a peer, that wait is intentionally
+    // unbounded (share a link, wait for hours), and no surface ever refreshes
+    // the list. A shorter TTL silently kills relayed transfers for any receiver
+    // who opens the link after the credentials expire.
     const ttl = 24 * 3600;
     const expiry = Math.floor(Date.now() / 1000) + ttl;
     const username = `${expiry}:floeuser`;
@@ -350,6 +360,41 @@ app.post('/api/stats/report', (req, res) => {
 
     res.json({ totalBytes: cachedTotal });
 });
+
+// ---------------------------------------------------------------------------
+// Error handling
+// ---------------------------------------------------------------------------
+
+/**
+ * Final error handler. Registered last so it catches anything the routes or the
+ * body parser throw.
+ *
+ * Express's built-in handler is not safe to rely on here. It serialises
+ * err.stack into the response body whenever app.get('env') is anything other
+ * than exactly 'production', and it never consults err.expose, so the leak is
+ * not limited to 5xx: a malformed JSON body is enough to return the absolute
+ * path of every frame on the server's filesystem. Getting NODE_ENV right is
+ * necessary but it is a single misconfigured environment variable away from
+ * regressing, and a blank NODE_ENV= reads the same as unset.
+ *
+ * So the response never depends on the environment: always JSON (every client
+ * in this repo calls resp.json()), always a generic message. The stack still
+ * goes to the process log, which is the only place it is useful.
+ */
+function errorHandler(err, _req, res, _next) {
+    const raw = err && err.status;
+    const status = Number.isInteger(raw) && raw >= 400 && raw < 600 ? raw : 500;
+
+    console.error(err && err.stack ? err.stack : err);
+
+    // Headers already flushed means a route failed mid-response; anything we
+    // write now would corrupt it.
+    if (res.headersSent) return;
+
+    res.status(status).json({ error: status < 500 ? 'Bad request' : 'Internal server error' });
+}
+
+app.use(errorHandler);
 
 // ---------------------------------------------------------------------------
 // Rate limiting (Socket.IO connections + WebSocket connections share this map)
@@ -668,6 +713,7 @@ if (require.main === module) {
 
 // Exported for unit tests — not part of the public API.
 module.exports = {
+    errorHandler,
     getClientIp,
     generateCode,
     checkRateLimit,

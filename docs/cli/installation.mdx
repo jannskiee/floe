@@ -5,6 +5,13 @@ description: "Install the floe CLI in one command on macOS, Windows, or Linux to
 
 The `floe` CLI is a single self-contained binary with no runtime dependencies.
 
+<Note>
+  Want a desktop app instead of a terminal tool? Floe Desktop for Windows runs on the same
+  transfer engine as the CLI, so the two interoperate. See
+  [Install Floe Desktop](/desktop/installation). Floe Desktop is Windows only; on macOS and
+  Linux, use this CLI or the [web app](/web-app/sending).
+</Note>
+
 ## Package managers
 
 The fastest way to install floe. Package manager installs also get updates via the
@@ -54,9 +61,10 @@ upgrades an existing install in place.
     curl -fsSL https://floe.one/install.sh | sh
     ```
 
-    To install a specific version:
+    To install a specific version, using any tag from the
+    [releases page](https://github.com/jannskiee/floe/releases):
     ```bash
-    curl -fsSL https://floe.one/install.sh | FLOE_VERSION=v1.2.0 sh
+    curl -fsSL https://floe.one/install.sh | FLOE_VERSION=vX.Y.Z sh
     ```
 
     The script detects your OS and architecture, downloads the correct archive, verifies the
@@ -68,9 +76,10 @@ upgrades an existing install in place.
     irm https://floe.one/install.ps1 | iex
     ```
 
-    To install a specific version:
+    To install a specific version, using any tag from the
+    [releases page](https://github.com/jannskiee/floe/releases):
     ```powershell
-    $env:FLOE_VERSION = "v1.2.0"; irm https://floe.one/install.ps1 | iex
+    $env:FLOE_VERSION = "vX.Y.Z"; irm https://floe.one/install.ps1 | iex
     ```
 
     The script downloads the correct `.zip` for your architecture, verifies the SHA-256 checksum,
@@ -87,6 +96,19 @@ If you have Go 1.25 or later installed:
 go install github.com/jannskiee/floe/cli/cmd/floe@latest
 ```
 
+Go writes the binary to `$(go env GOPATH)/bin` (or `$(go env GOBIN)`), which is not on your
+`PATH` on a default Go setup. Add that directory to your `PATH` before running `floe`. The
+package managers and the install script above handle this for you.
+
+<Warning>
+  `go install` does not give you a release build. `cli` is a nested Go module and the
+  repository carries no `cli/vX.Y.Z` tags, so `@latest` resolves to the current tip of `main`
+  as a pseudo-version rather than to the newest release. The version string is stamped in at
+  release time, so a binary built this way reports `floe dev`, and `floe update` refuses to run
+  with "Cannot update a dev build." Use a package manager or the install script if you want a
+  released build with working self-update.
+</Warning>
+
 ## Verify the install
 
 ```bash
@@ -99,6 +121,16 @@ Expected output:
 floe 1.x.x
 Docs: https://www.floe.one/docs
 ```
+
+If you pinned an older version, a third line appears once the update check completes:
+
+```
+Update available: v1.x.x  run `floe update` to upgrade
+```
+
+Set `FLOE_NO_UPDATE_CHECK=1` to silence it. See [floe version](/cli/version) for what that
+check does. A binary from `go install` or built from source prints `floe dev` instead of a
+version number.
 
 ## Verify the checksum (manual download)
 
@@ -139,5 +171,10 @@ cd floe/cli
 go build ./cmd/floe
 ```
 
-Move the resulting `floe` binary to a directory on your `PATH` (e.g. `/usr/local/bin` on
-macOS and Linux).
+Move the resulting `floe` binary to a directory on your `PATH`. On macOS and Linux,
+`/usr/local/bin` is the usual choice, but it is root-owned on a stock system, so the move
+needs elevation: `sudo mv floe /usr/local/bin/`. A user-owned directory such as
+`~/.local/bin` works without `sudo`, as long as it is on your `PATH`.
+
+Like a `go install` build, a binary compiled this way reports `floe dev` and cannot update
+itself.

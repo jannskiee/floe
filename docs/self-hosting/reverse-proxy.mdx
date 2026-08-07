@@ -12,16 +12,22 @@ one value to configure, and share links that work without any extra setup.
 ## Route table
 
 The client and the signaling server claim different paths, so they coexist on one
-origin with no conflicts. Send these paths to the signaling server and everything
-else to the client.
+origin with no conflicts. Route them like this.
 
 | Path | Goes to | Why |
 |------|---------|-----|
 | `/socket.io/` | server `:3001` | Browser signaling. WebSocket upgrade plus HTTP long-polling fallback. |
 | `/ws` | server `:3001` | CLI and desktop signaling. WebSocket upgrade. |
+| `/api/config` | client `:3000` | The client's own runtime config, which tells the browser where the signaling server is. The signaling server has no such route. |
 | `/api/` | server `:3001` | Room codes, TURN credentials, stats. |
 | `/health` | server `:3001` | Health probe. |
 | everything else | client `:3000` | The web app, including `/_next/` assets. |
+
+`/api/config` is the one exception to the `/api/` rule, and it needs its own
+route in both configs below. Send it to the signaling server and it returns 404.
+With the empty socket URL this page recommends below, the browser still lands on
+its own origin, which is the right answer, so the mistake never shows. Any
+instance that sets a non-empty socket URL loses it silently.
 
 <Warning>
   `/ws` is matched by exact string equality on the signaling server. A trailing
@@ -53,6 +59,13 @@ else to the client.
             reverse_proxy localhost:3001
         }
 
+        # The web client serves its own runtime config here, so it has to win
+        # over the /api/* rule above. Caddy orders handle blocks by how specific
+        # the path is, so this beats /api/* wherever you put it in the file.
+        handle /api/config {
+            reverse_proxy localhost:3000
+        }
+
         # Everything else is the web client.
         handle {
             reverse_proxy localhost:3000
@@ -77,6 +90,16 @@ else to the client.
         # Your TLS certificate goes here.
         # ssl_certificate     /etc/letsencrypt/live/floe.example.com/fullchain.pem;
         # ssl_certificate_key /etc/letsencrypt/live/floe.example.com/privkey.pem;
+
+        # The client's own runtime config. An exact-match location outranks the
+        # regex location below, so this stays on the client.
+        location = /api/config {
+            proxy_pass http://127.0.0.1:3000;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
 
         # Signaling server.
         location ~ ^/(socket\.io/|ws$|api/|health$) {
@@ -111,16 +134,20 @@ loaded from, which behind this proxy is already the right answer.
 
 ```env
 NEXT_PUBLIC_SOCKET_URL=
-NEXT_PUBLIC_SITE_URL=https://floe.example.com
 CLIENT_URL=https://floe.example.com
 TRUSTED_PROXY_COUNT=1
+
+# Read only when you build the client yourself, with the build overlay. The
+# default stack pulls a prebuilt image and ignores this line entirely.
+NEXT_PUBLIC_SITE_URL=https://floe.example.com
 ```
 
 ```bash
 docker compose up -d
 ```
 
-`NEXT_PUBLIC_SITE_URL` is the only build-time value here. The published image
+`NEXT_PUBLIC_SITE_URL` is the only build-time value here, which is why the
+comment above tells you the running stack does not read it. The published image
 cannot carry it, so canonical links and share previews are omitted rather than
 pointed somewhere wrong. See [Container Images](/self-hosting/images) to build the
 client with your own domain baked in.
@@ -137,7 +164,7 @@ signaling server. One reverse proxy means `1`. A CDN in front of that proxy mean
 `2`. Setting it higher than your real hop count lets clients forge
 `X-Forwarded-For` and slip past the per-IP rate limits.
 
-## Using the CLI with a one-domain instance
+## Using the CLI and the desktop app with a one-domain instance
 
 One address is all the CLI needs. The share link it prints resolves to the same
 origin, so it opens the web client correctly with no extra flag:
@@ -148,6 +175,22 @@ floe send --server https://floe.example.com photo.jpg
 
 The `--web` flag only exists for split deployments where the client lives on a
 different hostname than the signaling server.
+
+The desktop app takes the same single address. Open Settings, expand
+**Advanced**, put `https://floe.example.com` in **Server address**, and press
+**Test**. The test runs three checks in order: that `/health` answers as a Floe
+signaling server, that the realtime `/ws` connection is accepted, and that
+`GET /api/turn-credentials` returns usable connection details. A proxy that
+forwards only some of those is named in the failure message instead of breaking
+silently later. Leave **Share link address** blank on a one-domain instance and
+the app derives the link from the server address. See
+[Desktop Settings](/desktop/settings#server).
+
+<Note>
+  The test deliberately does not follow redirects, so a proxy that answers
+  `/health` with a 301 is reported as "may be the web app rather than the
+  signaling server" rather than passing.
+</Note>
 
 ## TURN does not go through the proxy
 

@@ -1,6 +1,12 @@
-const CACHE_NAME = 'floe-cache-v1';
+// Bump on any change to what is cached OR to the response headers, because the
+// Cache API stores whole responses, headers included, and everything except a
+// navigation is served cache-first. Without a bump, returning visitors keep
+// pre-change headers on those assets indefinitely. v4 carries the first
+// security-header set the site has ever sent.
+const CACHE_NAME = 'floe-cache-v4';
 const STATIC_ASSETS = [
     '/',
+    '/download',
     '/how-it-works',
     '/privacy',
     '/terms',

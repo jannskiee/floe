@@ -28,7 +28,7 @@ export const metadata: Metadata = {
         canonical: '/',
     },
     openGraph: {
-        title: 'Floe — Encrypted P2P File Transfer. No Uploads.',
+        title: 'Floe: Encrypted P2P File Transfer. No Uploads.',
         description:
             'Send files directly from your device to anyone in the world. No accounts, no file storage, no size limits on direct transfers. Fully end-to-end encrypted with WebRTC.',
         siteName: 'Floe',
@@ -46,7 +46,7 @@ export const metadata: Metadata = {
                       url: '/og.png?v=3',
                       width: 1200,
                       height: 630,
-                      alt: 'Floe — Encrypted peer-to-peer file transfer',
+                      alt: 'Floe: encrypted peer-to-peer file transfer',
                   },
               ]
             : undefined,
@@ -56,7 +56,7 @@ export const metadata: Metadata = {
     twitter: {
         // Without an image, a large-image card renders as an empty box.
         card: siteUrl ? 'summary_large_image' : 'summary',
-        title: 'Floe — Encrypted P2P File Transfer. No Uploads.',
+        title: 'Floe: Encrypted P2P File Transfer. No Uploads.',
         description:
             'Send files directly from your device to anyone in the world. No accounts, no file storage, fully end-to-end encrypted.',
         images: siteUrl ? ['/og.png?v=3'] : undefined,
@@ -88,6 +88,13 @@ export default function RootLayout({
                         defer
                         src="https://cloud.umami.is/script.js"
                         data-website-id={process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID}
+                        // BOTH of these are load-bearing privacy settings, not tidiness.
+                        // The tracker reports location.href and only strips the fragment
+                        // when exclude-hash is set, so without this a receiver opening
+                        // /?s=nonce#room=<uuid> would POST the room secret to Umami, which
+                        // is exactly what the privacy page promises never happens.
+                        data-exclude-hash="true"
+                        data-exclude-search="true"
                         strategy="afterInteractive"
                     />
                 )}

@@ -21,6 +21,22 @@ Those are the ports inside the containers. In production you normally put both
 behind a single domain, so your users never see either one. See
 [Reverse Proxy](/self-hosting/reverse-proxy).
 
+## Who can connect
+
+One instance serves every Floe client. They share one wire protocol, so any two of
+them can transfer with each other on your server.
+
+| Client | How it points at your instance |
+|--------|-------------------------------|
+| Web app | Loads from your `client` container. Nothing for the user to configure. |
+| CLI | `floe send --server https://floe.example.com`. See [Use the Floe CLI with a Self-Hosted Server](/cli/self-hosted-server). |
+| Floe Desktop | Settings, **Advanced**, then **Server address**. **Test** checks the address before you rely on it, and **Use default server** returns the app to `api.floe.one`. See [Desktop Settings](/desktop/settings#server). |
+
+Both peers must be on the same server. Servers do not talk to each other.
+
+`CLIENT_URL` governs browser traffic only. CLI and desktop peers connect over `/ws`,
+which performs no origin check, so they reach your server regardless of that setting.
+
 ## Contents
 
 <CardGroup cols={2}>
@@ -33,6 +49,9 @@ behind a single domain, so your users never see either one. See
   <Card title="Configuration" href="/self-hosting/configuration">
     Environment variable reference for all settings.
   </Card>
+  <Card title="How the Client Finds the Signaling Server" href="/self-hosting/build-time-url">
+    Runtime `SOCKET_URL` resolution, and the one value that is still baked in at build time.
+  </Card>
   <Card title="Reverse Proxy" href="/self-hosting/reverse-proxy">
     Serve the client and signaling server from one domain, with Caddy and nginx examples.
   </Card>
@@ -44,5 +63,8 @@ behind a single domain, so your users never see either one. See
   </Card>
   <Card title="Operations" href="/self-hosting/operations">
     Day-to-day commands, updates, and health checks.
+  </Card>
+  <Card title="Without Docker" href="/self-hosting/without-docker">
+    Run the client and signaling server straight from Node.
   </Card>
 </CardGroup>
