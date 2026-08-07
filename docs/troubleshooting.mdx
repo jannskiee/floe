@@ -76,7 +76,7 @@ Most Floe transfers just work. When something goes wrong, it is almost always on
   </Accordion>
 
   <Accordion title="Cannot transfer: your floe is too old for this peer">
-    Floe words this two ways, `Cannot transfer: your floe is too old for this peer` and `Cannot transfer: peer's floe is too old`. Peers on different floe versions normally transfer fine, so a small version difference (for example v1.5.4 and v1.5.5) is never a problem. Either message only appears if a release changed the transfer protocol in a way the two versions cannot bridge.
+    Floe words this two ways, `Cannot transfer: your floe is too old for this peer` and `Cannot transfer: peer's floe is too old`. Peers on different Floe versions normally transfer fine, so a small version difference (for example v1.5.4 and v1.5.5) is never a problem. Either message only appears if a release changed the transfer protocol in a way the two versions cannot bridge.
 
     The message prints both sides as `You:` and `Peer:`, each with its protocol range and release version. Go by the version strings rather than the labels, and update the older one. When the receiver detects the mismatch it composes the message and the sender prints it unchanged, so a sender can be told "your floe is too old" while it is the receiver that needs updating. In that case the whole message, not just the labels, is written from the receiver's point of view. If both versions look current, update both.
 
