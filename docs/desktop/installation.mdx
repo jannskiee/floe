@@ -19,14 +19,14 @@ receives from browser peers and CLI peers without any extra setup.
 - **From GitHub:** any Windows 10 or later. The installer stops on anything older.
 - **x64.** Both channels ship an x64 build only. The GitHub installer and the portable zip stop
   with an architecture error on a native ARM64 machine.
-- **The Microsoft Edge WebView2 runtime**, which draws the interface. Windows 11 ships it, and
-  Microsoft has been installing it on Windows 10 through Windows Update since 2022, so nearly
-  every machine already has it. You do not normally need to do anything about it.
+- **The Microsoft Edge WebView2 Runtime**, which draws the interface. Windows 11 includes it, and
+  the vast majority of Windows 10 machines already have it. You do not normally need to do
+  anything about it.
 
 <Note>
-  If it is missing, Floe offers to fetch it. The first time you start the app it says the
-  runtime is required and asks to download and install it, then carries on once that finishes.
-  The installer from GitHub also installs it during setup.
+  If it is missing, Floe asks to download and install it when you start the app, then carries on
+  once that finishes. Decline, and Floe closes and asks again the next time you start it. The
+  installer from GitHub also installs it during setup.
 
   One case needs care. If the machine cannot reach Microsoft's download at that moment, because
   it is offline or behind a filtering proxy, the runtime cannot install and Floe cannot start.
