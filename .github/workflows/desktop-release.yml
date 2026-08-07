@@ -155,9 +155,12 @@ jobs:
             $age = (Get-Date) - (Get-Item $f).LastWriteTime
             if ($age.TotalMinutes -gt 30) { Write-Error "stale artifact: $f ($age old)"; exit 1 }
           }
-          # The exe's version strings live under \StringFileInfo\040904b0; the
-          # VarFileInfo translation table is zeroed by a winres quirk, so .NET's
-          # FileVersionInfo defaults read blanks. Query the subblock directly.
+          # The exe's version strings live under \StringFileInfo\040904b0. The
+          # translation table is fine (0x0409/0x04B0); what is missing is a
+          # FileVersion string key, which build/windows/info.json never emits,
+          # and .NET's FileVersionInfo blanks every STRING field when it cannot
+          # find that key during codepage fallback (the numeric VS_FIXEDFILEINFO
+          # parts survive). Query the subblock directly.
           Add-Type @"
           using System;
           using System.Runtime.InteropServices;

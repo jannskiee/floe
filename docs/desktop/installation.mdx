@@ -29,10 +29,9 @@ receives from browser peers and CLI peers without any extra setup.
   The installer from GitHub also installs it during setup.
 
   One case needs care. If the machine cannot reach Microsoft's download at that moment, because
-  it is offline or behind a filtering proxy, Floe closes after the prompt without an
-  explanation. If that happens, install
-  [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) yourself and start Floe
-  again.
+  it is offline or behind a filtering proxy, the runtime cannot install and Floe cannot start.
+  Install [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) yourself, then
+  start Floe again.
 </Note>
 
 ## Choose a channel

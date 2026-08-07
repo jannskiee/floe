@@ -1756,7 +1756,9 @@ function App() {
                         <div className="mt-10 space-y-6">
                             {[
                                 {n: '01', title: 'Direct & unlimited', note: 'Direct transfers stream device to device with no size cap. Relay fallback is capped at 2 GB.'},
-                                {n: '02', title: 'End-to-end encrypted', note: 'DTLS and SRTP, the same as a video call.'},
+                                // DTLS alone: data channels are SCTP over DTLS. SRTP carries
+                                // media, which Floe never sends.
+                                {n: '02', title: 'End-to-end encrypted', note: 'DTLS, the same as a video call.'},
                                 {n: '03', title: 'Nothing is stored', note: 'The server only brokers the handshake.'},
                             ].map(({n, title, note}) => (
                                 <div key={n} className="border-l border-white/10 pl-5">
