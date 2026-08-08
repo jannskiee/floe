@@ -19,9 +19,15 @@
    stability of its styling hooks. Verified against the rendered DOM of
    floe.one/docs/changelog on 2026-08-08: 36 update-tag spans, exactly matching
    the tag strings in the MDX, and distinct from the filter-panel chips. If the
-   separators ever vanish, re-read the rendered DOM and update this selector. */
-[data-component-part="update-tag"] + [data-component-part="update-tag"]::before {
+   separators ever vanish, re-read the rendered DOM and update this selector.
+
+   The separator hangs off the END of each tag but the last, rather than the
+   start of each tag but the first. Both render identically on one line, but
+   the gutter is narrow enough to wrap: trailing it keeps the dot glued to the
+   tag it follows, so a wrap reads "floe.one . floe CLI ." then "Your server"
+   rather than orphaning a leading dot onto the second line. */
+[data-component-part="update-tag"]:not(:last-child)::after {
   content: "\00B7";
-  margin-inline-end: 0.35em;
+  margin-inline-start: 0.3em;
   opacity: 0.5;
 }
