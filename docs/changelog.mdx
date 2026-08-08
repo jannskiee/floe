@@ -11,6 +11,25 @@ description: "Release history for Floe: every user-visible change to the web app
   - No transfer-protocol change, so this release interoperates with older CLI and browser peers in every direction.
 </Update>
 
+<Update label="desktop-v0.2.2" description="2026-08-08" tags={["Desktop"]}>
+  **A redrawn app icon, and two things that used to fail silently**
+
+  - The app icon is redrawn to match the mark on floe.one. The bolt is larger and its corners are rounded, so the app, the website and the docs finally show the same logo.
+  - On a Store install, Windows no longer draws a coloured square behind the icon on the taskbar, in Start, in search and in Alt+Tab. The package was missing the unplated icon assets Windows looks for, so it fell back to plating the icon; 0.2.1 only changed what colour that square was. Installs from GitHub were never affected.
+  - Fixed the app exiting without a word when it could not start. Release builds have no console, so a failure before the window appeared killed the process in silence. The usual cause is the WebView2 runtime being unreachable, offline or behind a filtering proxy. You now get a message box naming the problem, with a WebView2 hint where that is what went wrong.
+  - Fixed **Start over** throwing away a typed note without asking. `Ctrl` `R` is now ignored while the cursor is in a field, and confirmation is required when a note is waiting to be sent. Staged files are still cleared without a prompt, since the files themselves are untouched on disk.
+  - Corrected the encryption note in the sidebar. Floe's data channel is secured by DTLS; the note also credited SRTP, which protects the audio and video streams that Floe never sends.
+  - No transfer-protocol change, so Floe Desktop 0.2.2 transfers with browser and CLI peers in every direction.
+</Update>
+
+<Update label="desktop-v0.2.1" description="2026-08-02" tags={["Desktop"]}>
+  **A darker tile behind the Store icon**
+
+  - On a Microsoft Store install, the square Windows drew behind the Floe icon took the system accent colour, which is a bright blue on a default Windows setup. It is now the brand dark, so the tile reads as one piece with the icon. Removing that square altogether came later, in 0.2.2.
+  - The installer and portable zip published under this tag behave exactly as 0.2.0 does. The change lives in the Store package manifest, so there is nothing to gain by downloading them.
+  - No transfer-protocol change, so Floe Desktop 0.2.1 transfers with browser and CLI peers in every direction.
+</Update>
+
 <Update label="desktop-v0.2.0" description="2026-08-02" tags={["Desktop"]}>
   **Floe Desktop arrives on the Microsoft Store**
 
