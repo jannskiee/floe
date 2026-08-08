@@ -42,6 +42,24 @@ try {
     # assumed: if the art is ever redrawn with a different inset, the crop below
     # would silently clip it.
     $inset = 40
+    $minX = 1024; $minY = 1024; $maxX = -1; $maxY = -1
+    for ($y = 0; $y -lt 1024; $y++) {
+        for ($x = 0; $x -lt 1024; $x++) {
+            if ($src.GetPixel($x, $y).A -gt 8) {
+                if ($x -lt $minX) { $minX = $x }
+                if ($x -gt $maxX) { $maxX = $x }
+                if ($y -lt $minY) { $minY = $y }
+                if ($y -gt $maxY) { $maxY = $y }
+            }
+        }
+    }
+    $seen = @($minX, $minY, (1023 - $maxX), (1023 - $maxY))
+    foreach ($edge in $seen) {
+        if ([math]::Abs($edge - $inset) -gt 1) {
+            throw ("expected a ${inset}px inset on every edge of $Source, measured L=$($seen[0]) " +
+                   "T=$($seen[1]) R=$($seen[2]) B=$($seen[3]); the targetsize crop would clip the art")
+        }
+    }
     $art = New-Object System.Drawing.Rectangle($inset, $inset, (1024 - 2 * $inset), (1024 - 2 * $inset))
 
     # Draws a source rectangle into a w*h ARGB canvas at the given offset.
@@ -87,10 +105,13 @@ try {
     $scales = @(100, 125, 150, 200, 400)
     $square = @{ 'Square44x44Logo' = 44; 'Square150x150Logo' = 150; 'StoreLogo' = 50 }
 
+    # Ceiling, not Round: [math]::Round is banker's rounding, so a 50px logo at
+    # 125% lands on 62.5 and rounds DOWN to 62 where Microsoft's asset table
+    # says 63. Ceiling matches the table for all four logos at every scale.
     foreach ($name in $square.Keys) {
         $base = $square[$name]
         foreach ($s in $scales) {
-            $px = [int][math]::Round($base * $s / 100.0)
+            $px = [int][math]::Ceiling($base * $s / 100.0)
             $file = if ($s -eq 100) { "$name.png" } else { "$name.scale-$s.png" }
             Write-Png -From $full -CanvasW $px -CanvasH $px -DestX 0 -DestY 0 -DestW $px -DestH $px -Name $file
         }
@@ -98,8 +119,8 @@ try {
 
     # The wide tile is the same square art centred on a 310x150 canvas.
     foreach ($s in $scales) {
-        $w = [int][math]::Round(310 * $s / 100.0)
-        $h = [int][math]::Round(150 * $s / 100.0)
+        $w = [int][math]::Ceiling(310 * $s / 100.0)
+        $h = [int][math]::Ceiling(150 * $s / 100.0)
         $x = [int][math]::Round(($w - $h) / 2.0)
         $file = if ($s -eq 100) { 'Wide310x150Logo.png' } else { "Wide310x150Logo.scale-$s.png" }
         Write-Png -From $full -CanvasW $w -CanvasH $h -DestX $x -DestY 0 -DestW $h -DestH $h -Name $file
