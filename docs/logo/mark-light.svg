@@ -1,0 +1,18 @@
+<!-- Floe mark and wordmark, no section label.
+
+     Mintlify has no separate footer logo: the same `logo` file is rendered in
+     both the navbar and the footer. "Floe / Docs" is right in the header and
+     wrong in the footer, so docs/style.css points the footer image at this file
+     instead. Same bolt, same metrics, same Geist outlines, minus the separator
+     and the section label.
+
+     Used for the dark appearance. Regenerate with scratchpad/lockup3.py.
+-->
+<svg width="60" height="28" viewBox="0 0 60.19 28" xmlns="http://www.w3.org/2000/svg">
+  <g transform="translate(-2.415 3.463) scale(0.8780)">
+  <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z" fill="#ffffff" stroke="#ffffff" stroke-width="0.5" stroke-linejoin="round"/>
+  </g>
+  <g transform="translate(24.244 7.500)">
+  <path d="M1.46 13.00V0.00H10.16V2.07H2.55L3.85 0.73V6.70L2.55 5.62H9.83V7.67H2.55L3.85 6.59V13.00Z M13.70 13.00Q12.63 13.00 11.99 12.45Q11.35 11.90 11.35 10.69V0.00H13.70V10.45Q13.70 10.82 13.89 11.00Q14.08 11.19 14.43 11.19H15.14V13.00Z M20.34 13.22Q18.90 13.22 17.81 12.59Q16.72 11.96 16.12 10.80Q15.53 9.65 15.53 8.11Q15.53 6.55 16.12 5.41Q16.72 4.27 17.81 3.63Q18.90 3.00 20.34 3.00Q21.79 3.00 22.87 3.63Q23.95 4.27 24.54 5.41Q25.14 6.55 25.14 8.11Q25.14 9.65 24.54 10.80Q23.95 11.96 22.87 12.59Q21.79 13.22 20.34 13.22ZM20.34 11.32Q21.48 11.32 22.09 10.47Q22.70 9.63 22.70 8.11Q22.70 6.61 22.09 5.76Q21.48 4.91 20.34 4.91Q19.21 4.91 18.58 5.76Q17.96 6.61 17.96 8.11Q17.96 9.63 18.58 10.47Q19.21 11.32 20.34 11.32Z M30.63 13.22Q29.17 13.22 28.09 12.59Q27.01 11.96 26.42 10.80Q25.84 9.65 25.84 8.11Q25.84 6.57 26.42 5.43Q27.01 4.28 28.08 3.64Q29.15 3.00 30.58 3.00Q31.97 3.00 33.02 3.63Q34.07 4.25 34.64 5.42Q35.21 6.59 35.21 8.24V8.77H28.27Q28.34 10.05 28.98 10.70Q29.61 11.35 30.65 11.35Q31.44 11.35 31.96 11.00Q32.48 10.64 32.68 10.00L35.08 10.14Q34.68 11.57 33.50 12.40Q32.32 13.22 30.63 13.22ZM28.27 7.20H32.79Q32.72 6.01 32.12 5.43Q31.51 4.85 30.58 4.85Q29.64 4.85 29.03 5.46Q28.42 6.06 28.27 7.20Z" fill="#ffffff"/>
+  </g>
+</svg>

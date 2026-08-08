@@ -34,3 +34,32 @@
   margin-inline-start: 0.3em;
   opacity: 0.5;
 }
+
+/* Drop the section label from the footer logo.
+
+   Mintlify's `logo` config has exactly three keys, light, dark and href, with
+   no footer variant, so the footer renders the very same file as the navbar.
+   The navbar lockup reads "Floe / Docs", which is right at the top of a docs
+   page and wrong at the bottom of one, where the label just repeats the thing
+   the reader has been looking at the whole way down.
+
+   So the footer images are pointed at the same lockup minus the separator and
+   the label. The two files are generated from the same source as the navbar
+   pair, so the bolt, the wordmark and the metrics stay identical; only the
+   trailing "/ Docs" is absent.
+
+   The two rules are told apart by Tailwind's own visibility classes, which is
+   also how Mintlify swaps the pair: the `dark:hidden` image is the one shown
+   in light mode, so it takes the dark-ink file, and vice versa. The colon
+   needs escaping to be a valid CSS class selector.
+
+   `#footer` and `.nav-logo` are both on Mintlify's published hook list, which
+   it explicitly documents as subject to change. If the footer ever shows
+   "Floe / Docs" again, this rule stopped matching and the selectors moved. */
+#footer img.nav-logo.dark\:hidden {
+  content: url("/logo/mark-dark.svg");
+}
+
+#footer img.nav-logo.dark\:block {
+  content: url("/logo/mark-light.svg");
+}
