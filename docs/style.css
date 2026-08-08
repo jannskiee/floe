@@ -43,23 +43,31 @@
    page and wrong at the bottom of one, where the label just repeats the thing
    the reader has been looking at the whole way down.
 
-   So the footer images are pointed at the same lockup minus the separator and
-   the label. The two files are generated from the same source as the navbar
-   pair, so the bolt, the wordmark and the metrics stay identical; only the
-   trailing "/ Docs" is absent.
+   This crops the label off the image rather than swapping in a second file.
+   Swapping was tried first and shipped broken: a `content: url("/logo/...")`
+   resolves against the site root, and the docs are served under /docs, so in
+   production it pointed at the Next.js app, 404ed, and the footer rendered a
+   broken-image glyph. It looked fine locally only because `mint dev` serves
+   the docs at the root, which is exactly the kind of bug that survives local
+   review. Cropping touches no URL, so local and production cannot disagree.
 
-   The two rules are told apart by Tailwind's own visibility classes, which is
-   also how Mintlify swaps the pair: the `dark:hidden` image is the one shown
-   in light mode, so it takes the dark-ink file, and vice versa. The colon
-   needs escaping to be a valid CSS class selector.
+   The numbers: the navbar lockup is 135x28, and the mark plus wordmark, up to
+   but not including the gap before the separator, occupies the first 60.19 of
+   it. The footer renders the image 26px tall, so the full lockup is 125.4px
+   wide there and the part worth keeping is 55.9px. `cover` makes the image
+   fill that narrower box at its natural height instead of shrinking to fit,
+   and `left center` decides which end survives the crop.
+
+   Both footer images are cropped identically, so this needs no light/dark
+   split. If the lockup is ever regenerated at a different width, update 55.9
+   to match: the value is (mark + wordmark width / total width) * 125.4, and
+   getting it wrong is visible immediately in local preview.
 
    `#footer` and `.nav-logo` are both on Mintlify's published hook list, which
    it explicitly documents as subject to change. If the footer ever shows
    "Floe / Docs" again, this rule stopped matching and the selectors moved. */
-#footer img.nav-logo.dark\:hidden {
-  content: url("/logo/mark-dark.svg");
-}
-
-#footer img.nav-logo.dark\:block {
-  content: url("/logo/mark-light.svg");
+#footer img.nav-logo {
+  width: 55.9px;
+  object-fit: cover;
+  object-position: left center;
 }
