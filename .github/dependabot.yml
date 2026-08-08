@@ -55,6 +55,18 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+    # A Node major is never Dependabot's call. Only even-numbered Node releases
+    # become LTS; odd ones are roughly eight-month previews that reach end of
+    # life with no security patches and never get one. Dependabot cannot see
+    # that distinction, so in #227 it moved both images 24 -> 25 and the
+    # published images spent two months on a runtime that died on 2026-06-01.
+    # Minor and patch bumps of the same major are still wanted, and security
+    # advisories ignore this block entirely. Majors move by hand, when the next
+    # even release reaches Active LTS (26 does so on 2026-10-28).
+    ignore:
+      - dependency-name: "node"
+        update-types:
+          - "version-update:semver-major"
     groups:
       docker-deps:
         patterns:
