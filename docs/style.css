@@ -1,0 +1,27 @@
+/* Mintlify auto-includes any .css file in the content directory on every page.
+   No docs.json registration is needed, and none exists. */
+
+/* Separate the tags in a changelog entry's left gutter.
+
+   Mintlify renders an <Update>'s tags there as bare space-separated text, with
+   no pill, border, or delimiter, even though the same values render as proper
+   chips in the right-hand filter panel. Adjacent values therefore fuse into a
+   phrase: "CLI Web" read as a product that does not exist, which is what
+   prompted this rule.
+
+   The tag vocabulary in docs/changelog.mdx was chosen to survive without this
+   (every value opens with a domain, a product name, or a determiner, so it
+   cannot continue the phrase before it). This is the polish, not the fix. If
+   Mintlify changes its markup the separators disappear and the page stays
+   correct, which is the intended failure mode.
+
+   The selector is NOT documented by Mintlify, which explicitly disclaims the
+   stability of its styling hooks. Verified against the rendered DOM of
+   floe.one/docs/changelog on 2026-08-08: 36 update-tag spans, exactly matching
+   the tag strings in the MDX, and distinct from the filter-panel chips. If the
+   separators ever vanish, re-read the rendered DOM and update this selector. */
+[data-component-part="update-tag"] + [data-component-part="update-tag"]::before {
+  content: "\00B7";
+  margin-inline-end: 0.35em;
+  opacity: 0.5;
+}
