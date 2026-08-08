@@ -39,12 +39,22 @@ Floe ships on two version lines. `vX.Y.Z` releases floe.one, the `floe` CLI, and
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
-<Update label="Unreleased" tags={["CLI"]}>
-  **Received files are never overwritten, and Windows marks them as downloads**
+<Update label="v1.10.0" description="2026-08-08" tags={["CLI", "Web", "Self-hosting"]}>
+  **Stalled transfers now fail with a reason, and received files are never overwritten**
 
+  - `floe send` and `floe receive` no longer wait forever when a connection half-forms. Waiting for the peer's offer or answer is capped at 30 seconds, establishing the connection at 30 more, with a 10 second grace for the data channel once the peers are otherwise connected. Each says which stage gave up: `timed out waiting for the peer's offer`, `timed out establishing a connection`, `connected but the data channel did not open`. None of this limits how long a sender waits for a receiver to arrive, which is still unbounded, so sharing a code and walking away works exactly as before.
   - `floe receive` no longer overwrites an existing file that has the same name as an incoming one. The new file is saved with a numbered suffix before the extension (`report.pdf`, then `report (1).pdf`), the same way browsers de-duplicate downloads. The progress line shows the name actually written.
   - On Windows, received files are now tagged with the mark of the web (a `Zone.Identifier` stream), so SmartScreen and Office Protected View treat them like browser downloads when opened.
-  - No transfer-protocol change, so this release interoperates with older CLI and browser peers in every direction.
+  - `FLOE_SERVER` and `FLOE_WEB` set the server and web addresses for every command, so a self-hosted setup no longer repeats `--server` on each one. An explicit flag still wins over the environment.
+  - A trailing slash on a self-hosted server address no longer kills the transfer. `--server https://example.com/` built `https://example.com//api/code`, which answers 404, and that 404 was swallowed into a silent fall back to public STUN, so a relayed transfer failed with nothing to explain it. Surrounding whitespace and any run of trailing slashes are now trimmed.
+  - A receive code that has already been used says `this code is no longer active; ask for a new one`. It used to report an unexpected role, which described the internals rather than the situation.
+  - Web app: session replay is gone from floe.one. Recordings masked all text and media, so file names and contents were never captured, but a recording reported the page address, and a receiver's address carries the room link. That link is the only thing protecting a transfer. It is now stripped from error reports and breadcrumbs too.
+  - Web app: the analytics script no longer receives the room link either. It reported the full address on page load, so a receiver opening a share link handed the room secret to a third party. It now sees the path alone.
+  - Web app: floe.one sends a content security policy that refuses to be framed, alongside `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` and HSTS.
+  - Self-hosting: the published images run Node 24, the Active LTS, again. A dependency update had moved them to Node 25, which reached end of life on 2026-06-01 and will receive no further security patches.
+  - Self-hosting: the signaling server no longer returns a stack trace when a request fails. It answers with a plain JSON error instead.
+  - Self-hosting: the room-code word list is deduplicated and extended to 288 unique words. Thirteen words appeared twice, which made some phrases likelier than others and left only 275 distinct ones.
+  - No transfer-protocol change, so v1.10.0 interoperates with older CLI and browser peers in every direction.
 </Update>
 
 <Update label="desktop-v0.2.2" description="2026-08-08" tags={["Desktop"]}>
