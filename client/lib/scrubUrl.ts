@@ -18,7 +18,12 @@ export function scrubUrl(url: string | undefined | null): string | undefined {
         if (u.searchParams.has('room')) u.searchParams.set('room', 'redacted');
         u.hash = '';
         const out = u.toString();
-        return out.startsWith(BASE) ? out.slice(BASE.length) || '/' : out;
+        // Match BASE plus the path separator, not BASE as a bare prefix: a
+        // serialized URL always has '/' after the host, so this is only true
+        // when the dummy base itself was used, never for an absolute URL on a
+        // host that merely starts with "scrub.invalid" (for example
+        // scrub.invalid.evil.com), which must pass through intact.
+        return out.startsWith(BASE + '/') ? out.slice(BASE.length) || '/' : out;
     } catch {
         // Parsing failed (unusual breadcrumb value); fall back to a plain strip.
         return url

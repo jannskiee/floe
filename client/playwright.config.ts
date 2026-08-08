@@ -18,6 +18,12 @@ export default defineConfig({
     // protocol break fails every attempt; the unit tests are the real correctness
     // guard, this just stops infra jitter from reddening the build.
     retries: process.env.CI ? 1 : 0,
+    // Terminal output stays list; the HTML report additionally persists every
+    // attempt's attachments (the stamped CLI transcripts from e2e/helpers.ts)
+    // and retried-test traces, so a flaky first attempt inside a green run
+    // leaves evidence in the uploaded CI artifact instead of vanishing.
+    // open: 'never' keeps local runs from popping a browser after failures.
+    reporter: [['list'], ['html', { open: 'never' }]],
     use: {
         baseURL: 'http://localhost:3000',
         headless: true,
@@ -71,16 +77,33 @@ export default defineConfig({
             },
         },
         {
-            command: 'pnpm dev',
+            // CI serves the production build (created by the "Build client
+            // (production)" workflow step): next dev compiles routes on
+            // demand, and on macOS runners that first compile repeatedly
+            // blew the 120s startup budget below. Local runs keep next dev
+            // so the edit-refresh flow is untouched.
+            command: process.env.CI ? 'pnpm start' : 'pnpm dev',
             cwd: __dirname,
             // URL readiness makes Playwright issue a real GET / before tests
-            // start, forcing next dev to compile the home page up front; on the
-            // slow Windows runner that first compile must not eat test timeouts.
+            // start. Under next dev that forces the home page to compile up
+            // front so the first test's timeout never pays for it; under
+            // next start it just confirms the server is routing.
             url: 'http://localhost:3000',
             reuseExistingServer: true,
             timeout: 120_000,
             env: {
-                NEXT_PUBLIC_SOCKET_URL: 'http://localhost:3001',
+                // 127.0.0.1 (not localhost) so engine.io-client registers its
+                // window 'offline' listener, which reconnect.spec.ts relies on:
+                // the client hardcodes a skip of that listener for the literal
+                // host "localhost", and setOffline alone never tears down an
+                // established WebSocket. Also the production code path, since
+                // real deployments never use "localhost".
+                // NEXT_PUBLIC_* is inlined at BUILD time, so this value only
+                // takes effect through next dev (local runs). On CI the same
+                // value is baked in by the "Build client (production)" step
+                // and next start ignores this block. reconnect.spec.ts
+                // asserts the effective value at runtime either way.
+                NEXT_PUBLIC_SOCKET_URL: 'http://127.0.0.1:3001',
             },
         },
     ],

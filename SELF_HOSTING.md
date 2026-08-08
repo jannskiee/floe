@@ -4,54 +4,83 @@ Run your own Floe instance (the web client and the signaling server) on your own
 infrastructure, independent of `floe.one`. File data still flows peer-to-peer; the
 server you run only brokers the WebRTC handshake.
 
-Full documentation is at **[docs.floe.one/self-hosting](https://docs.floe.one/self-hosting)**,
+Full documentation is at **[floe.one/docs/self-hosting](https://www.floe.one/docs/self-hosting)**,
 including production deployment, reverse-proxy and TLS setup, and the complete
 configuration reference.
 
 ## Quick start (Docker)
 
-Both the client and the server ship with a `Dockerfile`, and `docker-compose.yml`
-wires them together (plus an optional coturn relay).
+Prebuilt images are published to ghcr.io and `docker-compose.yml` pulls them, so
+there is nothing to clone and no toolchain to install.
 
 ```bash
-git clone https://github.com/jannskiee/floe.git
-cd floe
-cp .env.docker.example .env
-docker compose up -d --build
+curl -fsSLO https://raw.githubusercontent.com/jannskiee/floe/main/docker-compose.yml
+docker compose up -d
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
 
+A `.env` file is optional; every value has a working default. To change something,
+fetch the annotated example next to the compose file:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jannskiee/floe/main/.env.docker.example -o .env
+```
+
+To build from source instead, add the overlay:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
+
 ## Configuration
 
-Everything is set in the `.env` file you copied above. The values that matter most:
+Everything is set in an optional `.env` file next to the compose file. The values
+that matter most:
 
 | Variable | What it does |
 | --- | --- |
+| `FLOE_IMAGE_TAG` | Which published image tag to run. Defaults to `latest`, the newest release. |
 | `NEXT_PUBLIC_SOCKET_URL` | URL the browser uses to reach your signaling server. |
-| `FLOE_SOCKET_URL` | Runtime signaling URL override for a prebuilt client image. |
-| `FLOE_SOCKET_PORT` | Runtime signaling port used with the browser hostname (default: `3001`). |
-| `NEXT_PUBLIC_SITE_URL` | Public URL of your client (canonical links, share previews, sitemap). |
 | `PORT` | Host port the server is published on. |
-| `CLIENT_URL` | Your client's origin, allowed by the server's CORS. |
+| `CLIENT_PORT` | Host port the client is published on. |
+| `CLIENT_URL` | Your client's origin, allowed by the server's CORS. Matched exactly. |
+| `TRUSTED_PROXY_COUNT` | Reverse-proxy hops in front of the server. `0` direct, `1` behind a proxy. |
 | `CLOUDFLARE_TURN_KEY_ID` / `CLOUDFLARE_TURN_KEY_API_TOKEN` | Optional managed TURN via Cloudflare (see below). |
 | `TURN_SECRET` / `TURN_DOMAIN` | Optional self-hosted coturn credentials (see below). |
 
-### Build-time variables (important)
+### Applying a change
 
-`NEXT_PUBLIC_SOCKET_URL` and `NEXT_PUBLIC_SITE_URL` are inlined into the client
-**at build time** (a Next.js behaviour, not specific to Floe). If you change either
-one, rebuild the client image so the new value takes effect:
+`NEXT_PUBLIC_SOCKET_URL` is read at runtime, so changing where the browser looks
+for your signaling server needs only a restart:
 
 ```bash
-docker compose build client && docker compose up -d
+docker compose up -d
 ```
 
-Prebuilt client images can set `FLOE_SOCKET_URL` and `FLOE_SOCKET_PORT` at
-runtime instead. Restart the container after changing them. If the URL is empty,
-the client derives it from the hostname opened in the browser and the configured
-port. See the [Unraid deployment guide](docs/self-hosting/unraid.mdx) for the
-two-container setup.
+`NEXT_PUBLIC_SITE_URL` is the exception. It feeds canonical links, Open Graph
+tags, and the sitemap, which Next renders into the page at build time, so a shared
+image cannot carry it. The published client simply omits those tags rather than
+advertising a domain that is not yours. To set your own, build the client:
+
+```bash
+NEXT_PUBLIC_SITE_URL=https://files.example.com \
+  docker compose -f docker-compose.yml -f docker-compose.build.yml build client
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d
+```
+
+This affects only SEO and link previews. Transfers, signaling, and the relay are
+all configured at runtime.
+
+## One domain (recommended for production)
+
+You do not need two hostnames. Put the client and the signaling server behind a
+single reverse proxy, route `/socket.io/`, `/ws`, `/api/`, and `/health` to the
+server and everything else to the client, and the whole instance lives at one
+address. That means one certificate and one URL to configure.
+
+Copy-pasteable Caddy and nginx configuration is in
+[the reverse proxy guide](https://www.floe.one/docs/self-hosting/reverse-proxy).
 
 ## Connectivity: STUN vs TURN
 
@@ -63,14 +92,24 @@ two-container setup.
   `CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_KEY_API_TOKEN`. No public IP,
   extra ports, or TLS certificates needed. These take precedence over the coturn
   variables below.
-- **Self-hosted TURN relay (coturn).** Prefer to run the relay yourself? Set
-  `TURN_SECRET` and `TURN_DOMAIN`, then start the bundled coturn service:
+- **Self-hosted TURN relay (coturn).** Prefer to run the relay yourself? Create the
+  config first (it is gitignored because it holds your secret), set `TURN_SECRET`
+  and `TURN_DOMAIN` in `.env`, then start the bundled coturn service:
 
   ```bash
+  curl -fsSL --create-dirs -o coturn/turnserver.conf \
+    https://raw.githubusercontent.com/jannskiee/floe/main/coturn/turnserver.conf.example
   docker compose --profile turn up -d
   ```
 
-  `TURN_SECRET` must match `static-auth-secret` in `coturn/turnserver.conf`.
+  `TURN_SECRET` must match `static-auth-secret` in `coturn/turnserver.conf`. Skip
+  that download and Docker creates a **directory** at the path; coturn then starts
+  anyway and reports healthy on built-in defaults with no auth secret, so relaying
+  silently fails. The giveaway is `Default realm: localdomain` in its logs, and
+  recovery needs `rmdir coturn/turnserver.conf` first, because copying onto a
+  directory succeeds and writes the file inside it.
+  TURN needs its own ports and cannot be served through an HTTP reverse proxy; see
+  [the TURN relay guide](https://www.floe.one/docs/self-hosting/turn-relay).
 
 ## Without Docker
 

@@ -25,7 +25,7 @@ import { useTransferAnalytics } from '@/hooks/useTransferAnalytics';
 import { useRelayConfiguration } from '@/hooks/useRelayConfiguration';
 import { RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, isRelayPair } from '@/lib/relay';
 import { classifyPeerError } from '@/lib/peerErrors';
-import { getSocketUrl } from '@/lib/runtimeConfig';
+import { resolveSocketUrl } from '@/lib/socketUrl';
 
 import {
     Card,
@@ -134,6 +134,14 @@ export function P2PTransfer() {
     // The room this page instance is handling as a receiver. Used to detect a
     // fragment-only navigation (scanning a second QR code into the same tab).
     const joinedRoomRef = useRef<string | null>(null);
+    // The room this page instance created as a sender (handleCreateLink). The
+    // displayed link keeps pointing at this id, so a socket reconnect must
+    // re-join it or the link goes dead.
+    const createdRoomRef = useRef<string | null>(null);
+    // Fallback timer for the room-joined ack gate in handleCreateLink. Held in
+    // a ref so a repeated create-link click clears the previous timer instead
+    // of letting it later revert the displayed link to an abandoned room.
+    const linkAckFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const receivedFilesRef = useRef<ReceivedFile[]>([]);
     const transferCompleteRef = useRef(false);
     const progressRef = useRef(0);
@@ -154,6 +162,7 @@ export function P2PTransfer() {
         sendSignal,
         onUserConnected,
         onRoomFull,
+        onRoomJoined,
     } = useSignaling({
         onSignal: (data) => {
             const peer = peerRef.current;
@@ -202,12 +211,37 @@ export function P2PTransfer() {
                 setError('Too many refreshes. Reconnecting');
             }
         },
-        onReconnect: () => setError(''),
+        onReconnect: () => {
+            setError('');
+            // A Socket.IO auto-reconnect comes back under a fresh socket.id,
+            // and the server room only ever contained the old id, so this
+            // client is no longer in its room. Re-join while the WebRTC data
+            // channel is not yet up and the transfer has not finished; once
+            // either is true, signaling is done and re-joining would only
+            // churn the room.
+            if (transferCompleteRef.current || receivedFilesRef.current.length > 0) return;
+            if (peerRef.current?.connected) return;
+            if (joinedRoomRef.current) {
+                // Receiver: a bare re-join is not enough. The sender reacts to
+                // the rejoin's user-connected with a brand-new initiator peer
+                // and a fresh offer, which the old half-negotiated peer cannot
+                // answer, so recreate the peer by re-running the join flow.
+                peerRef.current?.destroy();
+                hasJoinedRef.current = false;
+                joinRoomAsReceiver(joinedRoomRef.current);
+            } else if (createdRoomRef.current) {
+                // Sender: re-enter the room only. Peer creation stays driven by
+                // user-connected, whose handler (handleCreateLink) replaces any
+                // stale peer when a receiver joins or re-joins.
+                joinRoom(createdRoomRef.current);
+            }
+        },
     });
 
     const fetchIceServers = async () => {
         try {
-            const response = await fetch(`${getSocketUrl()}/api/turn-credentials`);
+            const base = await resolveSocketUrl();
+            const response = await fetch(`${base}/api/turn-credentials`);
             const iceServers = await response.json();
             if (Array.isArray(iceServers) && iceServers.length > 0) {
                 iceServersRef.current = iceServers;
@@ -493,7 +527,24 @@ export function P2PTransfer() {
         // the fragment (never sent to the server); the nonce carries no info.
         const nonce = uuidv4().slice(0, 8);
         const link = `${window.location.protocol}//${window.location.host}/?s=${nonce}#room=${newRoomId}`;
-        setGeneratedLink(link);
+        createdRoomRef.current = newRoomId;
+        // Render the link only after the server confirms the join. The link is
+        // an invitation into this room, so the sender must hold the room's
+        // sender slot before the link is shareable: a receiver that follows
+        // the link into a room the server has not created yet is handed the
+        // sender role itself, and a CLI receiver then exits with "expected
+        // receiver role" (the dominant CI flake; the ack round-trip is one
+        // RTT, imperceptible next to it). A reconnect re-join re-fires this
+        // handler with the same link, a no-op re-render. If the ack never
+        // arrives (lossy path, misbehaving proxy), show the link after 3s
+        // anyway rather than leaving the user stuck; pre-ack render was the
+        // status quo of every release until now.
+        if (linkAckFallbackRef.current) clearTimeout(linkAckFallbackRef.current);
+        linkAckFallbackRef.current = setTimeout(() => setGeneratedLink(link), 3000);
+        onRoomJoined(() => {
+            if (linkAckFallbackRef.current) clearTimeout(linkAckFallbackRef.current);
+            setGeneratedLink(link);
+        });
         joinRoom(newRoomId);
         setStatus('Waiting for peer');
 
@@ -825,6 +876,9 @@ export function P2PTransfer() {
                                     <Input
                                         type="file"
                                         multiple
+                                        // The visible prompt is a sibling <p>, so without this
+                                        // the product's primary control is an unnamed input.
+                                        aria-label="Choose files to send"
                                         onChange={handleFileSelection}
                                         className="absolute inset-0 h-full w-full opacity-0 cursor-pointer"
                                     />
@@ -848,6 +902,7 @@ export function P2PTransfer() {
                                     <Input
                                         type="file"
                                         multiple
+                                        aria-label="Add more files to send"
                                         onChange={handleFileSelection}
                                         className="absolute inset-0 h-full w-full opacity-0 cursor-pointer"
                                     />
@@ -869,12 +924,14 @@ export function P2PTransfer() {
                                             />
                                         )}
 
+                                        {/* flex-wrap on the count row: the relay-mode string can
+                                            outgrow a 320px card; wrapping drops it whole under the label */}
                                         {files.length > 0 && (
-                                            <div className="mb-2 flex items-baseline justify-between px-0.5">
+                                            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-2 px-0.5">
                                                 <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-600">
                                                     Files
                                                 </span>
-                                                <span className={`font-mono text-[10px] uppercase tracking-[0.2em] ${isRelayOverLimit ? 'text-amber-500' : 'text-zinc-600'
+                                                <span className={`text-right font-mono text-[10px] uppercase tracking-[0.2em] ${isRelayOverLimit ? 'text-amber-500' : 'text-zinc-600'
                                                     }`}>
                                                     {files.length} · {formatBytes(totalBytes)}{connectionType === 'relay' ? ' / 2.0 GB' : ''}
                                                 </span>

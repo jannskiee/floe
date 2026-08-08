@@ -42,14 +42,14 @@ Running `floe receive olive-tiger-castle -o ~/Downloads`:
 ```
   Connecting to sender...
   Connected
+
   ─────────────────────────────────────────────────
   Incoming   2 files · 2.3 MB
   ─────────────────────────────────────────────────
 
   Accept? [Y/n] y
-
-  [1/2] photo.jpg  [████████████████] 2.3 MB/2.3 MB
-  [2/2] notes.txt  [████████████████] 14 KB/14 KB
+  [1/2] photo.jpg 100% [███████████████] (480 kB/s)
+  [2/2] notes.txt 100% [███████████████] (14 kB/s)
 
   ─────────────────────────────────────────────────
   Received   2 files (2.3 MB)
@@ -72,8 +72,8 @@ When the first file's metadata arrives, Floe shows a summary of what is incoming
   Accept? [Y/n]
 ```
 
-- Press **Enter**, `y`, or `Y` to accept and begin receiving.
-- Type `n` or `no` to decline. The transfer is cancelled and the connection closes.
+- Type `n` or `no`, in any capitalization, to decline. The transfer is cancelled and the connection closes.
+- Press **Enter** or type anything else to accept and begin receiving. The prompt only looks for a decline, so a typo counts as yes.
 
 Pass `-y` to skip this prompt and accept automatically.
 
@@ -85,12 +85,13 @@ Pass `-y` to skip this prompt and accept automatically.
 | `--yes` | `-y` | `false` | Accept incoming files without the confirmation prompt. |
 | `--no-report` | | `false` | Do not report the transferred byte count to Floe's public global counter. Set `FLOE_NO_STATS=1` to opt out permanently. |
 
-See [Flags Reference](/cli/flags) for global flags (`--server`, `--no-relay`) and full opt-out documentation.
+See [Flags Reference](/cli/flags) for the global flags that matter here (`--server`, `--no-relay`, `--iface`) and full opt-out documentation.
 
 ## Notes
 
-- Received files are saved to the output directory. **Existing files with the same name are overwritten without warning.** Use `-o` to point to an empty directory if you want to avoid collisions.
+- Received files are saved to the output directory. Existing files are never overwritten: if a name is already taken, the incoming file is saved with a numbered suffix before the extension (`report.pdf`, then `report (1).pdf`), the same way browsers de-duplicate downloads. The progress line shows the name actually written.
 - Directory structure is preserved when the sender sends a folder. Files land at the same relative paths inside your output directory.
+- On Windows, received files are tagged with the mark of the web (a `Zone.Identifier` stream), so SmartScreen and Office Protected View treat them like browser downloads when opened.
 - Press `Ctrl+C` to cancel the transfer at any time.
 - Short codes expire 10 minutes after the sender starts the session. After that, only the full link works (and only while the sender is still connected).
 - After the transfer completes, the receiver posts only the total byte count to the signaling server for the public global counter. No file names or contents are included. Use `--no-report` or `FLOE_NO_STATS=1` to skip this. The sender never reports.

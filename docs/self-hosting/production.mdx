@@ -5,6 +5,14 @@ description: "Deploy a self-hosted Floe instance in production with HTTPS, a rev
 
 For a deployment accessible beyond a single machine, follow these steps.
 
+<Note>
+  The simplest production layout puts the client and the signaling server behind
+  **one** domain, so there is a single certificate and a single URL to configure.
+  See [Reverse Proxy](/self-hosting/reverse-proxy) for copy-pasteable Caddy and
+  nginx configuration. This page covers the two-subdomain layout, which is still
+  fully supported.
+</Note>
+
 ## Steps
 
 <Steps>
@@ -17,17 +25,16 @@ For a deployment accessible beyond a single machine, follow these steps.
 
     The signaling server uses WebSockets. Make sure your proxy forwards the `Upgrade` and `Connection` headers.
   </Step>
-  <Step title="Set NEXT_PUBLIC_SOCKET_URL and rebuild">
+  <Step title="Set NEXT_PUBLIC_SOCKET_URL">
     In `.env`:
 
     ```env
     NEXT_PUBLIC_SOCKET_URL=https://api.your-domain.com
     ```
 
-    Then rebuild the client image (required because this value is inlined at build time):
+    Then recreate the containers. There is no rebuild: Compose maps this value onto the client container's `SOCKET_URL`, and the browser reads it from `GET /api/config` on every page load.
 
     ```bash
-    docker compose build client
     docker compose up -d
     ```
   </Step>
@@ -46,6 +53,19 @@ For a deployment accessible beyond a single machine, follow these steps.
     ```env
     TRUSTED_PROXY_COUNT=1
     ```
+
+    One reverse proxy is `1`, a CDN in front of that proxy is `2`. The server's own default is `1`; Docker Compose passes `0` explicitly, which is correct only when the container ports are published directly. Setting it higher than your real hop count lets clients forge `X-Forwarded-For` and bypass the per-IP rate limits, so if you expose the server directly with no proxy, set `0` deliberately rather than leaving it unset.
+  </Step>
+  <Step title="Point the CLI and the desktop app at your instance">
+    A split deployment has two addresses, so both clients need both. The CLI takes them as flags, or as `FLOE_SERVER` and `FLOE_WEB` in the environment:
+
+    ```bash
+    floe send --server https://api.your-domain.com --web https://app.your-domain.com photo.jpg
+    ```
+
+    Without `--web`, the share link points at the signaling API rather than the web app, because a self-hosted server is otherwise assumed to serve both from one origin.
+
+    In the desktop app, open Settings, expand **Advanced**, and fill in both **Server address** (`https://api.your-domain.com`) and **Share link address** (`https://app.your-domain.com`), then press **Test**. See [Desktop Settings](/desktop/settings#server).
   </Step>
 </Steps>
 

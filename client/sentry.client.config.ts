@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/nextjs';
+import { BROWSER_EXTENSION_URL_PATTERNS } from './lib/browserExtensions';
 import { isStaleBundleError } from './lib/staleBundle';
 import { scrubUrl } from './lib/scrubUrl';
 
@@ -27,6 +28,15 @@ Sentry.init({
         // Safari/iOS ResizeObserver noise
         'ResizeObserver loop',
     ],
+
+    // Drop errors thrown by browser extensions' injected content scripts: not
+    // Floe code, never actionable. Matched on the frame's URL scheme rather
+    // than its message, so this covers every extension without needing a
+    // per-wording entry above. It has to be denyUrls and not beforeSend:
+    // EventFilters runs first, before @sentry/nextjs rewrites every frame
+    // origin to "app://" (see lib/browserExtensions.ts). Fixes FLOE-E,
+    // MetaMask's inpage.js rejecting with "Failed to connect to MetaMask".
+    denyUrls: BROWSER_EXTENSION_URL_PATTERNS,
 
     // Sample 10% of transactions. Tracing every page load (1.0) flooded the
     // performance detectors with low-signal "Degraded HTTP Operation" issues on
@@ -69,19 +79,30 @@ Sentry.init({
         return breadcrumb;
     },
 
-    // Session replay: capture 10% of sessions, 100% of sessions with errors
-    replaysSessionSampleRate: 0.1,
-    replaysOnErrorSampleRate: 1.0,
-
-    integrations: [
-        Sentry.replayIntegration({
-            // Mask all text and block media so replays never capture file names,
-            // on-screen content, or previews. This upholds the Privacy Policy
-            // (Section 5): file names and file contents are never captured.
-            maskAllText: true,
-            blockAllMedia: true,
-        }),
-    ],
+    // Session Replay is deliberately absent, and must not be added back.
+    //
+    // A replay envelope reports the page URL in `request.url`, and on a receiver
+    // page that is the whole /?s=<nonce>#room=<id> link. The room id is the only
+    // thing protecting a transfer: anyone holding it can join as the receiver.
+    // Captured envelopes confirmed it, so this was a live leak, not a theory.
+    //
+    // It cannot be scrubbed. Replay does not send through the client, so none of
+    // the hooks reach it: beforeSend is bypassed (replay uses prepareEvent and
+    // never enters _processEvent), an event processor had no effect, and
+    // beforeEnvelope is only emitted inside Client.sendEnvelope while
+    // @sentry/replay calls transport.send(envelope) directly. maskAllText does
+    // not help either, because the URL is envelope metadata rather than DOM.
+    //
+    // Omitting both `replays*SampleRate` options and the integration is
+    // sufficient and complete. Replay is NOT one of @sentry/nextjs's default
+    // client integrations (those are the browser set plus browserTracing and
+    // nextjsClientStackFrameNormalization), and nothing auto-enables it from the
+    // sample rates. Independently, the integration hard-gates itself: with both
+    // rates at 0 or absent, initializeSampling() returns before attaching any
+    // listener.
+    //
+    // Error and performance monitoring are unaffected and keep their scrubbing
+    // through beforeSend and beforeBreadcrumb above.
 
     debug: false,
 });

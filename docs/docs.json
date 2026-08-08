@@ -79,6 +79,16 @@
         ]
       },
       {
+        "group": "Desktop App",
+        "pages": [
+          "desktop/installation",
+          "desktop/sending",
+          "desktop/receiving",
+          "desktop/settings",
+          "desktop/keyboard-shortcuts"
+        ]
+      },
+      {
         "group": "CLI",
         "pages": [
           "cli/installation",
@@ -95,9 +105,10 @@
         "pages": [
           "self-hosting/overview",
           "self-hosting/quickstart",
-          "self-hosting/unraid",
+          "self-hosting/images",
           "self-hosting/configuration",
           "self-hosting/build-time-url",
+          "self-hosting/reverse-proxy",
           "self-hosting/production",
           "self-hosting/turn-relay",
           "self-hosting/operations",

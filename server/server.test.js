@@ -4,10 +4,11 @@
 // Uses Node's built-in test runner (node:test), available from Node 18+.
 // Run with: npm test
 
-const { describe, it, beforeEach } = require('node:test');
+const { describe, it, beforeEach, after } = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+    errorHandler,
     getClientIp,
     generateCode,
     checkRateLimit,
@@ -250,7 +251,7 @@ describe('handleSignal', () => {
 describe('handleDisconnect', () => {
     beforeEach(() => { rooms.clear(); });
 
-    it('notifies the remaining peer and removes the room', () => {
+    it('removes only the disconnecting peer; the room survives with the remaining peer', () => {
         const pA = makePeer('peer-A');
         const pB = makePeer('peer-B');
         handleJoinRoom(pA, ROOM_ID);
@@ -261,8 +262,8 @@ describe('handleDisconnect', () => {
         handleDisconnect(pA);
 
         assert.ok(pB.msgs.some(m => m.type === 'peer-disconnected'));
-        assert.equal(pB.roomId, null);
-        assert.equal(rooms.has(ROOM_ID), false);
+        assert.equal(pB.roomId, ROOM_ID, 'remaining peer must keep its roomId');
+        assert.deepEqual(rooms.get(ROOM_ID).map(p => p.id), ['peer-B']);
     });
 
     it('clears roomId on the disconnecting peer', () => {
@@ -279,6 +280,47 @@ describe('handleDisconnect', () => {
         const p = makePeer('lone');
         handleDisconnect(p); // should not throw
         assert.equal(p.msgs.length, 0);
+    });
+
+    it('an out-of-order stale disconnect removes only the ghost entry, not the rejoined peer', () => {
+        // A dirty network drop is only noticed via ping timeout, so the old
+        // socket's disconnect can arrive AFTER the same user already rejoined
+        // the room under a fresh socket id. It must evict only itself.
+        const pOld = makePeer('peer-A-old');
+        const pNew = makePeer('peer-A-new');
+        handleJoinRoom(pOld, ROOM_ID);
+        handleJoinRoom(pNew, ROOM_ID); // rejoin lands while the ghost still holds a seat
+        pNew.msgs.length = 0;
+
+        handleDisconnect(pOld);
+
+        assert.deepEqual(rooms.get(ROOM_ID).map(p => p.id), ['peer-A-new']);
+        assert.equal(pNew.roomId, ROOM_ID, 'rejoined peer must keep its seat');
+    });
+
+    it('deletes the room when the last peer disconnects', () => {
+        const pA = makePeer('peer-A');
+        const pB = makePeer('peer-B');
+        handleJoinRoom(pA, ROOM_ID);
+        handleJoinRoom(pB, ROOM_ID);
+
+        handleDisconnect(pA);
+        handleDisconnect(pB);
+
+        assert.equal(rooms.has(ROOM_ID), false);
+    });
+
+    it('a fresh join after a full disconnect recreates the room with sender role', () => {
+        const pA = makePeer('peer-A');
+        handleJoinRoom(pA, ROOM_ID);
+        handleDisconnect(pA); // sole peer leaving deletes the room
+
+        const pA2 = makePeer('peer-A2'); // same user, new socket id after reconnect
+        handleJoinRoom(pA2, ROOM_ID);
+
+        assert.equal(pA2.msgs[0].type, 'room-joined');
+        assert.equal(pA2.msgs[0].data.role, 'sender');
+        assert.deepEqual(rooms.get(ROOM_ID).map(p => p.id), ['peer-A2']);
     });
 });
 
@@ -480,5 +522,85 @@ describe('selectMinimalIceUrls', () => {
     it('never returns duplicate TURN URLs', () => {
         const { turnUrls } = selectMinimalIceUrls([], ['turn:only:3478?transport=udp']);
         assert.deepEqual(turnUrls, ['turn:only:3478?transport=udp']);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Final error handler — errorHandler
+// ---------------------------------------------------------------------------
+
+describe('errorHandler', () => {
+    function fakeRes() {
+        return {
+            statusCode: 200,
+            body: null,
+            headersSent: false,
+            status(code) { this.statusCode = code; return this; },
+            json(payload) { this.body = payload; return this; },
+        };
+    }
+
+    // Silence the deliberate console.error while these run; restore after.
+    let realError;
+    beforeEach(() => {
+        realError = console.error;
+        console.error = () => {};
+    });
+    after(() => { console.error = realError; });
+
+    // The real shape body-parser produces for a malformed JSON body: a
+    // SyntaxError carrying a filesystem-path stack, tagged status 400.
+    function malformedBodyError() {
+        const err = new SyntaxError("Expected property name or '}' in JSON at position 1");
+        err.status = 400;
+        err.statusCode = 400;
+        err.expose = true;
+        err.type = 'entity.parse.failed';
+        err.stack = [
+            "SyntaxError: Expected property name or '}' in JSON at position 1",
+            '    at JSON.parse (<anonymous>)',
+            '    at parse (/home/azureuser/floe/server/node_modules/body-parser/lib/types/json.js:91:21)',
+            '    at /home/azureuser/floe/server/node_modules/body-parser/lib/read.js:162:18',
+        ].join('\n');
+        return err;
+    }
+
+    it('never puts a stack, a filesystem path, or a source location in the body', () => {
+        const res = fakeRes();
+        errorHandler(malformedBodyError(), {}, res, () => {});
+
+        const serialized = JSON.stringify(res.body);
+        // These three are the leak, asserted independently of NODE_ENV. Express's
+        // built-in handler emits err.stack whenever env is not exactly
+        // 'production' and never consults err.expose, so a 400 leaks as readily
+        // as a 500. This is the regression guard for that.
+        assert.ok(!serialized.includes('/'), `body must contain no path separator: ${serialized}`);
+        assert.ok(!serialized.includes('.js:'), `body must contain no source location: ${serialized}`);
+        assert.ok(!/\bat\s/.test(serialized), `body must contain no stack frame: ${serialized}`);
+        assert.ok(!serialized.includes('azureuser'), 'body must not name the deploy user');
+    });
+
+    it('preserves a client-error status and answers with JSON', () => {
+        const res = fakeRes();
+        errorHandler(malformedBodyError(), {}, res, () => {});
+        assert.equal(res.statusCode, 400);
+        assert.deepEqual(res.body, { error: 'Bad request' });
+    });
+
+    it('reports anything without a usable status as a 500', () => {
+        for (const err of [new Error('Not allowed by CORS'), null, undefined, 'a string', { status: 99 }, { status: 700 }]) {
+            const res = fakeRes();
+            errorHandler(err, {}, res, () => {});
+            assert.equal(res.statusCode, 500, `unexpected status for ${JSON.stringify(err)}`);
+            assert.deepEqual(res.body, { error: 'Internal server error' });
+        }
+    });
+
+    it('does not write once headers are already flushed', () => {
+        const res = fakeRes();
+        res.headersSent = true;
+        errorHandler(malformedBodyError(), {}, res, () => {});
+        assert.equal(res.statusCode, 200, 'must not touch the status mid-response');
+        assert.equal(res.body, null, 'must not append a second body');
     });
 });

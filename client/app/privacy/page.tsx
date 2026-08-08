@@ -22,8 +22,10 @@ const toc = [
     { id: 'collect', label: 'Information we collect' },
     { id: 'third-parties', label: 'Third-party services' },
     { id: 'relay', label: 'Relay server' },
-    { id: 'errors', label: 'Error monitoring & session replay' },
+    { id: 'errors', label: 'Error monitoring' },
     { id: 'analytics', label: 'Usage analytics' },
+    { id: 'desktop', label: 'The desktop app' },
+    { id: 'contact', label: 'Contact & abuse reports' },
 ];
 
 export default function PrivacyPolicy() {
@@ -31,7 +33,7 @@ export default function PrivacyPolicy() {
         <LegalShell
             eyebrow="Legal"
             title="Privacy policy"
-            updated="Last updated: July 2026"
+            updated="Last updated: August 2026"
             toc={toc}
             footerLinks={[
                 { name: 'Home', href: '/' },
@@ -136,24 +138,30 @@ export default function PrivacyPolicy() {
                 </p>
             </LegalSection>
 
-            <LegalSection id="errors" index="05" title="Error monitoring & session replay">
-                <p>Floe uses Sentry to monitor application errors and performance. Sentry may capture:</p>
+            <LegalSection id="errors" index="05" title="Error monitoring">
+                <p>
+                    The <strong className="font-semibold text-zinc-200">web app</strong> uses Sentry
+                    to monitor application errors and performance. This applies to floe.one in the
+                    browser only; the desktop app and the CLI contain no error monitoring. Sentry may
+                    capture:
+                </p>
                 <LegalList
                     items={[
                         'Error stack traces and browser metadata (browser version, OS, device type)',
                         'Connection type (direct or relay), transfer progress, file count, and total size at the time of an error',
-                        <>
-                            <strong className="font-semibold text-zinc-200">Session replay.</strong> An
-                            anonymized, video-like recording of a small sample of browser sessions,
-                            plus any session where an error occurs. All on-screen text and media are
-                            masked, so file names and file contents are never captured.
-                        </>,
                     ]}
                 />
                 <p>
+                    Session replay is{' '}
+                    <strong className="font-semibold text-zinc-200">not</strong> enabled. Floe used to
+                    record a sample of browser sessions. A recording reported the page address, and on
+                    a receiver page that address contains the room link, so replay was removed rather
+                    than kept: the room link is the only thing protecting a transfer.
+                </p>
+                <p>
                     Sentry does <strong className="font-semibold text-zinc-200">not</strong> capture
-                    file names, file contents, or any personally identifiable information. Session
-                    recordings are used solely for debugging technical issues.{' '}
+                    file names, file contents, or any personally identifiable information. The room
+                    link is stripped from every error report and breadcrumb before it is sent.{' '}
                     <a
                         href="https://sentry.io/privacy/"
                         target="_blank"
@@ -168,8 +176,10 @@ export default function PrivacyPolicy() {
 
             <LegalSection id="analytics" index="06" title="Usage analytics">
                 <p>
-                    Floe uses Umami, a privacy-focused analytics tool, to understand how the service is
-                    used. Umami collects:
+                    The <strong className="font-semibold text-zinc-200">web app</strong> uses Umami, a
+                    privacy-focused analytics tool, to understand how the service is used. This
+                    applies to floe.one in the browser only; the desktop app and the CLI contain no
+                    analytics. Umami collects:
                 </p>
                 <LegalList
                     items={[
@@ -192,6 +202,85 @@ export default function PrivacyPolicy() {
                         Umami Privacy Policy
                     </a>
                     .
+                </p>
+            </LegalSection>
+
+            <LegalSection id="desktop" index="07" title="The desktop app">
+                <p>
+                    Floe Desktop is the same peer-to-peer engine as the web app and the CLI, running
+                    as a Windows application. Its network behavior is identical: it contacts our
+                    signaling server to pair you with your peer, fetches relay credentials, and then
+                    streams file data directly between devices. It contains{' '}
+                    <strong className="font-semibold text-zinc-200">
+                        no analytics, no error monitoring, and no telemetry
+                    </strong>
+                    . The only optional report is the same anonymous byte total described above,
+                    which you can turn off with &quot;Contribute to global stats&quot; in Settings.
+                </p>
+                <p>Everything else it does stays on your device:</p>
+                <LegalList
+                    marker={null}
+                    items={[
+                        <>
+                            <strong className="font-semibold text-zinc-200">Clipboard.</strong> The
+                            app reads your clipboard only when you paste (Ctrl+V) to stage copied
+                            files or a screenshot for sending. It never reads the clipboard in the
+                            background.
+                        </>,
+                        <>
+                            <strong className="font-semibold text-zinc-200">Files.</strong> Received
+                            files are written to the folder you choose (your Downloads folder by
+                            default). Nothing is uploaded anywhere.
+                        </>,
+                        <>
+                            <strong className="font-semibold text-zinc-200">Settings.</strong> Your
+                            preferences are stored locally in your user profile and are not removed
+                            automatically when the app is uninstalled.
+                        </>,
+                        <>
+                            <strong className="font-semibold text-zinc-200">
+                                Optional right-click menu.
+                            </strong>{' '}
+                            The GitHub build can add a &quot;Send with Floe&quot; entry to the File
+                            Explorer right-click menu. Turning it on writes one per-user registry
+                            entry; turning it off (or uninstalling) removes it. The Microsoft Store
+                            build does not offer this entry.
+                        </>,
+                        <>
+                            <strong className="font-semibold text-zinc-200">Notifications.</strong>{' '}
+                            The app shows standard Windows notifications when a transfer completes or
+                            fails.
+                        </>,
+                    ]}
+                />
+                <p>
+                    When installed from the Microsoft Store, installation and automatic updates are
+                    handled by Microsoft; see Microsoft&apos;s privacy statement for what the Store
+                    itself collects.
+                </p>
+            </LegalSection>
+
+            <LegalSection id="contact" index="08" title="Contact & abuse reports">
+                <p>
+                    Questions about this policy, bug reports, and abuse reports all go to our public
+                    issue tracker:{' '}
+                    <a
+                        href="https://github.com/jannskiee/floe/issues"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-zinc-300 underline decoration-white/20 underline-offset-4 transition hover:text-ice"
+                    >
+                        github.com/jannskiee/floe/issues
+                    </a>
+                    .
+                </p>
+                <p>
+                    Because Floe is peer-to-peer, transferred content never reaches our servers: we
+                    cannot see, store, or remove files that users send to each other. What we can do
+                    in response to a report is restrict abusive use of the signaling and relay
+                    infrastructure. If you believe Floe is being used to send you illegal or harmful
+                    content, stop accepting transfers from that sender and report the details on the
+                    issue tracker so we can act on the infrastructure side.
                 </p>
             </LegalSection>
         </LegalShell>

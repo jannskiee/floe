@@ -1,0 +1,219 @@
+---
+title: "Run Floe Behind One Domain"
+description: "Serve the Floe web client and signaling server from a single domain with a reverse proxy, including copy-pasteable Caddy and nginx configuration for WebSocket support."
+---
+
+Floe has two services, but your users do not need two addresses. Put both behind one
+reverse proxy and everything lives at `https://floe.example.com`.
+
+This is the recommended production layout. It means one certificate, one DNS record,
+one value to configure, and share links that work without any extra setup.
+
+## Route table
+
+The client and the signaling server claim different paths, so they coexist on one
+origin with no conflicts. Route them like this.
+
+| Path | Goes to | Why |
+|------|---------|-----|
+| `/socket.io/` | server `:3001` | Browser signaling. WebSocket upgrade plus HTTP long-polling fallback. |
+| `/ws` | server `:3001` | CLI and desktop signaling. WebSocket upgrade. |
+| `/api/config` | client `:3000` | The client's own runtime config, which tells the browser where the signaling server is. The signaling server has no such route. |
+| `/api/` | server `:3001` | Room codes, TURN credentials, stats. |
+| `/health` | server `:3001` | Health probe. |
+| everything else | client `:3000` | The web app, including `/_next/` assets. |
+
+`/api/config` is the one exception to the `/api/` rule, and it needs its own
+route in both configs below. Send it to the signaling server and it returns 404.
+With the empty socket URL this page recommends below, the browser still lands on
+its own origin, which is the right answer, so the mistake never shows. Any
+instance that sets a non-empty socket URL loses it silently.
+
+<Warning>
+  `/ws` is matched by exact string equality on the signaling server. A trailing
+  slash or a path prefix will not match, and the connection is dropped with no
+  error. If you proxy from a subpath, strip the prefix so the server still sees
+  exactly `/ws`.
+</Warning>
+
+## Proxy configuration
+
+<Tabs>
+  <Tab title="Caddy">
+    Caddy handles HTTPS certificates and WebSocket upgrades automatically, so the
+    whole config is a handful of lines.
+
+    ```caddyfile
+    floe.example.com {
+        # Signaling server: WebSockets, room codes, TURN credentials, health.
+        handle /socket.io/* {
+            reverse_proxy localhost:3001
+        }
+        handle /ws {
+            reverse_proxy localhost:3001
+        }
+        handle /api/* {
+            reverse_proxy localhost:3001
+        }
+        handle /health {
+            reverse_proxy localhost:3001
+        }
+
+        # The web client serves its own runtime config here, so it has to win
+        # over the /api/* rule above. Caddy orders handle blocks by how specific
+        # the path is, so this beats /api/* wherever you put it in the file.
+        handle /api/config {
+            reverse_proxy localhost:3000
+        }
+
+        # Everything else is the web client.
+        handle {
+            reverse_proxy localhost:3000
+        }
+    }
+    ```
+  </Tab>
+  <Tab title="nginx">
+    nginx needs the `Upgrade` and `Connection` headers set explicitly, or the
+    WebSocket handshake fails and transfers never start.
+
+    ```nginx
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        ''      close;
+    }
+
+    server {
+        listen 443 ssl;
+        server_name floe.example.com;
+
+        # Your TLS certificate goes here.
+        # ssl_certificate     /etc/letsencrypt/live/floe.example.com/fullchain.pem;
+        # ssl_certificate_key /etc/letsencrypt/live/floe.example.com/privkey.pem;
+
+        # The client's own runtime config. An exact-match location outranks the
+        # regex location below, so this stays on the client.
+        location = /api/config {
+            proxy_pass http://127.0.0.1:3000;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # Signaling server.
+        location ~ ^/(socket\.io/|ws$|api/|health$) {
+            proxy_pass http://127.0.0.1:3001;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $connection_upgrade;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            # The server heartbeats every 30s. Keep idle CLI sockets alive.
+            proxy_read_timeout 300s;
+        }
+
+        # Web client.
+        location / {
+            proxy_pass http://127.0.0.1:3000;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Floe configuration
+
+Leave the socket URL **empty**. The browser then talks to whatever host it was
+loaded from, which behind this proxy is already the right answer.
+
+```env
+NEXT_PUBLIC_SOCKET_URL=
+CLIENT_URL=https://floe.example.com
+TRUSTED_PROXY_COUNT=1
+
+# Read only when you build the client yourself, with the build overlay. The
+# default stack pulls a prebuilt image and ignores this line entirely.
+NEXT_PUBLIC_SITE_URL=https://floe.example.com
+```
+
+```bash
+docker compose up -d
+```
+
+`NEXT_PUBLIC_SITE_URL` is the only build-time value here, which is why the
+comment above tells you the running stack does not read it. The published image
+cannot carry it, so canonical links and share previews are omitted rather than
+pointed somewhere wrong. See [Container Images](/self-hosting/images) to build the
+client with your own domain baked in.
+
+<Note>
+  `CLIENT_URL` is matched exactly, including the scheme and with no trailing
+  slash. `https://floe.example.com` and `https://www.floe.example.com` are
+  different origins to the CORS check, so use whichever one your users actually
+  visit.
+</Note>
+
+`TRUSTED_PROXY_COUNT` must equal the number of proxy hops in front of the
+signaling server. One reverse proxy means `1`. A CDN in front of that proxy means
+`2`. Setting it higher than your real hop count lets clients forge
+`X-Forwarded-For` and slip past the per-IP rate limits.
+
+## Using the CLI and the desktop app with a one-domain instance
+
+One address is all the CLI needs. The share link it prints resolves to the same
+origin, so it opens the web client correctly with no extra flag:
+
+```bash
+floe send --server https://floe.example.com photo.jpg
+```
+
+The `--web` flag only exists for split deployments where the client lives on a
+different hostname than the signaling server.
+
+The desktop app takes the same single address. Open Settings, expand
+**Advanced**, put `https://floe.example.com` in **Server address**, and press
+**Test**. The test runs three checks in order: that `/health` answers as a Floe
+signaling server, that the realtime `/ws` connection is accepted, and that
+`GET /api/turn-credentials` returns usable connection details. A proxy that
+forwards only some of those is named in the failure message instead of breaking
+silently later. Leave **Share link address** blank on a one-domain instance and
+the app derives the link from the server address. See
+[Desktop Settings](/desktop/settings#server).
+
+<Note>
+  The test deliberately does not follow redirects, so a proxy that answers
+  `/health` with a 301 is reported as "may be the web app rather than the
+  signaling server" rather than passing.
+</Note>
+
+## TURN does not go through the proxy
+
+If you run the optional coturn relay, its ports stay directly exposed. TURN is not
+HTTP, so a reverse proxy cannot carry it. See [TURN Relay](/self-hosting/turn-relay)
+for the port list and firewall rules.
+
+## Verify it works
+
+```bash
+# Health check through the proxy.
+curl https://floe.example.com/health
+
+# TURN credentials endpoint (returns a JSON array of ICE servers).
+curl https://floe.example.com/api/turn-credentials
+```
+
+Then open `https://floe.example.com` in a browser. The connection badge should read
+`Ready`. If it stays disconnected, the `/socket.io/` route is the first thing to
+check.
+
+## Prefer two subdomains?
+
+Splitting the client and server across `app.your-domain.com` and
+`api.your-domain.com` is still fully supported. See
+[Production Deployment](/self-hosting/production).

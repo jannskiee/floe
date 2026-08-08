@@ -1,6 +1,12 @@
-const CACHE_NAME = 'floe-cache-v1';
+// Bump on any change to what is cached OR to the response headers, because the
+// Cache API stores whole responses, headers included, and everything except a
+// navigation is served cache-first. Without a bump, returning visitors keep
+// pre-change headers on those assets indefinitely. v4 carries the first
+// security-header set the site has ever sent.
+const CACHE_NAME = 'floe-cache-v4';
 const STATIC_ASSETS = [
     '/',
+    '/download',
     '/how-it-works',
     '/privacy',
     '/terms',
@@ -35,10 +41,11 @@ self.addEventListener('fetch', (event) => {
 
     if (request.method !== 'GET') return;
     if (url.pathname.includes('socket.io')) return;
-    // This file is regenerated from container environment variables at startup.
-    // Always use the network copy so an old service-worker cache cannot pin a
-    // previous signaling URL after the container is reconfigured.
-    if (url.pathname === '/runtime-config.js') return;
+    // Never cache API traffic. /api/config carries the runtime server address, so
+    // a cached copy would pin the client to a stale one forever. Behind a
+    // one-domain reverse proxy the signaling server's own /api/ routes are
+    // same-origin too, and the cache-first branch below would freeze those.
+    if (url.pathname.startsWith('/api/')) return;
     if (url.hostname !== self.location.hostname) return;
 
     if (request.mode === 'navigate') {

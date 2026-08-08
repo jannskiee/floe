@@ -32,7 +32,7 @@ Even through a relay, your files are protected by **DTLS encryption** built into
 
 ## Disabling relay fallback
 
-If you need to ensure files never pass through a relay, you can disable it. In the browser, toggle off **Network Relay Fallback** before creating the link. In the CLI, pass `--no-relay`:
+If you need to ensure files never pass through a relay, you can disable it. In the browser, toggle off **Network relay fallback** before creating the link (the toggle appears once you have picked files, just above the Create secure link button). In the CLI, pass `--no-relay`:
 
 ```bash
 floe send photo.jpg --no-relay
@@ -40,8 +40,14 @@ floe send photo.jpg --no-relay
 
 With relay disabled, the transfer fails if a direct path cannot be established.
 
+<Warning>
+  The desktop app has no relay-fallback switch. Its **Hide my IP address** setting is the
+  opposite control: it makes the relay the only path, so every transfer is relayed and capped
+  at 2 GB. See [the desktop settings reference](/desktop/settings#hide-my-ip-address).
+</Warning>
+
 <Accordion title="Technical details">
-  **TURN (Traversal Using Relays around NAT):** When ICE negotiation produces only `relay` candidates, both peers connect to the TURN server and the server forwards packets between them. The data is still DTLS-encrypted end-to-end before it reaches the TURN server.
+  **TURN (Traversal Using Relays around NAT):** ICE tries the candidate pairs and nominates one that works. When the nominated pair has a `relay` candidate on either side, traffic goes through the TURN server, which forwards packets between the peers. This is decided by the winning pair, not by an absence of other candidates: host and reflexive candidates are still gathered and offered, they simply did not win. The data is still DTLS-encrypted end-to-end before it reaches the TURN server.
 
   **Credentials:** The signaling server mints short-lived credentials from Cloudflare's Realtime TURN service and hands them to peers via `/api/turn-credentials`. Credentials are valid for up to 24 hours. (Self-hosted deployments can instead use coturn with time-limited HMAC-SHA1 credentials; see the self-hosting guide.)
 

@@ -14,7 +14,7 @@ Thank you for your interest in contributing! All contributions are welcome.
 
 ## Development Setup
 
-Floe has three parts: a **Next.js client**, a **Node.js signaling server**, and a **Go CLI**.
+Floe has four parts: a **Next.js client**, a **Node.js signaling server**, a **Go CLI**, and a **Wails desktop app**. The CLI and the desktop app share the Go transfer engine in `cli/engine/`, joined by the `go.work` workspace at the repository root.
 
 For most contributions (UI, pages, components), you only need to run the client. Point it at the live signaling server at `api.floe.one` so you do not need to run a server locally.
 
@@ -57,6 +57,22 @@ go build ./cmd/floe
 go test ./...
 ```
 
+### Desktop app (Only needed if you're changing the desktop app)
+
+Build the frontend first: the Go build embeds `desktop/frontend/dist`, which is not checked in, so Go commands in `desktop/` fail on a fresh clone until it exists.
+
+```bash
+cd floe/desktop/frontend
+npm install
+npm run build
+npm test
+
+cd ..
+go test ./...
+```
+
+For a live-reload development window, install the [Wails CLI](https://wails.io/docs/gettingstarted/installation) and run `wails dev` from `desktop/`.
+
 ### Documentation (Only needed if you're changing docs)
 
 The documentation site lives in `docs/` and is built with [Mintlify](https://mintlify.com).
@@ -70,12 +86,15 @@ Open [http://localhost:3000](http://localhost:3000) to preview the docs locally.
 
 ### Full stack with Docker (no local toolchain needed)
 
-To run the client and signaling server together in containers (without installing Node, pnpm, or Go locally), use the Docker Compose setup:
+To run the client and signaling server together in containers (without installing Node, pnpm, or Go locally), use the Docker Compose setup. Add the build overlay so it compiles your working tree rather than pulling the published images:
 
 ```bash
-cp .env.docker.example .env
-docker compose up -d --build
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
+
+The overlay tags its output `floe-client:dev` and `floe-server:dev`, so a local build never replaces a pulled image under the same name.
+
+Without the overlay, `docker compose up -d` pulls the prebuilt images from ghcr.io and ignores your working tree entirely, which is what a self-hoster wants but almost never what a contributor wants.
 
 This is aimed at **self-hosting** (running your own instance) rather than active development, since the client image is a production build. See [SELF_HOSTING.md](SELF_HOSTING.md) for configuration and deployment details.
 
@@ -87,7 +106,7 @@ This is aimed at **self-hosting** (running your own instance) rather than active
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `NEXT_PUBLIC_SOCKET_URL` | Yes | Signaling server URL the browser connects to. `client/.env.example` ships `http://localhost:3001`; for UI-only work set it to `https://api.floe.one` to use the live server without running one locally. |
+| `NEXT_PUBLIC_SOCKET_URL` | No | Signaling server URL the browser connects to. `pnpm dev` already defaults to `http://localhost:3001`; for UI-only work set it to `https://api.floe.one` to use the live server without running one locally. Inlined at build time when set. Self-hosted Docker instances leave it unset and resolve the address at runtime instead. |
 | `NEXT_PUBLIC_SITE_URL` | No | Public base URL for canonical links, Open Graph tags, and the sitemap. Defaults to `https://www.floe.one`. Set to your own domain when self-hosting. |
 | `NEXT_PUBLIC_SENTRY_DSN` | No | Your Sentry DSN for client-side error tracking. Leave empty to disable. |
 | `SENTRY_DSN` | No | Your Sentry DSN for server-side error tracking. Leave empty to disable. |
@@ -126,7 +145,8 @@ This is aimed at **self-hosting** (running your own instance) rather than active
 4. Run the linter: `pnpm lint` (in `client/`)
 5. Run client tests: `pnpm test` (in `client/`)
 6. Run CLI tests: `go test ./...` (in `cli/`)
-7. Submit a pull request with a clear title and description
+7. If you touched `desktop/`, run its tests too: `go test ./...` (in `desktop/`, after building the frontend) and `npm test` (in `desktop/frontend/`)
+8. Submit a pull request with a clear title and description
 
 ---
 

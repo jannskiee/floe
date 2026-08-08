@@ -1,0 +1,112 @@
+---
+title: "Container Images"
+description: "The prebuilt Floe container images on ghcr.io: names, tags, how to pin a version or a digest, and which architectures are supported."
+---
+
+Floe publishes two images to GitHub Container Registry. `docker-compose.yml` pulls both, so self-hosting needs no clone, no Node, and no build.
+
+| Image | Contains |
+|-------|----------|
+| `ghcr.io/jannskiee/floe-server` | The signaling server. Brokers the WebRTC handshake and issues TURN credentials. Never sees file data. |
+| `ghcr.io/jannskiee/floe-client` | The web app, as a self-contained Next.js server. |
+
+Both are public, so `docker pull` needs no login.
+
+## Tags
+
+| Tag | Points at | Use it when |
+|-----|-----------|-------------|
+| `latest` | The newest release | **The default.** What you get if you change nothing. |
+| `1.10.0` | One exact release | You want to control when you move between versions. |
+| `1.10` | The newest patch of a minor line | You want patches automatically but not minor bumps. |
+| `main` | The newest build of `client/` or `server/` on `main` | You want changes before they are released. Every commit is gated behind the full test suite plus a smoke test of the built image. A docs-only merge leaves this tag where it is, since it starts no build. |
+| `sha-<short>` | One exact commit, for example `sha-fed7ebb` | You want a build that can never move under you. |
+
+Pin a tag with `FLOE_IMAGE_TAG`:
+
+```env
+FLOE_IMAGE_TAG=1.10.0
+```
+
+<Note>
+  The variable is `FLOE_IMAGE_TAG`, not `FLOE_VERSION`. `FLOE_VERSION` belongs to the [CLI installer](/cli/installation) and is written with a leading `v`, as in `v1.10.0`. Image tags carry no `v`, so reusing that name would resolve to a tag that does not exist.
+</Note>
+
+## Pinning a digest
+
+A tag can be repointed. A digest cannot, so it is the strongest pin:
+
+```bash
+docker buildx imagetools inspect ghcr.io/jannskiee/floe-server:latest
+```
+
+Take the digest it prints and pin that instead of the tag:
+
+```yaml
+services:
+  server:
+    image: ghcr.io/jannskiee/floe-server@sha256:f7d9ff66...
+```
+
+Every tag is verified to resolve to a digest that passed a smoke test before it was applied, so a tag and its digest always refer to an image that was actually started and exercised.
+
+## Architectures
+
+Both images are published for **`linux/amd64`** and **`linux/arm64`**. Docker picks the right one automatically, so Raspberry Pi, Oracle Ampere, AWS Graviton, and Apple silicon all work with the same commands as anywhere else.
+
+```bash
+docker buildx imagetools inspect ghcr.io/jannskiee/floe-client:latest
+```
+
+It lists one entry per platform, so you can confirm your architecture is covered.
+
+<Note>
+  Each architecture is built and smoke-tested on its own hardware before any tag points at it, and a tag is only published once every architecture of both images has passed. A partly-built release is never visible.
+
+  That matters more than it sounds. The image optimiser fails at load time rather than at build time, and when it fails it does not error: it quietly serves the original file. So a broken ARM image would look perfectly healthy to anything that only checks whether the page loads. The smoke test asserts the optimiser actually returns WebP, on real ARM.
+</Note>
+
+32-bit ARM (`linux/arm/v7`, older Raspberry Pi models) is not published. Node dropped support for it and no prebuilt image-processing binaries exist.
+
+## Building from source
+
+Contributors, and anyone who wants their own domain in share previews, add the build overlay:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
+
+This path needs the repository checked out, since the overlay builds from `./client` and `./server`. The compose file alone is not enough.
+
+The overlay tags its output `floe-server:dev` and `floe-client:dev`, so a local build never replaces a pulled image under the same name.
+
+## Share previews and canonical links
+
+These have to be written into the HTML when the app is built, so a shared image cannot know which domain it will be served from. Claiming one would mean every self-hosted instance advertising somebody else's site to crawlers, so the published image emits only what is true without knowing its own origin:
+
+| Tag | In the published image |
+|-----|------------------------|
+| `<link rel="canonical">` | Emitted, but **relative** (`/privacy`). Valid and self-referencing on any host. |
+| `og:image`, `twitter:image` | Omitted. A relative image URL would resolve against `localhost` and render nothing. |
+| JSON-LD `url` | Omitted. |
+| `/sitemap.xml` | Valid but empty. Sitemaps require absolute URLs. |
+| `/robots.txt` | Served, with no `Sitemap:` line. |
+
+To put your own domain in them, build the client yourself:
+
+```bash
+NEXT_PUBLIC_SITE_URL=https://files.example.com \
+  docker compose -f docker-compose.yml -f docker-compose.build.yml build client
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d
+```
+
+This affects only SEO and link previews. Transfers, the signaling connection, and the relay are unaffected, and all of those are configured at runtime.
+
+## Updating
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+See [Operations](/self-hosting/operations) for backups, logs, and health checks.

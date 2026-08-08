@@ -3,21 +3,22 @@ title: "Self-Hosted Floe Configuration"
 description: "Environment variable reference for a self-hosted Floe instance, covering client build-time URLs, CORS, TURN credentials, and stats persistence."
 ---
 
-All settings live in the `.env` file you copied from `.env.docker.example`.
+Under Docker Compose, every setting below is read from an optional `.env` file next to `docker-compose.yml`. Each one has a working default, so you only need the file to change something. The annotated template is `.env.docker.example`. A few of them behave differently outside Compose, and the rows that do say so.
 
 ## Variables
 
 | Variable | Service | Required | Default | Purpose |
 |----------|---------|----------|---------|---------|
-| `NEXT_PUBLIC_SOCKET_URL` | client (build) | Yes | `http://localhost:3001` | URL the **browser** uses to reach the signaling server. Inlined at build time. See [the build-time URL caveat](/self-hosting/build-time-url). |
-| `FLOE_SOCKET_URL` | client (runtime) | No | _(derived)_ | Complete signaling server origin for a prebuilt client image. Takes precedence over the build-time URL. If empty, the client uses the browser hostname and `FLOE_SOCKET_PORT`. |
-| `FLOE_SOCKET_PORT` | client (runtime) | No | `3001` | Signaling server host port used when `FLOE_SOCKET_URL` is empty. |
-| `NEXT_PUBLIC_SITE_URL` | client (build) | No | `https://www.floe.one` | Canonical public origin of your client (e.g. `https://app.your-domain.com`). Used to generate canonical, Open Graph, JSON-LD, and sitemap URLs. Set this on self-hosted instances so search engines and link previews point at your domain instead of `floe.one`. Inlined at build time. |
-| `PORT` | server | No | `3001` | Port the signaling server listens on inside the container. The host port is set separately in `docker-compose.yml`. |
-| `NODE_ENV` | server | No | `production` | Standard Node.js runtime flag. The server Docker image sets this to `production`. |
-| `CLIENT_URL` | server | Yes (prod) | _(none)_ | Frontend origin allowed by CORS. Set to your client's public URL (e.g. `https://app.your-domain.com`). |
-| `TRUSTED_PROXY_COUNT` | server | No | `1` | Number of trusted reverse-proxy hops in front of the server, used for correct `X-Forwarded-For` parsing and per-IP rate limiting. Defaults to `1` (behind one proxy such as Render, Fly, or Vercel). Set to `0` only for direct exposure with no proxy. |
+| `NEXT_PUBLIC_SOCKET_URL` | client (runtime) | No | `http://localhost:3001` | URL the **browser** uses to reach the signaling server. Read at runtime, so changing it needs only `docker compose up -d`, no rebuild. Set it **empty** when both services share one origin behind a [reverse proxy](/self-hosting/reverse-proxy); the browser then uses its own. Docker Compose passes this into the client container as `SOCKET_URL`, which is the name the container itself reads, so outside Compose set `SOCKET_URL` directly. See [how the client finds the server](/self-hosting/build-time-url). |
+| `FLOE_IMAGE_TAG` | compose | No | `latest` | Which published image tag to run, for example `1.10.0`, `1.10`, `main`, or `sha-fed7ebb`. See [Container Images](/self-hosting/images). Not to be confused with `FLOE_VERSION`, which belongs to the CLI installer and carries a leading `v`. |
+| `NEXT_PUBLIC_SITE_URL` | client (build) | No | _(none)_ | Canonical public origin of your client (e.g. `https://app.your-domain.com`), used for canonical, Open Graph, JSON-LD, and sitemap URLs. Inlined at build time, so the published image cannot carry it and omits those tags instead of claiming `floe.one`. Set it only when building the client yourself. |
+| `PORT` | server | No | `3001` | **Host** port the signaling server is published on. Inside the container it always listens on 3001; Docker Compose maps `${PORT}` to it. Outside Docker this is the port the server process binds directly. Change this and you must also update `NEXT_PUBLIC_SOCKET_URL` to match, then run `docker compose up -d`, or browsers keep dialing the old port. No rebuild is needed, because the client reads that address at runtime. |
+| `CLIENT_PORT` | client | No | `3000` | **Host** port the web client is published on. Inside the container it always listens on 3000. Compose-only; it has no effect outside Docker. |
+| `NODE_ENV` | server | No | `development` | Standard Node.js runtime flag. The Docker image sets this to `production` for you, so this default only applies when you run the server directly with Node. Set it to `production` if you do. Floe registers its own final error handler that returns a generic JSON error at every setting, so this is not a stack-trace leak, but `production` is what the published image runs and what Express's own caching expects. |
+| `CLIENT_URL` | server | Yes (prod) | _(none)_ | Frontend origin allowed by CORS. Matched exactly, including scheme and with no trailing slash. Use `https://floe.example.com` for a [one-domain deployment](/self-hosting/reverse-proxy), or `https://app.your-domain.com` when the client has its own subdomain. `https://floe.one`, `https://www.floe.one`, and `http://localhost:3000` are always allowed in addition to whatever you set here. The value governs browser traffic only (HTTP CORS and Socket.IO). Requests with no `Origin` header are allowed too, which is why CLI and desktop peers reach your server regardless of this setting. |
+| `TRUSTED_PROXY_COUNT` | server | No | `1` | Number of trusted reverse-proxy hops in front of the server, used for correct `X-Forwarded-For` parsing and per-IP rate limiting. Use `1` behind a single reverse proxy, `2` behind a proxy plus a CDN, and `0` when the server is exposed directly with no proxy. Docker Compose passes `0` explicitly, because publishing container ports directly is its default. Setting it above your real hop count lets clients forge `X-Forwarded-For` and bypass the rate limits, so set it to `0` deliberately rather than leaving it unset on a directly exposed host. |
 | `MAX_CONNECTIONS_PER_IP` | server | No | `30` | Maximum new connections allowed per IP per 60-second window, shared across Socket.IO and WebSocket. Raise this in staging or test environments that drive many connections from a single IP. |
+| `MAX_TURN_REQUESTS_PER_IP` | server | No | `20` | Maximum `GET /api/turn-credentials` requests per IP per 60-second window. Requests over the cap get `429`, and the client silently falls back to STUN-only. Raise this in CI or staging suites that start many transfers from one IP. |
 | `MAX_CODE_REQUESTS_PER_IP` | server | No | `60` | Maximum requests per IP per 60-second window against the room-code endpoints, shared across `POST /api/code` and `GET /api/code/:code`. Requests over the cap get `429`. Raise this in CI or staging suites that mint many codes from one IP. |
 | `MAX_ACTIVE_CODES` | server | No | `10000` | Maximum number of simultaneously-live room codes. Once this cap is reached, `POST /api/code` returns `503` until existing codes expire (10-minute TTL) or are consumed. Bounds memory use of the code registry; raise it only if you legitimately expect more than ten thousand pending transfers at once. |
 | `CLOUDFLARE_TURN_KEY_ID` | server | No | _(none)_ | Turn Token ID of a [Cloudflare Realtime TURN](https://developers.cloudflare.com/realtime/turn/) key. With the API token below, the server mints short-lived TURN credentials from Cloudflare's managed network, so you need no public IP, extra ports, or TLS certificates. Takes precedence over the coturn variables. |
@@ -30,13 +31,9 @@ All settings live in the `.env` file you copied from `.env.docker.example`.
 
 ## Minimal local configuration
 
-For local testing, only one variable matters:
+For local testing nothing needs setting. Every value has a working default, and the client already points at `http://localhost:3001` with no `.env` file at all.
 
-```env
-NEXT_PUBLIC_SOCKET_URL=http://localhost:3001
-```
-
-Everything else can stay at its default.
+The first case that genuinely needs one is reaching the app from another device on your network, which takes `NEXT_PUBLIC_SOCKET_URL` and `CLIENT_URL` together. See [Quick Start](/self-hosting/quickstart).
 
 ## Production configuration
 

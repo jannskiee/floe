@@ -1,9 +1,152 @@
 ---
 title: "Changelog"
-description: "Release history for Floe."
+description: "Release history for Floe: every user-visible change to the web app at floe.one, the Floe Desktop app for Windows, and the floe command-line tool."
 ---
 
-<Update label="v1.7.5" description="2026-07-10">
+{/*
+  Authoring contract for this file. Read before adding an entry.
+
+  1. `label` is the git tag, verbatim: v1.9.1, desktop-v0.2.2, or Unreleased.
+     It also generates the anchor (v1.7.0 becomes #v1-7-0), so never edit a
+     label that has already shipped.
+  2. `description` is the release date as YYYY-MM-DD, using the tag's local
+     date. Omit it only while the entry is still Unreleased.
+  3. `tags` come from exactly four values, spelled exactly like this:
+       "Web"           the web app, and self-hosted web clients
+       "Desktop"       the Windows app
+       "CLI"           the floe command
+       "Self-hosting"  running your own server or container images
+     The FIRST tag is the entry's primary surface, the one the bold headline is
+     about. The rest follow in the order listed above.
+     Mintlify renders these in the left gutter as bare space-separated text
+     with no delimiter of its own, so left alone they run together into phantom
+     phrases: "CLI Web" was read as a Floe product that does not exist. The
+     separator that keeps them apart lives in docs/style.css and is the only
+     thing doing that job, so do not delete it. If you add a fifth tag, check
+     the rendered gutter and not just the filter panel.
+  4. The first line of the body is a bold one-sentence headline.
+  5. No markdown headings inside an <Update>. Headings split the RSS feed into
+     one entry per heading.
+  6. A bullet about a surface other than the primary one begins with the
+     surface name, as "Web app: " already does in v1.7.6, v1.7.5 and v1.7.4.
+     Single-tag entries need no prefixes.
+  7. A release with nothing user-visible gets no entry. That is the point of
+     writing this by hand. See DESKTOP.md.
+  8. Revisit the single-page shape at roughly 60 entries or one calendar year.
+*/}
+
+Floe ships on two version lines. `vX.Y.Z` releases floe.one, the `floe` CLI, and the server you can run yourself. `desktop-vX.Y.Z` releases Floe Desktop for Windows. The two never need to match, and no release so far has changed the transfer protocol, so every version of Floe sends to and receives from every other one.
+
+Each entry lists the parts it changed. Filter on the right to see only the ones you use.
+
+<Update label="v1.10.0" description="2026-08-08" tags={["CLI", "Web", "Self-hosting"]}>
+  **Stalled transfers now fail with a reason, and received files are never overwritten**
+
+  - `floe send` and `floe receive` no longer wait forever when a connection half-forms. Waiting for the peer's offer or answer is capped at 30 seconds, establishing the connection at 30 more, with a 10 second grace for the data channel once the peers are otherwise connected. Each says which stage gave up: `timed out waiting for the peer's offer`, `timed out establishing a connection`, `connected but the data channel did not open`. None of this limits how long a sender waits for a receiver to arrive, which is still unbounded, so sharing a code and walking away works exactly as before.
+  - `floe receive` no longer overwrites an existing file that has the same name as an incoming one. The new file is saved with a numbered suffix before the extension (`report.pdf`, then `report (1).pdf`), the same way browsers de-duplicate downloads. The progress line shows the name actually written.
+  - On Windows, received files are now tagged with the mark of the web (a `Zone.Identifier` stream), so SmartScreen and Office Protected View treat them like browser downloads when opened.
+  - `FLOE_SERVER` and `FLOE_WEB` set the server and web addresses for every command, so a self-hosted setup no longer repeats `--server` on each one. An explicit flag still wins over the environment.
+  - A trailing slash on a self-hosted server address no longer kills the transfer. `--server https://example.com/` built `https://example.com//api/code`, which answers 404, and that 404 was swallowed into a silent fall back to public STUN, so a relayed transfer failed with nothing to explain it. Surrounding whitespace and any run of trailing slashes are now trimmed.
+  - A receive code that has already been used says `this code is no longer active; ask for a new one`. It used to report an unexpected role, which described the internals rather than the situation.
+  - Web app: session replay is gone from floe.one. Recordings masked all text and media, so file names and contents were never captured, but a recording reported the page address, and a receiver's address carries the room link. That link is the only thing protecting a transfer. It is now stripped from error reports and breadcrumbs too.
+  - Web app: the analytics script no longer receives the room link either. It reported the full address on page load, so a receiver opening a share link handed the room secret to a third party. It now sees the path alone.
+  - Web app: floe.one sends a content security policy that refuses to be framed, alongside `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` and HSTS.
+  - Self-hosting: the published images run Node 24, the Active LTS, again. A dependency update had moved them to Node 25, which reached end of life on 2026-06-01 and will receive no further security patches.
+  - Self-hosting: the signaling server no longer returns a stack trace when a request fails. It answers with a plain JSON error instead.
+  - Self-hosting: the room-code word list is deduplicated and extended to 288 unique words. Thirteen words appeared twice, which made some phrases likelier than others and left only 275 distinct ones.
+  - No transfer-protocol change, so v1.10.0 interoperates with older CLI and browser peers in every direction.
+</Update>
+
+<Update label="desktop-v0.2.2" description="2026-08-08" tags={["Desktop"]}>
+  **A redrawn app icon, and two things that used to fail silently**
+
+  - The app icon is redrawn to match the mark on floe.one: a larger bolt with rounded corners, at the proportions the website already used. The squircle keeps its depth, which the flat website favicon has no use for.
+  - On a Store install, Windows no longer draws a coloured square behind the icon on the taskbar, in Start, in search and in Alt+Tab. The package was missing the unplated icon assets Windows looks for, so it fell back to plating the icon; 0.2.1 only changed what colour that square was. Installs from GitHub were never affected.
+  - Fixed the app exiting without a word when it could not start. Release builds have no console, so a failure before the window appeared killed the process in silence. The one cause you can act on is a missing WebView2 runtime that Floe could not download, offline or behind a filtering proxy, and that now raises a message box naming it. Failures raised inside the window toolkit itself can still end the process quietly.
+  - Fixed **Start over** throwing away a typed note without asking. `Ctrl` `R` is now ignored while the cursor is in a field, and starting over from idle asks first when a note is waiting to be sent. It stays silent while a connection is being set up, and just after a send, on purpose: Start over is the way out of a connection that will not settle. Staged files are still cleared without a prompt, since the files themselves are untouched on disk.
+  - Corrected the encryption note in the sidebar. Floe's data channel is secured by DTLS; the note also credited SRTP, which protects the audio and video streams that Floe never sends.
+  - No transfer-protocol change, so Floe Desktop 0.2.2 transfers with browser and CLI peers in every direction.
+</Update>
+
+<Update label="desktop-v0.2.1" description="2026-08-02" tags={["Desktop"]}>
+  **A darker tile behind the Store icon**
+
+  - On a Microsoft Store install, the square Windows drew behind the Floe icon took the system accent colour, which is a bright blue on a default Windows setup. It is now the brand dark, so the tile reads as one piece with the icon. Removing that square altogether came later, in 0.2.2.
+  - The installer and portable zip published under this tag behave exactly as 0.2.0 does. The change lives in the Store package manifest, so there is nothing to gain by downloading them.
+  - No transfer-protocol change, so Floe Desktop 0.2.1 transfers with browser and CLI peers in every direction.
+</Update>
+
+<Update label="desktop-v0.2.0" description="2026-08-02" tags={["Desktop"]}>
+  **Floe Desktop arrives on the Microsoft Store**
+
+  - Floe Desktop is now on the [Microsoft Store](https://apps.microsoft.com/detail/9NBQ8ZQ1065L). Microsoft re-signs the package, so it installs with no "unknown publisher" warning and updates itself in the background. This is the recommended way to install it.
+  - The installer and portable zip on GitHub continue in parallel and are not going away. They serve machines without Store access, and they are the fallback if a Store update ever goes wrong. Those builds are unsigned, so Windows still warns on first run.
+  - The **Show in right-click menu** setting is hidden on a Store install, along with the Windows section of Settings that contains it. A packaged app's registry writes land in a private view that File Explorer never reads, so the entry could be written but would never appear. The GitHub build still offers it.
+  - Both builds keep their settings in the same place, so switching between them, or between the desktop app and the `floe` CLI, keeps your server address and preferences.
+  - Desktop releases carry their own `desktop-vX.Y.Z` numbers, separate from the `vX.Y.Z` tags that release the CLI and the server. The two lines never need to match.
+  - No transfer-protocol change, so Floe Desktop 0.2.0 transfers with browser and CLI peers in every direction.
+</Update>
+
+<Update label="desktop-v0.1.0" description="2026-08-01" tags={["Desktop"]}>
+  **Floe Desktop, the first beta**
+
+  - A native Windows app, and the third way to use Floe alongside the web app and the CLI. It runs the same transfer engine as the CLI, so it sends to and receives from browser peers and CLI peers with no extra setup. See [Floe Desktop](/desktop/installation).
+  - Send files, whole folders without zipping, or a typed note. Add them with the picker, by dropping them anywhere on the window, or with `Ctrl` `V` for files copied in File Explorer and for screenshots straight off the clipboard.
+  - Receive with a room code or a share link, choose where files land, then open the file or reveal it in File Explorer. Nothing is ever overwritten, and received files are tagged as downloads so Windows applies its usual caution.
+  - A local history of the last 50 transfers, a Windows notification when one finishes, and the machine is kept awake while a transfer is connected.
+  - Settings cover the save folder, a **Hide my IP** mode that routes everything through the relay, the global-stats opt-out, the File Explorer **Send with Floe** entry, and a self-hosted server address with a **Test** button that checks the three endpoints a transfer actually needs.
+  - The installer is per user, so there is no administrator prompt, and uninstalling leaves your settings and history in place.
+  - Relayed transfers are capped at 2 GB per session, the same rule the web app and the CLI already apply. Direct transfers have no limit.
+  - No transfer-protocol change, so Floe Desktop 0.1.0 transfers with browser and CLI peers in every direction.
+</Update>
+
+<Update label="v1.9.1" description="2026-07-30" tags={["Self-hosting"]}>
+  **A self-hosting image fix. The CLI is unchanged.**
+
+  - Fixed the self-hosted web client re-encoding every image on every request instead of caching it. `/app/.next` was owned by `root` while the server runs as `node`, so the image cache could never be written. Pages rendered correctly throughout, which is why it went unnoticed: the only symptoms were wasted CPU on every request and an `EACCES` unhandled rejection in the container logs each time. This affects `1.9.0`, and `latest` as it stood before this release.
+  - To pick it up: `docker compose pull` then `docker compose up -d`. If you pinned `FLOE_IMAGE_TAG=1.9.0`, move to `1.9.1`.
+  - `docker-compose.yml` now defaults to the `latest` release rather than `main`, so a fresh install tracks releases instead of every merged commit. This could not ship in v1.9.0 itself: `latest` is created by the release, so a compose file inside that release could not have pointed at it. Set `FLOE_IMAGE_TAG=main` if you prefer to stay on `main`.
+  - **The CLI is identical to v1.9.0.** It is republished only because the CLI and the container images share one version number, so a `floe` upgrade offered by Homebrew, Scoop, or winget changes nothing for you. There is no need to update it.
+  - The smoke test that every image must pass before a tag points at it now asserts that a repeat image request is served from cache. The existing checks all passed while this was broken, since the response stayed a valid WebP with a 200 status, so nothing in it revealed the problem.
+  - No transfer-protocol change, so v1.9.1 interoperates with older CLI and browser peers in every direction.
+</Update>
+
+<Update label="v1.9.0" description="2026-07-30" tags={["Self-hosting", "CLI"]}>
+  **Self-hosting without a clone, on any common hardware**
+
+  - Prebuilt images are published to `ghcr.io/jannskiee/floe-server` and `ghcr.io/jannskiee/floe-client`, and `docker-compose.yml` pulls them. A working instance is two commands: download the compose file, then `docker compose up -d`. No repository, no Node, no Go, nothing compiled locally. See [Container Images](/self-hosting/images).
+  - Both images are published for **`linux/amd64` and `linux/arm64`**, so Raspberry Pi, Oracle Ampere, AWS Graviton, and Apple silicon run exactly the same two commands. Docker selects the right architecture automatically.
+  - A `.env` file is genuinely optional. Every setting has a working default.
+  - Pin a version with `FLOE_IMAGE_TAG`, or pin a digest for a build that can never move.
+  - Each architecture is built and smoke-tested on its own hardware, and a tag is published only after every architecture of both images passes, so a partly-built release is never visible. That matters because the image optimiser fails silently: when it cannot load it serves the original file rather than erroring, so a broken image would look healthy to anything that only checks whether the page loads.
+  - The published client no longer emits canonical links, Open Graph images, or sitemap entries pointing at `floe.one`. A shared image cannot know which domain it will be served from, so it claims nothing rather than advertising somebody else's site. To use your own domain, build the client with `NEXT_PUBLIC_SITE_URL` set.
+  - Contributors build from source with `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
+  - Both images move to **Node 24**, the Active LTS. The server was on Node 20, a Maintenance release.
+  - CLI: `floe version` and the help text now point at `floe.one/docs` rather than the retired `docs.floe.one`, and the WebRTC stack moves to pion 4.2.18.
+  - 32-bit ARM (`linux/arm/v7`) is not published: Node dropped support for it and no prebuilt image-processing binaries exist.
+  - No transfer-protocol change, so v1.9.0 interoperates with older CLI and browser peers in every direction.
+</Update>
+
+<Update label="v1.8.0" description="2026-07-23" tags={["CLI"]}>
+  **The 2 GB relay cap now applies to the CLI, plus honest receiver errors**
+
+  - `floe send` now enforces the same 2 GB relay session cap as the web app. Once the connection is established, the sender checks the selected route: if it runs through the TURN relay and the queued files total more than 2 GB, the transfer is blocked before any data moves, with a clear error. Direct connections keep no size limit, and a connection whose path cannot be determined is never blocked. See [The 2 GB Relay Limit](/how-it-works/2gb-limit).
+  - Fixed the receiver treating a sender that disconnected before the first file as a successful transfer: `floe receive` exited silently as if nothing was expected, and a multi-file batch interrupted between files was reported as complete. Both cases now end with a clear error describing what actually arrived.
+  - CLI errors no longer print the full usage reference after the message. A failed transfer or an expired code now shows the one-line error alone.
+  - No transfer-protocol change, so v1.8.0 interoperates with older CLI and browser peers in every direction.
+</Update>
+
+<Update label="v1.7.6" description="2026-07-21" tags={["CLI", "Web"]}>
+  **Stalled transfers now fail fast with clear errors**
+
+  - Fixed transfers freezing forever when the connection silently broke right after setup. The receiver now reports "connected, but no data arrived from the sender" within 30 seconds if the transfer never starts, and "transfer stalled" with exact byte progress if data stops flowing mid-file for a full minute, instead of sitting on a frozen progress bar until you press Ctrl+C. These stalls are rare, but when one happened there was no way to tell it apart from a slow transfer.
+  - Fixed `floe send` waiting up to two minutes after the receiver declined the transfer or exited. It now reports "connection closed while waiting for the receiver" in about a second.
+  - Web app: the share link now appears only once the server has confirmed your room. This closes a rare race where a receiver that followed the link extremely quickly could be mistaken for the sender and fail with a role error.
+  - Updated the CLI's WebRTC stack (Pion) to the current releases.
+  - No transfer-protocol change, so v1.7.6 interoperates with older CLI and browser peers in every direction.
+</Update>
+
+<Update label="v1.7.5" description="2026-07-10" tags={["CLI", "Web"]}>
   **Accurate progress on slow connections, and a CLI relay fix**
 
   - Fixed the sender's progress running far ahead of the receiver. The sender counted bytes handed to the connection's send buffer rather than bytes that actually reached the other side, so on slower or relayed connections its bar raced ahead by up to 8 MB, froze for up to a minute while the buffer drained, moved to the next file before the receiver finished the previous one, and showed "All Files Sent!" while the receiver was still downloading. The sender now reports delivered bytes: both sides move together at the real network speed, the file counter stays in step, and completion means the receiver has everything.
@@ -13,7 +156,7 @@ description: "Release history for Floe."
   - No transfer-protocol change, so v1.7.5 interoperates with older CLI and browser peers in every direction.
 </Update>
 
-<Update label="v1.7.4" description="2026-07-10">
+<Update label="v1.7.4" description="2026-07-10" tags={["CLI", "Web", "Self-hosting"]}>
   **Faster connection setup**
 
   - Fixed connections taking 20 to 30 seconds to establish on machines running VPN or virtual machine software (Tailscale, VMware, WSL, Hyper-V). Two causes were addressed: the signaling server handed every client a redundant list of eight relay endpoints where three suffice, and the CLI probed dead auto-configuration network interfaces during setup. The server-side fix is already live and speeds up all existing versions, browser included; this release adds the CLI-side hardening so connections stay fast against any server, including self-hosted ones.
@@ -22,7 +165,7 @@ description: "Release history for Floe."
   - No transfer-protocol change, so v1.7.4 interoperates with older CLI and browser peers in every direction.
 </Update>
 
-<Update label="v1.7.3" description="2026-07-09">
+<Update label="v1.7.3" description="2026-07-09" tags={["CLI", "Web"]}>
   **Faster CLI transfers, and a browser-to-CLI reliability fix**
 
   - `floe send` now sends file data in larger blocks, sized to what the connection negotiates (up to 256 KB) rather than a fixed 16 KB. On fast paths such as a local network or a direct connection, this removes most of the per-block overhead and noticeably increases throughput. Relayed or slower connections are unaffected, since their speed is set by the link rather than the block size.
@@ -30,7 +173,7 @@ description: "Release history for Floe."
   - No transfer-protocol change, so v1.7.3 interoperates with older CLI and browser peers in every direction.
 </Update>
 
-<Update label="v1.7.2" description="2026-06-30">
+<Update label="v1.7.2" description="2026-06-30" tags={["CLI"]}>
   **CLI: share links keep the room secret in the URL fragment**
 
   - `floe send` now prints a `https://floe.one/#room=<id>` link. The room id sits in the URL fragment (after the `#`), which a browser never sends to the web server, never puts in the `Referer` header, and never exposes to pageview analytics. Previously it was a `?room=` query parameter that could reach those places when a recipient opened the link in a browser. This brings the CLI in line with the web app.
@@ -38,7 +181,7 @@ description: "Release history for Floe."
   - No transfer-protocol change, so v1.7.2 interoperates with older CLI and browser peers in every direction.
 </Update>
 
-<Update label="v1.7.1" description="2026-06-22">
+<Update label="v1.7.1" description="2026-06-22" tags={["CLI"]}>
   **Reliable global-counter reporting for the CLI**
 
   - Fixed CLI transfers not always being counted in the global homepage counter. The receiver's byte-count report was sent in the background and could be cut short when the sender closed the connection and the process exited, so larger transfers (several GB and up) were frequently missed and smaller ones counted only intermittently.
@@ -46,7 +189,7 @@ description: "Release history for Floe."
   - Browser transfers were never affected by this issue.
 </Update>
 
-<Update label="v1.7.0" description="2026-06-22">
+<Update label="v1.7.0" description="2026-06-22" tags={["Web", "CLI", "Self-hosting"]}>
   **Global transfer counter with opt-out**
 
   - Added a public, all-time counter of total bytes transferred across every Floe user, shown on the homepage with a rolling-number animation. The number rolls up from zero on each visit and ticks higher as transfers complete worldwide.
@@ -56,7 +199,7 @@ description: "Release history for Floe."
   - Self-hosters can opt in by pointing the server at a free [Upstash Redis](https://upstash.com) database (`UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`). Without it, the counter still works but resets on restart. See [Configuration](/self-hosting/configuration).
 </Update>
 
-<Update label="v1.6.0" description="2026-06-22">
+<Update label="v1.6.0" description="2026-06-22" tags={["CLI", "Web"]}>
   **Protocol version negotiation**
 
   - Added a wire protocol version that the sender and receiver exchange when a transfer starts. It is separate from the release version (1.6.x), so peers on different releases still transfer normally. A patch or minor difference such as v1.5.4 and v1.5.5 is never a conflict and is never blocked.
@@ -64,58 +207,59 @@ description: "Release history for Floe."
   - Works in every direction: CLI-to-CLI, browser-to-CLI, and CLI-to-browser. Older peers that predate this change are treated as the baseline protocol and stay fully compatible.
 </Update>
 
-<Update label="v1.5.5" description="2026-06-21">
+<Update label="v1.5.5" description="2026-06-21" tags={["CLI"]}>
   **`floe update` permission fix**
 
   - Fixed `floe update` failing with "permission denied" when floe is installed in a root-owned directory such as `/usr/local/bin` on Linux and macOS. The updater now downloads and extracts as the current user, installs directly when the location is user-writable (for example `~/.local/bin`), and automatically requests sudo only for the final atomic swap when it is not. To upgrade from an older version one time, run `sudo floe update`; after that plain `floe update` works.
 </Update>
 
-<Update label="v1.5.4" description="2026-06-21">
+<Update label="v1.5.4" description="2026-06-21" tags={["CLI"]}>
   **CLI progress bar fix**
 
   - Fixed the transfer progress bar printing a new line for every percentage on narrow or Windows terminals. The bar now sizes itself to the terminal width so the line never wraps, and it updates in place on a single line per file.
 </Update>
 
-<Update label="v1.5.3" description="2026-06-21">
+<Update label="v1.5.3" description="2026-06-21" tags={["CLI"]}>
   **Installer and self-update download fix**
 
   - Fixed a 404 when installing or updating floe. The install scripts (`install.sh`, `install.ps1`) and the built-in `floe update` requested the release archive with a leading "v" in the version (for example `floe_v1.5.2_linux_arm64.tar.gz`), but the published asset name omits it (`floe_1.5.2_linux_arm64.tar.gz`). All download paths now use the correct filename. This affected every platform and architecture, including Raspberry Pi (linux/arm64).
 </Update>
 
-<Update label="v1.5.2" description="2026-06-17">
+<Update label="v1.5.2" description="2026-06-17" tags={["CLI"]}>
   **CLI stability fix**
 
   - Fixed a rare concurrent-write panic in the CLI signaling client. Rapid ICE candidate negotiation could trigger simultaneous WebSocket writes from separate goroutines; all writes are now serialized.
 </Update>
 
-<Update label="v1.5.1" description="2026-06-17">
+<Update label="v1.5.1" description="2026-06-17" tags={["CLI"]}>
   **CLI output improvement**
 
   - The `Sending` summary line (file name and total size) now appears above the sharing box, so you can see what is being sent before the peer connects.
 </Update>
 
-<Update label="v1.5.0" description="2026-06-17">
+<Update label="v1.5.0" description="2026-06-17" tags={["CLI"]}>
   **File summary on both sides**
 
   - Both the sender and the receiver now see a file count and total size before and after the transfer. Example: `Sending   3 files · 11.8 MB` on the sender side and `Incoming   3 files · 11.8 MB` on the receiver side.
 </Update>
 
-<Update label="v1.4.0" description="2026-06-17">
+<Update label="v1.4.0" description="2026-06-17" tags={["CLI"]}>
   **CLI-to-CLI transfer fix**
 
   - Fixed an error reported by the CLI sender after a successful CLI-to-CLI transfer. The transfer completed correctly but the sender exited with an error code. It now exits cleanly.
 </Update>
 
-<Update label="v1.3.0" description="2026-06-17">
+<Update label="v1.3.0" description="2026-06-17" tags={["CLI", "Web", "Self-hosting"]}>
   **One-command install and self-update**
 
   - `floe update` now works on all platforms (script installs, manual installs). It downloads, verifies, and replaces the running binary in one step.
   - Re-running the install script (`curl -fsSL https://floe.one/install.sh | sh` or `irm https://floe.one/install.ps1 | iex`) also upgrades an existing install in place.
   - If floe was installed via Homebrew, Scoop, or Winget, `floe update` detects this and prints the correct package manager command instead.
+  - Fixed a browser receiver bug where a `Buffer` view was retained across chunk boundaries instead of being copied, which could corrupt received data.
   - Security: updated `ws`, `esbuild`, and `postcss` transitive dependencies to address published advisories.
 </Update>
 
-<Update label="v1.2.0" description="2026-06-16">
+<Update label="v1.2.0" description="2026-06-16" tags={["CLI"]}>
   **Rich transfer summary**
 
   - At the end of each transfer, the CLI now prints a boxed summary with the total data transferred, elapsed time, and average speed. Example:
@@ -130,11 +274,10 @@ description: "Release history for Floe."
   - The receiver summary also includes the `Saved to` path.
 </Update>
 
-<Update label="v1.1.0" description="2026-06-16">
+<Update label="v1.1.0" description="2026-06-16" tags={["CLI", "Web"]}>
   **Transfer reliability and browser fixes**
 
   - Fixed several CLI transfer sync bugs that could cause stalled or incomplete transfers, especially in CLI-to-CLI sessions. Added cross-implementation loopback tests to prevent regressions.
-  - Fixed a browser receiver bug where a `Buffer` view was retained across chunk boundaries instead of being copied, which could corrupt received data.
   - Fixed an issue where the in-app browser detection could steal the receiver slot from a legitimate peer, preventing the transfer from starting.
   - Fixed duplicate WebRTC signal handling that could break transfers after a reconnect.
   - Redesigned the in-app browser warning page for clarity.
@@ -142,7 +285,7 @@ description: "Release history for Floe."
   - Performance: improved browser-to-browser transfer throughput with better backpressure tuning.
 </Update>
 
-<Update label="v1.0.0" description="2026-06-14">
+<Update label="v1.0.0" description="2026-06-14" tags={["Web", "CLI", "Self-hosting"]}>
   **Initial public release**
 
   - Browser-based peer-to-peer file transfer at [floe.one](https://floe.one). No account, no installation, no file storage.

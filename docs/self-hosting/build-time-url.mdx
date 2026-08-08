@@ -1,33 +1,73 @@
 ---
-title: "Configure the Socket URL"
-description: "Configure the Floe signaling URL at build time for source builds or at container startup for published images and Unraid."
+title: "How the Client Finds the Signaling Server"
+description: "How a self-hosted Floe web client resolves its signaling server address at runtime with SOCKET_URL, and when a rebuild is still required."
 ---
 
-Next.js inlines `NEXT_PUBLIC_*` variables into the JavaScript bundle **at build time**, not at runtime. `NEXT_PUBLIC_SOCKET_URL` is therefore baked into the client image when it is built. Setting or changing it in a running container has no effect.
+The browser needs to know where your signaling server is. It works that out when the
+page loads, so changing the address takes effect on a restart with no image rebuild.
 
-Published Floe images also support runtime configuration. Set `FLOE_SOCKET_URL`
-on the client container to a complete public signaling origin. If it is empty,
-the client combines the hostname opened in the browser with
-`FLOE_SOCKET_PORT` (default `3001`). This is how one published image can run on
-different Docker and Unraid hosts.
+## Resolution order
 
-## After changing the URL, rebuild the client
+The first match wins.
+
+| Order | Source | When it applies |
+|-------|--------|-----------------|
+| 1 | `NEXT_PUBLIC_SOCKET_URL` baked in at build time | Only if you deliberately built an image with a URL compiled in. Empty in the published image. |
+| 2 | `http://localhost:3001` | Development builds only (`pnpm dev`). |
+| 3 | `SOCKET_URL` on the running client container, served from `GET /api/config` | The normal path for a self-hosted instance. |
+| 4 | The page's own origin | When `SOCKET_URL` is empty, which is what you want [behind one domain](/self-hosting/reverse-proxy). |
+
+<Warning>
+  `GET /api/config` is served by the **client**, not the signaling server. If
+  both sit behind one reverse proxy, do not route all of `/api/` to the server,
+  or step 3 always returns 404 and any `SOCKET_URL` you set is silently
+  discarded in favor of step 4. With an empty `SOCKET_URL` step 4 is the answer
+  you wanted anyway, so the mistake stays invisible until the day you set one.
+  See [Run Floe Behind One Domain](/self-hosting/reverse-proxy) for the
+  exact-path rule that keeps `/api/config` on the client.
+</Warning>
+
+## Changing the address
+
+Set it in `.env` and recreate the container. No rebuild:
 
 ```bash
-docker compose build client
 docker compose up -d
 ```
 
-<Warning>
-  Rebuilding is required only when using the build-time
-  `NEXT_PUBLIC_SOCKET_URL`. Restart the container after changing
-  `FLOE_SOCKET_URL` or `FLOE_SOCKET_PORT`.
-</Warning>
+Docker Compose maps your `NEXT_PUBLIC_SOCKET_URL` value to the container's
+`SOCKET_URL`, so the variable name in `.env` has not changed.
 
-## The URL must be reachable by end-users' browsers
+<Note>
+  Leave the value **empty** when the client and the signaling server share one
+  origin behind a reverse proxy. The browser then talks to whatever host it was
+  loaded from, so there is nothing to configure and nothing to keep in sync.
+</Note>
 
-`NEXT_PUBLIC_SOCKET_URL` is evaluated in the **browser**, not on the server. `http://localhost:3001` only works when the browser runs on the same machine as the server. For any other setup, use the server's LAN IP or public domain (e.g. `https://api.your-domain.com`).
+## The address is used by the browser, not the server
 
-The same browser reachability rule applies to `FLOE_SOCKET_URL`. For direct LAN
-access you can usually leave it empty and set only `FLOE_SOCKET_PORT`. For HTTPS,
-a reverse proxy, or a different server hostname, set the complete URL explicitly.
+Whatever you set has to be reachable **from your users' browsers**, not from inside
+the container. `http://localhost:3001` only works when the browser runs on the same
+machine as the server. For anything else use the server's LAN IP or public domain.
+
+## What is still build-time
+
+`NEXT_PUBLIC_SITE_URL` is genuinely build-time. It feeds canonical links, Open
+Graph tags, and the sitemap, which are rendered into the page rather than fetched.
+
+That is the one value a shared image cannot carry, because it would have to know
+which domain it will be served from before anyone downloads it. So the published
+image **omits** those tags rather than pointing them at floe.one, which would mean
+every self-hosted instance advertising somebody else's site as its canonical.
+
+To put your own domain in them, build the client yourself:
+
+```bash
+NEXT_PUBLIC_SITE_URL=https://files.example.com \
+  docker compose -f docker-compose.yml -f docker-compose.build.yml build client
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d
+```
+
+This affects only SEO and link previews. Transfers, signaling, and the relay are
+unaffected, and all of those are configured at runtime. See
+[Container Images](/self-hosting/images).

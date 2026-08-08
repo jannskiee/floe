@@ -1,7 +1,13 @@
 // Load server/.env into process.env for direct (non-Docker) runs. dotenv does not
 // override variables already set in the environment, so Docker/platform-injected
-// values take precedence and containers without a .env file are unaffected.
-require('dotenv').config();
+// values take precedence.
+//
+// quiet is explicit because dotenv 17 flipped its default to false. Without it,
+// every start prints "injected env (N) from .env" followed by a rotating
+// advertisement for the maintainer's paid product. That line is emitted even when
+// no .env exists, which is exactly the case in our containers, so it would be the
+// first thing in every self-hoster's logs and in every crash-loop iteration.
+require('dotenv').config({ quiet: true });
 
 const express = require('express');
 const http = require('http');
@@ -17,7 +23,6 @@ const crypto = require('crypto');
 
 const app = express();
 app.use(helmet());
-app.use(express.json());
 
 // Trust N proxy hops so req.ip resolves to the real client IP.
 // Set TRUSTED_PROXY_COUNT=0 for direct exposure, 1 (default) behind one proxy (Render/Fly/Vercel).
@@ -53,6 +58,12 @@ app.use(
         credentials: true,
     })
 );
+
+// After cors on purpose. A malformed body makes this middleware throw, and the
+// error short-circuits straight to the error handler; if cors ran later, that
+// response would carry no Access-Control-Allow-Origin and the browser would
+// surface a readable 400 as an opaque CORS failure instead.
+app.use(express.json());
 
 app.get('/', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 app.get('/health', (_req, res) => res.json({ status: 'healthy', uptime: process.uptime() }));
@@ -111,6 +122,11 @@ function generateCoturnCredentials() {
     const turnDomain = process.env.TURN_DOMAIN;
     if (!turnSecret || !turnDomain) return null;
 
+    // 24h, matching CF_TURN_TTL below. Do not shorten: every sender fetches ICE
+    // credentials BEFORE its wait for a peer, that wait is intentionally
+    // unbounded (share a link, wait for hours), and no surface ever refreshes
+    // the list. A shorter TTL silently kills relayed transfers for any receiver
+    // who opens the link after the credentials expire.
     const ttl = 24 * 3600;
     const expiry = Math.floor(Date.now() / 1000) + ttl;
     const username = `${expiry}:floeuser`;
@@ -346,6 +362,41 @@ app.post('/api/stats/report', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Error handling
+// ---------------------------------------------------------------------------
+
+/**
+ * Final error handler. Registered last so it catches anything the routes or the
+ * body parser throw.
+ *
+ * Express's built-in handler is not safe to rely on here. It serialises
+ * err.stack into the response body whenever app.get('env') is anything other
+ * than exactly 'production', and it never consults err.expose, so the leak is
+ * not limited to 5xx: a malformed JSON body is enough to return the absolute
+ * path of every frame on the server's filesystem. Getting NODE_ENV right is
+ * necessary but it is a single misconfigured environment variable away from
+ * regressing, and a blank NODE_ENV= reads the same as unset.
+ *
+ * So the response never depends on the environment: always JSON (every client
+ * in this repo calls resp.json()), always a generic message. The stack still
+ * goes to the process log, which is the only place it is useful.
+ */
+function errorHandler(err, _req, res, _next) {
+    const raw = err && err.status;
+    const status = Number.isInteger(raw) && raw >= 400 && raw < 600 ? raw : 500;
+
+    console.error(err && err.stack ? err.stack : err);
+
+    // Headers already flushed means a route failed mid-response; anything we
+    // write now would corrupt it.
+    if (res.headersSent) return;
+
+    res.status(status).json({ error: status < 500 ? 'Bad request' : 'Internal server error' });
+}
+
+app.use(errorHandler);
+
+// ---------------------------------------------------------------------------
 // Rate limiting (Socket.IO connections + WebSocket connections share this map)
 // ---------------------------------------------------------------------------
 
@@ -499,15 +550,16 @@ function handleDisconnect(peer) {
     const room = rooms.get(peer.roomId);
     if (!room) return;
 
-    // Notify the other peer in the room
-    room.forEach(p => {
-        if (p.id !== peer.id) {
-            p.send('peer-disconnected', {});
-            p.roomId = null;
-        }
-    });
-
-    rooms.delete(peer.roomId);
+    // Remove only the disconnecting peer (same shape as the leave-old-room
+    // block in handleJoinRoom). The remaining peer keeps its seat and roomId,
+    // so the room survives a one-sided drop: the departed side can rejoin the
+    // same room id after a Socket.IO auto-reconnect, and a stale socket's late
+    // ping-timeout disconnect removes just its own ghost entry instead of
+    // tearing down a room the same user has already rejoined.
+    const remaining = room.filter(p => p.id !== peer.id);
+    remaining.forEach(p => p.send('peer-disconnected', {}));
+    if (remaining.length === 0) rooms.delete(peer.roomId);
+    else rooms.set(peer.roomId, remaining);
     peer.roomId = null;
 }
 
@@ -661,6 +713,7 @@ if (require.main === module) {
 
 // Exported for unit tests — not part of the public API.
 module.exports = {
+    errorHandler,
     getClientIp,
     generateCode,
     checkRateLimit,

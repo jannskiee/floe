@@ -1,6 +1,6 @@
 ---
 title: "Self-Hosted Floe Operations"
-description: "Day-to-day operations for a self-hosted Floe instance: upgrading containers, viewing logs, monitoring transfers, backing up stats, and rotating TURN keys."
+description: "Day-to-day operations for a self-hosted Floe instance: common Compose commands, updating to the latest images, and the health endpoints to point a monitor at."
 ---
 
 ## Common commands
@@ -15,19 +15,36 @@ docker compose restart server           # restart only the signaling server
 ## Update to the latest code
 
 ```bash
-git pull
-docker compose pull && docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
+That pulls the newest [published images](/self-hosting/images) and restarts. Nothing is built locally, so there is no repository to keep in sync.
+
+If you run the optional coturn relay, add its profile to both commands or Compose skips the service entirely, so a new coturn image is never pulled and a stopped relay is never restarted:
+
+```bash
+docker compose --profile turn pull
+docker compose --profile turn up -d
+```
+
+Setting `COMPOSE_PROFILES=turn` in your `.env` applies it to every later `docker compose` command.
+
 <Note>
-  After updating, run `docker compose build client` and `docker compose up -d` if you changed any environment variables. The client image must be rebuilt when `NEXT_PUBLIC_SOCKET_URL` changes. See [Build-Time URL Caveat](/self-hosting/build-time-url).
+  Changing `NEXT_PUBLIC_SOCKET_URL` needs only `docker compose up -d`; the client reads it at runtime. See [How the Client Finds the Signaling Server](/self-hosting/build-time-url). `NEXT_PUBLIC_SITE_URL` is the exception: it is written into the page at build time, so the published image omits those tags entirely rather than pointing them at somebody else's domain. See [Container Images](/self-hosting/images) if you want your own.
 </Note>
 
 ## Health endpoints
 
-The signaling server exposes two health endpoints you can use in load balancers or uptime monitors:
+The signaling server exposes two status endpoints:
 
 | Endpoint | Purpose | Response |
 |----------|---------|---------|
 | `GET /health` | Liveness check | `{ "status": "healthy", "uptime": <seconds> }` |
 | `GET /` | Status and timestamp | `{ "status": "ok", "timestamp": "..." }` |
+
+Point a monitor at `/health`. It is the only one of the two that survives a
+[one-domain deployment](/self-hosting/reverse-proxy), where `/` belongs to the
+web client and returns a page rather than JSON. `GET /` on the signaling server
+is reachable only when you address the server directly, on `:3001` or on its own
+subdomain.

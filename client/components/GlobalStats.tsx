@@ -3,16 +3,16 @@
 import React, { useState, useEffect } from 'react';
 import NumberFlow, { continuous } from '@number-flow/react';
 import { splitBytes } from '@/lib/utils';
-import { getSocketUrl } from '@/lib/runtimeConfig';
+import { resolveSocketUrl } from '@/lib/socketUrl';
 
 export function GlobalStats() {
     const [totalBytes, setTotalBytes] = useState<number | null>(null);
 
     useEffect(() => {
-        const socketUrl = getSocketUrl();
-
         const fetchStats = async () => {
             try {
+                // Cached after the first call, so the 10s poll costs nothing extra.
+                const socketUrl = await resolveSocketUrl();
                 const res = await fetch(`${socketUrl}/api/stats`);
                 if (!res.ok) return;
                 const { totalBytes: raw } = await res.json();

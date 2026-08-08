@@ -1,20 +1,40 @@
 ---
 title: "floe version command"
-description: "Print the installed floe CLI version, build metadata, and platform to verify your install and share diagnostic details when reporting an issue."
+description: "Print the installed floe CLI version and the docs link, plus a one-line update hint when a newer release exists, so you can confirm which build you are running."
 ---
 
 ```bash
 floe version
 ```
 
-Prints the current version of the `floe` binary and a link to the documentation.
+Prints the current version of the `floe` binary, a link to the documentation, and an update
+hint when a newer release is available.
 
 ## Output
 
 ```
 floe 1.x.x
-Docs: https://docs.floe.one
+Docs: https://www.floe.one/docs
 ```
+
+When a newer release exists, a third line follows:
+
+```
+Update available: v1.x.x  run `floe update` to upgrade
+```
+
+## The update check
+
+`floe version` is the only command that checks for a newer release on its own. `send` and
+`receive` never do, and `floe update` checks only when you run it. The check asks GitHub for
+the latest release tag (`https://api.github.com/repos/jannskiee/floe/releases/latest`) and
+caches the answer for 24 hours in `floe/update-check.json` inside your user config directory
+(`~/.config` on Linux, `~/Library/Application Support` on macOS, `%AppData%` on Windows).
+Delete that file to force a fresh check. When the cache is cold, the request is abandoned
+after one second, so `floe version` never stalls on a slow network.
+
+Set `FLOE_NO_UPDATE_CHECK=1` to skip the check and the hint entirely. Binaries built from
+source report `floe dev` and never check.
 
 ## Alternatives
 
@@ -26,4 +46,5 @@ floe --version
 floe -v
 ```
 
-These print the version number only, without the docs link.
+These print the same single line as the first line of `floe version` (for example
+`floe 1.x.x`). No docs link, and no update hint.

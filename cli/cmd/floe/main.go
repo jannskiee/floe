@@ -7,6 +7,9 @@
 // By default, the Floe production server is used. For local testing:
 //   floe send photo.jpg --server http://localhost:3001
 //   floe receive olive-tiger-castle --server http://localhost:3001
+//
+// Set FLOE_SERVER to point every command at a self-hosted server without
+// repeating --server (and FLOE_WEB when its web app is on another host).
 package main
 
 import (
@@ -17,12 +20,13 @@ import (
 	"syscall"
 
 	"github.com/google/uuid"
-	"github.com/jannskiee/floe/cli/internal/code"
-	"github.com/jannskiee/floe/cli/internal/ice"
-	"github.com/jannskiee/floe/cli/internal/peer"
+	"github.com/jannskiee/floe/cli/engine/code"
+	"github.com/jannskiee/floe/cli/engine/ice"
+	"github.com/jannskiee/floe/cli/engine/peer"
+	"github.com/jannskiee/floe/cli/engine/serverurl"
+	"github.com/jannskiee/floe/cli/engine/signaling"
+	"github.com/jannskiee/floe/cli/engine/transfer"
 	"github.com/jannskiee/floe/cli/internal/selfupdate"
-	"github.com/jannskiee/floe/cli/internal/signaling"
-	"github.com/jannskiee/floe/cli/internal/transfer"
 	"github.com/spf13/cobra"
 )
 
@@ -45,17 +49,50 @@ var rootCmd = &cobra.Command{
 	Long: `Floe transfers files directly between devices using WebRTC.
 Files are encrypted end-to-end. Nothing is stored on any server.
 
-Documentation: https://docs.floe.one`,
+Documentation: https://www.floe.one/docs`,
+	// Runtime failures (network, blocked transfers, spent codes) are not usage
+	// mistakes: print the error alone instead of dumping the flag reference.
+	SilenceUsage: true,
+
+	// Resolve the server and web origins once, before any subcommand runs, so
+	// every consumer downstream reads an already-normalized value.
+	//
+	// Cobra runs only the CLOSEST PersistentPreRunE in the chain and this repo
+	// does not set EnableTraverseRunHooks, so a subcommand that defines its own
+	// hook would silently disable this one. Do not add one without moving this
+	// logic somewhere both paths reach.
+	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+		// Precedence: an explicit flag beats the environment, which beats the
+		// compiled default. Changed() is load-bearing rather than a string
+		// compare against the default, because --server HAS a non-empty default
+		// and so a compare cannot tell "typed the default" from "typed nothing".
+		// It is also what keeps a stray FLOE_SERVER in a developer or CI shell
+		// from retargeting the e2e suite, whose spawned CLI children inherit the
+		// parent environment.
+		if !cmd.Flags().Changed("server") {
+			if v := os.Getenv("FLOE_SERVER"); v != "" {
+				flagServer = v
+			}
+		}
+		if !cmd.Flags().Changed("web") {
+			if v := os.Getenv("FLOE_WEB"); v != "" {
+				flagWebURL = v
+			}
+		}
+		flagServer = serverurl.Normalize(flagServer)
+		flagWebURL = serverurl.Normalize(flagWebURL)
+		return nil
+	},
 }
 
 func init() {
 	// Persistent flags are available on all subcommands
 	rootCmd.PersistentFlags().StringVar(&flagServer, "server", "https://api.floe.one",
-		"signaling server URL (use http://localhost:3001 for local testing)")
+		"signaling server URL (use http://localhost:3001 for local testing) [env: FLOE_SERVER]")
 	rootCmd.PersistentFlags().BoolVar(&flagNoRelay, "no-relay", false,
 		"disable TURN relay (direct connections only)")
 	rootCmd.PersistentFlags().StringVar(&flagWebURL, "web", "",
-		"web app URL shown in the browser link (auto-detected if not set)")
+		"web app URL shown in the browser link (auto-detected if not set) [env: FLOE_WEB]")
 	rootCmd.PersistentFlags().StringSliceVar(&flagIface, "iface", nil,
 		"restrict WebRTC to network interfaces matching these names (repeatable, e.g. --iface Ethernet); use when a VPN/VM adapter slows connection setup")
 
@@ -149,17 +186,11 @@ func runSend(cmd *cobra.Command, args []string) error {
 
 	// 6. Display sharing info
 	// The "link" is for browser receivers — it must point to the web app,
-	// NOT the API server. Auto-detect the right URL:
+	// NOT the API server. Auto-detect the right URL. The derivation lives in
+	// engine/serverurl so the desktop app builds byte-identical links.
 	webURL := flagWebURL
 	if webURL == "" {
-		switch flagServer {
-		case "https://api.floe.one":
-			webURL = "https://floe.one" // production
-		case "http://localhost:3001":
-			webURL = "http://localhost:3000" // local dev
-		default:
-			webURL = flagServer // self-hosted: same origin
-		}
+		webURL = serverurl.Web(flagServer)
 	}
 	// The room id goes in the URL fragment (#room=) so it never reaches the
 	// web server or its analytics when a browser opens this link.
@@ -287,7 +318,11 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	select {
 	case role := <-sc.Role:
 		if role != "receiver" {
-			return fmt.Errorf("expected receiver role, got %q (are you using the right code?)", role)
+			// The server only ever returns "sender" or "receiver"; a receiver
+			// getting "sender" means it joined an empty room, so nobody is sharing
+			// with this code (codes are single-use: the transfer already finished,
+			// or the sender left).
+			return fmt.Errorf("this code is no longer active; ask for a new one")
 		}
 	case <-sc.RoomFull:
 		return fmt.Errorf("room is full (someone else may already be receiving)")
@@ -326,7 +361,7 @@ var versionCmd = &cobra.Command{
 	Short: "Print the floe version",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Printf("floe %s\n", version)
-		fmt.Println("Docs: https://docs.floe.one")
+		fmt.Println("Docs: https://www.floe.one/docs")
 		if latest := selfupdate.CheckAvailable(version); latest != "" {
 			fmt.Printf("Update available: %s  run `floe update` to upgrade\n", latest)
 		}
