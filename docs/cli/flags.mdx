@@ -44,7 +44,7 @@ floe send photo.jpg
 
 Trailing slashes are trimmed, so `https://floe.example.com/` and `https://floe.example.com` behave the same.
 
-Set `FLOE_WEB` only when your web app runs on a different host than your signaling server. Leave it unset and share links point at the same host as your server, which is what you want when one domain serves both. The only exceptions are Floe's own deployment and the local dev pair, which are special-cased to their web hosts as described under `--web` above.
+Set `FLOE_WEB` only when your web app runs on a different host from your signaling server. Leave it unset and share links point at the same host as your server, which is what you want when one domain serves both. The only exceptions are Floe's own deployment and the local dev pair, which are special-cased to their web hosts as described under `--web` above.
 
 ## `floe receive` flags
 
