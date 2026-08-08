@@ -242,8 +242,8 @@ binary.
       (see commit b5bc70e). The generated GitHub release body is boilerplate and
       carries no account of what changed, and /download's "Release notes" link
       points at the docs changelog, so skipping this leaves that link empty.
-      Tag the entry `["Floe Desktop"]`; the full contract for labels, dates and
-      tag values is the MDX comment at the top of `docs/changelog.mdx`.
+      Tag the entry `["Desktop"]`; the full contract for labels, dates and tag
+      values is the MDX comment at the top of `docs/changelog.mdx`.
       Then paste a plain-text condensation into Partner Center's "What's new in
       this version" (optional, 1500 characters, no markdown). A release with
       nothing a user can see gets no entry, which is the point of writing it by

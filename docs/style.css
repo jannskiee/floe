@@ -9,11 +9,10 @@
    phrase: "CLI Web" read as a product that does not exist, which is what
    prompted this rule.
 
-   The tag vocabulary in docs/changelog.mdx was chosen to survive without this
-   (every value opens with a domain, a product name, or a determiner, so it
-   cannot continue the phrase before it). This is the polish, not the fix. If
-   Mintlify changes its markup the separators disappear and the page stays
-   correct, which is the intended failure mode.
+   This rule is the whole fix, so treat it as load-bearing. The tag values are
+   deliberately plain words ("Web", "CLI", "Desktop", "Self-hosting") that
+   match the docs sidebar, and nothing else keeps them apart. If this rule ever
+   stops applying, the gutter goes straight back to "Web CLI Self-hosting".
 
    The selector is NOT documented by Mintlify, which explicitly disclaims the
    stability of its styling hooks. Verified against the rendered DOM of
