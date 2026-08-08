@@ -19,9 +19,9 @@
 
 services:
   server:
-    # FLOE_IMAGE_TAG pins a version, for example FLOE_IMAGE_TAG=1.9.1. Deliberately
+    # FLOE_IMAGE_TAG pins a version, for example FLOE_IMAGE_TAG=1.10.0. Deliberately
     # NOT named FLOE_VERSION: that already belongs to the CLI installer and is
-    # documented as v1.9.1, with a leading v that image tags do not carry.
+    # documented as v1.10.0, with a leading v that image tags do not carry.
     image: ghcr.io/jannskiee/floe-server:${FLOE_IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
