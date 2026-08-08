@@ -44,12 +44,18 @@ interface FakeRequest {
 
 interface FakeResponse {
     status: number;
+    ok: boolean;
     body: string;
     clone(): FakeResponse;
 }
 
 function makeResponse(body: string, status = 200): FakeResponse {
-    return { status, body, clone: () => makeResponse(body, status) };
+    return {
+        status,
+        ok: status >= 200 && status < 300,
+        body,
+        clone: () => makeResponse(body, status),
+    };
 }
 
 /**
@@ -256,6 +262,7 @@ describe('URLs the worker must leave alone', () => {
         ['the runtime config endpoint', `${ORIGIN}/api/config`],
         ['a signaling API route', `${ORIGIN}/api/turn-credentials`],
         ['socket.io polling', `${ORIGIN}/socket.io/?EIO=4&transport=polling`],
+        ['socket.io behind a proxy prefix', `${ORIGIN}/app/socket.io/?EIO=4`],
         ['sitemap.xml', `${ORIGIN}/sitemap.xml`],
         ['robots.txt', `${ORIGIN}/robots.txt`],
         ['the web app manifest', `${ORIGIN}/manifest.webmanifest`],
@@ -322,6 +329,22 @@ describe('navigations', () => {
         await flush();
 
         expect(sw.stores.get(current)?.get(`${ORIGIN}/`)).toMatchObject({ body: NETWORK_BODY });
+    });
+
+    it('does not let a bad answer overwrite the offline copy', async () => {
+        // A captive portal answering 200 with its login page, or an edge 5xx
+        // during a deploy, would otherwise become this visitor's offline
+        // fallback until the next cache rename.
+        await dispatchLifecycle(sw, 'install');
+        const current = sw.opened[0];
+        sw.fetchMock.mockResolvedValueOnce(makeResponse('captive portal login', 503));
+
+        await dispatchFetch(sw, `${ORIGIN}/download`, 'navigate')[0];
+        await flush();
+
+        expect(sw.stores.get(current)?.get(`${ORIGIN}/download`)).toMatchObject({
+            body: 'precached /download',
+        });
     });
 
     it('falls back to the precache when the network is gone', async () => {

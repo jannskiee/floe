@@ -75,7 +75,12 @@ self.addEventListener('fetch', (event) => {
     // spelling the server already honours.
     const path = url.pathname.toLowerCase();
 
-    if (path.includes('socket.io')) return;
+    // Match a whole path segment rather than a substring. Still loose enough to
+    // survive a reverse proxy mounting the transport under a prefix, but it no
+    // longer matches an unrelated route that merely contains the letters, and it
+    // clears the CodeQL incomplete-url-substring-sanitization warning this line
+    // has carried since it was written.
+    if (path.split('/').includes('socket.io')) return;
     // Never cache API traffic. /api/config carries the runtime server address, so
     // a cached copy would pin the client to a stale one forever. Behind a
     // one-domain reverse proxy the signaling server's own /api/ routes are
@@ -98,10 +103,18 @@ self.addEventListener('fetch', (event) => {
         event.respondWith(
             fetch(request)
                 .then((response) => {
-                    const responseClone = response.clone();
-                    caches.open(CACHE_NAME).then((cache) => {
-                        cache.put(request, responseClone);
-                    });
+                    // Only refresh the offline copy from an answer worth keeping.
+                    // Without this, a captive portal answering 200 with its login
+                    // page, or an edge 5xx during a deploy, overwrites the
+                    // precached document and becomes this visitor's offline
+                    // fallback until the next cache rename. An opaqueredirect is
+                    // excluded too, since its ok is false.
+                    if (response.ok) {
+                        const responseClone = response.clone();
+                        caches.open(CACHE_NAME).then((cache) => {
+                            cache.put(request, responseClone);
+                        });
+                    }
                     return response;
                 })
                 .catch(() => caches.match(request))
