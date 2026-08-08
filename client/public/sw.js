@@ -65,14 +65,24 @@ self.addEventListener('fetch', (event) => {
 
     if (request.method !== 'GET') return;
     if (url.hostname !== self.location.hostname) return;
-    if (url.pathname.includes('socket.io')) return;
+
+    // Compare paths case-insensitively, because the routing in front of us is.
+    // Measured: /DOCS/changelog and /Docs/changelog both return the docs with a
+    // 200, byte for byte identical to /docs/changelog. A case-sensitive guard
+    // would let those through to the navigate branch and cache them, which is
+    // the exact leak this file exists to close. Every prefix tested below is a
+    // lowercase literal, so lowercasing the path can only widen a match to a
+    // spelling the server already honours.
+    const path = url.pathname.toLowerCase();
+
+    if (path.includes('socket.io')) return;
     // Never cache API traffic. /api/config carries the runtime server address, so
     // a cached copy would pin the client to a stale one forever. Behind a
     // one-domain reverse proxy the signaling server's own /api/ routes are
     // same-origin too. The allowlist at the bottom would exclude these anyway,
     // but the guard stays explicit because lib/socketUrl.ts documents it as a
     // guarantee its callers depend on.
-    if (url.pathname.startsWith('/api/')) return;
+    if (path.startsWith('/api/')) return;
 
     // The docs are a reverse-proxy rewrite, which makes a third-party site
     // same-origin and therefore ours to break. Mintlify ships its own HTML, its
@@ -82,7 +92,7 @@ self.addEventListener('fetch', (event) => {
     // them. The predicate mirrors the two rewrite rules in next.config.mjs
     // exactly, rather than a bare prefix test that would also swallow a future
     // route like /docsomething.
-    if (url.pathname === '/docs' || url.pathname.startsWith('/docs/')) return;
+    if (path === '/docs' || path.startsWith('/docs/')) return;
 
     if (request.mode === 'navigate') {
         event.respondWith(
@@ -109,7 +119,7 @@ self.addEventListener('fetch', (event) => {
     // /_next/image, the ?_rsc= payloads, sitemap.xml, robots.txt, the web app
     // manifest and the hash-suffixed icon routes. All of it goes to the network
     // exactly as it would with no worker registered at all.
-    if (!url.pathname.startsWith('/_next/static/')) return;
+    if (!path.startsWith('/_next/static/')) return;
 
     event.respondWith(
         caches.match(request).then((cachedResponse) => {

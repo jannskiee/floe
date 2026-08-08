@@ -14,9 +14,12 @@ import { fileURLToPath } from 'node:url';
  * top-level consts out of this file.
  *
  * The worker has exactly two outcomes for any request: it calls respondWith and
- * answers from the Cache API, or it returns and lets the browser fetch the URL
- * as if no worker were registered. So "respondWith was never called" is a
- * complete statement of "this URL is not cached", not a proxy for one.
+ * takes the request over, or it returns and lets the browser fetch the URL as if
+ * no worker were registered. Only the first path can ever reach the Cache API,
+ * so "respondWith was never called" is a complete statement of "this URL is not
+ * cached", not a proxy for one. (Taking a request over does not imply answering
+ * from cache: the navigate branch and a /_next/static miss both answer from the
+ * network through respondWith.)
  */
 const SW_SOURCE = readFileSync(
     fileURLToPath(new URL('../public/sw.js', import.meta.url)),
@@ -26,8 +29,11 @@ const SW_SOURCE = readFileSync(
 const ORIGIN = 'https://www.floe.one';
 const NETWORK_BODY = 'from the network';
 
-// The name v4 shipped. An allowlist only reaches an already-installed visitor if
-// the name changed, because activate purges by name and nothing else evicts.
+// The name v4 shipped. The rename is NOT what makes the routing fix take effect:
+// the guards return before any cache read, so a v4 visitor stops being served
+// stale entries the moment v5 activates, whatever the cache is called. The
+// rename is what reclaims those entries from disk, because activate purges by
+// name and nothing else ever evicts.
 const PREVIOUS_CACHE_NAME = 'floe-cache-v4';
 
 interface FakeRequest {
@@ -205,8 +211,9 @@ describe('install', () => {
     });
 
     it('writes to a cache name the previous release did not use', async () => {
-        // Without a rename, an existing visitor keeps every entry the old
-        // denylist wrongly stored, and the fix never reaches the people it is for.
+        // The routing change alone already stops those entries being served.
+        // The rename is what evicts them from disk, since activate purges by
+        // name and nothing else ever does.
         await dispatchLifecycle(sw, 'install');
         expect(sw.opened[0]).not.toBe(PREVIOUS_CACHE_NAME);
     });
@@ -230,6 +237,13 @@ describe('URLs the worker must leave alone', () => {
         // A reverse-proxy rewrite onto a Mintlify deployment we do not version.
         ['a proxied docs page', `${ORIGIN}/docs/changelog`],
         ['the docs index', `${ORIGIN}/docs`],
+        // Measured on the live site: /DOCS/changelog and /Docs/changelog both
+        // return the docs with a 200, byte for byte identical to the lowercase
+        // spelling. The routing in front of the worker is case-insensitive, so
+        // the guard has to be too.
+        ['an all-caps docs path', `${ORIGIN}/DOCS/changelog`],
+        ['a mixed-case docs path', `${ORIGIN}/Docs/changelog`],
+        ['a mixed-case docs index', `${ORIGIN}/Docs`],
         ['a docs RSC payload', `${ORIGIN}/docs/changelog?_rsc=J6c4qteBDi_nDJmH`],
         // Proves the docs guard outranks the /_next/static allowlist. This is
         // Mintlify's build output, and its hashes are not our promise to keep.
@@ -326,6 +340,13 @@ describe('navigations', () => {
         // lands in the cache and only a rename can evict it.
         expect(dispatchFetch(sw, `${ORIGIN}/docs/changelog`, 'navigate')).toHaveLength(0);
         expect(dispatchFetch(sw, `${ORIGIN}/docs`, 'navigate')).toHaveLength(0);
+    });
+
+    it('leaves case-variant docs navigations alone too', () => {
+        // A case-sensitive guard would miss these and the navigate branch would
+        // cache them, which is the leak the whole change exists to close.
+        expect(dispatchFetch(sw, `${ORIGIN}/DOCS/changelog`, 'navigate')).toHaveLength(0);
+        expect(dispatchFetch(sw, `${ORIGIN}/Docs/changelog`, 'navigate')).toHaveLength(0);
     });
 
     it('does not mistake a route that merely starts with the letters docs', () => {
