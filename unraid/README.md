@@ -9,13 +9,14 @@ For direct access on a local network:
 2. Set the server's **Client URL** to the exact client origin that browsers open,
    for example `http://192.168.1.10:3000`.
 3. Give the client a Web UI port (the default is `3000`).
-4. Set the client's **Signaling Server Port** to the server host port.
+4. Set the client's **Signaling Server URL** to `http://<unraid-ip>:<server-port>`,
+   for example `http://192.168.1.10:3001`.
 
-The client derives the signaling URL from the browser hostname and that port. If
-the services are published through HTTPS or separate hostnames, set the client's
-**Signaling Server URL** to the complete public URL instead.
+Publishing both services through a single HTTPS domain? Leave **Signaling Server
+URL** empty and the browser uses the domain it loaded from. On two separate
+hostnames, set it to the full public signaling origin.
 
 The templates use multi-architecture images from GitHub Container Registry and do
 not require application-data volumes. See the
-[Unraid deployment guide](../docs/self-hosting/unraid.mdx) for installation,
+[Unraid deployment guide](https://www.floe.one/docs/self-hosting/unraid) for installation,
 reverse proxy, TURN, and troubleshooting details.
