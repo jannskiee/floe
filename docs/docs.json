@@ -52,15 +52,40 @@
       {
         "header": "Product",
         "items": [
-          { "label": "Floe App", "href": "https://floe.one" },
-          { "label": "How It Works", "href": "https://floe.one/how-it-works" }
+          { "label": "Floe", "href": "https://www.floe.one" },
+          { "label": "Download", "href": "https://www.floe.one/download" },
+          { "label": "How It Works", "href": "https://www.floe.one/how-it-works" }
+        ]
+      },
+      {
+        "header": "Documentation",
+        "items": [
+          { "label": "Quickstart", "href": "https://www.floe.one/docs/quickstart" },
+          { "label": "Web App", "href": "https://www.floe.one/docs/web-app/sending" },
+          { "label": "CLI", "href": "https://www.floe.one/docs/cli/installation" },
+          { "label": "Desktop App", "href": "https://www.floe.one/docs/desktop/installation" },
+          { "label": "Self-Hosting", "href": "https://www.floe.one/docs/self-hosting/overview" },
+          { "label": "FAQ", "href": "https://www.floe.one/docs/faq" },
+          { "label": "Changelog", "href": "https://www.floe.one/docs/changelog" }
+        ]
+      },
+      {
+        "header": "Project",
+        "items": [
+          { "label": "GitHub", "href": "https://github.com/jannskiee/floe" },
+          { "label": "Releases", "href": "https://github.com/jannskiee/floe/releases" },
+          { "label": "Report an Issue", "href": "https://github.com/jannskiee/floe/issues" },
+          { "label": "Contributing", "href": "https://github.com/jannskiee/floe/blob/main/CONTRIBUTING.md" },
+          { "label": "Sponsor", "href": "https://github.com/sponsors/jannskiee" }
         ]
       },
       {
         "header": "Legal",
         "items": [
-          { "label": "Privacy Policy", "href": "https://floe.one/privacy" },
-          { "label": "Terms of Use", "href": "https://floe.one/terms" }
+          { "label": "Privacy Policy", "href": "https://www.floe.one/privacy" },
+          { "label": "Terms of Use", "href": "https://www.floe.one/terms" },
+          { "label": "Security Policy", "href": "https://github.com/jannskiee/floe/security/policy" },
+          { "label": "License (MIT)", "href": "https://github.com/jannskiee/floe/blob/main/LICENSE" }
         ]
       }
     ]

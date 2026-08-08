@@ -31,11 +31,6 @@ export default function TermsOfUse() {
             title="Terms of use"
             updated="Effective date: May 2026"
             toc={toc}
-            footerLinks={[
-                { name: 'Home', href: '/' },
-                { name: 'How it works', href: '/how-it-works' },
-                { name: 'Privacy', href: '/privacy' },
-            ]}
             intro={
                 <LegalCallout label="Disclaimer" tone="caution">
                     <p>

@@ -3,6 +3,9 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Heart } from 'lucide-react';
 
+// The four columns mirror the docs footer in docs/docs.json exactly (same
+// headers, same labels, same destinations), so the two surfaces never drift.
+// Change them together or not at all.
 const columns: {
     label: string;
     links: { name: string; href: string; external?: boolean }[];
@@ -10,27 +13,40 @@ const columns: {
     {
         label: 'Product',
         links: [
+            { name: 'Floe', href: '/' },
             { name: 'Download', href: '/download' },
-            { name: 'How it works', href: '/how-it-works' },
-            { name: 'FAQ', href: '/#faq' },
-            { name: 'Docs', href: 'https://www.floe.one/docs', external: true },
-            { name: 'Changelog', href: 'https://www.floe.one/docs/changelog', external: true },
+            { name: 'How It Works', href: '/how-it-works' },
         ],
     },
     {
-        label: 'CLI',
+        label: 'Documentation',
         links: [
-            { name: 'Installation', href: 'https://www.floe.one/docs/cli/installation', external: true },
-            { name: 'Commands & flags', href: 'https://www.floe.one/docs/cli/flags', external: true },
-            { name: 'Self-hosted server', href: 'https://www.floe.one/docs/cli/self-hosted-server', external: true },
+            { name: 'Quickstart', href: 'https://www.floe.one/docs/quickstart', external: true },
+            { name: 'Web App', href: 'https://www.floe.one/docs/web-app/sending', external: true },
+            { name: 'CLI', href: 'https://www.floe.one/docs/cli/installation', external: true },
+            { name: 'Desktop App', href: 'https://www.floe.one/docs/desktop/installation', external: true },
+            { name: 'Self-Hosting', href: 'https://www.floe.one/docs/self-hosting/overview', external: true },
+            { name: 'FAQ', href: 'https://www.floe.one/docs/faq', external: true },
+            { name: 'Changelog', href: 'https://www.floe.one/docs/changelog', external: true },
         ],
     },
     {
         label: 'Project',
         links: [
             { name: 'GitHub', href: 'https://github.com/jannskiee/floe', external: true },
-            { name: 'Self-hosting', href: 'https://www.floe.one/docs/self-hosting/overview', external: true },
-            { name: 'Security & privacy', href: 'https://www.floe.one/docs/security-privacy', external: true },
+            { name: 'Releases', href: 'https://github.com/jannskiee/floe/releases', external: true },
+            { name: 'Report an Issue', href: 'https://github.com/jannskiee/floe/issues', external: true },
+            { name: 'Contributing', href: 'https://github.com/jannskiee/floe/blob/main/CONTRIBUTING.md', external: true },
+            { name: 'Sponsor', href: 'https://github.com/sponsors/jannskiee', external: true },
+        ],
+    },
+    {
+        label: 'Legal',
+        links: [
+            { name: 'Privacy Policy', href: '/privacy' },
+            { name: 'Terms of Use', href: '/terms' },
+            { name: 'Security Policy', href: 'https://github.com/jannskiee/floe/security/policy', external: true },
+            { name: 'License (MIT)', href: 'https://github.com/jannskiee/floe/blob/main/LICENSE', external: true },
         ],
     },
 ];
@@ -38,10 +54,12 @@ const columns: {
 export function Footer() {
     return (
         <footer className="mt-24 w-full max-w-5xl border-t border-white/[0.06] pt-12 pb-10">
-            {/* lg, not md: at 768 the 12-col split + gap-12 leaves ~112px link
-                columns, NARROWER than the same cells in the sm 3-col layout. */}
+            {/* lg, not md: at 768 the 12-col split + gap-12 would leave ~92px
+                link columns, which cannot hold the one-word DOCUMENTATION
+                header (~114px at 11px mono with 0.2em tracking). Below lg the
+                identity block stacks above a full-width link row instead. */}
             <div className="grid gap-12 lg:grid-cols-12">
-                <div className="lg:col-span-5">
+                <div className="lg:col-span-4">
                     <p className="text-lg font-extrabold tracking-tighter text-white">Floe</p>
                     <p className="mt-3 max-w-xs text-sm leading-relaxed text-zinc-500">
                         Open-source, peer-to-peer file transfer. <span className="whitespace-nowrap">MIT licensed.</span>
@@ -73,7 +91,12 @@ export function Footer() {
                         </a>
                     </div>
                 </div>
-                <div className="grid grid-cols-2 gap-8 sm:grid-cols-3 lg:col-span-7">
+                {/* md, not sm, for the 4-across step: at 640 four tracks are
+                    ~124px, within 10px of the DOCUMENTATION header; from 768
+                    they are 156px+, and at lg the col-span-8 split keeps them
+                    at ~135px or wider. Below md the four columns fall back to
+                    the standard 2x2. */}
+                <div className="grid grid-cols-2 gap-8 md:grid-cols-4 lg:col-span-8">
                     {columns.map((column) => (
                         <div key={column.label}>
                             <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-zinc-600">
@@ -106,16 +129,10 @@ export function Footer() {
                     ))}
                 </div>
             </div>
-            <div className="mt-12 flex flex-col items-center justify-between gap-3 border-t border-white/[0.06] pt-6 text-xs text-zinc-600 sm:flex-row">
+            {/* The Legal column above owns Privacy/Terms now, so the bar keeps
+                only the copyright line. */}
+            <div className="mt-12 border-t border-white/[0.06] pt-6 text-center text-xs text-zinc-600 sm:text-left">
                 <p>&copy; {new Date().getFullYear()} Floe. Built on WebRTC.</p>
-                <div className="flex gap-5">
-                    <Link href="/privacy" className="transition-colors hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-ice">
-                        Privacy
-                    </Link>
-                    <Link href="/terms" className="transition-colors hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-ice">
-                        Terms
-                    </Link>
-                </div>
             </div>
         </footer>
     );

@@ -2,6 +2,7 @@ import React from 'react';
 import type { Metadata } from 'next';
 import { ArrowLeft, Zap, Server, ShieldCheck, BookOpen } from 'lucide-react';
 import Link from 'next/link';
+import { Footer } from '@/components/layout/Footer';
 
 // This page is static prose: no hooks, no state, no event handlers, no browser
 // APIs. It carried 'use client' until 2026-07, which forced the whole body into
@@ -18,8 +19,10 @@ export const metadata: Metadata = {
 
 export default function HowItWorks() {
     return (
-        <div className="min-h-dvh bg-zinc-950 text-zinc-100 font-sans p-6 md:p-12">
-            <div className="max-w-3xl mx-auto space-y-8">
+        // Same centering flex shell as / and /download, so the shared <Footer />
+        // gets identical width math on every page that renders it.
+        <div className="flex min-h-dvh flex-col items-center bg-zinc-950 font-sans text-zinc-100 px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-[max(1.5rem,env(safe-area-inset-left),env(safe-area-inset-right))] sm:pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+            <div className="w-full max-w-3xl space-y-8 pt-6 md:pt-12">
                 <div className="space-y-4">
                     <Link
                         href="/"
@@ -142,15 +145,9 @@ export default function HowItWorks() {
                     </div>
                 </div>
 
-                {/* Footer nav */}
-                <div className="pt-4 border-t border-white/5 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10px] text-zinc-500 uppercase tracking-wide">
-                    <a href="https://www.floe.one/docs" target="_blank" rel="noreferrer" className="whitespace-nowrap hover:text-white transition-colors">Docs</a>
-                    <span>•</span>
-                    <Link href="/privacy" className="whitespace-nowrap hover:text-white transition-colors">Privacy Policy</Link>
-                    <span>•</span>
-                    <Link href="/terms" className="whitespace-nowrap hover:text-white transition-colors">Terms of Use</Link>
-                </div>
             </div>
+
+            <Footer />
         </div>
     );
 }
