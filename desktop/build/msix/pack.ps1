@@ -27,13 +27,16 @@ if (-not (Test-Path $ExePath)) {
     throw "exe not found: $ExePath (run wails build first)"
 }
 
-# makeappx ships with the Windows SDK; take the newest installed kit.
-$makeappx = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\makeappx.exe" -ErrorAction SilentlyContinue |
-    Sort-Object { [version]($_.Directory.Parent.Name) } -Descending |
-    Select-Object -First 1 -ExpandProperty FullName
-if (-not $makeappx) {
-    throw 'makeappx.exe not found under Windows Kits; install the Windows SDK'
+# makeappx and makepri ship with the Windows SDK; take the newest installed kit.
+function Resolve-SdkTool([string]$exe) {
+    $found = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\$exe" -ErrorAction SilentlyContinue |
+        Sort-Object { [version]($_.Directory.Parent.Name) } -Descending |
+        Select-Object -First 1 -ExpandProperty FullName
+    if (-not $found) { throw "$exe not found under Windows Kits; install the Windows SDK" }
+    $found
 }
+$makeappx = Resolve-SdkTool 'makeappx.exe'
+$makepri = Resolve-SdkTool 'makepri.exe'
 
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 $layout = Join-Path $OutDir 'layout'
@@ -46,6 +49,70 @@ $manifest = Get-Content (Join-Path $PSScriptRoot 'AppxManifest.xml') -Raw
 $manifest = $manifest.Replace('__IDENTITY_VERSION__', $identityVersion)
 # BOM-free UTF-8: makeappx accepts either, but keep the layout byte-stable.
 [System.IO.File]::WriteAllText((Join-Path $layout 'AppxManifest.xml'), $manifest, [System.Text.UTF8Encoding]::new($false))
+
+# Without altform-unplated variants Windows paints a solid plate behind the
+# 44x44 logo on the taskbar, Start, search and Alt+Tab. That plate is the
+# reason the Store build shipped with a coloured square around the icon, so
+# refuse to build a package that would reintroduce it. Regenerate with
+# gen-assets.ps1 if this trips.
+$unplated = @(Get-ChildItem (Join-Path $layout 'Assets') -Filter '*_altform-unplated.png' -ErrorAction SilentlyContinue)
+if ($unplated.Count -lt 1) {
+    throw 'no *_altform-unplated.png assets in the layout; run desktop/build/msix/gen-assets.ps1'
+}
+
+# Qualified filenames (scale-*, targetsize-*, altform-*) are inert on their
+# own: makeappx neither writes nor reads a resource index, so without a
+# resources.pri Windows only ever resolves the literal paths in the manifest
+# and every variant above is dead weight. Build the index outside the layout
+# so neither the config nor the .pri gets indexed into itself, then copy only
+# the .pri into the package root (where the Store requires it to live).
+$priConfig = Join-Path $OutDir 'priconfig.xml'
+$priFile = Join-Path $OutDir 'resources.pri'
+# /o overwrites without prompting; MakePri blocks on an interactive
+# "Overwrite? [Y]es" otherwise, which would hang CI rather than fail it.
+# /dq must agree with the manifest's <Resource Language="en-us" />.
+& $makepri createconfig /cf $priConfig /dq en-US /pv 10.0.0 /o
+if ($LASTEXITCODE -ne 0) { throw "makepri createconfig failed with exit code $LASTEXITCODE" }
+
+# createconfig emits <autoResourcePackage> rules that split scale-qualified
+# candidates out into sibling resources.scale-*.pri files, which only mean
+# something inside a bundle's resource packages. Floe ships one flat .msix, so
+# those siblings are never packed and every scale-* asset silently drops out of
+# the index (makepri reports "Scale Qualifiers: 125,150,200,400" while the
+# resources.pri it hands back contains none of them). Drop the packaging block
+# so a single index carries every candidate.
+[xml]$priCfg = Get-Content $priConfig -Raw
+$packagingNode = $priCfg.resources.packaging
+if ($packagingNode) { [void]$priCfg.resources.RemoveChild($packagingNode) }
+$priCfg.Save($priConfig)
+
+# Run against $layout, not the source tree: the resource map is named from the
+# Identity in the manifest sitting at the project root, and a mismatch there
+# fails at install time on the user's machine rather than at certification.
+# No /am (AutoMerge) and no /rm (ReverseMap): both are hard Store
+# certification failures.
+& $makepri new /pr $layout /cf $priConfig /of $priFile /o
+if ($LASTEXITCODE -ne 0) { throw "makepri new failed with exit code $LASTEXITCODE" }
+if (-not (Test-Path $priFile)) { throw "makepri reported success but produced no $priFile" }
+Copy-Item $priFile (Join-Path $layout 'resources.pri')
+
+# makepri exits 0 when it indexes nothing at all, and makeappx will happily
+# pack an empty index. That failure is invisible: the package installs, passes
+# certification, and still draws a plated icon, so the bug would only resurface
+# on a user's taskbar a full certification cycle later. Read the index back and
+# assert the candidates that actually matter are in it.
+$priDump = Join-Path $OutDir 'resources-dump'
+& $makepri dump /if $priFile /of $priDump /o
+if ($LASTEXITCODE -ne 0) { throw "makepri dump failed with exit code $LASTEXITCODE" }
+$dumpFile = Get-ChildItem "$priDump*" -File | Select-Object -First 1
+if (-not $dumpFile) { throw "makepri dump produced no output next to $priDump" }
+$dump = Get-Content $dumpFile.FullName -Raw
+foreach ($needle in @('AlternateForm-UNPLATED', 'AlternateForm-LIGHTUNPLATED', 'Scale-200')) {
+    if ($dump -notmatch [regex]::Escape($needle)) {
+        throw "resources.pri indexes no $needle candidate; the shipped icon would still be plated"
+    }
+}
+Write-Output ("indexed: " + ([regex]::Matches($dump, 'qualifiers=')).Count + " qualified resource candidates")
 
 $msix = Join-Path $OutDir ("FloeDesktop_" + $identityVersion + "_x64.msix")
 if (Test-Path $msix) { Remove-Item $msix -Force }
