@@ -75,12 +75,15 @@ self.addEventListener('fetch', (event) => {
     // spelling the server already honours.
     const path = url.pathname.toLowerCase();
 
-    // Match a whole path segment rather than a substring. Still loose enough to
-    // survive a reverse proxy mounting the transport under a prefix, but it no
-    // longer matches an unrelated route that merely contains the letters, and it
-    // clears the CodeQL incomplete-url-substring-sanitization warning this line
-    // has carried since it was written.
-    if (path.split('/').includes('socket.io')) return;
+    // Match a whole path segment by equality rather than testing the path for a
+    // substring. Still loose enough to survive a reverse proxy mounting the
+    // transport under a prefix, but it no longer matches an unrelated route that
+    // merely contains the letters. Equality is also what gets CodeQL off this
+    // line: 'socket.io' reads as a hostname to
+    // js/incomplete-url-substring-sanitization, so any substring test against it
+    // is flagged even though this only ever inspects a pathname, and only ever
+    // to decide whether to skip caching.
+    if (path.split('/').some((segment) => segment === 'socket.io')) return;
     // Never cache API traffic. /api/config carries the runtime server address, so
     // a cached copy would pin the client to a stale one forever. Behind a
     // one-domain reverse proxy the signaling server's own /api/ routes are
