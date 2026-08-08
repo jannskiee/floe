@@ -630,13 +630,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # Every job in this workflow must be listed here, or its failure is
-    # invisible to branch protection. The one exception is a job still
-    # soaking outside the gate (currently docker-smoke); see CLAUDE.md for
-    # the promotion policy. if: always() is load-bearing and must
+    # invisible to branch protection. Nothing is soaking outside the gate
+    # right now; see CLAUDE.md for the promotion policy a new job follows. if: always() is load-bearing and must
     # never become !cancelled(): without always() a failed or cancelled
     # dependency would skip this job, and GitHub counts a skipped required
     # check as passing.
-    needs: [changes, actionlint, build-and-lint, server, cli, desktop, e2e, back-compat]
+    needs: [changes, actionlint, build-and-lint, server, cli, desktop, e2e, back-compat, docker-smoke]
     if: always()
     steps:
       - name: Report dependency results
