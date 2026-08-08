@@ -42,18 +42,27 @@
   <g clip-path="url(#squircle)">
     <path
       d="M13 2L3 14H12L11 22L21 10H12L13 2Z"
-      transform="translate(248,248) scale(22)"
+      transform="translate(134,134) scale(31.5)"
       fill="#ffffff"
+      stroke="#ffffff"
+      stroke-width="0.5"
+      stroke-linejoin="round"
       opacity="0.18"
       filter="url(#glow)"
     />
   </g>
 
-  <!-- bolt mark -->
+  <!-- bolt mark. The round-joined stroke is what softens every corner, and it
+       is the same construction floe.one uses in client/app/icon.svg, so the
+       desktop icon and the website mark stay identical in proportion:
+       18 path units wide + 0.5 stroke, scaled 31.5, is 61.7% of the squircle. -->
   <path
     d="M13 2L3 14H12L11 22L21 10H12L13 2Z"
-    transform="translate(248,248) scale(22)"
-    fill="#fafafa"
+    transform="translate(134,134) scale(31.5)"
+    fill="#ffffff"
+    stroke="#ffffff"
+    stroke-width="0.5"
+    stroke-linejoin="round"
     filter="url(#shadow)"
   />
 </svg>
