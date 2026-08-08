@@ -157,7 +157,9 @@ ci.yml also has a `workflow_dispatch` trigger: a dispatched run behaves exactly 
 
 ## Writing Style
 
-Do not use em dashes (--) in any markdown files or documentation. Use periods, commas, hyphens, or parentheses instead. In `docs/`, this is enforced deterministically by Vale (`docs/.vale.ini` plus the `docs/styles/Floe/EmDash.yml` rule, surfaced as the Mintlify Grammar linter CI check) and reinforced by the weekly Apply style guide automation.
+Do not use em dashes in any markdown files or documentation. Use periods, commas, hyphens, or parentheses instead. In `docs/`, Vale checks this (`docs/.vale.ini` plus the `docs/styles/Floe/EmDash.yml` rule, surfaced as the Mintlify Grammar linter CI check), reinforced by the weekly Apply style guide automation.
+
+What Vale actually covers is narrower than this rule: it matches the em dash and en dash characters only, in `docs/` only. An ASCII `--` used as a dash is a human-review matter, because a token for it fires on every CLI flag in the docs. Markdown outside `docs/` has no linter at all.
 
 ## Git Conventions
 
