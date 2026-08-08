@@ -71,3 +71,88 @@
   object-fit: cover;
   object-position: left center;
 }
+
+/* Raise the footer links to WCAG AA.
+
+   Mintlify paints footer links at 50% alpha: gray-950/50 in light, white/50 in
+   dark. Composited over the real footer ground (rgb(255,255,255) light,
+   rgb(14,14,16) dark) that lands on rgb(132,132,132) either way, which is
+   3.74:1 in light. AA wants 4.5:1 for body text, so every footer link on every
+   docs page was failing. Dark was already fine at 5.37:1.
+
+   Measured, 0.56 alpha is the exact break-even in light. This uses 0.62 so a
+   future tweak to the background does not silently drop it back under. Both
+   themes are set explicitly rather than only patching light, so the two stay
+   legible together and neither depends on Mintlify's default.
+
+   No !important is needed: `#footer a` is (1,0,1) against Tailwind's single
+   utility class at (0,1,0), and `.dark #footer a` at (1,1,1) beats the light
+   rule in turn. The Mintlify credit link is excluded here and handled below,
+   because it should stay quieter than the navigation. */
+#footer a:not([href*="mintlify.com"]) {
+  color: rgb(10 10 10 / 0.62);
+}
+
+#footer a:not([href*="mintlify.com"]):hover {
+  color: rgb(10 10 10 / 0.85);
+}
+
+.dark #footer a:not([href*="mintlify.com"]) {
+  color: rgb(255 255 255 / 0.62);
+}
+
+.dark #footer a:not([href*="mintlify.com"]):hover {
+  color: rgb(255 255 255 / 0.85);
+}
+
+/* Mintlify's own credit sits at rgb(159,159,159) on white, which is 2.65:1 and
+   under even the 3:1 floor for non-text. It stays deliberately quieter than the
+   link columns, just no longer invisible. */
+#footer a[href*="mintlify.com"] {
+  color: rgb(110 110 110);
+}
+
+.dark #footer a[href*="mintlify.com"] {
+  color: rgb(140 140 140);
+}
+
+/* The social icon is a CSS mask, so its colour comes from background-color, not
+   color. Mintlify sets `bg-gray-500 dark:bg-gray-600`, which runs the wrong
+   way: the dark variant is the darker one, on the darker ground, giving 2.39:1
+   against the 3:1 that WCAG 1.4.11 wants for a meaningful graphic. Light is
+   already 4.95:1 and is left alone. The aria-hidden guard keeps this off the
+   Mintlify wordmark, which is a real svg rather than a mask. */
+.dark #footer a > svg[aria-hidden='true'] {
+  background-color: rgb(140 140 140);
+}
+
+/* Both inactive theme-switch icons also miss 1.4.11, at 2.39:1 in dark and
+   2.65:1 in light. The active button carries a bg-gray-* chip, so excluding
+   that class leaves the selected state exactly as emphasised as before. */
+#footer button:not([class*='bg-gray']) {
+  color: rgb(110 110 110);
+}
+
+.dark #footer button:not([class*='bg-gray']) {
+  color: rgb(140 140 140);
+}
+
+/* Footer links are 20px tall, so a thumb gets a thin target on a phone. This
+   already passes WCAG 2.5.8 through the spacing exception (36px centre to
+   centre against a 24px circle), so the padding is for comfort rather than
+   conformance. It is padding-block only, so nothing reflows sideways and the
+   16px gap between links is untouched. */
+#footer a[rel='noreferrer'] {
+  padding-block: 2px;
+}
+
+/* The social icon is the one footer link Mintlify ships without rel, so the
+   rule above skips it and it stays a 20px box. Centring it in a 24px one
+   squares it up with the text links without moving anything around it. */
+#footer a:has(> svg[aria-hidden='true']) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+}

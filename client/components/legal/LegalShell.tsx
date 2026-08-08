@@ -1,18 +1,19 @@
 import React, { ReactNode } from 'react';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
+import { Footer } from '@/components/layout/Footer';
 
 /**
  * Shared frame for the legal document pages (/privacy, /terms), following the
  * landing design system: mono ice eyebrow, hairline rules, asymmetric 4/8 grid
- * with a sticky on-page nav in the left rail.
+ * with a sticky on-page nav in the left rail. The shared site <Footer /> renders
+ * at the bottom, replacing the private bottom bar this shell used to carry.
  */
 export function LegalShell({
     eyebrow,
     title,
     updated,
     toc,
-    footerLinks,
     intro,
     children,
 }: {
@@ -20,7 +21,6 @@ export function LegalShell({
     title: string;
     updated: string;
     toc: { id: string; label: string }[];
-    footerLinks: { name: string; href: string }[];
     intro?: ReactNode;
     children: ReactNode;
 }) {
@@ -66,20 +66,7 @@ export function LegalShell({
                         <div className={intro ? 'mt-10' : undefined}>{children}</div>
                     </main>
                 </div>
-                <div className="mt-16 flex flex-col items-center justify-between gap-3 border-t border-white/[0.06] pt-6 text-xs text-zinc-600 sm:flex-row">
-                    <p>&copy; {new Date().getFullYear()} Floe. Built on WebRTC.</p>
-                    <div className="flex gap-5">
-                        {footerLinks.map((link) => (
-                            <Link
-                                key={link.name}
-                                href={link.href}
-                                className="transition-colors hover:text-zinc-300"
-                            >
-                                {link.name}
-                            </Link>
-                        ))}
-                    </div>
-                </div>
+                <Footer />
             </div>
         </div>
     );

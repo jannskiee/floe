@@ -35,11 +35,6 @@ export default function PrivacyPolicy() {
             title="Privacy policy"
             updated="Last updated: August 2026"
             toc={toc}
-            footerLinks={[
-                { name: 'Home', href: '/' },
-                { name: 'How it works', href: '/how-it-works' },
-                { name: 'Terms', href: '/terms' },
-            ]}
             intro={
                 <LegalCallout label="The short version" tone="positive">
                     <p>
