@@ -242,10 +242,15 @@ binary.
       (see commit b5bc70e). The generated GitHub release body is boilerplate and
       carries no account of what changed, and /download's "Release notes" link
       points at the docs changelog, so skipping this leaves that link empty.
+      Tag the entry `["Desktop"]`; the full contract for labels, dates and tag
+      values is the MDX comment at the top of `docs/changelog.mdx`.
       Then paste a plain-text condensation into Partner Center's "What's new in
       this version" (optional, 1500 characters, no markdown). A release with
-      nothing user-visible gets no entry, which is the point of writing it by
-      hand: `desktop-v0.2.1` correctly has none.
+      nothing a user can see gets no entry, which is the point of writing it by
+      hand. Judge that by what reaches a user, not by whether code changed:
+      `desktop-v0.2.1` did move the Store tile colour, so it earned the short
+      entry it now has, whereas a release that is only CI or build plumbing
+      earns nothing.
 
 ## Feature roadmap (what makes it best in class)
 
