@@ -1,0 +1,139 @@
+---
+title: "Deploy Floe on Unraid"
+description: "Install the Floe web client and signaling server as two coordinated Unraid containers, with direct LAN, single domain, and two hostname configuration examples."
+---
+
+Floe is published as two containers because the web client and signaling server
+have separate network and security settings. Install both templates for a working
+instance.
+
+Both templates pull the same multi-architecture images the Docker Compose stack
+uses, so amd64 and arm64 Unraid hosts are covered by the same template and nothing
+is built on your server. See [Container Images](/self-hosting/images).
+
+## Before you start
+
+Choose how browsers will open Floe:
+
+- **Direct LAN access:** two host ports on your Unraid IP, for example
+  `http://192.168.1.10:3000` for the client and `http://192.168.1.10:3001` for the
+  signaling server.
+- **One domain behind a reverse proxy:** everything on `https://floe.example.com`.
+  This is the recommended layout for anything reachable outside your LAN.
+- **Two hostnames behind a reverse proxy:** `https://floe.example.com` for the
+  client and `https://floe-api.example.com` for the signaling server.
+
+The exact client origin matters in all three, because the signaling server uses it
+as its CORS allow-list entry.
+
+## Direct LAN installation
+
+<Steps>
+  <Step title="Install Floe-Server">
+    Install the **Floe-Server** template first. Keep **Signaling Port** at `3001`
+    unless that host port is already used.
+
+    Set **Client URL** to the URL that browsers will use for the client. With the
+    default client port, an example is:
+
+    ```text
+    http://192.168.1.10:3000
+    ```
+
+    Keep **Trusted Proxy Count** at `0` for direct access.
+
+  </Step>
+  <Step title="Install Floe-Client">
+    Install the **Floe-Client** template. Keep **Web UI Port** at `3000` unless it
+    conflicts with another container.
+
+    Set **Signaling Server URL** to the full origin browsers use to reach
+    Floe-Server, including the scheme and the host port, with no trailing slash:
+
+    ```text
+    http://192.168.1.10:3001
+    ```
+
+    That value is the container's `SOCKET_URL`. The client hands it to the browser
+    from `GET /api/config` on every page load, so changing it later takes a
+    container restart and never a rebuild. See
+    [How the Client Finds the Signaling Server](/self-hosting/build-time-url).
+
+  </Step>
+  <Step title="Open and test Floe">
+    Open the Floe-Client Web UI. Confirm that the connection indicator is online,
+    then create a link and open it in a second browser or device.
+  </Step>
+</Steps>
+
+<Warning>
+    The two templates hold each other's addresses, so a port change is never a
+    one-sided edit. Change the Floe-Client host port and Floe-Server **Client URL**
+    has to carry the new port. Change the Floe-Server host port and Floe-Client
+    **Signaling Server URL** has to match it. A mismatch looks like a client that
+    loads perfectly and never connects.
+</Warning>
+
+## One domain behind a reverse proxy
+
+Put both containers behind a single hostname and there is no signaling address to
+keep in sync at all. Leave Floe-Client **Signaling Server URL** empty, and the
+browser talks to whatever origin served the page.
+
+1. Proxy `https://floe.example.com` to the Floe-Client host port for everything
+   except the signaling paths.
+2. Proxy `/socket.io/`, `/ws`, `/api/`, and `/health` to the Floe-Server host port.
+3. Proxy `/api/config` back to the **client**, as an exception to the `/api/` rule
+   above.
+4. Set Floe-Server **Client URL** to `https://floe.example.com`.
+5. Set Floe-Server **Trusted Proxy Count** to the number of proxy hops, which is
+   `1` for a single reverse proxy.
+6. Leave Floe-Client **Signaling Server URL** empty.
+
+<Warning>
+    Step 3 is the one people miss. `GET /api/config` is served by the **client**,
+    not the signaling server. Route all of `/api/` to the server and that request
+    returns 404, so any **Signaling Server URL** you set is silently discarded and
+    the browser falls back to its own origin. On this layout that fallback is the
+    answer you wanted anyway, so the mistake stays invisible until the day you set
+    a value and it does nothing.
+</Warning>
+
+Copy-pasteable Caddy and nginx configurations for exactly this routing, including
+the exact-path rule that keeps `/api/config` on the client, are in
+[Run Floe Behind One Domain](/self-hosting/reverse-proxy).
+
+## Two hostnames behind a reverse proxy
+
+Browsers require HTTPS for production use outside your trusted LAN. Proxy the
+client and server separately, and enable WebSocket forwarding for the server.
+
+1. Proxy the client hostname to the Floe-Client host port.
+2. Proxy the signaling hostname to the Floe-Server host port.
+3. Set Floe-Server **Client URL** to the public HTTPS client origin.
+4. Set Floe-Server **Trusted Proxy Count** to the number of proxy hops.
+5. Set Floe-Client **Signaling Server URL** to the complete public HTTPS server
+   origin.
+
+For example:
+
+```text
+Client URL: https://floe.example.com
+Signaling Server URL: https://floe-api.example.com
+Trusted Proxy Count: 1
+```
+
+## TURN relay
+
+The default STUN-only configuration works on many networks. To support peers
+behind strict NAT or CGNAT, expand the advanced Floe-Server settings and add a
+Cloudflare Realtime TURN key. You can also run coturn separately and fill in the
+self-hosted TURN domain and secret. See [TURN Relay](/self-hosting/turn-relay).
+
+## Container updates
+
+Both templates follow the `latest` image tag, which changes only when Floe
+publishes a version tag. Use Unraid's normal container update flow to pull a new
+release. The containers store no files or application settings in volumes, so
+there is no appdata directory to migrate. To pin a specific version or a digest
+instead, see [Container Images](/self-hosting/images).

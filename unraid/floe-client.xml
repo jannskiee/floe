@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>Floe-Client</Name>
+  <Repository>ghcr.io/jannskiee/floe-client:latest</Repository>
+  <Registry>https://github.com/jannskiee/floe/pkgs/container/floe-client</Registry>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/jannskiee/floe/issues</Support>
+  <Project>https://github.com/jannskiee/floe</Project>
+  <Overview>Web client for Floe encrypted peer-to-peer file transfer. Install Floe-Server first, then set that server template's Client URL to this app's exact browser origin.[br][br]Set Signaling Server URL to the full Floe-Server origin that browsers reach, including the scheme and the host port, for example http://192.168.1.10:3001. Leave it empty only when both containers sit behind one domain.</Overview>
+  <Category>Network:Other Productivity:</Category>
+  <WebUI>http://[IP]:[PORT:3000]</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/jannskiee/floe/main/unraid/floe-client.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/jannskiee/floe/main/client/public/icon-512.png</Icon>
+  <Config Name="Web UI Port" Target="3000" Default="3000" Mode="tcp" Description="Port used to open the Floe web client." Type="Port" Display="always" Required="true" Mask="false">3000</Config>
+  <Config Name="Signaling Server URL" Target="SOCKET_URL" Default="http://YOUR-UNRAID-IP:3001" Description="Full origin of Floe-Server as browsers reach it, including the scheme and the host port, and with no trailing slash. For example http://192.168.1.10:3001 or https://floe-api.example.com. Leave this empty only when the client and the signaling server share one domain behind a reverse proxy, in which case the browser uses the origin it loaded from." Type="Variable" Display="always" Required="false" Mask="false">http://YOUR-UNRAID-IP:3001</Config>
+</Container>
