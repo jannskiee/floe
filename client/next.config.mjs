@@ -3,9 +3,18 @@ import { withSentryConfig } from '@sentry/nextjs';
 /** @type {import('next').NextConfig} */
 const nextConfig = {
     // Emit a self-contained production server (.next/standalone) so the Docker
-    // image can run with only the built output — no full node_modules at runtime.
-    // Vercel ignores this flag, so the hosted deploy is unaffected.
-    output: 'standalone',
+    // image can run with only the built output, no full node_modules at runtime.
+    // client/Dockerfile copies .next/standalone and runs its server.js, so this
+    // is load-bearing for the published ghcr.io image.
+    //
+    // Off on Vercel, and that is not an optimisation. Vercel's builder injects a
+    // deployment adapter, and since Next 16.3.0 an adapter suppresses
+    // .next/next-server.js.nft.json (vercel/next.js#93684) while the standalone
+    // copy step still reads it unguarded, so the build dies with ENOENT after
+    // compiling successfully. Vercel ignores the standalone directory anyway.
+    // See vercel/next.js#96646. The previous comment here claimed Vercel ignored
+    // the flag entirely, which was true until 16.3.0 and is what let this ship.
+    output: process.env.VERCEL ? undefined : 'standalone',
 
     // React Strict Mode intentionally double-mounts components in development
     // to surface side-effect bugs. This would create two Socket.io connections
