@@ -45,7 +45,19 @@ jobs:
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
-          version: '~> v2'
+          # Exact version, not a '~> v2' range, for two reasons. A range downloads
+          # whatever 2.x exists when a tag is pushed, and that binary runs in the
+          # step carrying TAP_GITHUB_TOKEN, so a concrete version is the only thing
+          # keeping an unreviewed release out of here. A range also resolves the tag
+          # through goreleaser.com/releases.json, a non-GitHub host whose answer is
+          # concatenated straight into the download URL; an exact semver skips that
+          # lookup entirely. The action checksums the download either way, but
+          # checksums.txt ships from the release it verifies, so it catches a
+          # corrupted download rather than a bad release.
+          # v2.17.1 built v1.10.0, so this changes nothing about today's output.
+          # Dependabot keeps `uses:` refs current but not action inputs, so bump
+          # this line by hand when a release needs a newer GoReleaser.
+          version: 'v2.17.1'
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
