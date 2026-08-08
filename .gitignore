@@ -35,6 +35,9 @@ coturn/turnserver.conf
 # (desktop/.gitignore handles that package's own outputs).
 /dist/
 /build/
+# pack.ps1's default OutDir when invoked from the repo root (how CI runs it);
+# holds an exe copy and an unsigned .msix.
+/dist-msix/
 
 # --- Logs ---
 npm-debug.log*

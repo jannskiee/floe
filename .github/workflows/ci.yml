@@ -256,10 +256,25 @@ jobs:
     name: Desktop (Wails, windows-latest)
     # Windows-only on purpose: the desktop app ships Windows-only for the beta,
     # and the Go code is thick with windows build tags that other runners skip.
+    #
+    # After vet + tests, this job re-runs the release packaging path as a
+    # smoke check: wails build -nsis, an artifact existence/freshness verify,
+    # then pack.ps1 with its MSIX assertions. Packaging used to run only in
+    # the tag-triggered desktop-release.yml, which is how the plated Store
+    # icon (#250) survived every PR and shipped through a full certification
+    # cycle; these steps make packaging breakage a PR-time failure instead.
+    # The steps mirror desktop-release.yml by hand (that workflow stays
+    # untouched on purpose; keep the two in sync), the app builds as version
+    # "dev", and nothing is uploaded or published.
     runs-on: windows-latest
     timeout-minutes: 15
     needs: [changes]
     if: needs.changes.outputs.code == 'true'
+    env:
+      # Wails CLI pin for the packaging smoke below. Must match desktop/go.mod
+      # (asserted in the install step) and desktop-release.yml's install step;
+      # bump all three together.
+      WAILS_VERSION: v2.12.0
 
     steps:
       - name: Checkout
@@ -295,6 +310,83 @@ jobs:
         # -count=1 bypasses Go's test-result cache so stability re-runs always execute
         run: go test -count=1 ./...
         working-directory: desktop
+
+      - name: Install Wails CLI
+        shell: bash
+        # Pinned to the version desktop/go.mod links against; the grep fails
+        # the job if the two drift (the CLI embeds runtime assets that must
+        # match the library, and this repo has eaten one version drift
+        # already, #262). GOWORK=off so `go install` of an external tool is
+        # never influenced by this repo's workspace.
+        run: |
+          grep -q "github.com/wailsapp/wails/v2 ${WAILS_VERSION}\$" desktop/go.mod \
+            || { echo "WAILS_VERSION ${WAILS_VERSION} does not match desktop/go.mod" >&2; exit 1; }
+          GOWORK=off go install "github.com/wailsapp/wails/v2/cmd/wails@${WAILS_VERSION}"
+
+      - name: Install NSIS
+        shell: bash
+        # windows-latest does not ship NSIS. One retry: this puts the
+        # chocolatey CDN on the path of a required check on every code PR,
+        # and a transient failure should cost seconds, not a manual re-run.
+        run: |
+          choco install nsis -y --no-progress \
+            || { echo "choco install failed once; retrying" >&2; sleep 10; choco install nsis -y --no-progress; }
+          # wails build -nsis silently skips the installer when makensis is
+          # missing (it warns and returns success), so resolve it now or fail.
+          export PATH="$PATH:/c/Program Files (x86)/NSIS"
+          command -v makensis || { echo "makensis not resolvable after install" >&2; exit 1; }
+
+      - name: Derive MSIX version
+        id: ver
+        shell: bash
+        # Same derivation as desktop-release.yml's dispatch (dry-run) path, so
+        # a wails.json shape change that would break the release pipeline's
+        # grep goes red here, on the PR, first. The X.Y.Z feeds only pack.ps1's
+        # Identity-version mapping; the in-app version is always "dev" on PRs.
+        run: |
+          version="$(grep -o '"productVersion": *"[^"]*"' desktop/wails.json | grep -o '[0-9.]\+')"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "packing as $version"
+
+      - name: Build app + installer (packaging smoke)
+        working-directory: desktop
+        shell: bash
+        # Mirrors desktop-release.yml's build step. -s skips the frontend
+        # build: the npm ci output from the frontend step above is what gets
+        # embedded, not a second install driven by wails.json.
+        run: |
+          # cygpath: go env prints a Windows path whose drive-letter colon
+          # would split a bash PATH entry.
+          gopath_bin="$(cygpath -u "$(go env GOPATH)")/bin"
+          export PATH="$PATH:/c/Program Files (x86)/NSIS:$gopath_bin"
+          wails build -s -nsis -ldflags "-X main.version=dev"
+
+      - name: Verify build artifacts
+        shell: pwsh
+        # wails build can exit 0 on silent failure; trust nothing it printed.
+        # Existence + freshness only: desktop-release.yml additionally proves
+        # the exe's ProductVersion resource, and that P/Invoke check stays
+        # release-only rather than being duplicated here.
+        run: |
+          $exe = "desktop/build/bin/floe-desktop.exe"
+          $installer = "desktop/build/bin/floe-desktop-amd64-installer.exe"
+          foreach ($f in @($exe, $installer)) {
+            if (-not (Test-Path $f)) { Write-Error "missing artifact: $f"; exit 1 }
+            $age = (Get-Date) - (Get-Item $f).LastWriteTime
+            if ($age.TotalMinutes -gt 30) { Write-Error "stale artifact: $f ($age old)"; exit 1 }
+          }
+          "verified: exe and installer both exist and are fresh"
+
+      - name: Pack MSIX (Store packaging smoke)
+        shell: pwsh
+        # Runs the exact script the release pipeline uses, for its assertions:
+        # pack.ps1 refuses to build a package whose resources.pri would not
+        # index the unplated icon variants (the regression behind the plated
+        # Store icon, #250). The .msix itself is discarded; an unsigned
+        # package has no consumer on a PR, so nothing is uploaded.
+        run: |
+          desktop/build/msix/pack.ps1 -Version "${{ steps.ver.outputs.version }}" `
+            -ExePath desktop/build/bin/floe-desktop.exe -OutDir dist-msix
 
   e2e:
     name: E2E (browser + CLI interop, ${{ matrix.os }})
@@ -552,8 +644,8 @@ jobs:
     # prove that ghcr.io serves what it served yesterday, not that this commit
     # still builds. The published images have their own gate in images.yml.
     #
-    # Deliberately OUTSIDE the ci-green gate's needs list while it soaks, per
-    # the promotion policy in CLAUDE.md. Promote it once it has proven stable.
+    # Started OUTSIDE the ci-green gate per the soak policy in CLAUDE.md and
+    # was promoted into the gate's needs list in #257 after proving stable.
     name: Docker (self-hosting stack)
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -631,10 +723,11 @@ jobs:
     timeout-minutes: 5
     # Every job in this workflow must be listed here, or its failure is
     # invisible to branch protection. Nothing is soaking outside the gate
-    # right now; see CLAUDE.md for the promotion policy a new job follows. if: always() is load-bearing and must
-    # never become !cancelled(): without always() a failed or cancelled
-    # dependency would skip this job, and GitHub counts a skipped required
-    # check as passing.
+    # right now; see CLAUDE.md for the promotion policy a new job follows.
+    #
+    # if: always() is load-bearing and must never become !cancelled():
+    # without always() a failed or cancelled dependency would skip this job,
+    # and GitHub counts a skipped required check as passing.
     needs: [changes, actionlint, build-and-lint, server, cli, desktop, e2e, back-compat, docker-smoke]
     if: always()
     steps:
