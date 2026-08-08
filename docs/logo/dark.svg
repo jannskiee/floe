@@ -1,4 +1,47 @@
-<svg width="120" height="30" viewBox="0 0 120 30" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z" transform="scale(0.9) translate(0, 1)" fill="#09090b" stroke="#09090b" stroke-width="0.5" stroke-linejoin="round"/>
-  <text x="28" y="20" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-weight="700" font-size="18" fill="#09090b">Floe</text>
+<!-- Floe docs lockup: mark, wordmark, separator, section label.
+
+     Used for the light appearance. docs.json maps an appearance to a file, so the
+     filename describes the INK colour, not the mode: light mode gets the dark
+     artwork and vice versa. The bolt and the word "Floe" invert between the two
+     files; "Docs" and the separator stay grey in both.
+
+     THE BOLT IS UNCHANGED. It is the exact path and stroke from
+     client/app/icon.svg, so this logo stays identical to the favicon, the PWA
+     icons and the desktop app icon. Only the lockup around it was rebuilt.
+
+     Metrics come from vercel.com/docs, measured off its rendered DOM rather
+     than eyeballed: an 8px gap between every part (their `gap-2`), an 18px
+     mark, a 16x16 separator box, the section label in Geist SemiBold at -0.03em
+     tracking, everything optically centred on one axis. The separator is not a
+     "/" character. Vercel draws it, and it decodes to a parallelogram of length
+     16.73 and thickness 1.49 whose long axis sits 23.2 degrees off vertical;
+     it is redrawn here from those measurements. Greys are Vercel's own:
+     #a0a0a0 / #878787 on dark, #4d4d4d / #e6e6e6 on light.
+
+     Mintlify renders this at exactly 28px tall and lets the width float, so the
+     file works in real pixels: one viewBox unit is one rendered pixel, and the
+     viewBox is trimmed to the ink. The previous 120x30 file carried ink only to
+     x=65, so it rendered 112px wide with 51px of empty space attached.
+
+     The wordmark is Geist SemiBold converted to outlines, not an SVG <text>
+     node. Mintlify serves this through <img>, and an SVG loaded that way cannot
+     see the page's fonts, so live text resolved against whatever the reader's
+     machine had: SF Pro on macOS, Segoe UI on Windows, DejaVu Sans on Linux,
+     with the advance width drifting about 9% between them.
+
+     Regenerate with scratchpad/lockup3.py.
+-->
+<svg width="135" height="28" viewBox="0 0 135.09 28" xmlns="http://www.w3.org/2000/svg">
+  <g transform="translate(-2.415 3.463) scale(0.8780)">
+  <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z" fill="#09090b" stroke="#09090b" stroke-width="0.5" stroke-linejoin="round"/>
+  </g>
+  <g transform="translate(24.244 7.500)">
+  <path d="M1.46 13.00V0.00H10.16V2.07H2.55L3.85 0.73V6.70L2.55 5.62H9.83V7.67H2.55L3.85 6.59V13.00Z M13.70 13.00Q12.63 13.00 11.99 12.45Q11.35 11.90 11.35 10.69V0.00H13.70V10.45Q13.70 10.82 13.89 11.00Q14.08 11.19 14.43 11.19H15.14V13.00Z M20.34 13.22Q18.90 13.22 17.81 12.59Q16.72 11.96 16.12 10.80Q15.53 9.65 15.53 8.11Q15.53 6.55 16.12 5.41Q16.72 4.27 17.81 3.63Q18.90 3.00 20.34 3.00Q21.79 3.00 22.87 3.63Q23.95 4.27 24.54 5.41Q25.14 6.55 25.14 8.11Q25.14 9.65 24.54 10.80Q23.95 11.96 22.87 12.59Q21.79 13.22 20.34 13.22ZM20.34 11.32Q21.48 11.32 22.09 10.47Q22.70 9.63 22.70 8.11Q22.70 6.61 22.09 5.76Q21.48 4.91 20.34 4.91Q19.21 4.91 18.58 5.76Q17.96 6.61 17.96 8.11Q17.96 9.63 18.58 10.47Q19.21 11.32 20.34 11.32Z M30.63 13.22Q29.17 13.22 28.09 12.59Q27.01 11.96 26.42 10.80Q25.84 9.65 25.84 8.11Q25.84 6.57 26.42 5.43Q27.01 4.28 28.08 3.64Q29.15 3.00 30.58 3.00Q31.97 3.00 33.02 3.63Q34.07 4.25 34.64 5.42Q35.21 6.59 35.21 8.24V8.77H28.27Q28.34 10.05 28.98 10.70Q29.61 11.35 30.65 11.35Q31.44 11.35 31.96 11.00Q32.48 10.64 32.68 10.00L35.08 10.14Q34.68 11.57 33.50 12.40Q32.32 13.22 30.63 13.22ZM28.27 7.20H32.79Q32.72 6.01 32.12 5.43Q31.51 4.85 30.58 4.85Q29.64 4.85 29.03 5.46Q28.42 6.06 28.27 7.20Z" fill="#09090b"/>
+  </g>
+  <g transform="translate(68.186 6.000)">
+  <path d="M11.98 0.6L10.61 0.02L4.02 15.4L5.39 15.98Z" fill="#e6e6e6"/>
+  </g>
+  <g transform="translate(92.186 7.500)">
+  <path d="M1.46 13.00V0.00H5.79Q8.90 0.00 10.57 1.69Q12.25 3.39 12.25 6.52Q12.25 9.63 10.60 11.32Q8.95 13.00 5.90 13.00ZM3.85 10.93H5.79Q7.82 10.93 8.81 9.83Q9.80 8.73 9.80 6.52Q9.80 4.27 8.81 3.17Q7.82 2.07 5.79 2.07H3.85Z M18.11 13.22Q16.66 13.22 15.57 12.59Q14.48 11.96 13.89 10.80Q13.29 9.65 13.29 8.11Q13.29 6.55 13.89 5.41Q14.48 4.27 15.57 3.63Q16.66 3.00 18.11 3.00Q19.55 3.00 20.64 3.63Q21.72 4.27 22.31 5.41Q22.91 6.55 22.91 8.11Q22.91 9.65 22.31 10.80Q21.72 11.96 20.64 12.59Q19.55 13.22 18.11 13.22ZM18.11 11.32Q19.24 11.32 19.86 10.47Q20.47 9.63 20.47 8.11Q20.47 6.61 19.86 5.76Q19.24 4.91 18.11 4.91Q16.97 4.91 16.35 5.76Q15.73 6.61 15.73 8.11Q15.73 9.63 16.35 10.47Q16.97 11.32 18.11 11.32Z M28.42 13.22Q26.95 13.22 25.87 12.59Q24.79 11.96 24.20 10.80Q23.60 9.65 23.60 8.11Q23.60 6.57 24.20 5.43Q24.79 4.28 25.87 3.64Q26.95 3.00 28.42 3.00Q29.66 3.00 30.63 3.44Q31.60 3.88 32.22 4.70Q32.83 5.51 32.98 6.68L30.56 6.81Q30.41 5.88 29.84 5.39Q29.26 4.91 28.42 4.91Q27.28 4.91 26.66 5.76Q26.04 6.61 26.04 8.11Q26.04 9.63 26.66 10.47Q27.28 11.32 28.42 11.32Q29.28 11.32 29.85 10.82Q30.43 10.33 30.56 9.28L32.98 9.39Q32.83 10.56 32.23 11.43Q31.62 12.29 30.65 12.75Q29.68 13.22 28.42 13.22Z M38.03 13.22Q36.55 13.22 35.57 12.80Q34.59 12.38 34.07 11.63Q33.56 10.88 33.49 9.92L35.89 9.81Q36.02 10.58 36.51 11.00Q37.00 11.43 38.05 11.43Q38.87 11.43 39.30 11.16Q39.73 10.89 39.73 10.33Q39.73 10.00 39.58 9.78Q39.42 9.56 38.97 9.39Q38.52 9.23 37.66 9.06Q36.18 8.81 35.34 8.43Q34.50 8.06 34.16 7.49Q33.82 6.92 33.82 6.08Q33.82 4.71 34.87 3.85Q35.92 3.00 37.96 3.00Q39.37 3.00 40.27 3.45Q41.18 3.90 41.65 4.64Q42.11 5.38 42.19 6.30L39.81 6.41Q39.79 5.95 39.59 5.58Q39.38 5.22 38.98 5.01Q38.58 4.80 37.92 4.80Q37.10 4.80 36.67 5.13Q36.24 5.46 36.24 6.01Q36.24 6.39 36.41 6.65Q36.58 6.90 37.00 7.06Q37.43 7.21 38.16 7.34Q39.66 7.56 40.54 7.95Q41.42 8.33 41.79 8.91Q42.17 9.48 42.17 10.29Q42.17 11.70 41.04 12.46Q39.92 13.22 38.03 13.22Z" fill="#4d4d4d"/>
+  </g>
 </svg>
