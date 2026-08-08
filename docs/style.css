@@ -16,9 +16,13 @@
 
    The selector is NOT documented by Mintlify, which explicitly disclaims the
    stability of its styling hooks. Verified against the rendered DOM of
-   floe.one/docs/changelog on 2026-08-08: 36 update-tag spans, exactly matching
+   floe.one/docs/changelog on 2026-08-08: 43 update-tag spans, exactly matching
    the tag strings in the MDX, and distinct from the filter-panel chips. If the
    separators ever vanish, re-read the rendered DOM and update this selector.
+
+   Take that count on a hard reload. This note first recorded 36, which was the
+   number a stale service-worker copy of the page rendered, not the number in the
+   MDX at the time. See client/public/sw.js, whose v5 stops caching /docs at all.
 
    The separator hangs off the END of each tag but the last, rather than the
    start of each tag but the first. Both render identically on one line, but
