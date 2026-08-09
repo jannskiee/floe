@@ -1,6 +1,9 @@
 ---
 title: "Floe Quick Start"
+sidebarTitle: "Quickstart"
 description: "Send your first file with Floe in under a minute from the browser, Floe Desktop, or the command line, using peer-to-peer WebRTC with no signup required."
+keywords: ["quickstart", "get started", "send a file", "first transfer", "setup"]
+boost: 3
 ---
 
 ## Browser
@@ -62,13 +65,13 @@ description: "Send your first file with Floe in under a minute from the browser,
     Install with a package manager: `brew install --cask jannskiee/tap/floe` on macOS, `winget install jannskiee.floe` on Windows, or `curl -fsSL https://floe.one/install.sh | sh` on macOS and Linux. See [Installation](/cli/installation) for every option, including scoop, `go install`, and direct binary downloads.
   </Step>
   <Step title="Send">
-    ```bash
+    ```bash Terminal
     floe send photo.jpg
     ```
 
     Floe connects, registers a short code, and prints a sharing panel:
 
-    ```
+    ```text Output
       Sending   photo.jpg · 6.0 MB
       ─────────────────────────────────────────────────
       Code   olive-tiger-castle
@@ -83,13 +86,13 @@ description: "Send your first file with Floe in under a minute from the browser,
   <Step title="Receive">
     The recipient runs:
 
-    ```bash
+    ```bash Terminal
     floe receive olive-tiger-castle -o ~/Downloads
     ```
 
     Or they can open the link in any browser. Once connected, the CLI shows an incoming summary, a confirmation prompt, and then a live progress bar:
 
-    ```
+    ```text Output
       Connecting to sender...
       Connected
       ─────────────────────────────────────────────────

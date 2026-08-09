@@ -1,11 +1,12 @@
 ---
 title: "Self-Hosted Floe Operations"
+sidebarTitle: "Operations"
 description: "Day-to-day operations for a self-hosted Floe instance: common Compose commands, updating to the latest images, and the health endpoints to point a monitor at."
 ---
 
 ## Common commands
 
-```bash
+```bash Terminal
 docker compose logs -f                  # tail logs for all services
 docker compose ps                       # check container status and health
 docker compose down                     # stop and remove the stack
@@ -14,7 +15,7 @@ docker compose restart server           # restart only the signaling server
 
 ## Update to the latest code
 
-```bash
+```bash Terminal
 docker compose pull
 docker compose up -d
 ```
@@ -23,7 +24,7 @@ That pulls the newest [published images](/self-hosting/images) and restarts. Not
 
 If you run the optional coturn relay, add its profile to both commands or Compose skips the service entirely, so a new coturn image is never pulled and a stopped relay is never restarted:
 
-```bash
+```bash Terminal
 docker compose --profile turn pull
 docker compose --profile turn up -d
 ```

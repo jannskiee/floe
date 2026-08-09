@@ -1,5 +1,6 @@
 ---
 title: "Self-Hosting Quick Start"
+sidebarTitle: "Docker quickstart"
 description: "Spin up a local Floe instance with Docker Compose in a few minutes to try self-hosted peer-to-peer file transfer on your own machine before deploying."
 ---
 
@@ -11,13 +12,13 @@ description: "Spin up a local Floe instance with Docker Compose in a few minutes
 
 <Steps>
   <Step title="Download the compose file">
-    ```bash
+    ```bash Terminal
     curl -fsSLO https://raw.githubusercontent.com/jannskiee/floe/main/docker-compose.yml
     ```
     That is the only file you need. There is nothing to clone and no toolchain to install.
   </Step>
   <Step title="Start the stack">
-    ```bash
+    ```bash Terminal
     docker compose up -d
     ```
     Docker pulls the [prebuilt images](/self-hosting/images) and starts the client and server containers. Nothing is compiled locally.
@@ -30,7 +31,7 @@ description: "Spin up a local Floe instance with Docker Compose in a few minutes
 <Tip>
   A `.env` file is optional. Every setting has a working default, so the two commands above are genuinely all you need to try it. To change something, fetch the annotated example alongside the compose file:
 
-  ```bash
+  ```bash Terminal
   curl -fsSL https://raw.githubusercontent.com/jannskiee/floe/main/.env.docker.example -o .env
   ```
 </Tip>
@@ -44,12 +45,12 @@ To support peers behind strict firewalls, symmetric NAT, or CGNAT, add a [TURN r
 <Note>
   The defaults assume the browser and the server are on the same machine. To reach the app from another device on your network, set **both** of these in `.env` to your machine's LAN IP:
 
-  ```env
+  ```dotenv .env
   NEXT_PUBLIC_SOCKET_URL=http://192.168.1.x:3001
   CLIENT_URL=http://192.168.1.x:3000
   ```
 
-  ```bash
+  ```bash Terminal
   docker compose up -d
   ```
 

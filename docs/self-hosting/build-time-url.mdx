@@ -1,5 +1,6 @@
 ---
 title: "How the Client Finds the Signaling Server"
+sidebarTitle: "Server discovery"
 description: "How a self-hosted Floe web client resolves its signaling server address at runtime with SOCKET_URL, and when a rebuild is still required."
 ---
 
@@ -31,7 +32,7 @@ The first match wins.
 
 Set it in `.env` and recreate the container. No rebuild:
 
-```bash
+```bash Terminal
 docker compose up -d
 ```
 
@@ -62,7 +63,7 @@ every self-hosted instance advertising somebody else's site as its canonical.
 
 To put your own domain in them, build the client yourself:
 
-```bash
+```bash Terminal
 NEXT_PUBLIC_SITE_URL=https://files.example.com \
   docker compose -f docker-compose.yml -f docker-compose.build.yml build client
 docker compose -f docker-compose.yml -f docker-compose.build.yml up -d

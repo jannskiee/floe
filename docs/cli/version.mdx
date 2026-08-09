@@ -1,9 +1,10 @@
 ---
 title: "floe version command"
+sidebarTitle: "floe version"
 description: "Print the installed floe CLI version and the docs link, plus a one-line update hint when a newer release exists, so you can confirm which build you are running."
 ---
 
-```bash
+```bash floe version
 floe version
 ```
 
@@ -12,14 +13,14 @@ hint when a newer release is available.
 
 ## Output
 
-```
+```text Output
 floe 1.x.x
 Docs: https://www.floe.one/docs
 ```
 
 When a newer release exists, a third line follows:
 
-```
+```text Output
 Update available: v1.x.x  run `floe update` to upgrade
 ```
 
@@ -40,7 +41,7 @@ source report `floe dev` and never check.
 
 You can also use the root flag:
 
-```bash
+```bash Terminal
 floe --version
 # or
 floe -v

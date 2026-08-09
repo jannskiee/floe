@@ -1,5 +1,6 @@
 ---
 title: "Deploy Floe on Unraid"
+sidebarTitle: "Unraid"
 description: "Install the Floe web client and signaling server as two coordinated Unraid containers, with direct LAN, single domain, and two hostname configuration examples."
 ---
 
@@ -36,7 +37,7 @@ as its CORS allow-list entry.
     Set **Client URL** to the URL that browsers will use for the client. With the
     default client port, an example is:
 
-    ```text
+    ```text Client URL
     http://192.168.1.10:3000
     ```
 
@@ -50,7 +51,7 @@ as its CORS allow-list entry.
     Set **Signaling Server URL** to the full origin browsers use to reach
     Floe-Server, including the scheme and the host port, with no trailing slash:
 
-    ```text
+    ```text Signaling Server URL
     http://192.168.1.10:3001
     ```
 
@@ -117,7 +118,7 @@ client and server separately, and enable WebSocket forwarding for the server.
 
 For example:
 
-```text
+```text Template values
 Client URL: https://floe.example.com
 Signaling Server URL: https://floe-api.example.com
 Trusted Proxy Count: 1

@@ -1,5 +1,6 @@
 ---
 title: "Floe Architecture Reference"
+sidebarTitle: "Architecture"
 description: "Reference for the Floe signaling protocol, HTTP endpoints, WebSocket events, and the WebRTC data-channel binary framing used for file transfers."
 ---
 
@@ -46,7 +47,7 @@ On floe.one the endpoint returns short-lived Cloudflare Realtime TURN credential
 
 For a self-hosted coturn relay, when `TURN_SECRET` and `TURN_DOMAIN` are set it returns:
 
-```json
+```json Response
 [
   { "urls": "stun:turn.your-domain.com:3478" },
   { "urls": "turn:turn.your-domain.com:3478", "username": "...", "credential": "..." },
@@ -56,7 +57,7 @@ For a self-hosted coturn relay, when `TURN_SECRET` and `TURN_DOMAIN` are set it 
 
 When neither Cloudflare nor coturn is configured:
 
-```json
+```json Response
 [
   { "urls": "stun:stun.l.google.com:19302" },
   { "urls": "stun:stun1.l.google.com:19302" }
@@ -141,7 +142,7 @@ Once the WebRTC data channel is open, the sender runs the following sequence for
 
 **Metadata (JSON, sender to receiver)**
 
-```json
+```json Metadata
 {
   "type": "metadata",
   "id": "<uuid>",
@@ -160,7 +161,7 @@ Once the WebRTC data channel is open, the sender runs the following sequence for
 
 **Ack (JSON, receiver to sender)**
 
-```json
+```json Ack
 {
   "type": "ack",
   "id": "<uuid>",
@@ -179,7 +180,7 @@ Both the Go engine (CLI and desktop) and the browser size chunks adaptively to t
 
 **End marker (JSON, sender to receiver)**
 
-```json
+```json End marker
 { "type": "end" }
 ```
 
@@ -187,7 +188,7 @@ Both the Go engine (CLI and desktop) and the browser size chunks adaptively to t
 
 After all files are complete, a Go receiver (the CLI or the desktop app) sends:
 
-```json
+```json Received
 { "type": "received" }
 ```
 
@@ -197,7 +198,7 @@ This lets the sender exit cleanly instead of polling the SCTP buffer. Browser re
 
 Sent in place of the ack when the two peers' protocol version ranges do not overlap (see [Protocol versioning](#protocol-versioning)). It carries a human-readable `reason` plus the receiver's own version range, and `ver` when the receiver knows its release string. As with metadata and acks, Go receivers populate `ver` and browser receivers omit it.
 
-```json
+```json Incompatible
 {
   "type": "incompatible",
   "reason": "Cannot transfer: your floe is too old for this peer. ...",

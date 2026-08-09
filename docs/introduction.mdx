@@ -1,37 +1,36 @@
 ---
-title: "Introduction to Floe"
-description: "Floe is a secure, encrypted peer-to-peer file transfer tool that sends files directly between devices over WebRTC, with no accounts and no uploads."
+title: "Your files never make a stop."
+sidebarTitle: "Introduction"
+description: "Floe moves files straight between devices over WebRTC. These docs cover the web app, the desktop app, the CLI, and running your own instance."
+keywords: ["overview", "getting started", "p2p file transfer", "webrtc"]
+boost: 3
 ---
 
-Floe transfers files directly between devices using WebRTC. Files are end-to-end encrypted and never stored on any server. The signaling server only brokers the initial connection setup. Once both peers are connected, it steps aside and no file data passes through it.
-
-## What Floe does
-
-- **Direct, peer-to-peer transfers.** Files travel straight from your device to the recipient's device.
-- **End-to-end encrypted.** Every transfer is encrypted with DTLS. No one, including Floe's servers, can read your files.
-- **No accounts or storage.** No sign-up, no uploads, and no file names or contents ever sent to a server. After a transfer, floe.one adds an anonymous byte count to its public counter, which the receiver can switch off, and the site itself records cookieless aggregate analytics and error reports. The desktop app and the CLI carry no analytics at all. See [Security and Privacy](/security-privacy).
-- **No size limit on direct transfers.** Relay connections are capped at 2 GB per session to keep the service free. A browser receiver holds each incoming file in memory until that file is complete, so very large files are bounded by the receiving device's RAM. The desktop app and the CLI write straight to disk and have no such ceiling.
-- **Browser, desktop, and CLI.** Use the web app at floe.one, Floe Desktop for Windows, or the `floe` command-line tool. All three speak the same protocol, so any two of them can transfer to each other.
-- **Open source and self-hostable.** Run your own instance on your own infrastructure with Docker Compose.
-
-## Use Floe
-
-<CardGroup cols={3}>
-  <Card title="Browser" icon="globe" href="https://floe.one">
-    Open floe.one in any modern browser. No installation required.
+<Columns cols={2}>
+  <Card title="Quickstart" icon="zap" href="/quickstart">
+    Send your first file in under a minute.
   </Card>
-  <Card title="Desktop" icon="desktop" href="/desktop/installation">
-    Floe Desktop for Windows, from the Microsoft Store. Beta.
+  <Card title="Web app" icon="globe" href="/web-app/sending">
+    Send and receive in the browser at floe.one.
+  </Card>
+  <Card title="Desktop app" icon="monitor" href="/desktop/installation">
+    Get Floe Desktop for Windows. Beta.
   </Card>
   <Card title="CLI" icon="terminal" href="/cli/installation">
-    Install the `floe` binary for headless, scriptable transfers.
+    Install the `floe` binary and script your transfers.
   </Card>
-</CardGroup>
+  <Card title="Self-hosting" icon="server" href="/self-hosting/overview">
+    Run your own instance with Docker Compose.
+  </Card>
+  <Card title="Changelog" icon="history" href="/changelog">
+    Every release across web, desktop, and CLI.
+  </Card>
+</Columns>
 
-## Common questions
+---
 
-Common questions about file size, browser support, in-app browsers, iOS, speed, and accounts are answered in the [FAQ](/faq).
+**Encrypted end to end.** DTLS protects every transfer; no one, including Floe's servers, can read your files. See [Security & privacy](/security-privacy).
 
-## Self-hosting
+**No accounts, no uploads.** The signaling server only brokers the connection, then steps aside.
 
-You can run your own Floe instance on your own infrastructure using Docker Compose. See the [Self-Hosting](/self-hosting/overview) section.
+**No size limit on direct transfers.** Relayed sessions are capped at 2 GB to keep the service free. See [the 2 GB limit](/how-it-works/2gb-limit).
