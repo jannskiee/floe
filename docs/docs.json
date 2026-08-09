@@ -9,14 +9,24 @@
   },
   "favicon": "/favicon.svg",
   "colors": {
-    "primary": "#111111",
-    "light": "#ffffff",
-    "dark": "#111111"
+    "primary": "#00A3C9",
+    "light": "#B1DDEB",
+    "dark": "#00A3C9"
+  },
+  "background": {
+    "color": {
+      "light": "#FFFFFF",
+      "dark": "#09090b"
+    }
+  },
+  "styling": {
+    "codeblocks": "system"
+  },
+  "icons": {
+    "library": "lucide"
   },
   "fonts": {
-    "family": "Geist",
-    "heading": { "family": "Geist" },
-    "body": { "family": "Geist" }
+    "family": "Geist"
   },
   "appearance": {
     "default": "dark",
@@ -93,18 +103,18 @@
   "navigation": {
     "groups": [
       {
-        "group": "Getting Started",
-        "pages": ["introduction", "quickstart", "faq", "troubleshooting"]
+        "group": "Getting started",
+        "pages": ["introduction", "quickstart"]
       },
       {
-        "group": "Web App",
+        "group": "Web",
         "pages": [
           "web-app/sending",
           "web-app/receiving"
         ]
       },
       {
-        "group": "Desktop App",
+        "group": "Desktop",
         "pages": [
           "desktop/installation",
           "desktop/sending",
@@ -117,19 +127,20 @@
         "group": "CLI",
         "pages": [
           "cli/installation",
-          "cli/update",
           "cli/send",
           "cli/receive",
           "cli/version",
+          "cli/update",
           "cli/flags",
           "cli/self-hosted-server"
         ]
       },
       {
-        "group": "Self-Hosting",
+        "group": "Self-hosting",
         "pages": [
           "self-hosting/overview",
           "self-hosting/quickstart",
+          "self-hosting/without-docker",
           "self-hosting/images",
           "self-hosting/unraid",
           "self-hosting/configuration",
@@ -137,26 +148,29 @@
           "self-hosting/reverse-proxy",
           "self-hosting/production",
           "self-hosting/turn-relay",
-          "self-hosting/operations",
-          "self-hosting/without-docker"
+          "self-hosting/operations"
         ]
       },
       {
-        "group": "How It Works",
+        "group": "How it works",
         "pages": [
           "how-it-works/signaling",
           "how-it-works/direct-connection",
           "how-it-works/relay-connection",
           "how-it-works/2gb-limit",
-          "how-it-works/encryption"
+          "how-it-works/encryption",
+          "security-privacy"
         ]
+      },
+      {
+        "group": "Help",
+        "pages": ["faq", "troubleshooting"]
       },
       {
         "group": "Reference",
         "pages": [
-          "changelog",
-          "security-privacy",
-          "reference/architecture"
+          "reference/architecture",
+          "changelog"
         ]
       }
     ]

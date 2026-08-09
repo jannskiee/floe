@@ -156,3 +156,180 @@
   min-width: 24px;
   min-height: 24px;
 }
+
+/* ---- floe.one theme translation (2026-08 docs redesign) ----------------
+
+   Everything below restyles chrome, not content. The rules above this line
+   (changelog tag separators, footer logo crop, footer WCAG fixes) are load-
+   bearing and none of the selectors below intersect them. */
+
+/* Sidebar group headers as floe.one eyebrows.
+
+   floe.one labels every landing section with an 11px Geist Mono uppercase
+   eyebrow tracked at 0.2em; this carries that identity into the sidebar.
+   #sidebar, .sidebar-group-header, and .sidebar-title are all on Mintlify's
+   documented hook list, so this is the low-risk tier of custom CSS; if the
+   hooks ever move, the headers just revert to the default sans style.
+
+   Geist Mono itself is not loadable through docs.json (fonts has no mono
+   slot), so ui-monospace serves in practice: SF Mono on macOS, Cascadia on
+   Windows. Do not @font-face a root-absolute url() here; the docs live under
+   /docs in production and root-absolute asset paths 404 (the footer-logo
+   lesson above).
+
+   The colours are not floe.one's zinc-600 verbatim because that fails WCAG
+   at 11px (2.58:1 on zinc-950). These sit at 5.53:1 light (#65656F on
+   #F7FBFC) and 5.44:1 dark (#85858E on #09090b). */
+#sidebar .sidebar-group-header .sidebar-title {
+  font-family: "Geist Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: #65656F;
+}
+
+.dark #sidebar .sidebar-group-header .sidebar-title {
+  color: #85858E;
+}
+
+/* The page-header eyebrow (the group name above every H1) gets the same mono
+   treatment. No color override: Mintlify paints it text-primary, which the
+   colors config makes the brand ice #B1DDEB in both modes (user call,
+   2026-08-09: the same ice everywhere), and the eyebrow is one of the few
+   places floe.one sanctions ice text. .eyebrow is a documented hook. The
+   weight matches the sidebar group headers above so the two eyebrow styles
+   stay identical. */
+.eyebrow {
+  font-family: "Geist Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+}
+
+/* Card icons, neutral in both modes.
+
+   Mintlify paints a Card's icon with the same CSS-mask pattern as the footer
+   social icon, and the mask's colour is bg-primary, which the colors config
+   turns ice. Glyphs in the accent colour read as tinted chrome rather than
+   icons (user call, 2026-08-09), so cards get the neutral treatment instead:
+   near-black on the light cards, white on the dark ones. The ice accent
+   stays reserved for the eyebrows, links, and TOC.
+
+   data-component-part="card-icon" is the same undocumented hook family as
+   the changelog update-tag rule above; if card icons ever go ice again,
+   this selector stopped matching. */
+[data-component-part="card-icon"] svg {
+  background-color: rgb(17 17 17);
+}
+
+.dark [data-component-part="card-icon"] svg {
+  background-color: #FFFFFF;
+}
+
+/* The active sidebar item, back to neutral.
+
+   Mintlify paints the active item bg-primary/10 + text-primary, which the
+   ice colors config turns into a teal-on-ice pill. The user rejected that
+   (2026-08-09) and asked for the gray it had before the redesign, so this
+   reproduces exactly what the old #111111/#ffffff primary rendered: a 10
+   percent neutral wash with near-black text in light, white text in dark.
+   The ice accent stays everywhere else it now lives (eyebrows, TOC, links).
+
+   #sidebar is a documented hook; li[data-active="true"] is the observed
+   active-item shape (2026-08-09 DOM). If the pill ever shows teal again,
+   the li shape moved; re-read the DOM before touching the colors config. */
+#sidebar li[data-active="true"] a {
+  color: rgb(17 17 17);
+  background-color: rgb(17 17 17 / 0.1);
+}
+
+.dark #sidebar li[data-active="true"] a {
+  color: rgb(255 255 255);
+  background-color: rgb(255 255 255 / 0.1);
+}
+
+/* The active TOC entry, same neutral treatment as the sidebar pill (user
+   call, 2026-08-09: selected states stay neutral, ice is for eyebrows).
+   Only the colour is overridden, so Mintlify's own emphasis on the active
+   entry is otherwise untouched; against the gray siblings, near-black (or
+   white in dark) IS the highlight. #table-of-contents and data-active are
+   the same observed hook family as the sidebar pill above. */
+#table-of-contents .toc-item[data-active="true"] > a {
+  color: rgb(17 17 17);
+}
+
+.dark #table-of-contents .toc-item[data-active="true"] > a {
+  color: rgb(255 255 255);
+}
+
+/* The theme-switcher menu marks its selected row with text-primary ice, and
+   hides the other rows' check marks with text-primary/0, the SAME utility at
+   alpha zero. Overriding color directly would therefore reveal a check on
+   every row (tried, shipped for a minute, looked broken), so this redefines
+   the variables the utilities read instead: the selected check and label go
+   neutral, the /0 variants stay invisible, and each mode's utility reads its
+   own variable so no .dark split is needed. The role guard matters: the html
+   root also carries data-theme-preference (it stores the setting), and the
+   bare attribute selector would restyle the whole document. */
+[role='menuitem'][data-theme-preference] {
+  --primary: 17 17 17;
+  --primary-light: 255 255 255;
+  --color-primary: rgb(17 17 17);
+  --color-primary-light: rgb(255 255 255);
+}
+
+/* Navbar links hover neutral, like floe.one's navbar (zinc at rest, plain
+   black or white on hover), instead of the hover:text-primary ice Mintlify
+   puts on the GitHub widget. The span selector is required because the repo
+   name carries its own group-hover colour class, which inheritance from the
+   anchor cannot beat; this stylesheet is unlayered, so it wins over the
+   layered utility on the same element. The masked star icon gets the
+   background-color variant for the same reason as the menu icons above. */
+#navbar a:hover,
+#navbar a:hover span {
+  color: rgb(17 17 17);
+}
+
+.dark #navbar a:hover,
+.dark #navbar a:hover span {
+  color: rgb(255 255 255);
+}
+
+#navbar a:hover svg[class*='forced-colors'] {
+  background-color: rgb(17 17 17);
+}
+
+.dark #navbar a:hover svg[class*='forced-colors'] {
+  background-color: rgb(255 255 255);
+}
+
+/* Card hover ring, neutral instead of ice (user call, 2026-08-09: dark ring
+   in light mode, white in dark, like the pre-redesign monochrome primary).
+   Mintlify's hover utility is hover:border-primary! with !important, and
+   important layered declarations outrank anything this unlayered sheet says
+   about border-color, so the override targets the variables the utility
+   reads instead: scoped to hover, the card resolves primary to neutral.
+   Values are raw RGB triplets because Mintlify defines --primary that way
+   (rgb(var(--primary))); the --color-* aliases cover the Tailwind v4 form. */
+.card:hover {
+  --primary: 17 17 17;
+  --color-primary: rgb(17 17 17);
+}
+
+.dark .card:hover {
+  --primary-light: 255 255 255;
+  --color-primary-light: rgb(255 255 255);
+}
+
+/* Body-link underlines in ice, light mode only (user call, 2026-08-09: text
+   stays the prose colour, the underline carries the accent, and dark mode
+   keeps the theme's own currentColor underline). The mint theme draws the
+   underline as border-bottom 1px solid in currentColor, so only the border
+   colour is overridden, and only outside .dark. a.link is the class
+   Mintlify puts on content links only; heading anchor glyphs use
+   group/link and do not match. */
+html:not(.dark) #content-area a.link {
+  border-bottom-color: #00A3C9;
+}
