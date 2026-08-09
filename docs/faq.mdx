@@ -26,7 +26,7 @@ description: "Answers to common questions about Floe: how peer-to-peer file tran
   <Accordion title="Can I send multiple files or a whole folder?">
     Yes, with one caveat about folders. In the browser you can select or drop multiple files, but not a folder: the web app has no folder picker, and dropping a folder does not add its contents. The CLI and Floe Desktop can send whole folders. Pass file or folder paths to `floe send`, or drop a folder onto Floe Desktop.
 
-    ```bash
+    ```bash Terminal
     floe send file1.pdf file2.jpg notes/
     ```
 
@@ -193,12 +193,12 @@ description: "Answers to common questions about Floe: how peer-to-peer file tran
     **Browser:** Uncheck "Contribute to global stats" on the receiver view before the first file arrives. The checkbox is hidden once files start landing. The preference is saved in your browser and applies to all future transfers from that device.
 
     **CLI - single transfer:**
-    ```bash
+    ```bash Terminal
     floe receive olive-tiger-castle --no-report
     ```
 
     **CLI - permanent (add to your shell profile):**
-    ```bash
+    ```bash Terminal
     export FLOE_NO_STATS=1
     ```
 

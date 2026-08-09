@@ -29,20 +29,20 @@ For a deployment accessible beyond a single machine, follow these steps.
   <Step title="Set NEXT_PUBLIC_SOCKET_URL">
     In `.env`:
 
-    ```env
+    ```dotenv .env
     NEXT_PUBLIC_SOCKET_URL=https://api.your-domain.com
     ```
 
     Then recreate the containers. There is no rebuild: Compose maps this value onto the client container's `SOCKET_URL`, and the browser reads it from `GET /api/config` on every page load.
 
-    ```bash
+    ```bash Terminal
     docker compose up -d
     ```
   </Step>
   <Step title="Set CLIENT_URL">
     In `.env`:
 
-    ```env
+    ```dotenv .env
     CLIENT_URL=https://app.your-domain.com
     ```
 
@@ -51,7 +51,7 @@ For a deployment accessible beyond a single machine, follow these steps.
   <Step title="Set TRUSTED_PROXY_COUNT">
     Set this to the number of proxy hops in front of the signaling server so per-IP rate limiting reads real client IPs instead of proxy IPs:
 
-    ```env
+    ```dotenv .env
     TRUSTED_PROXY_COUNT=1
     ```
 
@@ -60,7 +60,7 @@ For a deployment accessible beyond a single machine, follow these steps.
   <Step title="Point the CLI and the desktop app at your instance">
     A split deployment has two addresses, so both clients need both. The CLI takes them as flags, or as `FLOE_SERVER` and `FLOE_WEB` in the environment:
 
-    ```bash
+    ```bash Terminal
     floe send --server https://api.your-domain.com --web https://app.your-domain.com photo.jpg
     ```
 

@@ -65,13 +65,13 @@ boost: 3
     Install with a package manager: `brew install --cask jannskiee/tap/floe` on macOS, `winget install jannskiee.floe` on Windows, or `curl -fsSL https://floe.one/install.sh | sh` on macOS and Linux. See [Installation](/cli/installation) for every option, including scoop, `go install`, and direct binary downloads.
   </Step>
   <Step title="Send">
-    ```bash
+    ```bash Terminal
     floe send photo.jpg
     ```
 
     Floe connects, registers a short code, and prints a sharing panel:
 
-    ```
+    ```text Output
       Sending   photo.jpg · 6.0 MB
       ─────────────────────────────────────────────────
       Code   olive-tiger-castle
@@ -86,13 +86,13 @@ boost: 3
   <Step title="Receive">
     The recipient runs:
 
-    ```bash
+    ```bash Terminal
     floe receive olive-tiger-castle -o ~/Downloads
     ```
 
     Or they can open the link in any browser. Once connected, the CLI shows an incoming summary, a confirmation prompt, and then a live progress bar:
 
-    ```
+    ```text Output
       Connecting to sender...
       Connected
       ─────────────────────────────────────────────────

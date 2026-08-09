@@ -10,7 +10,7 @@ The `floe` CLI connects to `https://api.floe.one` by default. You can point it a
 
 Both sender and receiver must use the same server:
 
-```bash
+```bash Terminal
 floe send photo.jpg --server https://floe.example.com
 floe receive olive-tiger-castle --server https://floe.example.com
 ```
@@ -23,7 +23,7 @@ prints resolves to the same origin and opens the web client correctly.
 If you always use the same server, set it once in your environment instead of
 repeating the flag on every command:
 
-```bash
+```bash Terminal
 export FLOE_SERVER=https://floe.example.com
 floe send photo.jpg
 ```
@@ -38,7 +38,7 @@ The browser link printed by `floe send` defaults to the same origin as `--server
 If your web client lives somewhere else, such as the two-subdomain layout, override
 it with `--web`:
 
-```bash
+```bash Terminal
 floe send photo.jpg --server https://api.your-domain.com --web https://app.your-domain.com
 ```
 
@@ -49,7 +49,7 @@ server, which serves no web app.
 
 To test against a local instance running on the default ports:
 
-```bash
+```bash Terminal
 # Terminal 1 - sender
 floe send photo.jpg --server http://localhost:3001
 

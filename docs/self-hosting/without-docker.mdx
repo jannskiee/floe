@@ -12,14 +12,14 @@ The signaling server and the web client are two long-lived processes, so each
 needs its own terminal (or a supervisor, as below). Run each block from the
 repository root.
 
-```bash
+```bash Terminal
 # Signaling server (Node.js). Stays in the foreground.
 cd server
 npm install
 npm start
 ```
 
-```bash
+```bash Terminal
 # Web client (Next.js). Stays in the foreground.
 cd client
 pnpm install
@@ -27,7 +27,7 @@ pnpm build
 pnpm start
 ```
 
-```bash
+```bash Terminal
 # CLI (optional, for local testing against your server)
 cd cli
 go build ./cmd/floe
@@ -42,7 +42,7 @@ go build ./cmd/floe
 
 Copy and configure the environment files before starting:
 
-```bash
+```bash Terminal
 cp server/.env.example server/.env
 cp client/.env.example client/.env.local
 ```
@@ -59,7 +59,7 @@ Also set `NODE_ENV=production` in `server/.env`. Docker sets it for you; a direc
 
 The Docker instructions in [Operations](/self-hosting/operations) assume there is no repository to keep in sync. Running directly with Node means there is, so pull, reinstall, then restart:
 
-```bash
+```bash Terminal
 cd /path/to/floe
 git pull
 
@@ -81,12 +81,12 @@ Then restart both processes with whatever supervises them (`pm2 restart <name>`,
 
 Confirm the restart landed by checking that uptime reset:
 
-```bash
+```bash Terminal
 curl -s http://localhost:3001/health
 ```
 
 To confirm a specific dependency actually moved, read the installed version rather than trusting the restart:
 
-```bash
+```bash Terminal
 npm --prefix server ls <package-name>
 ```

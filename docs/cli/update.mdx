@@ -34,7 +34,7 @@ containing one of those words is treated as package-managed too.
 
 Run the built-in update command:
 
-```bash
+```bash Terminal
 floe update
 ```
 
@@ -50,13 +50,13 @@ and moves the new one into place.
 
 To check for an update without installing:
 
-```bash
+```bash Terminal
 floe update --check
 ```
 
 You can also re-run the original install script at any time to upgrade:
 
-```bash
+```bash Terminal
 # macOS / Linux
 curl -fsSL https://floe.one/install.sh | sh
 
@@ -68,7 +68,7 @@ irm https://floe.one/install.ps1 | iex
 
 When a newer release exists, `floe version` prints an extra line:
 
-```
+```text Output
 Update available: v1.x.x  run `floe update` to upgrade
 ```
 

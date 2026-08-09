@@ -20,7 +20,7 @@ standard upgrade command for that tool.
 
 <Tabs>
   <Tab title="macOS">
-    ```bash
+    ```bash Terminal
     brew install --cask jannskiee/tap/floe
     ```
 
@@ -30,7 +30,7 @@ standard upgrade command for that tool.
     and choose Open, or run `xattr -dr com.apple.quarantine $(which floe)`.
   </Tab>
   <Tab title="Windows (winget)">
-    ```powershell
+    ```powershell Terminal
     winget install jannskiee.floe
     ```
 
@@ -40,7 +40,7 @@ standard upgrade command for that tool.
     Microsoft's automated PR review completes (usually a few hours after the tag).
   </Tab>
   <Tab title="Windows (scoop)">
-    ```powershell
+    ```powershell Terminal
     scoop bucket add jannskiee https://github.com/jannskiee/scoop-bucket
     scoop install floe
     ```
@@ -58,13 +58,13 @@ upgrades an existing install in place.
 
 <Tabs>
   <Tab title="macOS / Linux">
-    ```bash
+    ```bash Terminal
     curl -fsSL https://floe.one/install.sh | sh
     ```
 
     To install a specific version, using any tag from the
     [releases page](https://github.com/jannskiee/floe/releases):
-    ```bash
+    ```bash Terminal
     curl -fsSL https://floe.one/install.sh | FLOE_VERSION=vX.Y.Z sh
     ```
 
@@ -73,13 +73,13 @@ upgrades an existing install in place.
     `/usr/local/bin` is not writable and `sudo` is unavailable).
   </Tab>
   <Tab title="Windows (PowerShell)">
-    ```powershell
+    ```powershell Terminal
     irm https://floe.one/install.ps1 | iex
     ```
 
     To install a specific version, using any tag from the
     [releases page](https://github.com/jannskiee/floe/releases):
-    ```powershell
+    ```powershell Terminal
     $env:FLOE_VERSION = "vX.Y.Z"; irm https://floe.one/install.ps1 | iex
     ```
 
@@ -93,7 +93,7 @@ upgrades an existing install in place.
 
 If you have Go 1.25 or later installed:
 
-```bash
+```bash Terminal
 go install github.com/jannskiee/floe/cli/cmd/floe@latest
 ```
 
@@ -112,20 +112,20 @@ package managers and the install script above handle this for you.
 
 ## Verify the install
 
-```bash
+```bash Terminal
 floe version
 ```
 
 Expected output:
 
-```
+```text Output
 floe 1.x.x
 Docs: https://www.floe.one/docs
 ```
 
 If you pinned an older version, a third line appears once the update check completes:
 
-```
+```text Output
 Update available: v1.x.x  run `floe update` to upgrade
 ```
 
@@ -138,7 +138,7 @@ version number.
 If you downloaded an archive directly from the [GitHub Releases page](https://github.com/jannskiee/floe/releases),
 each release includes a `checksums.txt` file. To verify:
 
-```bash
+```bash Terminal
 # Download checksums
 curl -LO "https://github.com/jannskiee/floe/releases/download/vX.Y.Z/checksums.txt"
 
@@ -156,7 +156,7 @@ For package manager installs, use the standard upgrade command (`brew upgrade fl
 
 For script or manual installs, run:
 
-```bash
+```bash Terminal
 floe update
 ```
 
@@ -166,7 +166,7 @@ See [Updating floe](/cli/update) for details.
 
 Requires Go 1.25 or later.
 
-```bash
+```bash Terminal
 git clone https://github.com/jannskiee/floe.git
 cd floe/cli
 go build ./cmd/floe

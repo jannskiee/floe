@@ -4,7 +4,7 @@ sidebarTitle: "floe send"
 description: "Use the floe send command to share files or folders peer-to-peer from your terminal over an encrypted WebRTC connection, with no upload or account."
 ---
 
-```bash
+```bash floe send
 floe send <file|folder> [file|folder...]
 ```
 
@@ -14,19 +14,19 @@ Starts a transfer session as the sender. Floe registers a short code with the si
 
 Send a single file:
 
-```bash
+```bash Terminal
 floe send report.pdf
 ```
 
 Send multiple files at once:
 
-```bash
+```bash Terminal
 floe send photo.jpg video.mp4 notes.txt
 ```
 
 Send an entire folder (transferred recursively):
 
-```bash
+```bash Terminal
 floe send ./project
 ```
 
@@ -34,7 +34,7 @@ floe send ./project
 
 After running `floe send`, Floe shows a summary of what will be sent, then prints a sharing panel:
 
-```
+```text Output
   Sending   3 files · 11.8 MB
   ─────────────────────────────────────────────────
   Code   olive-tiger-castle
@@ -46,7 +46,7 @@ After running `floe send`, Floe shows a summary of what will be sent, then print
 
 Once the recipient connects, Floe negotiates the WebRTC connection and streams each file with a live progress bar:
 
-```
+```text Output
   Connecting...
   Connected
 
@@ -68,7 +68,7 @@ Share the **code** with CLI recipients or the **link** with browser recipients. 
 
 When you send a folder, Floe walks it recursively and preserves the directory structure on the receiving end. The recipient gets the same relative paths inside their output directory.
 
-```bash
+```bash Terminal
 floe send ./documents
 # Transfers documents/report.pdf, documents/images/photo.jpg, etc.
 # Receiver gets: ./documents/report.pdf, ./documents/images/photo.jpg
@@ -76,7 +76,7 @@ floe send ./documents
 
 A trailing slash changes this. Floe names each file relative to the folder's parent, and a trailing slash makes the folder itself the parent, so the folder name drops out and its contents land directly in the receiver's output directory:
 
-```bash
+```bash Terminal
 floe send ./documents/
 # Receiver gets: ./report.pdf, ./images/photo.jpg
 ```

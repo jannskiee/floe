@@ -4,7 +4,7 @@ sidebarTitle: "floe receive"
 description: "Use the floe receive command to accept files from a peer over an encrypted WebRTC connection using a share code, with no upload or account needed."
 ---
 
-```bash
+```bash floe receive
 floe receive <code | link>
 ```
 
@@ -14,25 +14,25 @@ Joins an existing transfer session as the receiver. Accepts either a short code 
 
 Receive using a short code:
 
-```bash
+```bash Terminal
 floe receive olive-tiger-castle
 ```
 
 Receive using a full link:
 
-```bash
+```bash Terminal
 floe receive "https://floe.one/#room=abc123..."
 ```
 
 Save to a specific directory:
 
-```bash
+```bash Terminal
 floe receive olive-tiger-castle -o ~/Downloads
 ```
 
 Auto-accept without a confirmation prompt:
 
-```bash
+```bash Terminal
 floe receive olive-tiger-castle -y
 ```
 
@@ -40,7 +40,7 @@ floe receive olive-tiger-castle -y
 
 Running `floe receive olive-tiger-castle -o ~/Downloads`:
 
-```
+```text Output
   Connecting to sender...
   Connected
 
@@ -65,7 +65,7 @@ With no `-o` flag, files save to the current directory.
 
 When the first file's metadata arrives, Floe shows a summary of what is incoming and asks for confirmation:
 
-```
+```text Output
   ─────────────────────────────────────────────────
   Incoming   N files · X MB
   ─────────────────────────────────────────────────

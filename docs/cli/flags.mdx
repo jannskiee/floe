@@ -30,7 +30,7 @@ Floe reads four environment variables. If you run your own signaling server, set
 
 A flag always beats its variable, so you can override the setting for a single command without unsetting anything:
 
-```bash
+```bash macOS and Linux
 export FLOE_SERVER=https://floe.example.com
 floe send photo.jpg                                # uses floe.example.com
 floe send photo.jpg --server https://api.floe.one  # the flag wins, just this once
@@ -38,7 +38,7 @@ floe send photo.jpg --server https://api.floe.one  # the flag wins, just this on
 
 On Windows PowerShell:
 
-```powershell
+```powershell Windows
 $env:FLOE_SERVER = "https://floe.example.com"
 floe send photo.jpg
 ```
@@ -73,13 +73,13 @@ Errors are ignored, so a failed report never changes the outcome of a transfer. 
 
 To opt out for a single transfer, pass `--no-report`:
 
-```bash
+```bash Terminal
 floe receive olive-tiger-castle --no-report
 ```
 
 To opt out permanently, set `FLOE_NO_STATS=1` in your environment (for example in your shell profile):
 
-```bash
+```bash Terminal
 export FLOE_NO_STATS=1
 floe receive olive-tiger-castle
 ```
@@ -92,26 +92,26 @@ In the desktop app the same choice is the **Contribute to global stats** toggle 
 
 Use a local dev server for both sender and receiver:
 
-```bash
+```bash Terminal
 floe send photo.jpg --server http://localhost:3001
 floe receive olive-tiger-castle --server http://localhost:3001
 ```
 
 Disable relay fallback (direct connections only):
 
-```bash
+```bash Terminal
 floe send photo.jpg --no-relay
 ```
 
 Point the browser link at a custom web client:
 
-```bash
+```bash Terminal
 floe send photo.jpg --server https://api.example.com --web https://app.example.com
 ```
 
 Save received files to a specific folder and auto-accept:
 
-```bash
+```bash Terminal
 floe receive olive-tiger-castle -o ~/Downloads -y
 ```
 

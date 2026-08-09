@@ -32,7 +32,7 @@ The first match wins.
 
 Set it in `.env` and recreate the container. No rebuild:
 
-```bash
+```bash Terminal
 docker compose up -d
 ```
 
@@ -63,7 +63,7 @@ every self-hosted instance advertising somebody else's site as its canonical.
 
 To put your own domain in them, build the client yourself:
 
-```bash
+```bash Terminal
 NEXT_PUBLIC_SITE_URL=https://files.example.com \
   docker compose -f docker-compose.yml -f docker-compose.build.yml build client
 docker compose -f docker-compose.yml -f docker-compose.build.yml up -d

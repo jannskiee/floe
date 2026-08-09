@@ -69,7 +69,7 @@ Most Floe transfers just work. When something goes wrong, it is almost always on
 
     Floe already ignores link-local addresses (IPv4 169.254.x.x and IPv6 fe80::), which covers dead auto-config adapters and most virtual ones. A VPN adapter with a routable address, such as Tailscale's 100.x range, is not filtered. If you still see slow connects, pin the CLI to your real interface by name:
 
-    ```bash
+    ```bash Terminal
     floe receive olive-tiger-castle --iface Ethernet   # or --iface Wi-Fi
     ```
 
@@ -81,7 +81,7 @@ Most Floe transfers just work. When something goes wrong, it is almost always on
 
     The message prints both sides as `You:` and `Peer:`, each with its protocol range and release version. Go by the version strings rather than the labels, and update the older one. When the receiver detects the mismatch it composes the message and the sender prints it unchanged, so a sender can be told "your floe is too old" while it is the receiver that needs updating. In that case the whole message, not just the labels, is written from the receiver's point of view. If both versions look current, update both.
 
-    ```bash
+    ```bash Terminal
     floe update              # script / manual installs
     brew upgrade floe        # Homebrew
     winget upgrade jannskiee.floe  # Winget
@@ -135,7 +135,7 @@ Most Floe transfers just work. When something goes wrong, it is almost always on
   <Accordion title="The browser cannot connect to my signaling server">
     Set `NEXT_PUBLIC_SOCKET_URL` in `.env` and recreate the container. No rebuild is needed, because the client reads its server address at runtime:
 
-    ```bash
+    ```bash Terminal
     docker compose up -d
     ```
 
@@ -145,7 +145,7 @@ Most Floe transfers just work. When something goes wrong, it is almost always on
 
     Check what the client is actually resolving:
 
-    ```bash
+    ```bash Terminal
     curl http://localhost:3000/api/config
     ```
 

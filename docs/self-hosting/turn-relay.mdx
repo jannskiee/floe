@@ -19,7 +19,7 @@ Cloudflare's Realtime TURN service runs on Cloudflare's global anycast network. 
   <Step title="Set the server environment">
     In `.env`:
 
-    ```env
+    ```dotenv .env
     CLOUDFLARE_TURN_KEY_ID=<your Turn Token ID>
     CLOUDFLARE_TURN_KEY_API_TOKEN=<your API token>
     ```
@@ -42,7 +42,7 @@ TURN requires a **public IP address**, a **domain name**, and **TLS certificates
 
 <Steps>
   <Step title="Create the coturn config">
-    ```bash
+    ```bash Terminal
     curl -fsSL --create-dirs -o coturn/turnserver.conf \
       https://raw.githubusercontent.com/jannskiee/floe/main/coturn/turnserver.conf.example
     ```
@@ -65,7 +65,7 @@ TURN requires a **public IP address**, a **domain name**, and **TLS certificates
 
     The certificate mount is shipped commented out too. Uncomment it in `docker-compose.yml` so the paths you just set in `turnserver.conf` exist inside the container:
 
-    ```yaml
+    ```yaml docker-compose.yml
     volumes:
       - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
       - ./coturn/certs:/etc/coturn/certs:ro
@@ -76,7 +76,7 @@ TURN requires a **public IP address**, a **domain name**, and **TLS certificates
   <Step title="Match the server environment">
     In `.env`:
 
-    ```env
+    ```dotenv .env
     TURN_SECRET=<same value as static-auth-secret>
     TURN_DOMAIN=turn.your-domain.com
     ```
@@ -97,7 +97,7 @@ TURN requires a **public IP address**, a **domain name**, and **TLS certificates
     </Warning>
   </Step>
   <Step title="Start the stack with the TURN profile">
-    ```bash
+    ```bash Terminal
     docker compose --profile turn up -d
     ```
 
@@ -111,13 +111,13 @@ TURN requires a **public IP address**, a **domain name**, and **TLS certificates
 
 Check that the signaling server returns TURN credentials:
 
-```bash
+```bash Terminal
 curl http://localhost:3001/api/turn-credentials
 ```
 
 When TURN is configured, the response contains `turn:` and `turns:` entries, plus a `stun:` entry pointing at your TURN host:
 
-```json
+```json Output
 [
   { "urls": "stun:turn.your-domain.com:3478" },
   { "urls": "turn:turn.your-domain.com:3478", "username": "...", "credential": "..." },
