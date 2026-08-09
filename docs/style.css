@@ -392,6 +392,24 @@ html:not(.dark) #content-area a.link {
   border-bottom-color: #00A3C9;
 }
 
+/* The assistant bar's circular send button is bg-primary/30 (disabled) and
+   solid primary when armed, which the colors config turns ice (user call,
+   2026-08-09: black or white like every other control). The variable scope
+   keeps the 30 percent disabled alpha intact: light gets a black circle
+   with the stock white arrow, dark gets a white circle, so the arrow flips
+   to near-black there. chat-assistant-send-button is a semantic Mintlify
+   class observed on the button itself. */
+.chat-assistant-send-button {
+  --primary: 17 17 17;
+  --color-primary: rgb(17 17 17);
+  --primary-dark: 255 255 255;
+  --color-primary-dark: rgb(255 255 255);
+}
+
+.dark .chat-assistant-send-button svg {
+  color: rgb(17 17 17);
+}
+
 /* Tooltips (the Copy chip on code blocks and friends), neutral inverted
    instead of ice (user call, 2026-08-09: black or white only, by mode).
    Mintlify paints the chip bg-primary-dark in BOTH modes, which the colors
