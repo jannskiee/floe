@@ -19,7 +19,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
     title: 'Floe',
     description:
-        'Send files directly to anyone. No uploads, no accounts, end-to-end encrypted. Works on any device, any browser.',
+        'Send files directly to anyone. No uploads, no accounts, end-to-end encrypted. Works in your browser, as a Windows desktop app, or from the CLI.',
     metadataBase,
     // Left unconditional on purpose. Next passes a RELATIVE canonical through
     // verbatim when metadataBase is null, so this stays a valid self-referencing

@@ -5,19 +5,12 @@ const steps: { index: string; title: string; body: ReactNode }[] = [
     {
         index: '01',
         title: 'Drop your files',
-        body: (
-            <>
-                You get a link and a short code like{' '}
-                <code className="font-mono text-[12px] text-zinc-300">olive-tiger-castle</code>. The
-                room id rides the URL fragment, which never appears in page requests, server logs,
-                or analytics.
-            </>
-        ),
+        body: 'You get a share link and a QR code. The room id rides the URL fragment, which never appears in page requests, server logs, or analytics.',
     },
     {
         index: '02',
         title: 'Share either one',
-        body: 'Your peer opens the link in any browser, or types the code into the CLI. No account on either side.',
+        body: 'Your peer opens the link in any browser, scans the QR, or pastes the link into the desktop app or the CLI. No account on either side.',
     },
     {
         index: '03',

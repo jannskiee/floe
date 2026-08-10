@@ -1546,10 +1546,10 @@ function App() {
                                 <section className="space-y-2">
                                     <Eyebrow as="h3">Privacy</Eyebrow>
                                     {/* Both rows state the benefit first, then the cost, because a
-                                        toggle described only by its cost reads as a trap. What is
-                                        still missing (why the relay caps at 2 GB, that only the
-                                        RECEIVER reports, relay-only failing on a server with no
-                                        TURN) is on the launch list in desktop/README.md. */}
+                                        toggle described only by its cost reads as a trap. The
+                                        details left out here (why the relay caps at 2 GB, that only
+                                        the RECEIVER reports, relay-only failing on a server with no
+                                        TURN) live in the desktop docs: sending and settings. */}
                                     <div className={cn(cardClass, insetHairline)}>
                                         <SettingRow
                                             checked={hideIP}

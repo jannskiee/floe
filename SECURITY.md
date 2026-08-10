@@ -13,7 +13,7 @@ Please include as much of the following as possible:
 
 - A description of the vulnerability and its impact
 - Steps to reproduce it
-- The affected component (client, server, or CLI)
+- The affected component (web client, signaling server, CLI, or desktop app)
 - Any relevant logs, screenshots, or proof of concept
 
 ## What to Expect
@@ -24,8 +24,8 @@ Please include as much of the following as possible:
 
 ## Scope
 
-This policy covers the Floe web client, signaling server, and CLI in this repository. The signaling server brokers connection setup only. File data is transferred directly between peers over encrypted WebRTC data channels and is never stored or inspected by Floe infrastructure.
+This policy covers the Floe web client, signaling server, CLI, and desktop app in this repository. The signaling server brokers connection setup only. File data is transferred directly between peers over encrypted WebRTC data channels and is never stored or inspected by Floe infrastructure.
 
 ## Supported Versions
 
-Security fixes are applied to the latest release on the `main` branch. Please make sure you are using the most recent version before reporting an issue.
+Security fixes land on `main` and ship in the next release of the affected component. Floe has two release lines: the CLI releases as `v*` tags (the repository's Latest release) and the desktop app releases as `desktop-v*` pre-release tags, while the web client at floe.one always runs the newest `main`. Please make sure you are on the most recent release of the component you are reporting against.

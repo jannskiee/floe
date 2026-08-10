@@ -5,7 +5,7 @@ import { SectionHeader, sectionClass } from './SectionHeader';
 const handled: ReactNode[] = [
     'WebRTC offers, answers, and ICE candidates',
     'The room id that pairs two devices, held in memory while the room is open',
-    'A short room code that expires after 10 minutes',
+    'A short room code when the sender uses the CLI or desktop app, expiring after 10 minutes',
     'Short-lived TURN relay credentials',
     'One anonymous running total of bytes for the public counter',
     // The lede promises this is the COMPLETE list, so the per-IP rate limiting in

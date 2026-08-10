@@ -1,6 +1,6 @@
 # Contributing to Floe
 
-Thank you for your interest in contributing! All contributions are welcome.
+Thank you for your interest in contributing! All contributions are welcome. This project follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Getting Started
 
@@ -18,6 +18,13 @@ Floe has four parts: a **Next.js client**, a **Node.js signaling server**, a **G
 
 For most contributions (UI, pages, components), you only need to run the client. Point it at the live signaling server at `api.floe.one` so you do not need to run a server locally.
 
+### Prerequisites
+
+- **Node.js 22 or newer** for the client and the signaling server (CI tests the client on Node 22 and the server on Node 20).
+- **pnpm 11** for the client. The repo pins `pnpm@11.1.2` through the `packageManager` field: install it directly with `npm install -g pnpm@11`, or run `corepack enable` once (Corepack ships with Node 22 and picks up the pinned version automatically; on Windows run it from an elevated terminal).
+- **Go 1.25 or newer** for the CLI and the desktop app.
+- **Docker** (optional) for the full-stack Compose setup below.
+
 ### Client Only (Recommended for most contributors)
 
 ```bash
@@ -34,15 +41,17 @@ Open [http://localhost:3000](http://localhost:3000). With `NEXT_PUBLIC_SOCKET_UR
 
 ### Client + Server (Only needed if you're changing server code)
 
+Run each terminal from the repository root.
+
 ```bash
 # Terminal 1 - Server
-cd floe/server
+cd server
 cp .env.example .env
 npm install
-npm start
+npm run dev
 
 # Terminal 2 - Client
-cd floe/client
+cd client
 cp .env.example .env.local
 # NEXT_PUBLIC_SOCKET_URL is already http://localhost:3001 (the .env.example default)
 pnpm install
@@ -51,8 +60,10 @@ pnpm dev
 
 ### CLI (Only needed if you're changing CLI code)
 
+From the repository root:
+
 ```bash
-cd floe/cli
+cd cli
 go build ./cmd/floe
 go test ./...
 ```
@@ -61,8 +72,10 @@ go test ./...
 
 Build the frontend first: the Go build embeds `desktop/frontend/dist`, which is not checked in, so Go commands in `desktop/` fail on a fresh clone until it exists.
 
+From the repository root:
+
 ```bash
-cd floe/desktop/frontend
+cd desktop/frontend
 npm install
 npm run build
 npm test
@@ -78,11 +91,11 @@ For a live-reload development window, install the [Wails CLI](https://wails.io/d
 The documentation site lives in `docs/` and is built with [Mintlify](https://mintlify.com).
 
 ```bash
-cd floe/docs
-npx mintlify dev
+cd docs
+npx mintlify dev --port 3333
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to preview the docs locally.
+Open [http://localhost:3333](http://localhost:3333) to preview the docs locally. The `--port` flag matters when the client dev server is already running: both default to port 3000.
 
 ### Full stack with Docker (no local toolchain needed)
 
@@ -96,7 +109,7 @@ The overlay tags its output `floe-client:dev` and `floe-server:dev`, so a local 
 
 Without the overlay, `docker compose up -d` pulls the prebuilt images from ghcr.io and ignores your working tree entirely, which is what a self-hoster wants but almost never what a contributor wants.
 
-This is aimed at **self-hosting** (running your own instance) rather than active development, since the client image is a production build. See [SELF_HOSTING.md](SELF_HOSTING.md) for configuration and deployment details.
+Even with the overlay this is a production build with no hot reload, so use it to verify a change against the full stack in one shot, not as a development loop. For running your own instance, see [SELF_HOSTING.md](SELF_HOSTING.md).
 
 ---
 
@@ -125,6 +138,7 @@ This is aimed at **self-hosting** (running your own instance) rather than active
 | `MAX_CONNECTIONS_PER_IP` | No | Connection rate limit ceiling per IP per 60 seconds (default: `30`). Raise in staging or test environments. |
 | `MAX_CODE_REQUESTS_PER_IP` | No | Rate limit for the `/api/code` endpoints per IP per 60 seconds (default: `60`), shared across registering and resolving codes. Raise in CI or staging. |
 | `MAX_ACTIVE_CODES` | No | Maximum number of simultaneously-live room codes (default: `10000`). `POST /api/code` returns `503` when the cap is reached. |
+| `MAX_TURN_REQUESTS_PER_IP` | No | Rate limit for `GET /api/turn-credentials` per IP per 60 seconds (default: `20`). Raise in CI or staging. |
 | `CLOUDFLARE_TURN_KEY_ID` | No | Turn Token ID of a Cloudflare Realtime TURN key. With the API token below, enables managed TURN with no extra infrastructure. Takes precedence over the coturn variables. |
 | `CLOUDFLARE_TURN_KEY_API_TOKEN` | No | API token that pairs with `CLOUDFLARE_TURN_KEY_ID`. Keep it secret. |
 | `TURN_SECRET` | No | Shared secret for self-hosted coturn HMAC credentials, used only when the Cloudflare variables are unset. Omit both options to use STUN-only (direct connections). |
@@ -141,19 +155,20 @@ This is aimed at **self-hosting** (running your own instance) rather than active
 
 1. Create a new branch: `git checkout -b your-branch-name`
 2. Make your changes
-3. Ensure the build passes: `pnpm build` (in `client/`)
-4. Run the linter: `pnpm lint` (in `client/`)
-5. Run client tests: `pnpm test` (in `client/`)
-6. Run CLI tests: `go test ./...` (in `cli/`)
+3. If you touched `client/`, ensure the build passes: `pnpm build` (in `client/`)
+4. If you touched `client/`, run the linter: `pnpm lint` (in `client/`)
+5. If you touched `client/`, run its tests: `pnpm test` (in `client/`)
+6. If you touched `cli/`, run its tests: `go test ./...` (in `cli/`)
 7. If you touched `desktop/`, run its tests too: `go test ./...` (in `desktop/`, after building the frontend) and `npm test` (in `desktop/frontend/`)
-8. Submit a pull request with a clear title and description
+8. Write commit messages in the conventional style: a lowercase, imperative subject with an optional scope, for example `fix(client): keep the progress bar visible while verifying` or `docs: clarify the relay cap`. PRs are squash-merged, so the PR title follows the same convention.
+9. Submit a pull request. The template asks for a short summary and a test plan.
 
 ---
 
 ## Code Style
 
 - TypeScript for all new client code
-- Follow the existing formatting (Prettier is configured)
+- Match the formatting of the surrounding code (Prettier is configured repo-wide), and lint before pushing: `pnpm lint` (in `client/`)
 - Keep components focused and readable
 
 ---
@@ -171,6 +186,6 @@ Open an issue and describe what you'd like and why it would be useful.
 
 ## Questions
 
-Feel free to open an issue. We are happy to help.
+Ask in [Discussions](https://github.com/jannskiee/floe/discussions). For bugs and concrete feature requests, open an issue. We are happy to help.
 
 Thank you for contributing!

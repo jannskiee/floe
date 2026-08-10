@@ -5,152 +5,97 @@
 <h1 align="center">Floe</h1>
 
 <p align="center">
-  <strong>Secure, encrypted peer-to-peer file transfer</strong>
+  <strong>Encrypted peer-to-peer file transfer for the browser, desktop, and command line</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/jannskiee/floe/releases/latest"><img src="https://img.shields.io/github/v/release/jannskiee/floe" alt="Latest release" /></a>
+  <a href="https://github.com/jannskiee/floe/releases/latest"><img src="https://img.shields.io/github/v/release/jannskiee/floe?filter=v*&label=CLI" alt="CLI release" /></a>
+  <a href="https://github.com/jannskiee/floe/releases"><img src="https://img.shields.io/github/v/release/jannskiee/floe?filter=desktop-v*&label=Windows&include_prereleases" alt="Desktop release" /></a>
   <a href="https://github.com/jannskiee/floe/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jannskiee/floe/ci.yml?branch=main&label=build" alt="Build status" /></a>
   <a href="https://github.com/jannskiee/floe/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" /></a>
-  <a href="https://github.com/jannskiee/floe/issues"><img src="https://img.shields.io/github/issues/jannskiee/floe" alt="Issues" /></a>
   <a href="https://github.com/jannskiee/floe/stargazers"><img src="https://img.shields.io/github/stars/jannskiee/floe?style=social" alt="Stars" /></a>
-  <a href="https://github.com/jannskiee/floe/network/members"><img src="https://img.shields.io/github/forks/jannskiee/floe?style=social" alt="Forks" /></a>
 </p>
 
 <p align="center">
   <a href="https://floe.one">Try Floe</a> ·
-  <a href="https://floe.one/how-it-works">How It Works</a> ·
   <a href="https://www.floe.one/docs">Documentation</a> ·
+  <a href="#desktop">Desktop</a> ·
   <a href="#cli">CLI</a> ·
-  <a href="#self-hosting">Self-Hosting</a> ·
+  <a href="#self-hosting">Self-hosting</a> ·
   <a href="#contributing">Contributing</a>
 </p>
 
 ## About
 
-Floe is an open-source peer-to-peer file transfer application built on WebRTC. Files stream directly between devices with no server storage, no accounts, and no registration required. When a direct path is unavailable due to network restrictions, a TURN relay server bridges the connection while maintaining end-to-end encryption.
+Floe is an open-source peer-to-peer file transfer application built on WebRTC. Files stream directly between devices; the signaling server negotiates connections and never stores, inspects, or decrypts file data. When a direct path is blocked, an optional TURN relay bridges the transfer while the data stays end-to-end encrypted. The only report a client sends about a transfer is an optional, anonymous byte count that powers the public counter, and every client can opt out. The floe.one website itself runs cookieless analytics and error monitoring, detailed in the [security and privacy docs](https://www.floe.one/docs/security-privacy).
 
-A signaling server (`api.floe.one`) handles WebRTC negotiation and issues short-lived TURN credentials. It does not handle file data. No component in Floe's infrastructure stores, decrypts, or inspects transferred files.
+Three clients share one wire protocol: the web app at [floe.one](https://floe.one), a Windows desktop app, and a Go CLI. Send from a browser tab and receive in the desktop app or the CLI, or any other combination, even across different networks.
 
-## Quick Start
+For the design behind this, see [how it works](https://www.floe.one/how-it-works) and the [technical reference](https://www.floe.one/docs/how-it-works/signaling).
 
-[floe.one](https://floe.one) runs entirely in your browser. Open it, pick a file, and share the code or link. No account or installation required.
+## Quick start
 
-New to Floe? The [Quick Start guide](https://www.floe.one/docs/quickstart) walks through sending and receiving your first file.
+Open [floe.one](https://floe.one), pick a file, and share the generated link or QR code with the receiver. No account or installation required. The [quickstart guide](https://www.floe.one/docs/quickstart) walks through sending and receiving your first file.
 
-## How It Works
+## Desktop
 
-Files transfer directly between devices using WebRTC. A signaling server handles connection setup, then steps aside once both peers are connected. When a direct path cannot be established, an optional TURN relay bridges the connection with encrypted data that is never stored.
+Floe for Windows 10 and 11 (x64), currently in beta. The Microsoft Store build is signed and updates automatically.
 
-For a plain-language overview, visit [floe.one/how-it-works](https://floe.one/how-it-works). For the full technical reference covering signaling, ICE and NAT traversal, encryption, and relay fallback, see the [documentation](https://www.floe.one/docs/how-it-works/signaling).
+<a href="https://apps.microsoft.com/detail/9NBQ8ZQ1065L"><img src="client/public/ms-store-badge.svg" alt="Download from the Microsoft Store" width="161" height="44" /></a>
+
+Prefer a direct download? An installer and a portable build are on the [download page](https://www.floe.one/download). Setup details are in the [desktop installation guide](https://www.floe.one/docs/desktop/installation).
 
 ## CLI
 
-Floe provides a command-line interface for transferring files from headless devices, servers, and automated workflows. The CLI connects to the same signaling infrastructure as the web app. Browser-to-CLI and CLI-to-browser transfers are fully supported.
-
-### Install
-
-**macOS**
-```sh
-brew install --cask jannskiee/tap/floe
-```
-
-**Windows**
-```powershell
-winget install jannskiee.floe
-# or: scoop bucket add jannskiee https://github.com/jannskiee/scoop-bucket && scoop install floe
-```
-
-**Linux / any OS**
-```sh
-curl -fsSL https://floe.one/install.sh | sh
-# Windows PowerShell: irm https://floe.one/install.ps1 | iex
-```
-
-No runtime or dependencies required. For Go devs: `go install github.com/jannskiee/floe/cli/cmd/floe@latest`. For all install options, checksum verification, and PATH setup, see the [installation guide](https://www.floe.one/docs/cli/installation).
-
-### Update
+Send and receive from terminals, servers, and scripts.
 
 ```sh
-floe update              # for script / manual installs
-brew upgrade floe        # Homebrew
-winget upgrade jannskiee.floe  # Winget
-scoop update floe        # Scoop
+brew install --cask jannskiee/tap/floe        # macOS
+winget install jannskiee.floe                 # Windows
+curl -fsSL https://floe.one/install.sh | sh   # Linux and other systems
 ```
 
-### Usage
+Send with `floe send photo.jpg`, receive with `floe receive olive-tiger-castle`, and update in place with `floe update`. Senders in the CLI and the desktop app produce both a short code and a browser link, so the receiver can join from any client.
 
-**Send a file:**
-```sh
-floe send photo.jpg
-```
+Other install channels, checksum verification, and PATH setup are covered in the [CLI installation guide](https://www.floe.one/docs/cli/installation).
 
-**Send multiple files or a folder:**
-```sh
-floe send file1.txt file2.pdf folder/
-```
+## Self-hosting
 
-**Receive:**
-```sh
-floe receive olive-tiger-castle
-```
-
-The sender's terminal will display a room code and a browser link. The receiver can join using either the code (CLI) or the link (browser).
-
-After a successful transfer, the receiver reports only the total byte count to Floe's signaling server to power the public "transferred globally" counter on the homepage. No file names or contents are included. The sender never reports. To opt out:
-
-```sh
-floe receive olive-tiger-castle --no-report   # single transfer
-FLOE_NO_STATS=1 floe receive ...              # permanent (add to shell profile)
-```
-
-The global total is visible only in the browser. The CLI contributes to it but never displays it.
-
-For all commands, flags, and advanced usage, see the [documentation](https://www.floe.one/docs).
-
-## Self-Hosting
-
-Prefer to run your own instance instead of using `floe.one`? Prebuilt images are published to ghcr.io, so the full stack comes up in two commands with no clone and no toolchain:
+Prefer your own infrastructure? Prebuilt images on ghcr.io bring up the full stack in two commands, with no clone and no toolchain:
 
 ```sh
 curl -fsSLO https://raw.githubusercontent.com/jannskiee/floe/main/docker-compose.yml
 docker compose up -d
 ```
 
-This runs the client on `:3000` and the signaling server on `:3001` (STUN-only, which works on most networks). See **[SELF_HOSTING.md](SELF_HOSTING.md)** for configuration, production deployment behind HTTPS, and the optional TURN relay.
+All three clients can point at a self-hosted server. Configuration, deployment behind HTTPS, and the optional TURN relay are covered in [SELF_HOSTING.md](SELF_HOSTING.md) and the [self-hosting docs](https://www.floe.one/docs/self-hosting/overview).
+
+## Documentation
+
+Everything else lives in the [documentation](https://www.floe.one/docs):
+
+- [Quickstart](https://www.floe.one/docs/quickstart)
+- [FAQ](https://www.floe.one/docs/faq)
+- [Troubleshooting](https://www.floe.one/docs/troubleshooting)
+- [Changelog](https://www.floe.one/docs/changelog)
 
 ## Contributing
 
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, environment variables, and the pull request process.
-
-If you encounter a bug or have a feature suggestion, please open an [issue](https://github.com/jannskiee/floe/issues).
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and the pull request process, and open an [issue](https://github.com/jannskiee/floe/issues) for bugs or feature requests. This project follows the [Code of Conduct](CODE_OF_CONDUCT.md). To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## Support
 
-Floe is free and open source. Contributions help cover the ongoing costs of backend infrastructure that keeps the service accessible to everyone. This includes the signaling server for WebRTC connection negotiation and room management, and the TURN relay server that provides encrypted relay for users behind strict firewalls or Carrier-Grade NAT.
+Floe is free and open source. Sponsorship covers the signaling and TURN relay infrastructure that keeps the hosted service available to everyone.
 
-**[GitHub Sponsors](https://github.com/sponsors/jannskiee)**\
-**[Ko-fi](https://ko-fi.com/jannskiee)**
+**[GitHub Sponsors](https://github.com/sponsors/jannskiee)** · **[Ko-fi](https://ko-fi.com/jannskiee)**
 
 ## Acknowledgments
 
-Floe is supported by open source sponsorship programs that donate the tools and infrastructure behind it:
-
-- **Error monitoring** is generously provided by [Sentry](https://sentry.io) through [Sentry for Good](https://sentry.io/for/good/).
-- **Documentation** is generously hosted by [Mintlify](https://mintlify.com) through the [Mintlify OSS Program](https://mintlify.com/oss-program).
-- **Development** is supported by [Claude](https://claude.com/claude-code) through Anthropic's open source program.
-
-Thank you to these programs for helping keep Floe sustainable as an independent open source project.
-
-<p align="center">
-  <a href="https://sentry.io"><img src="https://img.shields.io/badge/Monitored%20by-Sentry-362D59?logo=sentry&logoColor=white" alt="Monitored by Sentry" /></a>
-  <a href="https://mintlify.com"><img src="https://img.shields.io/badge/Docs%20by-Mintlify-18E299?logo=mintlify&logoColor=white" alt="Documentation by Mintlify" /></a>
-  <a href="https://www.anthropic.com"><img src="https://img.shields.io/badge/Sponsored%20by-Anthropic-D97757?logo=anthropic&logoColor=white" alt="Sponsored by Anthropic" /></a>
-</p>
+Error monitoring is provided by [Sentry](https://sentry.io/for/good/), documentation hosting by [Mintlify](https://mintlify.com/oss-program), and development support by [Anthropic](https://www.anthropic.com)'s open source program. Thanks to these programs for keeping Floe sustainable as an independent project.
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+MIT License, Copyright Jan Carlo Paredes. See [LICENSE](LICENSE) for details.
 
 <p align="center">
   <sub>Open source. Built for everyone.</sub>
