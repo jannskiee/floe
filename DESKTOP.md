@@ -155,10 +155,13 @@ receiver, which is deliberate (share a link and wait) and cancellable.
       build, and the native-runner matrix waits for the macOS/Linux era)
 - [ ] Windows signing via SignPath Foundation
 - [ ] macOS notarization (deferred until the Apple Developer account is funded)
-- [ ] Build .dmg, .exe/.msi (NSIS), and .AppImage; attach to the same release
+- [~] Installers: the NSIS .exe and portable zip ship on every `desktop-v*` tag;
+      .dmg and .AppImage wait for the macOS/Linux era
 
 ### Phase 5 - Distribution
-- [ ] Homebrew Cask, Winget, Scoop (existing shared repos)
+- [~] Winget already resolves the Store listing (`winget install --id 9NBQ8ZQ1065L
+      --source msstore`); a community winget-pkgs manifest, Homebrew Cask, and
+      Scoop wait for signed builds and their platforms
 - [ ] Flathub, .deb/.rpm
 - [x] Microsoft Store as MSIX, the primary Windows channel (see the Store plan
       below; the old "unpackaged Win32" idea was wrong: the EXE submission path
@@ -167,12 +170,15 @@ receiver, which is deliberate (share a link and wait) and cancellable.
 - [x] Homepage download buttons and the /download page (#235), and a five-page "Desktop App"
       docs group: installation, sending, receiving, settings, keyboard-shortcuts
 
-## Release plan (0.1.0 beta)
+## Release history
 
-The verified order for the first public desktop release (research + independent
-checks, 2026-07-31). Steps 1-3 shipped the GitHub beta; the plan then pivoted
+Current release: `desktop-v0.2.2` (Microsoft Store 9NBQ8ZQ1065L + GitHub
+pre-release), shipped 2026-08-08.
+
+The list below is the verified order the first public release (0.1.0 beta)
+actually followed. Steps 1-3 shipped the GitHub beta; the plan then pivoted
 to the Microsoft Store as the primary Windows channel (see the Store plan
-below), which replaces the old steps 4-8.
+below), which replaced the old steps 4-8.
 
 - [x] 1. Pre-tag fixes: one exe name (`floe-desktop`), product info block in
       wails.json, per-user NSIS install (no UAC prompt), uninstaller deletes the
@@ -203,7 +209,12 @@ the exe/zip serve Store-blocked machines and are the hotfix/rollback path
 Versioning: the MSIX Identity Version's first octet cannot be 0 and the fourth
 is reserved, so `pack.ps1` derives it mechanically as (major+1).minor.patch.0
 (0.2.0 -> 1.2.0.0, 1.0.0 -> 2.0.0.0). The product's own 0.x string stays in
-wails.json, the exe version resource, and all marketing.
+wails.json, the exe version resource, and all marketing. At tag time, bump
+wails.json's `productVersion` and the concrete version examples in
+docs/desktop/installation.mdx and docs/desktop/settings.mdx alongside
+`DESKTOP_VERSION` in client/lib/desktopRelease.ts; the release workflow
+rewrites wails.json only in the runner's working tree, so the committed value
+goes stale otherwise.
 
 Packaged-build behavior (verified empirically 2026-08-02 on a loose-layout
 package of this app): the app's HKCU registry writes are virtualized into the
@@ -256,7 +267,8 @@ binary.
 
 **Must have (v1):** drag and drop send, folder send without zipping, receive
 streamed to disk with progress, system tray with background receive, OS
-notifications, the same code/link/QR pairing as web and CLI, auto-update, dark mode.
+notifications, pairing that interoperates with every surface (the web sends
+link+QR, the CLI code+link, the desktop all three), auto-update, dark mode.
 
 **Differentiators:** OS context-menu "Send with Floe" (right click in Explorer or
 Finder), a LAN fast path via local discovery (mDNS) for full-speed same-network
