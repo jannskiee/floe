@@ -37,6 +37,28 @@ body:
       required: false
 
   - type: dropdown
+    id: surface
+    attributes:
+      label: Where were you using Floe?
+      options:
+        - Web app (floe.one)
+        - Desktop app (Windows)
+        - CLI
+        - Self-hosted server
+        - Not sure
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "Desktop app: Settings > About. CLI: `floe --version`. Skip for the web app."
+      placeholder: e.g., desktop-v0.2.2 or v1.10.0
+    validations:
+      required: false
+
+  - type: dropdown
     id: device
     attributes:
       label: Device
