@@ -3,7 +3,8 @@
 What `wails build` and the packaging pipeline read from this directory:
 
 - `bin/` - build output: `floe-desktop.exe` and the NSIS installer
-  `floe-desktop-setup-<version>.exe`.
+  `floe-desktop-amd64-installer.exe` (renamed to `floe-desktop-setup-<version>.exe`
+  on the GitHub release by desktop-release.yml).
 - `windows/` - Windows build inputs: `icon.ico` (regenerated from `appicon.png`
   if deleted), `info.json` (the exe's version resource: right-click the exe,
   Properties, Details), `wails.exe.manifest`, and `installer/` (the NSIS
