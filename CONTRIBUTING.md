@@ -84,7 +84,7 @@ cd ..
 go test ./...
 ```
 
-For a live-reload development window, install the [Wails CLI](https://wails.io/docs/gettingstarted/installation) and run `wails dev` from `desktop/`.
+For a live-reload development window, install the [Wails CLI](https://wails.io/docs/gettingstarted/installation) at the version `desktop/go.mod` links against (currently v2.12.0) and run `wails dev` from `desktop/`.
 
 ### Documentation (Only needed if you're changing docs)
 
@@ -158,10 +158,11 @@ Even with the overlay this is a production build with no hot reload, so use it t
 3. If you touched `client/`, ensure the build passes: `pnpm build` (in `client/`)
 4. If you touched `client/`, run the linter: `pnpm lint` (in `client/`)
 5. If you touched `client/`, run its tests: `pnpm test` (in `client/`)
-6. If you touched `cli/`, run its tests: `go test ./...` (in `cli/`)
-7. If you touched `desktop/`, run its tests too: `go test ./...` (in `desktop/`, after building the frontend) and `npm test` (in `desktop/frontend/`)
-8. Write commit messages in the conventional style: a lowercase, imperative subject with an optional scope, for example `fix(client): keep the progress bar visible while verifying` or `docs: clarify the relay cap`. PRs are squash-merged, so the PR title follows the same convention.
-9. Submit a pull request. The template asks for a short summary and a test plan.
+6. If you touched `server/`, run its tests: `npm test` (in `server/`)
+7. If you touched `cli/`, run its tests: `go test ./...` (in `cli/`)
+8. If you touched `desktop/`, run its tests too: `go test ./...` (in `desktop/`, after building the frontend) and `npm test` (in `desktop/frontend/`)
+9. Write commit messages in the conventional style: a lowercase, imperative subject with an optional scope, for example `fix(client): keep the progress bar visible while verifying` or `docs: clarify the relay cap`. PRs are squash-merged, so the PR title follows the same convention.
+10. Submit a pull request. The template asks for a short summary and a test plan. CI runs automatically on the PR, and the `CI green` check must pass before it can merge (docs-only PRs skip the heavy jobs and go green in about a minute).
 
 ---
 
