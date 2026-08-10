@@ -75,9 +75,9 @@ all configured at runtime.
 ## One domain (recommended for production)
 
 You do not need two hostnames. Put the client and the signaling server behind a
-single reverse proxy, route `/socket.io/`, `/ws`, `/api/`, and `/health` to the
-server and everything else to the client, and the whole instance lives at one
-address. That means one certificate and one URL to configure.
+single reverse proxy, route `/socket.io/`, `/ws`, `/api/` (except `/api/config`,
+which belongs to the client), and `/health` to the server and everything else to
+the client, and the whole instance lives at one address. That means one certificate and one URL to configure.
 
 Copy-pasteable Caddy and nginx configuration is in
 [the reverse proxy guide](https://www.floe.one/docs/self-hosting/reverse-proxy).
