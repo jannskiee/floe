@@ -555,7 +555,8 @@ function App() {
     const prevModeRef = useRef<Mode>('send');
     // Whether the full-screen settings view covers the transfer UI.
     const [settingsOpen, setSettingsOpen] = useState(false);
-    // Whether the "start over while transferring?" confirm overlay is showing.
+    // Whether the "start over?" confirm overlay is showing. Not only about a live
+    // transfer: see resetWarning in reset.ts for every state that raises it.
     const [confirmReset, setConfirmReset] = useState(false);
     // Whether the "reset all settings?" confirm overlay is showing. Deliberately
     // NOT named confirmReset: that one guards Start over, which clears the
@@ -612,6 +613,12 @@ function App() {
     const [sendProg, setSendProg] = useState<{pct: number; label: string} | null>(null);
     const [sendDone, setSendDone] = useState(false);
     const [sentCount, setSentCount] = useState(0);
+    // The note the last COMPLETED send put on the wire, '' when that send was
+    // files. Start over compares the box against it: send:done leaves the
+    // textarea mounted and still full, so this is the only way to tell "the note
+    // I just sent is sitting there" (no prompt) from "I have started typing the
+    // next one" (prompt, because that text lives in this field and nowhere else).
+    const [sentText, setSentText] = useState('');
     const [peerConnected, setPeerConnected] = useState(false);
     const [filesOpen, setFilesOpen] = useState(false);
     const sendStart = useRef<Marker>(null);
@@ -619,6 +626,10 @@ function App() {
     // Snapshot of the sent file names, readable from the once-registered
     // send:done closure (which must not touch React state directly).
     const sentNamesRef = useRef<string[]>([]);
+    // The text handed to the engine by the send in flight, '' for a file send.
+    // Same once-registered-closure rule as sentNamesRef above: send:done reads
+    // this rather than sendText, which it would only ever see as '' from mount.
+    const outgoingTextRef = useRef('');
     // Total bytes of the in-flight send, harvested from progress events for the
     // history entry (same once-registered-closure rule: refs only).
     const sendBytesRef = useRef(0);
@@ -867,6 +878,12 @@ function App() {
             setSending(false);
             setSendDone(true);
             setSendStatus('');
+            // Record what went out, so Start over can tell the note that was
+            // delivered from one typed afterwards. Only a completed send writes
+            // this, so a failed or cancelled one leaves the note unsent and it
+            // keeps its prompt. Guarded on non-empty because a file send must not
+            // erase the record of a note that really did go out earlier.
+            if (outgoingTextRef.current) setSentText(outgoingTextRef.current);
             const names = sentNamesRef.current;
             setHistory((prev) => [{kind: 'send' as const, names, count: names.length, bytes: sendBytesRef.current || undefined, at: Date.now()}, ...prev].slice(0, HISTORY_CAP));
         });
@@ -874,6 +891,12 @@ function App() {
             if (sendCancel.current) return;
             setSendStatus('Error: ' + msg + serverNote());
             setSending(false);
+            // The progress row goes with the transfer. Left behind it froze
+            // on screen at whatever percent it died at, and worse, kept Start
+            // over's "a transfer is in progress" branch true for a dead
+            // transfer, which then outranked and hid the unsent-note warning.
+            // cancel() has always done this; the error path never did.
+            setSendProg(null);
             // The room is dead after an error; drop the stale code and link.
             setSendCode('');
             setSendLink('');
@@ -1199,9 +1222,12 @@ function App() {
         if (sendKind === 'text') {
             setSentCount(1);
             sentNamesRef.current = ['message.txt'];
+            outgoingTextRef.current = sendText;
         } else {
             setSentCount(files.length);
             sentNamesRef.current = files.map((f) => baseName(f) || f);
+            // A file send puts no text on the wire, so it must not claim any.
+            outgoingTextRef.current = '';
         }
         setPeerConnected(false);
         setFilesOpen(false);
@@ -1239,7 +1265,6 @@ function App() {
             const dir = await ReceiveByCode(code.trim(), output.trim(), hideIP, reportStats);
             setRecvDir(dir);
             setRecvDone(true);
-            setRecvProg(null);
             setRecvStatus('');
             const names = recvNamesRef.current;
             setHistory((prev) => [{kind: 'recv' as const, names, count: names.length, dir, bytes: recvBytesRef.current || undefined, at: Date.now()}, ...prev].slice(0, HISTORY_CAP));
@@ -1247,6 +1272,11 @@ function App() {
             setRecvStatus(recvCancel.current ? 'Cancelled.' : 'Error: ' + e + serverNote());
         } finally {
             setReceiving(false);
+            // Every exit clears the progress row, not just the successful one.
+            // On failure it used to stay frozen on screen and keep Start over
+            // convinced a transfer was still running, which showed the cancel
+            // warning for a dead transfer and hid the unsent-note one behind it.
+            setRecvProg(null);
         }
     }
 
@@ -1303,6 +1333,7 @@ function App() {
         setFiles([]);
         setSendKind('files');
         setSendText('');
+        setSentText('');
         setSendCode('');
         setSendLink('');
         setSendStatus(INITIAL_SEND_STATUS);
@@ -1314,6 +1345,7 @@ function App() {
         setFilesOpen(false);
         sendStart.current = null;
         sentNamesRef.current = [];
+        outgoingTextRef.current = '';
 
         // Receive
         setCode('');
@@ -1328,9 +1360,12 @@ function App() {
         setRoute('');
     }
 
-    // startOver is the Floe-lockup / Ctrl+R action. It confirms first only when
-    // bytes are actively moving, so escaping a stuck (connecting/idle) state is
-    // instant while a real transfer is protected from a fat-finger.
+    // startOver is the Floe-lockup / Ctrl+R action. It confirms first when the
+    // reset would destroy something the user cannot get back: bytes actually
+    // moving, or a note in the box that has not gone out. Everything else resets
+    // on the first click or keypress, so escaping a stuck (connecting/idle)
+    // state stays instant. resetWarning in reset.ts owns that decision and
+    // supplies the sentence, so do not restate its rules here.
     function startOver() {
         if (resetLoss) {
             setConfirmReset(true);
@@ -1352,8 +1387,8 @@ function App() {
     const resetLoss = resetWarning({
         transferring: !!(sendProg || recvProg),
         busy,
-        justSent: sendDone,
         text: sendText,
+        sentText,
     });
     // Amber marks anything relay-flavored: a known relayed route, or (before
     // the route is known / while idle) the Hide-my-IP preference forcing one.
