@@ -27,7 +27,7 @@
 
 ## About
 
-Floe is an open-source peer-to-peer file transfer application built on WebRTC. Files stream directly between devices; the signaling server negotiates connections and never stores, inspects, or decrypts file data. When a direct path is blocked, an optional TURN relay bridges the transfer while the data stays end-to-end encrypted. The only report a client sends about a transfer is an optional, anonymous byte count that powers the public counter, and every client can opt out. The floe.one website itself runs cookieless analytics and error monitoring, detailed in the [security and privacy docs](https://www.floe.one/docs/security-privacy).
+Floe is an open-source peer-to-peer file transfer application built on WebRTC. Files stream directly between devices; the signaling server negotiates connections and never stores, inspects, or decrypts file data. When a direct path is blocked, an optional TURN relay bridges the transfer while the data stays end-to-end encrypted. The desktop app and the CLI contain no analytics or telemetry; the only thing either sends is an optional, anonymous byte count that powers the public counter, and you can opt out in any client. The floe.one website itself runs cookieless, aggregate analytics (including anonymous transfer outcomes) and error monitoring, detailed in the [security and privacy docs](https://www.floe.one/docs/security-privacy).
 
 Three clients share one wire protocol: the web app at [floe.one](https://floe.one), a Windows desktop app, and a Go CLI. Send from a browser tab and receive in the desktop app or the CLI, or any other combination, even across different networks.
 
@@ -41,7 +41,7 @@ The [quickstart guide](https://www.floe.one/docs/quickstart) walks through sendi
 
 ## Desktop
 
-Floe for Windows 10 and 11 (x64), currently in beta. The Microsoft Store build is signed and updates automatically.
+Floe for Windows 10 and 11 (x64), currently in beta. The Microsoft Store build is signed by Microsoft and updates automatically.
 
 <a href="https://apps.microsoft.com/detail/9NBQ8ZQ1065L"><img src="client/public/ms-store-badge.svg" alt="Download from the Microsoft Store" width="161" height="44" /></a>
 

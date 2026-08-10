@@ -24,7 +24,7 @@ Please include as much of the following as possible:
 
 ## Scope
 
-This policy covers the Floe web client, signaling server, CLI, and desktop app in this repository. The signaling server brokers connection setup only. File data is transferred directly between peers over encrypted WebRTC data channels and is never stored or inspected by Floe infrastructure.
+This policy covers the Floe web client, signaling server, CLI, and desktop app in this repository. The signaling server brokers connection setup only. File data travels peer-to-peer over end-to-end encrypted WebRTC data channels, directly when possible or through an encrypted TURN relay that cannot read it, and is never stored or inspected by Floe infrastructure.
 
 ## Supported Versions
 

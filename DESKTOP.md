@@ -45,6 +45,8 @@ cli/
     signaling/         WebSocket signaling client
     ice/               STUN/TURN credential fetch
     code/              short room-code register and resolve
+    serverurl/         normalizes user-supplied server URLs
+    verify/            short authentication string from DTLS fingerprints
   internal/
     selfupdate/        CLI-only self updater (stays private)
 desktop/               Wails app: imports cli/engine/...
@@ -79,7 +81,8 @@ go.work                ties cli + desktop for local dev
 - [x] Drag and drop files onto the window to send
 - [x] Polished UI matching the web app's design: Tailwind v4 (`@tailwindcss/vite`, Vite 3->6 bump)
       + Geist fonts + lucide-react; dark zinc theme, elevated card, segmented tabs, custom toggle,
-      dashed drop zone, mono room code + copy-link, polished progress/verify/status, and a
+      dashed drop zone, mono room code + copy-link, polished progress/status (the verify
+      row was later removed, see 3a), and a
       QR panel behind a Show QR toggle (react-qr-code; shipped, the earlier "deferred" note
       was stale). No Share button on Windows: WebView2 does not expose `navigator.share`,
       and the button is feature-gated on it.
@@ -153,7 +156,8 @@ receiver, which is deliberate (share a link and wait) and cancellable.
 - [x] Release workflow: a plain `desktop-release.yml` on `desktop-v*` tags
       (Windows-only for the beta; GoReleaser adds nothing for a Wails NSIS
       build, and the native-runner matrix waits for the macOS/Linux era)
-- [ ] Windows signing via SignPath Foundation
+- [ ] Code signing for the GitHub builds (no current provider: SignPath Foundation
+      declined; the Store MSIX is already re-signed by Microsoft)
 - [ ] macOS notarization (deferred until the Apple Developer account is funded)
 - [~] Installers: the NSIS .exe and portable zip ship on every `desktop-v*` tag;
       .dmg and .AppImage wait for the macOS/Linux era
@@ -167,7 +171,7 @@ receiver, which is deliberate (share a link and wait) and cancellable.
       below; the old "unpackaged Win32" idea was wrong: the EXE submission path
       requires a purchased certificate and delivers no updates, while only MSIX
       is re-signed free by Microsoft)
-- [x] Homepage download buttons and the /download page (#235), and a five-page "Desktop App"
+- [x] Homepage download buttons and the /download page (#235), and a five-page "Desktop"
       docs group: installation, sending, receiving, settings, keyboard-shortcuts
 
 ## Release history
@@ -212,7 +216,7 @@ is reserved, so `pack.ps1` derives it mechanically as (major+1).minor.patch.0
 wails.json, the exe version resource, and all marketing. At tag time, bump
 wails.json's `productVersion` and the concrete version examples in
 docs/desktop/installation.mdx and docs/desktop/settings.mdx alongside
-`DESKTOP_VERSION` in client/lib/desktopRelease.ts; the release workflow
+`DESKTOP_VERSION` and `DESKTOP_RELEASE_DATE` in client/lib/desktopRelease.ts; the release workflow
 rewrites wails.json only in the runner's working tree, so the committed value
 goes stale otherwise.
 
@@ -231,7 +235,7 @@ binary.
       .msix into a CI artifact (its only consumer is Partner Center; end users
       cannot install unsigned exe-activation packages)
 - [x] b. Tag `desktop-v0.2.0`: GitHub release + MSIX artifact from one tag
-      (released 2026-08-01; all three assets verified live, and the
+      (released 2026-08-02; all three assets verified live, and the
       FloeDesktop_1.2.0.0_x64.msix artifact validated in Partner Center)
 - [x] c. Partner Center submission, PRIVATE audience first (public->private is
       permanently forbidden): upload the .msix, category Utilities & tools >
@@ -270,18 +274,22 @@ streamed to disk with progress, system tray with background receive, OS
 notifications, pairing that interoperates with every surface (the web sends
 link+QR, the CLI code+link, the desktop all three), auto-update, dark mode.
 
-**Differentiators:** OS context-menu "Send with Floe" (right click in Explorer or
-Finder), a LAN fast path via local discovery (mDNS) for full-speed same-network
-transfers, send to self across your own devices, transfer history, resume of
-interrupted transfers, connection verification words (from the PAKE), and a global
-hotkey with screenshot or clipboard send.
+**Differentiators:** OS context-menu "Send with Floe" (shipped on Windows; the
+Finder half waits for macOS), a LAN fast path via local discovery (mDNS) for
+full-speed same-network transfers, send to self across your own devices, transfer
+history (shipped in 0.1.0), resume of interrupted transfers, connection
+verification words (from the PAKE), and a global hotkey with screenshot or
+clipboard send (clipboard paste-to-send shipped in 0.1.0; the global hotkey
+remains).
 
 **Later:** saved contacts and devices, continuous folder sync, multi-peer send.
 
 ## Signing and distribution notes
 
-- Windows: SignPath Foundation (free OSS OV signing), application submitted. The
-  maintainer manages CLI signing separately; desktop signing is wired here.
+- Windows: no free OSS signing route has accepted the project (SignPath Foundation
+  declined). The Store MSIX is re-signed by Microsoft, which is the warning-free
+  channel; GitHub builds ship unsigned, and paid OV signing (for example Certum)
+  stays an option if the GitHub channel ever grows.
 - macOS: Apple Developer ID plus notarization ($99/yr), deferred. Until then, ship
   ad-hoc signed builds with right-click Open instructions.
 - Linux: free. Flathub pins a consistent WebKitGTK runtime, ideal for a Wails app.

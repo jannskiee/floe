@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Floe** is a browser-native, peer-to-peer file transfer app built on WebRTC. Four components work together:
+**Floe** is an encrypted, peer-to-peer file transfer app built on WebRTC, with browser, desktop, and CLI surfaces. Four components work together:
 
 - **`client/`** - Next.js 16 (React 19) web app
 - **`server/`** - Node.js signaling server (Express + Socket.IO + WebSocket)
@@ -24,6 +24,8 @@ pnpm install
 pnpm dev         # dev server on :3000
 pnpm build       # production build
 pnpm lint        # ESLint
+pnpm test        # vitest unit suite
+pnpm test:e2e    # Playwright e2e (needs client + server running)
 ```
 
 ### Server (Node.js)
@@ -32,6 +34,7 @@ cd server
 npm install
 npm run dev      # nodemon auto-restart on :3001
 npm start        # production
+npm test         # node --test server.test.js
 ```
 
 ### CLI (Go)
@@ -71,12 +74,18 @@ TURN_DOMAIN=                 # optional coturn hostname
 UPSTASH_REDIS_REST_URL=      # optional, durable global stats counter
 UPSTASH_REDIS_REST_TOKEN=    # optional, pairs with the URL above
 MAX_REPORT_BYTES=            # optional, per-report cap (default 5 TB)
+NODE_ENV=                    # optional, production suppresses stack traces
+TRUSTED_PROXY_COUNT=         # optional, proxy hops for client-IP parsing (default 1; affects every per-IP limiter)
+MAX_CONNECTIONS_PER_IP=      # optional, plus MAX_CODE_REQUESTS_PER_IP, MAX_TURN_REQUESTS_PER_IP,
+MAX_ACTIVE_CODES=            #   see server/.env.example for the full annotated list
 ```
 
 **Client** - copy `client/.env.example` to `client/.env.local`:
 ```
-NEXT_PUBLIC_SOCKET_URL=http://localhost:3001
-NEXT_PUBLIC_SENTRY_DSN=    # optional
+NEXT_PUBLIC_SOCKET_URL=http://localhost:3001  # build-time override; self-hosted Docker resolves at runtime via client/lib/socketUrl.ts
+NEXT_PUBLIC_SITE_URL=         # optional, canonical/OG/sitemap base for self-hosts
+NEXT_PUBLIC_SENTRY_DSN=       # optional (SENTRY_DSN / SENTRY_ORG / SENTRY_PROJECT for the server side)
+NEXT_PUBLIC_UMAMI_WEBSITE_ID= # optional analytics
 ```
 
 ## Architecture
@@ -104,7 +113,7 @@ Relayed (TURN) transfers are capped at 2 GB per session; direct transfers are un
 `GET /api/turn-credentials` returns the ICE server list; called by both client and CLI before connecting. Precedence: **Cloudflare Realtime TURN** when `CLOUDFLARE_TURN_KEY_ID` / `CLOUDFLARE_TURN_KEY_API_TOKEN` are set (what floe.one runs; short-lived credentials minted from Cloudflare's `generate-ice-servers` API, cached in memory ~12h, with STUN and TURN returned as separate entries so the client's relay-off filter can strip TURN while keeping STUN), then self-hosted **coturn** HMAC-SHA1 credentials (24h) when `TURN_SECRET` / `TURN_DOMAIN` are set, otherwise Google STUN only. Cloudflare's full 8-URL list is trimmed to a minimal 3-URL set (one STUN, one UDP TURN, one TLS TURN on 443) by `selectMinimalIceUrls` before serving; clients gather ICE candidates per URL per network interface, so redundant URLs multiply connection-setup time on multi-adapter machines.
 
 ### Global Stats Counter
-A public, all-time counter of total bytes transferred across every Floe user, shown on the homepage (`client/components/GlobalStats.tsx`) with a NumberFlow odometer animation. Because Floe is P2P and file bytes never reach the server, the **receiver** peer reports the byte count out-of-band over HTTP after a completed transfer. Only the receiver reports (browser receiver in `P2PTransfer.tsx`, CLI and desktop receivers via `cli/engine/transfer/receiver.go`), so each transfer is counted exactly once. The sender never reports. The data-channel protocol is unchanged, so no `ProtocolVersion` bump is needed.
+A public, all-time counter of total bytes transferred across every Floe user, shown on the homepage (`client/components/GlobalStats.tsx`) with a NumberFlow odometer animation. Because Floe is P2P and file bytes never reach the server, the **receiver** peer reports the byte count out-of-band over HTTP after a completed transfer. Only the receiver reports (browser receiver via `client/hooks/useTransferAnalytics.ts`, composed by `P2PTransfer.tsx`; CLI and desktop receivers via `cli/engine/transfer/receiver.go`), so each transfer is counted exactly once. The sender never reports. The data-channel protocol is unchanged, so no `ProtocolVersion` bump is needed.
 
 The global total is viewable only in the browser (the `GlobalStats` component on the homepage). The CLI receiver contributes to the counter but never fetches or displays it.
 
@@ -113,7 +122,7 @@ The global total is viewable only in the browser (the `GlobalStats` component on
 - Durability is Upstash Redis over its REST API via native `fetch` (no SDK). `initStats()` seeds `cachedTotal` from Redis on startup. If `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` are unset, the counter degrades gracefully to in-memory only (resets to 0 on restart). This is a best-effort vanity metric with lightweight guardrails, not a tamper-proof figure.
 
 **Opt-out:** Both the browser and the CLI receiver support opting out of reporting.
-- Browser: a "Contribute to global stats" toggle on the receiver view (persisted in `localStorage['floe:report-stats']`). When unchecked, neither the `POST /api/stats/report` call nor the optimistic `floe:bytes-reported` event fires.
+- Browser: a "Contribute to global stats" toggle on the receiver view (`client/components/StatsContributionToggle.tsx`, persisted in `localStorage['floe:report-stats']` by `client/hooks/useTransferAnalytics.ts`). When unchecked, neither the `POST /api/stats/report` call nor the optimistic `floe:bytes-reported` event fires.
 - CLI: pass `--no-report` to `floe receive`, or set `FLOE_NO_STATS=1` in the environment. Both gate the report by passing an empty `statsURL` to `ReceiveFiles`, which hits the empty-URL guard at the top of `reportBytesToServer` in `cli/engine/transfer/receiver.go`. No change to `ReceiveFiles` signature or receiver logic.
 
 ### Rate Limiting
@@ -123,8 +132,8 @@ Four independent per-IP limiters, each over a 60s window, tracked in plain `Map`
 `next.config.mjs` sets `reactStrictMode: false`. Strict Mode's double-mount breaks Socket.IO connections and `simple-peer` instances. All socket/peer logic uses refs and cleanup functions to handle component lifecycle correctly.
 
 ### Key Client Modules
-- `client/components/P2PTransfer.tsx` - entire transfer UI (role detection, file selection, progress, download)
-- `client/hooks/useWakeLock.ts` - Screen Wake Lock API wrapper (prevents device sleep during transfers)
+- `client/components/P2PTransfer.tsx` - transfer UI orchestrator; the extracted logic lives in `client/hooks/` (useSignaling, useFileManagement, useDownloadManager, useConnectionType, useTransferAnalytics, useRelayConfiguration, useWakeLock)
+- `client/lib/transfer/` - browser side of the wire protocol (protocol.ts, sender.ts, receiver.ts, verify.ts)
 - `client/lib/transferUtils.ts` - `formatSpeed()` and `formatETA()` used by the progress display
 
 ### Shared Go Engine
@@ -144,7 +153,7 @@ All under `cli/engine/`, imported by both the CLI (`cli/cmd/floe`) and the deskt
 The docs live in `docs/` (Mintlify), git-synced to `main`, and are served at `floe.one/docs` (Mintlify deployment `floe` at base path `/docs`, reverse-proxied through the Vercel app's `next.config.mjs` rewrite to `floe.mintlify.site`; the old `docs.floe.one` 301-redirects there).
 
 - `docs/changelog.mdx` is written by hand and is never auto-generated. Its shape is fixed by the authoring contract in the MDX comment at the top of the file: one timeline for both version lines, `label` is the git tag verbatim (and therefore the anchor, so never edit a shipped one), `description` is the release date, and `tags` come from the fixed set `Web`, `Desktop`, `CLI`, `Self-hosting`, primary surface first. Follow that contract when adding an entry. Changing the contract itself is a restructure and needs its own discussion.
-- `docs/style.css` is auto-loaded by Mintlify on every docs page (no `docs.json` entry, that is how Mintlify works). It holds one rule, which puts separators between the tags in a changelog entry's left gutter, because Mintlify renders them there as bare space-separated text with no delimiter of its own, so `Web CLI Self-hosting` read as one phrase. That rule is the only thing keeping the tags legible, and its selector is undocumented by Mintlify, so if the tag row ever loses its separators that is the first thing to check.
+- `docs/style.css` is auto-loaded by Mintlify on every docs page (no `docs.json` entry, that is how Mintlify works). Since the docs redesign (#269) it carries the full docs CSS (sidebar, theme, landing, code blocks). The changelog tag-separator rule near the top is still the only thing keeping the tags in an entry's left gutter legible (Mintlify renders them as bare space-separated text with no delimiter of its own), and its selector is undocumented by Mintlify, so if the tag row ever loses its separators that is the first thing to check.
 - Docs-only PRs stay fast without dodging branch protection: the `changes` job in `.github/workflows/ci.yml` diffs the PR and, when every changed file is under `docs/`, the heavy jobs skip and the `CI green` check reports success in under a minute, so docs and Mintlify PRs merge quickly without running the client/server/CLI/e2e suite.
 
 Automated doc-maintenance PRs (style, links, SEO) are managed in the Mintlify dashboard. They open PRs against `main`, only edit `docs/**`, and never auto-merge.
@@ -159,7 +168,7 @@ ci.yml also has a `workflow_dispatch` trigger: a dispatched run behaves exactly 
 
 Do not use em dashes in any markdown files or documentation. Use periods, commas, hyphens, or parentheses instead. In `docs/`, Vale checks this (`docs/.vale.ini` plus the `docs/styles/Floe/EmDash.yml` rule, surfaced as the Mintlify Grammar linter CI check), reinforced by the weekly Apply style guide automation.
 
-What Vale actually covers is narrower than this rule: it matches the em dash and en dash characters only, in `docs/` only. An ASCII `--` used as a dash is a human-review matter, because a token for it fires on every CLI flag in the docs. Markdown outside `docs/` has no linter at all.
+What Vale actually covers is narrower than this rule: it matches the em dash and en dash characters only, in `docs/` only. An ASCII `--` used as a dash is a human-review matter, because a token for it fires on every CLI flag in the docs. Markdown outside `docs/` has no style linter (root Prettier can format it, but nothing checks dash usage there).
 
 ## Git Conventions
 
