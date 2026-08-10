@@ -27,11 +27,11 @@ half-typed note or room code is never wiped mid-word.
 
 <Warning>
   `Ctrl` `R` asks for confirmation in two cases: when a transfer is actually moving data, and
-  when there is an unsent text note (whether you typed it and clicked away, or reached Start
-  over via the Floe lockup in the titlebar). The dialog reads "The text you typed has not been
-  sent yet. Starting over will clear it." Staged files, in-flight sends that are still
-  connecting, and the state right after a completed transfer deliberately reset without a
-  prompt.
+  when there is an unsent text note. The unsent-note prompt covers both paths to Start over,
+  the shortcut itself and clicking the Floe lockup in the titlebar. The dialog reads "The text
+  you typed has not been sent yet. Starting over will clear it." Staged files, in-flight sends
+  that are still connecting, and the state right after a completed transfer deliberately reset
+  without a prompt.
 </Warning>
 
 **`Ctrl` `R` does not reload the app.** In a browser that key reloads the page, which here
