@@ -17,21 +17,23 @@ description: "Every keyboard shortcut in Floe Desktop for Windows: adding files,
 
 ## Behaviour worth knowing
 
-**Most shortcuts pause while you type.** `Ctrl` `O`, `Ctrl` `Enter`, `Ctrl` `V` and `Ctrl` `H`
-do nothing while the cursor is in a text field, so typing a room code or a note is never
-interrupted and nothing fires twice.
+**Most shortcuts pause while you type.** `Ctrl` `O`, `Ctrl` `Enter`, `Ctrl` `V`, `Ctrl` `H` and
+`Ctrl` `R` do nothing while the cursor is in a text field, so typing a room code or a note is
+never interrupted, nothing fires twice, and a half-typed note is never wiped mid-word.
 
 **One fires from anywhere.** `Ctrl` `,` opens Settings, the way a preferences shortcut normally
-does. `Ctrl` `R` also pauses while a text field has focus, matching the other shortcuts, so a
-half-typed note or room code is never wiped mid-word.
+does.
 
 <Warning>
   `Ctrl` `R` asks for confirmation in two cases: when a transfer is actually moving data, and
   when there is an unsent text note. The unsent-note prompt covers both paths to Start over,
   the shortcut itself and clicking the Floe lockup in the titlebar. The dialog reads "The text
-  you typed has not been sent yet. Starting over will clear it." Staged files, in-flight sends
-  that are still connecting, and the state right after a completed transfer deliberately reset
-  without a prompt.
+  you typed has not been sent yet. Starting over will clear it."
+
+  Three things reset with no prompt at all: staged files on their own, a send or a receive that
+  is still connecting, and anything typed once a send has completed. That last one holds until
+  you stage or remove a file, send again, cancel, or start over, so a note typed underneath a
+  finished send can be cleared without being asked.
 </Warning>
 
 **`Ctrl` `R` does not reload the app.** In a browser that key reloads the page, which here
