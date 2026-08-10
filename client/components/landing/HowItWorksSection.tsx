@@ -10,7 +10,7 @@ const steps: { index: string; title: string; body: ReactNode }[] = [
     {
         index: '02',
         title: 'Share either one',
-        body: 'Your peer opens the link in any browser, scans the QR, or pastes the link into the CLI. No account on either side.',
+        body: 'Your peer opens the link in any browser, scans the QR, or pastes the link into the desktop app or the CLI. No account on either side.',
     },
     {
         index: '03',

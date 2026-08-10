@@ -27,7 +27,7 @@
 
 ## About
 
-Floe is an open-source peer-to-peer file transfer application built on WebRTC. Files stream directly between devices; the signaling server negotiates connections and never stores, inspects, or decrypts file data. When a direct path is blocked, an optional TURN relay bridges the transfer while the data stays end-to-end encrypted. The only telemetry is an optional, anonymous byte-count report that powers the public transfer counter, and every client [can opt out](https://www.floe.one/docs/security-privacy).
+Floe is an open-source peer-to-peer file transfer application built on WebRTC. Files stream directly between devices; the signaling server negotiates connections and never stores, inspects, or decrypts file data. When a direct path is blocked, an optional TURN relay bridges the transfer while the data stays end-to-end encrypted. The only report a client sends about a transfer is an optional, anonymous byte count that powers the public counter, and every client can opt out. The floe.one website itself runs cookieless analytics and error monitoring, detailed in the [security and privacy docs](https://www.floe.one/docs/security-privacy).
 
 Three clients share one wire protocol: the web app at [floe.one](https://floe.one), a Windows desktop app, and a Go CLI. Send from a browser tab and receive in the desktop app or the CLI, or any other combination, even across different networks.
 
@@ -91,7 +91,7 @@ Floe is free and open source. Sponsorship covers the signaling and TURN relay in
 
 ## Acknowledgments
 
-Error monitoring is provided by [Sentry](https://sentry.io/for/good/), documentation hosting by [Mintlify](https://mintlify.com/oss-program), and development support by [Anthropic](https://www.anthropic.com)'s open source program. Thank you for keeping Floe sustainable as an independent project.
+Error monitoring is provided by [Sentry](https://sentry.io/for/good/), documentation hosting by [Mintlify](https://mintlify.com/oss-program), and development support by [Anthropic](https://www.anthropic.com)'s open source program. Thanks to these programs for keeping Floe sustainable as an independent project.
 
 ## License
 

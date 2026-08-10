@@ -20,8 +20,8 @@ For most contributions (UI, pages, components), you only need to run the client.
 
 ### Prerequisites
 
-- **Node.js 22 or newer** for the client and the signaling server (CI runs Node 22).
-- **pnpm 11** for the client. The repo pins `pnpm@11.1.2` through the `packageManager` field, so either run `corepack enable` once (Corepack ships with Node and picks up the pinned version automatically) or install it directly with `npm install -g pnpm@11`.
+- **Node.js 22 or newer** for the client and the signaling server (CI tests the client on Node 22 and the server on Node 20).
+- **pnpm 11** for the client. The repo pins `pnpm@11.1.2` through the `packageManager` field: install it directly with `npm install -g pnpm@11`, or run `corepack enable` once (Corepack ships with Node 22 and picks up the pinned version automatically; on Windows run it from an elevated terminal).
 - **Go 1.25 or newer** for the CLI and the desktop app.
 - **Docker** (optional) for the full-stack Compose setup below.
 
@@ -48,7 +48,7 @@ Run each terminal from the repository root.
 cd server
 cp .env.example .env
 npm install
-npm start
+npm run dev
 
 # Terminal 2 - Client
 cd client
@@ -109,7 +109,7 @@ The overlay tags its output `floe-client:dev` and `floe-server:dev`, so a local 
 
 Without the overlay, `docker compose up -d` pulls the prebuilt images from ghcr.io and ignores your working tree entirely, which is what a self-hoster wants but almost never what a contributor wants.
 
-This is aimed at **self-hosting** (running your own instance) rather than active development, since the client image is a production build. See [SELF_HOSTING.md](SELF_HOSTING.md) for configuration and deployment details.
+Even with the overlay this is a production build with no hot reload, so use it to verify a change against the full stack in one shot, not as a development loop. For running your own instance, see [SELF_HOSTING.md](SELF_HOSTING.md).
 
 ---
 
@@ -155,10 +155,10 @@ This is aimed at **self-hosting** (running your own instance) rather than active
 
 1. Create a new branch: `git checkout -b your-branch-name`
 2. Make your changes
-3. Ensure the build passes: `pnpm build` (in `client/`)
-4. Run the linter: `pnpm lint` (in `client/`)
-5. Run client tests: `pnpm test` (in `client/`)
-6. Run CLI tests: `go test ./...` (in `cli/`)
+3. If you touched `client/`, ensure the build passes: `pnpm build` (in `client/`)
+4. If you touched `client/`, run the linter: `pnpm lint` (in `client/`)
+5. If you touched `client/`, run its tests: `pnpm test` (in `client/`)
+6. If you touched `cli/`, run its tests: `go test ./...` (in `cli/`)
 7. If you touched `desktop/`, run its tests too: `go test ./...` (in `desktop/`, after building the frontend) and `npm test` (in `desktop/frontend/`)
 8. Write commit messages in the conventional style: a lowercase, imperative subject with an optional scope, for example `fix(client): keep the progress bar visible while verifying` or `docs: clarify the relay cap`. PRs are squash-merged, so the PR title follows the same convention.
 9. Submit a pull request. The template asks for a short summary and a test plan.
@@ -168,7 +168,7 @@ This is aimed at **self-hosting** (running your own instance) rather than active
 ## Code Style
 
 - TypeScript for all new client code
-- Match the formatting of the surrounding code, and lint before pushing: `pnpm lint` (in `client/`)
+- Match the formatting of the surrounding code (Prettier is configured repo-wide), and lint before pushing: `pnpm lint` (in `client/`)
 - Keep components focused and readable
 
 ---
