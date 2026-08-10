@@ -72,7 +72,11 @@ All three clients can point at a self-hosted server. Configuration, deployment b
 
 ## Documentation
 
-The [documentation](https://www.floe.one/docs) covers all three clients in depth, from your first transfer to a self-hosted deployment. The [FAQ](https://www.floe.one/docs/faq) answers the questions that come up most, from transfer limits to privacy, and the [troubleshooting guide](https://www.floe.one/docs/troubleshooting) starts from the symptom when something will not connect. The [changelog](https://www.floe.one/docs/changelog) tracks every release across web, desktop, and CLI.
+The [documentation](https://www.floe.one/docs) covers all three clients in depth, from your first transfer to a self-hosted deployment.
+
+The [FAQ](https://www.floe.one/docs/faq) answers the questions that come up most, from transfer limits to privacy, and the [troubleshooting guide](https://www.floe.one/docs/troubleshooting) starts from the symptom when something will not connect.
+
+The [changelog](https://www.floe.one/docs/changelog) tracks every release across web, desktop, and CLI.
 
 ## Contributing
 
