@@ -17,16 +17,24 @@ description: "Every keyboard shortcut in Floe Desktop for Windows: adding files,
 
 ## Behaviour worth knowing
 
-**Most shortcuts pause while you type.** `Ctrl` `O`, `Ctrl` `Enter`, `Ctrl` `V` and `Ctrl` `H`
-do nothing while the cursor is in a text field, so typing a room code or a note is never
-interrupted and nothing fires twice.
+**Most shortcuts pause while you type.** `Ctrl` `O`, `Ctrl` `Enter`, `Ctrl` `V`, `Ctrl` `H` and
+`Ctrl` `R` do nothing while the cursor is in a text field, so typing a room code or a note is
+never interrupted, nothing fires twice, and a half-typed note is never wiped mid-word.
 
-**Two fire from anywhere.** `Ctrl` `,` opens Settings, the way a preferences shortcut normally
-does. `Ctrl` `R` starts over, and it is not held back while you type.
+**One fires from anywhere.** `Ctrl` `,` opens Settings, the way a preferences shortcut normally
+does.
 
 <Warning>
-  `Ctrl` `R` only asks for confirmation when a transfer is actually moving data. Pressing it
-  while you are composing a text note clears the note with no warning.
+  `Ctrl` `R` asks for confirmation in two cases: when a transfer is actually moving data, and
+  when the text box holds a note that has not been sent. The unsent-note prompt covers both
+  paths to Start over, the shortcut itself and clicking the Floe lockup in the titlebar. The
+  dialog reads "The text you typed has not been sent yet. Starting over will clear it."
+
+  A note counts as sent only while the box still holds exactly what went out, so typing a new
+  one after a send prompts again, and so does a note you typed and then abandoned in favour of
+  sending files. Staged files never prompt on their own, because the originals are untouched on
+  disk, and neither does a send or a receive that is still connecting, so Start over stays a
+  one-click escape from a stuck connection.
 </Warning>
 
 **`Ctrl` `R` does not reload the app.** In a browser that key reloads the page, which here

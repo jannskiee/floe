@@ -23,8 +23,11 @@ There are four ways to stage files, and you can mix them:
 | `Ctrl` `V` | Pastes files you copied in File Explorer, or an image from the clipboard. |
 
 Everything you add appears in a list under **Files**. Remove a single entry with the `X` on its
-row. `Ctrl` `R` starts over, which clears the selection along with everything else on the card,
-and only asks first if a transfer is already moving bytes.
+row. `Ctrl` `R` starts over, which clears the selection along with everything else on the card.
+It asks first if a transfer is already moving bytes, or if the text box holds a note that has
+not been sent (the dialog reads "The text you typed has not been sent yet. Starting over will
+clear it."). Clicking the Floe lockup in the titlebar starts over too, with the same
+confirmations, but only the shortcut is held back while you are typing.
 
 Adding the same path twice does nothing, so dragging a file you already staged is safe. One
 edge worth knowing: if you add a folder **and** a file that lives inside it, that file is sent

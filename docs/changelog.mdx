@@ -40,6 +40,15 @@ Floe ships on two version lines. `vX.Y.Z` releases floe.one, the `floe` CLI, and
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
+<Update label="Unreleased" tags={["Desktop"]}>
+  **Start over stops losing notes it never sent, and stops claiming a dead transfer is running**
+
+  - Fixed **Start over** still discarding a typed note without asking, in the two cases the 0.2.2 fix missed. Typing a new note after a send completed, and typing a note then switching to Files and sending those instead, both left text in the box that had never gone anywhere, and both were cleared with no prompt. Floe now compares the box against what the last completed send actually put on the wire, so a note only counts as sent while it is still exactly the note that went out. Tidying up after a send with the sent note still in the box is unchanged and still silent, as is starting over while a connection is being set up.
+  - Fixed a failed transfer leaving its progress bar frozen on screen underneath the error, on both the sending and the receiving side.
+  - Fixed **Start over** offering to cancel a transfer that had already failed. The stale progress bar above was also what the confirmation read, so after a failure it warned about cancelling a transfer that was already over, and that warning hid the one about the unsent note behind it.
+  - No transfer-protocol change.
+</Update>
+
 <Update label="v1.10.0" description="2026-08-08" tags={["CLI", "Web", "Self-hosting"]}>
   **Stalled transfers now fail with a reason, and received files are never overwritten**
 
