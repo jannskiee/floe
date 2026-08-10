@@ -46,7 +46,8 @@ export default function HowItWorks() {
                     </div>
                     <p className="text-zinc-300 leading-relaxed">
                         Floe uses a technology called <strong>WebRTC</strong> to send your files directly from
-                        one browser to another. Think of it like handing a USB drive to someone. It
+                        one device to another, whether each side is a browser tab, the desktop app, or
+                        the CLI. Think of it like handing a USB drive to someone. It
                         happens over the internet, in real time. In most cases, no one else is in the middle.
                         <br /><br />
                         In some network situations, a secure relay server acts as a bridge. Either way,
