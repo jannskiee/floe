@@ -67,16 +67,28 @@ func filterFileArgs(args []string) []string {
 	return out
 }
 
+// closer is the one method CancelTransfer needs from the signaling client and
+// the peer connection. An interface so unit tests can register recorders.
+type closer interface{ Close() }
+
 // App struct
 type App struct {
 	ctx context.Context
 
-	// mu guards the handles to the in-flight transfer's signaling and peer
-	// connections so CancelTransfer can close them from the UI goroutine to
-	// unblock a send/receive that is waiting for a peer or stuck connecting.
-	mu      sync.Mutex
-	curSC   *signaling.Client
-	curConn *peer.Connection
+	// mu guards the transfer generation and the handles to the in-flight
+	// transfer's signaling and peer connections so CancelTransfer can close
+	// them from the UI goroutine. gen is the id of the transfer that owns the
+	// slots: a transfer goroutine carries the gen it was born with, and every
+	// setter, clear, wake release, event emit, and toast refuses once a newer
+	// transfer has begun or the user cancelled. A cancelled or superseded
+	// goroutine can therefore never clobber a live transfer's handles (the old
+	// bug: cancel, instantly restart, and up to 30 seconds later the dead
+	// goroutine's deferred clear wiped the live transfer's cancel handles).
+	mu        sync.Mutex
+	gen       uint64
+	cancelled bool // the OWNING generation was cancelled by the user
+	curSC     closer
+	curConn   closer
 
 	// wake keeps the machine awake for the duration of a connected transfer
 	// (Windows only; a no-op on other platforms). See wake.go.
@@ -90,6 +102,10 @@ type App struct {
 	// toggles. Written from the UI goroutine when the user saves Settings and read
 	// from the transfer goroutine, so it is guarded by mu like everything else here.
 	cfg appConfig
+
+	// notifyFn is the test seam for OS notifications; nil means the real Wails
+	// runtime notification (see notify).
+	notifyFn func(title, body string)
 }
 
 // NewApp creates a new App application struct
@@ -274,9 +290,26 @@ func (a *App) ContextMenuEnabled() bool {
 }
 
 // notify sends a best-effort OS notification. Failures are ignored so a transfer
-// outcome never depends on the notification succeeding.
+// outcome never depends on the notification succeeding. notifyFn is the test
+// seam: nil means the real Wails runtime notification.
 func (a *App) notify(title, body string) {
+	if a.notifyFn != nil {
+		a.notifyFn(title, body)
+		return
+	}
 	_ = runtime.SendNotification(a.ctx, runtime.NotificationOptions{Title: title, Body: body})
+}
+
+// notifyTransferFailed sends the failure toast unless the transfer was
+// cancelled by the user or superseded by a newer attempt: a cancel is not a
+// failure, and a dead attempt must not toast over the live one. The body is
+// deliberately generic (the toast matters exactly when the window is
+// backgrounded); the in-app status line carries the mapped detail.
+func (a *App) notifyTransferFailed(g uint64, title string) {
+	if !a.transferActive(g) {
+		return
+	}
+	a.notify(title, "The transfer did not complete. Open Floe to see what happened.")
 }
 
 // EngineProtocolVersion returns the wire protocol version of the embedded engine.
@@ -451,33 +484,75 @@ func relayOpts(hideIP bool) []peer.Option {
 	return nil
 }
 
-// setSignaling / setConn register the in-flight connections so CancelTransfer
-// can reach them; clearTransfer resets them when the transfer goroutine returns.
-func (a *App) setSignaling(sc *signaling.Client) {
+// beginTransfer claims the transfer slots for a new attempt and returns its
+// generation tag. Any previous attempt is superseded from this moment: its
+// setters, clear, wake release, emits, and toasts all become no-ops. The old
+// goroutine's own defers still close the handles it holds.
+func (a *App) beginTransfer() uint64 {
 	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.gen++
+	a.cancelled = false
+	a.curSC, a.curConn = nil, nil
+	return a.gen
+}
+
+// setSignaling / setConn register a handle for generation g so CancelTransfer
+// can reach it. They return false when g no longer owns the slots (superseded
+// by a newer transfer) or was cancelled; the caller must bail out immediately
+// and let its own deferred Close release the handle. Refusing on cancelled
+// also closes the window where a cancel lands between the two setters and the
+// goroutine would otherwise park un-interruptibly in WebRTC setup for up to
+// 30 seconds holding an orphaned connection.
+func (a *App) setSignaling(g uint64, sc closer) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if g != a.gen || a.cancelled {
+		return false
+	}
 	a.curSC = sc
-	a.mu.Unlock()
+	return true
 }
 
-func (a *App) setConn(conn *peer.Connection) {
+func (a *App) setConn(g uint64, conn closer) bool {
 	a.mu.Lock()
+	defer a.mu.Unlock()
+	if g != a.gen || a.cancelled {
+		return false
+	}
 	a.curConn = conn
-	a.mu.Unlock()
+	return true
 }
 
-func (a *App) clearTransfer() {
+// clearTransfer releases the slots iff generation g still owns them, so a
+// superseded goroutine's deferred clear cannot wipe a live transfer's handles.
+func (a *App) clearTransfer(g uint64) {
 	a.mu.Lock()
-	a.curSC = nil
-	a.curConn = nil
-	a.mu.Unlock()
+	defer a.mu.Unlock()
+	if g != a.gen {
+		return
+	}
+	a.curSC, a.curConn = nil, nil
 }
 
-// CancelTransfer aborts the current send or receive by closing its signaling and
-// peer connections. Closing the signaling client unblocks a sender waiting for a
-// receiver (via PeerLeft); closing the peer connection unblocks a stuck WebRTC
-// setup (via the connection-state error). Safe to call when nothing is running.
+// transferActive reports whether generation g is still the live, uncancelled
+// transfer. It gates event emits and toasts so a cancelled or superseded
+// attempt goes silent instead of talking over its successor.
+func (a *App) transferActive(g uint64) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return g == a.gen && !a.cancelled
+}
+
+// CancelTransfer aborts the current send or receive: it marks the owning
+// generation cancelled (suppressing its failure toast and late events) and
+// closes its signaling and peer connections. Closing the signaling client
+// unblocks a sender waiting for a receiver (via PeerLeft); closing the peer
+// connection unblocks a stuck WebRTC setup (via the connection-state error).
+// Safe to call when nothing is running.
 func (a *App) CancelTransfer() {
 	a.mu.Lock()
+	a.cancelled = true
 	sc, conn := a.curSC, a.curConn
 	a.mu.Unlock()
 	if conn != nil {
@@ -503,7 +578,10 @@ func (a *App) StartSend(paths []string, hideIP bool) error {
 			return fmt.Errorf("cannot read %s: %w", p, err)
 		}
 	}
-	go a.runSend(paths, hideIP)
+	// Claim the generation synchronously so a cancel arriving right after the
+	// click targets this attempt, not the previous one.
+	g := a.beginTransfer()
+	go a.runSend(g, paths, hideIP)
 	return nil
 }
 
@@ -535,21 +613,40 @@ func (a *App) StartSendText(text string, hideIP bool) error {
 	if err != nil {
 		return fmt.Errorf("could not stage the text: %w", err)
 	}
+	// Claimed after staging succeeds so a staging failure supersedes nothing.
+	g := a.beginTransfer()
 	go func() {
 		defer cleanup()
-		a.runSend([]string{path}, hideIP)
+		a.runSend(g, []string{path}, hideIP)
 	}()
 	return nil
 }
 
-func (a *App) runSend(paths []string, hideIP bool) {
+func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 	// Release any sleep inhibitor on every exit (success, error, cancel, panic).
-	// Idempotent: a no-op if we never acquired it (e.g. no receiver ever joined).
-	defer a.wake.release()
+	// Owner-tagged: a no-op if we never acquired it or a newer transfer holds it.
+	defer a.wake.release(g)
+	defer a.clearTransfer(g)
+
+	// emit forwards an event to the UI unless this attempt was cancelled or
+	// superseded, so a dead goroutine's late events cannot talk over the live
+	// transfer (the frontend's own ref guard resets on the next attempt and
+	// cannot close this on its own).
+	emit := func(event string, payload any) {
+		if !a.transferActive(g) {
+			return
+		}
+		runtime.EventsEmit(a.ctx, event, payload)
+	}
 
 	fail := func(err error) {
+		if !a.transferActive(g) {
+			return // user cancelled, or a newer attempt owns the UI
+		}
 		runtime.EventsEmit(a.ctx, "send:error", err.Error())
-		a.notify("Floe - send failed", err.Error())
+		// The status line above carries the detail; the toast stays generic
+		// because raw engine errors read like stack traces in a notification.
+		a.notifyTransferFailed(g, "Floe - send failed")
 	}
 
 	roomID := uuid.New().String()
@@ -570,8 +667,9 @@ func (a *App) runSend(paths []string, hideIP bool) {
 		return
 	}
 	defer sc.Close()
-	a.setSignaling(sc)
-	defer a.clearTransfer()
+	if !a.setSignaling(g, sc) {
+		return // cancelled or superseded before we registered; the defer closes sc
+	}
 
 	if err := sc.JoinRoom(roomID); err != nil {
 		fail(fmt.Errorf("failed to join room: %w", err))
@@ -604,7 +702,7 @@ func (a *App) runSend(paths []string, hideIP bool) {
 		codePhrase = ""
 	}
 	link := shareLink(web, uuid.New().String()[:8], roomID)
-	runtime.EventsEmit(a.ctx, "send:code", map[string]string{"code": codePhrase, "link": link})
+	emit("send:code", map[string]string{"code": codePhrase, "link": link})
 
 	// Wait for a receiver to join. This wait is intentionally unbounded (you may
 	// share a link and wait) — CancelTransfer closes sc to abort it via PeerLeft.
@@ -617,12 +715,12 @@ func (a *App) runSend(paths []string, hideIP bool) {
 		fail(fmt.Errorf("server error: %s", errMsg))
 		return
 	}
-	runtime.EventsEmit(a.ctx, "send:status", "Peer connected. Sending...")
+	emit("send:status", "Peer connected. Sending...")
 
 	// A peer is connected: keep the machine awake through WebRTC setup and the
 	// data transfer. Placed here, not at the top, so the unbounded wait for a
 	// receiver above never holds a laptop awake on an unanswered share link.
-	a.wake.acquire()
+	a.wake.acquire(g)
 
 	// Set up WebRTC as the initiator and send.
 	conn, err := peer.New(iceServers, sc, relayOpts(hideIP)...)
@@ -631,7 +729,9 @@ func (a *App) runSend(paths []string, hideIP bool) {
 		return
 	}
 	defer conn.Close()
-	a.setConn(conn)
+	if !a.setConn(g, conn) {
+		return // cancelled or superseded; the defer closes conn
+	}
 
 	dc, err := conn.SetupAsSender()
 	if err != nil {
@@ -641,10 +741,10 @@ func (a *App) runSend(paths []string, hideIP bool) {
 
 	if local, remote, fErr := conn.Fingerprints(); fErr == nil {
 		vc := verify.Code(local, remote)
-		go runtime.EventsEmit(a.ctx, "send:verify", vc) // off the transfer critical path
+		go emit("send:verify", vc) // off the transfer critical path
 	}
 	if ct, ctErr := conn.ConnectionType(); ctErr == nil {
-		runtime.EventsEmit(a.ctx, "send:route", ct) // "direct" or "relay", best-effort
+		emit("send:route", ct) // "direct" or "relay", best-effort
 	}
 
 	lastEmit := time.Now()
@@ -655,7 +755,7 @@ func (a *App) runSend(paths []string, hideIP bool) {
 			return
 		}
 		lastEmit = time.Now()
-		runtime.EventsEmit(a.ctx, "send:progress", p)
+		emit("send:progress", p)
 	}
 	if err := transfer.SendFilesWithProgress(dc, paths, version, onProgress); err != nil {
 		// The relay cap is a policy block, not a failure: skip the "transfer
@@ -671,8 +771,10 @@ func (a *App) runSend(paths []string, hideIP bool) {
 		fail(fmt.Errorf("transfer failed: %w", err))
 		return
 	}
-	runtime.EventsEmit(a.ctx, "send:done", "Files sent successfully.")
-	a.notify("Floe", "Files sent successfully.")
+	emit("send:done", "Files sent successfully.")
+	if a.transferActive(g) {
+		a.notify("Floe", "Files sent successfully.")
+	}
 }
 
 // ReceiveByCode connects to a peer using a Floe room code (or link) and receives
@@ -683,9 +785,34 @@ func (a *App) runSend(paths []string, hideIP bool) {
 //
 // Returns the absolute output directory on success.
 func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool, reportStats bool) (string, error) {
+	g := a.beginTransfer()
+	dir, err := a.receiveByCode(g, codeOrLink, outputDir, hideIP, reportStats)
+	if err != nil {
+		// Receive failures used to be completely silent behind a minimized
+		// window; mirror the send path's toast. Suppressed on user cancel and
+		// when a newer attempt has taken over.
+		a.notifyTransferFailed(g, "Floe - receive failed")
+		return "", err
+	}
+	return dir, nil
+}
+
+// receiveByCode is the body of ReceiveByCode, carrying the generation tag of
+// the attempt it belongs to.
+func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideIP bool, reportStats bool) (string, error) {
 	// Release any sleep inhibitor on every exit (success, error, cancel, panic).
-	// Idempotent: a no-op if we return before acquiring it.
-	defer a.wake.release()
+	// Owner-tagged: a no-op if we never acquired it or a newer transfer holds it.
+	defer a.wake.release(g)
+	defer a.clearTransfer(g)
+
+	// emit forwards an event to the UI unless this attempt was cancelled or
+	// superseded (see runSend's twin for the rationale).
+	emit := func(event string, payload any) {
+		if !a.transferActive(g) {
+			return
+		}
+		runtime.EventsEmit(a.ctx, event, payload)
+	}
 
 	if outputDir == "" {
 		outputDir = defaultReceiveDir()
@@ -716,8 +843,9 @@ func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool, re
 		return "", fmt.Errorf("failed to connect to signaling server: %w", err)
 	}
 	defer sc.Close()
-	a.setSignaling(sc)
-	defer a.clearTransfer()
+	if !a.setSignaling(g, sc) {
+		return "", fmt.Errorf("transfer cancelled")
+	}
 
 	if err := sc.JoinRoom(roomID); err != nil {
 		return "", fmt.Errorf("failed to join room: %w", err)
@@ -744,14 +872,16 @@ func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool, re
 
 	// A receiver role means a sender is already present: keep the machine awake
 	// through WebRTC setup and the data transfer.
-	a.wake.acquire()
+	a.wake.acquire(g)
 
 	conn, err := peer.New(iceServers, sc, relayOpts(hideIP)...)
 	if err != nil {
 		return "", fmt.Errorf("failed to create peer connection: %w", err)
 	}
 	defer conn.Close()
-	a.setConn(conn)
+	if !a.setConn(g, conn) {
+		return "", fmt.Errorf("transfer cancelled")
+	}
 
 	dc, err := conn.SetupAsReceiver()
 	if err != nil {
@@ -760,10 +890,10 @@ func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool, re
 
 	if local, remote, fErr := conn.Fingerprints(); fErr == nil {
 		vc := verify.Code(local, remote)
-		go runtime.EventsEmit(a.ctx, "recv:verify", vc) // off the transfer critical path
+		go emit("recv:verify", vc) // off the transfer critical path
 	}
 	if ct, ctErr := conn.ConnectionType(); ctErr == nil {
-		runtime.EventsEmit(a.ctx, "recv:route", ct) // "direct" or "relay", best-effort
+		emit("recv:route", ct) // "direct" or "relay", best-effort
 	}
 
 	// autoAccept=true: a GUI cannot answer a terminal prompt. The receiver reports
@@ -779,12 +909,14 @@ func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool, re
 			return
 		}
 		lastEmit = time.Now()
-		runtime.EventsEmit(a.ctx, "recv:progress", p)
+		emit("recv:progress", p)
 	}
 	if err := transfer.ReceiveFilesWithProgress(dc, absOutput, true, version, statsURL, onProgress); err != nil {
 		return "", fmt.Errorf("transfer failed: %w", err)
 	}
 
-	a.notify("Floe", "Files received.")
+	if a.transferActive(g) {
+		a.notify("Floe", "Files received.")
+	}
 	return absOutput, nil
 }
