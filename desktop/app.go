@@ -911,7 +911,13 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 		lastEmit = time.Now()
 		emit("recv:progress", p)
 	}
-	if err := transfer.ReceiveFilesWithProgress(dc, absOutput, true, version, statsURL, onProgress); err != nil {
+	opts := transfer.ReceiveOptions{
+		OnProgress: onProgress,
+		// Fires once as the sender's first metadata arrives, before any byte
+		// lands: the UI shows what is incoming while the transfer starts.
+		OnIncoming: func(inc transfer.IncomingInfo) { emit("recv:incoming", inc) },
+	}
+	if err := transfer.ReceiveFilesWithOptions(dc, absOutput, true, version, statsURL, opts); err != nil {
 		return "", fmt.Errorf("transfer failed: %w", err)
 	}
 
