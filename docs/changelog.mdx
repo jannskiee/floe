@@ -40,9 +40,14 @@ Floe ships on two version lines. `vX.Y.Z` releases floe.one, the `floe` CLI, and
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
-<Update label="Unreleased" tags={["Desktop"]}>
-  **Start over stops losing notes it never sent, and stops claiming a dead transfer is running**
+<Update label="Unreleased" tags={["Desktop", "CLI"]}>
+  **Failed transfers clean up after themselves and speak plainly, and Start over stops losing notes**
 
+  - A receive that fails or is cancelled partway no longer leaves a half-written file behind under its final name. The partial is deleted, files that completed earlier in the batch are kept, and a retried transfer gets its original name back instead of a numbered one. The `floe` CLI receiver gets the same fix.
+  - The Receive card now shows what is incoming (the file name and size, or the file count and total) the moment the sender is known, before the first byte arrives.
+  - A failed receive now raises a Windows notification like a failed send always did, and cancelling a transfer no longer raises a false "send failed" one.
+  - Transfer errors are now written for people ("The connection was lost before the transfer finished. Start it again.") instead of surfacing the engine's internal wording. Genuinely unknown failures still show the raw text so bug reports stay useful.
+  - Cancelling a transfer and immediately starting another no longer lets the dead attempt interfere: its late events are ignored, it can no longer release the keep-awake lock the new transfer holds, and Cancel always reaches the transfer that is actually running.
   - Fixed **Start over** still discarding a typed note without asking, in the two cases the 0.2.2 fix missed. Typing a new note after a send completed, and typing a note then switching to Files and sending those instead, both left text in the box that had never gone anywhere, and both were cleared with no prompt. Floe now compares the box against what the last completed send actually put on the wire, so a note only counts as sent while it is still exactly the note that went out. Tidying up after a send with the sent note still in the box is unchanged and still silent, as is starting over while a connection is being set up.
   - Fixed a failed transfer leaving its progress bar frozen on screen underneath the error, on both the sending and the receiving side.
   - Fixed **Start over** offering to cancel a transfer that had already failed. The stale progress bar above was also what the confirmation read, so after a failure it warned about cancelling a transfer that was already over, and that warning hid the one about the unsent note behind it.
