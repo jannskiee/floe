@@ -105,11 +105,22 @@ func ReceiveFilesWithProgress(dc *webrtc.DataChannel, outputDir string, autoAcce
 	filesReceived := 0
 	waitingForFirst := true
 
-	// If the transfer is interrupted (peer disconnect or error) before the
-	// "end" marker closes the current file, ensure the handle is still released.
+	// If the transfer is interrupted (peer disconnect, stall, or error) before
+	// the "end" marker completes the current file, release the handle and
+	// delete the partial: a half-written file left at its final name is
+	// indistinguishable from a complete one, and it keeps that name claimed so
+	// a retry lands at "name (1)". Success is safe because the "end" handler
+	// closes and nils currentFile before any return, so anything still non-nil
+	// here is a partial by definition; files that completed earlier in the
+	// batch are never touched. Close before Remove (Windows refuses to delete
+	// an open file), and Remove is best-effort so a sharing violation from an
+	// AV scanner never masks the real transfer error. Directories created for
+	// folder transfers are left in place.
 	defer func() {
 		if currentFile != nil {
+			name := currentFile.Name()
 			currentFile.Close()
+			_ = os.Remove(name)
 		}
 	}()
 
@@ -204,6 +215,16 @@ func ReceiveFilesWithProgress(dc *webrtc.DataChannel, outputDir string, autoAcce
 				info, err := parseMetadata(string(msg.Data))
 				if err != nil {
 					continue
+				}
+				// A second metadata while a file is still open means the sender
+				// abandoned the current file without an "end". Close and delete
+				// the partial before starting the next one, or the handle leaks
+				// and the half-written file survives at its final name.
+				if currentFile != nil {
+					name := currentFile.Name()
+					currentFile.Close()
+					_ = os.Remove(name)
+					currentFile = nil
 				}
 				currentInfo = info
 				bytesReceived = 0
@@ -311,8 +332,12 @@ func ReceiveFilesWithProgress(dc *webrtc.DataChannel, outputDir string, autoAcce
 
 					// Integrity guard: a short byte count means the transfer was
 					// truncated (e.g. the sender closed early). Fail loudly rather
-					// than leave a corrupt file that looks complete.
+					// than leave a corrupt file that looks complete. The handle is
+					// already closed and nil'd above (required before Remove on
+					// Windows), so the interrupt cleanup cannot see this truncated
+					// file; delete it here.
 					if bytesReceived != currentInfo.FileSize {
+						_ = os.Remove(finalPath)
 						return fmt.Errorf("incomplete file %q: received %d of %d bytes",
 							currentInfo.FileName, bytesReceived, currentInfo.FileSize)
 					}
