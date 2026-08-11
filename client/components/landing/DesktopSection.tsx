@@ -50,8 +50,7 @@ export function DesktopSection() {
                             Get the desktop app
                         </Link>
                         <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.2em] text-zinc-600">
-                            v{DESKTOP_VERSION} beta · Windows ·{' '}
-                            <span className="whitespace-nowrap">macOS and Linux planned</span>
+                            v{DESKTOP_VERSION} beta · Windows
                         </p>
                     </div>
                 </div>

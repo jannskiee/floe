@@ -20,8 +20,11 @@ import {
 // lib/desktopRelease so a release bump touches exactly one file.
 export const metadata: Metadata = {
     title: 'Download | Floe',
+    // No "or use Floe in your browser" clause: the page's only CTA is the Store
+    // badge and its body carries no route to "/", so promising a browser option
+    // here would be advertising something this page does not offer.
     description:
-        'Get Floe Desktop for Windows from the Microsoft Store (beta), install the CLI, or use Floe in your browser: free, encrypted, peer-to-peer file transfer.',
+        'Get Floe Desktop for Windows from the Microsoft Store (beta), or install the floe CLI: free, encrypted, peer-to-peer file transfer.',
     alternates: { canonical: '/download' },
 };
 
@@ -101,7 +104,10 @@ export default function Download() {
             <Navbar />
 
             <main className="w-full max-w-5xl">
-                {/* Hero: static server HTML; only the CTA row is a client island */}
+                {/* Hero: static server HTML throughout. The CTA row used to be a
+                    client island so it could sniff the OS and lead non-Windows
+                    visitors with a web-app pill; that pill is gone, so the whole
+                    page is server-rendered again. */}
                 {/* pt-24/28, not 28/32: the fixed navbar ends around 74px, so the old
                     values left ~55px of dead space before the first word. */}
                 <div className="flex flex-col items-center pt-24 text-center sm:pt-28">

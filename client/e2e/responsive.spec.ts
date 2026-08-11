@@ -19,10 +19,13 @@ const VIEWPORTS = [
     { width: 414, height: 896 },   // iPhone XR / 11
     { width: 430, height: 932 },   // iPhone Pro Max
     { width: 568, height: 320 },   // iPhone SE landscape (short height)
+    { width: 639, height: 900 },   // one below the sm tier boundary
+    { width: 640, height: 960 },   // sm tier boundary: Windows 11 3-column snap on 1920
     { width: 844, height: 390 },   // iPhone 12-15 landscape
     { width: 768, height: 1024 },  // iPad portrait
     { width: 820, height: 1180 },  // iPad Air portrait
-    { width: 1024, height: 768 },  // iPad landscape
+    { width: 1023, height: 768 },  // one below the lg tier boundary
+    { width: 1024, height: 768 },  // lg tier boundary / iPad landscape
     { width: 1280, height: 800 },  // small laptop
     { width: 1366, height: 768 },  // most common laptop
     { width: 1440, height: 900 },  // laptop
@@ -95,19 +98,65 @@ async function assertNoHorizontalOverflow(page: Page, label: string) {
 /**
  * The navbar is position:fixed, so an overflowing pill never shows up in
  * document scrollWidth — measure it directly instead.
+ *
+ * The pill caps itself with max-width and scrolls internally rather than poking
+ * off-screen, which makes its bounding box incapable of exceeding the viewport.
+ * The edge assertions below are therefore kept only as a cheap sanity net; the
+ * assertion that can actually still fail is scrollWidth vs clientWidth, i.e.
+ * "did the content outgrow the cap". Anything that widens the tiers past the
+ * viewport shows up there and nowhere else.
+ *
+ * Callers pass expectPill so a missing pill is a hard failure on routes that
+ * must have one. The old version returned early on null, so any change to the
+ * pill's selector or element type silently retired this whole guard.
  */
-async function assertNavbarFits(page: Page, label: string) {
+async function assertNavbarFits(page: Page, label: string, expectPill: boolean) {
     const r = await page.evaluate(() => {
-        const pill = document.querySelector('nav > div');
+        const pill = document.querySelector('[data-nav-pill]');
         if (!pill) return null;
         const rect = pill.getBoundingClientRect();
-        return { left: rect.left, right: rect.right, innerWidth: window.innerWidth };
+        return {
+            left: rect.left,
+            right: rect.right,
+            innerWidth: window.innerWidth,
+            scrollWidth: pill.scrollWidth,
+            clientWidth: pill.clientWidth,
+            navChildren: pill.parentElement?.childElementCount ?? -1,
+            parentIsMainNav:
+                pill.parentElement?.tagName === 'NAV' &&
+                pill.parentElement.getAttribute('aria-label') === 'Main',
+        };
     });
-    if (!r) return; // route without the navbar
+    if (!r) {
+        if (expectPill) {
+            expect(r, `[${label}] expected a [data-nav-pill] element and found none`).not.toBeNull();
+        }
+        return;
+    }
     expect.soft(r.left, `[${label}] navbar pill left edge`).toBeGreaterThanOrEqual(-1);
     expect
         .soft(r.right, `[${label}] navbar pill right edge (innerWidth=${r.innerWidth})`)
         .toBeLessThanOrEqual(r.innerWidth + 1);
+    expect
+        .soft(
+            r.scrollWidth,
+            `[${label}] navbar pill content overflows its own box (scrollWidth=${r.scrollWidth} clientWidth=${r.clientWidth}, innerWidth=${r.innerWidth})`
+        )
+        .toBeLessThanOrEqual(r.clientWidth + 1);
+    // The pill must remain the direct, only child of nav[aria-label="Main"].
+    // Both halves matter and neither is about the selector: [data-nav-pill] finds
+    // the right element regardless. What breaks is the geometry. <nav> is
+    // `flex justify-center` with `pointer-events-none`, so a sibling would push
+    // the capsule off centre, and a wrapper would silently move the centring one
+    // level away from the thing being measured. Asserting the parent's identity
+    // as well as its child count is what makes the wrapper case fail: a count of
+    // 1 alone is satisfied by any container.
+    expect
+        .soft(r.parentIsMainNav, `[${label}] pill's parent should be nav[aria-label="Main"]`)
+        .toBe(true);
+    expect
+        .soft(r.navChildren, `[${label}] nav[aria-label="Main"] should have exactly one element child`)
+        .toBe(1);
 }
 
 async function sweepViewports(page: Page, route: string, checkNavbar = false) {
@@ -116,7 +165,7 @@ async function sweepViewports(page: Page, route: string, checkNavbar = false) {
         await page.waitForTimeout(150); // let reflow + transitions settle
         const label = `${route} @ ${vp.width}x${vp.height}`;
         await assertNoHorizontalOverflow(page, label);
-        if (checkNavbar) await assertNavbarFits(page, label);
+        if (checkNavbar) await assertNavbarFits(page, label, true);
     }
 }
 
@@ -210,7 +259,7 @@ test('sender flow stays inside the viewport at 320 and 390 wide', async ({ page 
 
         const label = `sender flow @ ${vp.width}x${vp.height}`;
         await assertNoHorizontalOverflow(page, label);
-        await assertNavbarFits(page, label);
+        await assertNavbarFits(page, label, true);
 
         // QR panel open is the share card's widest state.
         await page.getByRole('button', { name: 'Toggle QR code' }).click();

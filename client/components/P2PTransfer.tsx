@@ -853,7 +853,12 @@ export function P2PTransfer() {
                                     onDragOver={handleDragOver}
                                     onDragLeave={handleDragLeave}
                                     onDrop={handleDrop}
-                                    className={`group relative mt-2 flex flex-col items-center justify-center rounded-xl border border-dashed p-10 transition-all sm:p-14 ${isDragging
+                                    // text-center, not just items-center: items-center
+                                    // centres each <p> as a box, but its text still sets
+                                    // to the start edge, so the moment the hint wraps the
+                                    // second line hangs left under a centred first one.
+                                    // It wraps below about 430px, which is most phones.
+                                    className={`group relative mt-2 flex flex-col items-center justify-center rounded-xl border border-dashed p-10 text-center transition-all sm:p-14 ${isDragging
                                         ? 'border-ice bg-ice/[0.04]'
                                         : 'border-white/15 hover:border-ice/40 hover:bg-white/[0.02]'
                                         }`}
