@@ -1331,6 +1331,10 @@ function App() {
         setConfirmReset(false);
         sendCancel.current = true;
         recvCancel.current = true;
+        // Invalidate any in-flight receive attempt: its promise settles on a
+        // later tick, and without this bump its catch/finally would pass the
+        // attempt guard and overwrite the fresh state this reset installs.
+        recvAttempt.current++;
         CancelTransfer().catch(() => {});
 
         setSettingsOpen(false);

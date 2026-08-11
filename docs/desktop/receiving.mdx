@@ -116,13 +116,13 @@ If you point Floe at your own server, the report goes to that server rather than
 
 | Message | What it means |
 |---|---|
-| Could not resolve ... | The code was mistyped, has passed its 10 minutes, or belongs to a different server from the one you are on. |
+| That code was not recognized ... | The code was mistyped, has passed its 10 minutes, or belongs to a different server from the one you are on. |
 | This code is no longer active; ask for a new one | The code is still valid but nobody is sharing with it. The transfer already finished, or the sender closed Floe. |
 | Room is full (someone else may already be receiving) | Someone already joined with this code. A room takes one receiver, so ask for a new code. |
 
-If Floe connects but nothing arrives, it gives up after 30 seconds with "connected, but no data
-arrived from the sender". Ask the sender to start again. If it never connects at all, check that
-both of you are on the same signaling server. See [Troubleshooting](/troubleshooting).
+If Floe connects but nothing arrives, it gives up after 30 seconds and says the sender never
+started sending; ask them to try again. If it never connects at all, check that both of you are
+on the same signaling server. See [Troubleshooting](/troubleshooting).
 
 A transfer that fails or is cancelled partway deletes the file it was writing, so nothing
 half-written is left behind under a finished-looking name. Files that completed before the

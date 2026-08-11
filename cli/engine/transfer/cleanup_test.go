@@ -379,6 +379,9 @@ func TestReceiverIncomingHookFiresBeforeFirstByte(t *testing.T) {
 	if n := countOf(events, "incoming"); n != 1 {
 		t.Fatalf("incoming hook fired %d times, want exactly 1", n)
 	}
+	if n := countOf(events, "progress"); n < 1 {
+		t.Fatalf("no progress events fired, so the before-progress ordering claim is vacuous: %v", events)
+	}
 	if got.Files != 1 || got.TotalBytes != 4 || got.FirstName != "a.txt" {
 		t.Fatalf("incoming payload = %+v, want Files=1 TotalBytes=4 FirstName=a.txt", got)
 	}
@@ -431,6 +434,105 @@ func TestReceiverIncomingHookLegacyFallback(t *testing.T) {
 	}
 	if got.TotalBytes != 4 {
 		t.Fatalf("legacy fallback TotalBytes = %d, want the file size 4", got.TotalBytes)
+	}
+}
+
+// TestReceiverDecollidedPartialRemoved pins that cleanup removes the file the
+// receiver actually created, not a path recomputed from the sender's name: a
+// completed "dup.bin" must survive while the interrupted second "dup.bin"
+// (on disk as "dup (1).bin") is removed.
+func TestReceiverDecollidedPartialRemoved(t *testing.T) {
+	sender, recvCh, closeFn := newConnectedPair(t)
+	defer closeFn()
+
+	outDir := t.TempDir()
+	recvErr := make(chan error, 1)
+	go func() {
+		dc := <-recvCh
+		recvErr <- ReceiveFiles(dc, outDir, true, "", "")
+	}()
+
+	time.Sleep(300 * time.Millisecond)
+
+	m1 := `{"type":"metadata","id":"c-9a","fileName":"dup.bin","fileSize":4,"index":1,"total":2,"totalBytes":4100}`
+	if err := sender.SendText(m1); err != nil {
+		t.Fatalf("SendText metadata 1: %v", err)
+	}
+	if err := sender.Send(make([]byte, 4)); err != nil {
+		t.Fatalf("Send chunk 1: %v", err)
+	}
+	if err := sender.SendText(`{"type":"end"}`); err != nil {
+		t.Fatalf("SendText end 1: %v", err)
+	}
+	m2 := `{"type":"metadata","id":"c-9b","fileName":"dup.bin","fileSize":4096,"index":2,"total":2,"totalBytes":4100}`
+	if err := sender.SendText(m2); err != nil {
+		t.Fatalf("SendText metadata 2: %v", err)
+	}
+	if err := sender.Send(make([]byte, 1024)); err != nil {
+		t.Fatalf("Send chunk 2: %v", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if err := sender.Close(); err != nil {
+		t.Fatalf("sender close: %v", err)
+	}
+
+	select {
+	case err := <-recvErr:
+		if err == nil {
+			t.Fatal("expected an error, got nil")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("ReceiveFiles did not return")
+	}
+	got, err := os.ReadFile(filepath.Join(outDir, "dup.bin"))
+	if err != nil {
+		t.Fatalf("completed dup.bin missing (cleanup removed the wrong file?): %v", err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("dup.bin has %d bytes, want the completed 4", len(got))
+	}
+	if left := listDir(t, outDir); len(left) != 1 || left[0] != "dup.bin" {
+		t.Fatalf(`expected only the completed dup.bin ("dup (1).bin" removed), found %v`, left)
+	}
+}
+
+// TestReceiverNestedFolderPartialRemoved: a partial inside a folder transfer's
+// subdirectory is removed too (the empty directories stay, by design).
+func TestReceiverNestedFolderPartialRemoved(t *testing.T) {
+	sender, recvCh, closeFn := newConnectedPair(t)
+	defer closeFn()
+
+	outDir := t.TempDir()
+	recvErr := make(chan error, 1)
+	go func() {
+		dc := <-recvCh
+		recvErr <- ReceiveFiles(dc, outDir, true, "", "")
+	}()
+
+	time.Sleep(300 * time.Millisecond)
+
+	meta := `{"type":"metadata","id":"c-10","fileName":"sub/dir/part.bin","fileSize":4096,"index":1,"total":1,"totalBytes":4096}`
+	if err := sender.SendText(meta); err != nil {
+		t.Fatalf("SendText metadata: %v", err)
+	}
+	if err := sender.Send(make([]byte, 1024)); err != nil {
+		t.Fatalf("Send chunk: %v", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if err := sender.Close(); err != nil {
+		t.Fatalf("sender close: %v", err)
+	}
+
+	select {
+	case err := <-recvErr:
+		if err == nil {
+			t.Fatal("expected an error, got nil")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("ReceiveFiles did not return")
+	}
+	if left := listDir(t, outDir); len(left) != 0 {
+		t.Fatalf("expected no files under the folder tree, found %v", left)
 	}
 }
 

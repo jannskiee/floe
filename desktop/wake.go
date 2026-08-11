@@ -37,6 +37,15 @@ func (w *wakeGuard) acquire(g uint64) {
 	if w.owner == g {
 		return
 	}
+	// Generations only grow, so an acquire from below the current owner is a
+	// dead goroutine that lost a race (e.g. its success-branch select already
+	// had a buffered message when the user cancelled). Refusing here keeps the
+	// documented invariant that a superseded attempt can never touch the
+	// inhibitor: accepting would hand ownership to the corpse, whose deferred
+	// release would then drop the wake lock under the live transfer.
+	if g < w.owner {
+		return
+	}
 	wasHeld := w.owner != 0
 	w.owner = g
 	if !wasHeld {

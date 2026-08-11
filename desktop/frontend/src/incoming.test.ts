@@ -8,8 +8,8 @@ describe('formatIncoming', () => {
         );
     });
 
-    it('single file from a legacy sender (no size) shows the name only', () => {
-        expect(formatIncoming({files: 1, totalBytes: 0, firstName: 'old.bin'})).toBe('Incoming: old.bin');
+    it('a single zero-byte file shows 0 B, matching the CLI box', () => {
+        expect(formatIncoming({files: 1, totalBytes: 0, firstName: 'empty.bin'})).toBe('Incoming: empty.bin · 0 B');
     });
 
     it('batch shows the count and total', () => {

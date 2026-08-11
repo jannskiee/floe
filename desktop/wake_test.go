@@ -78,6 +78,14 @@ func TestWakeGuardStolenReleaseIgnored(t *testing.T) {
 	if *allows != 0 || g.owner != 2 {
 		t.Fatalf("stranger release dropped the inhibitor: allows=%d owner=%d, want 0/2", *allows, g.owner)
 	}
+	g.acquire(1) // a DEAD generation acquiring late must not steal ownership back
+	if g.owner != 2 || *blocks != 1 {
+		t.Fatalf("stale acquire stole ownership: owner=%d blocks=%d, want 2/1", g.owner, *blocks)
+	}
+	g.release(1) // and its deferred release stays a no-op
+	if *allows != 0 || g.owner != 2 {
+		t.Fatalf("stale acquire+release dropped the inhibitor: allows=%d owner=%d, want 0/2", *allows, g.owner)
+	}
 	g.release(2) // the true owner releases
 	if *allows != 1 || g.owner != 0 {
 		t.Fatalf("owner release: allows=%d owner=%d, want 1/0", *allows, g.owner)

@@ -22,7 +22,12 @@ const PASSTHROUGH = [
 // 'connection closed' bucket must stay last of the connection family so the
 // more precise closed-variants above it win.
 const RULES: Array<[pattern: string, friendly: string]> = [
+    // Before 'could not resolve': the resolve step wraps network failures too
+    // ('could not resolve %q: could not reach signaling server: ...'), and a
+    // dead server must not read as a typo in the code.
+    ['could not reach signaling server', 'Could not reach the server. Check your internet connection.'],
     ['could not resolve', 'That code was not recognized. Check it for typos, or ask the sender for a new one.'],
+    ['Invalid room ID', 'That link looks incomplete. Copy the whole share link and try again.'],
     ['connection closed before any file', 'The sender cancelled, or the transfer was blocked before it started.'],
     ['connection closed while waiting for the receiver', 'The receiver left or declined before the transfer started.'],
     ['no data arrived from the sender', 'Connected, but the sender never started sending. Ask them to try again.'],
@@ -35,7 +40,11 @@ const RULES: Array<[pattern: string, friendly: string]> = [
     ['failed to connect to signaling server', 'Could not reach the server. Check your internet connection.'],
     ['failed to fetch ICE credentials', 'Could not reach the server. Check your internet connection.'],
     ['timed out waiting for the server', 'Could not reach the server. Check your internet connection.'],
-    ['server error:', 'Could not reach the server. Check your internet connection.'],
+    // 'server error:' means the server WAS reached and rejected the request
+    // (e.g. rate limiting), so connectivity advice would mislead.
+    ['server error:', 'The server rejected the request. Try again in a minute.'],
+    ['timed out waiting for delivery', 'The connection was lost before the transfer finished. Start it again.'],
+    ['peer disconnected before connecting', 'The receiver left before the transfer started.'],
     ['cannot create', 'Could not write to the save folder. Check that it exists and has free space.'],
     ['write error', 'Could not write to the save folder. Check that it exists and has free space.'],
     ['connection failed (state', 'The connection was lost before the transfer finished. Start it again.'],

@@ -185,6 +185,22 @@ func TestCancelledSetterRefuses(t *testing.T) {
 	}
 }
 
+// TestCancelThenBeginReArms pins the most common real flow (Cancel, then Start
+// over): beginTransfer after a cancel must fully re-arm the machinery, which
+// depends on it resetting the cancelled flag.
+func TestCancelThenBeginReArms(t *testing.T) {
+	a := &App{}
+	_ = a.beginTransfer()
+	a.CancelTransfer()
+	g2 := a.beginTransfer()
+	if !a.setSignaling(g2, &fakeCloser{}) || !a.setConn(g2, &fakeCloser{}) {
+		t.Fatal("setters refused the fresh generation after a cancel")
+	}
+	if !a.transferActive(g2) {
+		t.Fatal("fresh generation not active after a cancel")
+	}
+}
+
 // TestFailureToastsOnce: a live generation's failure produces exactly one
 // notification with the generic body (raw engine errors stay off toasts).
 func TestFailureToastsOnce(t *testing.T) {

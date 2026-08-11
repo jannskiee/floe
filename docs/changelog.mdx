@@ -43,7 +43,7 @@ Each entry lists the parts it changed. Filter on the right to see only the ones 
 <Update label="Unreleased" tags={["Desktop", "CLI"]}>
   **Failed transfers clean up after themselves and speak plainly, and Start over stops losing notes**
 
-  - A receive that fails or is cancelled partway no longer leaves a half-written file behind under its final name. The partial is deleted, files that completed earlier in the batch are kept, and a retried transfer gets its original name back instead of a numbered one. The `floe` CLI receiver gets the same fix.
+  - A receive that fails or is cancelled partway no longer leaves a half-written file behind under its final name. The partial is deleted, files that completed earlier in the batch are kept, and a retried transfer gets its original name back instead of a numbered one. The `floe` CLI receiver gets the same cleanup when a transfer fails or stalls.
   - The Receive card now shows what is incoming (the file name and size, or the file count and total) the moment the sender is known, before the first byte arrives.
   - A failed receive now raises a Windows notification like a failed send always did, and cancelling a transfer no longer raises a false "send failed" one.
   - Transfer errors are now written for people ("The connection was lost before the transfer finished. Start it again.") instead of surfacing the engine's internal wording. Genuinely unknown failures still show the raw text so bug reports stay useful.

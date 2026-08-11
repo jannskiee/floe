@@ -25,8 +25,11 @@ export function fmtBytes(n: number): string {
 // and total. Sizes are omitted when a legacy sender did not announce one.
 export function formatIncoming(p: IncomingPreview): string {
     if (p.files === 1) {
+        // The engine falls back to the file's own size for single-file legacy
+        // senders, so a zero here is a genuine 0-byte file: show it, matching
+        // the CLI's Incoming box.
         const name = p.firstName || 'file';
-        return p.totalBytes > 0 ? `Incoming: ${name} · ${fmtBytes(p.totalBytes)}` : `Incoming: ${name}`;
+        return `Incoming: ${name} · ${fmtBytes(p.totalBytes)}`;
     }
     return p.totalBytes > 0
         ? `Incoming: ${p.files} files · ${fmtBytes(p.totalBytes)}`

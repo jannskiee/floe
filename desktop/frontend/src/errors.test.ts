@@ -31,6 +31,30 @@ describe('friendlyError', () => {
         ).toBe('Error: The sender cancelled, or the transfer was blocked before it started.');
     });
 
+    it('keeps the receiver-left diagnosis out of the generic bucket', () => {
+        expect(
+            friendlyError('transfer failed: connection closed while waiting for the receiver (transfer declined or receiver exited)'),
+        ).toBe('Error: The receiver left or declined before the transfer started.');
+    });
+
+    it('routes a wrapped network failure to the server bucket, not the typo bucket', () => {
+        expect(friendlyError('could not resolve "olive-tiger": could not reach signaling server: dial tcp: refused')).toBe(
+            'Error: Could not reach the server. Check your internet connection.',
+        );
+    });
+
+    it('maps a malformed room id in a pasted link to the incomplete-link sentence', () => {
+        expect(friendlyError('server error: Invalid room ID')).toBe(
+            'Error: That link looks incomplete. Copy the whole share link and try again.',
+        );
+    });
+
+    it('treats a server rejection as a rejection, not a connectivity problem', () => {
+        expect(friendlyError('server error: too many requests')).toBe(
+            'Error: The server rejected the request. Try again in a minute.',
+        );
+    });
+
     it('maps stall, timeout, server, and write-error buckets', () => {
         expect(friendlyError('transfer stalled: no data for 1m0s (5 of 10 bytes of "a")')).toBe(
             'Error: The transfer stalled and gave up. Start it again.',
