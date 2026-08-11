@@ -410,6 +410,91 @@ html:not(.dark) #content-area a.link {
   color: rgb(17 17 17);
 }
 
+/* The rest of the assistant, same neutral doctrine as its send button above.
+   Black on the light page, white on the dark one, nothing ice.
+
+   Scoped to the five assistant roots rather than done globally, because
+   `primary` still legitimately paints eyebrows, link underlines and focus
+   rings everywhere else. Observed on floe.one/docs 2026-08-10, the assistant
+   surfaces that still resolved to ice were exactly three:
+
+     - the Assistant glyph in the sheet header, `text-primary
+       dark:text-primary-light`
+     - the composer's focus ring, `focus-within:border-primary
+       dark:focus-within:border-primary-light`, on both the floating bar and
+       the one docked in the sheet
+     - the mobile entry icon, which adds `hover:text-primary-dark
+       dark:hover:text-primary` on top of the same rest state
+
+   `#assistant-entry` (the desktop Ask Assistant button) and
+   `#ask-assistant-code-block-button` carry no primary utility at all and are
+   already neutral; they are listed anyway so anything Mintlify adds inside
+   them later inherits the override instead of arriving ice.
+
+   That list was taken on an IDLE sheet, and it is not the whole set. Three
+   more primary consumers only mount once a conversation has content: the
+   Retry button, the starter-question buttons, and the feedback chip. Hence
+   the override is a variable redefinition on the roots rather than a colour
+   set per element: whatever Mintlify mounts inside the assistant later
+   inherits the neutral, without this rule having to know about it first.
+
+   EVERY primary variable is set to the SAME mode's foreground, and that is
+   load bearing rather than tidiness. The base rule below carries no
+   `html:not(.dark)` guard, so in light mode it is the value of
+   `--primary-light` that is live, and Mintlify mixes prefixed and unprefixed
+   variants on one element: the Retry button is `text-primary
+   dark:text-primary-light hover:text-primary-light`, where that last one is
+   UNPREFIXED and therefore fires in light mode, at a higher specificity than
+   the rest state. Setting `--primary-light` to white here would paint that
+   hover white on the white sheet, 1:1, invisible. Whatever a variable is
+   named, inside a mode-scoped override it has to resolve to that mode's
+   foreground.
+
+   The dark block is not optional either, for the mirror-image reason. Light
+   rests on `text-primary` and hovers to `text-primary-dark`, but dark rests
+   on `text-primary-light` and hovers back to `text-primary`. Without
+   redefining `--primary` under `.dark`, that hover resolves to the near-black
+   meant for the light page and the icon vanishes into the dark ground
+   mid-hover. Same trap as the changelog version pills further down.
+
+   Two things this rule deliberately does NOT reach.
+
+   `.chat-assistant-send-button` sits inside two of these roots but is immune,
+   because an element's own custom-property declaration beats an inherited one
+   whatever the ancestor's specificity. It keeps the narrower treatment above,
+   which is what preserves its `bg-primary/30` alpha.
+
+   The focus ring stays ice. `focus-visible:outline-primary` is site-wide, and
+   ice on focus rings is inside the accent doctrine alongside eyebrows and
+   link underlines. The Ask Assistant chip in the Ctrl+K dialog is assistant
+   UI whose only primary utility is that ring, so it is left alone on purpose;
+   neutralising it would make one ring on the page differ from every other. */
+#assistant-entry,
+#assistant-entry-mobile,
+#ask-assistant-code-block-button,
+.chat-assistant-floating-input,
+#chat-assistant-sheet {
+  --primary: 17 17 17;
+  --primary-light: 17 17 17;
+  --primary-dark: 0 0 0;
+  --color-primary: rgb(17 17 17);
+  --color-primary-light: rgb(17 17 17);
+  --color-primary-dark: rgb(0 0 0);
+}
+
+.dark #assistant-entry,
+.dark #assistant-entry-mobile,
+.dark #ask-assistant-code-block-button,
+.dark .chat-assistant-floating-input,
+.dark #chat-assistant-sheet {
+  --primary: 255 255 255;
+  --primary-light: 255 255 255;
+  --primary-dark: 255 255 255;
+  --color-primary: rgb(255 255 255);
+  --color-primary-light: rgb(255 255 255);
+  --color-primary-dark: rgb(255 255 255);
+}
+
 /* Tooltips (the Copy chip on code blocks and friends), neutral inverted
    instead of ice (user call, 2026-08-09: black or white only, by mode).
    Mintlify paints the chip bg-primary-dark in BOTH modes, which the colors
