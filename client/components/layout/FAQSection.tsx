@@ -95,7 +95,7 @@ export const FAQSection = () => {
                             >
                                 download page
                             </a>
-                            . macOS and Linux builds are planned.
+                            .
                         </p>
                     }
                 />

@@ -122,6 +122,9 @@ async function assertNavbarFits(page: Page, label: string, expectPill: boolean) 
             scrollWidth: pill.scrollWidth,
             clientWidth: pill.clientWidth,
             navChildren: pill.parentElement?.childElementCount ?? -1,
+            parentIsMainNav:
+                pill.parentElement?.tagName === 'NAV' &&
+                pill.parentElement.getAttribute('aria-label') === 'Main',
         };
     });
     if (!r) {
@@ -140,10 +143,20 @@ async function assertNavbarFits(page: Page, label: string, expectPill: boolean) 
             `[${label}] navbar pill content overflows its own box (scrollWidth=${r.scrollWidth} clientWidth=${r.clientWidth}, innerWidth=${r.innerWidth})`
         )
         .toBeLessThanOrEqual(r.clientWidth + 1);
-    // The pill must stay <nav>'s only element child: both this guard and
-    // e2e/screenshot-matrix.mjs locate it from there, and a stray sibling would
-    // make querySelector pick the wrong element while still passing.
-    expect.soft(r.navChildren, `[${label}] <nav> should have exactly one element child`).toBe(1);
+    // The pill must remain the direct, only child of nav[aria-label="Main"].
+    // Both halves matter and neither is about the selector: [data-nav-pill] finds
+    // the right element regardless. What breaks is the geometry. <nav> is
+    // `flex justify-center` with `pointer-events-none`, so a sibling would push
+    // the capsule off centre, and a wrapper would silently move the centring one
+    // level away from the thing being measured. Asserting the parent's identity
+    // as well as its child count is what makes the wrapper case fail: a count of
+    // 1 alone is satisfied by any container.
+    expect
+        .soft(r.parentIsMainNav, `[${label}] pill's parent should be nav[aria-label="Main"]`)
+        .toBe(true);
+    expect
+        .soft(r.navChildren, `[${label}] nav[aria-label="Main"] should have exactly one element child`)
+        .toBe(1);
 }
 
 async function sweepViewports(page: Page, route: string, checkNavbar = false) {

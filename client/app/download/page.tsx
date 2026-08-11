@@ -20,8 +20,11 @@ import {
 // lib/desktopRelease so a release bump touches exactly one file.
 export const metadata: Metadata = {
     title: 'Download | Floe',
+    // No "or use Floe in your browser" clause: the page's only CTA is the Store
+    // badge and its body carries no route to "/", so promising a browser option
+    // here would be advertising something this page does not offer.
     description:
-        'Get Floe Desktop for Windows from the Microsoft Store (beta), install the CLI, or use Floe in your browser: free, encrypted, peer-to-peer file transfer.',
+        'Get Floe Desktop for Windows from the Microsoft Store (beta), or install the floe CLI: free, encrypted, peer-to-peer file transfer.',
     alternates: { canonical: '/download' },
 };
 
