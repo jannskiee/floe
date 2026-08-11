@@ -91,6 +91,7 @@ See [Flags Reference](/cli/flags) for the global flags that matter here (`--serv
 ## Notes
 
 - Received files are saved to the output directory. Existing files are never overwritten: if a name is already taken, the incoming file is saved with a numbered suffix before the extension (`report.pdf`, then `report (1).pdf`), the same way browsers de-duplicate downloads. The progress line shows the name actually written.
+- A transfer that fails or stalls partway deletes the file it was writing, so nothing half-written is left behind under a finished-looking name. Files that completed earlier in the batch are kept, and retrying reuses the original name instead of a numbered one.
 - Directory structure is preserved when the sender sends a folder. Files land at the same relative paths inside your output directory.
 - On Windows, received files are tagged with the mark of the web (a `Zone.Identifier` stream), so SmartScreen and Office Protected View treat them like browser downloads when opened.
 - Press `Ctrl+C` to cancel the transfer at any time.

@@ -48,6 +48,8 @@ import QRCode from 'react-qr-code';
 import {BoltMark, Button, Eyebrow, Input, StatusDot, cn} from './components/ui';
 import {advancedSummary, hostOf} from './settings';
 import {resetWarning} from './reset';
+import {friendlyError} from './errors';
+import {fmtBytes, formatIncoming, type IncomingPreview} from './incoming';
 import TitleBar from './components/TitleBar';
 import FileIcon from './components/FileIcon';
 import {Tooltip} from './components/Tooltip';
@@ -111,13 +113,6 @@ interface Prog {
 }
 
 type Marker = {t: number; bytes: number} | null;
-
-function fmtBytes(n: number): string {
-    if (!n || n < 0) return '0 B';
-    const u = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.min(u.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
-    return (n / Math.pow(1024, i)).toFixed(i ? 1 : 0) + ' ' + u[i];
-}
 
 function fmtSpeed(bps: number): string {
     if (!isFinite(bps) || bps <= 0) return '';
@@ -647,8 +642,16 @@ function App() {
     const [recvProg, setRecvProg] = useState<{pct: number; label: string} | null>(null);
     const [recvDir, setRecvDir] = useState('');
     const [recvDone, setRecvDone] = useState(false);
+    // The pre-transfer preview line ("Incoming: 3 files · 812 MB"), set by the
+    // recv:incoming event before the first byte lands.
+    const [incoming, setIncoming] = useState('');
     const recvStart = useRef<Marker>(null);
     const recvCancel = useRef(false);
+    // Monotonic id of the latest receive attempt: the frontend twin of the Go
+    // generation tag. A cancelled attempt's promise settles AFTER an instant
+    // restart has re-armed the UI, so its catch/finally must go quiet instead
+    // of stomping the live attempt's state.
+    const recvAttempt = useRef(0);
     // Receive file names harvested from progress events (the Go throttle always
     // emits each file's final update, so every name is captured).
     const recvNamesRef = useRef<string[]>([]);
@@ -889,7 +892,7 @@ function App() {
         });
         EventsOn('send:error', (msg: string) => {
             if (sendCancel.current) return;
-            setSendStatus('Error: ' + msg + serverNote());
+            setSendStatus(friendlyError(msg) + serverNote());
             setSending(false);
             // The progress row goes with the transfer. Left behind it froze
             // on screen at whatever percent it died at, and worse, kept Start
@@ -901,6 +904,10 @@ function App() {
             setSendCode('');
             setSendLink('');
             setPeerConnected(false);
+        });
+        EventsOn('recv:incoming', (p: IncomingPreview) => {
+            if (recvCancel.current) return;
+            setIncoming(formatIncoming(p));
         });
         EventsOn('recv:progress', (p: Prog) => {
             if (recvCancel.current) return;
@@ -965,6 +972,7 @@ function App() {
             EventsOff('send:progress');
             EventsOff('send:done');
             EventsOff('send:error');
+            EventsOff('recv:incoming');
             EventsOff('recv:progress');
             EventsOff('send:route');
             EventsOff('recv:route');
@@ -1241,7 +1249,7 @@ function App() {
             if (sendKind === 'text') await StartSendText(sendText, hideIP);
             else await StartSend(files, hideIP);
         } catch (e: any) {
-            setSendStatus('Error: ' + e);
+            setSendStatus(friendlyError(e));
             setSending(false);
         }
     }
@@ -1251,10 +1259,12 @@ function App() {
             setRecvStatus('Please enter a code or link.');
             return;
         }
+        const attempt = ++recvAttempt.current;
         setReceiving(true);
         setRecvProg(null);
         setRecvDir('');
         setRecvDone(false);
+        setIncoming('');
         setRoute('');
         recvCancel.current = false;
         recvStart.current = null;
@@ -1263,14 +1273,17 @@ function App() {
         setRecvStatus('Connecting... keep this window open.');
         try {
             const dir = await ReceiveByCode(code.trim(), output.trim(), hideIP, reportStats);
+            if (recvAttempt.current !== attempt) return;
             setRecvDir(dir);
             setRecvDone(true);
             setRecvStatus('');
             const names = recvNamesRef.current;
             setHistory((prev) => [{kind: 'recv' as const, names, count: names.length, dir, bytes: recvBytesRef.current || undefined, at: Date.now()}, ...prev].slice(0, HISTORY_CAP));
         } catch (e: any) {
-            setRecvStatus(recvCancel.current ? 'Cancelled.' : 'Error: ' + e + serverNote());
+            if (recvAttempt.current !== attempt) return;
+            setRecvStatus(recvCancel.current ? 'Cancelled.' : friendlyError(e) + serverNote());
         } finally {
+            if (recvAttempt.current !== attempt) return;
             setReceiving(false);
             // Every exit clears the progress row, not just the successful one.
             // On failure it used to stay frozen on screen and keep Start over
@@ -1303,6 +1316,7 @@ function App() {
             setReceiving(false);
             setRecvProg(null);
             setRecvDone(false);
+            setIncoming('');
             setRecvStatus('Cancelled.');
         }
         CancelTransfer().catch(() => {});
@@ -1317,6 +1331,10 @@ function App() {
         setConfirmReset(false);
         sendCancel.current = true;
         recvCancel.current = true;
+        // Invalidate any in-flight receive attempt: its promise settles on a
+        // later tick, and without this bump its catch/finally would pass the
+        // attempt guard and overwrite the fresh state this reset installs.
+        recvAttempt.current++;
         CancelTransfer().catch(() => {});
 
         setSettingsOpen(false);
@@ -1354,6 +1372,7 @@ function App() {
         setRecvProg(null);
         setRecvDir('');
         setRecvDone(false);
+        setIncoming('');
         recvStart.current = null;
         recvNamesRef.current = [];
 
@@ -2000,6 +2019,9 @@ function App() {
                                             </Button>
                                         )}
 
+                                        {receiving && incoming && (
+                                            <p className="animate-floe-in text-center text-xs text-zinc-400">{incoming}</p>
+                                        )}
                                         {recvProg && <ProgressRow prog={recvProg}/>}
                                         {recvDone && !receiving && (
                                             <div className="animate-floe-in flex items-center gap-2 text-sm text-zinc-300">

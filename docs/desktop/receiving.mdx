@@ -34,12 +34,15 @@ Whatever you choose here is remembered for next time. You can also set it once i
 
 Click **Receive**. Floe joins the room, connects to the sender, and starts writing files
 straight to disk. There is nothing to accept: unlike `floe receive` on the command line, the
-desktop app starts as soon as it connects.
+desktop app starts as soon as it connects. The moment the sender is known, the card shows what
+is incoming (the file name and size, or the file count and total) before the first byte lands.
 
 The badge at the top right shows **DIRECT** or **RELAY** once the route is known, and a progress
 bar shows the current file with speed and time remaining. **Cancel** stops it.
 
-When it finishes you get a Windows notification, and the card shows where the files went:
+When it finishes you get a Windows notification, and a transfer that fails raises one too, so
+a failure behind a minimized window is never silent. Cancelling does not notify. On success the
+card shows where the files went:
 
 - For a single file, **Open** launches it in its usual app and **Show in folder** reveals it in
   File Explorer with the file selected.
@@ -113,10 +116,14 @@ If you point Floe at your own server, the report goes to that server rather than
 
 | Message | What it means |
 |---|---|
-| Could not resolve ... | The code was mistyped, has passed its 10 minutes, or belongs to a different server from the one you are on. |
+| That code was not recognized ... | The code was mistyped, has passed its 10 minutes, or belongs to a different server from the one you are on. |
 | This code is no longer active; ask for a new one | The code is still valid but nobody is sharing with it. The transfer already finished, or the sender closed Floe. |
 | Room is full (someone else may already be receiving) | Someone already joined with this code. A room takes one receiver, so ask for a new code. |
 
-If Floe connects but nothing arrives, it gives up after 30 seconds with "connected, but no data
-arrived from the sender". Ask the sender to start again. If it never connects at all, check that
-both of you are on the same signaling server. See [Troubleshooting](/troubleshooting).
+If Floe connects but nothing arrives, it gives up after 30 seconds and says the sender never
+started sending; ask them to try again. If it never connects at all, check that both of you are
+on the same signaling server. See [Troubleshooting](/troubleshooting).
+
+A transfer that fails or is cancelled partway deletes the file it was writing, so nothing
+half-written is left behind under a finished-looking name. Files that completed before the
+failure are kept, and a retry can use the original name rather than a numbered one.

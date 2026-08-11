@@ -59,6 +59,22 @@ func reportBytesToServer(serverURL string, byteCount int64) {
 	resp.Body.Close()
 }
 
+// IncomingInfo describes a transfer at the moment its first metadata arrives,
+// before any file is created, any ack is sent, or any byte lands on disk.
+type IncomingInfo struct {
+	Files      int    `json:"files"`      // total files in the batch
+	TotalBytes int64  `json:"totalBytes"` // batch size; falls back to the single file's size, 0 when the sender predates totalBytes
+	FirstName  string `json:"firstName"`  // sender-supplied name of the first file (display only, NOT the on-disk name)
+}
+
+// ReceiveOptions carries the optional callbacks for GUI clients. The zero
+// value is the CLI behavior: terminal progress bar, no incoming preview.
+// Callbacks run synchronously on the receive loop, so keep them fast.
+type ReceiveOptions struct {
+	OnProgress ProgressFunc
+	OnIncoming func(IncomingInfo)
+}
+
 // ReceiveFiles handles the full receiving side of the Floe protocol.
 // It blocks until all files are received. Files are written to outputDir.
 // If autoAccept is false, the user is prompted before receiving begins.
@@ -67,13 +83,22 @@ func reportBytesToServer(serverURL string, byteCount int64) {
 // serverURL is the signaling server base URL used to report transfer stats;
 // pass "" to skip reporting (e.g. in tests).
 func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, localVer string, serverURL string) error {
-	return ReceiveFilesWithProgress(dc, outputDir, autoAccept, localVer, serverURL, nil)
+	return ReceiveFilesWithOptions(dc, outputDir, autoAccept, localVer, serverURL, ReceiveOptions{})
 }
 
 // ReceiveFilesWithProgress is ReceiveFiles with a progress callback for GUI
 // clients. When onProgress is non-nil, per-chunk progress is reported through it
 // and the terminal progress bar is suppressed.
 func ReceiveFilesWithProgress(dc *webrtc.DataChannel, outputDir string, autoAccept bool, localVer string, serverURL string, onProgress ProgressFunc) error {
+	return ReceiveFilesWithOptions(dc, outputDir, autoAccept, localVer, serverURL, ReceiveOptions{OnProgress: onProgress})
+}
+
+// ReceiveFilesWithOptions is the full-featured receive entry point; the other
+// two delegate here. opts.OnIncoming, when set, fires exactly once as the
+// first metadata arrives, after the protocol compatibility check and before
+// any file is created or acked.
+func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccept bool, localVer string, serverURL string, opts ReceiveOptions) error {
+	onProgress := opts.OnProgress
 	// msgCh collects ALL incoming data channel messages.
 	// We use a channel so the OnMessage callback (goroutine) feeds a sequential loop.
 	msgCh := make(chan webrtc.DataChannelMessage, 256)
@@ -105,11 +130,22 @@ func ReceiveFilesWithProgress(dc *webrtc.DataChannel, outputDir string, autoAcce
 	filesReceived := 0
 	waitingForFirst := true
 
-	// If the transfer is interrupted (peer disconnect or error) before the
-	// "end" marker closes the current file, ensure the handle is still released.
+	// If the transfer is interrupted (peer disconnect, stall, or error) before
+	// the "end" marker completes the current file, release the handle and
+	// delete the partial: a half-written file left at its final name is
+	// indistinguishable from a complete one, and it keeps that name claimed so
+	// a retry lands at "name (1)". Success is safe because the "end" handler
+	// closes and nils currentFile before any return, so anything still non-nil
+	// here is a partial by definition; files that completed earlier in the
+	// batch are never touched. Close before Remove (Windows refuses to delete
+	// an open file), and Remove is best-effort so a sharing violation from an
+	// AV scanner never masks the real transfer error. Directories created for
+	// folder transfers are left in place.
 	defer func() {
 		if currentFile != nil {
+			name := currentFile.Name()
 			currentFile.Close()
+			_ = os.Remove(name)
 		}
 	}()
 
@@ -205,6 +241,16 @@ func ReceiveFilesWithProgress(dc *webrtc.DataChannel, outputDir string, autoAcce
 				if err != nil {
 					continue
 				}
+				// A second metadata while a file is still open means the sender
+				// abandoned the current file without an "end". Close and delete
+				// the partial before starting the next one, or the handle leaks
+				// and the half-written file survives at its final name.
+				if currentFile != nil {
+					name := currentFile.Name()
+					currentFile.Close()
+					_ = os.Remove(name)
+					currentFile = nil
+				}
 				currentInfo = info
 				bytesReceived = 0
 
@@ -249,6 +295,14 @@ func ReceiveFilesWithProgress(dc *webrtc.DataChannel, outputDir string, autoAcce
 					fmt.Println()
 					PrintBox([][2]string{{"Incoming", incomingLabel}})
 					fmt.Println()
+
+					if opts.OnIncoming != nil {
+						tb := info.TotalBytes
+						if info.Total == 1 && tb == 0 {
+							tb = info.FileSize // legacy sender: the single file's size is still known
+						}
+						opts.OnIncoming(IncomingInfo{Files: info.Total, TotalBytes: tb, FirstName: info.FileName})
+					}
 
 					if !autoAccept {
 						fmt.Print("  Accept? [Y/n] ")
@@ -311,8 +365,12 @@ func ReceiveFilesWithProgress(dc *webrtc.DataChannel, outputDir string, autoAcce
 
 					// Integrity guard: a short byte count means the transfer was
 					// truncated (e.g. the sender closed early). Fail loudly rather
-					// than leave a corrupt file that looks complete.
+					// than leave a corrupt file that looks complete. The handle is
+					// already closed and nil'd above (required before Remove on
+					// Windows), so the interrupt cleanup cannot see this truncated
+					// file; delete it here.
 					if bytesReceived != currentInfo.FileSize {
+						_ = os.Remove(finalPath)
 						return fmt.Errorf("incomplete file %q: received %d of %d bytes",
 							currentInfo.FileName, bytesReceived, currentInfo.FileSize)
 					}
