@@ -256,6 +256,56 @@ func TestCompatErrorMessage(t *testing.T) {
 	if strings.Contains(msg3, "()") {
 		t.Errorf("empty ver should not produce '()' in message, got: %s", msg3)
 	}
+
+	// GUI callers can replace the CLI-only local remedy.
+	const appHint = "Update Floe from your app store or floe.one/download."
+	msg4 := compatErrorMessage(true, "v1.5.5", "v2.0.0", 1, 1, 2, 2, appHint)
+	if !strings.Contains(msg4, appHint) || strings.Contains(msg4, "floe update") {
+		t.Errorf("custom local update hint not applied, got: %s", msg4)
+	}
+
+	// The local app cannot know which surface the peer uses, so the remote
+	// remedy stays surface-neutral when a custom local hint is configured.
+	msg5 := compatErrorMessage(false, "v2.0.0", "v1.5.5", 2, 2, 1, 1, appHint)
+	if !strings.Contains(msg5, "Ask the other side to update Floe.") || strings.Contains(msg5, "app store") {
+		t.Errorf("custom peer update hint should be surface-neutral, got: %s", msg5)
+	}
+
+	// A current receiver's reason is written from the receiver's perspective.
+	// The sender must reconstruct it from its own protocol range and hint.
+	msg6 := compatErrorFromIncompatible("v1.5.5", appHint, incompatibleMsg{
+		Reason: "receiver-perspective message",
+		Pv:     2,
+		PvMin:  2,
+		Ver:    "v2.0.0",
+	})
+	if !strings.Contains(msg6, appHint) || strings.Contains(msg6, "receiver-perspective") {
+		t.Errorf("sender did not rebuild incompatibility message, got: %s", msg6)
+	}
+
+	// Legacy peers supplied only a prebuilt reason.
+	const legacyReason = "legacy incompatibility reason"
+	if got := compatErrorFromIncompatible("v1.5.5", appHint, incompatibleMsg{Reason: legacyReason}); got != legacyReason {
+		t.Errorf("legacy reason = %q, want %q", got, legacyReason)
+	}
+
+	// When this receiver is newer, the sender-facing fallback must say that the
+	// sender itself is old and must not leak this receiver's app-store hint.
+	peerMsg := peerCompatErrorMessage(false, "v2.0.0", "v1.5.5", 2, 2, 1, 1)
+	if !strings.Contains(peerMsg, "your floe is too old") ||
+		!strings.Contains(peerMsg, "You: protocol 1 (v1.5.5)  Peer: protocol 2 (v2.0.0)") ||
+		!strings.Contains(peerMsg, "Update Floe to continue.") {
+		t.Errorf("newer receiver produced wrong sender-facing message: %s", peerMsg)
+	}
+
+	// When this receiver is older, the newer sender should be told neutrally
+	// that the peer needs an update.
+	peerMsg2 := peerCompatErrorMessage(true, "v1.5.5", "v2.0.0", 1, 1, 2, 2)
+	if !strings.Contains(peerMsg2, "peer's floe is too old") ||
+		!strings.Contains(peerMsg2, "You: protocol 2 (v2.0.0)  Peer: protocol 1 (v1.5.5)") ||
+		!strings.Contains(peerMsg2, "Ask the other side to update Floe.") {
+		t.Errorf("older receiver produced wrong sender-facing message: %s", peerMsg2)
+	}
 }
 
 // TestParseMetadataProtocolFields verifies that pv/pvMin/ver are parsed from
