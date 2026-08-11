@@ -550,6 +550,14 @@ func (a *App) transferActive(g uint64) bool {
 // unblocks a sender waiting for a receiver (via PeerLeft); closing the peer
 // connection unblocks a stuck WebRTC setup (via the connection-state error).
 // Safe to call when nothing is running.
+//
+// Ordering contract: it cancels whatever attempt is live when it EXECUTES, so
+// a caller must not dispatch a new StartSend/ReceiveByCode until this call has
+// been issued and processed; two unawaited bridge calls fired in the same tick
+// have no cross-call ordering guarantee, and a reordered pair would cancel the
+// new attempt instead of the old one. The UI satisfies this trivially (the
+// user's next click is far behind the cancel dispatch); programmatic drivers
+// must await CancelTransfer before starting the next transfer.
 func (a *App) CancelTransfer() {
 	a.mu.Lock()
 	a.cancelled = true
