@@ -30,6 +30,8 @@ import (
 // a self-hosted server and it interoperates with peers on that server instead.
 const defaultServer = "https://api.floe.one"
 
+const desktopUpdateHint = "Update Floe from the Microsoft Store or floe.one/download."
+
 // The share-link origin is no longer a constant here. It is derived from the
 // signaling origin by engine/serverurl, which the CLI uses too, so both surfaces
 // emit identical links. See App.endpoints.
@@ -765,7 +767,10 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 		lastEmit = time.Now()
 		emit("send:progress", p)
 	}
-	if err := transfer.SendFilesWithProgress(dc, paths, version, onProgress); err != nil {
+	if err := transfer.SendFilesWithOptions(dc, paths, version, transfer.SendOptions{
+		OnProgress: onProgress,
+		UpdateHint: desktopUpdateHint,
+	}); err != nil {
 		// The relay cap is a policy block, not a failure: skip the "transfer
 		// failed" wrapper, and when Hide my IP forced the relay, name the
 		// toggle that lifts the cap.
@@ -921,6 +926,7 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 	}
 	opts := transfer.ReceiveOptions{
 		OnProgress: onProgress,
+		UpdateHint: desktopUpdateHint,
 		// Fires once as the sender's first metadata arrives, before any byte
 		// lands: the UI shows what is incoming while the transfer starts.
 		OnIncoming: func(inc transfer.IncomingInfo) { emit("recv:incoming", inc) },

@@ -73,6 +73,9 @@ type IncomingInfo struct {
 type ReceiveOptions struct {
 	OnProgress ProgressFunc
 	OnIncoming func(IncomingInfo)
+	// UpdateHint replaces the CLI-only local update instruction in protocol
+	// compatibility errors. Leave empty for the default CLI wording.
+	UpdateHint string
 }
 
 // ReceiveFiles handles the full receiving side of the Floe protocol.
@@ -264,11 +267,13 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					// fast with a clear message rather than waiting for an ack.
 					ok, localTooOld := CheckCompat(MinProtocolVersion, ProtocolVersion, info.PvMin, info.Pv)
 					if !ok {
-						errMsg := CompatErrorMessage(localTooOld, localVer, info.Ver,
+						errMsg := compatErrorMessage(localTooOld, localVer, info.Ver,
+							MinProtocolVersion, ProtocolVersion, info.PvMin, info.Pv, opts.UpdateHint)
+						peerErrMsg := peerCompatErrorMessage(localTooOld, localVer, info.Ver,
 							MinProtocolVersion, ProtocolVersion, info.PvMin, info.Pv)
 						incompat := incompatibleMsg{
 							Type:   "incompatible",
-							Reason: errMsg,
+							Reason: peerErrMsg,
 							Pv:     ProtocolVersion,
 							PvMin:  MinProtocolVersion,
 							Ver:    localVer,

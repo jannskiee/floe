@@ -102,17 +102,33 @@ type endMsg struct {
 	Type string `json:"type"`
 }
 
+// SendOptions carries optional behavior for GUI clients. The zero value is
+// the CLI behavior: terminal progress and the CLI update instruction.
+type SendOptions struct {
+	OnProgress ProgressFunc
+	// UpdateHint replaces the CLI-only local update instruction in protocol
+	// compatibility errors. Leave empty for the default CLI wording.
+	UpdateHint string
+}
+
 // SendFiles sends all given file paths over the open data channel, rendering a
 // terminal progress bar. Folders are walked recursively. localVer is the human
 // release string (e.g. "v1.5.5") embedded in metadata; pass "" for dev/tests.
 func SendFiles(dc *webrtc.DataChannel, paths []string, localVer string) error {
-	return SendFilesWithProgress(dc, paths, localVer, nil)
+	return SendFilesWithOptions(dc, paths, localVer, SendOptions{})
 }
 
 // SendFilesWithProgress is SendFiles with a progress callback for GUI clients.
 // When onProgress is non-nil, per-chunk progress is reported through it and the
 // terminal progress bar is suppressed.
 func SendFilesWithProgress(dc *webrtc.DataChannel, paths []string, localVer string, onProgress ProgressFunc) error {
+	return SendFilesWithOptions(dc, paths, localVer, SendOptions{OnProgress: onProgress})
+}
+
+// SendFilesWithOptions is the full-featured send entry point; the other two
+// delegate here.
+func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer string, opts SendOptions) error {
+	onProgress := opts.OnProgress
 	// Expand paths: collect all files (walk directories)
 	files, err := collectFiles(paths)
 	if err != nil {
@@ -185,7 +201,7 @@ func SendFilesWithProgress(dc *webrtc.DataChannel, paths []string, localVer stri
 
 	var sentSoFar int64
 	for i, entry := range files {
-		if err := sendFile(dc, ackCh, sendMore, done, entry, i+1, len(files), totalBytes, localVer, onProgress, sentSoFar, chunk); err != nil {
+		if err := sendFile(dc, ackCh, sendMore, done, entry, i+1, len(files), totalBytes, localVer, onProgress, opts.UpdateHint, sentSoFar, chunk); err != nil {
 			return fmt.Errorf("error sending %s: %w", entry.displayName, err)
 		}
 		sentSoFar += entry.size
@@ -309,7 +325,7 @@ func collectFiles(paths []string) ([]fileEntry, error) {
 }
 
 // sendFile handles the full send sequence for a single file.
-func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, done <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onProgress ProgressFunc, baseTotal int64, chunk int) error {
+func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, done <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onProgress ProgressFunc, updateHint string, baseTotal int64, chunk int) error {
 	f, err := os.Open(entry.absPath)
 	if err != nil {
 		return err
@@ -363,14 +379,12 @@ ackLoop:
 			// If the receiver found the protocol ranges incompatible it sends
 			// an "incompatible" message instead of an ack.
 			if base.Type == "incompatible" {
-				var incompat struct {
-					Reason string `json:"reason"`
-				}
+				var incompat incompatibleMsg
 				json.Unmarshal(raw, &incompat) //nolint:errcheck
-				if incompat.Reason != "" {
-					return fmt.Errorf("%s", incompat.Reason)
-				}
-				return fmt.Errorf("peer rejected transfer: protocol incompatible")
+				// Current peers include their protocol range, so rebuild the
+				// message from this sender's perspective and surface-specific
+				// update hint. Reason remains the fallback for legacy peers.
+				return fmt.Errorf("%s", compatErrorFromIncompatible(localVer, updateHint, incompat))
 			}
 			if base.Type == "ack" {
 				var ack ackMsg
@@ -383,8 +397,8 @@ ackLoop:
 					if index == 1 {
 						ok, localTooOld := CheckCompat(MinProtocolVersion, ProtocolVersion, ack.PvMin, ack.Pv)
 						if !ok {
-							return fmt.Errorf("%s", CompatErrorMessage(localTooOld, localVer, ack.Ver,
-								MinProtocolVersion, ProtocolVersion, ack.PvMin, ack.Pv))
+							return fmt.Errorf("%s", compatErrorMessage(localTooOld, localVer, ack.Ver,
+								MinProtocolVersion, ProtocolVersion, ack.PvMin, ack.Pv, updateHint))
 						}
 						if ack.Ver != "" && localVer != "" && ack.Ver != localVer {
 							fmt.Printf("  Peer version: %s\n", ack.Ver)

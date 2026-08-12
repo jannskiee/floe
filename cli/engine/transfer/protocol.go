@@ -54,10 +54,16 @@ func CheckCompat(localMin, localMax, remoteMin, remoteMax int) (ok bool, localTo
 	return false, remoteMin > localMax
 }
 
-// CompatErrorMessage returns a user-facing error string for an incompatible
-// peer. localVer and remoteVer are human release strings (e.g. "v1.5.5");
-// either may be empty for legacy peers.
+// CompatErrorMessage returns the CLI's user-facing error string for an
+// incompatible peer. localVer and remoteVer are human release strings (e.g.
+// "v1.5.5"); either may be empty for legacy peers.
 func CompatErrorMessage(localTooOld bool, localVer, remoteVer string, localMin, localMax, remoteMin, remoteMax int) string {
+	return compatErrorMessage(localTooOld, localVer, remoteVer, localMin, localMax, remoteMin, remoteMax, "")
+}
+
+// compatErrorMessage lets GUI callers replace the CLI-only local update
+// instruction. An empty updateHint preserves the CLI wording exactly.
+func compatErrorMessage(localTooOld bool, localVer, remoteVer string, localMin, localMax, remoteMin, remoteMax int, updateHint string) string {
 	localRange := fmt.Sprintf("protocol %d", localMin)
 	if localMax != localMin {
 		localRange = fmt.Sprintf("protocol %d-%d", localMin, localMax)
@@ -73,8 +79,17 @@ func CompatErrorMessage(localTooOld bool, localVer, remoteVer string, localMin, 
 		remoteRange += " (" + remoteVer + ")"
 	}
 	if localTooOld {
+		if updateHint == "" {
+			updateHint = "Run `floe update` to upgrade."
+		}
 		return fmt.Sprintf(
-			"Cannot transfer: your floe is too old for this peer.\n  You: %s  Peer: %s\n  Run `floe update` to upgrade.",
+			"Cannot transfer: your floe is too old for this peer.\n  You: %s  Peer: %s\n  %s",
+			localRange, remoteRange, updateHint,
+		)
+	}
+	if updateHint != "" {
+		return fmt.Sprintf(
+			"Cannot transfer: peer's floe is too old.\n  You: %s  Peer: %s\n  Ask the other side to update Floe.",
 			localRange, remoteRange,
 		)
 	}
@@ -82,4 +97,26 @@ func CompatErrorMessage(localTooOld bool, localVer, remoteVer string, localMin, 
 		"Cannot transfer: peer's floe is too old.\n  You: %s  Peer: %s\n  Ask the other side to run `floe update`.",
 		localRange, remoteRange,
 	)
+}
+
+// peerCompatErrorMessage describes the same mismatch from the remote peer's
+// perspective. It is sent on the wire as a surface-neutral fallback for peers
+// that display Reason verbatim instead of rebuilding it from pv/pvMin.
+func peerCompatErrorMessage(localTooOld bool, localVer, remoteVer string, localMin, localMax, remoteMin, remoteMax int) string {
+	return compatErrorMessage(!localTooOld, remoteVer, localVer,
+		remoteMin, remoteMax, localMin, localMax, "Update Floe to continue.")
+}
+
+// compatErrorFromIncompatible rebuilds current peers' error messages from the
+// local caller's perspective. Older peers only supplied Reason, so retain it as
+// the compatibility fallback.
+func compatErrorFromIncompatible(localVer, updateHint string, incompat incompatibleMsg) string {
+	if ok, localTooOld := CheckCompat(MinProtocolVersion, ProtocolVersion, incompat.PvMin, incompat.Pv); !ok {
+		return compatErrorMessage(localTooOld, localVer, incompat.Ver,
+			MinProtocolVersion, ProtocolVersion, incompat.PvMin, incompat.Pv, updateHint)
+	}
+	if incompat.Reason != "" {
+		return incompat.Reason
+	}
+	return "peer rejected transfer: protocol incompatible"
 }
