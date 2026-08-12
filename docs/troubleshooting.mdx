@@ -79,7 +79,7 @@ Most Floe transfers just work. When something goes wrong, it is almost always on
   <Accordion title="Cannot transfer: your floe is too old for this peer">
     Floe words this two ways, `Cannot transfer: your floe is too old for this peer` and `Cannot transfer: peer's floe is too old`. Peers on different Floe versions normally transfer fine, so a small version difference (for example v1.5.4 and v1.5.5) is never a problem. Either message only appears if a release changed the transfer protocol in a way the two versions cannot bridge.
 
-    The message prints both sides as `You:` and `Peer:`, each with its protocol range and release version. Go by the version strings rather than the labels, and update the older one. When the receiver detects the mismatch it composes the message and the sender prints it unchanged, so a sender can be told "your floe is too old" while it is the receiver that needs updating. In that case the whole message, not just the labels, is written from the receiver's point of view. If both versions look current, update both.
+    The message prints both sides as `You:` and `Peer:`, each with its protocol range and release version. On current releases each side words the message from its own point of view, so the side named as too old is the one to update. Older releases printed the receiver's wording unchanged on the sender's side, so there a sender could be told "your floe is too old" while it was the receiver that needed updating; when in doubt, go by the version strings and update the older one. If both versions look current, update both.
 
     ```bash Terminal
     floe update              # script / manual installs
@@ -88,7 +88,7 @@ Most Floe transfers just work. When something goes wrong, it is almost always on
     scoop update floe        # Scoop
     ```
 
-    If you are receiving from a browser, refresh the page to load the latest web client. The desktop app shares the same transfer engine, so it can show the same message. It has no `floe update` command, so update it the way you installed it. From the Microsoft Store, open **Library** then **Get updates**. See [Updating](/cli/update) and [Update](/desktop/installation#update).
+    If you are receiving from a browser, refresh the page to load the latest web client. The desktop app shares the same transfer engine and shows the same message with its own remedy line, pointing at the Microsoft Store or the download page. It has no `floe update` command, so update it the way you installed it. From the Microsoft Store, open **Library** then **Get updates**. See [Updating](/cli/update) and [Update](/desktop/installation#update).
   </Accordion>
 
   <Accordion title="My short code does not work">
