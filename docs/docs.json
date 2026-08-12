@@ -13,12 +13,6 @@
     "light": "#B1DDEB",
     "dark": "#00A3C9"
   },
-  "background": {
-    "color": {
-      "light": "#FFFFFF",
-      "dark": "#09090b"
-    }
-  },
   "styling": {
     "codeblocks": "system"
   },
