@@ -46,7 +46,9 @@ When opted out, no request is made to the server and the counter is not incremen
 
 ## Error monitoring and analytics
 
-These apply to the floe.one website only. The CLI and the desktop app contain no analytics, no error monitoring, and no telemetry. The only thing either one sends is the optional byte-count report described above, and you can turn that off.
+These apply to the floe.one website only. The CLI and the desktop app contain no analytics, no error monitoring, and no telemetry. Beyond the transfer itself, they make exactly two kinds of optional request, and both have an off switch: the byte-count report described above, and an update check.
+
+**The update check:** once a day, the desktop app (GitHub builds 0.2.3 and later) asks GitHub whether a newer desktop release exists, and the CLI does the same only when you run `floe version`. The request carries nothing about you beyond what any web request reveals (your IP address and a user agent); nothing about your files or transfers is in it, and nothing downloads or installs by itself. Turn off **Check for updates** in the desktop [Settings](/desktop/settings#check-for-updates), or set `FLOE_NO_UPDATE_CHECK=1` for either surface, and no request is made at all. Microsoft Store builds never check; the Store updates them itself.
 
 - **Sentry** records application errors and a 10% sample of browser performance traces. It is configured never to attach cookies, headers, or your IP address, and the room secret is stripped out of every error report and breadcrumb before it is sent.
 - **Session replay is not enabled, and will not be added.** A replay reports the page address, and on a receiver page that address contains the room link, which is the only thing protecting a transfer.

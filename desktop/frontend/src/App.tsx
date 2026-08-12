@@ -2,6 +2,7 @@ import {useEffect, useRef, useState} from 'react';
 import type {CSSProperties, MutableRefObject, ReactNode} from 'react';
 import {
     CancelTransfer,
+    CheckForUpdate,
     ContextMenuEnabled,
     DisableContextMenu,
     EnableContextMenu,
@@ -17,6 +18,7 @@ import {
     RevealFile,
     SelectFiles,
     SelectFolder,
+    SetCheckUpdates,
     SetSettings,
     StartSend,
     StartSendText,
@@ -50,6 +52,7 @@ import {advancedSummary, hostOf} from './settings';
 import {resetWarning} from './reset';
 import {friendlyError} from './errors';
 import {fmtBytes, formatIncoming, type IncomingPreview} from './incoming';
+import {DOWNLOAD_URL, bareVersion, isNewerDesktopVersion} from './update';
 import TitleBar from './components/TitleBar';
 import FileIcon from './components/FileIcon';
 import {Tooltip} from './components/Tooltip';
@@ -194,6 +197,57 @@ function StatusLine({text, busy, live}: {text: string; busy: boolean; live?: boo
             {isError && <AlertCircle className="size-3.5 shrink-0"/>}
             <span>{text}</span>
         </p>
+    );
+}
+
+/** UpdateNotice is the app's one toast, and a notice only: nothing downloads or
+ *  installs here, so it carries a single action plus a dismiss (a "Later"
+ *  button would just be a second X, and snooze semantics belong to
+ *  auto-updaters with a payload waiting). It persists until acted on: an
+ *  actionable notice that auto-hides is one most users never see, and there is
+ *  no notification center to replay it. z-30 keeps tooltips (z-40) and the
+ *  dialogs (z-50) painting over it, so the documented paint-order/Escape
+ *  invariant is untouched; Escape closes it only while focus is inside the
+ *  card, never from the global chain. It must not steal focus on appear.
+ *  Screen-reader announcement lives in the persistent sr-only region at the
+ *  app root, not here: a live region that mounts with its content already
+ *  inside announces nothing. */
+function UpdateNotice({version, onDismiss}: {version: string; onDismiss: () => void}) {
+    return (
+        <div
+            aria-label="Update available"
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onDismiss(); } }}
+            className={cn(
+                'fixed right-4 top-[52px] z-30 flex w-[340px] items-start gap-3 rounded-xl border border-white/10',
+                'bg-zinc-900/90 p-4 shadow-2xl ring-1 ring-white/5 backdrop-blur-xl',
+                'animate-floe-in motion-reduce:animate-none',
+            )}
+        >
+            <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-white/10 bg-white/[0.04]" aria-hidden>
+                <Download className="size-4 text-ice"/>
+            </span>
+            <div className="min-w-0 flex-1">
+                <div className="flex items-start justify-between gap-2">
+                    <h2 className="text-sm font-semibold leading-5 text-white">Update available</h2>
+                    <button
+                        aria-label="Dismiss update notice"
+                        onClick={onDismiss}
+                        className="-m-1 grid size-7 shrink-0 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-100 focus-visible:outline-2 focus-visible:outline-ice"
+                    >
+                        <X className="size-4"/>
+                    </button>
+                </div>
+                {/* Non-breaking space: a two-line body must not orphan "page." */}
+                <p className="mt-0.5 text-xs leading-4 text-zinc-400">
+                    Floe <span className="font-mono text-zinc-300">{bareVersion(version)}</span> is out on the download{'\u00a0'}page.
+                </p>
+                <div className="mt-3 flex justify-end">
+                    <Button className="h-8 text-xs" onClick={() => { BrowserOpenURL(DOWNLOAD_URL); onDismiss(); }}>
+                        Get update
+                    </Button>
+                </div>
+            </div>
+        </div>
     );
 }
 
@@ -686,6 +740,14 @@ function App() {
     const [appVer, setAppVer] = useState('');
     const [proto, setProto] = useState<number | null>(null);
 
+    // Update notice. updateVer arrives from the Go checker at most once per
+    // launch ('' = nothing to show). The dismissal is session state on
+    // purpose: the notice may legitimately return on a later launch while the
+    // build is still behind, and nothing on disk needs to remember an X.
+    const [updateVer, setUpdateVer] = useState('');
+    const [updateDismissed, setUpdateDismissed] = useState(false);
+    const [checkUpdates, setCheckUpdates] = useState(true);
+
     // addFiles merges incoming paths into the send selection. Shared by OS
     // drops, second-instance launches, and cold-start args; safe to call from
     // once-registered closures (functional updates + stable setters only).
@@ -707,6 +769,17 @@ function App() {
             localStorage.setItem('floe:ctx-menu', v ? '1' : '0');
         } catch {
             setCtxMenu(!v); // revert on failure, marker untouched
+        }
+    }
+
+    // Not routed through saveSettings: the field is owned by its own Go setter
+    // so the Settings screen's whole-record save can never clobber it.
+    async function toggleCheckUpdates(v: boolean) {
+        setCheckUpdates(v);
+        try {
+            await SetCheckUpdates(v);
+        } catch {
+            setCheckUpdates(!v); // revert on failure, the toggleCtxMenu pattern
         }
     }
 
@@ -826,7 +899,20 @@ function App() {
         setResetErr('');
         try {
             await SetSettings('', '', false, true);
+            await SetCheckUpdates(true);
         } catch (e) {
+            // Two persists means a partial failure is possible: re-pull what
+            // actually landed on disk so the screen never diverges from it.
+            try {
+                const c = await GetSettings();
+                setServerAddr(c.server || '');
+                setWebAddr(c.web || '');
+                setHideIP(c.hideIP);
+                setReportStats(c.reportStats);
+                setCheckUpdates(!c.noUpdateCheck);
+                serverAddrRef.current = c.server || '';
+                webAddrRef.current = c.web || '';
+            } catch { /* unreadable config: leave the screen as is */ }
             setResetErr('Error: could not save settings. ' + e);
             return;
         }
@@ -834,6 +920,7 @@ function App() {
         setWebAddr('');
         setHideIP(false);
         setReportStats(true);
+        setCheckUpdates(true);
         setOutput('');
         setTestStatus('');
         serverAddrRef.current = '';
@@ -987,6 +1074,15 @@ function App() {
         EngineProtocolVersion().then(setProto).catch(() => {});
     }, []);
 
+    // Update notice: one pull per launch, the same shape as the About rows
+    // (pull, not an event: startup runs before listeners exist). Go owns the
+    // daily cache and every opt-out gate; an empty version means nothing to
+    // show and a failure means silence. The promise can take seconds on the
+    // first launch of a day, so nothing waits on it - the card just appears.
+    useEffect(() => {
+        CheckForUpdate().then((u) => { if (u && u.version) setUpdateVer(u.version); }).catch(() => {});
+    }, []);
+
     // Settings live in a Go-owned file, not localStorage, so they survive the
     // webview profile. The profile is pinned to a stable path now (it used to be
     // keyed to the exe basename, which is how these toggles got stranded when the
@@ -1003,6 +1099,9 @@ function App() {
             .then((c) => {
                 setServerAddr(c.server || '');
                 setWebAddr(c.web || '');
+                // Not part of the migration below: the field never lived in
+                // localStorage, and its zero value is the shipped default.
+                setCheckUpdates(!c.noUpdateCheck);
                 if (c.migrated) {
                     setHideIP(c.hideIP);
                     setReportStats(c.reportStats);
@@ -1399,6 +1498,14 @@ function App() {
     startOverRef.current = startOver;
 
     const busy = sending || receiving;
+
+    // Update-notice visibility. updateAvailable drives the quiet About row and
+    // survives dismissal; showUpdate adds the popup's manners: never over a
+    // live transfer, never behind a dialog's scrim, gone for the session once
+    // dismissed. The isNewer re-check is defense in depth (Go already compared)
+    // and keeps the card from flashing before GetVersion resolves.
+    const updateAvailable = updateVer !== '' && isNewerDesktopVersion(updateVer, appVer);
+    const showUpdate = updateAvailable && !updateDismissed && !busy && !confirmReset && !confirmDefaults;
     // What Start over would destroy, phrased for its own dialog, so the decision
     // to interrupt and the sentence explaining why can never drift apart. Empty
     // means nothing worth a prompt and the reset runs on the first click or
@@ -1481,6 +1588,17 @@ function App() {
     return (
         <div className="flex h-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100 selection:bg-ice/20">
             <TitleBar onSettings={() => setSettingsOpen((o) => !o)} settingsActive={settingsOpen} onStartOver={startOver}/>
+
+            {/* App-scoped, so it renders on both screens: Settings is where
+                version-curious users already are. The sr-only twin is the
+                announcement: a live region only announces content CHANGES, so
+                a region that mounts with the popup already inside it is
+                silent (the StatusLine comment explains the same trap). This
+                span exists from first paint and its text arrives later. */}
+            <span className="sr-only" role="status" aria-live="polite">
+                {updateAvailable ? `Update available: Floe ${bareVersion(updateVer)}. See Settings.` : ''}
+            </span>
+            {showUpdate && <UpdateNotice version={updateVer} onDismiss={() => setUpdateDismissed(true)}/>}
 
             {settingsOpen ? (
             /* ── SETTINGS SCREEN ─────────────────────────────────────────── */
@@ -1582,6 +1700,17 @@ function App() {
                                             label="Contribute to global stats"
                                             description="Each transfer you receive adds its size to a public total. Floe never sends file names or contents."
                                         />
+                                        {/* Hidden for Store installs: the Store updates the app
+                                            itself and the Go side never checks there, so the
+                                            switch would be an inert control. */}
+                                        {!packaged && (
+                                            <SettingRow
+                                                checked={checkUpdates}
+                                                onChange={(v) => void toggleCheckUpdates(v)}
+                                                label="Check for updates"
+                                                description="Shows a notice when a new version is out. Asks GitHub once a day; off means no request at all."
+                                            />
+                                        )}
                                     </div>
                                 </section>
 
@@ -1725,12 +1854,28 @@ function App() {
                                 <section className="space-y-2">
                                     <Eyebrow as="h3">About</Eyebrow>
                                     {/* Readout rows flip the emphasis: dim label, legible mono value.
-                                        No hover fills; nothing here is interactive except Copy. */}
+                                        No hover fills; nothing here is interactive except Copy and
+                                        the update row's button. */}
                                     <div className={cn(cardClass, insetHairline)}>
                                         <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
                                             <span className={aboutLabelClass}>App version</span>
                                             <span className={aboutValueClass}>{appVer || 'dev'}</span>
                                         </div>
+                                        {/* The popup's quiet, permanent mirror: it ignores the
+                                            session dismissal, so the fact an update exists always
+                                            has a home. Omitted entirely when up to date - a
+                                            readout card earns no "all good" row. */}
+                                        {updateAvailable && (
+                                            <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
+                                                <span className={aboutLabelClass}>Update</span>
+                                                <span className="flex shrink-0 items-center gap-2.5">
+                                                    <span className={aboutValueClass}>{bareVersion(updateVer)} available</span>
+                                                    <Button variant="outline" className="h-7 shrink-0 text-xs" onClick={() => BrowserOpenURL(DOWNLOAD_URL)}>
+                                                        Get update
+                                                    </Button>
+                                                </span>
+                                            </div>
+                                        )}
                                         <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
                                             {/* The dotted underline is the tooltip's discoverability
                                                 affordance; without it the tooltip exists but nothing
@@ -2176,7 +2321,7 @@ function App() {
                     >
                         <h2 id="floe-reset-title" className="text-sm font-semibold text-white">Reset all settings?</h2>
                         <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">
-                            Your save folder, both privacy switches and the server addresses go back to the way Floe shipped.
+                            Your save folder, the privacy switches and the server addresses go back to the way Floe shipped.
                         </p>
                         {/* Names what the user will actually notice. The path is the
                             thing they cannot retype from memory, so it is shown in

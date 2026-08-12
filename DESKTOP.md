@@ -94,6 +94,8 @@ go.work                ties cli + desktop for local dev
       The WebView cannot probe directly: `index.html` sets `connect-src 'self'`.
 - [ ] System tray / minimize-to-tray (NOT in Wails v2 - `onhold`, deferred to the v3 migration). Transfers already keep running while the window is minimized.
 - [ ] Dark mode toggle (the app already ships dark by default)
+- [x] Update notice: GitHub builds check the releases list once a day and show a
+      dismissible notice (notice only, nothing installs; Store builds never check)
 - [ ] App auto-update (Sparkle on macOS, WinSparkle on Windows)
 
 ### Phase 3 - Security keystone (ecosystem wide)  [IN PROGRESS]
@@ -266,6 +268,10 @@ binary.
       `desktop-v0.2.1` did move the Store tile colour, so it earned the short
       entry it now has, whereas a release that is only CI or build plumbing
       earns nothing.
+- [ ] h. Each release after: once the GitHub release is published, launch the
+      PREVIOUS build and confirm the update notice fires and names the new
+      version (the notice shipped in 0.2.3; the first release after it is the
+      first time that code runs against reality).
 
 ## Feature roadmap (what makes it best in class)
 
