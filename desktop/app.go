@@ -160,13 +160,42 @@ func (a *App) GetSettings() appConfig {
 // Writing always marks the record migrated, so the one-time localStorage import
 // cannot run twice and re-resurrect a preference the user has since changed.
 func (a *App) SetSettings(server, web string, hideIP, reportStats bool) error {
-	cfg := normalizeConfig(appConfig{
-		Server:      server,
-		Web:         web,
-		HideIP:      hideIP,
-		ReportStats: reportStats,
-		Migrated:    true,
+	a.mu.Lock()
+	cur := a.cfg
+	a.mu.Unlock()
+	cfg := settingsFromArgs(cur, server, web, hideIP, reportStats)
+	if err := saveConfig(cfg); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.cfg = cfg
+	a.mu.Unlock()
+	return nil
+}
+
+// settingsFromArgs builds the record SetSettings persists. Fields owned by
+// other setters (NoUpdateCheck, via SetCheckUpdates) are carried over from the
+// current record: SetSettings used to construct a fresh appConfig from only
+// its arguments, which silently zeroed any field the Settings screen did not
+// know about on every save.
+func settingsFromArgs(cur appConfig, server, web string, hideIP, reportStats bool) appConfig {
+	return normalizeConfig(appConfig{
+		Server:        server,
+		Web:           web,
+		HideIP:        hideIP,
+		ReportStats:   reportStats,
+		NoUpdateCheck: cur.NoUpdateCheck,
+		Migrated:      true,
 	})
+}
+
+// SetCheckUpdates persists the update-check toggle alone, leaving every other
+// setting untouched. enabled=true is the shipped default (NoUpdateCheck=false).
+func (a *App) SetCheckUpdates(enabled bool) error {
+	a.mu.Lock()
+	cfg := a.cfg
+	a.mu.Unlock()
+	cfg.NoUpdateCheck = !enabled
 	if err := saveConfig(cfg); err != nil {
 		return err
 	}

@@ -35,6 +35,14 @@ type appConfig struct {
 	HideIP      bool `json:"hideIP"`
 	ReportStats bool `json:"reportStats"`
 
+	// NoUpdateCheck is inverted on purpose: the zero value must equal the
+	// shipped default (checking on), because loadConfigFrom unmarshals into a
+	// zero appConfig and a field absent from an existing desktop.json keeps its
+	// zero value. A positive default-true field here would silently ship
+	// default-off for every install that predates it, and Migrated cannot
+	// vouch for a field that did not exist when the record was written.
+	NoUpdateCheck bool `json:"noUpdateCheck"`
+
 	// Migrated records that the two toggles above came from somewhere real: either
 	// the user, or the one-time import of the localStorage keys they used to live
 	// in. It is load-bearing, not bookkeeping. Go's zero value for a bool is false,

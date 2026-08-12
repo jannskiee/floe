@@ -112,19 +112,70 @@ func TestSaveConfigWithoutPath(t *testing.T) {
 // would have been preferences that reset themselves.
 func TestNormalizeConfigPreservesToggles(t *testing.T) {
 	in := appConfig{
-		Server:      " https://floe.example.com/ ",
-		Web:         "https://app.example.com/",
-		HideIP:      true,
-		ReportStats: false,
-		Migrated:    true,
+		Server:        " https://floe.example.com/ ",
+		Web:           "https://app.example.com/",
+		HideIP:        true,
+		ReportStats:   false,
+		NoUpdateCheck: true,
+		Migrated:      true,
 	}
 	got := normalizeConfig(in)
 
 	if got.Server != "https://floe.example.com" || got.Web != "https://app.example.com" {
 		t.Errorf("addresses not normalized: %+v", got)
 	}
-	if !got.HideIP || got.ReportStats || !got.Migrated {
+	if !got.HideIP || got.ReportStats || !got.NoUpdateCheck || !got.Migrated {
 		t.Errorf("normalizeConfig dropped non-address fields: %+v", got)
+	}
+}
+
+// TestUpdateCheckFieldRoundTrip pins the opted-out state: NoUpdateCheck true is
+// the non-default choice, so it is the one a widening bug would silently drop.
+func TestUpdateCheckFieldRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "floe", "desktop.json")
+
+	want := appConfig{ReportStats: true, NoUpdateCheck: true, Migrated: true}
+	if err := saveConfigTo(path, want); err != nil {
+		t.Fatalf("saveConfigTo: %v", err)
+	}
+	if got := loadConfigFrom(path); got != want {
+		t.Errorf("loadConfigFrom = %+v, want %+v", got, want)
+	}
+}
+
+// TestAbsentUpdateCheckFieldDefaultsOn is the reason the field is inverted: a
+// desktop.json written before the field existed (every current install, all of
+// them migrated:true so no import will run) must come back with checking ON.
+func TestAbsentUpdateCheckFieldDefaultsOn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pre-feature.json")
+	body := `{"server":"","web":"","hideIP":false,"reportStats":true,"migrated":true}`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := loadConfigFrom(path)
+	if got.NoUpdateCheck {
+		t.Error("a pre-feature config loaded with NoUpdateCheck true; existing installs would silently stop checking")
+	}
+	if !got.Migrated || !got.ReportStats {
+		t.Errorf("pre-feature fields damaged: %+v", got)
+	}
+}
+
+// TestSettingsFromArgsPreservesUpdateCheck pins the SetSettings-clobber trap:
+// the Settings screen saves through settingsFromArgs, which knows nothing about
+// the update toggle, so the current record's value must carry over verbatim.
+func TestSettingsFromArgsPreservesUpdateCheck(t *testing.T) {
+	cur := appConfig{NoUpdateCheck: true, Migrated: true}
+	got := settingsFromArgs(cur, "https://floe.example.com/", "", true, false)
+
+	if !got.NoUpdateCheck {
+		t.Error("settingsFromArgs dropped NoUpdateCheck; every settings save would re-enable the check")
+	}
+	if !got.Migrated {
+		t.Error("settingsFromArgs must always mark the record migrated")
+	}
+	if got.Server != "https://floe.example.com" || !got.HideIP || got.ReportStats {
+		t.Errorf("argument fields wrong: %+v", got)
 	}
 }
 
