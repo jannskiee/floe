@@ -58,7 +58,9 @@ receives from browser peers and CLI peers without any extra setup.
       Settings that contains it is hidden entirely. A packaged app's registry writes go to a
       private view that File Explorer never reads, so the entry could be written but would
       never appear. Hidden beats shown and broken.
-    - Updates are handled by the Store, so there is nothing to download by hand.
+    - Updates are handled by the Store, so there is nothing to download by hand. The Store
+      build also never runs the GitHub build's daily update check and does not show its
+      [Check for updates](/desktop/settings#check-for-updates) switch.
     - No SmartScreen warning, because Microsoft signs the package.
 
     Both channels ship the same executable, so everything else about the app is identical,
@@ -134,11 +136,12 @@ Open **Settings** in Windows, go to **Apps**, and uninstall it. The GitHub insta
 uninstalled by right-clicking it in the Start menu.
 
 Uninstalling removes the app, its shortcuts, and, on the GitHub build, the File Explorer
-right-click entry if you turned it on. It deliberately leaves two things behind, so a reinstall
-picks up where you left off:
+right-click entry if you turned it on. It deliberately leaves a few things behind, so a
+reinstall picks up where you left off:
 
 - Your settings, in `%APPDATA%\floe\desktop.json`.
 - Your transfer history and save folder, stored in the app's local data.
+- The update check's once-a-day cache, in `%APPDATA%\floe\desktop-update-check.json`.
 
 Delete the `%APPDATA%\floe` folder to remove those as well. Note that the `floe` CLI keeps its
 own files in that same folder, so only delete it if you are removing both.
