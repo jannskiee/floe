@@ -14,11 +14,24 @@ export namespace main {
 	        this.message = source["message"];
 	    }
 	}
+	export class UpdateInfo {
+	    version: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	    }
+	}
 	export class appConfig {
 	    server: string;
 	    web: string;
 	    hideIP: boolean;
 	    reportStats: boolean;
+	    noUpdateCheck: boolean;
 	    migrated: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -31,6 +44,7 @@ export namespace main {
 	        this.web = source["web"];
 	        this.hideIP = source["hideIP"];
 	        this.reportStats = source["reportStats"];
+	        this.noUpdateCheck = source["noUpdateCheck"];
 	        this.migrated = source["migrated"];
 	    }
 	}

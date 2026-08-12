@@ -4,6 +4,8 @@ import {main} from '../models';
 
 export function CancelTransfer():Promise<void>;
 
+export function CheckForUpdate():Promise<main.UpdateInfo>;
+
 export function ContextMenuEnabled():Promise<boolean>;
 
 export function DisableContextMenu():Promise<void>;
@@ -33,6 +35,8 @@ export function RevealFile(arg1:string,arg2:string):Promise<void>;
 export function SelectFiles():Promise<Array<string>>;
 
 export function SelectFolder():Promise<string>;
+
+export function SetCheckUpdates(arg1:boolean):Promise<void>;
 
 export function SetSettings(arg1:string,arg2:string,arg3:boolean,arg4:boolean):Promise<void>;
 

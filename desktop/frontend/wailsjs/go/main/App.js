@@ -6,6 +6,10 @@ export function CancelTransfer() {
   return window['go']['main']['App']['CancelTransfer']();
 }
 
+export function CheckForUpdate() {
+  return window['go']['main']['App']['CheckForUpdate']();
+}
+
 export function ContextMenuEnabled() {
   return window['go']['main']['App']['ContextMenuEnabled']();
 }
@@ -64,6 +68,10 @@ export function SelectFiles() {
 
 export function SelectFolder() {
   return window['go']['main']['App']['SelectFolder']();
+}
+
+export function SetCheckUpdates(arg1) {
+  return window['go']['main']['App']['SetCheckUpdates'](arg1);
 }
 
 export function SetSettings(arg1, arg2, arg3, arg4) {
