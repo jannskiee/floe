@@ -85,9 +85,13 @@
 
    Mintlify paints footer links at 50% alpha: gray-950/50 in light, white/50 in
    dark. Composited over the real footer ground (rgb(255,255,255) light,
-   rgb(14,14,16) dark) that lands on rgb(132,132,132) either way, which is
+   rgb(12,13,15) dark) that lands on rgb(132,132,132) either way, which is
    3.74:1 in light. AA wants 4.5:1 for body text, so every footer link on every
    docs page was failing. Dark was already fine at 5.37:1.
+
+   The dark ground quoted above is Mintlify's default. It was #09090b while
+   docs.json set background.color, and the ratios here shifted by hundredths
+   when that block was removed; none of them crossed a threshold.
 
    Measured, 0.56 alpha is the exact break-even in light. This uses 0.62 so a
    future tweak to the background does not silently drop it back under. Both
@@ -209,7 +213,9 @@
 
    The colours are not floe.one's zinc-600 verbatim because that fails WCAG
    at 11px (2.57:1 on zinc-950). These sit at 5.76:1 light (#65656F on
-   #FFFFFF) and 5.44:1 dark (#85858E on #09090b). */
+   #FFFFFF) and 5.32:1 dark (#85858E on rgb(12,13,15)). docs.json sets no
+   background.color, so both grounds are Mintlify's defaults and the dark one
+   can move under us; re-measure if it does. */
 #sidebar .sidebar-group-header .sidebar-title {
   font-family: "Geist Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
   font-size: 11px;
@@ -309,7 +315,8 @@
 
 /* The Tabs component (Install pages, reverse proxy) marks its selected tab
    with text-primary and a primary underline on the tablist border. Same
-   selected-state doctrine, same variable mechanism as the theme menu: the
+   selected-state doctrine, same variable mechanism as the copy button and the
+   card hover below: the
    active tab goes near-black on light and white on dark, inactive tabs keep
    their own gray classes. tabs-list is the observed data-component-part on
    the tablist (2026-08-09 DOM). */
@@ -320,21 +327,28 @@
   --color-primary-light: rgb(255 255 255);
 }
 
-/* The theme-switcher menu marks its selected row with text-primary ice, and
-   hides the other rows' check marks with text-primary/0, the SAME utility at
-   alpha zero. Overriding color directly would therefore reveal a check on
-   every row (tried, shipped for a minute, looked broken), so this redefines
-   the variables the utilities read instead: the selected check and label go
-   neutral, the /0 variants stay invisible, and each mode's utility reads its
-   own variable so no .dark split is needed. The role guard matters: the html
-   root also carries data-theme-preference (it stores the setting), and the
-   bare attribute selector would restyle the whole document. */
-[role='menuitem'][data-theme-preference] {
-  --primary: 17 17 17;
-  --primary-light: 255 255 255;
-  --color-primary: rgb(17 17 17);
-  --color-primary-light: rgb(255 255 255);
-}
+/* The theme-switcher menu is deliberately NOT overridden here (user call,
+   2026-08-12). Its selected row keeps Mintlify's stock `text-primary
+   dark:text-primary-light`, so the check mark and label render in the ice
+   accent from docs.json colors rather than the neutral used by the other
+   selected states in this file.
+
+   That makes it the one place where two controls doing the same job disagree:
+   the footer's own theme switch is still neutral, through the
+   #footer button[class*='bg-gray'] pair above. Ice in the navbar menu, neutral
+   in the footer, on purpose. In light mode the selected row resolves --primary
+   #00A3C9 on the white popover, which is 2.97:1, the same recorded
+   accessibility exception already booked for the eyebrow above.
+
+   If that is ever revisited, do NOT set `color` on the row: the unselected
+   rows hide their check marks with text-primary/0, the SAME utility at alpha
+   zero, so a colour override reveals a check on every row (tried, shipped for
+   a minute, looked broken). Redefine --primary / --primary-light, plus their
+   --color-* aliases as everywhere else in this file, on
+   [role='menuitem'][data-theme-preference] instead, which preserves the alpha.
+   The role guard matters too: the html root also carries data-theme-preference
+   to store the setting, so the bare attribute selector would restyle the whole
+   document. */
 
 /* Navbar links hover neutral, like floe.one's navbar (zinc at rest, plain
    black or white on hover), instead of the hover:text-primary ice Mintlify
@@ -513,7 +527,7 @@ html:not(.dark) #content-area a.link {
 }
 
 /* The copied-state check inside the copy button is text-primary, so it
-   flashed ice after every copy. Same variable trick as the theme menu and
+   flashed ice after every copy. Same variable trick as the tabs list and
    the card hover: within the button, primary resolves to neutral, so the
    check goes black on light and white on dark while the idle icon's own
    gray classes are untouched. */
