@@ -31,9 +31,8 @@ export function isNewerDesktopVersion(candidate: string, baseline: string): bool
 
 function parts(version: string): [number, number, number] {
     const segs = bareVersion(version).split('.', 3);
-    const num = (s: string | undefined) => {
-        const n = parseInt(s ?? '', 10);
-        return Number.isNaN(n) ? 0 : n;
-    };
+    // Digit-strict like the Go side's Atoi: "10rc1" is 0, not 10. parseInt's
+    // leniency would make the two comparators disagree on malformed tags.
+    const num = (s: string | undefined) => (s && /^\d+$/.test(s) ? parseInt(s, 10) : 0);
     return [num(segs[0]), num(segs[1]), num(segs[2])];
 }

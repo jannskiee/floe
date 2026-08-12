@@ -208,11 +208,14 @@ function StatusLine({text, busy, live}: {text: string; busy: boolean; live?: boo
  *  no notification center to replay it. z-30 keeps tooltips (z-40) and the
  *  dialogs (z-50) painting over it, so the documented paint-order/Escape
  *  invariant is untouched; Escape closes it only while focus is inside the
- *  card, never from the global chain. It must not steal focus on appear. */
+ *  card, never from the global chain. It must not steal focus on appear.
+ *  Screen-reader announcement lives in the persistent sr-only region at the
+ *  app root, not here: a live region that mounts with its content already
+ *  inside announces nothing. */
 function UpdateNotice({version, onDismiss}: {version: string; onDismiss: () => void}) {
     return (
         <div
-            role="status"
+            aria-label="Update available"
             onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onDismiss(); } }}
             className={cn(
                 'fixed right-4 top-[52px] z-30 flex w-[340px] items-start gap-3 rounded-xl border border-white/10',
@@ -236,7 +239,7 @@ function UpdateNotice({version, onDismiss}: {version: string; onDismiss: () => v
                 </div>
                 {/* Non-breaking space: a two-line body must not orphan "page." */}
                 <p className="mt-0.5 text-xs leading-4 text-zinc-400">
-                    Floe <span className="font-mono text-zinc-300">{bareVersion(version)}</span> is out on the download{' '}page.
+                    Floe <span className="font-mono text-zinc-300">{bareVersion(version)}</span> is out on the download{'\u00a0'}page.
                 </p>
                 <div className="mt-3 flex justify-end">
                     <Button className="h-8 text-xs" onClick={() => { BrowserOpenURL(DOWNLOAD_URL); onDismiss(); }}>
@@ -898,6 +901,18 @@ function App() {
             await SetSettings('', '', false, true);
             await SetCheckUpdates(true);
         } catch (e) {
+            // Two persists means a partial failure is possible: re-pull what
+            // actually landed on disk so the screen never diverges from it.
+            try {
+                const c = await GetSettings();
+                setServerAddr(c.server || '');
+                setWebAddr(c.web || '');
+                setHideIP(c.hideIP);
+                setReportStats(c.reportStats);
+                setCheckUpdates(!c.noUpdateCheck);
+                serverAddrRef.current = c.server || '';
+                webAddrRef.current = c.web || '';
+            } catch { /* unreadable config: leave the screen as is */ }
             setResetErr('Error: could not save settings. ' + e);
             return;
         }
@@ -1575,7 +1590,14 @@ function App() {
             <TitleBar onSettings={() => setSettingsOpen((o) => !o)} settingsActive={settingsOpen} onStartOver={startOver}/>
 
             {/* App-scoped, so it renders on both screens: Settings is where
-                version-curious users already are. */}
+                version-curious users already are. The sr-only twin is the
+                announcement: a live region only announces content CHANGES, so
+                a region that mounts with the popup already inside it is
+                silent (the StatusLine comment explains the same trap). This
+                span exists from first paint and its text arrives later. */}
+            <span className="sr-only" role="status" aria-live="polite">
+                {updateAvailable ? `Update available: Floe ${bareVersion(updateVer)}. See Settings.` : ''}
+            </span>
             {showUpdate && <UpdateNotice version={updateVer} onDismiss={() => setUpdateDismissed(true)}/>}
 
             {settingsOpen ? (

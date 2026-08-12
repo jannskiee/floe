@@ -35,6 +35,11 @@ describe('isNewerDesktopVersion', () => {
         expect(isNewerDesktopVersion('desktop-vNext', 'desktop-v0.0.1')).toBe(false);
         expect(isNewerDesktopVersion('', 'desktop-v0.2.2')).toBe(false);
     });
+
+    it('parses digit-strict like the Go comparator (10rc1 is 0, not 10)', () => {
+        expect(isNewerDesktopVersion('desktop-v0.2.10rc1', 'desktop-v0.2.9')).toBe(false);
+        expect(isNewerDesktopVersion('desktop-v0.2.9', 'desktop-v0.2.10rc1')).toBe(true);
+    });
 });
 
 describe('bareVersion', () => {

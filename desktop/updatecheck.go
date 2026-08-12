@@ -222,7 +222,10 @@ func readUpdateCache(path string, now time.Time) (string, bool) {
 	if err := json.Unmarshal(raw, &c); err != nil {
 		return "", false
 	}
-	if now.Sub(c.CheckedAt) > updateCacheTTL {
+	// A negative age (the clock moved backwards since the write, or the file
+	// was hand-edited) must be a miss too, or the entry never expires until
+	// wall time catches up to it.
+	if age := now.Sub(c.CheckedAt); age < 0 || age > updateCacheTTL {
 		return "", false
 	}
 	return c.Latest, true

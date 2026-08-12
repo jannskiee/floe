@@ -160,16 +160,18 @@ func (a *App) GetSettings() appConfig {
 // Writing always marks the record migrated, so the one-time localStorage import
 // cannot run twice and re-resurrect a preference the user has since changed.
 func (a *App) SetSettings(server, web string, hideIP, reportStats bool) error {
+	// The whole read-modify-write holds the lock. Wails dispatches every bound
+	// call on its own goroutine, and this method races SetCheckUpdates when the
+	// Settings screen fires unawaited saves on quick toggle flips; a snapshot
+	// taken before the other writer's write-back would silently resurrect the
+	// stale record. saveConfig is a small atomic write, cheap to hold across.
 	a.mu.Lock()
-	cur := a.cfg
-	a.mu.Unlock()
-	cfg := settingsFromArgs(cur, server, web, hideIP, reportStats)
+	defer a.mu.Unlock()
+	cfg := settingsFromArgs(a.cfg, server, web, hideIP, reportStats)
 	if err := saveConfig(cfg); err != nil {
 		return err
 	}
-	a.mu.Lock()
 	a.cfg = cfg
-	a.mu.Unlock()
 	return nil
 }
 
@@ -191,17 +193,17 @@ func settingsFromArgs(cur appConfig, server, web string, hideIP, reportStats boo
 
 // SetCheckUpdates persists the update-check toggle alone, leaving every other
 // setting untouched. enabled=true is the shipped default (NoUpdateCheck=false).
+// Holds the lock across the whole read-modify-write for the same reason
+// SetSettings does: the two setters race on quick toggle flips.
 func (a *App) SetCheckUpdates(enabled bool) error {
 	a.mu.Lock()
+	defer a.mu.Unlock()
 	cfg := a.cfg
-	a.mu.Unlock()
 	cfg.NoUpdateCheck = !enabled
 	if err := saveConfig(cfg); err != nil {
 		return err
 	}
-	a.mu.Lock()
 	a.cfg = cfg
-	a.mu.Unlock()
 	return nil
 }
 

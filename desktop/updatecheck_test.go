@@ -227,6 +227,20 @@ func TestCheckForUpdateRefetchesAfterExpiredTTL(t *testing.T) {
 	}
 }
 
+// TestReadUpdateCacheRejectsFutureTimestamps: a CheckedAt ahead of now (clock
+// correction, hand-edited file) must be a miss, or the entry never expires
+// until wall time catches up to it and update notices silently stop.
+func TestReadUpdateCacheRejectsFutureTimestamps(t *testing.T) {
+	cache := filepath.Join(t.TempDir(), "cache.json")
+	body, _ := json.Marshal(updateCacheEntry{CheckedAt: time.Now().Add(365 * 24 * time.Hour), Latest: "desktop-v9.9.9"})
+	if err := os.WriteFile(cache, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if latest, ok := readUpdateCache(cache, time.Now()); ok {
+		t.Errorf("future-dated cache read as fresh (%q); it would never expire", latest)
+	}
+}
+
 func TestCheckForUpdateSurvivesCorruptCache(t *testing.T) {
 	srv, hits := releasesServer(t, mixedReleases)
 	cache := filepath.Join(t.TempDir(), "cache.json")
