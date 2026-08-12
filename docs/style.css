@@ -327,28 +327,33 @@
   --color-primary-light: rgb(255 255 255);
 }
 
-/* The theme-switcher menu is deliberately NOT overridden here (user call,
-   2026-08-12). Its selected row keeps Mintlify's stock `text-primary
-   dark:text-primary-light`, so the check mark and label render in the ice
-   accent from docs.json colors rather than the neutral used by the other
-   selected states in this file.
+/* The theme-switcher menu's selected row, neutral like every other selected
+   state in this file: near-black on the light page, white on the dark one.
 
-   That makes it the one place where two controls doing the same job disagree:
-   the footer's own theme switch is still neutral, through the
-   #footer button[class*='bg-gray'] pair above. Ice in the navbar menu, neutral
-   in the footer, on purpose. In light mode the selected row resolves --primary
-   #00A3C9 on the white popover, which is 2.97:1, the same recorded
-   accessibility exception already booked for the eyebrow above.
+   Left stock for one release and reverted on sight (user call, 2026-08-12).
+   Mintlify paints the selected row `text-primary dark:text-primary-light`,
+   which the ice colors config turns #00A3C9 on the white popover, and that is
+   both louder than the row deserves and 2.97:1, under AA for a 14px label. The
+   footer's own theme switch was neutral throughout, so leaving this one ice
+   also had two controls doing the same job disagreeing on screen. Do not take
+   it stock again without deciding both of those on purpose.
 
-   If that is ever revisited, do NOT set `color` on the row: the unselected
-   rows hide their check marks with text-primary/0, the SAME utility at alpha
-   zero, so a colour override reveals a check on every row (tried, shipped for
-   a minute, looked broken). Redefine --primary / --primary-light, plus their
-   --color-* aliases as everywhere else in this file, on
-   [role='menuitem'][data-theme-preference] instead, which preserves the alpha.
-   The role guard matters too: the html root also carries data-theme-preference
-   to store the setting, so the bare attribute selector would restyle the whole
+   Variables, not `color`. The unselected rows hide their check marks with
+   text-primary/0, the SAME utility at alpha zero, so setting `color` reveals a
+   check on every row (tried, shipped for a minute, looked broken). Redefining
+   the variables preserves the alpha, and each mode's utility reads its own
+   variable, so no .dark split is needed. The --color-* aliases cover the
+   Tailwind v4 form, as everywhere else in this file.
+
+   The role guard matters: the html root also carries data-theme-preference to
+   store the setting, so the bare attribute selector would restyle the whole
    document. */
+[role='menuitem'][data-theme-preference] {
+  --primary: 17 17 17;
+  --primary-light: 255 255 255;
+  --color-primary: rgb(17 17 17);
+  --color-primary-light: rgb(255 255 255);
+}
 
 /* Navbar links hover neutral, like floe.one's navbar (zinc at rest, plain
    black or white on hover), instead of the hover:text-primary ice Mintlify
