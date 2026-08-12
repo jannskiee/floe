@@ -209,8 +209,15 @@ export default function PrivacyPolicy() {
                     <strong className="font-semibold text-zinc-200">
                         no analytics, no error monitoring, and no telemetry
                     </strong>
-                    . The only optional report is the same anonymous byte total described above,
-                    which you can turn off with &quot;Contribute to global stats&quot; in Settings.
+                    . It makes two optional requests, each with its own off switch: the same
+                    anonymous byte total described above, which you can turn off with &quot;Contribute
+                    to global stats&quot; in Settings, and a once-a-day update check. The update check
+                    (GitHub builds 0.2.3 and later) asks GitHub whether a newer release exists; it
+                    carries nothing about you beyond what any web request reveals (your IP address
+                    and a user agent), nothing about your files or transfers is in it, and nothing
+                    downloads or installs by itself. Turn off &quot;Check for updates&quot; in
+                    Settings and no request is made at all. Microsoft Store builds never check; the
+                    Store updates them itself.
                 </p>
                 <p>Everything else it does stays on your device:</p>
                 <LegalList

@@ -79,6 +79,21 @@ The same opt-out exists on every surface: a checkbox on the receiver view in the
   byte counts go to your server's counter, not to floe.one.
 </Note>
 
+### Check for updates
+
+On by default, in the build from GitHub.
+
+Once a day, the app asks GitHub whether a newer desktop release exists, and shows a small
+dismissible notice when one does. The request carries nothing about you beyond what any web
+request reveals (your IP address and a user agent); nothing about your files or transfers is in
+it. Nothing downloads or installs by itself. See [Update](/desktop/installation#update).
+
+Turn it off and no request is made at all. Setting `FLOE_NO_UPDATE_CHECK=1` in your environment
+does the same, matching the CLI's [update check](/cli/version#the-update-check).
+
+The Microsoft Store build never checks and does not show this switch: the Store updates the app
+itself. Builds you compile yourself never check either.
+
 ## Windows
 
 This section is only shown in the build from GitHub. The Microsoft Store build hides it,
@@ -185,6 +200,11 @@ This mirrors the CLI's `--web` flag. See
 The release you are running, for example `desktop-v0.2.2`. A build you compiled yourself reads
 `dev`.
 
+When the daily check has found a newer release, an **Update** row appears under it with a
+**Get update** button that opens the [download page](https://www.floe.one/download). The row
+stays as long as the app is behind, even after the notice popup is dismissed, and disappears
+once you are up to date.
+
 ### Transfer protocol
 
 The version of the wire format the app speaks.
@@ -206,7 +226,7 @@ details to include in a bug report.
 
 ## Reset
 
-**Reset** at the top of Settings restores the save folder, both privacy switches, and both
+**Reset** at the top of Settings restores the save folder, the privacy switches, and both
 server addresses to the way Floe shipped. It asks first, and tells you what it is about to
 forget.
 
@@ -228,6 +248,7 @@ Settings live in a plain JSON file at `%APPDATA%\floe\desktop.json`:
   "web": "",
   "hideIP": false,
   "reportStats": true,
+  "noUpdateCheck": false,
   "migrated": true
 }
 ```
@@ -238,7 +259,7 @@ identically. The file is written atomically, so an interrupted write cannot corr
 <Warning>
   Edit it only while Floe is closed. The app rewrites the whole record whenever any setting
   changes, so an edit made while it is running is overwritten. Leave `migrated` set to `true`:
-  without it Floe treats the two privacy switches as never having been set and re-imports them
+  without it Floe treats the older privacy switches as never having been set and re-imports them
   from its older storage, discarding whatever you wrote.
 </Warning>
 
