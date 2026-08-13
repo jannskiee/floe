@@ -1958,7 +1958,11 @@ function App() {
                             Send anything,<br/>peer to peer.
                         </h1>
                         <p className="mt-3.5 text-sm leading-relaxed text-zinc-400">
-                            End-to-end encrypted. No accounts,<br/>no storage, no middleman.
+                            {/* "no uploads", not "no middleman": a relayed
+                                transfer does pass through a TURN relay (bullet
+                                01 admits as much), while nothing is uploaded
+                                on any path. Matches docs/introduction.mdx. */}
+                            End-to-end encrypted. No accounts,<br/>no storage, no uploads.
                         </p>
 
                         <div className="mt-10 space-y-6">
