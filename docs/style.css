@@ -450,6 +450,14 @@ html:not(.dark) #content-area a.link {
    already neutral; they are listed anyway so anything Mintlify adds inside
    them later inherits the override instead of arriving ice.
 
+   `#text-selection-tooltip` is the Add to assistant bubble that appears when
+   you select text in the page, and its sparkle is `text-primary
+   dark:text-primary-light` like the sheet's. It was missed on the first pass
+   because it does not exist in the resting DOM: Mintlify portals it straight
+   to `body` on selection, so it is outside every other root listed here and a
+   sweep of an untouched page never sees it. Reproduce it by drag-selecting a
+   paragraph, not by querying the page as loaded.
+
    That list was taken on an IDLE sheet, and it is not the whole set. Three
    more primary consumers only mount once a conversation has content: the
    Retry button, the starter-question buttons, and the feedback chip. Hence
@@ -491,6 +499,7 @@ html:not(.dark) #content-area a.link {
 #assistant-entry,
 #assistant-entry-mobile,
 #ask-assistant-code-block-button,
+#text-selection-tooltip,
 .chat-assistant-floating-input,
 #chat-assistant-sheet {
   --primary: 17 17 17;
@@ -504,6 +513,7 @@ html:not(.dark) #content-area a.link {
 .dark #assistant-entry,
 .dark #assistant-entry-mobile,
 .dark #ask-assistant-code-block-button,
+.dark #text-selection-tooltip,
 .dark .chat-assistant-floating-input,
 .dark #chat-assistant-sheet {
   --primary: 255 255 255;
