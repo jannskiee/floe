@@ -231,9 +231,10 @@ function UpdateNotice({version, onDismiss}: {version: string; onDismiss: () => v
             <Download className="size-4 shrink-0 text-white" strokeWidth={3} aria-hidden/>
             <div className="flex min-w-0 items-center gap-2">
                 <h2 className="whitespace-nowrap text-[13px] font-semibold leading-none tracking-[-0.01em] text-zinc-50">Update available</h2>
-                {/* top-px: an 11px mono centered against 13px text lands a hair
-                    high; this drops the digits onto the title's baseline. */}
-                <span className="relative top-px whitespace-nowrap font-mono text-[11px] leading-none text-zinc-400">{bareVersion(version)}</span>
+                {/* A chip, not bare text, by the owner's choice: the boxed
+                    version reads as a badge. Center-aligned like any badge, so
+                    no baseline nudge. */}
+                <span className="whitespace-nowrap rounded bg-white/[0.07] px-1.5 py-1 font-mono text-[11px] leading-none text-zinc-300">{bareVersion(version)}</span>
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
                 <Button className="h-7 px-2.5 text-xs" onClick={() => { BrowserOpenURL(DOWNLOAD_URL); onDismiss(); }}>
