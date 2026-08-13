@@ -178,8 +178,8 @@ receiver, which is deliberate (share a link and wait) and cancellable.
 
 ## Release history
 
-Current release: `desktop-v0.2.2` (Microsoft Store 9NBQ8ZQ1065L + GitHub
-pre-release), shipped 2026-08-08.
+Current release: `desktop-v0.2.3` (Microsoft Store 9NBQ8ZQ1065L + GitHub
+pre-release), shipped 2026-08-13.
 
 The list below is the verified order the first public release (0.1.0 beta)
 actually followed. Steps 1-3 shipped the GitHub beta; the plan then pivoted

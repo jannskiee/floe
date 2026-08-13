@@ -40,20 +40,28 @@ Floe ships on two version lines. `vX.Y.Z` releases floe.one, the `floe` CLI, and
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
-<Update label="Unreleased" tags={["Desktop", "CLI"]}>
+<Update label="Unreleased" tags={["CLI"]}>
+  **Failed or stalled receives clean up their partial file**
+
+  - `floe receive` no longer leaves a half-written file behind under its final name when a transfer fails or stalls. The partial is deleted, files that completed earlier in the batch are kept, and a retried transfer gets its original name back instead of a numbered one.
+  - The protocol-incompatibility message the CLI sends across the wire is now worded from the reader's perspective, so older versions that display it word-for-word name the correct side. No release can trigger this today (every peer speaks the same protocol).
+  - No transfer-protocol change.
+</Update>
+
+<Update label="desktop-v0.2.3" description="2026-08-13" tags={["Desktop"]}>
   **Failed transfers clean up after themselves and speak plainly, and Start over stops losing notes**
 
-  - A receive that fails or is cancelled partway no longer leaves a half-written file behind under its final name. The partial is deleted, files that completed earlier in the batch are kept, and a retried transfer gets its original name back instead of a numbered one. The `floe` CLI receiver gets the same cleanup when a transfer fails or stalls.
+  - A receive that fails or is cancelled partway no longer leaves a half-written file behind under its final name. The partial is deleted, files that completed earlier in the batch are kept, and a retried transfer gets its original name back instead of a numbered one.
   - The Receive card now shows what is incoming (the file name and size, or the file count and total) the moment the sender is known, before the first byte arrives.
   - A failed receive now raises a Windows notification like a failed send always did, and cancelling a transfer no longer raises a false "send failed" one.
   - Transfer errors are now written for people ("The connection was lost before the transfer finished. Start it again.") instead of surfacing the engine's internal wording. Genuinely unknown failures still show the raw text so bug reports stay useful.
   - Cancelling a transfer and immediately starting another no longer lets the dead attempt interfere: its late events are ignored, it can no longer release the keep-awake lock the new transfer holds, and Cancel always reaches the transfer that is actually running.
+  - The app now checks GitHub once a day for a newer desktop release and shows a small dismissible notice when one exists, with a matching row in Settings under About. GitHub-channel builds only: the Microsoft Store build never checks, because the Store updates it itself. Nothing downloads or installs by itself. A new **Check for updates** switch under Settings, Privacy turns the check off, and off means no request is made at all.
   - Protocol-incompatibility messages now name the remedy for the surface you are on: the desktop app points at the Microsoft Store or floe.one/download instead of the CLI's `floe update`, and the message sent across the wire is worded from the reader's perspective, so older versions that display it word-for-word name the correct side. No release can trigger this today (every peer speaks the same protocol); it prepares the messaging for any future wire change. Contributed by the project's first external contributor.
   - Fixed **Start over** still discarding a typed note without asking, in the two cases the 0.2.2 fix missed. Typing a new note after a send completed, and typing a note then switching to Files and sending those instead, both left text in the box that had never gone anywhere, and both were cleared with no prompt. Floe now compares the box against what the last completed send actually put on the wire, so a note only counts as sent while it is still exactly the note that went out. Tidying up after a send with the sent note still in the box is unchanged and still silent, as is starting over while a connection is being set up.
-  - The desktop app now checks GitHub once a day for a newer desktop release and shows a small dismissible notice when one exists, with a matching row in Settings under About. GitHub-channel builds only: the Microsoft Store build never checks, because the Store updates it itself. Nothing downloads or installs by itself. A new **Check for updates** switch under Settings, Privacy turns the check off, and off means no request is made at all.
   - Fixed a failed transfer leaving its progress bar frozen on screen underneath the error, on both the sending and the receiving side.
   - Fixed **Start over** offering to cancel a transfer that had already failed. The stale progress bar above was also what the confirmation read, so after a failure it warned about cancelling a transfer that was already over, and that warning hid the one about the unsent note behind it.
-  - No transfer-protocol change.
+  - No transfer-protocol change, so Floe Desktop 0.2.3 transfers with browser and CLI peers in every direction.
 </Update>
 
 <Update label="v1.10.0" description="2026-08-08" tags={["CLI", "Web", "Self-hosting"]}>
