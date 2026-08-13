@@ -80,24 +80,29 @@
     animation: floe-notice-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
-  /* The notice's one accent: a 1px ice strip along the top edge only, fading
-     out left to right. A full-perimeter gradient rim was tried first and read
-     as a bright bracket wrapping the whole left side, the only saturated
-     pixels in the app. Inset past the corner radius so the strip never
-     overhangs the curve. No position on the class itself: the notice is
+  /* The notice's one accent: a 1px ice rim in the bar's border, catching
+     light at the top left and dissolving toward the bottom right, drawn with
+     the double-mask trick so it stays transparent-safe under backdrop-blur.
+     A top-edge-only strip was tried and rejected: the wrapped rim is the
+     look the owner chose. No position on the class itself: the notice is
      already position:fixed, and a same-layer `position: relative` here would
      override Tailwind's `fixed` utility and drop the card into document flow. */
   .floe-notice-edge::before {
     content: "";
     position: absolute;
-    inset: 0 12px auto 12px;
-    height: 1px;
-    border-radius: 9999px;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
     background: linear-gradient(
-      90deg,
-      color-mix(in oklab, var(--color-ice) 35%, transparent),
-      transparent 55%
+      155deg,
+      color-mix(in oklab, var(--color-ice) 50%, transparent) 0%,
+      rgb(255 255 255 / 0.12) 40%,
+      transparent 75%
     );
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
     pointer-events: none;
   }
 
