@@ -237,7 +237,10 @@ function UpdateNotice({version, onDismiss}: {version: string; onDismiss: () => v
                 <span className="whitespace-nowrap rounded bg-white/[0.07] px-1.5 py-1 font-mono text-[11px] leading-none text-zinc-300">{bareVersion(version)}</span>
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
-                <Button className="h-7 px-2.5 text-xs" onClick={() => { BrowserOpenURL(DOWNLOAD_URL); onDismiss(); }}>
+                {/* No px override: cn is a plain join, so the base px-3 wins
+                    over any px-* here anyway (equal specificity, later in the
+                    sheet). h-7 and text-xs do apply. */}
+                <Button className="h-7 text-xs" onClick={() => { BrowserOpenURL(DOWNLOAD_URL); onDismiss(); }}>
                     Get update
                 </Button>
                 {/* ml-[5px] centers the divider optically: the X's ink sits
