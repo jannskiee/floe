@@ -215,37 +215,46 @@ function StatusLine({text, busy, live}: {text: string; busy: boolean; live?: boo
 function UpdateNotice({version, onDismiss}: {version: string; onDismiss: () => void}) {
     return (
         <div
+            role="group"
             aria-label="Update available"
             onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onDismiss(); } }}
             className={cn(
-                'fixed right-4 top-[52px] z-30 flex w-[340px] items-start gap-3 rounded-xl border border-white/10',
-                'bg-zinc-900/90 p-4 shadow-2xl ring-1 ring-white/5 backdrop-blur-xl',
-                'animate-floe-in motion-reduce:animate-none',
+                'floe-notice-edge fixed right-4 top-[52px] z-30 isolate flex h-12 items-center gap-3 rounded-xl pl-4 pr-1.5',
+                'bg-zinc-900/80 ring-1 ring-inset ring-white/10 backdrop-blur-xl backdrop-saturate-150',
+                'shadow-[0_1px_1px_rgba(0,0,0,0.06),0_4px_8px_-4px_rgba(0,0,0,0.28),0_16px_32px_-12px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.07)]',
+                'animate-floe-notice-in motion-reduce:animate-none',
             )}
         >
-            <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-white/10 bg-white/[0.04]" aria-hidden>
-                <Download className="size-4 text-ice"/>
-            </span>
-            <div className="min-w-0 flex-1">
-                <div className="flex items-start justify-between gap-2">
-                    <h2 className="text-sm font-semibold leading-5 text-white">Update available</h2>
-                    <button
-                        aria-label="Dismiss update notice"
-                        onClick={onDismiss}
-                        className="-m-1 grid size-7 shrink-0 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-100 focus-visible:outline-2 focus-visible:outline-ice"
-                    >
-                        <X className="size-4"/>
-                    </button>
-                </div>
-                {/* Non-breaking space: a two-line body must not orphan "page." */}
-                <p className="mt-0.5 text-xs leading-4 text-zinc-400">
-                    Floe <span className="font-mono text-zinc-300">{bareVersion(version)}</span> is out on the download{'\u00a0'}page.
-                </p>
-                <div className="mt-3 flex justify-end">
-                    <Button className="h-8 text-xs" onClick={() => { BrowserOpenURL(DOWNLOAD_URL); onDismiss(); }}>
-                        Get update
-                    </Button>
-                </div>
+            {/* strokeWidth 3 on a 16px lucide renders a whole 2.0 device px, so
+                the glyph is true white and crisp; the default 2 draws 1.33px
+                straddling pixel boundaries, which antialiases to fuzzy grey. */}
+            <Download className="size-4 shrink-0 text-white" strokeWidth={3} aria-hidden/>
+            <div className="flex min-w-0 items-center gap-2">
+                <h2 className="whitespace-nowrap text-[13px] font-semibold leading-none tracking-[-0.01em] text-zinc-50">Update available</h2>
+                {/* A chip, not bare text, by the owner's choice: the boxed
+                    version reads as a badge. Center-aligned like any badge, so
+                    no baseline nudge. */}
+                <span className="whitespace-nowrap rounded bg-white/[0.07] px-1.5 py-1 font-mono text-[11px] leading-none text-zinc-300">{bareVersion(version)}</span>
+            </div>
+            <div className="flex shrink-0 items-center">
+                {/* No px override: cn is a plain join, so the base px-3 wins
+                    over any px-* here anyway (equal specificity, later in the
+                    sheet). h-7 and text-xs do apply. */}
+                <Button className="h-7 text-xs" onClick={() => { BrowserOpenURL(DOWNLOAD_URL); onDismiss(); }}>
+                    Get update
+                </Button>
+                {/* Ink-symmetric margins, not flex gaps: the button's edge is
+                    flush while the X's ink sits ~10px inside its hit box, so
+                    14px of margin on the button side and 4px on the X side
+                    give the divider equal ~14px optical gaps to both. */}
+                <span className="ml-3.5 mr-1 h-5 w-px bg-white/[0.14]" aria-hidden/>
+                <button
+                    aria-label="Dismiss update notice"
+                    onClick={onDismiss}
+                    className="grid size-7 shrink-0 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-100 focus-visible:outline-2 focus-visible:outline-ice"
+                >
+                    <X className="size-3.5"/>
+                </button>
             </div>
         </div>
     );
@@ -1949,7 +1958,11 @@ function App() {
                             Send anything,<br/>peer to peer.
                         </h1>
                         <p className="mt-3.5 text-sm leading-relaxed text-zinc-400">
-                            End-to-end encrypted. No accounts,<br/>no storage, no middleman.
+                            {/* "no uploads", not "no middleman": a relayed
+                                transfer does pass through a TURN relay (bullet
+                                01 admits as much), while nothing is uploaded
+                                on any path. Matches docs/introduction.mdx. */}
+                            End-to-end encrypted. No accounts,<br/>no storage, no uploads.
                         </p>
 
                         <div className="mt-10 space-y-6">

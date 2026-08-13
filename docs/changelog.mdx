@@ -40,11 +40,13 @@ Floe ships on two version lines. `vX.Y.Z` releases floe.one, the `floe` CLI, and
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
-<Update label="Unreleased" tags={["CLI"]}>
+<Update label="Unreleased" tags={["CLI", "Desktop"]}>
   **Failed or stalled receives clean up their partial file**
 
   - `floe receive` no longer leaves a half-written file behind under its final name when a transfer fails or stalls. The partial is deleted, files that completed earlier in the batch are kept, and a retried transfer gets its original name back instead of a numbered one.
   - The protocol-incompatibility message the CLI sends across the wire is now worded from the reader's perspective, so older versions that display it word-for-word name the correct side. No release can trigger this today (every peer speaks the same protocol).
+  - Desktop: the update notice is redrawn as a slim one-row frosted bar with a whisper of ice in its border. What it does is unchanged.
+  - Desktop: the main screen's subline now promises "no uploads" instead of "no middleman". A relayed transfer does pass through a relay, so the old word claimed too much; nothing is uploaded on any path.
   - No transfer-protocol change.
 </Update>
 

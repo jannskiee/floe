@@ -61,6 +61,51 @@
     animation: floe-in 0.2s ease-out both;
   }
 
+  /* The update notice's entrance: drops in from the edge it lives on and
+     settles fast (fast arrival, gentle landing), unlike the generic floe-in
+     rise. Entrance only - dismissal also unmounts via the busy/dialog paths,
+     which cannot animate a conditional render. */
+  @keyframes floe-notice-in {
+    from {
+      opacity: 0;
+      transform: translate3d(0, -10px, 0) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+
+  .animate-floe-notice-in {
+    animation: floe-notice-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  /* The notice's one accent: a 1px ice rim in the bar's border, catching
+     light at the top left and dissolving toward the bottom right, drawn with
+     the double-mask trick so it stays transparent-safe under backdrop-blur.
+     A top-edge-only strip was tried and rejected: the wrapped rim is the
+     look the owner chose. No position on the class itself: the notice is
+     already position:fixed, and a same-layer `position: relative` here would
+     override Tailwind's `fixed` utility and drop the card into document flow. */
+  .floe-notice-edge::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      155deg,
+      color-mix(in oklab, var(--color-ice) 32%, transparent) 0%,
+      rgb(255 255 255 / 0.09) 38%,
+      transparent 62%
+    );
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
   /* Wails adds this class to the element carrying `--wails-drop-target: drop`
      while an OS file drag hovers it (WebView2 does not emit HTML drag events). */
   .wails-drop-target-active {
