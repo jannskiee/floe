@@ -217,10 +217,12 @@ is reserved, so `pack.ps1` derives it mechanically as (major+1).minor.patch.0
 (0.2.0 -> 1.2.0.0, 1.0.0 -> 2.0.0.0). The product's own 0.x string stays in
 wails.json, the exe version resource, and all marketing. At tag time, bump
 wails.json's `productVersion` and the concrete version examples in
-docs/desktop/installation.mdx and docs/desktop/settings.mdx alongside
-`DESKTOP_VERSION` and `DESKTOP_RELEASE_DATE` in client/lib/desktopRelease.ts; the release workflow
+docs/desktop/installation.mdx and docs/desktop/settings.mdx; the release workflow
 rewrites wails.json only in the runner's working tree, so the committed value
-goes stale otherwise.
+goes stale otherwise. Bump `DESKTOP_VERSION` and `DESKTOP_RELEASE_DATE` in
+client/lib/desktopRelease.ts in a follow-up only AFTER the release assets are
+published: /download derives its links from them, and bumping early points the
+page at assets that do not exist yet (0.2.2 and 0.2.3 both shipped this way).
 
 Packaged-build behavior (verified empirically 2026-08-02 on a loose-layout
 package of this app): the app's HKCU registry writes are virtualized into the
