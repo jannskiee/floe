@@ -95,9 +95,9 @@
     padding: 1px;
     background: linear-gradient(
       155deg,
-      color-mix(in oklab, var(--color-ice) 50%, transparent) 0%,
-      rgb(255 255 255 / 0.12) 40%,
-      transparent 75%
+      color-mix(in oklab, var(--color-ice) 32%, transparent) 0%,
+      rgb(255 255 255 / 0.09) 38%,
+      transparent 62%
     );
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
