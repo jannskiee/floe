@@ -236,17 +236,18 @@ function UpdateNotice({version, onDismiss}: {version: string; onDismiss: () => v
                     no baseline nudge. */}
                 <span className="whitespace-nowrap rounded bg-white/[0.07] px-1.5 py-1 font-mono text-[11px] leading-none text-zinc-300">{bareVersion(version)}</span>
             </div>
-            <div className="flex shrink-0 items-center gap-1.5">
+            <div className="flex shrink-0 items-center">
                 {/* No px override: cn is a plain join, so the base px-3 wins
                     over any px-* here anyway (equal specificity, later in the
                     sheet). h-7 and text-xs do apply. */}
                 <Button className="h-7 text-xs" onClick={() => { BrowserOpenURL(DOWNLOAD_URL); onDismiss(); }}>
                     Get update
                 </Button>
-                {/* ml-[5px] centers the divider optically: the X's ink sits
-                    ~10px inside its hit box while the button's edge is flush,
-                    so equal flex gaps read lopsided. */}
-                <span className="ml-[5px] h-5 w-px bg-white/[0.14]" aria-hidden/>
+                {/* Ink-symmetric margins, not flex gaps: the button's edge is
+                    flush while the X's ink sits ~10px inside its hit box, so
+                    14px of margin on the button side and 4px on the X side
+                    give the divider equal ~14px optical gaps to both. */}
+                <span className="ml-3.5 mr-1 h-5 w-px bg-white/[0.14]" aria-hidden/>
                 <button
                     aria-label="Dismiss update notice"
                     onClick={onDismiss}
