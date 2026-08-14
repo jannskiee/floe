@@ -53,7 +53,7 @@ Each entry lists the parts it changed. Filter on the right to see only the ones 
 
   - `floe receive` no longer leaves a half-written file behind under its final name when a transfer fails or stalls. The partial is deleted, files that completed earlier in the batch are kept, and a retried transfer gets its original name back instead of a numbered one.
   - The protocol-incompatibility message the CLI sends across the wire is now worded from the reader's perspective, so older versions that display it word-for-word name the correct side. No release can trigger this today (every peer speaks the same protocol).
-  - Web app: the navbar now adapts to window width in three steps instead of two, and the Download link is visible at every size; it previously appeared only on wider windows, so a phone had no way to reach the desktop app's download page.
+  - Web app: the navbar now adapts to window width in three steps instead of two, and the Download link is visible at every size; it previously appeared only on wider windows, so the header offered no way to reach the desktop app's download page on a phone.
   - Web app: floe.one and the docs now share the same four-column footer (Product, Documentation, Project, Legal), and it appears on every page of the site rather than only the homepage and the download page.
   - Web app: fixed the docs pages showing outdated content that a reload could not refresh; an offline cache was keeping old copies forever, and they now clear automatically on your next visit.
   - Self-hosting: the published images carry every web-app change above plus updated dependencies (Next.js 16.3.0 and `ws` 8.21.2). To pick them up: `docker compose pull` then `docker compose up -d`; if you pinned `FLOE_IMAGE_TAG=1.10.0`, move to `1.10.1`.
