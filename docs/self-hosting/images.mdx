@@ -18,7 +18,7 @@ Both are public, so `docker pull` needs no login.
 | Tag | Points at | Use it when |
 |-----|-----------|-------------|
 | `latest` | The newest release | **The default.** What you get if you change nothing. |
-| `1.10.0` | One exact release | You want to control when you move between versions. |
+| `1.10.1` | One exact release | You want to control when you move between versions. |
 | `1.10` | The newest patch of a minor line | You want patches automatically but not minor bumps. |
 | `main` | The newest build of `client/` or `server/` on `main` | You want changes before they are released. Every commit is gated behind the full test suite plus a smoke test of the built image. A docs-only merge leaves this tag where it is, since it starts no build. |
 | `sha-<short>` | One exact commit, for example `sha-fed7ebb` | You want a build that can never move under you. |
@@ -26,11 +26,11 @@ Both are public, so `docker pull` needs no login.
 Pin a tag with `FLOE_IMAGE_TAG`:
 
 ```dotenv .env
-FLOE_IMAGE_TAG=1.10.0
+FLOE_IMAGE_TAG=1.10.1
 ```
 
 <Note>
-  The variable is `FLOE_IMAGE_TAG`, not `FLOE_VERSION`. `FLOE_VERSION` belongs to the [CLI installer](/cli/installation) and is written with a leading `v`, as in `v1.10.0`. Image tags carry no `v`, so reusing that name would resolve to a tag that does not exist.
+  The variable is `FLOE_IMAGE_TAG`, not `FLOE_VERSION`. `FLOE_VERSION` belongs to the [CLI installer](/cli/installation) and is written with a leading `v`, as in `v1.10.1`. Image tags carry no `v`, so reusing that name would resolve to a tag that does not exist.
 </Note>
 
 ## Pinning a digest
