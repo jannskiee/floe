@@ -21,7 +21,6 @@ import { useFileManagement, type FileWithId } from '@/hooks/useFileManagement';
 import { useDownloadManager, type ReceivedFile } from '@/hooks/useDownloadManager';
 import { useSignaling } from '@/hooks/useSignaling';
 import { useConnectionType } from '@/hooks/useConnectionType';
-import { useVerifyCode } from '@/hooks/useVerifyCode';
 import { useTransferAnalytics } from '@/hooks/useTransferAnalytics';
 import { useRelayConfiguration } from '@/hooks/useRelayConfiguration';
 import { RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, isRelayPair } from '@/lib/relay';
@@ -123,8 +122,6 @@ export function P2PTransfer() {
         stopPolling: stopConnectionTypePolling,
         reset: resetConnectionType,
     } = useConnectionType();
-
-    const { verifyCode, compute: computeVerifyCode, reset: resetVerifyCode } = useVerifyCode();
 
     const { reportStatsEnabled, setReportStatsEnabled, track, reportBytes } = useTransferAnalytics();
 
@@ -229,12 +226,6 @@ export function P2PTransfer() {
                 // the rejoin's user-connected with a brand-new initiator peer
                 // and a fresh offer, which the old half-negotiated peer cannot
                 // answer, so recreate the peer by re-running the join flow.
-                // The old connection's verify code goes with it: the new peer
-                // gets a fresh DTLS certificate, so the stale code would read
-                // as a false mismatch against the sender's new one. (The
-                // completion guard above keeps the persist-after-done design
-                // intact; this only fires while a transfer never finished.)
-                resetVerifyCode();
                 peerRef.current?.destroy();
                 hasJoinedRef.current = false;
                 joinRoomAsReceiver(joinedRoomRef.current);
@@ -350,7 +341,6 @@ export function P2PTransfer() {
             setIsConnected(true);
             requestWakeLock();
             startConnectionTypePolling(peer);
-            computeVerifyCode(peer);
             Sentry.addBreadcrumb({
                 category: 'webrtc',
                 message: 'Receiver peer connected',
@@ -559,9 +549,6 @@ export function P2PTransfer() {
         setStatus('Waiting for peer');
 
         onUserConnected((userId: string) => {
-            // A replacement receiver gets a NEW connection; the previous
-            // connection's verify code must not linger next to it.
-            resetVerifyCode();
             if (peerRef.current && !peerRef.current.destroyed) {
                 peerRef.current.destroy();
             }
@@ -584,7 +571,6 @@ export function P2PTransfer() {
             peer.on('connect', () => {
                 setIsConnected(true);
                 startConnectionTypePolling(peer);
-                computeVerifyCode(peer);
 
                 Sentry.addBreadcrumb({
                     category: 'webrtc',
@@ -832,14 +818,6 @@ export function P2PTransfer() {
                                     >
                                         <X className="h-4 w-4" />
                                     </button>
-                                </div>
-                            )}
-                            {verifyCode && (
-                                <div className="mt-2 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-400 flex flex-wrap items-center gap-x-2 gap-y-1">
-                                    <ShieldCheck className="h-3.5 w-3.5 text-zinc-500" aria-hidden />
-                                    <span className="uppercase tracking-wider text-[10px] font-bold text-zinc-500">Verify</span>
-                                    <span data-testid="verify-code" className="font-mono font-semibold text-zinc-200 tracking-wider text-sm">{verifyCode}</span>
-                                    <span className="text-zinc-500">compare with the other device to rule out eavesdropping</span>
                                 </div>
                             )}
                             {isSender && isRelayOverLimit && (
