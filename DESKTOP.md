@@ -82,7 +82,7 @@ go.work                ties cli + desktop for local dev
 - [x] Polished UI matching the web app's design: Tailwind v4 (`@tailwindcss/vite`, Vite 3->6 bump)
       + Geist fonts + lucide-react; dark zinc theme, elevated card, segmented tabs, custom toggle,
       dashed drop zone, mono room code + copy-link, polished progress/status (the verify
-      row was later removed, see 3a), and a
+      row was removed 2026-07-04 and restored 2026-08-14, see 3a), and a
       QR panel behind a Show QR toggle (react-qr-code; shipped, the earlier "deferred" note
       was stale). No Share button on Windows: WebView2 does not expose `navigator.share`,
       and the button is feature-gated on it.
@@ -105,16 +105,19 @@ exchanged through the signaling server, so a malicious/compromised server could
 swap them and man-in-the-middle the "peer to peer" link (RFC 8827). The fix is to
 verify the connection independently of the server.
 
-**3a - Connection verification code  [MECHANISM DONE; UI REMOVED 2026-07-04]**
+**3a - Connection verification code  [DONE; UI RESTORED 2026-08-14]**
 - [x] `engine/verify` derives a short code from both DTLS fingerprints
       (ZRTP / Signal "safety number" model); unit-tested (order-independent,
-      case-insensitive, and a swapped fingerprint changes the code). RETAINED.
-- [x] `engine/peer` exposes `Fingerprints()` parsed from the negotiated SDPs. RETAINED.
-- [~] The user-facing verify code was REMOVED from all three UIs (CLI print,
-      browser `verifyCode` block, desktop `VerifyRow`) because manual 8-digit
-      comparison is friction almost no one uses. `engine/verify` + `verify.ts`
-      stay (tested, zero cost). PAKE (3b) is the intended replacement: it does the
-      same MITM check automatically, so the human compare never comes back.
+      case-insensitive, and a swapped fingerprint changes the code).
+- [x] `engine/peer` exposes `Fingerprints()` parsed from the negotiated SDPs.
+- [x] The user-facing code was removed from all three UIs on 2026-07-04
+      (friction rationale) and deliberately RESTORED on 2026-08-14 for
+      desktop-v0.2.4 and the next CLI release: a passive display costs nothing, backs the
+      end-to-end-encryption claim, and PAKE has no timeline. All three
+      surfaces show it (CLI print, browser row, desktop `VerifyRow`); the code
+      persists after completion so fast transfers can still be compared.
+      PAKE (3b) remains the eventual replacement; when it lands, the human
+      compare can go again.
 
 **3b - PAKE auto-verification (removes the human compare)**
 - [ ] PAKE (CPace or SPAKE2) keyed by the room code, bound to the DTLS fingerprints,

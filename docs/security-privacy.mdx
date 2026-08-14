@@ -90,7 +90,7 @@ Key properties:
 - Encryption keys are generated uniquely for each transfer session.
 - Keys exist only on the two devices involved. There is no central key server.
 - Keys are ephemeral. They are discarded when the connection closes and cannot be recovered.
-- The DTLS handshake verifies each peer's certificate against the fingerprint exchanged during signaling, so an outside attacker on the network cannot inject a different certificate. Like every WebRTC application, Floe trusts the signaling server to relay those fingerprints faithfully. Running your own instance removes that dependency entirely (see [Self-hosted instances](#self-hosted-instances)).
+- The DTLS handshake verifies each peer's certificate against the fingerprint exchanged during signaling, so an outside attacker on the network cannot inject a different certificate. Like every WebRTC application, Floe trusts the signaling server to relay those fingerprints faithfully. To check that they were relayed faithfully, both devices show the same eight-digit verification code once a transfer connects, derived from the two certificate fingerprints (the safety number model used by messaging apps). Compare the codes over any channel you trust; if they differ, the connection was intercepted, so stop the transfer. Checking is optional, and both devices need a Floe version that displays the code. Running your own instance removes the trust dependency entirely (see [Self-hosted instances](#self-hosted-instances)).
 
 See [End-to-End Encryption](/how-it-works/encryption) for a deeper technical explanation.
 

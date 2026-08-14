@@ -40,9 +40,12 @@ Floe ships on two version lines. `vX.Y.Z` releases floe.one, the `floe` CLI, and
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
-<Update label="Unreleased" tags={["CLI", "Desktop"]}>
-  **Failed or stalled receives clean up their partial file**
+<Update label="Unreleased" tags={["CLI", "Web", "Desktop"]}>
+  **Every transfer now shows a verification code, and failed receives clean up their partial file**
 
+  - `floe send` and `floe receive` print a Verify line once the connection is up: the same eight digits on both devices, derived from the connection's own certificate fingerprints. Compare them over any channel you trust to rule out anyone sitting between you, even the signaling server; on a mismatch, stop the transfer. Checking is optional and nothing waits on it. A peer on an older version shows nothing to compare.
+  - Web app: the transfer card shows the same code once connected, on both the sending and the receiving side, and keeps it visible after the transfer finishes so a fast transfer can still be compared.
+  - Desktop: a quiet Verify row under the progress bar shows the same code, with the explanation in its tooltip. It stays visible after the transfer finishes, until the next transfer or Start over.
   - `floe receive` no longer leaves a half-written file behind under its final name when a transfer fails or stalls. The partial is deleted, files that completed earlier in the batch are kept, and a retried transfer gets its original name back instead of a numbered one.
   - The protocol-incompatibility message the CLI sends across the wire is now worded from the reader's perspective, so older versions that display it word-for-word name the correct side. No release can trigger this today (every peer speaks the same protocol).
   - Desktop: the update notice is redrawn as a slim one-row frosted bar with a whisper of ice in its border. What it does is unchanged.

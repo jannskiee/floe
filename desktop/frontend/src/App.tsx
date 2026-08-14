@@ -42,6 +42,7 @@ import {
     QrCode,
     Send,
     Share2,
+    ShieldCheck,
     SquareArrowOutUpRight,
     UploadCloud,
     X,
@@ -163,6 +164,27 @@ function ProgressRow({prog}: {prog: {pct: number; label: string}}) {
                     style={{width: `${prog.pct}%`}}
                 />
             </div>
+        </div>
+    );
+}
+
+/** VerifyRow shows the connection verification code (engine/verify) once the
+ *  data channel is up. Both devices show the same code unless the connection
+ *  was intercepted; checking is optional, so the row stays quiet: grey, one
+ *  line, details in the tooltip. It persists after completion so the two sides
+ *  can still compare after a fast transfer. */
+function VerifyRow({code}: {code: string}) {
+    return (
+        <div className="animate-floe-in flex items-center justify-center">
+            <Tooltip label="The other device shows the same code. Compare them to rule out eavesdropping. Optional; nothing waits on it.">
+                <span className="flex cursor-default items-center gap-2 text-xs text-zinc-500">
+                    <ShieldCheck className="size-3.5 shrink-0" aria-hidden/>
+                    {/* The dotted underline is the tooltip's discoverability
+                        affordance, same as the Transfer protocol row. */}
+                    <span className="underline decoration-dotted decoration-zinc-600 underline-offset-4">Verify</span>
+                    <span className="rounded bg-white/[0.07] px-1.5 py-1 font-mono text-[11px] leading-none tracking-wider text-zinc-300">{code}</span>
+                </span>
+            </Tooltip>
         </div>
     );
 }
@@ -670,6 +692,8 @@ function App() {
     const [sending, setSending] = useState(false);
     const [sendProg, setSendProg] = useState<{pct: number; label: string} | null>(null);
     const [sendDone, setSendDone] = useState(false);
+    // The connection verification code (engine/verify), '' until send:verify.
+    const [sendVerify, setSendVerify] = useState('');
     const [sentCount, setSentCount] = useState(0);
     // The note the last COMPLETED send put on the wire, '' when that send was
     // files. Start over compares the box against it: send:done leaves the
@@ -705,6 +729,8 @@ function App() {
     const [recvProg, setRecvProg] = useState<{pct: number; label: string} | null>(null);
     const [recvDir, setRecvDir] = useState('');
     const [recvDone, setRecvDone] = useState(false);
+    // The connection verification code (engine/verify), '' until recv:verify.
+    const [recvVerify, setRecvVerify] = useState('');
     // The pre-transfer preview line ("Incoming: 3 files · 812 MB"), set by the
     // recv:incoming event before the first byte lands.
     const [incoming, setIncoming] = useState('');
@@ -971,6 +997,10 @@ function App() {
             setSendProg(track(sendStart, p));
             setSendStatus('');
         });
+        EventsOn('send:verify', (c: string) => {
+            if (sendCancel.current) return;
+            setSendVerify(c);
+        });
         EventsOn('send:done', () => {
             if (sendCancel.current) return;
             setSendProg(null);
@@ -1014,6 +1044,10 @@ function App() {
             // that, not the sender's name, or they act on the pre-existing file.
             const name = p.savedName || p.fileName;
             if (name && !recvNamesRef.current.includes(name)) recvNamesRef.current.push(name);
+        });
+        EventsOn('recv:verify', (c: string) => {
+            if (recvCancel.current) return;
+            setRecvVerify(c);
         });
         EventsOn('send:route', (r: string) => {
             if (sendCancel.current) return;
@@ -1066,10 +1100,12 @@ function App() {
             EventsOff('send:code');
             EventsOff('send:status');
             EventsOff('send:progress');
+            EventsOff('send:verify');
             EventsOff('send:done');
             EventsOff('send:error');
             EventsOff('recv:incoming');
             EventsOff('recv:progress');
+            EventsOff('recv:verify');
             EventsOff('send:route');
             EventsOff('recv:route');
             EventsOff('files:open');
@@ -1334,6 +1370,7 @@ function App() {
         sendCancel.current = false;
         setSending(true);
         setSendDone(false);
+        setSendVerify('');
         setRoute('');
         if (sendKind === 'text') {
             setSentCount(1);
@@ -1372,6 +1409,7 @@ function App() {
         setRecvProg(null);
         setRecvDir('');
         setRecvDone(false);
+        setRecvVerify('');
         setIncoming('');
         setRoute('');
         recvCancel.current = false;
@@ -1409,6 +1447,7 @@ function App() {
             setSending(false);
             setSendProg(null);
             setSendDone(false);
+            setSendVerify('');
             // The room is dead once we cancel; drop the code and link. (A cancel
             // followed by an instant re-Send can still let one late send:code from
             // the dead attempt through — same tiny window as the other guards.)
@@ -1424,6 +1463,7 @@ function App() {
             setReceiving(false);
             setRecvProg(null);
             setRecvDone(false);
+            setRecvVerify('');
             setIncoming('');
             setRecvStatus('Cancelled.');
         }
@@ -1466,6 +1506,7 @@ function App() {
         setSending(false);
         setSendProg(null);
         setSendDone(false);
+        setSendVerify('');
         setSentCount(0);
         setPeerConnected(false);
         setFilesOpen(false);
@@ -1480,6 +1521,7 @@ function App() {
         setRecvProg(null);
         setRecvDir('');
         setRecvDone(false);
+        setRecvVerify('');
         setIncoming('');
         recvStart.current = null;
         recvNamesRef.current = [];
@@ -2126,6 +2168,7 @@ function App() {
                                         )}
 
                                         {sendProg && <ProgressRow prog={sendProg}/>}
+                                        {sendVerify && (sending || sendDone) && <VerifyRow code={sendVerify}/>}
                                         {sendDone && !sending && (
                                             <div className="animate-floe-in flex items-center justify-center gap-2 text-sm text-zinc-300">
                                                 <Check className="size-4 shrink-0 text-green-500"/>
@@ -2181,6 +2224,7 @@ function App() {
                                             <p className="animate-floe-in text-center text-xs text-zinc-400">{incoming}</p>
                                         )}
                                         {recvProg && <ProgressRow prog={recvProg}/>}
+                                        {recvVerify && (receiving || recvDone) && <VerifyRow code={recvVerify}/>}
                                         {recvDone && !receiving && (
                                             <div className="animate-floe-in flex items-center gap-2 text-sm text-zinc-300">
                                                 <Check className="size-4 shrink-0 text-green-500"/>

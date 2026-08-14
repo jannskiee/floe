@@ -197,6 +197,15 @@ export function CliTerminal() {
                         {shownStage >= 8 && (
                             <>
                                 <div className="text-green-400">{'  Connected'}</div>
+                                {/* Trimmed replica of the CLI's Verify line (the real one
+                                    carries a parenthetical explainer that would overflow
+                                    this narrow terminal, like BAR_WIDTH already narrows
+                                    the progress bars). */}
+                                <div>
+                                    <span className="text-zinc-500">{'  Verify'}</span>
+                                    {'    '}
+                                    <span className="text-zinc-300">{'4189 0245'}</span>
+                                </div>
                                 <div> </div>
                             </>
                         )}
@@ -240,8 +249,9 @@ export function CliTerminal() {
             </div>
             <p className="sr-only">
                 Example terminal session: floe send shares three files totaling 10.1 MB, prints the
-                short code olive-tiger-castle and a link, connects to the peer, and completes the
-                transfer in 8 seconds at an average of 1.3 MB per second.
+                short code olive-tiger-castle and a link, connects to the peer, shows the
+                connection verification code 4189 0245, and completes the transfer in 8 seconds
+                at an average of 1.3 MB per second.
             </p>
         </div>
     );
