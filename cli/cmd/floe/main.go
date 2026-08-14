@@ -30,7 +30,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Build-time version — set by goreleaser: -ldflags "-X main.version=v1.0.0"
+// Build-time version — set by goreleaser: -ldflags "-X main.version=1.0.0"
+// (GoReleaser's {{ .Version }} strips the tag's leading v.)
 var version = "dev"
 
 // Shared flags
