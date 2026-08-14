@@ -39,21 +39,3 @@ export function extractFingerprint(sdp?: string | null): string {
     }
     return '';
 }
-
-/** verifyCodeFromDescriptions derives the code from a connection's local and
- *  remote SDPs, or resolves null when either fingerprint is missing or
- *  crypto.subtle is unavailable (plain-http self-hosted pages have no secure
- *  context, so they get no code rather than a thrown error). */
-export async function verifyCodeFromDescriptions(
-    localSdp?: string | null,
-    remoteSdp?: string | null
-): Promise<string | null> {
-    const local = extractFingerprint(localSdp);
-    const remote = extractFingerprint(remoteSdp);
-    if (!local || !remote || !globalThis.crypto?.subtle) return null;
-    try {
-        return await verifyCode(local, remote);
-    } catch {
-        return null;
-    }
-}
