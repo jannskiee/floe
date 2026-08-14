@@ -49,6 +49,7 @@ import {
 import QRCode from 'react-qr-code';
 import {BoltMark, Button, Eyebrow, Input, StatusDot, cn} from './components/ui';
 import {advancedSummary, hostOf} from './settings';
+import {histKey} from './history';
 import {resetWarning} from './reset';
 import {friendlyError} from './errors';
 import {fmtBytes, formatIncoming, type IncomingPreview} from './incoming';
@@ -417,7 +418,7 @@ function Dropzone({expanded, onPickFiles, onPickFolder}: {
 }) {
     if (!expanded) {
         return (
-            <div style={dropVar} className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-white/15 bg-white/[0.02] py-1.5 pl-3 pr-1.5 transition-colors hover:border-ice/40">
+            <div style={dropVar} className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-white/40 bg-white/[0.02] py-1.5 pl-3 pr-1.5 transition-colors hover:border-white/70">
                 <span className="flex min-w-0 items-baseline gap-2.5">
                     <span className="text-sm font-medium text-zinc-200">Add files</span>
                     <span className="truncate font-mono text-[10px] uppercase tracking-[0.15em] text-zinc-600">or drop anywhere</span>
@@ -434,9 +435,9 @@ function Dropzone({expanded, onPickFiles, onPickFolder}: {
         );
     }
     return (
-        <div style={dropVar} className="group rounded-xl border border-dashed border-white/15 bg-white/[0.02] p-5 text-center transition-colors hover:border-ice/40 hover:bg-white/[0.03]">
-            <span className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] transition group-hover:border-ice/30">
-                <UploadCloud className="h-5 w-5 text-zinc-400 transition group-hover:text-ice"/>
+        <div style={dropVar} className="group rounded-xl border border-dashed border-white/40 bg-white/[0.02] p-5 text-center transition-colors hover:border-white/70 hover:bg-white/[0.03]">
+            <span className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] transition group-hover:border-white/25">
+                <UploadCloud className="h-5 w-5 text-white/70 transition group-hover:text-white"/>
             </span>
             <p className="text-sm font-medium text-zinc-200">Select files to send</p>
             <p className="mt-1 font-mono text-[11px] text-zinc-500">or drag them onto the window</p>
@@ -725,7 +726,7 @@ function App() {
     const [history, setHistory] = useState<HistEntry[]>(loadHistory);
     // Whether the destructive Clear action is awaiting its inline confirm.
     const [confirmClear, setConfirmClear] = useState(false);
-    // Which history row (keyed `${at}-${i}`) has its file list expanded.
+    // Which history row (keyed by histKey, position-independent) is expanded.
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
     // Selected ICE path of the in-flight transfer ('' until known). One transfer
@@ -2245,14 +2246,22 @@ function App() {
                                         ) : (
                                             <ul className="custom-scrollbar max-h-80 divide-y divide-white/[0.04] overflow-y-auto rounded-lg border border-white/[0.06] bg-white/[0.02]">
                                                 {history.map((h, i) => {
-                                                    const key = `${h.at}-${i}`;
+                                                    const key = histKey(h);
                                                     const multi = h.count > 1;
                                                     const expanded = expandedRow === key;
+                                                    const panelId = `floe-hist-panel-${i}`;
                                                     return (
-                                                        <li key={key} className="group px-3.5 py-2.5 transition-colors hover:bg-white/[0.03]">
-                                                            <div
-                                                                className={cn('flex items-center gap-3', multi && 'cursor-pointer')}
-                                                                onClick={multi ? () => setExpandedRow(expanded ? null : key) : undefined}
+                                                        <li key={key} className="transition-colors hover:bg-white/[0.03]">
+                                                            {/* The whole row is one disclosure button, the same idiom as the
+                                                                Advanced section. Every entry expands, single-file rows included,
+                                                                because collapsed titles truncate. Nothing else is clickable on
+                                                                the row; the actions live inside the panel as labeled text. */}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setExpandedRow(expanded ? null : key)}
+                                                                aria-expanded={expanded}
+                                                                aria-controls={expanded ? panelId : undefined}
+                                                                className="group flex w-full items-center gap-3 px-3.5 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ice/60"
                                                             >
                                                                 {h.kind === 'send'
                                                                     ? <ArrowUpRight className="size-4 shrink-0 text-zinc-500"/>
@@ -2267,39 +2276,52 @@ function App() {
                                                                         <span>{fmtWhen(h.at)}</span>
                                                                     </span>
                                                                 </span>
-                                                                {multi && (
-                                                                    <button
-                                                                        onClick={(e) => { e.stopPropagation(); setExpandedRow(expanded ? null : key); }}
-                                                                        aria-label={expanded ? 'Hide files' : 'Show files'}
-                                                                        aria-expanded={expanded}
-                                                                        className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-600 transition-colors hover:bg-white/10 hover:text-zinc-200"
-                                                                    >
-                                                                        <ChevronDown className={cn('size-3.5 transition-transform', expanded && 'rotate-180')}/>
-                                                                    </button>
-                                                                )}
-                                                                {h.kind === 'recv' && h.dir && (
-                                                                    <button
-                                                                        onClick={(e) => { e.stopPropagation(); (h.count === 1 ? RevealFile(h.dir!, h.names[0] || '') : OpenFolder(h.dir!)).catch(() => {}); }}
-                                                                        aria-label="Show in folder"
-                                                                        className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-500 opacity-0 transition-[color,background-color,opacity] hover:bg-white/10 hover:text-zinc-200 focus-visible:opacity-100 group-hover:opacity-100"
-                                                                    >
-                                                                        <FolderOpen className="size-3.5"/>
-                                                                    </button>
-                                                                )}
-                                                                <button
-                                                                    onClick={(e) => { e.stopPropagation(); setHistory((prev) => prev.filter((_, idx) => idx !== i)); }}
-                                                                    aria-label="Remove entry"
-                                                                    className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-500 opacity-0 transition-[color,background-color,opacity] hover:bg-white/10 hover:text-zinc-200 focus-visible:opacity-100 group-hover:opacity-100"
-                                                                >
-                                                                    <X className="size-3.5"/>
-                                                                </button>
-                                                            </div>
+                                                                <ChevronDown className={cn('size-3.5 shrink-0 text-zinc-600 transition-[color,transform] duration-200 group-hover:text-zinc-400 motion-reduce:transition-none', expanded && 'rotate-180')}/>
+                                                            </button>
                                                             {expanded && (
-                                                                <ul className="custom-scrollbar mt-2 max-h-32 space-y-1 overflow-y-auto pl-7">
-                                                                    {h.names.map((n, j) => (
-                                                                        <li key={`${key}-${j}`} className="truncate text-xs text-zinc-500">{n}</li>
-                                                                    ))}
-                                                                </ul>
+                                                                <div id={panelId} className="animate-floe-in space-y-2 px-3.5 pb-2.5 motion-reduce:animate-none">
+                                                                    {multi ? (
+                                                                        <ul className="custom-scrollbar max-h-32 space-y-1 overflow-y-auto pl-7">
+                                                                            {h.names.map((n, j) => (
+                                                                                <li key={`${key}-${j}`} className="truncate text-xs text-zinc-500">{n}</li>
+                                                                            ))}
+                                                                        </ul>
+                                                                    ) : h.names[0] ? (
+                                                                        <p className="break-all pl-7 text-xs text-zinc-500">{h.names[0]}</p>
+                                                                    ) : null}
+                                                                    {h.kind === 'recv' && h.dir && (
+                                                                        <p className="truncate pl-7 font-mono text-xs text-zinc-500" title={h.dir}>{h.dir}</p>
+                                                                    )}
+                                                                    {/* Footer actions behind an inset hairline. The border-t is the
+                                                                        row dividers' white/[0.04] but stops at the px-3.5 content
+                                                                        edges, so it reads as this panel's footer, not the next row's
+                                                                        edge. Both actions group to the right rail, dialog-footer
+                                                                        style with the destructive action outermost: Show in folder,
+                                                                        then Remove. Remove's -mr-2 cancels its own px-2 so its label
+                                                                        right-aligns to the px-3.5 rail under the chevron (hover pill
+                                                                        mirroring into the gutter) - the same right-rail grammar as
+                                                                        the header Clear and Settings' Reset. gap-4 keeps the safe
+                                                                        action a deliberate reach away from the destructive one, and
+                                                                        DOM order keeps Show in folder before Remove for Tab. */}
+                                                                    <div className="flex items-center justify-end gap-4 border-t border-white/[0.04] pt-2">
+                                                                        {h.kind === 'recv' && h.dir && (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => { (h.count === 1 ? RevealFile(h.dir!, h.names[0] || '') : OpenFolder(h.dir!)).catch(() => {}); }}
+                                                                                className="rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice/60"
+                                                                            >
+                                                                                Show in folder
+                                                                            </button>
+                                                                        )}
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => { setHistory((prev) => prev.filter((_, idx) => idx !== i)); setExpandedRow(null); }}
+                                                                            className="-mr-2 rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-red-400/10 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice/60"
+                                                                        >
+                                                                            Remove
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
                                                             )}
                                                         </li>
                                                     );
