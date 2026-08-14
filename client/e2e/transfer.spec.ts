@@ -152,6 +152,14 @@ test('transfers a 512-byte file (framing guard: chunk fits under 1 KB threshold)
         const blobUrl = (await downloadLink.getAttribute('href'))!;
         const receivedHash = await sha256OfBlobUrl(receiverPage, blobUrl);
         expect(receivedHash).toBe(expectedHash);
+
+        // Both sides derive the connection verification code from the same
+        // DTLS fingerprint pair, so the two displays must agree. The row
+        // persists after completion by design; this assertion relies on that.
+        const senderCode = (await senderPage.getByTestId('verify-code').textContent())!.trim();
+        const receiverCode = (await receiverPage.getByTestId('verify-code').textContent())!.trim();
+        expect(senderCode).toMatch(/^\d{4} \d{4}$/);
+        expect(senderCode).toBe(receiverCode);
     } finally {
         await senderCtx.close();
         await receiverCtx.close();
