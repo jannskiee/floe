@@ -1525,7 +1525,7 @@ function App() {
     // supersede below, which is the guarded wrapper and the only caller that
     // checks whose offer it is about to end.
     //
-    // Do not add a fourth without proving the offer is genuinely dead. Three
+    // Do not add a fifth without proving the offer is genuinely dead. Three
     // separate audit rounds failed on exactly that mistake: a call added to a
     // transition that felt like an ending (a tab switch, opening Settings,
     // Ctrl+O, a send, a cancel) but was not, each one silently destroying a
@@ -1769,13 +1769,6 @@ function App() {
     // swallowed; the next real transfer re-arms them.
     function doReset() {
         setConfirmReset(false);
-        // Also pre-existing housekeeping: this closes the settings screen below,
-        // and the defaults dialog renders OUTSIDE that branch, so without this it
-        // could outlive the screen it belongs to. Its Escape is gated on
-        // settingsOpen, and its Cancel focuses a button that is no longer
-        // mounted, so the survivor is both unclosable by keyboard and a focus
-        // orphan. Symmetric with the two dismissals either side of it.
-        setConfirmDefaults(false);
         sendCancel.current = true;
         recvCancel.current = true;
         // Invalidate any in-flight receive attempt: its promise settles on a
@@ -1937,10 +1930,12 @@ function App() {
 
     // Ctrl+Enter: the current tab's primary action, mirroring the action button's
     // enabled rules. No-op in Settings, while busy, in History (no action there),
-    // or behind a modal. That last guard is pre-existing housekeeping rather than
+    // or behind a modal. That last guard fixes a pre-existing bug rather than
     // anything to do with Clear: without it Ctrl+Enter starts a transfer BEHIND
     // the Start over scrim, which is how an audit reached this dialog's unwired
     // exit in the first place. showUpdate has guarded on the same two all along.
+    // (confirmDefaults is belt and braces: it implies settingsOpen, which is
+    // already here.)
     function primaryAction() {
         if (busy || settingsOpen || confirmReset || confirmDefaults) return;
         if (mode === 'send') {
