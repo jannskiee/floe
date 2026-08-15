@@ -11,12 +11,16 @@ export type Cleared =
     | {kind: 'files'; files: string[]}
     | {kind: 'text'; text: string};
 
-/** How long the undo offer stands. Ten seconds rather than the five or six a
- *  plain notification gets, because this one carries an action: Shopify's
+/** How long the undo BAR stays on screen. Ten seconds rather than the five or
+ *  six a plain notification gets, because this one carries an action: Shopify's
  *  Polaris warns in the console below 10s for exactly that reason, Material's
  *  own Long duration is 10s, and VS Code gives an actionable notice 10 to 15.
- *  Pointing at the offer or reaching it with the keyboard holds it open past
- *  this, and Ctrl+Z works whether it is on screen or not. */
+ *  Pointing at the bar or reaching it with the keyboard holds it open past this,
+ *  and a dialog opening over it stops the clock.
+ *
+ *  It does NOT govern the offer. The snapshot stands until something stages or
+ *  changes the send view, so Ctrl+Z works long after the bar has gone. Nothing
+ *  the user can lose is on a countdown; only the message about it is. */
 export const UNDO_WINDOW_MS = 10000;
 
 /**
@@ -32,13 +36,15 @@ export function stagedSnapshot(kind: 'files' | 'text', files: string[], text: st
     return files.length === 0 ? null : {kind: 'files', files};
 }
 
-/** isExpired says whether an offer that was armed to stand until `until` has
- *  run out. The countdown is a deadline, not only a timeout: a window in the
- *  background can have its timers clamped, so the moment Undo is pressed is the
- *  moment worth asking. Nothing is persisted anywhere, so an offer never
- *  outlives the process that made it. */
-export function isExpired(until: number, now: number): boolean {
-    return now >= until;
+/** restorable says whether an offer can be put back into the tab now on screen.
+ *  An offer belongs to the tab it was taken from: restoring a note into the file
+ *  list, or a file list into a note, would be worse than not restoring at all.
+ *  Every path that changes the tab retires the offer, so a mismatch means one of
+ *  them was missed; this is the check that makes the miss harmless. There is
+ *  deliberately no clock in here. Nothing is persisted anywhere, so an offer
+ *  never outlives the process that made it. */
+export function restorable(c: Cleared, kind: 'files' | 'text'): boolean {
+    return c.kind === kind;
 }
 
 const items = (n: number) => `${n} ${n === 1 ? 'item' : 'items'}`;

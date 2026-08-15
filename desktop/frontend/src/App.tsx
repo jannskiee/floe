@@ -51,7 +51,7 @@ import QRCode from 'react-qr-code';
 import {BoltMark, Button, Eyebrow, Input, StatusDot, cn} from './components/ui';
 import {advancedSummary, hostOf} from './settings';
 import {histKey} from './history';
-import {UNDO_WINDOW_MS, clearLabel, clearedAnnouncement, clearedLabel, isExpired, stagedSnapshot, undoLabel, type Cleared} from './clear';
+import {UNDO_WINDOW_MS, clearLabel, clearedAnnouncement, clearedLabel, restorable, stagedSnapshot, undoLabel, type Cleared} from './clear';
 import {resetWarning} from './reset';
 import {friendlyError} from './errors';
 import {fmtBytes, formatIncoming, type IncomingPreview} from './incoming';
@@ -753,15 +753,19 @@ function App() {
     const [sentText, setSentText] = useState('');
     const [peerConnected, setPeerConnected] = useState(false);
     const [filesOpen, setFilesOpen] = useState(false);
-    // What Clear last took away, and the timer that retires the offer to put it
-    // back. The snapshot is state because the offer renders from it; the timer
-    // id is a ref because nothing renders from it and because the
+    // What Clear last took away, and whether its bar is still on screen. These
+    // are two lifetimes, not one, and keeping them apart is the whole point:
+    // the BAR is a passing message and goes on a timer, while the OFFER behind
+    // it stands until something retires it. So the clock decides how long the
+    // message is visible, never whether the undo is still available, and Ctrl+Z
+    // reaches it either way. A timed control whose only route expires with it
+    // would be a WCAG 2.2.1 failure, and it would also make the Start over
+    // prompt about a cleared note stop being true while the user was reading it.
+    // The timer id is a ref because nothing renders from it and because the
     // once-registered handlers have to be able to cancel it.
     const [cleared, setCleared] = useState<Cleared | null>(null);
+    const [offerUp, setOfferUp] = useState(false);
     const clearedTimer = useRef<number | null>(null);
-    // When the standing offer runs out. Checked again on the click, because a
-    // background window can have its timers clamped; Infinity while held.
-    const clearedUntil = useRef(0);
     const sendStart = useRef<Marker>(null);
     const sendCancel = useRef(false);
     // Snapshot of the sent file names, readable from the once-registered
@@ -1254,6 +1258,17 @@ function App() {
     // bring a ghost offer back with a partly spent timer.
     useEffect(() => { if (mode !== 'send' || settingsOpen) forgetCleared(); }, [mode, settingsOpen]);
 
+    // A dialog puts the bar away and stops its clock; dismissing one gives it
+    // back with its full few seconds. Time spent behind a scrim was never time
+    // the user could act in. armUndo is a no-op while a timer is already
+    // running, so the `cleared` dependency costs nothing on the render where
+    // clearStaged has just armed it.
+    useEffect(() => {
+        if (!cleared) return;
+        if (confirmReset || confirmDefaults) holdUndo();
+        else armUndo();
+    }, [confirmReset, confirmDefaults, cleared]);
+
     // The undo timer is the one thing here that outlives a render, so it needs an
     // explicit teardown. (Started in the click handler, never in an effect: this
     // app renders under StrictMode, which double-invokes effects in dev.)
@@ -1369,10 +1384,12 @@ function App() {
                     e.preventDefault();
                     openHistory();
                     break;
-                // Undo the clear, while its offer stands. The offer is on a
-                // timer, and a timed control with no other way to reach it is a
-                // WCAG 2.2.1 failure; this is the way that does not depend on
-                // the clock, and it is what every desktop user tries first.
+                // Undo the clear. This is the route that genuinely does not
+                // depend on the clock: the bar goes after a few seconds, the
+                // offer behind it stands until something stages or changes the
+                // send view, and this reaches it either way. A timed control
+                // whose only route expires with it would be a WCAG 2.2.1
+                // failure, and this is also what every desktop user tries first.
                 // Skipped while typing so the textarea keeps its own undo, and
                 // silent when nothing is pending so Ctrl+Z stays free for the
                 // field the user is actually in.
@@ -1424,38 +1441,42 @@ function App() {
         setSendDone(false);
     }
 
-    // forgetCleared retires a pending undo offer and its timer. Every path that
-    // stages something new or moves the send view on calls it, so Undo can never
-    // put a payload back into a screen that changed underneath it. Safe from the
-    // once-registered closures: a ref and a stable setter, nothing else.
+    // forgetCleared retires a pending undo offer, takes its bar down and stops
+    // the timer. Every path that stages something new or moves the send view on
+    // calls it, so Undo can never put a payload back into a screen that changed
+    // underneath it. This is the ONLY thing that ends an offer: the clock ends
+    // the bar, never the offer. Safe from the once-registered closures: a ref
+    // and stable setters, nothing else.
     function forgetCleared() {
         holdUndo();
+        setOfferUp(false);
         setCleared(null);
     }
 
-    // holdUndo stops the countdown without retiring the offer, and armUndo
-    // starts a fresh one. Pointing at the offer holds it, so it cannot expire
-    // out from under the pointer travelling towards it.
+    // holdUndo stops the bar's countdown without taking the bar down, and
+    // armUndo starts a fresh one. Pointing at the bar holds it, so it cannot go
+    // out from under a pointer travelling towards it, and so does a dialog
+    // opening over it: time a message spends behind a scrim is not time the user
+    // had to read it.
     function holdUndo() {
         if (clearedTimer.current !== null) {
             clearTimeout(clearedTimer.current);
             clearedTimer.current = null;
         }
-        clearedUntil.current = Infinity;
     }
 
     function armUndo() {
         if (clearedTimer.current !== null) return;
-        clearedUntil.current = Date.now() + UNDO_WINDOW_MS;
         clearedTimer.current = window.setTimeout(() => {
             clearedTimer.current = null;
             // Never unmount the element the keyboard is sitting on. If Undo has
-            // focus when its time runs out, hand focus back the way the settings
-            // dialog hands it to the trigger that opened it. The target is the
-            // active tab button, not Send: Send is disabled the moment a clear
-            // empties the tab, and focus() on a disabled button goes nowhere.
+            // focus when the bar's time runs out, hand focus back the way the
+            // settings dialog hands it to the trigger that opened it. The target
+            // is the active tab button, not Send: Send is disabled the moment a
+            // clear empties the tab, and focus() on a disabled button goes
+            // nowhere.
             const onUndo = document.activeElement?.id === 'floe-undo-clear';
-            setCleared(null);
+            setOfferUp(false);
             if (onUndo) requestAnimationFrame(() => document.getElementById('floe-send-kind')?.focus());
         }, UNDO_WINDOW_MS);
     }
@@ -1477,6 +1498,7 @@ function App() {
         // "Cancelled." from an earlier send would reappear when the offer went.
         setSendStatus('');
         setCleared(snap);
+        setOfferUp(true);
         armUndo();
         // Clear unmounts with the last thing it cleared, so focus would fall to
         // the body. Moving it to Undo keeps the keyboard where the user was, and
@@ -1491,14 +1513,25 @@ function App() {
     // Undo replaces rather than merges, because it cannot collide: anything that
     // could have staged something in the meantime has already retired the offer.
     // Returns whether it actually put something back, so the Ctrl+Z handler can
-    // stay silent (and leave the keystroke alone) when there is no offer.
+    // stay silent (and leave the keystroke alone) when there is no offer. No
+    // clock here: the bar may be long gone, and the offer is still good.
     function undoClear(): boolean {
         if (!cleared) return false;
-        if (isExpired(clearedUntil.current, Date.now())) { forgetCleared(); return false; }
+        // An offer belongs to the tab it was taken from, and to no other. Every
+        // path that changes the tab retires it, so this guard should be dead
+        // code; it is here because the cost of one path forgetting is a note
+        // restored into a box nobody is looking at, or destroyed by the next
+        // Clear on the other tab. Ctrl+O was exactly that path once.
+        if (!restorable(cleared, sendKind)) { forgetCleared(); return false; }
         const snap = cleared;
+        const onUndo = document.activeElement?.id === 'floe-undo-clear';
         forgetCleared();
         if (snap.kind === 'files') setFiles(snap.files);
         else setSendText(snap.text);
+        // The same handoff the bar's own expiry makes, for the same reason:
+        // pressing Undo destroys the button being pressed, and without this the
+        // keyboard lands on the body and Tab restarts at the title bar.
+        if (onUndo) requestAnimationFrame(() => document.getElementById('floe-send-kind')?.focus());
         return true;
     }
 
@@ -1753,8 +1786,13 @@ function App() {
     toggleHistoryRef.current = toggleHistory;
 
     // Ctrl+O: leave Settings, land on Send > Files, open the native picker.
+    // It retires the offer up front rather than leaving that to pickFiles, which
+    // only does it once a pick succeeds: cancelling the dialog still leaves the
+    // user on a tab they did not start on, and an offer taken from the other tab
+    // has no business surviving that.
     function openPicker() {
         if (busy) return;
+        forgetCleared();
         setSettingsOpen(false);
         setMode('send');
         setSendKind('files');
@@ -1823,12 +1861,16 @@ function App() {
             <span className="sr-only" role="status" aria-live="polite">
                 {cleared ? clearedAnnouncement(cleared) : ''}
             </span>
-            {/* No key needed to replay the entrance: two offers can never be
-                adjacent renders, because reaching a second clear means staging
-                something first, and every staging path retires the first offer,
-                so the toast always unmounts in between. */}
-            {cleared && (
+            {/* The bar, which is not the offer: it comes down on its own after a
+                few seconds while the undo behind it stays good, and it steps
+                aside entirely for a dialog rather than sitting dimmed under the
+                scrim where it cannot be clicked. showUpdate guards on the same
+                two for the same reason. Keyed on what it says so a second offer
+                always replays the entrance, rather than relying on an argument
+                about which renders can be adjacent. */}
+            {cleared && offerUp && !confirmReset && !confirmDefaults && (
                 <UndoToast
+                    key={clearedLabel(cleared)}
                     label={clearedLabel(cleared)}
                     action={undoLabel(cleared)}
                     onUndo={undoClear}

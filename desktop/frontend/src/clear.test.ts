@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {UNDO_WINDOW_MS, clearLabel, clearedAnnouncement, clearedLabel, isExpired, stagedSnapshot, undoLabel} from './clear';
+import {UNDO_WINDOW_MS, clearLabel, clearedAnnouncement, clearedLabel, restorable, stagedSnapshot, undoLabel} from './clear';
 
 describe('stagedSnapshot', () => {
     it('is null when there is nothing to clear', () => {
@@ -89,16 +89,28 @@ describe('the accessible names', () => {
     });
 });
 
-describe('isExpired', () => {
-    it('is true at the deadline, not just past it', () => {
-        expect(isExpired(1000, 999)).toBe(false);
-        expect(isExpired(1000, 1000)).toBe(true);
-        expect(isExpired(1000, 5000)).toBe(true);
+// The guard that makes a missed retire harmless. Ctrl+O was the path that
+// missed one: it switched to the Files tab without dropping a note's offer, so
+// Undo would have pushed the note into a box that was not on screen, and a Clear
+// on the new tab would have destroyed it silently. Every tab-changing path
+// retires the offer now, and this is the check that survives the next one that
+// forgets.
+describe('restorable', () => {
+    it('allows an undo only into the tab the offer came from', () => {
+        expect(restorable({kind: 'files', files: ['a.txt']}, 'files')).toBe(true);
+        expect(restorable({kind: 'text', text: 'hi'}, 'text')).toBe(true);
     });
-    // holdUndo parks the deadline at Infinity while the pointer or the keyboard
-    // is on the offer, so a held offer must never read as expired.
-    it('never expires a held offer', () => {
-        expect(isExpired(Infinity, Number.MAX_SAFE_INTEGER)).toBe(false);
+    it('refuses a note into the file list, and a file list into the note', () => {
+        expect(restorable({kind: 'text', text: 'hi'}, 'files')).toBe(false);
+        expect(restorable({kind: 'files', files: ['a.txt']}, 'text')).toBe(false);
+    });
+    // No clock anywhere in the offer's life: the bar is what expires. An offer
+    // taken an hour ago is still good if nothing has staged or switched since,
+    // which is what makes Ctrl+Z a route that does not depend on the clock.
+    it('does not depend on how long the offer has stood', () => {
+        const c = {kind: 'files' as const, files: ['a.txt']};
+        expect(restorable(c, 'files')).toBe(true);
+        expect(Object.keys(c)).not.toContain('until');
     });
 });
 
@@ -124,11 +136,12 @@ describe('the emptiness rule Send and Clear share', () => {
 });
 
 describe('UNDO_WINDOW_MS', () => {
-    // Guards against a stray edit: an offer that stands for a blink or for a
-    // minute is a different feature from the one that was designed. The floor
-    // is the one every design system with an ACTION in its toast converges on
-    // (Polaris warns below it, Material's Long is exactly it), so dropping back
-    // to the five or six seconds a plain notice gets would be a regression.
+    // Guards against a stray edit: a bar that shows for a blink or for a minute
+    // is a different feature from the one that was designed. The floor is the
+    // one every design system with an ACTION in its toast converges on (Polaris
+    // warns below it, Material's Long is exactly it), so dropping back to the
+    // five or six seconds a plain notice gets would be a regression. Note this
+    // bounds the BAR only; the undo behind it is not on a clock at all.
     it('stands long enough for an offer that carries an action', () => {
         expect(UNDO_WINDOW_MS).toBeGreaterThanOrEqual(10000);
         expect(UNDO_WINDOW_MS).toBeLessThanOrEqual(20000);
