@@ -2235,21 +2235,37 @@ function App() {
                                             sending, where the slot belongs to Cancel. A receive running on
                                             the other tab does not take Clear away: the send stage is
                                             separate state, and clearing it is both harmless and undoable.
-                                            Send does narrow when
-                                            Clear arrives; on Files that lands with the list and the label
-                                            gaining its count, on Text it is the one visible shift, and it
-                                            marks the moment there is something to send either way.
-                                            Clear sits left of Send like the safe choice in this app's
-                                            dialogs (Cancel before Reset all settings, Keep going before
-                                            Start over), which also puts it first in the tab order. That is
-                                            the opposite of the history row, where Remove is outermost, and
-                                            deliberately so: that row has no primary action to defer to. */}
+                                            Send does narrow when Clear arrives; on Files that lands with
+                                            the list and the label gaining its count, on Text it is the one
+                                            visible shift, and it marks the moment there is something to
+                                            send either way.
+                                            Send leads and Clear sits on the right, which is where this app
+                                            puts every quiet or undoing control: the history header's Clear,
+                                            Settings' Reset, the update notice's dismiss, and Remove on a
+                                            history row. Reading order therefore reaches the thing you came
+                                            to do first, and DOM order matches it, so the tab order needs no
+                                            correction. */}
                                         {sending ? (
                                             <Button variant="outline" size="lg" className="w-full" onClick={cancel}>
                                                 <X/> Cancel
                                             </Button>
                                         ) : (
                                             <div className="flex gap-3">
+                                                {/* The gradient paints over the primary variant's flat white,
+                                                    because a background-image sits above a background-color.
+                                                    That is also why the hover moves the stops instead of the
+                                                    colour: the variant's own hover:bg-zinc-200 is underneath
+                                                    the gradient and would never be seen. */}
+                                                <Button
+                                                    size="lg"
+                                                    className="flex-1 bg-gradient-to-b from-white to-zinc-100 shadow-sm hover:from-zinc-100 hover:to-zinc-200"
+                                                    onClick={send}
+                                                    disabled={busy || !staged}
+                                                >
+                                                    <Send/> {sendKind === 'text'
+                                                        ? 'Send text'
+                                                        : `Send${files.length ? ` ${files.length} ${files.length === 1 ? 'item' : 'items'}` : ''}`}
+                                                </Button>
                                                 {/* The visible word stays "Clear" because its object is
                                                     right there in the Send label beside it; the accessible
                                                     name carries that object for anyone who cannot see the
@@ -2271,21 +2287,6 @@ function App() {
                                                         Clear
                                                     </Button>
                                                 )}
-                                                {/* The gradient paints over the primary variant's flat white,
-                                                    because a background-image sits above a background-color.
-                                                    That is also why the hover moves the stops instead of the
-                                                    colour: the variant's own hover:bg-zinc-200 is underneath
-                                                    the gradient and would never be seen. */}
-                                                <Button
-                                                    size="lg"
-                                                    className="flex-1 bg-gradient-to-b from-white to-zinc-100 shadow-sm hover:from-zinc-100 hover:to-zinc-200"
-                                                    onClick={send}
-                                                    disabled={busy || !staged}
-                                                >
-                                                    <Send/> {sendKind === 'text'
-                                                        ? 'Send text'
-                                                        : `Send${files.length ? ` ${files.length} ${files.length === 1 ? 'item' : 'items'}` : ''}`}
-                                                </Button>
                                             </div>
                                         )}
 
