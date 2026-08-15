@@ -23,10 +23,16 @@ There are four ways to stage files, and you can mix them:
 | `Ctrl` `V` | Pastes files you copied in File Explorer, or an image from the clipboard. |
 
 Everything you add appears in a list under **Files**. Remove a single entry with the `X` on its
-row. `Ctrl` `R` starts over, which clears the selection along with everything else on the card.
-It asks first if a transfer is already moving bytes, or if the text box holds a note that has
-not been sent (the dialog reads "The text you typed has not been sent yet. Starting over will
-clear it."). Clicking the Floe lockup in the titlebar starts over too, with the same
+row, or empty the whole list with **Clear**, beside the Send button. Clear takes only what the
+tab you are on is holding (the file list on **Files**, the box on **Text**) and leaves your
+settings, the Receive tab, your history and anything already sent alone. It does not ask first.
+It offers **Undo** for a few seconds instead, which puts back exactly what it took.
+
+`Ctrl` `R` starts over, which clears the selection along with everything else on the card.
+It asks first if a transfer is already moving bytes, if the text box holds a note that has not
+been sent (the dialog reads "The text you typed has not been sent yet. Starting over will clear
+it."), or if you have just cleared a note and its Undo offer is still standing, since starting
+over discards it. Clicking the Floe lockup in the titlebar starts over too, with the same
 confirmations, but only the shortcut is held back while you are typing.
 
 Adding the same path twice does nothing, so dragging a file you already staged is safe. One

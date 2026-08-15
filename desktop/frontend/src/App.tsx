@@ -50,6 +50,7 @@ import QRCode from 'react-qr-code';
 import {BoltMark, Button, Eyebrow, Input, StatusDot, cn} from './components/ui';
 import {advancedSummary, hostOf} from './settings';
 import {histKey} from './history';
+import {UNDO_WINDOW_MS, clearLabel, clearedAnnouncement, clearedLabel, isExpired, stagedSnapshot, undoLabel, type Cleared} from './clear';
 import {resetWarning} from './reset';
 import {friendlyError} from './errors';
 import {fmtBytes, formatIncoming, type IncomingPreview} from './incoming';
@@ -680,6 +681,18 @@ function App() {
     const [sentText, setSentText] = useState('');
     const [peerConnected, setPeerConnected] = useState(false);
     const [filesOpen, setFilesOpen] = useState(false);
+    // What Clear last took away, and the timer that retires the offer to put it
+    // back. The snapshot is state because the offer renders from it; the timer
+    // id is a ref because nothing renders from it and because the
+    // once-registered handlers have to be able to cancel it.
+    const [cleared, setCleared] = useState<Cleared | null>(null);
+    const clearedTimer = useRef<number | null>(null);
+    // When the standing offer runs out. Checked again on the click, because a
+    // background window can have its timers clamped; Infinity while held.
+    const clearedUntil = useRef(0);
+    // Marks the one programmatic focus clearStaged performs, so that landing on
+    // Undo does not read as "the user reached for it" and stop the countdown.
+    const undoAutoFocus = useRef(false);
     const sendStart = useRef<Marker>(null);
     const sendCancel = useRef(false);
     // Snapshot of the sent file names, readable from the once-registered
@@ -763,6 +776,7 @@ function App() {
     // once-registered closures (functional updates + stable setters only).
     function addFiles(paths: string[]) {
         if (!paths || !paths.length || busyRef.current) return;
+        forgetCleared();
         setSettingsOpen(false);
         setMode('send');
         setSendKind('files');
@@ -1164,6 +1178,18 @@ function App() {
     // Leaving the history view abandons a pending Clear confirmation.
     useEffect(() => { if (mode !== 'history') setConfirmClear(false); }, [mode]);
 
+    // Leaving the send view abandons a pending undo offer: it belongs to a screen
+    // the user is no longer looking at, and its timer would otherwise fire there.
+    // Settings is not a mode but it covers the send view all the same, so it
+    // counts as leaving: without this, closing Settings inside the window would
+    // bring a ghost offer back with a partly spent timer.
+    useEffect(() => { if (mode !== 'send' || settingsOpen) forgetCleared(); }, [mode, settingsOpen]);
+
+    // The undo timer is the one thing here that outlives a render, so it needs an
+    // explicit teardown. (Started in the click handler, never in an effect: this
+    // app renders under StrictMode, which double-invokes effects in dev.)
+    useEffect(() => () => { if (clearedTimer.current !== null) clearTimeout(clearedTimer.current); }, []);
+
     // Escape dismisses whichever overlay is on top, else the settings screen.
     //
     // The branch order matches the paint order below: Start over renders last and
@@ -1284,6 +1310,7 @@ function App() {
         try {
             const picked = await SelectFiles();
             if (picked && picked.length) {
+                forgetCleared();
                 setFiles((prev) => mergePaths(prev, picked));
                 setSendDone(false);
                 setSendStatus('');
@@ -1299,6 +1326,7 @@ function App() {
         try {
             const dir = await SelectFolder();
             if (dir) {
+                forgetCleared();
                 setFiles((prev) => mergePaths(prev, [dir]));
                 setSendDone(false);
                 setSendStatus('');
@@ -1308,9 +1336,92 @@ function App() {
         }
     }
 
+    // No forgetCleared here, and not by oversight: an offer only ever stands over
+    // an emptied tab, so there is no row left to remove from while one is up. If
+    // Clear ever learns to clear a subset, this needs the call.
     function removeFile(path: string) {
         setFiles((prev) => prev.filter((f) => normPath(f) !== normPath(path)));
         setSendDone(false);
+    }
+
+    // forgetCleared retires a pending undo offer and its timer. Every path that
+    // stages something new or moves the send view on calls it, so Undo can never
+    // put a payload back into a screen that changed underneath it. Safe from the
+    // once-registered closures: a ref and a stable setter, nothing else.
+    function forgetCleared() {
+        holdUndo();
+        setCleared(null);
+    }
+
+    // holdUndo stops the countdown without retiring the offer, and armUndo
+    // starts a fresh one. Pointing at the offer holds it, so it cannot expire
+    // out from under the pointer travelling towards it.
+    function holdUndo() {
+        if (clearedTimer.current !== null) {
+            clearTimeout(clearedTimer.current);
+            clearedTimer.current = null;
+        }
+        clearedUntil.current = Infinity;
+    }
+
+    function armUndo() {
+        if (clearedTimer.current !== null) return;
+        clearedUntil.current = Date.now() + UNDO_WINDOW_MS;
+        clearedTimer.current = window.setTimeout(() => {
+            clearedTimer.current = null;
+            // Never unmount the element the keyboard is sitting on. If Undo has
+            // focus when its time runs out, hand focus back the way the settings
+            // dialog hands it to the trigger that opened it. The target is the
+            // active tab button, not Send: Send is disabled the moment a clear
+            // empties the tab, and focus() on a disabled button goes nowhere.
+            const onUndo = document.activeElement?.id === 'floe-undo-clear';
+            setCleared(null);
+            if (onUndo) requestAnimationFrame(() => document.getElementById('floe-send-kind')?.focus());
+        }, UNDO_WINDOW_MS);
+    }
+
+    // clearStaged empties what the current tab is holding and offers it back for
+    // a few seconds. No confirm: re-picking files is tedious rather than
+    // destructive, the same judgement resetWarning makes about staged files, and
+    // an undo catches the slip a prompt would have caught without taxing every
+    // deliberate clear.
+    function clearStaged() {
+        const snap = stagedSnapshot(sendKind, files, sendText);
+        if (!snap) return;
+        forgetCleared();
+        if (snap.kind === 'files') setFiles([]);
+        else setSendText('');
+        setSendDone(false);
+        // Blanked for the same reason every staging path blanks it: whatever it
+        // said was about a payload that no longer exists. Without this, a
+        // "Cancelled." from an earlier send would reappear when the offer went.
+        setSendStatus('');
+        setCleared(snap);
+        armUndo();
+        // Clear unmounts with the last thing it cleared, so focus would fall to
+        // the body. Moving it to Undo keeps the keyboard where the user was, and
+        // is what tells a screen reader the offer exists: an aria-live region
+        // that mounts with its own text already inside announces nothing, which
+        // this file has learned twice already. The button describes itself with
+        // the sentence beside it, so the landing reads "Undo, Cleared 12 items."
+        // Same id lookup as focusResetTrigger, for the same reason.
+        undoAutoFocus.current = true;
+        requestAnimationFrame(() => {
+            const el = document.getElementById('floe-undo-clear');
+            if (el) el.focus();
+            else undoAutoFocus.current = false;
+        });
+    }
+
+    // Undo replaces rather than merges, because it cannot collide: anything that
+    // could have staged something in the meantime has already retired the offer.
+    function undoClear() {
+        if (!cleared) return;
+        if (isExpired(clearedUntil.current, Date.now())) { forgetCleared(); return; }
+        const snap = cleared;
+        forgetCleared();
+        if (snap.kind === 'files') setFiles(snap.files);
+        else setSendText(snap.text);
     }
 
     async function pickSaveFolder() {
@@ -1332,6 +1443,7 @@ function App() {
             setSendStatus('Select at least one file first.');
             return;
         }
+        forgetCleared();
         sendCancel.current = false;
         setSending(true);
         setSendDone(false);
@@ -1405,6 +1517,7 @@ function App() {
     // cancel aborts the in-flight transfer: flag it so late Go events are ignored,
     // reset the UI optimistically, then close the connections on the Go side.
     function cancel() {
+        forgetCleared();
         if (sending) {
             sendCancel.current = true;
             setSending(false);
@@ -1453,6 +1566,7 @@ function App() {
         prevModeRef.current = fresh;
         setConfirmClear(false);
         setExpandedRow(null);
+        forgetCleared();
         sendBytesRef.current = 0;
         recvBytesRef.current = 0;
 
@@ -1509,6 +1623,11 @@ function App() {
 
     const busy = sending || receiving;
 
+    // What the send tab is holding, or null when it is empty. One rule, read by
+    // three places: whether Send is enabled, whether Clear is offered at all, and
+    // what an undo would have to put back.
+    const staged = stagedSnapshot(sendKind, files, sendText);
+
     // Update-notice visibility. updateAvailable drives the quiet About row and
     // survives dismissal; showUpdate adds the popup's manners: never over a
     // live transfer, never behind a dialog's scrim, gone for the session once
@@ -1525,6 +1644,9 @@ function App() {
         busy,
         text: sendText,
         sentText,
+        // A cleared note lives in the undo offer and nowhere else, and Start
+        // over drops the offer, so it earns the same prompt the box does.
+        clearedText: cleared?.kind === 'text' ? cleared.text : '',
     });
     // Amber marks anything relay-flavored: a known relayed route, or (before
     // the route is known / while idle) the Hide-my-IP preference forcing one.
@@ -2053,7 +2175,11 @@ function App() {
                                                 {(['files', 'text'] as const).map((k) => (
                                                     <button
                                                         key={k}
-                                                        onClick={() => setSendKind(k)}
+                                                        // The active tab is where focus lands if the undo
+                                                        // offer expires under the keyboard, so exactly one
+                                                        // of the two carries the id at a time.
+                                                        id={sendKind === k ? 'floe-send-kind' : undefined}
+                                                        onClick={() => { forgetCleared(); setSendKind(k); }}
                                                         className={cn(
                                                             'border-b pb-0.5 font-mono text-[10px] uppercase tracking-[0.2em] transition-colors',
                                                             sendKind === k ? 'border-white text-zinc-200' : 'border-transparent text-zinc-600 hover:text-zinc-400',
@@ -2075,7 +2201,7 @@ function App() {
                                         {!sending && sendKind === 'text' && (
                                             <textarea
                                                 value={sendText}
-                                                onChange={(e) => setSendText(e.target.value)}
+                                                onChange={(e) => { if (cleared) forgetCleared(); setSendText(e.target.value); }}
                                                 onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && sendText.trim() && !busy) send(); }}
                                                 placeholder="Type or paste text to send"
                                                 rows={4}
@@ -2103,21 +2229,64 @@ function App() {
                                             />
                                         )}
 
-                                        {/* action: a stable slot across stages so the button never jumps */}
+                                        {/* action: one slot across every stage, so the primary button stays
+                                            put. Clear joins Send exactly when the tab is holding something,
+                                            which is the same rule that enables Send, and never while
+                                            sending, where the slot belongs to Cancel. A receive running on
+                                            the other tab does not take Clear away: the send stage is
+                                            separate state, and clearing it is both harmless and undoable.
+                                            Send does narrow when
+                                            Clear arrives; on Files that lands with the list and the label
+                                            gaining its count, on Text it is the one visible shift, and it
+                                            marks the moment there is something to send either way.
+                                            Clear sits left of Send like the safe choice in this app's
+                                            dialogs (Cancel before Reset all settings, Keep going before
+                                            Start over), which also puts it first in the tab order. That is
+                                            the opposite of the history row, where Remove is outermost, and
+                                            deliberately so: that row has no primary action to defer to. */}
                                         {sending ? (
-                                            <Button variant="outline" className="w-full" onClick={cancel}>
+                                            <Button variant="outline" size="lg" className="w-full" onClick={cancel}>
                                                 <X/> Cancel
                                             </Button>
                                         ) : (
-                                            <Button
-                                                className="w-full"
-                                                onClick={send}
-                                                disabled={busy || (sendKind === 'text' ? !sendText.trim() : !files.length)}
-                                            >
-                                                <Send/> {sendKind === 'text'
-                                                    ? 'Send text'
-                                                    : `Send${files.length ? ` ${files.length} ${files.length === 1 ? 'item' : 'items'}` : ''}`}
-                                            </Button>
+                                            <div className="flex gap-3">
+                                                {/* The visible word stays "Clear" because its object is
+                                                    right there in the Send label beside it; the accessible
+                                                    name carries that object for anyone who cannot see the
+                                                    pair. No tooltip: a labelled button next to the thing it
+                                                    acts on does not need one, and the wrapper would take
+                                                    the layout classes with it. */}
+                                                {staged && (
+                                                    <Button
+                                                        variant="secondary"
+                                                        size="lg"
+                                                        // A floor on the width so the short word cannot
+                                                        // collapse into a chip beside a stretched primary,
+                                                        // and font-medium so the pair differs by material
+                                                        // rather than by weight as well as everything else.
+                                                        className="min-w-24 font-medium"
+                                                        onClick={clearStaged}
+                                                        aria-label={clearLabel(staged)}
+                                                    >
+                                                        Clear
+                                                    </Button>
+                                                )}
+                                                {/* The gradient paints over the primary variant's flat white,
+                                                    because a background-image sits above a background-color.
+                                                    That is also why the hover moves the stops instead of the
+                                                    colour: the variant's own hover:bg-zinc-200 is underneath
+                                                    the gradient and would never be seen. */}
+                                                <Button
+                                                    size="lg"
+                                                    className="flex-1 bg-gradient-to-b from-white to-zinc-100 shadow-sm hover:from-zinc-100 hover:to-zinc-200"
+                                                    onClick={send}
+                                                    disabled={busy || !staged}
+                                                >
+                                                    <Send/> {sendKind === 'text'
+                                                        ? 'Send text'
+                                                        : `Send${files.length ? ` ${files.length} ${files.length === 1 ? 'item' : 'items'}` : ''}`}
+                                                </Button>
+                                            </div>
                                         )}
 
                                         {/* share surface: waiting stage only — the 1:1 room is consumed
@@ -2133,7 +2302,39 @@ function App() {
                                                 <span>Sent {sentCount} {sentCount === 1 ? 'item' : 'items'}</span>
                                             </div>
                                         )}
-                                        <StatusLine text={sendStatus} busy={sending}/>
+                                        {/* While it stands, the undo offer speaks for the status line:
+                                            two rows of small print under the button would be one too many. */}
+                                        {cleared ? (
+                                            <p className="flex min-h-5 items-center justify-center gap-2 text-center text-xs">
+                                                <span className="text-zinc-500">{clearedLabel(cleared)}</span>
+                                                <button
+                                                    type="button"
+                                                    id="floe-undo-clear"
+                                                    aria-label={undoLabel(cleared)}
+                                                    onClick={undoClear}
+                                                    onMouseEnter={holdUndo}
+                                                    onMouseLeave={() => { if (cleared) armUndo(); }}
+                                                    onFocus={() => { if (undoAutoFocus.current) { undoAutoFocus.current = false; return; } holdUndo(); }}
+                                                    onBlur={() => { if (cleared) armUndo(); }}
+                                                    className="rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice/60"
+                                                >
+                                                    Undo
+                                                </button>
+                                            </p>
+                                        ) : (
+                                            <StatusLine text={sendStatus} busy={sending}/>
+                                        )}
+                                        {/* Zero height, and mounted whether or not there is anything to
+                                            say, because a live region only announces a CHANGE: one that
+                                            mounts with its text already inside stays silent, which this
+                                            file has learned twice (StatusLine's docblock, and the update
+                                            notice's sr-only twin). sr-only is absolutely positioned, so it
+                                            adds no row to the stack. Belt and braces with the focus move:
+                                            whichever of the two a screen reader honours, the user hears
+                                            both what went and that there is a way back. */}
+                                        <span className="sr-only" role="status" aria-live="polite">
+                                            {cleared ? clearedAnnouncement(cleared) : ''}
+                                        </span>
                                     </div>
 
                                 ) : mode === 'receive' ? (

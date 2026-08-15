@@ -36,6 +36,13 @@
  * from "attempted": a send that fails or is cancelled leaves the note unsent,
  * and it still earns its prompt.
  *
+ * clearedText is the same note one step later: Clear moves it out of the box
+ * and into the undo offer, where it is still the only copy in existence. Start
+ * over drops that offer, so without this input a note typed, cleared, and then
+ * abandoned to Ctrl+R would vanish exactly the way the one in the box used to.
+ * It is optional because callers that predate the Clear control mean "nothing
+ * is pending" by omitting it.
+ *
  * busy is the one gate that keeps the prompt off a path where it would be
  * noise, because a send that is connecting or waiting for a peer still holds
  * its text and file list, and a dialog in front of the escape hatch that exists
@@ -58,13 +65,17 @@ export function resetWarning(s: {
     busy: boolean;
     text: string;
     sentText: string;
+    clearedText?: string;
 }): string {
     if (s.transferring) return 'A transfer is in progress. Starting over will cancel it.';
     if (s.busy) return '';
-    const t = s.text.trim();
     // Trimmed on both sides, like the emptiness test it shares a line with: a
     // note that differs from the one that went out by trailing whitespace is
     // not lost work.
-    if (t === '' || t === s.sentText.trim()) return '';
-    return 'The text you typed has not been sent yet. Starting over will clear it.';
+    const sent = s.sentText.trim();
+    const t = s.text.trim();
+    if (t !== '' && t !== sent) return 'The text you typed has not been sent yet. Starting over will clear it.';
+    const c = (s.clearedText ?? '').trim();
+    if (c !== '' && c !== sent) return 'The text you cleared can still be brought back. Starting over will discard it.';
+    return '';
 }

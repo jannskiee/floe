@@ -25,10 +25,12 @@ never interrupted, nothing fires twice, and a half-typed note is never wiped mid
 does.
 
 <Warning>
-  `Ctrl` `R` asks for confirmation in two cases: when a transfer is actually moving data, and
-  when the text box holds a note that has not been sent. The unsent-note prompt covers both
-  paths to Start over, the shortcut itself and clicking the Floe lockup in the titlebar. The
-  dialog reads "The text you typed has not been sent yet. Starting over will clear it."
+  `Ctrl` `R` asks for confirmation in three cases: when a transfer is actually moving data, when
+  the text box holds a note that has not been sent, and when you have just cleared a note and
+  its **Undo** offer is still on screen. The prompts cover both paths to Start over, the
+  shortcut itself and clicking the Floe lockup in the titlebar. The unsent-note dialog reads
+  "The text you typed has not been sent yet. Starting over will clear it."; the cleared-note one
+  reads "The text you cleared can still be brought back. Starting over will discard it."
 
   A note counts as sent only while the box still holds exactly what went out, so typing a new
   one after a send prompts again, and so does a note you typed and then abandoned in favour of

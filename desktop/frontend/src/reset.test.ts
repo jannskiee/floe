@@ -93,11 +93,35 @@ describe('resetWarning', () => {
         expect(resetWarning(base)).toBe('');
     });
 
+    // Clear moves a note out of the box and into the undo offer, which is then
+    // the only copy in existence. Start over drops the offer, so it has to earn
+    // the same prompt the box does; before this, a note typed, cleared, and then
+    // abandoned to Ctrl+R vanished in silence inside the undo window.
+    it('prompts for a note that Clear is holding', () => {
+        const s = resetWarning({...base, text: '', clearedText: 'the note I just cleared'});
+        expect(s).toContain('brought back');
+    });
+    it('says nothing about a cleared note that was already sent', () => {
+        expect(resetWarning({...base, text: '', clearedText: 'sent note', sentText: 'sent note'})).toBe('');
+    });
+    // The staged-files rule survives the new input: a cleared FILE list is still
+    // just paths on disk, so it prompts for nothing.
+    it('does not prompt for a cleared file list', () => {
+        expect(resetWarning({...base, text: '', clearedText: ''})).toBe('');
+    });
+    // The note in the box outranks the one in the offer: they cannot both be
+    // live, but if they ever were, the visible one is the one to name.
+    it('names the note in the box before the cleared one', () => {
+        const s = resetWarning({...base, text: 'typed', clearedText: 'cleared'});
+        expect(s).toContain('has not been sent');
+    });
+
     // House style, enforced rather than trusted: no em dashes anywhere in UI copy.
     it('uses no em dashes', () => {
         for (const s of [
             resetWarning({...base, transferring: true}),
             resetWarning({...base, text: 'draft'}),
+            resetWarning({...base, text: '', clearedText: 'draft'}),
         ]) {
             expect(s).not.toContain('—');
         }

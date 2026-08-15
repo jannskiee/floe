@@ -65,17 +65,36 @@ const buttonVariants: Record<ButtonVariant, string> = {
     ghost:     'text-zinc-400 hover:bg-white/10 hover:text-zinc-100',
 };
 
+type ButtonSize = 'md' | 'lg';
+
+/** Size owns the padding and the corner, because cn is a plain join with no
+ *  tailwind-merge: a px-* or rounded-* passed through className cannot beat the
+ *  same property coming from the base string, so the only way to have two
+ *  sizes is to keep them out of the base. `md` is what every button in the app
+ *  rendered before this prop existed, character for character, so adding it
+ *  changed nothing on screen. `lg` is for the send card's committing row, where
+ *  the file rows' own radius and a little more room make the pair read as one
+ *  deliberate row rather than two leftovers. Its 9px is deliberate and sits
+ *  between the two steps of the spacing scale: 38px tall reads as a committing
+ *  control without the slab quality 40px gave it beside a 40px file row. */
+const buttonSizes: Record<ButtonSize, string> = {
+    md: 'rounded-md px-3 py-2',
+    lg: 'rounded-lg px-4 py-[9px]',
+};
+
 export function Button({
     variant = 'primary',
+    size = 'md',
     className,
     children,
     ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & {variant?: ButtonVariant}) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & {variant?: ButtonVariant; size?: ButtonSize}) {
     return (
         <button
             {...props}
             className={cn(
-                'inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
+                'inline-flex items-center justify-center gap-2 text-sm transition-colors',
+                buttonSizes[size],
                 'focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ice/40',
                 'disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0',
                 buttonVariants[variant],
