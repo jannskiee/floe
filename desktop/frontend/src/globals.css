@@ -80,6 +80,25 @@
     animation: floe-notice-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
+  /* The undo toast's entrance, mirroring the notice's: each arrives from the
+     edge it lives on, so the notice drops and this one rises. Same curve and
+     duration, so the two read as one family. Entrance only, for the same
+     reason: a conditional render cannot animate out. */
+  @keyframes floe-toast-in {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 10px, 0) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+
+  .animate-floe-toast-in {
+    animation: floe-toast-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
   /* The notice's one accent: a 1px ice rim in the bar's border, catching
      light at the top left and dissolving toward the bottom right, drawn with
      the double-mask trick so it stays transparent-safe under backdrop-blur.

@@ -43,6 +43,7 @@ import {
     Send,
     Share2,
     SquareArrowOutUpRight,
+    Undo2,
     UploadCloud,
     X,
 } from 'lucide-react';
@@ -283,6 +284,72 @@ function mergePaths(prev: string[], add: string[]): string[] {
         }
     }
     return out;
+}
+
+/** UndoToast is the app's second toast, and the opposite kind to the first:
+ *  the update notice stands until it is acted on, while this one exists only
+ *  for as long as the undo behind it does. It sits bottom centre, in the empty
+ *  space under the card, so the two can never collide, and it is a pill rather
+ *  than a rounded rectangle because it carries a passing sentence rather than a
+ *  standing task.
+ *
+ *  Same material as the notice (blurred zinc, an inset hairline, the layered
+ *  shadow) so they read as one family, but deliberately WITHOUT the ice rim:
+ *  that is the notice's one accent, and ice otherwise belongs to focus rings
+ *  and the OS drag highlight.
+ *
+ *  The full-width positioner is pointer-events-none so this cannot swallow a
+ *  click meant for the card behind it; only the pill itself takes the pointer.
+ *  Hovering the pill holds the countdown, so the offer cannot expire out from
+ *  under a pointer travelling towards it.
+ *
+ *  Screen-reader announcement lives in the persistent sr-only region at the app
+ *  root, next to the update notice's, for the reason documented there: a live
+ *  region that mounts with its text already inside announces nothing. */
+function UndoToast({label, action, onUndo, onHold, onArm, onFocus}: {
+    label: string;
+    action: string;
+    onUndo: () => void;
+    onHold: () => void;
+    onArm: () => void;
+    onFocus: () => void;
+}) {
+    // Centred under the console, not under the window: the left edge mirrors
+    // the hero rail's own w-[42%] max-w-[460px] rule, so the pill lines up with
+    // the card it is talking about at every window width. Fixed rather than
+    // absolute inside main, because that column scrolls and would carry the
+    // toast away with it.
+    return (
+        <div className="pointer-events-none fixed bottom-6 left-[min(42%,460px)] right-0 z-30 flex justify-center px-4">
+            <div
+                onMouseEnter={onHold}
+                onMouseLeave={onArm}
+                className={cn(
+                    'pointer-events-auto isolate flex h-12 items-center gap-3 rounded-full pl-4 pr-1.5',
+                    'bg-zinc-900/80 ring-1 ring-inset ring-white/10 backdrop-blur-xl backdrop-saturate-150',
+                    'shadow-[0_1px_1px_rgba(0,0,0,0.06),0_4px_8px_-4px_rgba(0,0,0,0.28),0_16px_32px_-12px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.07)]',
+                    'animate-floe-toast-in motion-reduce:animate-none',
+                )}
+            >
+                {/* strokeWidth 3 for the same reason the notice's icon carries it:
+                    at 16px the default 2 draws 1.33 device px and antialiases to
+                    fuzzy grey. */}
+                <Undo2 className="size-4 shrink-0 text-zinc-400" strokeWidth={3} aria-hidden/>
+                <span className="whitespace-nowrap text-[13px] leading-none tracking-[-0.01em] text-zinc-200">{label}</span>
+                <span className="ml-1 h-5 w-px bg-white/[0.14]" aria-hidden/>
+                <button
+                    id="floe-undo-clear"
+                    aria-label={action}
+                    onClick={onUndo}
+                    onFocus={onFocus}
+                    onBlur={onArm}
+                    className="h-9 shrink-0 rounded-full px-3.5 text-[13px] font-semibold leading-none text-zinc-50 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ice/60"
+                >
+                    Undo
+                </button>
+            </div>
+        </div>
+    );
 }
 
 /** Switch is the settings toggle: a small track/thumb pair driven by an
@@ -1732,6 +1799,24 @@ function App() {
             </span>
             {showUpdate && <UpdateNotice version={updateVer} onDismiss={() => setUpdateDismissed(true)}/>}
 
+            {/* The undo offer's own announcement, a separate span from the
+                update one above rather than a shared channel: the two can stand
+                at the same time, and one ternary owning both would let either
+                erase the other's sentence. */}
+            <span className="sr-only" role="status" aria-live="polite">
+                {cleared ? clearedAnnouncement(cleared) : ''}
+            </span>
+            {cleared && (
+                <UndoToast
+                    label={clearedLabel(cleared)}
+                    action={undoLabel(cleared)}
+                    onUndo={undoClear}
+                    onHold={holdUndo}
+                    onArm={() => { if (cleared) armUndo(); }}
+                    onFocus={() => { if (undoAutoFocus.current) { undoAutoFocus.current = false; return; } holdUndo(); }}
+                />
+            )}
+
             {settingsOpen ? (
             /* ── SETTINGS SCREEN ─────────────────────────────────────────── */
                 <div className="flex flex-1 flex-col overflow-hidden">
@@ -2303,39 +2388,7 @@ function App() {
                                                 <span>Sent {sentCount} {sentCount === 1 ? 'item' : 'items'}</span>
                                             </div>
                                         )}
-                                        {/* While it stands, the undo offer speaks for the status line:
-                                            two rows of small print under the button would be one too many. */}
-                                        {cleared ? (
-                                            <p className="flex min-h-5 items-center justify-center gap-2 text-center text-xs">
-                                                <span className="text-zinc-500">{clearedLabel(cleared)}</span>
-                                                <button
-                                                    type="button"
-                                                    id="floe-undo-clear"
-                                                    aria-label={undoLabel(cleared)}
-                                                    onClick={undoClear}
-                                                    onMouseEnter={holdUndo}
-                                                    onMouseLeave={() => { if (cleared) armUndo(); }}
-                                                    onFocus={() => { if (undoAutoFocus.current) { undoAutoFocus.current = false; return; } holdUndo(); }}
-                                                    onBlur={() => { if (cleared) armUndo(); }}
-                                                    className="rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice/60"
-                                                >
-                                                    Undo
-                                                </button>
-                                            </p>
-                                        ) : (
-                                            <StatusLine text={sendStatus} busy={sending}/>
-                                        )}
-                                        {/* Zero height, and mounted whether or not there is anything to
-                                            say, because a live region only announces a CHANGE: one that
-                                            mounts with its text already inside stays silent, which this
-                                            file has learned twice (StatusLine's docblock, and the update
-                                            notice's sr-only twin). sr-only is absolutely positioned, so it
-                                            adds no row to the stack. Belt and braces with the focus move:
-                                            whichever of the two a screen reader honours, the user hears
-                                            both what went and that there is a way back. */}
-                                        <span className="sr-only" role="status" aria-live="polite">
-                                            {cleared ? clearedAnnouncement(cleared) : ''}
-                                        </span>
+                                        <StatusLine text={sendStatus} busy={sending}/>
                                     </div>
 
                                 ) : mode === 'receive' ? (
