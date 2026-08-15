@@ -325,25 +325,26 @@ function UndoToast({label, action, onUndo, onHold, onArm, onFocus}: {
                 onMouseEnter={onHold}
                 onMouseLeave={onArm}
                 className={cn(
-                    'pointer-events-auto isolate flex h-12 items-center gap-3 rounded-full pl-4 pr-1.5',
-                    'bg-zinc-900/80 ring-1 ring-inset ring-white/10 backdrop-blur-xl backdrop-saturate-150',
-                    'shadow-[0_1px_1px_rgba(0,0,0,0.06),0_4px_8px_-4px_rgba(0,0,0,0.28),0_16px_32px_-12px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.07)]',
+                    // The card's own corner and material, one step more opaque so
+                    // a floating strip stays legible over whatever is behind it.
+                    'pointer-events-auto isolate flex items-center gap-3 rounded-xl border border-white/10 bg-zinc-900/85 p-2.5',
+                    'shadow-2xl ring-1 ring-white/5 backdrop-blur-xl backdrop-saturate-150',
                     'animate-floe-toast-in motion-reduce:animate-none',
                 )}
             >
-                {/* strokeWidth 3 for the same reason the notice's icon carries it:
-                    at 16px the default 2 draws 1.33 device px and antialiases to
-                    fuzzy grey. */}
-                <Undo2 className="size-4 shrink-0 text-zinc-400" strokeWidth={3} aria-hidden/>
-                <span className="whitespace-nowrap text-[13px] leading-none tracking-[-0.01em] text-zinc-200">{label}</span>
-                <span className="ml-1 h-5 w-px bg-white/[0.14]" aria-hidden/>
+                {/* The same icon tile the file rows use, which is what makes this
+                    read as part of the app rather than a browser notification. */}
+                <span className="grid size-8 shrink-0 place-items-center rounded-md bg-white/[0.04] ring-1 ring-inset ring-white/10">
+                    <Undo2 className="size-4 text-zinc-300" strokeWidth={2.5} aria-hidden/>
+                </span>
+                <span className="whitespace-nowrap pr-1 text-[13px] leading-none tracking-[-0.005em] text-zinc-200">{label}</span>
                 <button
                     id="floe-undo-clear"
                     aria-label={action}
                     onClick={onUndo}
                     onFocus={onFocus}
                     onBlur={onArm}
-                    className="h-9 shrink-0 rounded-full px-3.5 text-[13px] font-semibold leading-none text-zinc-50 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ice/60"
+                    className="h-8 shrink-0 rounded-md border border-white/10 bg-white/[0.06] px-3 text-[13px] font-medium leading-none text-zinc-100 transition-colors hover:border-white/20 hover:bg-white/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice/60"
                 >
                     Undo
                 </button>
