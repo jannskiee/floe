@@ -80,29 +80,36 @@
     animation: floe-notice-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
-  /* The undo toast's entrance, mirroring the notice's: each arrives from the
-     edge it lives on, so the notice drops and this one rises. Same curve and
-     duration, so the two read as one family. Entrance only, for the same
-     reason: a conditional render cannot animate out. */
+  /* The undo toast's entrance. Same decelerate family as the notice, but its
+     own curve, travel and duration, because it is a different object: the
+     notice is peripheral and waits to be dealt with, while this bar is
+     bottom-centre, transient, and carries an action on a clock, so it has to
+     be seen and read fast without ever moving its own hit target.
+
+     24px of travel, half the bar's height. The notice's 10px is why a straight
+     copy of its entrance read as plain here: expo covers 90% of that distance
+     in the first 106ms and then sits still, so more than half the animation is
+     sub-pixel dead tail and most frames show no change at all.
+
+     No overshoot, deliberately, and this is the one place it is tempting. A
+     back-out curve on this geometry buys about 2px of bounce and costs 100ms
+     during which Undo has not settled where the user is already reaching. No
+     toast in any surveyed system overshoots, and Apple's own default spring is
+     critically damped. Entrance only, like everything else here: a conditional
+     render cannot animate out. */
   @keyframes floe-toast-in {
-    0% {
+    from {
       opacity: 0;
-      transform: translate3d(0, 18px, 0) scale(0.96);
+      transform: translate3d(0, 24px, 0) scale(0.97);
     }
-    55% {
-      opacity: 1;
-    }
-    70% {
-      transform: translate3d(0, -3px, 0) scale(1.008);
-    }
-    100% {
+    to {
       opacity: 1;
       transform: translate3d(0, 0, 0) scale(1);
     }
   }
 
   .animate-floe-toast-in {
-    animation: floe-toast-in 0.44s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: floe-toast-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
   /* The notice's one accent: a 1px ice rim in the bar's border, catching

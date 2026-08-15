@@ -1819,6 +1819,10 @@ function App() {
             <span className="sr-only" role="status" aria-live="polite">
                 {cleared ? clearedAnnouncement(cleared) : ''}
             </span>
+            {/* No key needed to replay the entrance: two offers can never be
+                adjacent renders, because reaching a second clear means staging
+                something first, and every staging path retires the first offer,
+                so the toast always unmounts in between. */}
             {cleared && (
                 <UndoToast
                     label={clearedLabel(cleared)}
