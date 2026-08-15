@@ -318,9 +318,9 @@ function UndoToast({label, action, onUndo, onHold, onArm}: {
     // the card it is talking about at every window width. Fixed rather than
     // absolute inside main, because that column scrolls and would carry the
     // toast away with it.
+    // The px-8 on the positioner matches the console's own gutter, so a long
+    // line can never run to the edges of the column.
     return (
-        {/* px-8 matches the console's own gutter, so a long line can never run
-            to the edges of the column. */}
         <div className="pointer-events-none fixed bottom-8 left-[min(42%,460px)] right-0 z-30 flex justify-center px-8">
             <div
                 onMouseEnter={onHold}
