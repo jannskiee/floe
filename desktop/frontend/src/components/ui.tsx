@@ -74,12 +74,19 @@ type ButtonSize = 'md' | 'lg';
  *  rendered before this prop existed, character for character, so adding it
  *  changed nothing on screen. `lg` is for the send card's committing row, where
  *  the file rows' own radius and a little more room make the pair read as one
- *  deliberate row rather than two leftovers. Its 9px is deliberate and sits
- *  between the two steps of the spacing scale: 38px tall reads as a committing
- *  control without the slab quality 40px gave it beside a 40px file row. */
+ *  deliberate row rather than two leftovers. 38px tall reads as a committing
+ *  control without the slab quality 40px gave it beside a 40px file row.
+ *
+ *  That height is set outright rather than left to padding, and the reason is
+ *  worth keeping. Padding alone made the number depend on the variant:
+ *  `secondary` and `outline` carry a 1px border, which sits outside a padding
+ *  box and made them 40px, and flex's default align-items:stretch then dragged
+ *  the borderless `primary` up to match. The row was 40px with Clear beside
+ *  Send and 38px with Send alone. An explicit height is absorbed by border-box,
+ *  so every variant is the same 38px in every state. */
 const buttonSizes: Record<ButtonSize, string> = {
     md: 'rounded-md px-3 py-2',
-    lg: 'rounded-lg px-4 py-[9px]',
+    lg: 'h-[38px] rounded-lg px-4',
 };
 
 export function Button({

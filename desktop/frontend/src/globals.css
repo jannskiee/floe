@@ -145,3 +145,25 @@
     background-color: rgb(255 255 255 / 0.05) !important;
   }
 }
+
+/* Reduced motion, and deliberately OUTSIDE @layer utilities.
+   `motion-reduce:animate-none` in the markup does not work on the animations
+   above, and the reason is pure cascade: Tailwind emits that utility inside the
+   same `utilities` layer, earlier in the file than these custom classes, and at
+   the same specificity, so the later rule wins and the animation plays anyway.
+   Raising specificity or adding !important would both work and both invite the
+   next person to fight the same battle. Unlayered declarations beat layered ones
+   outright, whatever the source order, so this block is the one thing that
+   cannot lose.
+   Keep any new `animate-*` utility listed here. The pulse is included because a
+   dot that breathes forever is exactly the ambient motion this setting is for,
+   and stopping it costs nothing: the halo is decorative and aria-hidden, and the
+   solid core it sits behind never moves. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-floe-in,
+  .animate-floe-notice-in,
+  .animate-floe-toast-in,
+  .animate-pulse {
+    animation: none;
+  }
+}
