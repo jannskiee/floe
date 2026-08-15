@@ -1262,17 +1262,23 @@ function App() {
     // Leaving the history view abandons a pending Clear confirmation.
     useEffect(() => { if (mode !== 'history') setConfirmClear(false); }, [mode]);
 
-    // Whether the undo bar is on screen. Note what this is NOT: it is not
-    // whether the undo is available. Hiding the bar and forgetting the offer
-    // were the same act until the audit pointed out what that cost, which was
-    // that a note became LESS safe the moment you cleared it. Sitting in the
-    // textarea it survived a tab switch, a look at Settings and a glance at
-    // History; held in an offer, each of those destroyed it silently. So the bar
-    // is a view concern (right screen, right tab, nothing covering it) and the
-    // offer is not: only supersededBy, a send, a Start over or another clear
-    // ends one. Coming back brings the bar back with it.
-    const barUp = !!cleared && offerUp && mode === 'send' && !settingsOpen
+    // Whether an undo can be taken right now: the offer exists, it belongs to the
+    // tab on screen, and that screen is actually in front of the user. Ctrl+Z
+    // reads this too, so the keystroke can never spend an offer from a screen
+    // that cannot show what happened, the way primaryAction bails on Settings.
+    //
+    // Note what it is NOT: it is not whether the offer still EXISTS. Being unable
+    // to undo from History does not end anything; walk back to Send and it is
+    // there. Only supersededBy, a Start over or another Clear ends an offer.
+    // Hiding and forgetting were the same act until the audit priced it: a note
+    // became LESS safe the moment you cleared it, because sitting in the textarea
+    // it survives a tab switch, Settings, History, a send and a cancel, while
+    // held in an offer each of those destroyed it silently.
+    const canUndo = !!cleared && mode === 'send' && !settingsOpen
         && !confirmReset && !confirmDefaults && restorable(cleared, sendKind);
+    // The bar is that, plus its own short life. The clock only ever lowers the
+    // bar; coming back to the view raises it again with a fresh window.
+    const barUp = canUndo && offerUp;
 
     // The bar's clock runs only while the bar is actually on screen and
     // reachable. Look somewhere else, open Settings, raise a dialog, and it
@@ -1292,7 +1298,13 @@ function App() {
     // otherwise destroy the element the keyboard is sitting on and drop focus to
     // the body, where the next Tab restarts at the title bar (WCAG 2.4.3,
     // technique F85). Handling it here rather than at each call site is the
-    // point: two of them were handled and four were not.
+    // point: previously two routes were handled and the rest were not.
+    //
+    // Two targets, because the first does not exist everywhere the bar can leave
+    // from: #floe-send-kind lives inside the send view, so Ctrl+, and Ctrl+H
+    // unmount it in the same commit and the lookup would find nothing. The
+    // titlebar lockup is mounted on every screen, and is where the settings
+    // dialogs already hand focus back to.
     //
     // The rescue fires only when focus is genuinely orphaned, so it can never
     // steal focus from something that legitimately took it, which is also how
@@ -1303,7 +1315,10 @@ function App() {
         barWasUp.current = barUp;
         if (!leaving) return;
         if (document.activeElement && document.activeElement !== document.body) return;
-        requestAnimationFrame(() => document.getElementById('floe-send-kind')?.focus());
+        requestAnimationFrame(() => {
+            const target = document.getElementById('floe-send-kind') ?? document.getElementById('floe-reset-trigger');
+            target?.focus();
+        });
     }, [barUp]);
 
     // The undo timer is the one thing here that outlives a render, so it needs an
@@ -1321,7 +1336,11 @@ function App() {
         if (!settingsOpen && !confirmReset) return;
         const onKey = (e: KeyboardEvent) => {
             if (e.key !== 'Escape') return;
-            if (confirmReset) setConfirmReset(false);
+            // Both dialogs hand focus back the same way now. Start over did not
+            // need to before, because focus never entered it; it does now that
+            // it autofocuses its safe button, and without this the dismissal
+            // drops the keyboard on the body.
+            if (confirmReset) { setConfirmReset(false); focusResetTrigger(); }
             else if (confirmDefaults) { setConfirmDefaults(false); focusResetTrigger(); }
             else setSettingsOpen(false);
         };
@@ -1473,7 +1492,7 @@ function App() {
         }
     }
 
-    // No forgetCleared here, and not by oversight: an offer only ever stands over
+    // No discard here, and not by oversight: an offer only ever stands over
     // an emptied tab, so there is no row left to remove from while one is up. If
     // Clear ever learns to clear a subset, this needs the call.
     function removeFile(path: string) {
@@ -1481,27 +1500,37 @@ function App() {
         setSendDone(false);
     }
 
-    // forgetCleared retires a pending undo offer, takes its bar down and stops
-    // the timer. Every path that stages something new or moves the send view on
-    // calls it, so Undo can never put a payload back into a screen that changed
-    // underneath it. This is the ONLY thing that ends an offer: the clock ends
-    // the bar, never the offer. Safe from the once-registered closures: a ref
-    // and stable setters, nothing else.
-    function forgetCleared() {
+    // discardCleared throws the standing offer away, whatever it is and whichever
+    // tab it belongs to. It is TAB-BLIND, which is why it is named for what it
+    // costs rather than for tidying up, and why it has exactly three callers:
+    // Start over (which prompts first), another Clear (which replaces it), and an
+    // undo (which has just spent it).
+    //
+    // Do not add a fourth without proving the offer is genuinely dead. Three
+    // separate audit rounds failed on exactly that mistake: a call added to a
+    // transition that felt like an ending (a tab switch, opening Settings,
+    // Ctrl+O, a send, a cancel) but was not, each one silently destroying a
+    // typed note whose only copy this offer was. If what you mean is "this tab
+    // has new content now", call supersede(kind) instead, which cannot touch an
+    // offer belonging to the other tab.
+    //
+    // Safe from the once-registered closures: a ref and stable setters, nothing
+    // else.
+    function discardCleared() {
         holdUndo();
         setOfferUp(false);
         setCleared(null);
         setAnnounce('');
     }
 
-    // supersede is the ONLY automatic way an offer ends. New content on the tab
+    // supersede is the only AUTOMATIC way an offer ends. New content on the tab
     // the offer came from overtakes it, because undo replaces rather than merges
     // and putting the old payload back would destroy what was just staged.
     // Content on the other tab overtakes nothing. Reads the ref, not the state,
     // because the drop and paste paths call this from closures bound at mount.
     function supersede(kind: 'files' | 'text') {
         const c = clearedRef.current;
-        if (c && supersededBy(c, kind)) forgetCleared();
+        if (c && supersededBy(c, kind)) discardCleared();
     }
 
     // holdUndo stops the bar's countdown without taking the bar down, and
@@ -1535,7 +1564,7 @@ function App() {
     function clearStaged() {
         const snap = stagedSnapshot(sendKind, files, sendText);
         if (!snap) return;
-        forgetCleared();
+        discardCleared();
         if (snap.kind === 'files') setFiles([]);
         else setSendText('');
         setSendDone(false);
@@ -1565,13 +1594,13 @@ function App() {
     // keystroke alone) when there is nothing to undo. No clock here: the bar may
     // be long gone and the offer is still good.
     function undoClear(): boolean {
-        if (!cleared) return false;
-        // Refuses rather than retires. An offer sitting out a visit to the other
-        // tab is still perfectly good, and Ctrl+Z pressed over there should do
-        // nothing at all rather than quietly spend it.
-        if (!restorable(cleared, sendKind)) return false;
+        // Refuses rather than discards. An offer sitting out a visit to the other
+        // tab, or to Settings, is still perfectly good, and Ctrl+Z pressed over
+        // there should do nothing at all rather than quietly spend it somewhere
+        // the user cannot see the result.
+        if (!cleared || !canUndo) return false;
         const snap = cleared;
-        forgetCleared();
+        discardCleared();
         if (snap.kind === 'files') setFiles(snap.files);
         else setSendText(snap.text);
         // Emptying the region would be a removal, and removals are not spoken,
@@ -1599,7 +1628,15 @@ function App() {
             setSendStatus('Select at least one file first.');
             return;
         }
-        forgetCleared();
+        // Nothing is discarded here, and the reason is worth stating because the
+        // opposite looks obvious. An offer of kind K only exists while tab K is
+        // empty (every path that puts content on a tab supersedes that tab's
+        // offer first), and the guards just above refuse to send an empty tab.
+        // So a live offer at this line ALWAYS belongs to the other tab, and
+        // ending it could only ever destroy a payload this send has nothing to
+        // do with. Sending files is not a reason to forget a note you cleared,
+        // any more than it is a reason to empty the box a note is still sitting
+        // in, which it also does not do.
         sendCancel.current = false;
         setSending(true);
         setSendDone(false);
@@ -1672,8 +1709,14 @@ function App() {
 
     // cancel aborts the in-flight transfer: flag it so late Go events are ignored,
     // reset the UI optimistically, then close the connections on the Go side.
+    //
+    // Nothing is discarded here either, and this one was actively wrong: the call
+    // used to be the first statement, before the function had even decided which
+    // transfer it was cancelling, so cancelling a RECEIVE destroyed a send-side
+    // offer that had nothing to do with it. The render comment on the action row
+    // promises that clearing during a receive is "harmless and undoable", and
+    // that promise is only true with this gone.
     function cancel() {
-        forgetCleared();
         if (sending) {
             sendCancel.current = true;
             setSending(false);
@@ -1722,7 +1765,7 @@ function App() {
         prevModeRef.current = fresh;
         setConfirmClear(false);
         setExpandedRow(null);
-        forgetCleared();
+        discardCleared();
         sendBytesRef.current = 0;
         recvBytesRef.current = 0;
 
@@ -2783,8 +2826,12 @@ function App() {
                                 Clear is a button this dialog just unmounted, so
                                 focus falls to the body and Tab walks the page
                                 behind the scrim. */}
-                            <Button variant="outline" autoFocus onClick={() => setConfirmReset(false)}>Keep going</Button>
-                            <Button onClick={doReset}>Start over</Button>
+                            <Button variant="outline" autoFocus onClick={() => { setConfirmReset(false); focusResetTrigger(); }}>Keep going</Button>
+                            {/* The handoff goes here rather than inside doReset,
+                                which also runs from Ctrl+R and the titlebar with
+                                no dialog in the way, where moving focus would be
+                                an unasked-for jump. */}
+                            <Button onClick={() => { doReset(); focusResetTrigger(); }}>Start over</Button>
                         </div>
                     </div>
                 </div>
