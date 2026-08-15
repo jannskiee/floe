@@ -76,6 +76,14 @@ type ReceiveOptions struct {
 	// UpdateHint replaces the CLI-only local update instruction in protocol
 	// compatibility errors. Leave empty for the default CLI wording.
 	UpdateHint string
+	// Messages and Closed come from peer.Connection.Early(), which wires the data
+	// channel the instant it exists. Pass BOTH whenever the channel came from
+	// peer.SetupAsReceiver: registering handlers here instead is a race against
+	// pion's read loop, and the message it loses is the sender's first, so the
+	// transfer hangs with both ends reporting a healthy connection. Leave both
+	// nil only for a channel you created and left unhandled.
+	Messages <-chan webrtc.DataChannelMessage
+	Closed   <-chan struct{}
 }
 
 // ReceiveFiles handles the full receiving side of the Floe protocol.
@@ -102,25 +110,41 @@ func ReceiveFilesWithProgress(dc *webrtc.DataChannel, outputDir string, autoAcce
 // any file is created or acked.
 func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccept bool, localVer string, serverURL string, opts ReceiveOptions) error {
 	onProgress := opts.OnProgress
-	// msgCh collects ALL incoming data channel messages.
-	// We use a channel so the OnMessage callback (goroutine) feeds a sequential loop.
-	msgCh := make(chan webrtc.DataChannelMessage, 256)
-
-	// done is closed when the data channel closes. We signal via a separate
-	// channel instead of closing msgCh from OnClose: closing msgCh while the
-	// OnMessage callback might still push would panic ("send on closed channel").
-	// The OnMessage send selects on done so it can never block or panic after close.
-	done := make(chan struct{})
-	var closeOnce sync.Once
-	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-		select {
-		case msgCh <- msg:
-		case <-done:
-		}
-	})
-	dc.OnClose(func() {
-		closeOnce.Do(func() { close(done) })
-	})
+	// msgCh collects ALL incoming data channel messages, so the callback that
+	// pion runs on its own goroutine feeds a sequential loop here.
+	//
+	// It comes from peer.Connection.Early() when the caller has one, and that is
+	// the only correct source for a channel obtained from SetupAsReceiver: pion
+	// ACKs the data channel and starts reading before the application is told
+	// anything, so a handler registered here, at the top of the receive, can miss
+	// the sender's first message. It is not late by much. It is late by enough.
+	//
+	// The fallback below is for callers that own the data channel themselves and
+	// registered nothing, which in practice means the loopback tests.
+	var msgCh <-chan webrtc.DataChannelMessage
+	var done <-chan struct{}
+	if opts.Messages != nil && opts.Closed != nil {
+		msgCh, done = opts.Messages, opts.Closed
+	} else {
+		// done is closed when the data channel closes. We signal via a separate
+		// channel instead of closing msgCh from OnClose: closing msgCh while the
+		// OnMessage callback might still push would panic ("send on closed
+		// channel"). The OnMessage send selects on done so it can never block or
+		// panic after close.
+		ch := make(chan webrtc.DataChannelMessage, 256)
+		d := make(chan struct{})
+		var closeOnce sync.Once
+		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
+			select {
+			case ch <- msg:
+			case <-d:
+			}
+		})
+		dc.OnClose(func() {
+			closeOnce.Do(func() { close(d) })
+		})
+		msgCh, done = ch, d
+	}
 
 	// Process messages sequentially
 	var currentFile *os.File

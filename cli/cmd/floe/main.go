@@ -234,8 +234,13 @@ func runSend(cmd *cobra.Command, args []string) error {
 	fmt.Println("  Connected")
 	fmt.Println()
 
-	// 9. Send files
-	return transfer.SendFiles(dc, args, version)
+	// 9. Send files. The pump comes from the connection, not from SendFiles: see
+	// peer.Early for why registering it later can silently lose a message.
+	early := conn.Early()
+	return transfer.SendFilesWithOptions(dc, args, version, transfer.SendOptions{
+		Messages: early.Msgs,
+		Closed:   early.Closed,
+	})
 }
 
 // ── floe receive ─────────────────────────────────────────────────────────────
@@ -352,7 +357,13 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	if flagNoReport || os.Getenv("FLOE_NO_STATS") == "1" {
 		statsURL = "" // reportBytesToServer no-ops on empty URL
 	}
-	return transfer.ReceiveFiles(dc, absOutput, flagAutoAccept, version, statsURL)
+	// The pump comes from the connection, not from ReceiveFiles: see peer.Early.
+	// This is the side that was actually losing the sender's first message.
+	early := conn.Early()
+	return transfer.ReceiveFilesWithOptions(dc, absOutput, flagAutoAccept, version, statsURL, transfer.ReceiveOptions{
+		Messages: early.Msgs,
+		Closed:   early.Closed,
+	})
 }
 
 // ── floe version ─────────────────────────────────────────────────────────────
