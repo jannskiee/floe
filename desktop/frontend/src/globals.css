@@ -80,6 +80,38 @@
     animation: floe-notice-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
+  /* The undo toast's entrance. Same decelerate family as the notice, but its
+     own curve, travel and duration, because it is a different object: the
+     notice is peripheral and waits to be dealt with, while this bar is
+     bottom-centre, transient, and carries an action on a clock, so it has to
+     be seen and read fast without ever moving its own hit target.
+
+     24px of travel, half the bar's height. The notice's 10px is why a straight
+     copy of its entrance read as plain here: expo covers 90% of that distance
+     in the first 106ms and then sits still, so more than half the animation is
+     sub-pixel dead tail and most frames show no change at all.
+
+     No overshoot, deliberately, and this is the one place it is tempting. A
+     back-out curve on this geometry buys about 2px of bounce and costs 100ms
+     during which Undo has not settled where the user is already reaching. No
+     toast in any surveyed system overshoots, and Apple's own default spring is
+     critically damped. Entrance only, like everything else here: a conditional
+     render cannot animate out. */
+  @keyframes floe-toast-in {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 24px, 0) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+
+  .animate-floe-toast-in {
+    animation: floe-toast-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
   /* The notice's one accent: a 1px ice rim in the bar's border, catching
      light at the top left and dissolving toward the bottom right, drawn with
      the double-mask trick so it stays transparent-safe under backdrop-blur.
@@ -111,5 +143,30 @@
   .wails-drop-target-active {
     border-color: var(--color-ice) !important;
     background-color: rgb(255 255 255 / 0.05) !important;
+  }
+}
+
+/* Reduced motion, and deliberately OUTSIDE @layer utilities.
+   `motion-reduce:animate-none` in the markup does not work on the animations
+   above, and the reason is pure cascade: Tailwind emits that utility inside the
+   same `utilities` layer, earlier in the file than these custom classes, and at
+   the same specificity, so the later rule wins and the animation plays anyway.
+   Raising specificity or adding !important would both work and both invite the
+   next person to fight the same battle. Unlayered declarations beat layered ones
+   outright, whatever the source order, so this block is the one thing that
+   cannot lose.
+   Keep any new `animate-*` utility listed here. The pulse is included because a
+   dot that breathes forever is exactly the ambient motion this setting is for,
+   and stopping it costs nothing: the halo is decorative and aria-hidden, and the
+   solid core it sits behind never moves. `animate-spin` is deliberately absent:
+   it is the busy indicator, and a spinner frozen mid-transfer would say the app
+   had hung. That is the "essential" exception WCAG 2.2.2 names, and it is the
+   one animation here that carries information rather than polish. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-floe-in,
+  .animate-floe-notice-in,
+  .animate-floe-toast-in,
+  .animate-pulse {
+    animation: none;
   }
 }

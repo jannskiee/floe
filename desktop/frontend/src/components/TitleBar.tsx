@@ -27,6 +27,11 @@ export default function TitleBar({onSettings, settingsActive, onStartOver}: {
                 to a fresh app, mirroring the browser's click-the-logo reset */}
             <Tooltip label="Start over" keys="Ctrl+R" align="start">
                 <button
+                    // The one focusable element mounted on every screen, which is
+                    // what makes it the app's fallback when focus would otherwise
+                    // be orphaned. App.tsx looks it up by this id; do not remove
+                    // it without giving that lookup somewhere else to land.
+                    id="floe-lockup"
                     style={noDrag}
                     onClick={onStartOver}
                     onDoubleClick={(e) => e.stopPropagation()}

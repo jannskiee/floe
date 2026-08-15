@@ -12,23 +12,28 @@ description: "Every keyboard shortcut in Floe Desktop for Windows: adding files,
 | `Ctrl` `H` | Show or hide **History**. |
 | `Ctrl` `,` | Open or close **Settings**. |
 | `Ctrl` `R` | Start over. Clears the current selection and result. |
+| `Ctrl` `Z` | Undo a **Clear**, including after its bar has gone. Does nothing when there is nothing to undo. |
 | `Esc` | Close whatever is on top. In Settings, goes back. |
 | `Enter` | In the **Code or link** field, starts receiving. In the **Text** box, use `Ctrl` `Enter`. |
 
 ## Behaviour worth knowing
 
-**Most shortcuts pause while you type.** `Ctrl` `O`, `Ctrl` `Enter`, `Ctrl` `V`, `Ctrl` `H` and
-`Ctrl` `R` do nothing while the cursor is in a text field, so typing a room code or a note is
-never interrupted, nothing fires twice, and a half-typed note is never wiped mid-word.
+**Most shortcuts pause while you type.** `Ctrl` `O`, `Ctrl` `Enter`, `Ctrl` `V`, `Ctrl` `H`,
+`Ctrl` `R` and `Ctrl` `Z` do nothing while the cursor is in a text field, so typing a room code or
+a note is never interrupted, nothing fires twice, a half-typed note is never wiped mid-word, and
+the text box keeps its own undo.
 
 **One fires from anywhere.** `Ctrl` `,` opens Settings, the way a preferences shortcut normally
 does.
 
 <Warning>
-  `Ctrl` `R` asks for confirmation in two cases: when a transfer is actually moving data, and
-  when the text box holds a note that has not been sent. The unsent-note prompt covers both
-  paths to Start over, the shortcut itself and clicking the Floe lockup in the titlebar. The
-  dialog reads "The text you typed has not been sent yet. Starting over will clear it."
+  `Ctrl` `R` asks for confirmation in three cases: when a transfer is actually moving data, when
+  the text box holds a note that has not been sent, and when you cleared a note that had never
+  been sent and its **Undo** is still available, whether or not its bar is still up. The prompts
+  cover both paths to Start over, the shortcut itself and clicking the Floe lockup in the
+  titlebar. The unsent-note dialog reads "The text you typed has not been sent yet. Starting over
+  will clear it."; the cleared-note one reads "The text you cleared can still be brought back.
+  Starting over will discard it."
 
   A note counts as sent only while the box still holds exactly what went out, so typing a new
   one after a send prompts again, and so does a note you typed and then abandoned in favour of
