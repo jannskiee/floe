@@ -1038,9 +1038,13 @@ function App() {
         focusResetTrigger();
     }
 
-    // Returns focus to the trigger after the dialog closes, so a keyboard user is
-    // not dropped at the top of the document. The trigger is never unmounted, so
-    // this always has somewhere to land.
+    // Returns focus to the Settings "Reset" button after the defaults dialog
+    // closes, so a keyboard user is not dropped at the top of the document.
+    //
+    // #floe-reset-trigger lives INSIDE the settings screen, which is exactly
+    // right here (the defaults dialog can only be raised from there) and exactly
+    // wrong anywhere else. It was briefly used as a general fallback, which was a
+    // no-op on every screen but Settings.
     //
     // Looked up by id rather than by ref because Button is a plain React 18
     // function component shared with the transfer screen: accepting a ref would
@@ -1048,6 +1052,14 @@ function App() {
     // The rAF waits for the dialog to unmount before moving focus.
     function focusResetTrigger() {
         requestAnimationFrame(() => document.getElementById('floe-reset-trigger')?.focus());
+    }
+
+    // The app's last-resort focus home: the titlebar lockup, which is the only
+    // focusable element rendered on every screen, and which is itself the Start
+    // over control. Use this wherever focus would otherwise be orphaned on a
+    // screen you cannot predict.
+    function focusLockup() {
+        requestAnimationFrame(() => document.getElementById('floe-lockup')?.focus());
     }
 
     useEffect(() => {
@@ -1302,9 +1314,11 @@ function App() {
     //
     // Two targets, because the first does not exist everywhere the bar can leave
     // from: #floe-send-kind lives inside the send view, so Ctrl+, and Ctrl+H
-    // unmount it in the same commit and the lookup would find nothing. The
-    // titlebar lockup is mounted on every screen, and is where the settings
-    // dialogs already hand focus back to.
+    // unmount it in the same commit and the lookup finds nothing. #floe-lockup is
+    // the titlebar brand button, the only focusable element rendered on every
+    // screen. An earlier attempt used #floe-reset-trigger for this, which is
+    // inside the SETTINGS screen and therefore absent on exactly the routes that
+    // needed it.
     //
     // The rescue fires only when focus is genuinely orphaned, so it can never
     // steal focus from something that legitimately took it, which is also how
@@ -1316,7 +1330,7 @@ function App() {
         if (!leaving) return;
         if (document.activeElement && document.activeElement !== document.body) return;
         requestAnimationFrame(() => {
-            const target = document.getElementById('floe-send-kind') ?? document.getElementById('floe-reset-trigger');
+            const target = document.getElementById('floe-send-kind') ?? document.getElementById('floe-lockup');
             target?.focus();
         });
     }, [barUp]);
@@ -1336,11 +1350,12 @@ function App() {
         if (!settingsOpen && !confirmReset) return;
         const onKey = (e: KeyboardEvent) => {
             if (e.key !== 'Escape') return;
-            // Both dialogs hand focus back the same way now. Start over did not
-            // need to before, because focus never entered it; it does now that
-            // it autofocuses its safe button, and without this the dismissal
-            // drops the keyboard on the body.
-            if (confirmReset) { setConfirmReset(false); focusResetTrigger(); }
+            // Start over did not need a handoff before, because focus never
+            // entered it; it does now that it autofocuses its safe button. It
+            // goes to the lockup, NOT to the settings Reset button: this dialog
+            // is normally raised by Ctrl+R or by the lockup itself with Settings
+            // closed, where that button does not exist.
+            if (confirmReset) { setConfirmReset(false); focusLockup(); }
             else if (confirmDefaults) { setConfirmDefaults(false); focusResetTrigger(); }
             else setSettingsOpen(false);
         };
@@ -2826,12 +2841,12 @@ function App() {
                                 Clear is a button this dialog just unmounted, so
                                 focus falls to the body and Tab walks the page
                                 behind the scrim. */}
-                            <Button variant="outline" autoFocus onClick={() => { setConfirmReset(false); focusResetTrigger(); }}>Keep going</Button>
+                            <Button variant="outline" autoFocus onClick={() => { setConfirmReset(false); focusLockup(); }}>Keep going</Button>
                             {/* The handoff goes here rather than inside doReset,
                                 which also runs from Ctrl+R and the titlebar with
                                 no dialog in the way, where moving focus would be
                                 an unasked-for jump. */}
-                            <Button onClick={() => { doReset(); focusResetTrigger(); }}>Start over</Button>
+                            <Button onClick={() => { doReset(); focusLockup(); }}>Start over</Button>
                         </div>
                     </div>
                 </div>
