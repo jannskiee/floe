@@ -85,18 +85,24 @@
      duration, so the two read as one family. Entrance only, for the same
      reason: a conditional render cannot animate out. */
   @keyframes floe-toast-in {
-    from {
+    0% {
       opacity: 0;
-      transform: translate3d(0, 10px, 0) scale(0.97);
+      transform: translate3d(0, 18px, 0) scale(0.96);
     }
-    to {
+    55% {
+      opacity: 1;
+    }
+    70% {
+      transform: translate3d(0, -3px, 0) scale(1.008);
+    }
+    100% {
       opacity: 1;
       transform: translate3d(0, 0, 0) scale(1);
     }
   }
 
   .animate-floe-toast-in {
-    animation: floe-toast-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation: floe-toast-in 0.44s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
   /* The notice's one accent: a 1px ice rim in the bar's border, catching

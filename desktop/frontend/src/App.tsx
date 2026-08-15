@@ -332,11 +332,7 @@ function UndoToast({label, action, onUndo, onHold, onArm, onFocus}: {
                     'animate-floe-toast-in motion-reduce:animate-none',
                 )}
             >
-                {/* The same icon tile the file rows use, which is what makes this
-                    read as part of the app rather than a browser notification. */}
-                <span className="grid size-8 shrink-0 place-items-center rounded-md bg-white/[0.04] ring-1 ring-inset ring-white/10">
-                    <Undo2 className="size-4 text-zinc-300" strokeWidth={2.5} aria-hidden/>
-                </span>
+                <Undo2 className="ml-1.5 size-4 shrink-0 text-zinc-400" strokeWidth={2.5} aria-hidden/>
                 <span className="whitespace-nowrap pr-1 text-[13px] leading-none tracking-[-0.005em] text-zinc-200">{label}</span>
                 <button
                     id="floe-undo-clear"
