@@ -1517,9 +1517,13 @@ function App() {
 
     // discardCleared throws the standing offer away, whatever it is and whichever
     // tab it belongs to. It is TAB-BLIND, which is why it is named for what it
-    // costs rather than for tidying up, and why it has exactly three callers:
-    // Start over (which prompts first), another Clear (which replaces it), and an
-    // undo (which has just spent it).
+    // costs rather than for tidying up, and why its call sites are counted.
+    //
+    // There are exactly four, and only one of them is safe to copy. Three are
+    // deliberate endings: Start over (which prompts first), another Clear (which
+    // replaces it), and an undo (which has just spent it). The fourth is
+    // supersede below, which is the guarded wrapper and the only caller that
+    // checks whose offer it is about to end.
     //
     // Do not add a fourth without proving the offer is genuinely dead. Three
     // separate audit rounds failed on exactly that mistake: a call added to a
@@ -1765,6 +1769,13 @@ function App() {
     // swallowed; the next real transfer re-arms them.
     function doReset() {
         setConfirmReset(false);
+        // Also pre-existing housekeeping: this closes the settings screen below,
+        // and the defaults dialog renders OUTSIDE that branch, so without this it
+        // could outlive the screen it belongs to. Its Escape is gated on
+        // settingsOpen, and its Cancel focuses a button that is no longer
+        // mounted, so the survivor is both unclosable by keyboard and a focus
+        // orphan. Symmetric with the two dismissals either side of it.
+        setConfirmDefaults(false);
         sendCancel.current = true;
         recvCancel.current = true;
         // Invalidate any in-flight receive attempt: its promise settles on a
@@ -1833,7 +1844,21 @@ function App() {
             setConfirmReset(true);
             return;
         }
+        // The dialog's FOURTH exit, and the one that is easy to miss because it
+        // does not look like an exit at all. Ctrl+R or the lockup while the
+        // dialog is already up re-enters here, and if resetLoss has since gone
+        // empty (the transfer it was warning about finished, the note it was
+        // warning about got sent) this branch runs doReset, which sets
+        // setConfirmReset(false) and so DISMISSES a dialog it did not raise.
+        // With autoFocus on "Keep going", focus is sitting inside that dialog
+        // when it goes, and without this it lands on the body.
+        //
+        // The handoff is here rather than inside doReset because doReset also
+        // runs from Ctrl+R and the lockup with no dialog in the way, where
+        // moving focus would be an unasked-for jump.
+        const dismissing = confirmReset;
         doReset();
+        if (dismissing) focusLockup();
     }
 
     // Keep a stable reference to the latest startOver so the once-registered
@@ -1911,9 +1936,13 @@ function App() {
     openPickerRef.current = openPicker;
 
     // Ctrl+Enter: the current tab's primary action, mirroring the action button's
-    // enabled rules. No-op in Settings, while busy, or in History (no action there).
+    // enabled rules. No-op in Settings, while busy, in History (no action there),
+    // or behind a modal. That last guard is pre-existing housekeeping rather than
+    // anything to do with Clear: without it Ctrl+Enter starts a transfer BEHIND
+    // the Start over scrim, which is how an audit reached this dialog's unwired
+    // exit in the first place. showUpdate has guarded on the same two all along.
     function primaryAction() {
-        if (busy || settingsOpen) return;
+        if (busy || settingsOpen || confirmReset || confirmDefaults) return;
         if (mode === 'send') {
             if (sendKind === 'text' ? sendText.trim() : files.length) send();
         } else if (mode === 'receive') {
