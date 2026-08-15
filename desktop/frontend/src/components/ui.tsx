@@ -102,7 +102,11 @@ export function Button({
             className={cn(
                 'inline-flex items-center justify-center gap-2 text-sm transition-colors',
                 buttonSizes[size],
-                'focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ice/40',
+                // ice/60, not /40: measured from rendered pixels, /40 paints
+                // #516269 for 2.96:1 against the card and fails 1.4.11's 3:1,
+                // while /60 measures 5.23:1. Every hand-rolled focusable in the
+                // app already uses /60; this shared component was the outlier.
+                'focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ice/60',
                 'disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0',
                 buttonVariants[variant],
                 className,

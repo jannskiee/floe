@@ -36,15 +36,29 @@ export function stagedSnapshot(kind: 'files' | 'text', files: string[], text: st
     return files.length === 0 ? null : {kind: 'files', files};
 }
 
+// An offer belongs to the tab it was taken from, and both questions below are
+// really that one question asked from two directions.
+const sameTab = (c: Cleared, kind: 'files' | 'text') => c.kind === kind;
+
 /** restorable says whether an offer can be put back into the tab now on screen.
- *  An offer belongs to the tab it was taken from: restoring a note into the file
- *  list, or a file list into a note, would be worse than not restoring at all.
- *  Every path that changes the tab retires the offer, so a mismatch means one of
- *  them was missed; this is the check that makes the miss harmless. There is
- *  deliberately no clock in here. Nothing is persisted anywhere, so an offer
- *  never outlives the process that made it. */
+ *  Restoring a note into the file list, or a file list into a note, would be
+ *  worse than not restoring at all, so an offer taken on one tab simply waits
+ *  while the user is on the other. There is deliberately no clock in here.
+ *  Nothing is persisted anywhere, so an offer never outlives its process. */
 export function restorable(c: Cleared, kind: 'files' | 'text'): boolean {
-    return c.kind === kind;
+    return sameTab(c, kind);
+}
+
+/** supersededBy says whether new content on a given tab has overtaken the offer.
+ *  Undo replaces rather than merges, so once that tab holds something again,
+ *  putting the old payload back would destroy the new one, and the offer has to
+ *  go. Content on the OTHER tab overtakes nothing: it changes neither what the
+ *  offer holds nor the empty box it would go back into. This is the ONLY reason
+ *  an offer is dropped without the user asking, which is why it is a named rule
+ *  with tests rather than a call scattered through the view code. Merely LOOKING
+ *  somewhere else, a tab, Settings, History, a dialog, supersedes nothing. */
+export function supersededBy(c: Cleared, kind: 'files' | 'text'): boolean {
+    return sameTab(c, kind);
 }
 
 const items = (n: number) => `${n} ${n === 1 ? 'item' : 'items'}`;
@@ -74,14 +88,29 @@ export function undoLabel(c: Cleared): string {
     return c.kind === 'text' ? 'Undo clearing the text' : `Undo clearing ${items(c.files.length)}`;
 }
 
-/** clearedAnnouncement is what the always-mounted live region says: the visible
- *  sentence plus the one thing that row shows rather than states. Built FROM
+/** clearedAnnouncement is what the always-mounted live region says. Built FROM
  *  clearedLabel so the words on screen and the words in speech cannot drift.
- *  No number of seconds, because promising seconds in speech costs some of
- *  them to say, and the window is a constant that should stay tunable. */
+ *  No number of seconds, because promising seconds in speech costs some of them
+ *  to say, and the window is a constant that should stay tunable.
+ *
+ *  It names the KEY rather than saying "Undo is available", and that is the
+ *  point: the bar goes after a few seconds while the offer does not, so a
+ *  sentence about an available button outlives the button and sends someone
+ *  hunting the accessibility tree for a control that is no longer in it. The
+ *  key stays true for exactly as long as the offer does, and it is also the only
+ *  place in the app that names the shortcut, which the docs otherwise carry
+ *  alone. Spelled out, because "Ctrl+Z" is read aloud as punctuation. */
 export function clearedAnnouncement(c: Cleared): string {
     // The full stop the visible line drops goes back in here, at the seam:
     // punctuation is what makes a screen reader pause, and without it this is
     // one run-on breath.
-    return `${clearedLabel(c)}. Undo is available.`;
+    return `${clearedLabel(c)}. Press Control Z to undo.`;
+}
+
+/** restoredAnnouncement is the other half of that conversation. Without it an
+ *  undo is silent for a screen reader: the live region simply empties, and a
+ *  removal is not announced, so the one route added for keyboard users gave no
+ *  confirmation that anything came back. */
+export function restoredAnnouncement(c: Cleared): string {
+    return c.kind === 'text' ? 'Restored the text' : `Restored ${items(c.files.length)}`;
 }

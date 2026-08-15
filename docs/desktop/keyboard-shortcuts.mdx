@@ -12,7 +12,7 @@ description: "Every keyboard shortcut in Floe Desktop for Windows: adding files,
 | `Ctrl` `H` | Show or hide **History**. |
 | `Ctrl` `,` | Open or close **Settings**. |
 | `Ctrl` `R` | Start over. Clears the current selection and result. |
-| `Ctrl` `Z` | Undo a **Clear**. Works after its bar has gone, until you stage something else or start over. Does nothing otherwise, so the text box keeps its own undo. |
+| `Ctrl` `Z` | Undo a **Clear**, including after its bar has gone. Does nothing when there is nothing to undo. |
 | `Esc` | Close whatever is on top. In Settings, goes back. |
 | `Enter` | In the **Code or link** field, starts receiving. In the **Text** box, use `Ctrl` `Enter`. |
 
@@ -28,12 +28,12 @@ does.
 
 <Warning>
   `Ctrl` `R` asks for confirmation in three cases: when a transfer is actually moving data, when
-  the text box holds a note that has not been sent, and when you have cleared a note whose
-  **Undo** is still available, whether or not its bar is still up. The prompts cover both paths
-  to Start over, the shortcut itself and clicking the Floe lockup in the titlebar. The
-  unsent-note dialog reads "The text you typed has not been sent yet. Starting over will clear
-  it."; the cleared-note one reads "The text you cleared can still be brought back. Starting over
-  will discard it."
+  the text box holds a note that has not been sent, and when you cleared a note that had never
+  been sent and its **Undo** is still available, whether or not its bar is still up. The prompts
+  cover both paths to Start over, the shortcut itself and clicking the Floe lockup in the
+  titlebar. The unsent-note dialog reads "The text you typed has not been sent yet. Starting over
+  will clear it."; the cleared-note one reads "The text you cleared can still be brought back.
+  Starting over will discard it."
 
   A note counts as sent only while the box still holds exactly what went out, so typing a new
   one after a send prompts again, and so does a note you typed and then abandoned in favour of

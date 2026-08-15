@@ -158,7 +158,10 @@
    Keep any new `animate-*` utility listed here. The pulse is included because a
    dot that breathes forever is exactly the ambient motion this setting is for,
    and stopping it costs nothing: the halo is decorative and aria-hidden, and the
-   solid core it sits behind never moves. */
+   solid core it sits behind never moves. `animate-spin` is deliberately absent:
+   it is the busy indicator, and a spinner frozen mid-transfer would say the app
+   had hung. That is the "essential" exception WCAG 2.2.2 names, and it is the
+   one animation here that carries information rather than polish. */
 @media (prefers-reduced-motion: reduce) {
   .animate-floe-in,
   .animate-floe-notice-in,

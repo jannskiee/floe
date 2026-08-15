@@ -51,7 +51,7 @@ import QRCode from 'react-qr-code';
 import {BoltMark, Button, Eyebrow, Input, StatusDot, cn} from './components/ui';
 import {advancedSummary, hostOf} from './settings';
 import {histKey} from './history';
-import {UNDO_WINDOW_MS, clearLabel, clearedAnnouncement, clearedLabel, restorable, stagedSnapshot, undoLabel, type Cleared} from './clear';
+import {UNDO_WINDOW_MS, clearLabel, clearedAnnouncement, clearedLabel, restorable, restoredAnnouncement, stagedSnapshot, supersededBy, undoLabel, type Cleared} from './clear';
 import {resetWarning} from './reset';
 import {friendlyError} from './errors';
 import {fmtBytes, formatIncoming, type IncomingPreview} from './incoming';
@@ -690,6 +690,9 @@ function App() {
     // Whether the "start over?" confirm overlay is showing. Not only about a live
     // transfer: see resetWarning in reset.ts for every state that raises it.
     const [confirmReset, setConfirmReset] = useState(false);
+    // The sentence the Start over dialog is showing, captured when it opens. See
+    // startOver for why this is not read live.
+    const [resetMsg, setResetMsg] = useState('');
     // Whether the "reset all settings?" confirm overlay is showing. Deliberately
     // NOT named confirmReset: that one guards Start over, which clears the
     // transfer UI and keeps every preference. This one is the opposite.
@@ -766,6 +769,14 @@ function App() {
     const [cleared, setCleared] = useState<Cleared | null>(null);
     const [offerUp, setOfferUp] = useState(false);
     const clearedTimer = useRef<number | null>(null);
+    // Readable from the once-registered file-drop and paste closures, which see
+    // only the first render's state. Same idiom as busyRef above.
+    const clearedRef = useRef<Cleared | null>(null);
+    clearedRef.current = cleared;
+    // What the live region says. A piece of state rather than a render of
+    // `cleared`, because an undo has to ANNOUNCE something: emptying the region
+    // is a removal, and removals are not spoken.
+    const [announce, setAnnounce] = useState('');
     const sendStart = useRef<Marker>(null);
     const sendCancel = useRef(false);
     // Snapshot of the sent file names, readable from the once-registered
@@ -849,7 +860,7 @@ function App() {
     // once-registered closures (functional updates + stable setters only).
     function addFiles(paths: string[]) {
         if (!paths || !paths.length || busyRef.current) return;
-        forgetCleared();
+        supersede('files');
         setSettingsOpen(false);
         setMode('send');
         setSendKind('files');
@@ -1251,23 +1262,49 @@ function App() {
     // Leaving the history view abandons a pending Clear confirmation.
     useEffect(() => { if (mode !== 'history') setConfirmClear(false); }, [mode]);
 
-    // Leaving the send view abandons a pending undo offer: it belongs to a screen
-    // the user is no longer looking at, and its timer would otherwise fire there.
-    // Settings is not a mode but it covers the send view all the same, so it
-    // counts as leaving: without this, closing Settings inside the window would
-    // bring a ghost offer back with a partly spent timer.
-    useEffect(() => { if (mode !== 'send' || settingsOpen) forgetCleared(); }, [mode, settingsOpen]);
+    // Whether the undo bar is on screen. Note what this is NOT: it is not
+    // whether the undo is available. Hiding the bar and forgetting the offer
+    // were the same act until the audit pointed out what that cost, which was
+    // that a note became LESS safe the moment you cleared it. Sitting in the
+    // textarea it survived a tab switch, a look at Settings and a glance at
+    // History; held in an offer, each of those destroyed it silently. So the bar
+    // is a view concern (right screen, right tab, nothing covering it) and the
+    // offer is not: only supersededBy, a send, a Start over or another clear
+    // ends one. Coming back brings the bar back with it.
+    const barUp = !!cleared && offerUp && mode === 'send' && !settingsOpen
+        && !confirmReset && !confirmDefaults && restorable(cleared, sendKind);
 
-    // A dialog puts the bar away and stops its clock; dismissing one gives it
-    // back with its full few seconds. Time spent behind a scrim was never time
-    // the user could act in. armUndo is a no-op while a timer is already
-    // running, so the `cleared` dependency costs nothing on the render where
-    // clearStaged has just armed it.
+    // The bar's clock runs only while the bar is actually on screen and
+    // reachable. Look somewhere else, open Settings, raise a dialog, and it
+    // stops; come back and it starts again with its full few seconds. Time spent
+    // behind a scrim or on another screen was never time the user could act in.
+    // armUndo is a no-op while a timer is already running, so the `cleared`
+    // dependency costs nothing on the render where a clear has just happened.
     useEffect(() => {
         if (!cleared) return;
-        if (confirmReset || confirmDefaults) holdUndo();
-        else armUndo();
-    }, [confirmReset, confirmDefaults, cleared]);
+        if (barUp) armUndo();
+        else holdUndo();
+    }, [barUp, cleared]);
+
+    // One focus handoff for every way the bar can leave: its own expiry, an undo,
+    // a dialog opening over it, leaving the send view, switching tab. A clear
+    // deliberately puts focus ON the bar's button, so each of those would
+    // otherwise destroy the element the keyboard is sitting on and drop focus to
+    // the body, where the next Tab restarts at the title bar (WCAG 2.4.3,
+    // technique F85). Handling it here rather than at each call site is the
+    // point: two of them were handled and four were not.
+    //
+    // The rescue fires only when focus is genuinely orphaned, so it can never
+    // steal focus from something that legitimately took it, which is also how
+    // the Start over dialog is left alone to focus its own safe button.
+    const barWasUp = useRef(false);
+    useEffect(() => {
+        const leaving = barWasUp.current && !barUp;
+        barWasUp.current = barUp;
+        if (!leaving) return;
+        if (document.activeElement && document.activeElement !== document.body) return;
+        requestAnimationFrame(() => document.getElementById('floe-send-kind')?.focus());
+    }, [barUp]);
 
     // The undo timer is the one thing here that outlives a render, so it needs an
     // explicit teardown. (Started in the click handler, never in an effect: this
@@ -1394,7 +1431,10 @@ function App() {
                 // silent when nothing is pending so Ctrl+Z stays free for the
                 // field the user is actually in.
                 case 'z':
-                    if (typing || !undoClearRef.current()) return;
+                    // Shift excluded: Ctrl+Shift+Z is redo on every platform that
+                    // has it, and performing an undo there would be the opposite
+                    // of what was asked.
+                    if (typing || e.shiftKey || !undoClearRef.current()) return;
                     e.preventDefault();
                     break;
             }
@@ -1407,7 +1447,7 @@ function App() {
         try {
             const picked = await SelectFiles();
             if (picked && picked.length) {
-                forgetCleared();
+                supersede('files');
                 setFiles((prev) => mergePaths(prev, picked));
                 setSendDone(false);
                 setSendStatus('');
@@ -1423,7 +1463,7 @@ function App() {
         try {
             const dir = await SelectFolder();
             if (dir) {
-                forgetCleared();
+                supersede('files');
                 setFiles((prev) => mergePaths(prev, [dir]));
                 setSendDone(false);
                 setSendStatus('');
@@ -1451,6 +1491,17 @@ function App() {
         holdUndo();
         setOfferUp(false);
         setCleared(null);
+        setAnnounce('');
+    }
+
+    // supersede is the ONLY automatic way an offer ends. New content on the tab
+    // the offer came from overtakes it, because undo replaces rather than merges
+    // and putting the old payload back would destroy what was just staged.
+    // Content on the other tab overtakes nothing. Reads the ref, not the state,
+    // because the drop and paste paths call this from closures bound at mount.
+    function supersede(kind: 'files' | 'text') {
+        const c = clearedRef.current;
+        if (c && supersededBy(c, kind)) forgetCleared();
     }
 
     // holdUndo stops the bar's countdown without taking the bar down, and
@@ -1465,19 +1516,14 @@ function App() {
         }
     }
 
+    // Lowering the bar is all this does. The offer it was announcing is
+    // untouched, and the focus it may have been holding is caught by the single
+    // handoff effect above, which covers this route and the five others.
     function armUndo() {
         if (clearedTimer.current !== null) return;
         clearedTimer.current = window.setTimeout(() => {
             clearedTimer.current = null;
-            // Never unmount the element the keyboard is sitting on. If Undo has
-            // focus when the bar's time runs out, hand focus back the way the
-            // settings dialog hands it to the trigger that opened it. The target
-            // is the active tab button, not Send: Send is disabled the moment a
-            // clear empties the tab, and focus() on a disabled button goes
-            // nowhere.
-            const onUndo = document.activeElement?.id === 'floe-undo-clear';
             setOfferUp(false);
-            if (onUndo) requestAnimationFrame(() => document.getElementById('floe-send-kind')?.focus());
         }, UNDO_WINDOW_MS);
     }
 
@@ -1499,7 +1545,10 @@ function App() {
         setSendStatus('');
         setCleared(snap);
         setOfferUp(true);
-        armUndo();
+        setAnnounce(clearedAnnouncement(snap));
+        // The clock is armed by the effect that owns it, so it can never run
+        // while the bar is not actually on screen.
+        //
         // Clear unmounts with the last thing it cleared, so focus would fall to
         // the body. Moving it to Undo keeps the keyboard where the user was, and
         // tells a screen reader the offer exists. The guidance against toasts
@@ -1510,28 +1559,24 @@ function App() {
         requestAnimationFrame(() => document.getElementById('floe-undo-clear')?.focus());
     }
 
-    // Undo replaces rather than merges, because it cannot collide: anything that
-    // could have staged something in the meantime has already retired the offer.
-    // Returns whether it actually put something back, so the Ctrl+Z handler can
-    // stay silent (and leave the keystroke alone) when there is no offer. No
-    // clock here: the bar may be long gone, and the offer is still good.
+    // Undo replaces rather than merges, because it cannot collide: new content on
+    // the offer's own tab has already superseded it. Returns whether it actually
+    // put something back, so the Ctrl+Z handler can stay silent (and leave the
+    // keystroke alone) when there is nothing to undo. No clock here: the bar may
+    // be long gone and the offer is still good.
     function undoClear(): boolean {
         if (!cleared) return false;
-        // An offer belongs to the tab it was taken from, and to no other. Every
-        // path that changes the tab retires it, so this guard should be dead
-        // code; it is here because the cost of one path forgetting is a note
-        // restored into a box nobody is looking at, or destroyed by the next
-        // Clear on the other tab. Ctrl+O was exactly that path once.
-        if (!restorable(cleared, sendKind)) { forgetCleared(); return false; }
+        // Refuses rather than retires. An offer sitting out a visit to the other
+        // tab is still perfectly good, and Ctrl+Z pressed over there should do
+        // nothing at all rather than quietly spend it.
+        if (!restorable(cleared, sendKind)) return false;
         const snap = cleared;
-        const onUndo = document.activeElement?.id === 'floe-undo-clear';
         forgetCleared();
         if (snap.kind === 'files') setFiles(snap.files);
         else setSendText(snap.text);
-        // The same handoff the bar's own expiry makes, for the same reason:
-        // pressing Undo destroys the button being pressed, and without this the
-        // keyboard lands on the body and Tab restarts at the title bar.
-        if (onUndo) requestAnimationFrame(() => document.getElementById('floe-send-kind')?.focus());
+        // Emptying the region would be a removal, and removals are not spoken,
+        // so the one route added for keyboard users would confirm nothing.
+        setAnnounce(restoredAnnouncement(snap));
         return true;
     }
 
@@ -1721,6 +1766,12 @@ function App() {
     // supplies the sentence, so do not restate its rules here.
     function startOver() {
         if (resetLoss) {
+            // Frozen at the moment it is shown. resetLoss is derived from live
+            // state, and state moves while the dialog is up: a send completing,
+            // an offer being superseded. Read live, the paragraph the user is in
+            // the middle of can be rewritten to a different reason, or emptied
+            // altogether, leaving a titled dialog over nothing.
+            setResetMsg(resetLoss);
             setConfirmReset(true);
             return;
         }
@@ -1786,13 +1837,13 @@ function App() {
     toggleHistoryRef.current = toggleHistory;
 
     // Ctrl+O: leave Settings, land on Send > Files, open the native picker.
-    // It retires the offer up front rather than leaving that to pickFiles, which
-    // only does it once a pick succeeds: cancelling the dialog still leaves the
-    // user on a tab they did not start on, and an offer taken from the other tab
-    // has no business surviving that.
+    // Nothing is retired here. Landing on Files hides a note's bar (restorable
+    // says so) and pickFiles supersedes only if a pick actually lands, so
+    // cancelling the dialog costs nothing: the note is still there on the tab it
+    // came from. An earlier fix retired eagerly at this line, which closed one
+    // hole by destroying the thing the hole endangered.
     function openPicker() {
         if (busy) return;
-        forgetCleared();
         setSettingsOpen(false);
         setMode('send');
         setSendKind('files');
@@ -1859,7 +1910,7 @@ function App() {
                 at the same time, and one ternary owning both would let either
                 erase the other's sentence. */}
             <span className="sr-only" role="status" aria-live="polite">
-                {cleared ? clearedAnnouncement(cleared) : ''}
+                {announce}
             </span>
             {/* The bar, which is not the offer: it comes down on its own after a
                 few seconds while the undo behind it stays good, and it steps
@@ -1868,7 +1919,7 @@ function App() {
                 two for the same reason. Keyed on what it says so a second offer
                 always replays the entrance, rather than relying on an argument
                 about which renders can be adjacent. */}
-            {cleared && offerUp && !confirmReset && !confirmDefaults && (
+            {barUp && cleared && (
                 <UndoToast
                     key={clearedLabel(cleared)}
                     label={clearedLabel(cleared)}
@@ -2323,10 +2374,14 @@ function App() {
                                                     <button
                                                         key={k}
                                                         // The active tab is where focus lands if the undo
-                                                        // offer expires under the keyboard, so exactly one
-                                                        // of the two carries the id at a time.
+                                                        // bar goes while the keyboard is on it, so exactly
+                                                        // one of the two carries the id at a time.
                                                         id={sendKind === k ? 'floe-send-kind' : undefined}
-                                                        onClick={() => { forgetCleared(); setSendKind(k); }}
+                                                        // No retire: switching tabs only puts the bar away.
+                                                        // An unsent note survives a tab switch when it sits
+                                                        // in the box, and it has to survive one when it sits
+                                                        // in an offer, or Clear would be a trap.
+                                                        onClick={() => setSendKind(k)}
                                                         className={cn(
                                                             'border-b pb-0.5 font-mono text-[10px] uppercase tracking-[0.2em] transition-colors',
                                                             sendKind === k ? 'border-white text-zinc-200' : 'border-transparent text-zinc-600 hover:text-zinc-400',
@@ -2348,7 +2403,7 @@ function App() {
                                         {!sending && sendKind === 'text' && (
                                             <textarea
                                                 value={sendText}
-                                                onChange={(e) => { if (cleared) forgetCleared(); setSendText(e.target.value); }}
+                                                onChange={(e) => { supersede('text'); setSendText(e.target.value); }}
                                                 onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && sendText.trim() && !busy) send(); }}
                                                 placeholder="Type or paste text to send"
                                                 rows={4}
@@ -2719,10 +2774,16 @@ function App() {
                         <h2 id="floe-startover-title" className="text-sm font-semibold text-white">Start over?</h2>
                         {/* resetWarning decided to open this dialog, so it also
                             supplies the sentence. One source, so the guard and
-                            the copy cannot disagree about why you were stopped. */}
-                        <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">{resetLoss}</p>
+                            the copy cannot disagree about why you were stopped.
+                            Captured at open time, not read live: see startOver. */}
+                        <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">{resetMsg}</p>
                         <div className="mt-4 flex justify-end gap-2">
-                            <Button variant="outline" onClick={() => setConfirmReset(false)}>Keep going</Button>
+                            {/* The safe choice takes focus. Without it the dialog
+                                opens with focus wherever it was, which after a
+                                Clear is a button this dialog just unmounted, so
+                                focus falls to the body and Tab walks the page
+                                behind the scrim. */}
+                            <Button variant="outline" autoFocus onClick={() => setConfirmReset(false)}>Keep going</Button>
                             <Button onClick={doReset}>Start over</Button>
                         </div>
                     </div>

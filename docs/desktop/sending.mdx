@@ -26,17 +26,22 @@ Everything you add appears in a list under **Files**. Remove a single entry with
 row, or empty the whole list with **Clear**, beside the Send button. Clear takes only what the
 tab you are on is holding (the file list on **Files**, the box on **Text**) and leaves your
 settings, the Receive tab, your history and anything already sent alone. It does not ask first.
-It offers **Undo** instead, in a bar at the bottom of the window, which puts back exactly what it
-took. The bar shows for about ten seconds, longer while you point at it or hold it with the
-keyboard. The offer behind it lasts longer than the bar does: `Ctrl` `Z` still takes it after the
-bar has gone, up until you stage something else, switch tabs, send, or start over.
+It offers **Undo** instead, in a bar at the bottom of the window, which puts back exactly what you
+had staged, whitespace and all.
+
+The bar shows for about ten seconds, longer while you point at it or reach it with the keyboard.
+The offer behind it lasts longer than the bar does, and `Ctrl` `Z` takes it once the bar has gone.
+It stands until you put something new on that same tab, send, or start over. Looking somewhere
+else does not spend it: switch tabs, open Settings or check History and the bar simply steps out
+of the way, then comes back when you do. `Ctrl` `Z` is ignored while the cursor is in a text box,
+so click out of the box first.
 
 `Ctrl` `R` starts over, which clears the selection along with everything else on the card.
 It asks first if a transfer is already moving bytes, if the text box holds a note that has not
 been sent (the dialog reads "The text you typed has not been sent yet. Starting over will clear
-it."), or if you have just cleared a note and its Undo offer is still standing, since starting
-over discards it. Clicking the Floe lockup in the titlebar starts over too, with the same
-confirmations, but only the shortcut is held back while you are typing.
+it."), or if you cleared a note that had never been sent and its Undo is still standing, since
+starting over discards it. Clicking the Floe lockup in the titlebar starts over too, with the
+same confirmations, but only the shortcut is held back while you are typing.
 
 Adding the same path twice does nothing, so dragging a file you already staged is safe. One
 edge worth knowing: if you add a folder **and** a file that lives inside it, that file is sent
