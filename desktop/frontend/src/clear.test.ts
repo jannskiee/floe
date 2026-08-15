@@ -118,9 +118,12 @@ describe('the emptiness rule Send and Clear share', () => {
 
 describe('UNDO_WINDOW_MS', () => {
     // Guards against a stray edit: an offer that stands for a blink or for a
-    // minute is a different feature from the one that was designed.
-    it('stands for a few seconds', () => {
-        expect(UNDO_WINDOW_MS).toBeGreaterThanOrEqual(4000);
-        expect(UNDO_WINDOW_MS).toBeLessThanOrEqual(10000);
+    // minute is a different feature from the one that was designed. The floor
+    // is the one every design system with an ACTION in its toast converges on
+    // (Polaris warns below it, Material's Long is exactly it), so dropping back
+    // to the five or six seconds a plain notice gets would be a regression.
+    it('stands long enough for an offer that carries an action', () => {
+        expect(UNDO_WINDOW_MS).toBeGreaterThanOrEqual(10000);
+        expect(UNDO_WINDOW_MS).toBeLessThanOrEqual(20000);
     });
 });

@@ -306,13 +306,12 @@ function mergePaths(prev: string[], add: string[]): string[] {
  *  Screen-reader announcement lives in the persistent sr-only region at the app
  *  root, next to the update notice's, for the reason documented there: a live
  *  region that mounts with its text already inside announces nothing. */
-function UndoToast({label, action, onUndo, onHold, onArm, onFocus}: {
+function UndoToast({label, action, onUndo, onHold, onArm}: {
     label: string;
     action: string;
     onUndo: () => void;
     onHold: () => void;
     onArm: () => void;
-    onFocus: () => void;
 }) {
     // Centred under the console, not under the window: the left edge mirrors
     // the hero rail's own w-[42%] max-w-[460px] rule, so the pill lines up with
@@ -320,7 +319,7 @@ function UndoToast({label, action, onUndo, onHold, onArm, onFocus}: {
     // absolute inside main, because that column scrolls and would carry the
     // toast away with it.
     return (
-        <div className="pointer-events-none fixed bottom-6 left-[min(42%,460px)] right-0 z-30 flex justify-center px-4">
+        <div className="pointer-events-none fixed bottom-8 left-[min(42%,460px)] right-0 z-30 flex justify-center px-4">
             <div
                 onMouseEnter={onHold}
                 onMouseLeave={onArm}
@@ -338,7 +337,12 @@ function UndoToast({label, action, onUndo, onHold, onArm, onFocus}: {
                     id="floe-undo-clear"
                     aria-label={action}
                     onClick={onUndo}
-                    onFocus={onFocus}
+                    // Hold the countdown only for a keyboard landing. The focus
+                    // move that brings the user here happens after a mouse click
+                    // too, and holding then would pin the offer open until they
+                    // clicked something else. :focus-visible is exactly that
+                    // distinction, and Tooltip.tsx already leans on it.
+                    onFocus={(e) => { if (e.currentTarget.matches(':focus-visible')) onHold(); }}
                     onBlur={onArm}
                     className="h-8 shrink-0 rounded-md border border-white/10 bg-white/[0.06] px-3 text-[13px] font-medium leading-none text-zinc-100 transition-colors hover:border-white/20 hover:bg-white/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice/60"
                 >
@@ -754,9 +758,6 @@ function App() {
     // When the standing offer runs out. Checked again on the click, because a
     // background window can have its timers clamped; Infinity while held.
     const clearedUntil = useRef(0);
-    // Marks the one programmatic focus clearStaged performs, so that landing on
-    // Undo does not read as "the user reached for it" and stop the countdown.
-    const undoAutoFocus = useRef(false);
     const sendStart = useRef<Marker>(null);
     const sendCancel = useRef(false);
     // Snapshot of the sent file names, readable from the once-registered
@@ -1364,6 +1365,17 @@ function App() {
                     e.preventDefault();
                     openHistory();
                     break;
+                // Undo the clear, while its offer stands. The offer is on a
+                // timer, and a timed control with no other way to reach it is a
+                // WCAG 2.2.1 failure; this is the way that does not depend on
+                // the clock, and it is what every desktop user tries first.
+                // Skipped while typing so the textarea keeps its own undo, and
+                // silent when nothing is pending so Ctrl+Z stays free for the
+                // field the user is actually in.
+                case 'z':
+                    if (typing || !undoClearRef.current()) return;
+                    e.preventDefault();
+                    break;
             }
         };
         window.addEventListener('keydown', onKey);
@@ -1464,28 +1476,26 @@ function App() {
         armUndo();
         // Clear unmounts with the last thing it cleared, so focus would fall to
         // the body. Moving it to Undo keeps the keyboard where the user was, and
-        // is what tells a screen reader the offer exists: an aria-live region
-        // that mounts with its own text already inside announces nothing, which
-        // this file has learned twice already. The button describes itself with
-        // the sentence beside it, so the landing reads "Undo, Cleared 12 items."
-        // Same id lookup as focusResetTrigger, for the same reason.
-        undoAutoFocus.current = true;
-        requestAnimationFrame(() => {
-            const el = document.getElementById('floe-undo-clear');
-            if (el) el.focus();
-            else undoAutoFocus.current = false;
-        });
+        // tells a screen reader the offer exists. The guidance against toasts
+        // taking focus is about ones that arrive unbidden; this one is the
+        // synchronous product of a click on a button that destroyed itself, so
+        // the choice is a destination or nowhere. Same id lookup as
+        // focusResetTrigger, for the same reason.
+        requestAnimationFrame(() => document.getElementById('floe-undo-clear')?.focus());
     }
 
     // Undo replaces rather than merges, because it cannot collide: anything that
     // could have staged something in the meantime has already retired the offer.
-    function undoClear() {
-        if (!cleared) return;
-        if (isExpired(clearedUntil.current, Date.now())) { forgetCleared(); return; }
+    // Returns whether it actually put something back, so the Ctrl+Z handler can
+    // stay silent (and leave the keystroke alone) when there is no offer.
+    function undoClear(): boolean {
+        if (!cleared) return false;
+        if (isExpired(clearedUntil.current, Date.now())) { forgetCleared(); return false; }
         const snap = cleared;
         forgetCleared();
         if (snap.kind === 'files') setFiles(snap.files);
         else setSendText(snap.text);
+        return true;
     }
 
     async function pickSaveFolder() {
@@ -1685,6 +1695,12 @@ function App() {
     const startOverRef = useRef(startOver);
     startOverRef.current = startOver;
 
+    // Same once-registered-closure idiom as the refs above: the Ctrl+Z listener
+    // is bound at mount and would otherwise only ever see the first render's
+    // empty offer.
+    const undoClearRef = useRef(undoClear);
+    undoClearRef.current = undoClear;
+
     const busy = sending || receiving;
 
     // What the send tab is holding, or null when it is empty. One rule, read by
@@ -1810,7 +1826,6 @@ function App() {
                     onUndo={undoClear}
                     onHold={holdUndo}
                     onArm={() => { if (cleared) armUndo(); }}
-                    onFocus={() => { if (undoAutoFocus.current) { undoAutoFocus.current = false; return; } holdUndo(); }}
                 />
             )}
 

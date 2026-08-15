@@ -11,9 +11,13 @@ export type Cleared =
     | {kind: 'files'; files: string[]}
     | {kind: 'text'; text: string};
 
-/** How long the undo offer stands. Long enough to see the list go and reach
- *  for it, short enough to be gone before the next thing you do. */
-export const UNDO_WINDOW_MS = 6000;
+/** How long the undo offer stands. Ten seconds rather than the five or six a
+ *  plain notification gets, because this one carries an action: Shopify's
+ *  Polaris warns in the console below 10s for exactly that reason, Material's
+ *  own Long duration is 10s, and VS Code gives an actionable notice 10 to 15.
+ *  Pointing at the offer or reaching it with the keyboard holds it open past
+ *  this, and Ctrl+Z works whether it is on screen or not. */
+export const UNDO_WINDOW_MS = 10000;
 
 /**
  * stagedSnapshot describes what the send tab is currently holding, or null
