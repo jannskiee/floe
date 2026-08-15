@@ -319,35 +319,43 @@ function UndoToast({label, action, onUndo, onHold, onArm}: {
     // absolute inside main, because that column scrolls and would carry the
     // toast away with it.
     return (
-        <div className="pointer-events-none fixed bottom-8 left-[min(42%,460px)] right-0 z-30 flex justify-center px-4">
-            <div
-                onMouseEnter={onHold}
-                onMouseLeave={onArm}
-                className={cn(
-                    // The card's own corner and material, one step more opaque so
-                    // a floating strip stays legible over whatever is behind it.
-                    'pointer-events-auto isolate flex items-center gap-3 rounded-xl border border-white/10 bg-zinc-900/85 p-2.5',
-                    'shadow-2xl ring-1 ring-white/5 backdrop-blur-xl backdrop-saturate-150',
-                    'animate-floe-toast-in motion-reduce:animate-none',
-                )}
-            >
-                <Undo2 className="ml-1.5 size-4 shrink-0 text-zinc-400" strokeWidth={2.5} aria-hidden/>
-                <span className="whitespace-nowrap pr-1 text-[13px] leading-none tracking-[-0.005em] text-zinc-200">{label}</span>
-                <button
-                    id="floe-undo-clear"
-                    aria-label={action}
-                    onClick={onUndo}
-                    // Hold the countdown only for a keyboard landing. The focus
-                    // move that brings the user here happens after a mouse click
-                    // too, and holding then would pin the offer open until they
-                    // clicked something else. :focus-visible is exactly that
-                    // distinction, and Tooltip.tsx already leans on it.
-                    onFocus={(e) => { if (e.currentTarget.matches(':focus-visible')) onHold(); }}
-                    onBlur={onArm}
-                    className="h-8 shrink-0 rounded-md border border-white/10 bg-white/[0.06] px-3 text-[13px] font-medium leading-none text-zinc-100 transition-colors hover:border-white/20 hover:bg-white/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice/60"
+        <div className="pointer-events-none fixed bottom-8 left-[min(42%,460px)] right-0 z-30 flex justify-center">
+            {/* The console's own measure, repeated verbatim from the card's
+                wrapper, so the bar is the card's width and sits on the card's
+                left and right edges at every window size rather than being a
+                pill that happens to be near it. */}
+            <div className="w-full max-w-lg px-8">
+                <div
+                    onMouseEnter={onHold}
+                    onMouseLeave={onArm}
+                    className={cn(
+                        // The card's surface verbatim, fill included: this is the
+                        // card's bar, not a floating thing above it. px-5 is the
+                        // card's own content inset, so the sentence starts on the
+                        // same left edge as everything stacked above it.
+                        'pointer-events-auto flex h-12 w-full items-center gap-3 rounded-xl border border-white/10 bg-zinc-900/60 px-5',
+                        'shadow-2xl ring-1 ring-white/5 backdrop-blur-xl backdrop-saturate-150',
+                        'animate-floe-toast-in motion-reduce:animate-none',
+                    )}
                 >
-                    Undo
-                </button>
+                    <Undo2 className="size-4 shrink-0 text-zinc-400" strokeWidth={2.5} aria-hidden/>
+                    <span className="whitespace-nowrap text-[13px] leading-none tracking-[-0.005em] text-zinc-200">{label}</span>
+                    <button
+                        id="floe-undo-clear"
+                        aria-label={action}
+                        onClick={onUndo}
+                        // Hold the countdown only for a keyboard landing. The focus
+                        // move that brings the user here happens after a mouse click
+                        // too, and holding then would pin the offer open until they
+                        // clicked something else. :focus-visible is exactly that
+                        // distinction, and Tooltip.tsx already leans on it.
+                        onFocus={(e) => { if (e.currentTarget.matches(':focus-visible')) onHold(); }}
+                        onBlur={onArm}
+                        className="ml-auto h-8 shrink-0 rounded-md border border-white/10 bg-white/[0.06] px-3 text-[13px] font-medium leading-none text-zinc-100 transition-colors hover:border-white/20 hover:bg-white/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice/60"
+                    >
+                        Undo
+                    </button>
+                </div>
             </div>
         </div>
     );

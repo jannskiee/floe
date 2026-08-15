@@ -43,11 +43,14 @@ export function isExpired(until: number, now: number): boolean {
 
 const items = (n: number) => `${n} ${n === 1 ? 'item' : 'items'}`;
 
-/** clearedLabel is the sentence the undo offer shows. It says what went, in
- *  the same words the Send button and the history entries use ("items"), so
- *  the count reads as the one the user just saw. */
+/** clearedLabel is the line the undo bar shows. It says what went, in the same
+ *  words the Send button and the history entries use ("items"), so the count
+ *  reads as the one the user just saw. No full stop: the row is a label paired
+ *  with a control, not prose, and a period mid-row punctuates a thought the
+ *  button beside it has not finished. The app's text-only status lines keep
+ *  theirs. */
 export function clearedLabel(c: Cleared): string {
-    return c.kind === 'text' ? 'Cleared the text.' : `Cleared ${items(c.files.length)}.`;
+    return c.kind === 'text' ? 'Cleared the text' : `Cleared ${items(c.files.length)}`;
 }
 
 /** clearLabel is the Clear button's accessible name. The visible word stays
@@ -71,5 +74,8 @@ export function undoLabel(c: Cleared): string {
  *  No number of seconds, because promising seconds in speech costs some of
  *  them to say, and the window is a constant that should stay tunable. */
 export function clearedAnnouncement(c: Cleared): string {
-    return `${clearedLabel(c)} Undo is available.`;
+    // The full stop the visible line drops goes back in here, at the seam:
+    // punctuation is what makes a screen reader pause, and without it this is
+    // one run-on breath.
+    return `${clearedLabel(c)}. Undo is available.`;
 }

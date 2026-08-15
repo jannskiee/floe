@@ -27,11 +27,18 @@ describe('stagedSnapshot', () => {
 
 describe('clearedLabel', () => {
     it('counts items the way the Send button does', () => {
-        expect(clearedLabel({kind: 'files', files: ['a.txt']})).toBe('Cleared 1 item.');
-        expect(clearedLabel({kind: 'files', files: ['a.txt', 'b.txt']})).toBe('Cleared 2 items.');
+        expect(clearedLabel({kind: 'files', files: ['a.txt']})).toBe('Cleared 1 item');
+        expect(clearedLabel({kind: 'files', files: ['a.txt', 'b.txt']})).toBe('Cleared 2 items');
     });
     it('names the note without counting it', () => {
-        expect(clearedLabel({kind: 'text', text: 'hello'})).toBe('Cleared the text.');
+        expect(clearedLabel({kind: 'text', text: 'hello'})).toBe('Cleared the text');
+    });
+    // The bar pairs this line with a button, so it is a label rather than
+    // prose. The period belongs only in the spoken version, where it is what
+    // makes a screen reader pause before "Undo is available".
+    it('carries no full stop, while the announcement does', () => {
+        expect(clearedLabel({kind: 'files', files: ['a.txt']})).not.toContain('.');
+        expect(clearedAnnouncement({kind: 'files', files: ['a.txt']})).toContain('item. Undo');
     });
     // Folders stage into the same list as files, so the count has to be in
     // items. "Cleared 12 files." would be a lie about a folder pick.
