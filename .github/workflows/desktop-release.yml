@@ -212,11 +212,20 @@ jobs:
           New-Item -ItemType Directory $stage | Out-Null
           Copy-Item desktop/build/bin/floe-desktop-amd64-installer.exe "$stage/floe-desktop-setup-$v.exe"
           Compress-Archive -Path desktop/build/bin/floe-desktop.exe, LICENSE -DestinationPath "$stage/floe-desktop-$v-windows-amd64.zip"
-          # sha256sum format so `sha256sum -c SHA256SUMS.txt` works.
+          # sha256sum format so `sha256sum -c SHA256SUMS.txt` works, which is what
+          # the release body tells people to run.
+          #
+          # Written with explicit LF endings, and that is the whole point of not
+          # using WriteAllLines here: it terminates with Environment.NewLine,
+          # which is CRLF on a Windows runner, and GNU sha256sum then reads the
+          # filename with a trailing carriage return, fails to open it, and
+          # prints "FAILED open or read" for a download that is perfectly good.
+          # Every desktop release up to and including 0.2.5 shipped that way. The
+          # CLI's own checksums.txt is LF because GoReleaser writes it.
           $lines = Get-ChildItem $stage | ForEach-Object {
             "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
           }
-          [System.IO.File]::WriteAllLines("$stage/SHA256SUMS.txt", $lines)
+          [System.IO.File]::WriteAllText("$stage/SHA256SUMS.txt", ($lines -join "`n") + "`n")
           Get-Content "$stage/SHA256SUMS.txt"
 
       - name: Publish release
