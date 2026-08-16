@@ -94,6 +94,81 @@ type Connection struct {
 
 	// connected is sent once when the PeerConnection reaches "connected" state
 	connected chan error
+
+	// early is the data channel's message pump, wired the instant the channel
+	// exists rather than when the transfer layer gets around to it. See attach.
+	early *Early
+}
+
+// Early carries a data channel's incoming messages and its close signal.
+//
+// It exists because pion acknowledges a data channel and starts reading from it
+// before the application has been told anything. datachannel.Server writes the
+// DCEP ACK as soon as it reads the peer's OPEN, and webrtc's handleOpen then
+// starts readLoop. A message that readLoop delivers while DataChannel.onMessage
+// still holds a nil handler is DISCARDED, silently and permanently: SCTP has
+// already acknowledged it, so it is never retransmitted and the sender has no
+// idea it went nowhere.
+//
+// That window is microseconds wide and it is wide enough to lose a transfer.
+// Measured on one machine with both peers local, the desktop app as sender
+// completed 1 send in 25; adding a few hundred microseconds of delay anywhere in
+// the receiver's SCTP path took it to 19 in 19. The symptom is both ends
+// reporting a healthy connection and then nothing, which is exactly what the
+// watchdog comment at the top of transfer/receiver.go describes as a captured CI
+// failure. The margin scales with round-trip time, so two machines on a LAN or
+// the internet almost always win it, which is why this shipped and mostly works.
+//
+// The fix is not to make the transfer layer faster. It is to have a handler
+// installed before pion can possibly deliver, and to hand the resulting stream
+// to whoever wants it.
+type Early struct {
+	// Msgs carries every message the data channel receives, in order.
+	Msgs <-chan webrtc.DataChannelMessage
+	// Closed is closed when the data channel closes. pion fires OnClose on
+	// graceful closes only; see the note in transfer/sender.go.
+	Closed <-chan struct{}
+}
+
+// earlyBuffer matches the buffer the transfer layer used when it owned this
+// pump. It is backpressure, not a drop policy: a full buffer parks pion's read
+// loop until the transfer layer catches up.
+const earlyBuffer = 256
+
+// attach installs the ONLY OnMessage and OnClose handlers this data channel will
+// ever have, and must be called synchronously at the moment the channel appears:
+// immediately after CreateDataChannel for the sender, and inside OnDataChannel
+// before OnOpen for the receiver. Both are before pion can start reading.
+//
+// Whoever consumes the channel must use conn.Early() rather than registering
+// their own callbacks, because pion keeps one handler per event and a later
+// registration silently replaces this one, reopening the window it closes.
+func (conn *Connection) attach(dc *webrtc.DataChannel) {
+	msgs := make(chan webrtc.DataChannelMessage, earlyBuffer)
+	closed := make(chan struct{})
+	var once sync.Once
+	dc.OnClose(func() { once.Do(func() { close(closed) }) })
+	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
+		// Selecting on closed means this can never block forever, and never
+		// panics: nothing closes msgs.
+		select {
+		case msgs <- msg:
+		case <-closed:
+		}
+	})
+	conn.mu.Lock()
+	conn.early = &Early{Msgs: msgs, Closed: closed}
+	conn.mu.Unlock()
+}
+
+// Early returns the message pump for the data channel returned by SetupAsSender
+// or SetupAsReceiver. Pass it into transfer.SendOptions or transfer.ReceiveOptions;
+// a transfer that registers its own OnMessage instead can lose the peer's first
+// message. Nil before either Setup call has returned.
+func (conn *Connection) Early() *Early {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	return conn.early
 }
 
 // Option configures a Connection created by New.
@@ -211,6 +286,9 @@ func (conn *Connection) SetupAsSender() (*webrtc.DataChannel, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create data channel: %w", err)
 	}
+	// Before the offer even leaves, so the receiver's first ack cannot land in a
+	// channel with no handler on it. See Early.
+	conn.attach(dc)
 
 	// Create the SDP offer describing our capabilities
 	offer, err := conn.pc.CreateOffer(nil)
@@ -277,6 +355,13 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 	// The receiver waits for a data channel from the sender.
 	dcChan := make(chan *webrtc.DataChannel, 1)
 	conn.pc.OnDataChannel(func(dc *webrtc.DataChannel) {
+		// attach FIRST, and in this callback rather than in OnOpen. pion runs
+		// OnDataChannel synchronously before it starts the channel's read loop,
+		// and it has already ACKed the channel by this point, so the sender may
+		// be writing its first message right now. Registering in OnOpen, or
+		// later in the transfer layer, is a race this loses on a fast path. See
+		// Early for what losing it costs.
+		conn.attach(dc)
 		dc.OnOpen(func() {
 			dcChan <- dc
 		})

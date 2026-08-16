@@ -109,6 +109,14 @@ type SendOptions struct {
 	// UpdateHint replaces the CLI-only local update instruction in protocol
 	// compatibility errors. Leave empty for the default CLI wording.
 	UpdateHint string
+	// Messages and Closed come from peer.Connection.Early(), which wires the data
+	// channel the instant it exists. Pass BOTH whenever the channel came from
+	// peer.SetupAsSender. The sender has never been observed losing this race,
+	// because the receiver does more work before it acks than the sender does
+	// before it listens, but the window is the same one and it is the same
+	// silent, permanent drop. See peer.Early.
+	Messages <-chan webrtc.DataChannelMessage
+	Closed   <-chan struct{}
 }
 
 // SendFiles sends all given file paths over the open data channel, rendering a
@@ -152,18 +160,41 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 
 	start := time.Now()
 
-	// ackCh receives JSON ack messages from the receiver
+	// ackCh receives JSON ack messages from the receiver.
+	// Accept ack as either string or binary: the CLI receiver sends binary for
+	// browser compatibility, CLI-to-CLI also works.
+	// Non-blocking: a full buffer means a stray/duplicate message arrived;
+	// dropping it is safe because the ack loop already matched its ID.
 	ackCh := make(chan []byte, 4)
-	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-		// Accept ack as either string or binary — the CLI receiver sends
-		// binary for browser compatibility, CLI-to-CLI also works.
-		// Non-blocking: a full buffer means a stray/duplicate message arrived;
-		// dropping it is safe because the ack loop already matched its ID.
-		select {
-		case ackCh <- msg.Data:
-		default:
-		}
-	})
+	if opts.Messages != nil && opts.Closed != nil {
+		// The pump was installed with the data channel, so the receiver's first
+		// ack cannot have arrived before anyone was listening. Forwarding into
+		// ackCh rather than reading opts.Messages directly leaves every deadline
+		// below exactly as it was.
+		go func() {
+			for {
+				select {
+				case msg, ok := <-opts.Messages:
+					if !ok {
+						return
+					}
+					select {
+					case ackCh <- msg.Data:
+					default:
+					}
+				case <-opts.Closed:
+					return
+				}
+			}
+		}()
+	} else {
+		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
+			select {
+			case ackCh <- msg.Data:
+			default:
+			}
+		})
+	}
 
 	// done is closed when the data channel closes, letting every wait below
 	// fail fast instead of burning its full deadline. pion fires OnClose on
@@ -172,11 +203,21 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 	// chain (sctp retransmits forever by design and an ICE failure does not
 	// unblock reads), so the 120 s ack and 60 s backpressure deadlines remain
 	// the backstop for ungraceful death.
-	done := make(chan struct{})
-	var closeOnce sync.Once
-	dc.OnClose(func() {
-		closeOnce.Do(func() { close(done) })
-	})
+	//
+	// Taken from the pump when there is one. Registering our own OnClose would
+	// REPLACE the pump's, since pion keeps a single handler per event, and the
+	// pump needs its own close signal to be sure its send can never block.
+	var done <-chan struct{}
+	if opts.Closed != nil {
+		done = opts.Closed
+	} else {
+		d := make(chan struct{})
+		var closeOnce sync.Once
+		dc.OnClose(func() {
+			closeOnce.Do(func() { close(d) })
+		})
+		done = d
+	}
 
 	// Backpressure: pion calls OnBufferedAmountLow once the send buffer drains
 	// to bufferedAmountLowWater. The send loop blocks on sendMore whenever the

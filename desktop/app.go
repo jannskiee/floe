@@ -798,9 +798,15 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 		lastEmit = time.Now()
 		emit("send:progress", p)
 	}
+	// The pump comes from the connection: see peer.Early for why registering the
+	// handler down in the transfer layer can silently lose the peer's first
+	// message on a fast path.
+	sendEarly := conn.Early()
 	if err := transfer.SendFilesWithOptions(dc, paths, version, transfer.SendOptions{
 		OnProgress: onProgress,
 		UpdateHint: desktopUpdateHint,
+		Messages:   sendEarly.Msgs,
+		Closed:     sendEarly.Closed,
 	}); err != nil {
 		// The relay cap is a policy block, not a failure: skip the "transfer
 		// failed" wrapper, and when Hide my IP forced the relay, name the
@@ -955,12 +961,17 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 		lastEmit = time.Now()
 		emit("recv:progress", p)
 	}
+	// The pump comes from the connection: see peer.Early. This is the side the
+	// race was actually being lost on.
+	recvEarly := conn.Early()
 	opts := transfer.ReceiveOptions{
 		OnProgress: onProgress,
 		UpdateHint: desktopUpdateHint,
 		// Fires once as the sender's first metadata arrives, before any byte
 		// lands: the UI shows what is incoming while the transfer starts.
 		OnIncoming: func(inc transfer.IncomingInfo) { emit("recv:incoming", inc) },
+		Messages:   recvEarly.Msgs,
+		Closed:     recvEarly.Closed,
 	}
 	if err := transfer.ReceiveFilesWithOptions(dc, absOutput, true, version, statsURL, opts); err != nil {
 		return "", fmt.Errorf("transfer failed: %w", err)
