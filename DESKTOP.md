@@ -182,8 +182,10 @@ receiver, which is deliberate (share a link and wait) and cancellable.
 
 ## Release history
 
-Current release: `desktop-v0.2.4` (Microsoft Store 9NBQ8ZQ1065L + GitHub
-pre-release), shipped 2026-08-14.
+Current release: `desktop-v0.2.5` (Microsoft Store 9NBQ8ZQ1065L + GitHub
+pre-release), shipped 2026-08-16. Paired with CLI `v1.10.2`, because the data
+channel fix they both carry is receiver-side and only protects a transfer once
+the RECEIVING peer has it.
 
 The list below is the verified order the first public release (0.1.0 beta)
 actually followed. Steps 1-3 shipped the GitHub beta; the plan then pivoted
