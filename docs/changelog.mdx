@@ -43,25 +43,26 @@ Each entry lists the parts it changed. Filter on the right to see only the ones 
 <Update label="desktop-v0.2.5" description="2026-08-16" tags={["Desktop"]}>
   **Empty a staged selection in one click, and a fix for transfers that connected but never started**
 
-  - A **Clear** button now sits beside **Send** on the send card. It empties whatever the tab you are on is holding, the file list on **Files** or the box on **Text**, and leaves your settings, the Receive tab, your history and anything already sent alone. It appears only when there is something to clear, and steps aside for **Cancel** while a send is running.
+  - A **Clear** button now sits beside **Send** on the send card. It empties whatever the tab you are on is holding, the file list on **Files** or the box on **Text**, and leaves your settings, the Receive tab, your history and the files themselves alone. It appears only when there is something to clear, and steps aside for **Cancel** while a send is running.
   - Clear does not ask first. It offers **Undo** instead, in a bar at the bottom of the window that puts back exactly what you had staged, whitespace and all. The bar shows for about ten seconds, longer while you point at it or reach it with the keyboard.
-  - The undo outlasts the bar. `Ctrl` `Z` still takes it once the bar has gone, and it stands until you put something new on that same tab, clear something else, or start over. Switching tabs, opening Settings or checking History only puts the bar away, and it comes back when you do.
+  - The undo outlasts the bar. `Ctrl` `Z` still takes it once the bar has gone, and it stands until you put something new on that same tab, clear something else, or start over. Switching tabs, opening Settings or checking History only puts the bar away, and it comes back when you do. Like the app's other shortcuts, `Ctrl` `Z` waits while the cursor is in a text box.
   - **Start over** now asks before discarding a note you have cleared, the same way it already asks about a note you typed but never sent.
-  - Fixed transfers that connected and then moved nothing: both ends showed a healthy connection, then sat silent until a timeout blamed the other side. The very first message of a transfer could be dropped before the receiving app was listening for it, which is likeliest when both peers are on the same machine or the same fast network. The fix is on the receiving side, so a transfer is protected once the **receiving** end is running Floe Desktop 0.2.5 or `floe` 1.10.2. Sending from this build to a peer that has not updated is unchanged.
-  - Every row in **History** is now a single button that opens and closes the row, with one chevron in the same place on every row. The opened row carries the file names, where a received transfer was saved, and quiet **Show in folder** and **Remove** actions along the bottom. Removing an entry can no longer shift which row is open.
+  - Fixed transfers that connected and then moved nothing: both ends showed a healthy connection, then sat silent until a timeout blamed the other side. The very first message of a transfer could be dropped before the receiving app was listening for it. The odds turn on the round trip between the two peers, so it was rare across a network and common between two Floe apps on one machine. The fix is on the receiving side, so a transfer is protected once the **receiving** end is running Floe Desktop 0.2.5 or `floe` 1.10.2. Sending from this build to a peer that has not updated is unchanged.
+  - Every row in **History** is now a single button that opens and closes the row, with one chevron in the same place on every row. The opened row carries the file names, and for a received transfer where it was saved plus a **Show in folder** action; every row carries **Remove**. Finishing a transfer no longer shifts which row is open, because a new entry goes on top and the open row used to be tracked by position.
   - The dashed borders on the drop area read as soft white now and brighten when you point at them. The blue is kept for the highlight that appears while you are actually dragging files over the window.
-  - Turning off animations in Windows now stops the app's own animations. The setting was being ignored, so the drop area, the update notice and the new undo bar all animated anyway.
+  - Turning off animations in Windows now stops the app's own animations. The setting was being ignored, so the update notice, the Settings panel, tooltips, the connection dot and the new undo bar all moved anyway.
   - The focus outline on buttons is brighter, so it is easier to see where the keyboard is.
   - No transfer-protocol change, so Floe Desktop 0.2.5 transfers with browser and CLI peers in every direction.
 </Update>
 
-<Update label="v1.10.2" description="2026-08-16" tags={["CLI"]}>
+<Update label="v1.10.2" description="2026-08-16" tags={["CLI", "Self-hosting"]}>
   **Fixed transfers that connected and then moved nothing**
 
   - A transfer could reach the point where both ends reported a healthy connection and then never start, ending 30 seconds later with `connected, but no data arrived from the sender` on one side and a message blaming the receiver on the other. The very first message of a transfer could be dropped before the receiving side was listening for it, and because the network layer had already accepted that message, nothing ever resent it.
   - The window is microseconds wide and closes as the round trip between peers grows, so it was rare between two machines and common between two Floe processes on one machine. It has been there since the first release.
   - The fix is on the receiving side. A transfer is protected once the **receiving** end is running `floe` 1.10.2 or Floe Desktop 0.2.5; sending from an updated build to a peer that has not updated is unchanged. Both surfaces ship the fix in this pair of releases.
-  - No transfer-protocol change, so v1.10.2 interoperates with older CLI and browser peers in every direction.
+  - Self-hosting: the published images are rebuilt as `1.10.2` with nothing of their own changed, since this release only touches the transfer engine the CLI and the desktop app share. There is nothing you need to do; pull when convenient.
+  - The wire protocol is unchanged, so v1.10.2 still speaks to older CLI and browser peers in both directions. That is a statement about compatibility, not about the bug above, which is fixed for whichever end is running the new build.
 </Update>
 
 <Update label="desktop-v0.2.4" description="2026-08-14" tags={["Desktop"]}>

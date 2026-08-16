@@ -12,7 +12,7 @@ description: "Every keyboard shortcut in Floe Desktop for Windows: adding files,
 | `Ctrl` `H` | Show or hide **History**. |
 | `Ctrl` `,` | Open or close **Settings**. |
 | `Ctrl` `R` | Start over. Clears the current selection and result. |
-| `Ctrl` `Z` | Undo a **Clear**, including after its bar has gone. Does nothing when there is nothing to undo. |
+| `Ctrl` `Z` | Undo a **Clear**, including after its bar has gone. Works on the Send tab the clear came from; does nothing anywhere else. |
 | `Esc` | Close whatever is on top. In Settings, goes back. |
 | `Enter` | In the **Code or link** field, starts receiving. In the **Text** box, use `Ctrl` `Enter`. |
 
@@ -25,6 +25,12 @@ the text box keeps its own undo.
 
 **One fires from anywhere.** `Ctrl` `,` opens Settings, the way a preferences shortcut normally
 does.
+
+**`Ctrl` `Z` is the narrowest of them.** It undoes a **Clear**, and only from the send tab that
+clear came from: on the other send tab, on **Receive**, in **History**, in **Settings**, or with
+a dialog open, it does nothing at all. The offer itself survives all of those, so going back to
+the tab you cleared brings it within reach again. `Ctrl` `Shift` `Z` is deliberately not an undo,
+because it is redo on every platform that has it.
 
 <Warning>
   `Ctrl` `R` asks for confirmation in three cases: when a transfer is actually moving data, when
