@@ -1,0 +1,40 @@
+# Floe writes American English. This rule exists because nothing else pinned a
+# locale, so the weekly docs style automation kept proposing conversions in both
+# directions (PR #157 was closed, PR #293 was merged).
+#
+# The list is deliberately short: it covers the words that have actually come up
+# in these docs and in the product's own UI strings, not English generally. Add
+# a pair when a new one appears rather than trying to be exhaustive.
+#
+# level must be error. docs/.vale.ini sets MinAlertLevel = error, and Vale skips
+# a rule whose level is below that minimum entirely, so a warning-level rule here
+# would never run at all.
+extends: substitution
+message: "Floe uses American spelling: '%s' rather than '%s'."
+level: error
+ignorecase: true
+capitalize: true
+swap:
+  behaviour: behavior
+  behaviours: behaviors
+  cancelled: canceled
+  cancelling: canceling
+  centre: center
+  centred: centered
+  centres: centers
+  colour: color
+  coloured: colored
+  colours: colors
+  favour: favor
+  favoured: favored
+  favours: favors
+  maximise: maximize
+  maximised: maximized
+  maximises: maximizes
+  minimise: minimize
+  minimised: minimized
+  minimises: minimizes
+  optimise: optimize
+  optimised: optimized
+  optimiser: optimizer
+  optimisers: optimizers
