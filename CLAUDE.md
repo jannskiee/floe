@@ -170,6 +170,8 @@ Do not use em dashes in any markdown files or documentation. Use periods, commas
 
 What Vale actually covers is narrower than this rule: it matches the em dash and en dash characters only, in `docs/` only. An ASCII `--` used as a dash is a human-review matter, because a token for it fires on every CLI flag in the docs. Markdown outside `docs/` has no style linter (root Prettier can format it, but nothing checks dash usage there).
 
+Floe writes American English, in the docs and in user-facing product strings alike. In `docs/`, Vale enforces it (`docs/styles/Floe/Spelling.yml`), with `docs/changelog.mdx` exempted because its shipped entries describe releases whose UI really did say "Cancelling". The word list is short on purpose: it covers the pairs that have actually come up here rather than English generally, so extend it when a new one appears. The rule must stay at `level: error`, because `MinAlertLevel = error` makes Vale skip a lower-level rule entirely rather than merely hiding its output. Outside `docs/` this is a convention rather than a check, and it covers text a user can see (window titles, status lines, error messages, CLI output), not code comments or identifiers. Wails runtime names such as `WindowMinimise` are upstream API and stay as they are.
+
 ## Git Conventions
 
 Do not credit Claude or any AI assistant as an author. Specifically:
