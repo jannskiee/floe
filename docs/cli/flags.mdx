@@ -1,7 +1,7 @@
 ---
 title: "Floe CLI Flags Reference"
 sidebarTitle: "Flags"
-description: "Reference for every floe CLI flag: global server, relay and interface options, receive and update flags, and supported environment variables."
+description: "Complete reference for every floe CLI flag: global server, relay and interface options, receive and update flags, and supported environment variables."
 ---
 
 ## Global flags
@@ -16,6 +16,17 @@ Available on all commands (`send`, `receive`, `update`, `version`).
 | `--iface <name>` | _(all interfaces)_ | Restrict WebRTC to network interfaces whose name contains this value (case-insensitive). Repeatable. Use when a VPN or virtual-machine adapter (Tailscale, VMware, WSL, Hyper-V) slows connection setup, for example `--iface Ethernet`. See [Troubleshooting](/troubleshooting). |
 
 The desktop app has equivalents for two of these. `--server` and `--web` are **Server address** and **Share link address**, under Advanced in **Settings**. `--no-relay` has no desktop equivalent: the **Hide my IP address** toggle does the opposite, forcing every transfer through the relay rather than refusing it. See [Desktop Settings](/desktop/settings).
+
+## Help and version flags
+
+These come from the CLI framework rather than from Floe itself.
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--help` | `-h` | `false` | Print usage and exit. Works on every command, so `floe send --help` and `floe receive --help` each print that command's own flags. |
+| `--version` | `-v` | `false` | Print the installed version and exit, for example `floe 1.10.2`. Root only: `floe --version` works, `floe send --version` does not. See [Alternatives](/cli/version#alternatives). |
+
+`floe completion` and `floe help` come from the same place and are not part of Floe's own interface. Run `floe completion --help` if you want shell completion.
 
 ## Environment variables
 
