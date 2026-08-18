@@ -10,6 +10,13 @@ overrides:
   esbuild: ^0.28.1
   ws: ^8.21.0
   postcss: ^8.5.23
+  # GHSA-2v37-7h3g-55p8 (CVE-2026-67213): a custom generator loops forever when
+  # size is zero. nanoid is here only as postcss ID source, and postcss 8.5.25
+  # and 8.5.26 declare ^3.3.16 and ^3.3.17, both of which 3.3.18 already
+  # satisfies, so only the frozen lockfile was holding it back. Keep this on the
+  # 3.x line: 3.3.18 is the last 3.x release, and 4.x and later are ESM-only,
+  # which postcss 8 will not accept. Build-time only, never in the bundle.
+  nanoid: ^3.3.18
   picomatch@2: ^2.3.2
   picomatch@4: ^4.0.4
   minimatch@3: ^3.1.3
