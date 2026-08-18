@@ -1589,7 +1589,7 @@ function App() {
         setSendDone(false);
         // Blanked for the same reason every staging path blanks it: whatever it
         // said was about a payload that no longer exists. Without this, a
-        // "Cancelled." from an earlier send would reappear when the offer went.
+        // "Canceled." from an earlier send would reappear when the offer went.
         setSendStatus('');
         setCleared(snap);
         setOfferUp(true);
@@ -1714,7 +1714,7 @@ function App() {
             setHistory((prev) => [{kind: 'recv' as const, names, count: names.length, dir, bytes: recvBytesRef.current || undefined, at: Date.now()}, ...prev].slice(0, HISTORY_CAP));
         } catch (e: any) {
             if (recvAttempt.current !== attempt) return;
-            setRecvStatus(recvCancel.current ? 'Cancelled.' : friendlyError(e) + serverNote());
+            setRecvStatus(recvCancel.current ? 'Canceled.' : friendlyError(e) + serverNote());
         } finally {
             if (recvAttempt.current !== attempt) return;
             setReceiving(false);
@@ -1748,7 +1748,7 @@ function App() {
             setSendLink('');
             setPeerConnected(false);
             setFilesOpen(false);
-            setSendStatus('Cancelled.');
+            setSendStatus('Canceled.');
         }
         setRoute('');
         if (receiving) {
@@ -1757,7 +1757,7 @@ function App() {
             setRecvProg(null);
             setRecvDone(false);
             setIncoming('');
-            setRecvStatus('Cancelled.');
+            setRecvStatus('Canceled.');
         }
         CancelTransfer().catch(() => {});
     }

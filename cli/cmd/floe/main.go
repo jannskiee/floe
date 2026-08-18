@@ -450,7 +450,7 @@ func main() {
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigCh
-		fmt.Fprintln(os.Stderr, "\n  Cancelled.")
+		fmt.Fprintln(os.Stderr, "\n  Canceled.")
 		os.Exit(130)
 	}()
 

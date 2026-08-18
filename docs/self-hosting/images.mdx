@@ -64,7 +64,7 @@ It lists one entry per platform, so you can confirm your architecture is covered
 <Note>
   Each architecture is built and smoke-tested on its own hardware before any tag points at it, and a tag is only published once every architecture of both images has passed. A partly-built release is never visible.
 
-  That matters more than it sounds. The image optimiser fails at load time rather than at build time, and when it fails it does not error: it quietly serves the original file. So a broken ARM image would look perfectly healthy to anything that only checks whether the page loads. The smoke test asserts the optimiser actually returns WebP, on real ARM.
+  That matters more than it sounds. The image optimizer fails at load time rather than at build time, and when it fails it does not error: it quietly serves the original file. So a broken ARM image would look perfectly healthy to anything that only checks whether the page loads. The smoke test asserts the optimizer actually returns WebP, on real ARM.
 </Note>
 
 32-bit ARM (`linux/arm/v7`, older Raspberry Pi models) is not published. Node dropped support for it and no prebuilt image-processing binaries exist.

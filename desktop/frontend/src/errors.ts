@@ -28,7 +28,7 @@ const RULES: Array<[pattern: string, friendly: string]> = [
     ['could not reach signaling server', 'Could not reach the server. Check your internet connection.'],
     ['could not resolve', 'That code was not recognized. Check it for typos, or ask the sender for a new one.'],
     ['Invalid room ID', 'That link looks incomplete. Copy the whole share link and try again.'],
-    ['connection closed before any file', 'The sender cancelled, or the transfer was blocked before it started.'],
+    ['connection closed before any file', 'The sender canceled, or the transfer was blocked before it started.'],
     ['connection closed while waiting for the receiver', 'The receiver left or declined before the transfer started.'],
     ['no data arrived from the sender', 'Connected, but the sender never started sending. Ask them to try again.'],
     ['transfer stalled', 'The transfer stalled and gave up. Start it again.'],
