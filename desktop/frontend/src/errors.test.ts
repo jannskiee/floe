@@ -27,8 +27,8 @@ describe('friendlyError', () => {
 
     it('keeps the specific closed-before-any-file diagnosis out of the generic bucket', () => {
         expect(
-            friendlyError('connection closed before any file arrived (the sender cancelled, or the transfer was blocked)'),
-        ).toBe('Error: The sender cancelled, or the transfer was blocked before it started.');
+            friendlyError('connection closed before any file arrived (the sender canceled, or the transfer was blocked)'),
+        ).toBe('Error: The sender canceled, or the transfer was blocked before it started.');
     });
 
     it('keeps the receiver-left diagnosis out of the generic bucket', () => {

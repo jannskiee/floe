@@ -59,18 +59,18 @@ export default function TitleBar({onSettings, settingsActive, onStartOver}: {
                     </button>
                 </Tooltip>
                 <span aria-hidden className="mx-1 h-3.5 w-px bg-white/10"/>
-                <Tooltip label="Minimise">
+                <Tooltip label="Minimize">
                     <button
-                        aria-label="Minimise"
+                        aria-label="Minimize"
                         onClick={() => WindowMinimise()}
                         className="grid h-9 w-11 place-items-center text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-100"
                     >
                         <Minus className="size-4"/>
                     </button>
                 </Tooltip>
-                <Tooltip label="Maximise">
+                <Tooltip label="Maximize">
                     <button
-                        aria-label="Maximise"
+                        aria-label="Maximize"
                         onClick={() => WindowToggleMaximise()}
                         className="grid h-9 w-11 place-items-center text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-100"
                     >

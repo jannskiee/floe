@@ -213,7 +213,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 						currentInfo.FileName, bytesReceived, currentInfo.FileSize)
 				}
 				if filesReceived == 0 {
-					return fmt.Errorf("connection closed before any file arrived (the sender cancelled, or the transfer was blocked)")
+					return fmt.Errorf("connection closed before any file arrived (the sender canceled, or the transfer was blocked)")
 				}
 				if currentInfo.Total > 0 && filesReceived < currentInfo.Total {
 					return fmt.Errorf("connection closed after %d of %d files", filesReceived, currentInfo.Total)
@@ -230,7 +230,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 							currentInfo.FileName, bytesReceived, currentInfo.FileSize)
 					}
 					if filesReceived == 0 {
-						return fmt.Errorf("connection closed before any file arrived (the sender cancelled, or the transfer was blocked)")
+						return fmt.Errorf("connection closed before any file arrived (the sender canceled, or the transfer was blocked)")
 					}
 					if currentInfo.Total > 0 && filesReceived < currentInfo.Total {
 						return fmt.Errorf("connection closed after %d of %d files", filesReceived, currentInfo.Total)

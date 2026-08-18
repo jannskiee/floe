@@ -894,7 +894,7 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 	}
 	defer sc.Close()
 	if !a.setSignaling(g, sc) {
-		return "", fmt.Errorf("transfer cancelled")
+		return "", fmt.Errorf("transfer canceled")
 	}
 
 	if err := sc.JoinRoom(roomID); err != nil {
@@ -930,7 +930,7 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 	}
 	defer conn.Close()
 	if !a.setConn(g, conn) {
-		return "", fmt.Errorf("transfer cancelled")
+		return "", fmt.Errorf("transfer canceled")
 	}
 
 	dc, err := conn.SetupAsReceiver()
