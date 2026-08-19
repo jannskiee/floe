@@ -289,7 +289,22 @@ async function sendSingleFile(
         try {
             slabBuffer = await file.slice(offset, slabEnd).arrayBuffer();
         } catch {
-            break;
+            // The file became unreadable after the user picked it: moved,
+            // renamed, on an unplugged drive, or a cloud placeholder whose
+            // local copy was evicted.
+            //
+            // This used to `break`, which fell through to the unconditional
+            // end marker below and returned true, so the sender announced a
+            // finished file after a short byte count and both sides showed
+            // success. Returning false skips the end marker and stops the
+            // transfer, which is what this function already documents itself
+            // as doing. No retry: a file that is genuinely gone will not come
+            // back on a second read.
+            cb.onError?.(
+                `Could not read "${file.name}". It may have been moved, renamed, ` +
+                `or on a drive or folder that is no longer available. Nothing further was sent.`
+            );
+            return false;
         }
 
         let slabOffset = 0;

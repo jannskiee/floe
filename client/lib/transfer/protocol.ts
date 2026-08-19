@@ -206,3 +206,27 @@ export function classifyControl(data: ArrayBuffer | Uint8Array): ControlMessage 
     if (t === 'incompatible') return msg as unknown as Incompatible;
     return null;
 }
+
+/**
+ * Validates a peer-supplied `fileSize`.
+ *
+ * `classifyControl` above casts the parsed JSON straight to its interface, so
+ * every field on a `Metadata` is whatever the other side chose to send:
+ * `fileSize` may be absent, a string, negative, fractional, or beyond the range
+ * where JavaScript integers are exact.
+ *
+ * Returns the value when it is a real byte count, and `null` otherwise. `null`
+ * means "the peer announced no usable size", and every caller must fall back to
+ * whatever it did before validation existed rather than treat it as a failure:
+ * that is what keeps a peer which never announced a size working exactly as it
+ * used to.
+ *
+ * Zero is a valid size and must survive as `0`, not collapse to `null`, or every
+ * empty file would lose its (trivially satisfiable) integrity check.
+ */
+export function normalizeFileSize(value: unknown): number | null {
+    if (typeof value !== 'number') return null;
+    if (!Number.isInteger(value)) return null; // also rejects NaN and Infinity
+    if (value < 0 || value > Number.MAX_SAFE_INTEGER) return null;
+    return value;
+}
