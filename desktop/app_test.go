@@ -242,3 +242,80 @@ func TestSupersededTransferDoesNotToast(t *testing.T) {
 		t.Fatalf("superseded transfer toasted %d times, want 0", calls)
 	}
 }
+
+// TestSecondInstanceFilesStageUntilFirstPull pins the multi-select "Send with
+// Floe" fix. Explorer launches one process per selected file; before the
+// frontend's first pull every forward must be staged (an emit would be
+// silently discarded by the JS event bus, which is how five selected files
+// used to arrive as one), and after the pull forwards are emitted.
+func TestSecondInstanceFilesStageUntilFirstPull(t *testing.T) {
+	a := &App{}
+
+	if a.stageOrEmit([]string{"a"}) {
+		t.Fatal("first forward before the pull should stage, not emit")
+	}
+	if a.stageOrEmit([]string{"b", "c"}) {
+		t.Fatal("burst forward before the pull should stage, not emit")
+	}
+
+	got := a.GetPendingFiles()
+	if len(got) != 3 || got[0] != "a" || got[1] != "b" || got[2] != "c" {
+		t.Fatalf("pull = %v, want [a b c]", got)
+	}
+
+	if !a.stageOrEmit([]string{"d"}) {
+		t.Fatal("forward after the pull should emit")
+	}
+	if late := a.GetPendingFiles(); late != nil {
+		t.Fatalf("emit path must stage nothing, second pull = %v", late)
+	}
+}
+
+// TestStageOrEmitEmptyNoOp preserves the existing gate: launches with no file
+// arguments neither stage nor emit.
+func TestStageOrEmitEmptyNoOp(t *testing.T) {
+	a := &App{}
+	if a.stageOrEmit(nil) {
+		t.Fatal("empty forward emitted before ready")
+	}
+	a.GetPendingFiles()
+	if a.stageOrEmit(nil) {
+		t.Fatal("empty forward emitted after ready")
+	}
+	if got := a.GetPendingFiles(); got != nil {
+		t.Fatalf("empty forwards staged something: %v", got)
+	}
+}
+
+// TestColdStartArgsMergeWithStagedFiles pins the startup interleave: a second
+// instance can stage files BEFORE the startup goroutine stages the cold-start
+// arguments, and startup must merge rather than assign, or the earlier files
+// are silently discarded.
+func TestColdStartArgsMergeWithStagedFiles(t *testing.T) {
+	a := &App{}
+
+	// A second instance lands first (the nil-ctx path appends directly).
+	if a.stageOrEmit([]string{"second-instance.txt"}) {
+		t.Fatal("should stage")
+	}
+	// Then startup stages the cold-start args through the same seam.
+	if a.stageOrEmit([]string{"cold-start.txt"}) {
+		t.Fatal("should stage")
+	}
+
+	got := a.GetPendingFiles()
+	if len(got) != 2 || got[0] != "second-instance.txt" || got[1] != "cold-start.txt" {
+		t.Fatalf("pull = %v, want both files in arrival order", got)
+	}
+}
+
+// TestGetPendingFilesDrains: the pull clears the staging area.
+func TestGetPendingFilesDrains(t *testing.T) {
+	a := &App{pendingFiles: []string{"x"}}
+	if got := a.GetPendingFiles(); len(got) != 1 {
+		t.Fatalf("first pull = %v", got)
+	}
+	if got := a.GetPendingFiles(); got != nil {
+		t.Fatalf("second pull = %v, want nil", got)
+	}
+}
