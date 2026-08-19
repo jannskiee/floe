@@ -237,6 +237,15 @@ func (a *App) startup(ctx context.Context) {
 	}
 }
 
+// shutdown runs when the app is quitting. A transfer goroutine may still hold
+// its .part staging file open; its deferred cleanup will not get to run before
+// the process ends, so tidy the staging file here. Safe at any moment: only
+// .part files are registered, and a completed file's commit rename vacated
+// that path, so nothing that finished can be touched.
+func (a *App) shutdown(ctx context.Context) {
+	transfer.AbandonPartials()
+}
+
 // onSecondInstanceLaunch fires when Floe is launched again while already running.
 // Rather than open a second window, bring the existing one to the front and
 // forward any file arguments (the Explorer context menu launches one process

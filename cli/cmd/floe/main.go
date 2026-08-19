@@ -450,7 +450,15 @@ func main() {
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigCh
+		// Message first: feedback must be instant, and the cleanup below
+		// touches the disk (an AV scanner holding the file could stall it).
 		fmt.Fprintln(os.Stderr, "\n  Canceled.")
+		// os.Exit skips every defer, including the receiver's partial-file
+		// cleanup. Remove the in-flight .part staging file here so a Ctrl+C
+		// leaves the output directory as clean as any other failure. Safe at
+		// any moment: only .part files are ever registered, and a completed
+		// file's rename vacated that path.
+		transfer.AbandonPartials()
 		os.Exit(130)
 	}()
 

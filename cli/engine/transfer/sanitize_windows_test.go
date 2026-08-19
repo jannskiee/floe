@@ -60,20 +60,32 @@ func TestSanitizedNamesLandOnRealFiles(t *testing.T) {
 				t.Fatalf("MkdirAll: %v", err)
 			}
 
-			f, err := createUnique(dest)
+			// The real receive chain: claim a .part, write, commit by rename.
+			f, claimed, err := claimPart(dest)
 			if err != nil {
-				t.Fatalf("createUnique(%q) failed, which aborts the whole batch: %v", dest, err)
+				t.Fatalf("claimPart(%q) failed, which aborts the whole batch: %v", dest, err)
 			}
 			written, err := f.Write(payload)
 			if err != nil {
 				t.Fatalf("write: %v", err)
 			}
-			saved := f.Name()
 			if err := f.Close(); err != nil {
 				t.Fatalf("close: %v", err)
 			}
 			if written != len(payload) {
 				t.Fatalf("wrote %d bytes, want %d", written, len(payload))
+			}
+			// Production order: the zone tag goes on the .part BEFORE the
+			// rename, so committing also proves the stream travels with it.
+			if err := applyMOTW(f.Name()); err != nil {
+				t.Fatalf("applyMOTW(%q): %v", f.Name(), err)
+			}
+			saved, err := commitPart(f.Name(), claimed, dest)
+			if err != nil {
+				t.Fatalf("commitPart: %v", err)
+			}
+			if _, err := os.Lstat(f.Name()); !os.IsNotExist(err) {
+				t.Errorf("staging file %q still on disk after commit", f.Name())
 			}
 
 			// The bytes have to be in the file the name refers to, not beside
@@ -90,10 +102,8 @@ func TestSanitizedNamesLandOnRealFiles(t *testing.T) {
 					saved, st.Size(), len(payload))
 			}
 
-			// Mark of the Web has to attach to the file that was actually saved.
-			if err := applyMOTW(saved); err != nil {
-				t.Fatalf("applyMOTW(%q): %v", saved, err)
-			}
+			// Mark of the Web has to have traveled with the rename and sit on
+			// the file that was actually saved.
 			zone, err := os.ReadFile(saved + ":Zone.Identifier")
 			if err != nil {
 				t.Fatalf("no Zone.Identifier on %q, so SmartScreen will not apply: %v", saved, err)
