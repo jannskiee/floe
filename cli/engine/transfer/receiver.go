@@ -355,6 +355,19 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				if err != nil {
 					return fmt.Errorf("cannot create file %s: %w", destPath, err)
 				}
+				// Refuse anything that is not a regular file. sanitizeComponent
+				// already renames the Win32 device names it knows about, but
+				// enumerating names is a losing game: this catches any device we
+				// failed to list, on any platform, by asking the filesystem what
+				// it actually opened. Writing to a device silently discards the
+				// payload while every byte count still adds up, so turn it into
+				// the loud error the caller already handles.
+				if st, statErr := currentFile.Stat(); statErr == nil && !st.Mode().IsRegular() {
+					currentFile.Close()
+					currentFile = nil
+					return fmt.Errorf("refusing to write %s: not a regular file (%s)",
+						destPath, st.Mode())
+				}
 				// The name actually claimed on disk, which differs from the
 				// sender's whenever createUnique de-collided or safeJoin
 				// sanitized. Everything user-facing below reports this name.
