@@ -148,9 +148,11 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 	}
 
 	// Process messages sequentially
-	var currentFile *os.File
+	var currentFile *os.File // the .part staging file the bytes are written to
 	var currentInfo FileInfo
-	var currentSavedName string // on-disk name of the open file, relative to outputDir (see Progress.SavedName)
+	var currentBase string      // safeJoin output; the de-collision sequence starts here
+	var currentDest string      // final path claimed for the file (see claimPart)
+	var currentSavedName string // FINAL on-disk name, relative to outputDir (see Progress.SavedName)
 	var bytesReceived int64
 	var totalReceived int64
 	var bar *progressbar.ProgressBar
@@ -160,20 +162,32 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 
 	// If the transfer is interrupted (peer disconnect, stall, or error) before
 	// the "end" marker completes the current file, release the handle and
-	// delete the partial: a half-written file left at its final name is
-	// indistinguishable from a complete one, and it keeps that name claimed so
-	// a retry lands at "name (1)". Success is safe because the "end" handler
-	// closes and nils currentFile before any return, so anything still non-nil
-	// here is a partial by definition; files that completed earlier in the
-	// batch are never touched. Close before Remove (Windows refuses to delete
-	// an open file), and Remove is best-effort so a sharing violation from an
-	// AV scanner never masks the real transfer error. Directories created for
-	// folder transfers are left in place.
+	// delete the .part staging file, freeing its claimed final name so a retry
+	// can reuse it. Success is safe because the "end" handler closes and nils
+	// currentFile before any return, so anything still non-nil here is a
+	// staging file by definition; files that completed earlier in the batch
+	// were renamed to their final names and are never touched. Close before
+	// Remove (Windows refuses to delete an open file), and Remove is
+	// best-effort so a sharing violation from an AV scanner never masks the
+	// real transfer error. Directories created for folder transfers are left
+	// in place.
 	defer func() {
 		if currentFile != nil {
+			// Unregister first, then let the owner's own Close arbitrate
+			// ownership of the PATH. AbandonPartials closes registered files
+			// from another goroutine and then removes their paths; once that
+			// has happened, the path may already belong to a brand-new
+			// transfer's staging file, so removing by path would destroy
+			// someone else's bytes (a torture test proved exactly that
+			// theft). Abandon always closes before removing, so the arbiter
+			// is exact: our Close succeeding means abandon never touched the
+			// file and the path is still ours to remove; our Close failing
+			// means abandon owned the endgame and already removed it.
 			name := currentFile.Name()
-			currentFile.Close()
-			_ = os.Remove(name)
+			unregisterPartial(currentFile)
+			if currentFile.Close() == nil {
+				_ = os.Remove(name)
+			}
 		}
 	}()
 
@@ -271,12 +285,17 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				}
 				// A second metadata while a file is still open means the sender
 				// abandoned the current file without an "end". Close and delete
-				// the partial before starting the next one, or the handle leaks
-				// and the half-written file survives at its final name.
+				// the .part staging file before starting the next one, or the
+				// handle leaks and the abandoned staging file lingers, keeping
+				// its claimed final name blocked.
 				if currentFile != nil {
+					// Unregister, then Close-as-ownership-test; see the
+					// deferred cleanup above.
 					name := currentFile.Name()
-					currentFile.Close()
-					_ = os.Remove(name)
+					unregisterPartial(currentFile)
+					if currentFile.Close() == nil {
+						_ = os.Remove(name)
+					}
 					currentFile = nil
 				}
 				currentInfo = info
@@ -346,37 +365,45 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					}
 				}
 
-				// Create destination file (create parent dirs for folder transfers)
-				destPath := safeJoin(outputDir, info.FileName)
-				if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+				// Claim a final name and open its .part staging file (create
+				// parent dirs for folder transfers first). Bytes go to the
+				// staging file; the final name is taken only by the rename in
+				// the "end" handler, so a kill at any moment leaves nothing on
+				// disk that looks complete.
+				currentBase = safeJoin(outputDir, info.FileName)
+				if err := os.MkdirAll(filepath.Dir(currentBase), 0755); err != nil {
 					return fmt.Errorf("cannot create directory: %w", err)
 				}
-				currentFile, err = createUnique(destPath)
+				currentFile, currentDest, err = claimPart(currentBase)
 				if err != nil {
-					return fmt.Errorf("cannot create file %s: %w", destPath, err)
+					return fmt.Errorf("cannot create file %s: %w", currentBase, err)
 				}
-				// Refuse anything that is not a regular file. sanitizeComponent
-				// already renames the Win32 device names it knows about, but
-				// enumerating names is a losing game: this catches any device we
-				// failed to list, on any platform, by asking the filesystem what
-				// it actually opened. Writing to a device silently discards the
-				// payload while every byte count still adds up, so turn it into
-				// the loud error the caller already handles.
+				registerPartial(currentFile)
+				// Refuse anything that is not a regular file. claimPart already
+				// Lstats each final-name candidate and commitPart stats the
+				// placeholder it creates, so this is defense in depth on the
+				// staging handle itself: cheap, and it keeps the guarantee even
+				// if those checks are ever reshaped.
 				// A failed Stat is not treated as a failure: the file is already
 				// open and writable, and refusing on a stat hiccup would break a
 				// transfer that would otherwise succeed.
 				if st, statErr := currentFile.Stat(); statErr == nil && !st.Mode().IsRegular() {
 					name := currentFile.Name()
-					currentFile.Close()
+					unregisterPartial(currentFile)
+					if currentFile.Close() == nil {
+						_ = os.Remove(name)
+					}
 					currentFile = nil
 					return fmt.Errorf("refusing to write %s: not a regular file (%s)",
 						name, st.Mode())
 				}
-				// The name actually claimed on disk, which differs from the
-				// sender's whenever createUnique de-collided or safeJoin
-				// sanitized. Everything user-facing below reports this name.
+				// The FINAL name claimed for this file, which differs from the
+				// sender's whenever claimPart de-collided or safeJoin sanitized.
+				// Everything user-facing below reports this name, never the
+				// .part staging name, so progress lines and history read as the
+				// file the user will end up with.
 				currentSavedName = currentInfo.FileName
-				if rel, relErr := filepath.Rel(outputDir, currentFile.Name()); relErr == nil {
+				if rel, relErr := filepath.Rel(outputDir, currentDest); relErr == nil {
 					currentSavedName = filepath.ToSlash(rel)
 				}
 
@@ -405,27 +432,81 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 			case "end":
 				// Current file is complete
 				if currentFile != nil {
-					finalPath := currentFile.Name()
-					currentFile.Close()
+					staged := currentFile
+					partPath := staged.Name()
+					// Unregister FIRST: from this line an abandon can no longer
+					// touch this file. Then the flush and close double as the
+					// OWNERSHIP PROOF for the path: AbandonPartials closes a
+					// registered file before removing its path, so if our own
+					// Sync and Close both succeed, no abandon ever touched the
+					// handle, the .part at partPath is still OUR file, and the
+					// rename below cannot steal a path that a newer transfer
+					// re-claimed after an abandon freed it (a torture test
+					// proved exactly that theft when the commit trusted the
+					// path string alone). If either call fails, the transfer
+					// was abandoned mid-flight: the path is not ours, so leave
+					// it alone entirely and report the abort.
+					unregisterPartial(staged)
+					syncErr := staged.Sync()
+					closeErr := staged.Close()
 					currentFile = nil
 					fmt.Println()
+					if syncErr != nil || closeErr != nil {
+						return fmt.Errorf("transfer abandoned while completing %q", currentSavedName)
+					}
 
 					// Integrity guard: a short byte count means the transfer was
 					// truncated (e.g. the sender closed early). Fail loudly rather
 					// than leave a corrupt file that looks complete. The handle is
 					// already closed and nil'd above (required before Remove on
 					// Windows), so the interrupt cleanup cannot see this truncated
-					// file; delete it here.
+					// staging file; delete it here.
 					if bytesReceived != currentInfo.FileSize {
-						_ = os.Remove(finalPath)
+						_ = os.Remove(partPath)
 						return fmt.Errorf("incomplete file %q: received %d of %d bytes",
 							currentInfo.FileName, bytesReceived, currentInfo.FileSize)
 					}
 
-					// Mark the completed file as internet-sourced (Windows MOTW) so
+					// Mark the file as internet-sourced (Windows MOTW) so
 					// SmartScreen / Office Protected View apply when it is opened,
 					// like a browser download. Best-effort and Windows-only.
-					_ = applyMOTW(finalPath)
+					// Applied to the .part BEFORE the rename: the Zone.Identifier
+					// stream travels with a same-volume rename, so the final name
+					// never exists for even an instant without its zone tag.
+					_ = applyMOTW(partPath)
+
+					// Publish the verified bytes at the final name. On failure the
+					// staging file is deliberately left in place: the bytes are
+					// complete and verified, and deleting them over a transient
+					// AV lock would be data loss.
+					finalPath, commitErr := commitPart(partPath, currentDest, currentBase)
+					if commitErr != nil {
+						return fmt.Errorf("received %q in full but could not finish saving it: %w",
+							currentSavedName, commitErr)
+					}
+
+					// External interference only: something claimed the final name
+					// between our claim and the commit, so the file landed under a
+					// numbered sibling. Correct everything that reported the name.
+					if rel, relErr := filepath.Rel(outputDir, finalPath); relErr == nil {
+						if s := filepath.ToSlash(rel); s != currentSavedName {
+							currentSavedName = s
+							if onProgress != nil {
+								onProgress(Progress{
+									FileName:   currentInfo.FileName,
+									FileIndex:  currentInfo.Index,
+									FileCount:  currentInfo.Total,
+									FileBytes:  bytesReceived,
+									FileSize:   currentInfo.FileSize,
+									TotalBytes: totalReceived,
+									GrandTotal: currentInfo.TotalBytes,
+									SavedName:  currentSavedName,
+								})
+							} else {
+								fmt.Printf("  Saved as %s\n", currentSavedName)
+							}
+						}
+					}
 
 					filesReceived++
 					if filesReceived >= currentInfo.Total {
@@ -722,27 +803,112 @@ func sanitizeComponent(name, goos string) string {
 	return trimmed
 }
 
-// createUnique creates path for writing, but never overwrites an existing file:
-// if the name is taken it appends " (1)", " (2)", ... before the extension until
-// it finds a free name, claiming each candidate atomically with O_EXCL. This
-// mirrors how browsers and file managers de-duplicate downloads, so two files
-// with the same name (for example two pasted screenshots, or a repeat send into
-// the same folder) both survive instead of one clobbering the other.
-func createUnique(path string) (*os.File, error) {
-	ext := filepath.Ext(path)
-	stem := strings.TrimSuffix(path, ext)
-	for i := 0; i < 100000; i++ {
-		candidate := path
-		if i > 0 {
-			candidate = fmt.Sprintf("%s (%d)%s", stem, i, ext)
-		}
-		f, err := os.OpenFile(candidate, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0666)
-		if err == nil {
-			return f, nil
-		}
-		if !os.IsExist(err) {
-			return nil, err
-		}
+// partSuffix marks a staging file that is still being written. The full final
+// name stays in front of it ("report.pdf.part"), so Explorer shows what the
+// file will become, and ".part" is the convention download managers established
+// for "incomplete": a crash-stale leftover can never be mistaken for a finished
+// file. Bytes always land in a .part first; the final name is only ever taken
+// by the rename in commitPart, so a process kill at any moment leaves nothing
+// on disk that looks complete.
+const partSuffix = ".part"
+
+// candidatePath returns the i-th de-collision candidate for base: base itself
+// for i == 0, then "stem (i)ext". Shared by claimPart and commitPart so a
+// commit-time re-collision numbers from the base and can never produce
+// "shot (1) (1).png".
+func candidatePath(base string, i int) string {
+	if i == 0 {
+		return base
 	}
-	return nil, fmt.Errorf("too many files named like %q", filepath.Base(path))
+	ext := filepath.Ext(base)
+	stem := strings.TrimSuffix(base, ext)
+	return fmt.Sprintf("%s (%d)%s", stem, i, ext)
+}
+
+// claimPart reserves a final name for an incoming file and opens its .part
+// staging file. It never overwrites: a candidate whose final name is taken by
+// an existing file or directory is skipped, as is one whose .part exists (a
+// concurrent receive's live claim, or a stale leftover from a crash, which is
+// deliberately not reused because it cannot be told apart from a live one).
+// The O_EXCL open of the .part is the atomic claim, so two concurrent receives
+// racing for the same name cannot both win a candidate.
+//
+// A candidate occupied by something that is neither a regular file nor a
+// directory (a device that survived name sanitizing) aborts loudly instead of
+// advancing: writing "past" a device would succeed byte-for-byte and vanish,
+// and failing before any bandwidth is spent beats failing after.
+func claimPart(base string) (part *os.File, dest string, err error) {
+	for i := 0; i < 100000; i++ {
+		candidate := candidatePath(base, i)
+		if st, lerr := os.Lstat(candidate); lerr == nil {
+			if !st.Mode().IsRegular() && !st.IsDir() {
+				return nil, "", fmt.Errorf("refusing to write %s: not a regular file (%s)",
+					candidate, st.Mode())
+			}
+			continue // final name taken; advance
+		}
+		f, oerr := os.OpenFile(candidate+partSuffix, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0666)
+		if oerr == nil {
+			return f, candidate, nil
+		}
+		if !os.IsExist(oerr) {
+			return nil, "", oerr
+		}
+		// A live or stale .part blocks this candidate; advance.
+	}
+	return nil, "", fmt.Errorf("too many files named like %q", filepath.Base(base))
+}
+
+// commitPart publishes a verified .part staging file at its final name,
+// never overwriting anything that is not ours.
+//
+// Go's os.Rename REPLACES an existing destination on every platform, Windows
+// included, so a bare rename here would silently clobber a file that appeared
+// at the destination mid-transfer. renameNoReplace makes the never-overwrite
+// claim instead: atomically on Windows (MoveFileEx without the replace flag,
+// so the final name never holds anything but the complete file, not even for
+// an instant), and via a placeholder created and consumed inside the one call
+// elsewhere.
+//
+// The rename gets a bounded retry because an AV scanner or indexer can hold
+// the just-closed .part briefly (Go's Windows opens grant no
+// FILE_SHARE_DELETE). A "destination exists" failure advances to the next
+// candidate immediately instead of retrying: waiting cannot make a name free.
+// On final failure the .part is deliberately LEFT IN PLACE: its bytes are
+// complete and verified, and deleting them over a transient lock would be
+// data loss.
+func commitPart(partPath, claimedDest, basePath string) (dest string, err error) {
+	for i := 0; i < 100000; i++ {
+		candidate := candidatePath(basePath, i)
+		if i > 0 && candidate == claimedDest {
+			continue // already tried first, below
+		}
+		if i == 0 {
+			candidate = claimedDest // our claim gets the first shot
+		}
+		// Another receiver's live claim on this candidate; leave it alone.
+		if candidate+partSuffix != partPath {
+			if _, perr := os.Lstat(candidate + partSuffix); perr == nil {
+				continue
+			}
+		}
+		var rerr error
+		for attempt := 0; attempt < 5; attempt++ {
+			rerr = renameNoReplace(partPath, candidate)
+			if rerr == nil {
+				return candidate, nil
+			}
+			if os.IsExist(rerr) {
+				break // name taken since the claim; advance to the next
+			}
+			if attempt < 4 {
+				time.Sleep(200 * time.Millisecond)
+			}
+		}
+		if os.IsExist(rerr) {
+			continue
+		}
+		return "", fmt.Errorf("could not move %s into place: %w", partPath, rerr)
+	}
+	return "", fmt.Errorf("too many files named like %q", filepath.Base(basePath))
 }

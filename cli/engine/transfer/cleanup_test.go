@@ -201,6 +201,11 @@ func TestReceiverSuccessKeepsFile(t *testing.T) {
 	if len(got) != 4 {
 		t.Fatalf("completed file has %d bytes, want 4", len(got))
 	}
+	// The staging file must be gone: success ends with a rename, not a copy,
+	// so the only thing on disk is the completed file under its final name.
+	if left := listDir(t, outDir); len(left) != 1 || left[0] != "ok.bin" {
+		t.Fatalf("expected exactly [ok.bin] after success, found %v", left)
+	}
 }
 
 // TestReceiverMidBatchFailureKeepsCompletedFiles: when file 2 of a batch is

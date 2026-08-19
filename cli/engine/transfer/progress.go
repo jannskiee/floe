@@ -15,7 +15,7 @@ type Progress struct {
 
 	// SavedName is the on-disk name the receiver actually wrote, relative to the
 	// output directory, slash-separated. It differs from FileName when the name
-	// collided with an existing file (createUnique appends " (1)", " (2)", ...)
+	// collided with an existing file (claimPart appends " (1)", " (2)", ...)
 	// or was sanitized by safeJoin. Empty on the send side, where no file is
 	// written. UIs that open or reveal the received file must use this, not
 	// FileName, or a collision makes them act on the pre-existing file.

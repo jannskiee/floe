@@ -94,6 +94,7 @@ func main() {
 		},
 		BackgroundColour: &options.RGBA{R: 9, G: 9, B: 11, A: 1},
 		OnStartup:        app.startup,
+		OnShutdown:       app.shutdown,
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId:               "one.floe.desktop",
 			OnSecondInstanceLaunch: app.onSecondInstanceLaunch,

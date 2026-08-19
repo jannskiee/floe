@@ -237,6 +237,15 @@ func (a *App) startup(ctx context.Context) {
 	}
 }
 
+// shutdown runs when the app is quitting. A transfer goroutine may still hold
+// its .part staging file open; its deferred cleanup will not get to run before
+// the process ends, so tidy the staging file here. Safe at any moment: only
+// .part files are registered, and a completed file's commit rename vacated
+// that path, so nothing that finished can be touched.
+func (a *App) shutdown(ctx context.Context) {
+	transfer.AbandonPartials()
+}
+
 // onSecondInstanceLaunch fires when Floe is launched again while already running.
 // Rather than open a second window, bring the existing one to the front and
 // forward any file arguments (the Explorer context menu launches one process
@@ -454,7 +463,7 @@ func openCmd(goos, path string) *exec.Cmd {
 // RevealFile opens the OS file manager with the received file dir/name selected.
 // If the exact file is missing it falls back to opening the folder, so the
 // action is never broken. Live transfers pass the engine's SavedName (the real
-// on-disk name, de-collided by createUnique), so the fallback now covers only
+// on-disk name, de-collided by claimPart), so the fallback now covers only
 // history entries persisted before SavedName existed (those hold the sender's
 // name forever) and files moved/deleted after the transfer.
 func (a *App) RevealFile(dir, name string) error {
