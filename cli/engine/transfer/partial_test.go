@@ -6,6 +6,7 @@ package transfer
 // invariant, the never-overwrite commit, and the Ctrl+C abandon path.
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -214,5 +215,100 @@ func TestAbandonPartialsSparesCompletedFile(t *testing.T) {
 	}
 	if strings.Contains(strings.Join(listDir(t, dir), " "), partSuffix) {
 		t.Fatalf("a staging file survived: %v", listDir(t, dir))
+	}
+}
+
+// TestCommitAbandonTorture is the regression net for two empirically proven
+// races in an earlier ordering, where AbandonPartials removed a registered
+// path while commitPart's rename was moving it: the delete disposition
+// followed the file to its final name (both syscalls reported success and the
+// committed file vanished), and a freed path re-claimed by another receive
+// could be published under a stale commit's name. With unregistration before
+// the commit, under the abandon's own mutex, neither interleave exists: every
+// commit that reports success must leave its exact payload on disk.
+func TestCommitAbandonTorture(t *testing.T) {
+	dir := t.TempDir()
+	base := filepath.Join(dir, "abandon.bin")
+
+	stop := make(chan struct{})
+	var spam sync.WaitGroup
+	spam.Add(1)
+	go func() {
+		defer spam.Done()
+		// Paced, not a hot loop: production calls AbandonPartials once, at
+		// process exit. An unpaced loop hammering close/remove/re-create on
+		// colliding paths thousands of times a second can park a Close on
+		// the FD semaphore deep in the Windows poller, which is not an
+		// interleave any real exit path can produce. The pacing still lands
+		// hundreds of abandons across every phase of the claim/write/commit
+		// cycle, which is what the regression net needs.
+		for {
+			select {
+			case <-stop:
+				return
+			case <-time.After(200 * time.Microsecond):
+				AbandonPartials()
+			}
+		}
+	}()
+
+	const workers, rounds = 8, 25
+	type result struct {
+		dest    string
+		payload string
+	}
+	var mu sync.Mutex
+	var committed []result
+
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for r := 0; r < rounds; r++ {
+				payload := fmt.Sprintf("w%d-r%d", w, r)
+				f, dest, err := claimPart(base)
+				if err != nil {
+					continue // a concurrent abandon can beat a claim; that is its job
+				}
+				registerPartial(f)
+				if _, err := f.Write([]byte(payload)); err != nil {
+					// Production order: owners unregister BEFORE closing, so
+					// abandon is the only goroutine that ever closes a
+					// registered file (a cross-goroutine double Close can
+					// deadlock on Windows).
+					unregisterPartial(f)
+					f.Close()
+					continue
+				}
+				// The production order: unregister, close, verify, commit.
+				unregisterPartial(f)
+				f.Close()
+				final, err := commitPart(f.Name(), dest, base)
+				if err != nil {
+					continue
+				}
+				mu.Lock()
+				committed = append(committed, result{final, payload})
+				mu.Unlock()
+			}
+		}(w)
+	}
+	wg.Wait()
+	close(stop)
+	spam.Wait()
+
+	for _, c := range committed {
+		got, err := os.ReadFile(c.dest)
+		if err != nil {
+			t.Errorf("commit reported success at %s but the file is gone: %v", c.dest, err)
+			continue
+		}
+		if string(got) != c.payload {
+			t.Errorf("commit at %s holds %q, want %q (stolen bytes)", c.dest, got, c.payload)
+		}
+	}
+	if t.Failed() {
+		t.Logf("%d successful commits audited", len(committed))
 	}
 }

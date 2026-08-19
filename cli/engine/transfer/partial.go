@@ -10,12 +10,18 @@ import (
 // desktop's shutdown hook fires while a transfer goroutine may still hold its
 // handle) can still tidy the staging file.
 //
-// Only .part files are ever registered, and a successful commit renames that
-// path away before the receiver unregisters, so a late AbandonPartials call
-// finds nothing at the path and removes nothing. A completed file's final
-// path never enters this map, which is what makes calling AbandonPartials at
-// ANY moment safe: the historical hazard of a shutdown hook deleting a file
-// that had just finished cannot occur by construction.
+// Only .part files are ever registered, and the receiver unregisters BEFORE
+// committing, under this same mutex. That ordering is load-bearing: an
+// empirical review proved that removing a registered path can otherwise race
+// the commit rename, with the delete disposition following the file to its
+// final name so that both syscalls report success and the committed file
+// vanishes. With unregister-first the receiver cannot be inside the commit
+// while an abandon holds the lock (unregister synchronizes on it), and once
+// unregistered the path is invisible to abandon; so no registered path is
+// ever mid-rename, and a completed file can never be deleted here. An abandon
+// that wins the lock in the instant between verification and unregistration
+// deletes a verified .part during an explicit user abort, which is accepted:
+// the sender was never told the transfer completed.
 //
 // A map rather than a single slot: the desktop shares this package and can in
 // principle run more than one receive in a process lifetime; a single slot

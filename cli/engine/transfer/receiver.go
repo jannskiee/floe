@@ -173,10 +173,18 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 	// in place.
 	defer func() {
 		if currentFile != nil {
+			// Unregister BEFORE closing: owners never close a registered
+			// file. AbandonPartials closes registered files from another
+			// goroutine, and a cross-goroutine double Close on Windows can
+			// park one closer on the FD semaphore while the registry mutex
+			// is held, deadlocking the process (found by the torture test).
+			// After unregister, either abandon already processed this file
+			// (Close returns "already closed", Remove finds nothing: fine)
+			// or it never will.
 			name := currentFile.Name()
+			unregisterPartial(currentFile)
 			currentFile.Close()
 			_ = os.Remove(name)
-			unregisterPartial(currentFile)
 		}
 	}()
 
@@ -278,10 +286,11 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// handle leaks and the abandoned staging file lingers, keeping
 				// its claimed final name blocked.
 				if currentFile != nil {
+					// Unregister before Close; see the deferred cleanup above.
 					name := currentFile.Name()
+					unregisterPartial(currentFile)
 					currentFile.Close()
 					_ = os.Remove(name)
-					unregisterPartial(currentFile)
 					currentFile = nil
 				}
 				currentInfo = info
@@ -375,9 +384,9 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// transfer that would otherwise succeed.
 				if st, statErr := currentFile.Stat(); statErr == nil && !st.Mode().IsRegular() {
 					name := currentFile.Name()
+					unregisterPartial(currentFile)
 					currentFile.Close()
 					_ = os.Remove(name)
-					unregisterPartial(currentFile)
 					currentFile = nil
 					return fmt.Errorf("refusing to write %s: not a regular file (%s)",
 						name, st.Mode())
@@ -419,6 +428,14 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				if currentFile != nil {
 					staged := currentFile
 					partPath := staged.Name()
+					// Unregister FIRST: owners never close a registered file
+					// (see the deferred cleanup), and from here this goroutine
+					// owns the .part outright, so an abandon can no longer
+					// touch bytes that are about to be verified and published.
+					// An abandon that won the registry lock a moment earlier
+					// deleted an unverified .part during an explicit user
+					// abort, which is the designed outcome.
+					unregisterPartial(staged)
 					// Flush to disk before declaring the bytes safe: the docs
 					// extend the no-half-written promise to power loss, and NTFS
 					// journals metadata, not data. Negligible next to a network
@@ -436,7 +453,6 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					// staging file; delete it here.
 					if bytesReceived != currentInfo.FileSize {
 						_ = os.Remove(partPath)
-						unregisterPartial(staged)
 						return fmt.Errorf("incomplete file %q: received %d of %d bytes",
 							currentInfo.FileName, bytesReceived, currentInfo.FileSize)
 					}
@@ -453,12 +469,6 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					// staging file is deliberately left in place: the bytes are
 					// complete and verified, and deleting them over a transient
 					// AV lock would be data loss.
-					// Unregister BEFORE the commit: from this line the bytes are
-					// verified complete, and an AbandonPartials landing mid-commit
-					// (Ctrl+C, the desktop shutdown hook) must not delete them.
-					// A crash between here and the rename leaves the intact .part
-					// for the user, which is the designed-safe artifact.
-					unregisterPartial(staged)
 					finalPath, commitErr := commitPart(partPath, currentDest, currentBase)
 					if commitErr != nil {
 						return fmt.Errorf("received %q in full but could not finish saving it: %w",
