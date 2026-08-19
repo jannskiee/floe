@@ -25,14 +25,16 @@
 const WINDOWS_RESERVED = /[<>:"|?*]/g;
 
 /**
- * ASCII control characters, DEL, and the Unicode bidi controls.
+ * The C0 and C1 control characters, DEL, and all four Unicode bidi controls.
  *
  * The bidi ones are the file name spoof: `photo‮gnp.exe` renders as
  * `photoexe.png` in Explorer, Finder and GNOME Files alike. Right-to-left
  * scripts carry their own directionality and use none of these, so Arabic and
- * Hebrew names pass through untouched.
+ * Hebrew names pass through untouched. U+061C is easy to miss: it is the fourth
+ * `Bidi_Control` character and reorders exactly like the RLM beside it.
  */
-const INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+const INVISIBLE =
+    /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
 
 /** Win32 device names, matched against the whole segment, case-insensitively. */
 const DEVICE_NAMES = new Set([
@@ -107,10 +109,16 @@ export function sanitizeFileName(name: unknown): string {
 export function sanitizeZipEntryName(name: unknown): string {
     if (typeof name !== 'string') return FALLBACK;
 
+    // Sanitize BEFORE the __proto__ check, never after. sanitizeSegment trims
+    // trailing dots and spaces and strips invisible characters, so checking
+    // first lets any decorated spelling rebuild the exact key afterwards:
+    // "__proto__ " sanitized to "__proto__" and the file vanished from the
+    // archive again, with no error and a plausible-looking ZIP.
     const parts = name
         .split(/[/\\]/)
         .filter((p) => p !== '' && p !== '.' && p !== '..')
-        .map((p) => (p === '__proto__' ? '_proto_' : sanitizeSegment(p)))
+        .map(sanitizeSegment)
+        .map((p) => (p === '__proto__' ? '_proto_' : p))
         .filter((p) => p !== '');
 
     return parts.length === 0 ? FALLBACK : parts.join('/');

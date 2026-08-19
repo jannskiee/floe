@@ -137,6 +137,26 @@ describe('sanitizeZipEntryName', () => {
         expect(sanitizeZipEntryName('d/__proto__')).toBe('d/_proto_');
     });
 
+    it('renames every decorated spelling of __proto__ too', () => {
+        // The guard has to run AFTER sanitizing. Checking first let a trailing
+        // space, a trailing dot or an invisible character rebuild the exact key
+        // during sanitizing, and the file vanished from the archive again.
+        for (const decorated of [
+            '__proto__ ',
+            '__proto__.',
+            '__proto__\u0000',
+            '__prot\u200eo__',
+            '__proto__ . ',
+        ]) {
+            expect(sanitizeZipEntryName(decorated)).toBe('_proto_');
+        }
+    });
+
+    it('strips the arabic letter mark, the fourth bidi control', () => {
+        expect(sanitizeZipEntryName('a\u061cb.txt')).toBe('ab.txt');
+        expect(sanitizeFileName('a\u061cb.txt')).toBe('ab.txt');
+    });
+
     it('caps each segment independently, keeping the folders', () => {
         const got = sanitizeZipEntryName('d/' + 'b'.repeat(500) + '.bin');
         const parts = got.split('/');
@@ -169,6 +189,19 @@ describe('buildZipEntries', () => {
             { fileName: '__proto__', bytes: bytes(3) },
         ]);
         expect(Object.keys(out).sort()).toEqual(['_proto_', 'a.txt']);
+    });
+
+    it('keeps a file named "__proto__ " with a trailing space', async () => {
+        const out = buildZipEntries([
+            { fileName: 'other.txt', bytes: bytes(3) },
+            { fileName: '__proto__ ', bytes: bytes(3) },
+        ]);
+        const archive = await new Promise<Uint8Array>((resolve, reject) => {
+            zip(out, (err, data) => (err ? reject(err) : resolve(data)));
+        });
+        // Round-trip rather than key-count: this exact case produced a
+        // plausible-looking archive that was quietly missing a file.
+        expect(Object.keys(unzipSync(archive)).sort()).toEqual(['_proto_', 'other.txt']);
     });
 
     it('does not pollute Object.prototype', () => {
