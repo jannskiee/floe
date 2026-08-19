@@ -67,6 +67,21 @@ the name you were expecting.
 Folders are not renamed, only the files inside them. Receiving the same folder twice merges it
 into the existing one, with the colliding files numbered.
 
+## Names Windows cannot represent are adjusted
+
+Some file names are perfectly ordinary on a Mac or a Linux machine and cannot exist on Windows.
+A timestamp like `backup:2026-08-19.log` is the common case, because Windows gives the colon a
+special meaning. Floe adjusts the name before writing the file, and the progress line and
+**Show in folder** both use the adjusted name.
+
+The characters `< > : " | ? *` become underscores, trailing dots and spaces are removed, and a
+name that is a reserved device name (such as `NUL`) gets an underscore in front. If two files
+end up with the same adjusted name, the second is numbered exactly as above.
+
+This matters for more than tidiness. Before Floe did this, a file called `backup:2026-08-19.log`
+appeared in your folder as an empty file called `backup`, because Windows had quietly routed the
+contents somewhere else, and the transfer still reported success.
+
 ## Received files are marked as downloads
 
 On Windows, Floe tags each file it writes with the mark of the web, the same tag Windows puts

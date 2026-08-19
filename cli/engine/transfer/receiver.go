@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -354,6 +355,19 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				if err != nil {
 					return fmt.Errorf("cannot create file %s: %w", destPath, err)
 				}
+				// Refuse anything that is not a regular file. sanitizeComponent
+				// already renames the Win32 device names it knows about, but
+				// enumerating names is a losing game: this catches any device we
+				// failed to list, on any platform, by asking the filesystem what
+				// it actually opened. Writing to a device silently discards the
+				// payload while every byte count still adds up, so turn it into
+				// the loud error the caller already handles.
+				if st, statErr := currentFile.Stat(); statErr == nil && !st.Mode().IsRegular() {
+					currentFile.Close()
+					currentFile = nil
+					return fmt.Errorf("refusing to write %s: not a regular file (%s)",
+						destPath, st.Mode())
+				}
 				// The name actually claimed on disk, which differs from the
 				// sender's whenever createUnique de-collided or safeJoin
 				// sanitized. Everything user-facing below reports this name.
@@ -576,9 +590,16 @@ func safeJoin(outputDir, fileName string) string {
 	name = strings.TrimPrefix(name, filepath.VolumeName(name))
 	clean := filepath.Clean(name)
 	// Drop empty (leading separator → rooted path), "." and ".." components.
+	//
+	// sanitizeComponent runs FIRST so the traversal filter below judges the
+	// string that will actually reach the filesystem, not the one the peer
+	// sent. Keep that order, and keep the filter itself untouched: a component
+	// that a trailing trim reduces to ".." or "" has to meet the same test
+	// every other component meets.
 	parts := strings.Split(clean, string(filepath.Separator))
 	var safe []string
 	for _, p := range parts {
+		p = sanitizeComponent(p, runtime.GOOS)
 		if p != ".." && p != "." && p != "" {
 			safe = append(safe, p)
 		}
@@ -587,6 +608,103 @@ func safeJoin(outputDir, fileName string) string {
 		safe = []string{"received_file"}
 	}
 	return filepath.Join(outputDir, filepath.Join(safe...))
+}
+
+// reservedDeviceNames are the Win32 device names a file cannot be called.
+//
+// The match is on the WHOLE component, case-insensitively, and deliberately
+// NOT on the stem before the extension. The widespread advice is stem-based,
+// but "CON.txt", "AUX.log" and even "NUL.txt" all create ordinary files on
+// Windows 11; only the bare device name misbehaves, and only "NUL" actually
+// swallows the data. Matching the whole component means nothing that provably
+// works gets renamed. "CONTRACT.pdf" never matches under either rule.
+var reservedDeviceNames = map[string]struct{}{
+	"CON": {}, "PRN": {}, "AUX": {}, "NUL": {},
+	"COM1": {}, "COM2": {}, "COM3": {}, "COM4": {}, "COM5": {},
+	"COM6": {}, "COM7": {}, "COM8": {}, "COM9": {},
+	"LPT1": {}, "LPT2": {}, "LPT3": {}, "LPT4": {}, "LPT5": {},
+	"LPT6": {}, "LPT7": {}, "LPT8": {}, "LPT9": {},
+	"CONIN$": {}, "CONOUT$": {},
+}
+
+// sanitizeComponent rewrites one peer-supplied path component into a name the
+// receiving system can actually represent.
+//
+// The caller passes exactly one component (no separators) and must cope with
+// two legitimate outputs: "" when everything was stripped, and ".." when a
+// trailing trim exposes one. safeJoin's existing filter handles both.
+//
+// Two classes of rule, gated differently on purpose:
+//
+//   - Every platform: C0 controls, DEL, and the Unicode bidi controls become
+//     "_". Controls are never valid in a name, and this name is printed to a
+//     terminal (the incoming box, the progress bar, the summary), where a bare
+//     \r rewrites the line and \x1b injects escape sequences that can scrub the
+//     accept prompt. The bidi controls are the spoofing vector:
+//     "photo‮gnp.exe" renders as "photoexe.png" in Explorer, Finder and
+//     GNOME Files alike, so gating them to Windows would leave the other two
+//     exposed. Text that is inherently right-to-left (Arabic, Hebrew) needs no
+//     control character and is left alone.
+//
+//   - Windows only: the characters Win32 reserves become "_", trailing spaces
+//     and dots are trimmed, and a component that IS a device name is prefixed.
+//     Those names are legal and distinct on ext4 and APFS, so rewriting them
+//     elsewhere would lose fidelity for no security gain. The RECEIVER's OS is
+//     the correct gate, because this process is the one creating the file.
+//
+// Trailing spaces and dots are trimmed rather than replaced because Win32 drops
+// them while resolving a path, so such a name does not refer to the file it
+// appears to. That is what silently detaches the Mark of the Web: for
+// "evil.exe " the bytes land on a real "evil.exe", but applyMOTW then writes
+// "evil.exe :Zone.Identifier", where the space is interior and survives, so the
+// stream attaches to something else and the saved file carries no zone tag.
+// Substituting "evil.exe_" would keep the name distinct but destroy the
+// extension association, which is a worse outcome than a de-collision.
+//
+// The replacement character is "_", and that mapping is a compatibility
+// surface rather than an implementation detail: changing it later means a
+// repeat receive lands as a separate file instead of "name (1).ext", and
+// desktop history rows persisted with the old SavedName stop resolving (see
+// Progress.SavedName). "_" is never itself a replacement target, so sanitizing
+// twice gives the same answer as sanitizing once.
+//
+// goos is a parameter rather than a build tag so that every branch is
+// exercised on all three CI legs, matching selfupdate.AssetName and desktop's
+// revealCmd/openCmd. The rules here are a decision about the target OS, not an
+// operation that only exists on one (which is what motw_windows.go is for).
+func sanitizeComponent(name, goos string) string {
+	windows := goos == "windows"
+
+	// strings.Map rewrites invalid UTF-8 to U+FFFD. That is harmless here:
+	// FileName arrives through json.Unmarshal, which has already made the same
+	// substitution before this code ever sees the name.
+	clean := strings.Map(func(r rune) rune {
+		switch {
+		case r < 0x20 || r == 0x7f:
+			return '_'
+		case r == '‎' || r == '‏', // LRM, RLM
+			r >= '‪' && r <= '‮', // embeddings and overrides
+			r >= '⁦' && r <= '⁩': // isolates
+			return '_'
+		case windows && strings.ContainsRune(`<>:"|?*`, r):
+			return '_'
+		}
+		return r
+	}, name)
+
+	if !windows {
+		return clean
+	}
+
+	// "." and ".." trim to "", and the caller's filter drops them either way.
+	trimmed := strings.TrimRight(clean, " .")
+	if trimmed == "" {
+		return ""
+	}
+	if _, reserved := reservedDeviceNames[strings.ToUpper(trimmed)]; reserved {
+		return "_" + trimmed
+	}
+	return trimmed
 }
 
 // createUnique creates path for writing, but never overwrites an existing file:

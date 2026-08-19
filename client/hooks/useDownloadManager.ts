@@ -1,9 +1,14 @@
 import { useState } from 'react';
 import { zip, Zippable } from 'fflate';
-import { dedupeFileName } from '@/lib/download';
+import { buildZipEntries, sanitizeFileName } from '@/lib/download';
 
 export interface ReceivedFile {
     id: string;
+    /**
+     * Exactly what the peer called the file, unvalidated. Never use it to name
+     * something on disk or as an object key: run it through `sanitizeFileName`
+     * or `sanitizeZipEntryName` in lib/download.ts first.
+     */
     fileName: string;
     fileSize: number;
     downloadUrl: string;
@@ -41,7 +46,7 @@ export function useDownloadManager(
 
             const link = document.createElement('a');
             link.href = file.downloadUrl;
-            link.download = file.fileName;
+            link.download = sanitizeFileName(file.fileName);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -61,8 +66,7 @@ export function useDownloadManager(
         setDownloadProgress({ current: 0, total: receivedFiles.length, label: 'Preparing files...' });
 
         try {
-            const filesToZip: Zippable = {};
-            const usedNames = new Set<string>();
+            const collected: { fileName: string; bytes: Uint8Array }[] = [];
             let failedCount = 0;
 
             for (let i = 0; i < receivedFiles.length; i++) {
@@ -79,12 +83,15 @@ export function useDownloadManager(
                     const blob = await response.blob();
                     const arrayBuffer = await blob.arrayBuffer();
 
-                    const finalName = dedupeFileName(file.fileName, usedNames);
-                    filesToZip[finalName] = new Uint8Array(arrayBuffer);
+                    collected.push({ fileName: file.fileName, bytes: new Uint8Array(arrayBuffer) });
                 } catch {
                     failedCount++;
                 }
             }
+
+            // Sanitizing and de-duplicating happen together in buildZipEntries,
+            // in that order, on a null-prototype object. See lib/download.ts.
+            const filesToZip = buildZipEntries(collected) as Zippable;
 
             if (Object.keys(filesToZip).length === 0) {
                 setError('Could not prepare files for ZIP. Try "Download All" instead.');
