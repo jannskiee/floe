@@ -68,6 +68,9 @@ the name you were expecting.
 Folders are not renamed, only the files inside them. Receiving the same folder twice merges it
 into the existing one, with the colliding files numbered.
 
+While a file is still arriving it appears in the folder as `name.ext.part`, and it takes its
+real name only at the moment it is complete. Anything you see without `.part` is whole.
+
 ## Names Windows cannot represent are adjusted
 
 Some file names are perfectly ordinary on a Mac or a Linux machine and cannot exist on Windows.
@@ -144,6 +147,8 @@ If Floe connects but nothing arrives, it gives up after 30 seconds and says the 
 started sending; ask them to try again. If it never connects at all, check that both of you are
 on the same signaling server. See [Troubleshooting](/troubleshooting).
 
-A transfer that fails or is canceled partway deletes the file it was writing, so nothing
-half-written is left behind under a finished-looking name. Files that completed before the
-failure are kept, and a retry can use the original name rather than a numbered one.
+A transfer that fails or is canceled partway deletes the `.part` file it was writing, so
+nothing half-written is left behind under a finished-looking name. Files that completed before
+the failure are kept, and a retry can use the original name rather than a numbered one. If Floe
+is closed abruptly or the machine loses power mid-transfer, the unfinished file is left as a
+`.part` file rather than under a finished-looking name; it is safe to delete.

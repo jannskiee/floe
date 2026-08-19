@@ -819,9 +819,13 @@ function App() {
     // restart has re-armed the UI, so its catch/finally must go quiet instead
     // of stomping the live attempt's state.
     const recvAttempt = useRef(0);
-    // Receive file names harvested from progress events (the Go throttle always
-    // emits each file's final update, so every name is captured).
-    const recvNamesRef = useRef<string[]>([]);
+    // Receive file names harvested from progress events, keyed by fileIndex
+    // (the Go throttle always emits each file's final update, so every name is
+    // captured). A Map, not an array: if the engine corrects a SavedName at
+    // commit time (a name collision surfaced by the final rename), the
+    // corrected event must REPLACE the entry, or one file would count twice in
+    // history and the single-file Open/Reveal buttons would vanish.
+    const recvNamesRef = useRef<Map<number, string>>(new Map());
     // Total bytes of the in-flight receive, for the history entry.
     const recvBytesRef = useRef(0);
 
@@ -1130,7 +1134,7 @@ function App() {
             // lands as "name (1).ext", and Open/Reveal and history must target
             // that, not the sender's name, or they act on the pre-existing file.
             const name = p.savedName || p.fileName;
-            if (name && !recvNamesRef.current.includes(name)) recvNamesRef.current.push(name);
+            if (name) recvNamesRef.current.set(p.fileIndex, name);
         });
         EventsOn('send:route', (r: string) => {
             if (sendCancel.current) return;
@@ -1717,7 +1721,7 @@ function App() {
         setRoute('');
         recvCancel.current = false;
         recvStart.current = null;
-        recvNamesRef.current = [];
+        recvNamesRef.current = new Map();
         recvBytesRef.current = 0;
         setRecvStatus('Connecting... keep this window open.');
         try {
@@ -1726,7 +1730,7 @@ function App() {
             setRecvDir(dir);
             setRecvDone(true);
             setRecvStatus('');
-            const names = recvNamesRef.current;
+            const names = [...recvNamesRef.current.values()];
             setHistory((prev) => [{kind: 'recv' as const, names, count: names.length, dir, bytes: recvBytesRef.current || undefined, at: Date.now()}, ...prev].slice(0, HISTORY_CAP));
         } catch (e: any) {
             if (recvAttempt.current !== attempt) return;
@@ -1831,7 +1835,7 @@ function App() {
         setRecvDone(false);
         setIncoming('');
         recvStart.current = null;
-        recvNamesRef.current = [];
+        recvNamesRef.current = new Map();
 
         setRoute('');
     }
@@ -2661,7 +2665,7 @@ function App() {
                                         {recvDir && !receiving && (() => {
                                             // recvNamesRef is a ref, but recvDir is set (setRecvDir) only after
                                             // receive() completes, so the names are fully populated by this render.
-                                            const only = recvNamesRef.current.length === 1 ? recvNamesRef.current[0] : '';
+                                            const only = recvNamesRef.current.size === 1 ? [...recvNamesRef.current.values()][0] : '';
                                             return only ? (
                                                 <div className="animate-floe-in flex gap-2">
                                                     <Button variant="outline" className="flex-1" onClick={() => { OpenFile(recvDir, only).catch(() => {}); }}>

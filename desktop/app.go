@@ -106,7 +106,14 @@ type App struct {
 
 	// pendingFiles holds file paths passed on the command line (Explorer's
 	// "Send with Floe", drag-onto-exe) until the frontend pulls them.
-	pendingFiles []string
+	// frontendReady flips true, once and forever, the moment the frontend
+	// pulls: from then on second-instance files are emitted as events instead
+	// of staged, because the pull proves the 'files:open' listener exists (the
+	// frontend registers it in the same synchronous effect, just before the
+	// pull). Before that flip the JS event bus silently discards emits, which
+	// is how a multi-select "Send with Floe" used to deliver one file of five.
+	pendingFiles  []string
+	frontendReady bool
 
 	// cfg is every persisted setting: the server override plus the preference
 	// toggles. Written from the UI goroutine when the user saves Settings and read
@@ -222,7 +229,12 @@ func (a *App) SetCheckUpdates(enabled bool) error {
 // startup is called when the app starts. The context is saved so we can call the
 // runtime methods (events, dialogs).
 func (a *App) startup(ctx context.Context) {
+	// Under mu: onSecondInstanceLaunch runs on its own goroutine and reads
+	// a.ctx, so an unguarded write here is a race exactly during the
+	// multi-select cold-start burst this code exists to survive.
+	a.mu.Lock()
 	a.ctx = ctx
+	a.mu.Unlock()
 	// Best-effort: register the app for OS notifications (sets up the toast
 	// AppUserModelID on Windows). Errors are non-fatal.
 	_ = runtime.InitializeNotifications(ctx)
@@ -230,11 +242,14 @@ func (a *App) startup(ctx context.Context) {
 	// Reclaim any pasted-image staging dirs left by a previous run.
 	sweepPasteTemps()
 
-	// Files passed on the command line are staged for the frontend to pull once
-	// it mounts (pull, not an event: startup runs before listeners exist).
-	a.mu.Lock()
-	a.pendingFiles = filterFileArgs(os.Args[1:])
-	a.mu.Unlock()
+	// Files passed on the command line go through the same stage-or-emit seam
+	// as second-instance forwards. Staging must MERGE, not assign: a second
+	// instance can land before this goroutine runs, and an assignment would
+	// silently discard what it staged. The emit branch covers the reverse
+	// interleave, where the frontend somehow pulled first.
+	if files := filterFileArgs(os.Args[1:]); a.stageOrEmit(files) {
+		runtime.EventsEmit(ctx, "files:open", files)
+	}
 
 	// Best-effort self-heal: if the user enabled the context menu and the exe
 	// has moved since, rewrite the entry to point here. Skipped when packaged:
@@ -249,23 +264,69 @@ func (a *App) startup(ctx context.Context) {
 	}
 }
 
+// shutdown runs when the app is quitting. A transfer goroutine may still hold
+// its .part staging file open; its deferred cleanup will not get to run before
+// the process ends, so tidy the staging file here. Safe at any moment: only
+// .part files are registered, and a completed file's commit rename vacated
+// that path, so nothing that finished can be touched.
+func (a *App) shutdown(ctx context.Context) {
+	transfer.AbandonPartials()
+}
+
 // onSecondInstanceLaunch fires when Floe is launched again while already running.
 // Rather than open a second window, bring the existing one to the front and
 // forward any file arguments (the Explorer context menu launches one process
 // per selected file; each lands here).
 func (a *App) onSecondInstanceLaunch(data options.SecondInstanceData) {
-	runtime.WindowUnminimise(a.ctx)
-	runtime.WindowShow(a.ctx)
-	if files := filterFileArgs(data.Args); len(files) > 0 {
-		runtime.EventsEmit(a.ctx, "files:open", files)
+	files := filterFileArgs(data.Args)
+	a.mu.Lock()
+	ctx := a.ctx
+	if ctx == nil {
+		// startup has not stored the context yet: its goroutine races this
+		// callback during a multi-select cold-start burst. Every runtime call
+		// below log.Fatals on a nil context, which used to kill the first
+		// instance outright and lose every file. Stage and return; the window
+		// being raised is still being created anyway.
+		a.pendingFiles = append(a.pendingFiles, files...)
+		a.mu.Unlock()
+		return
+	}
+	a.mu.Unlock()
+	runtime.WindowUnminimise(ctx)
+	runtime.WindowShow(ctx)
+	if a.stageOrEmit(files) {
+		runtime.EventsEmit(ctx, "files:open", files)
 	}
 }
 
+// stageOrEmit decides delivery for command-line files: before the frontend's
+// one pull, stage them (append: a burst of Explorer launches lands one file
+// per call, and cold-start args merge in whatever order they arrive); after
+// it, tell the caller to emit. State only, no runtime calls, so tests can
+// drive it on a bare &App{}.
+func (a *App) stageOrEmit(files []string) (emit bool) {
+	if len(files) == 0 {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.frontendReady {
+		a.pendingFiles = append(a.pendingFiles, files...)
+		return false
+	}
+	return true
+}
+
 // GetPendingFiles returns files passed on the command line and clears them.
-// The frontend calls this once on mount.
+// The frontend calls this once on mount. Draining and flipping frontendReady
+// in one critical section is what makes delivery lossless: anything staged
+// before this instant is in the returned slice, and anything after it sees
+// frontendReady and is emitted into a listener the frontend provably
+// registered before making this call.
 func (a *App) GetPendingFiles() []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.frontendReady = true
 	p := a.pendingFiles
 	a.pendingFiles = nil
 	return p
@@ -466,7 +527,7 @@ func openCmd(goos, path string) *exec.Cmd {
 // RevealFile opens the OS file manager with the received file dir/name selected.
 // If the exact file is missing it falls back to opening the folder, so the
 // action is never broken. Live transfers pass the engine's SavedName (the real
-// on-disk name, de-collided by createUnique), so the fallback now covers only
+// on-disk name, de-collided by claimPart), so the fallback now covers only
 // history entries persisted before SavedName existed (those hold the sender's
 // name forever) and files moved/deleted after the transfer.
 func (a *App) RevealFile(dir, name string) error {
