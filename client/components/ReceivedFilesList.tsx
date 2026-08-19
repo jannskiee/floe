@@ -22,9 +22,11 @@ export function ReceivedFilesList({ receivedFiles, listRef }: ReceivedFilesListP
             className="space-y-3 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar"
         >
             {receivedFiles.map((file) => {
-                // The peer chose this name. Show the same name the download
-                // will use, so a text-direction override cannot make the row
-                // read "photo.png" while the saved file is an executable.
+                // The peer chose this name. Show it cleaned, so a
+                // text-direction override cannot make the row read "photo.png"
+                // while the saved file is an executable. This matches the
+                // individual download; a ZIP entry keeps its folders and so can
+                // differ (`project/src/main.go` shows here as `main.go`).
                 const safeName = sanitizeFileName(file.fileName);
                 return (
                 <div

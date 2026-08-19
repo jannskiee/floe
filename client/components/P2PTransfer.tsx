@@ -558,6 +558,11 @@ export function P2PTransfer() {
             if (peerRef.current && !peerRef.current.destroyed) {
                 peerRef.current.destroy();
             }
+            // Clear the previous verdict. A blocked transfer tears its peer down,
+            // so the next receiver to join arrives here; without this the amber
+            // "capped at 2 GB" banner would still be up during a transfer that
+            // is under the cap.
+            setRelayBlocked(false);
             setStatus('Peer joined. Starting transfer');
             requestWakeLock();
 
@@ -947,9 +952,9 @@ export function P2PTransfer() {
                                                 <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-600">
                                                     Files
                                                 </span>
-                                                <span className={`text-right font-mono text-[10px] uppercase tracking-[0.2em] ${isRelayOverLimit ? 'text-amber-500' : 'text-zinc-600'
+                                                <span className={`text-right font-mono text-[10px] uppercase tracking-[0.2em] ${showRelayLimitNotice ? 'text-amber-500' : 'text-zinc-600'
                                                     }`}>
-                                                    {files.length} · {formatBytes(totalBytes)}{connectionType === 'relay' ? ' / 2.0 GB' : ''}
+                                                    {files.length} · {formatBytes(totalBytes)}{connectionType === 'relay' || relayBlocked ? ' / 2.0 GB' : ''}
                                                 </span>
                                             </div>
                                         )}

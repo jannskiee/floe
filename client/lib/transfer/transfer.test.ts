@@ -300,6 +300,16 @@ describe('receiver: truncation guard', () => {
         feedTruncated(h.rx, 'a', 50, 80);
         expect(h.completed).toEqual([]);
         expect(h.errors).toHaveLength(1);
+        // Over-count is a frame-boundary problem, not a truncation, so the
+        // message must not tell the user the transfer was cut short.
+        expect(h.errors[0]).toContain('More data arrived');
+        expect(h.errors[0]).not.toContain('cut short');
+    });
+
+    it('says the file was cut short only when it actually was', () => {
+        const h = harness();
+        feedTruncated(h.rx, 'a', 100, 60);
+        expect(h.errors[0]).toContain('cut short');
     });
 
     it('does not report truncated bytes to the global counter', () => {

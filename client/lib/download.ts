@@ -45,6 +45,9 @@ const DEVICE_NAMES = new Set([
 /** The name used when a peer supplies nothing usable. Matches the Go receiver. */
 const FALLBACK = 'received_file';
 
+/** Longest single path segment we will emit, in UTF-16 units. */
+const MAX_SEGMENT = 200;
+
 /**
  * Cleans one path segment. Returns '' when nothing survives; callers decide
  * whether that means "drop it" or "use the fallback".
@@ -59,6 +62,18 @@ function sanitizeSegment(segment: string): string {
     if (out === '') return '';
 
     if (DEVICE_NAMES.has(out.toUpperCase())) return `_${out}`;
+
+    // Cap the length. fflate rejects an entire archive if any one entry name is
+    // too long, so without this a single hostile name denies the ZIP to every
+    // other file in the transfer. Keep the extension, trim the stem, and never
+    // split a surrogate pair.
+    if (out.length > MAX_SEGMENT) {
+        const dot = out.lastIndexOf('.');
+        const ext = dot > 0 && out.length - dot <= 16 ? out.slice(dot) : '';
+        let stem = out.slice(0, MAX_SEGMENT - ext.length);
+        if (/[\uD800-\uDBFF]$/.test(stem)) stem = stem.slice(0, -1);
+        out = stem + ext;
+    }
     return out;
 }
 

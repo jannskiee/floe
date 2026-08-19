@@ -88,6 +88,21 @@ describe('sanitizeFileName', () => {
         expect(sanitizeFileName('COM10')).toBe('COM10');
     });
 
+    it('caps a very long name, keeping the extension', () => {
+        // fflate rejects an entire archive if one entry name is too long, so an
+        // uncapped name would deny the ZIP to every other file in the transfer.
+        const got = sanitizeFileName('a'.repeat(500) + '.txt');
+        expect(got.length).toBeLessThanOrEqual(200);
+        expect(got.endsWith('.txt')).toBe(true);
+    });
+
+    it('does not split a surrogate pair when capping', () => {
+        const got = sanitizeFileName('\u{1F600}'.repeat(300));
+        expect(got.length).toBeLessThanOrEqual(200);
+        // A lone high surrogate would make the name unrenderable.
+        expect(/[\uD800-\uDBFF]$/.test(got)).toBe(false);
+    });
+
     it('falls back when nothing usable is left', () => {
         for (const bad of ['', '..', '.', '   ', '///', '...']) {
             expect(sanitizeFileName(bad)).toBe('received_file');
@@ -120,6 +135,15 @@ describe('sanitizeZipEntryName', () => {
     it('renames __proto__, which fflate would otherwise swallow', () => {
         expect(sanitizeZipEntryName('__proto__')).toBe('_proto_');
         expect(sanitizeZipEntryName('d/__proto__')).toBe('d/_proto_');
+    });
+
+    it('caps each segment independently, keeping the folders', () => {
+        const got = sanitizeZipEntryName('d/' + 'b'.repeat(500) + '.bin');
+        const parts = got.split('/');
+        expect(parts).toHaveLength(2);
+        expect(parts[0]).toBe('d');
+        expect(parts[1].length).toBeLessThanOrEqual(200);
+        expect(parts[1].endsWith('.bin')).toBe(true);
     });
 
     it('never emits a leading, trailing or doubled separator', () => {

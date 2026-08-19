@@ -172,9 +172,15 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: U
                     aborted = true;
                     cb.onProgress?.(0, 0, 0);
                     cb.onSpeedReset?.();
+                    // Over-count is not truncation: it means a frame boundary
+                    // was wrong, so say that rather than blaming the sender for
+                    // stopping early.
                     cb.onError?.(
                         `Incomplete file "${name}": received ${got} of ${want} bytes. ` +
-                        `The transfer was cut short, so the file was discarded. Ask the sender to try again.`
+                        (got < want
+                            ? 'The transfer was cut short, so the file was discarded.'
+                            : 'More data arrived than the sender announced, so the file was discarded.') +
+                        ' Ask the sender to try again.'
                     );
                     return;
                 }
