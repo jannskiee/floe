@@ -273,17 +273,26 @@ func TestCommitAbandonTorture(t *testing.T) {
 				}
 				registerPartial(f)
 				if _, err := f.Write([]byte(payload)); err != nil {
-					// Production order: owners unregister BEFORE closing, so
-					// abandon is the only goroutine that ever closes a
-					// registered file (a cross-goroutine double Close can
-					// deadlock on Windows).
+					// Production order: unregister, then the owner's own Close
+					// arbitrates ownership of the path (see the receiver).
 					unregisterPartial(f)
+					if f.Close() == nil {
+						_ = os.Remove(f.Name())
+					}
+					continue
+				}
+				// Production order: unregister, then Sync and Close double as
+				// the ownership proof. If either fails, an abandon closed the
+				// handle first, the path may already belong to another
+				// worker's fresh claim, and committing by path would steal it.
+				unregisterPartial(f)
+				if f.Sync() != nil {
 					f.Close()
 					continue
 				}
-				// The production order: unregister, close, verify, commit.
-				unregisterPartial(f)
-				f.Close()
+				if f.Close() != nil {
+					continue
+				}
 				final, err := commitPart(f.Name(), dest, base)
 				if err != nil {
 					continue

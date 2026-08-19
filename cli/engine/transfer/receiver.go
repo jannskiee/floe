@@ -173,18 +173,21 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 	// in place.
 	defer func() {
 		if currentFile != nil {
-			// Unregister BEFORE closing: owners never close a registered
-			// file. AbandonPartials closes registered files from another
-			// goroutine, and a cross-goroutine double Close on Windows can
-			// park one closer on the FD semaphore while the registry mutex
-			// is held, deadlocking the process (found by the torture test).
-			// After unregister, either abandon already processed this file
-			// (Close returns "already closed", Remove finds nothing: fine)
-			// or it never will.
+			// Unregister first, then let the owner's own Close arbitrate
+			// ownership of the PATH. AbandonPartials closes registered files
+			// from another goroutine and then removes their paths; once that
+			// has happened, the path may already belong to a brand-new
+			// transfer's staging file, so removing by path would destroy
+			// someone else's bytes (a torture test proved exactly that
+			// theft). Abandon always closes before removing, so the arbiter
+			// is exact: our Close succeeding means abandon never touched the
+			// file and the path is still ours to remove; our Close failing
+			// means abandon owned the endgame and already removed it.
 			name := currentFile.Name()
 			unregisterPartial(currentFile)
-			currentFile.Close()
-			_ = os.Remove(name)
+			if currentFile.Close() == nil {
+				_ = os.Remove(name)
+			}
 		}
 	}()
 
@@ -286,11 +289,13 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// handle leaks and the abandoned staging file lingers, keeping
 				// its claimed final name blocked.
 				if currentFile != nil {
-					// Unregister before Close; see the deferred cleanup above.
+					// Unregister, then Close-as-ownership-test; see the
+					// deferred cleanup above.
 					name := currentFile.Name()
 					unregisterPartial(currentFile)
-					currentFile.Close()
-					_ = os.Remove(name)
+					if currentFile.Close() == nil {
+						_ = os.Remove(name)
+					}
 					currentFile = nil
 				}
 				currentInfo = info
@@ -385,8 +390,9 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				if st, statErr := currentFile.Stat(); statErr == nil && !st.Mode().IsRegular() {
 					name := currentFile.Name()
 					unregisterPartial(currentFile)
-					currentFile.Close()
-					_ = os.Remove(name)
+					if currentFile.Close() == nil {
+						_ = os.Remove(name)
+					}
 					currentFile = nil
 					return fmt.Errorf("refusing to write %s: not a regular file (%s)",
 						name, st.Mode())
@@ -428,22 +434,26 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				if currentFile != nil {
 					staged := currentFile
 					partPath := staged.Name()
-					// Unregister FIRST: owners never close a registered file
-					// (see the deferred cleanup), and from here this goroutine
-					// owns the .part outright, so an abandon can no longer
-					// touch bytes that are about to be verified and published.
-					// An abandon that won the registry lock a moment earlier
-					// deleted an unverified .part during an explicit user
-					// abort, which is the designed outcome.
+					// Unregister FIRST: from this line an abandon can no longer
+					// touch this file. Then the flush and close double as the
+					// OWNERSHIP PROOF for the path: AbandonPartials closes a
+					// registered file before removing its path, so if our own
+					// Sync and Close both succeed, no abandon ever touched the
+					// handle, the .part at partPath is still OUR file, and the
+					// rename below cannot steal a path that a newer transfer
+					// re-claimed after an abandon freed it (a torture test
+					// proved exactly that theft when the commit trusted the
+					// path string alone). If either call fails, the transfer
+					// was abandoned mid-flight: the path is not ours, so leave
+					// it alone entirely and report the abort.
 					unregisterPartial(staged)
-					// Flush to disk before declaring the bytes safe: the docs
-					// extend the no-half-written promise to power loss, and NTFS
-					// journals metadata, not data. Negligible next to a network
-					// transfer.
-					_ = staged.Sync()
-					staged.Close()
+					syncErr := staged.Sync()
+					closeErr := staged.Close()
 					currentFile = nil
 					fmt.Println()
+					if syncErr != nil || closeErr != nil {
+						return fmt.Errorf("transfer abandoned while completing %q", currentSavedName)
+					}
 
 					// Integrity guard: a short byte count means the transfer was
 					// truncated (e.g. the sender closed early). Fail loudly rather
