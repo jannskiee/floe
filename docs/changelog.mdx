@@ -40,7 +40,7 @@ Floe ships on two version lines. `vX.Y.Z` releases floe.one, the `floe` CLI, and
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
-<Update label="desktop-v0.2.7" description="2026-08-20" tags={["Desktop", "CLI"]}>
+<Update label="desktop-v0.2.7" description="2026-08-19" tags={["Desktop", "CLI"]}>
   **A killed transfer never leaves a half-written file looking finished, closing mid-transfer asks first, and Send with Floe keeps every file**
 
   - A received file is now written under a temporary name ending in `.part` and takes its real name only once every byte has arrived. Before this, closing the window, ending the app from Task Manager, or losing power partway through left the unfinished file in your folder under its final name, looking complete. Now the worst that can remain is a `.part` file, which is safe to delete.
@@ -50,7 +50,7 @@ Each entry lists the parts it changed. Filter on the right to see only the ones 
   - No transfer-protocol change, so Floe Desktop 0.2.7 transfers with browser and CLI peers in every direction.
 </Update>
 
-<Update label="v1.10.4" description="2026-08-20" tags={["CLI", "Self-hosting"]}>
+<Update label="v1.10.4" description="2026-08-19" tags={["CLI", "Self-hosting"]}>
   **Received files are written under a temporary name and only renamed when complete, so a killed transfer never leaves one looking finished**
 
   - `floe receive` now writes each file under a temporary name ending in `.part` and renames it to its final name only after every byte has arrived and been verified. A transfer killed outright, or a machine that loses power partway through, can no longer leave a half-written file under a finished-looking name; the worst that remains is a `.part` file, safe to delete. On Windows the final rename is atomic; on macOS and Linux a crash at the exact instant of completion can leave an empty placeholder beside the intact `.part`.
