@@ -40,6 +40,32 @@ Floe ships on two version lines. `vX.Y.Z` releases floe.one, the `floe` CLI, and
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
+<Update label="desktop-v0.2.6" description="2026-08-19" tags={["Desktop"]}>
+  **Files whose names Windows cannot hold now arrive intact instead of arriving empty**
+
+  - A file sent from a Mac or a Linux machine can carry a name Windows has no way to store. A timestamp like `backup:2026-08-19.log` is the everyday case, because Windows gives the colon a special meaning. Floe used to write that file, report success, and leave you an empty file called `backup`, with the contents routed somewhere you would never find them. Names like `what?.txt` were worse still: the file could not be created at all, and the error ended the rest of the batch, so files queued behind it never arrived.
+  - Incoming names are now adjusted before the file is written. The characters `< > : " | ? *` become underscores, trailing dots and spaces are removed, and a name that is a reserved device name such as `NUL` gets an underscore in front. The progress line and **Show in folder** both use the adjusted name, and two files that end up with the same adjusted name are numbered the way colliding names always have been.
+  - A file named with a trailing space used to lose its mark of the web, the tag that makes Windows treat a received file as downloaded from the internet. The tag attached to the wrong name and the saved file kept none, so SmartScreen and Office Protected View stayed out of the way on a file a stranger sent you. Received files are now tagged correctly whatever they are called.
+  - Control characters and text-direction marks are removed from incoming names on every platform. A text-direction mark can make `photo` followed by a reversed `exe.png` read as an image in the file list while the file on disk is a program.
+  - Folder sends keep their structure. Each part of the path is adjusted on its own, so a folder that needed adjusting stays a folder.
+  - No transfer-protocol change, so Floe Desktop 0.2.6 transfers with browser and CLI peers in every direction.
+</Update>
+
+<Update label="v1.10.3" description="2026-08-19" tags={["CLI", "Web", "Self-hosting"]}>
+  **Received files that a system cannot store, and browser downloads that were never complete, no longer pass as finished**
+
+  - `floe receive` adjusts an incoming file name that the receiving system cannot represent, instead of writing it and reporting success. On Windows a name like `backup:2026-08-19.log` used to leave an empty file called `backup`, a file called `NUL` left nothing at all, and a name containing `?` could not be created and ended the rest of the batch. macOS and Linux keep names exactly as sent, since all of those are valid there.
+  - On Windows, a received file named with a trailing space used to lose its mark of the web, so SmartScreen and Office Protected View did not apply to it. That tag now attaches correctly whatever the file is called.
+  - Control characters and text-direction marks are removed from incoming names on every platform, and the receiver refuses to write onto a device rather than discarding the contents silently.
+  - The fix is on the receiving side. A transfer is protected once the **receiving** end is running `floe` 1.10.3 or Floe Desktop 0.2.6; sending from an updated build to a peer that has not updated is unchanged. Both surfaces ship the fix in this pair of releases.
+  - Web app: a file that arrived incomplete is no longer offered as a finished download. The browser labeled each file with however many bytes turned up rather than the number the sender announced, so the two could never disagree and a file cut short still showed a checkmark and a working download button. It is now checked against the announced size and refused if it does not match, and a short count is no longer added to the public transfer counter.
+  - Web app: sending a file that becomes unreadable partway through, because it was moved, renamed, or sat on a drive or cloud folder that went away, now reports the failure instead of telling both sides the file finished.
+  - Web app: file names chosen by the sender are cleaned before they are used to name a download or an entry in a ZIP, so a name cannot describe a path or quietly drop a file from the archive.
+  - Web app: a transfer blocked by the 2 GB relay cap now closes the connection and explains itself, instead of leaving the other side waiting with nothing on screen.
+  - Self-hosting: the published images are rebuilt as `1.10.3` and carry the web app changes above. To pick them up: `docker compose pull` then `docker compose up -d`; if you pinned `FLOE_IMAGE_TAG=1.10.2`, move to `1.10.3`.
+  - The wire protocol is unchanged, so v1.10.3 still speaks to older CLI and browser peers in both directions.
+</Update>
+
 <Update label="desktop-v0.2.5" description="2026-08-16" tags={["Desktop"]}>
   **Empty a staged selection in one click, and a fix for transfers that connected but never started**
 
