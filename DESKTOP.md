@@ -205,7 +205,7 @@ receiver, which is deliberate (share a link and wait) and cancellable.
 ## Release history
 
 Current release: `desktop-v0.2.7` (Microsoft Store 9NBQ8ZQ1065L + GitHub
-pre-release), shipped 2026-08-20. Paired with CLI `v1.10.4`, because the data
+pre-release), shipped 2026-08-19. Paired with CLI `v1.10.4`, because the data
 channel fix they both carry is receiver-side and only protects a transfer once
 the RECEIVING peer has it.
 
