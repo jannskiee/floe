@@ -40,7 +40,7 @@ description: "Answers to common questions about Floe: how peer-to-peer file tran
   <Accordion title="How long does the sender have to stay connected?">
     For the full duration of the transfer. Files stream directly from the sender's device, so the browser tab, the CLI process, or the Floe Desktop window must stay open. The browser and the desktop app both ask the device to stay awake while a transfer is connected. The CLI does not, so check your machine's own sleep settings before a long headless transfer.
 
-    If the sender closes the tab or window, quits, or cancels mid-transfer, the session ends. A CLI or desktop receiver is left with a truncated file on disk. A browser receiver gets no download at all for the file that was in flight, because it only turns a file into a download once the whole file has arrived.
+    If the sender closes the tab or window, quits, or cancels mid-transfer, the session ends. Nothing half-written is left behind: a CLI or desktop receiver deletes the file it was writing, and a browser receiver offers no download for the file that was in flight. Files that finished earlier in the same batch are kept. Either way, a file that did not arrive whole is never handed to you looking complete.
   </Accordion>
 
   <Accordion title="Are my files stored anywhere?">

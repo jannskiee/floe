@@ -127,7 +127,13 @@ export function P2PTransfer() {
 
     const { relayEnabled, setRelayEnabled } = useRelayConfiguration();
 
+    const [relayBlocked, setRelayBlocked] = useState(false);
+    // Live check, used before the transfer is blocked. It derives from
+    // connectionType, which peer.destroy() resets to null, so the blocked state
+    // below is latched separately or tearing the connection down would also
+    // erase the banner that explains why.
     const isRelayOverLimit = connectionType === 'relay' && totalBytes > RELAY_SIZE_LIMIT;
+    const showRelayLimitNotice = isRelayOverLimit || relayBlocked;
 
     const peerRef = useRef<PeerInstance | null>(null);
     const hasJoinedRef = useRef(false);
@@ -623,12 +629,17 @@ export function P2PTransfer() {
 
                     if (verdict.action === 'block-over-limit') {
                         setStatus('Transfer blocked. Relay limit exceeded.');
+                        setRelayBlocked(true);
                         Sentry.addBreadcrumb({
                             category: 'transfer',
                             message: 'Transfer blocked: relay size limit exceeded',
                             level: 'warning',
                             data: { totalSize: verdict.totalSize, limitBytes: RELAY_SIZE_LIMIT },
                         });
+                        // Without this the connection stayed open and the person
+                        // on the other end waited forever with nothing on screen.
+                        // The sibling branch above has always done this.
+                        peer.destroy();
                         return;
                     }
 
@@ -820,7 +831,7 @@ export function P2PTransfer() {
                                     </button>
                                 </div>
                             )}
-                            {isSender && isRelayOverLimit && (
+                            {isSender && showRelayLimitNotice && (
                                 <div className="mt-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 flex items-start gap-3">
                                     <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
                                     <div className="flex-1 text-xs text-amber-300 leading-relaxed">

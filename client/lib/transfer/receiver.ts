@@ -8,6 +8,7 @@ import {
     compatErrorMessage,
     PROTOCOL_VERSION,
     MIN_PROTOCOL_VERSION,
+    normalizeFileSize,
     type Metadata,
 } from './protocol';
 
@@ -70,7 +71,12 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: U
     const partialDownloads = new Map<string, PartialDownload>();
     let currentMetadata: Metadata | null = null;
     let hasCheckedCompat = false;
-    let incompatibleDetected = false;
+    // Hard stop. Set by any unrecoverable failure (an incompatible peer, or a
+    // file that did not arrive whole); every later message is dropped.
+    let aborted = false;
+    // The announced size of the file being received, once validated, or null
+    // when the peer announced nothing we can compare against.
+    let expectedSize: number | null = null;
     let sessionBytes = 0; // accumulated across all files of the current transfer
 
     let receiveSpeedStart = performance.now();
@@ -78,7 +84,7 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: U
     let lastReceiveSpeedUpdate = 0;
 
     function handleMessage(data: Uint8Array | ArrayBuffer): void {
-        if (incompatibleDetected) return;
+        if (aborted) return;
 
         const buf = data instanceof Uint8Array ? data : new Uint8Array(data);
         const msg = classifyControl(buf);
@@ -96,7 +102,7 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: U
                         remotePvMin, remotePv
                     );
                     if (!ok) {
-                        incompatibleDetected = true;
+                        aborted = true;
                         const errMsg = compatErrorMessage(
                             localTooOld, '', msg.ver ?? '',
                             MIN_PROTOCOL_VERSION, PROTOCOL_VERSION,
@@ -112,11 +118,16 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: U
                 }
 
                 currentMetadata = msg;
+                // classifyControl casts the metadata JSON straight to its
+                // interface, so fileSize is whatever the peer chose to send.
+                // Anything that is not a real byte count becomes null, which
+                // reads as "unknown" everywhere below.
+                expectedSize = normalizeFileSize(msg.fileSize);
                 receiveSpeedStart = performance.now();
                 receiveSpeedBytes = 0;
                 lastReceiveSpeedUpdate = 0;
                 cb.onSpeedReset?.();
-                cb.onFileStart?.(msg.index, msg.total, msg.fileName, msg.fileSize);
+                cb.onFileStart?.(msg.index, msg.total, msg.fileName, expectedSize ?? 0);
 
                 let offset = 0;
                 const existing = partialDownloads.get(msg.id);
@@ -133,6 +144,40 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: U
                 if (!currentMetadata) return;
                 const fileData = partialDownloads.get(currentMetadata.id);
                 if (!fileData) return;
+
+                // Integrity guard, matching cli/engine/transfer/receiver.go: a
+                // byte count that does not equal the announced size means the
+                // file is not what the sender described, so refuse it rather
+                // than hand over something that looks complete.
+                //
+                // Exact inequality on two numbers, never a threshold or a timer.
+                // Both directions fail: a short count is a truncation, and an
+                // over-count means a frame boundary was wrong, which corrupts
+                // the blob just as thoroughly.
+                //
+                // `expectedSize` is null when the peer announced no usable size,
+                // and that skips the guard entirely. That is the whole
+                // back-compat surface: a peer that sends nothing we can compare
+                // against behaves exactly as it did before.
+                if (expectedSize !== null && fileData.received !== expectedSize) {
+                    const name = currentMetadata.fileName;
+                    const got = fileData.received;
+                    const want = expectedSize;
+                    partialDownloads.delete(currentMetadata.id);
+                    currentMetadata = null;
+                    expectedSize = null;
+                    // Latch, like the incompatibility path: without this a
+                    // multi-file transfer reports the failure and then flips
+                    // straight back to "Receiving file 3 of 3".
+                    aborted = true;
+                    cb.onProgress?.(0, 0, 0);
+                    cb.onSpeedReset?.();
+                    cb.onError?.(
+                        `Incomplete file "${name}": received ${got} of ${want} bytes. ` +
+                        `The transfer was cut short, so the file was discarded. Ask the sender to try again.`
+                    );
+                    return;
+                }
 
                 const blob = new Blob(fileData.chunks);
                 const completed: ReceivedFile = {
@@ -153,6 +198,8 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: U
                     sessionBytes = 0; // reset for a possible subsequent transfer
                 }
 
+                currentMetadata = null;
+                expectedSize = null;
                 cb.onWaiting?.();
                 cb.onProgress?.(0, 0, 0);
                 cb.onSpeedReset?.();
@@ -178,9 +225,9 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: U
         const now = performance.now();
         if (now - lastReceiveSpeedUpdate > 1000) {
             const elapsed = (now - receiveSpeedStart) / 1000;
-            if (elapsed > 0 && currentMetadata.fileSize) {
+            if (elapsed > 0 && expectedSize) {
                 const bytesPerSec = receiveSpeedBytes / elapsed;
-                const remaining = currentMetadata.fileSize - fileData.received;
+                const remaining = expectedSize - fileData.received;
                 cb.onSpeed?.(bytesPerSec, remaining / bytesPerSec);
             }
             receiveSpeedStart = now;
@@ -189,15 +236,15 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: U
         }
 
         if (
-            currentMetadata.fileSize &&
+            expectedSize &&
             (fileData.received - fileData.lastReported >= PROGRESS_STEP ||
-                fileData.received === currentMetadata.fileSize)
+                fileData.received === expectedSize)
         ) {
             fileData.lastReported = fileData.received;
             cb.onProgress?.(
-                Math.round((fileData.received / currentMetadata.fileSize) * 100),
+                Math.round((fileData.received / expectedSize) * 100),
                 fileData.received,
-                currentMetadata.fileSize
+                expectedSize
             );
         }
     }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { sendFiles, type SenderDeps, type FileEntry } from './sender';
 import { createReceiver } from './receiver';
-import { metadataMessage, endMessage } from './protocol';
+import { metadataMessage, endMessage, ackMessage } from './protocol';
 
 const enc = new TextEncoder();
 
@@ -245,5 +245,206 @@ describe('loopback: small binary framing guard', () => {
         expect(result).toHaveLength(1);
         expect(result[0].bytes.byteLength).toBe(SIZE);
         expect(result[0].bytes[0]).toBe(0x7b);
+    });
+});
+
+/**
+ * The receiver must refuse a file whose byte count does not match the size the
+ * sender announced, matching cli/engine/transfer/receiver.go. Before this it
+ * labelled the file with however many bytes arrived, so announced and actual
+ * could never disagree and a truncated file was handed over as complete.
+ */
+describe('receiver: truncation guard', () => {
+    // Feeds metadata announcing `announced` bytes but only delivers `actual`.
+    function feedTruncated(
+        rx: { handleMessage: (d: Uint8Array | ArrayBuffer) => void },
+        id: string,
+        announced: number,
+        actual: number,
+        index = 1,
+        total = 1,
+    ) {
+        rx.handleMessage(enc.encode(metadataMessage(id, `${id}.bin`, announced, index, total, 0)));
+        if (actual > 0) {
+            const chunk = new Uint8Array(actual);
+            for (let i = 0; i < actual; i++) chunk[i] = (i + 1) % 256; // never starts with '{'
+            rx.handleMessage(chunk);
+        }
+        rx.handleMessage(enc.encode(endMessage()));
+    }
+
+    function harness() {
+        const completed: string[] = [];
+        const errors: string[] = [];
+        const allComplete: number[] = [];
+        const rx = createReceiver({
+            send: () => {},
+            onFileComplete: (f) => completed.push(f.fileName),
+            onAllComplete: (bytes) => allComplete.push(bytes),
+            onError: (m) => errors.push(m),
+        });
+        return { rx, completed, errors, allComplete };
+    }
+
+    it('refuses a file that arrived short', () => {
+        const h = harness();
+        feedTruncated(h.rx, 'a', 100, 60);
+        expect(h.completed).toEqual([]);
+        expect(h.errors).toHaveLength(1);
+        expect(h.errors[0]).toContain('60');
+        expect(h.errors[0]).toContain('100');
+    });
+
+    it('refuses a file that arrived long, so the guard is equality not a floor', () => {
+        const h = harness();
+        feedTruncated(h.rx, 'a', 50, 80);
+        expect(h.completed).toEqual([]);
+        expect(h.errors).toHaveLength(1);
+    });
+
+    it('does not report truncated bytes to the global counter', () => {
+        const h = harness();
+        feedTruncated(h.rx, 'a', 100, 60, 1, 1);
+        expect(h.allComplete).toEqual([]);
+    });
+
+    it('stops the transfer instead of moving on to the next file', () => {
+        const h = harness();
+        feedTruncated(h.rx, 'a', 100, 60, 1, 3);
+        feedTruncated(h.rx, 'b', 10, 10, 2, 3);
+        feedTruncated(h.rx, 'c', 10, 10, 3, 3);
+        expect(h.completed).toEqual([]);
+        expect(h.errors).toHaveLength(1);
+        expect(h.allComplete).toEqual([]);
+    });
+
+    it('accepts a file whose count matches exactly', () => {
+        const h = harness();
+        feedTruncated(h.rx, 'a', 100, 100);
+        expect(h.completed).toEqual(['a.bin']);
+        expect(h.errors).toEqual([]);
+    });
+
+    it('accepts a zero byte file announced as zero', () => {
+        const h = harness();
+        feedTruncated(h.rx, 'a', 0, 0);
+        expect(h.completed).toEqual(['a.bin']);
+        expect(h.errors).toEqual([]);
+    });
+
+    it('accepts a peer that announces no size at all', () => {
+        // metadataMessage always writes a fileSize, so build the frame by hand.
+        const h = harness();
+        h.rx.handleMessage(
+            enc.encode(JSON.stringify({
+                type: 'metadata', id: 'a', fileName: 'a.bin', index: 1, total: 1, totalBytes: 0,
+            }))
+        );
+        const chunk = new Uint8Array(50);
+        for (let i = 0; i < 50; i++) chunk[i] = (i + 1) % 256;
+        h.rx.handleMessage(chunk);
+        h.rx.handleMessage(enc.encode(endMessage()));
+        expect(h.completed).toEqual(['a.bin']);
+        expect(h.errors).toEqual([]);
+    });
+
+    it('treats an unusable announced size as unknown rather than failing', () => {
+        for (const bad of ['100', -1, 1.5, null, Number.MAX_SAFE_INTEGER + 2]) {
+            const h = harness();
+            h.rx.handleMessage(
+                enc.encode(JSON.stringify({
+                    type: 'metadata', id: 'a', fileName: 'a.bin',
+                    fileSize: bad, index: 1, total: 1, totalBytes: 0,
+                }))
+            );
+            const chunk = new Uint8Array(10);
+            for (let i = 0; i < 10; i++) chunk[i] = (i + 1) % 256;
+            h.rx.handleMessage(chunk);
+            h.rx.handleMessage(enc.encode(endMessage()));
+            expect(h.completed).toEqual(['a.bin']);
+            expect(h.errors).toEqual([]);
+        }
+    });
+
+    it('accepts a resumed file that reaches the announced size', () => {
+        // Metadata for the same id arrives twice; the receiver acks the bytes it
+        // already has and the sender continues from there. The sum is against
+        // the full announced size, so equality still holds.
+        const h = harness();
+        const acks: string[] = [];
+        const rx = createReceiver({
+            send: (d) => acks.push(typeof d === 'string' ? d : new TextDecoder().decode(d)),
+            onFileComplete: (f) => h.completed.push(f.fileName),
+            onError: (m) => h.errors.push(m),
+        });
+        const part = (n: number) => {
+            const c = new Uint8Array(n);
+            for (let i = 0; i < n; i++) c[i] = (i + 1) % 256;
+            return c;
+        };
+        rx.handleMessage(enc.encode(metadataMessage('a', 'a.bin', 100, 1, 1, 0)));
+        rx.handleMessage(part(40));
+        rx.handleMessage(enc.encode(metadataMessage('a', 'a.bin', 100, 1, 1, 0)));
+        rx.handleMessage(part(60));
+        rx.handleMessage(enc.encode(endMessage()));
+
+        expect(JSON.parse(acks[1]).offset).toBe(40);
+        expect(h.completed).toEqual(['a.bin']);
+        expect(h.errors).toEqual([]);
+    });
+});
+
+/**
+ * A file that becomes unreadable mid-send used to `break` out of the read loop
+ * and fall through to the unconditional end marker, so the sender announced a
+ * finished file after a short byte count and both sides showed success.
+ */
+describe('sender: unreadable file', () => {
+    it('reports an error and never announces the file as done', async () => {
+        let sawEnd = false;
+        const errors: string[] = [];
+        let allSent = false;
+
+        // Rejects on the first slab read, the way a moved file, an unplugged
+        // drive, or an evicted cloud placeholder does.
+        const bad = {
+            name: 'gone.bin',
+            size: 4096,
+            slice: () => ({ arrayBuffer: () => Promise.reject(new Error('NotReadableError')) }),
+        } as unknown as File;
+
+        // The sender blocks on the ack before it reads anything, so the harness
+        // has to answer it or the test just waits out the ack timeout.
+        let senderDataHandler: ((d: Uint8Array | ArrayBuffer) => void) | null = null;
+
+        const deps: SenderDeps = {
+            send: (d) => {
+                if (typeof d !== 'string') return;
+                if (d.includes('"end"')) sawEnd = true;
+                const parsed = JSON.parse(d) as { type: string; id?: string };
+                if (parsed.type === 'metadata' && parsed.id) {
+                    const ack = enc.encode(ackMessage(parsed.id, 0));
+                    queueMicrotask(() => senderDataHandler?.(ack));
+                }
+            },
+            onData: (handler) => {
+                senderDataHandler = handler;
+                return () => { senderDataHandler = null; };
+            },
+            channel: makeBufferChannel(),
+            sctpMaxMessageSize: null,
+        };
+
+        await sendFiles(deps, [{ file: bad, id: 'x' }], {
+            onError: (m) => errors.push(m),
+            onAllSent: () => { allSent = true; },
+        });
+
+        expect(errors).toHaveLength(1);
+        expect(errors[0]).toContain('gone.bin');
+        // The bug: this used to be true, so the receiver was told the file was
+        // finished after a short byte count.
+        expect(sawEnd).toBe(false);
+        expect(allSent).toBe(false);
     });
 });
