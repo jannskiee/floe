@@ -2,6 +2,7 @@ import {useEffect, useRef, useState} from 'react';
 import type {CSSProperties, MutableRefObject, ReactNode} from 'react';
 import {
     CancelTransfer,
+    ConfirmClose,
     CheckForUpdate,
     ContextMenuEnabled,
     DisableContextMenu,
@@ -693,6 +694,11 @@ function App() {
     // The sentence the Start over dialog is showing, captured when it opens. See
     // startOver for why this is not read live.
     const [resetMsg, setResetMsg] = useState('');
+    // Whether the "close Floe?" confirm overlay is showing. Raised by the Go
+    // side's close hook when a transfer is running; every close path (titlebar
+    // X, Alt+F4, taskbar) funnels through that hook, which is why the guard
+    // lives in Go and this is only the dialog.
+    const [closeGuard, setCloseGuard] = useState(false);
     // Whether the "reset all settings?" confirm overlay is showing. Deliberately
     // NOT named confirmReset: that one guards Start over, which clears the
     // transfer UI and keeps every preference. This one is the opposite.
@@ -1144,6 +1150,10 @@ function App() {
         // Files forwarded by a second launch (Explorer context menu, drag onto
         // the exe while running).
         EventsOn('files:open', (paths: string[]) => addFiles(paths));
+        // The Go close hook blocked a quit because a transfer is running; ask.
+        // Setting state again while the dialog is already up is a no-op, so a
+        // second press of the close button cannot stack dialogs.
+        EventsOn('close:blocked', () => setCloseGuard(true));
         // Files passed on the command line before the frontend mounted.
         GetPendingFiles().then((paths) => { if (paths && paths.length) addFiles(paths); }).catch(() => {});
         // Whether the Explorer entry is registered (and points at this exe).
@@ -1188,6 +1198,7 @@ function App() {
             EventsOff('send:route');
             EventsOff('recv:route');
             EventsOff('files:open');
+            EventsOff('close:blocked');
             OnFileDropOff();
         };
     }, []);
@@ -1274,6 +1285,10 @@ function App() {
     }, [settingsOpen]);
 
     useEffect(() => { busyRef.current = sending || receiving; }, [sending, receiving]);
+    // The close dialog's premise is "a transfer is running". If it finishes or
+    // is canceled while the dialog is up, dismiss: the Go hook no longer blocks
+    // a close anyway, so the next X just closes, and stale copy would lie.
+    useEffect(() => { if (!sending && !receiving) setCloseGuard(false); }, [sending, receiving]);
 
     // Leaving the history view abandons a pending Clear confirmation.
     useEffect(() => { if (mode !== 'history') setConfirmClear(false); }, [mode]);
@@ -1351,7 +1366,7 @@ function App() {
     // confirmDefaults, because its trigger only exists inside the settingsOpen
     // branch, so confirmDefaults implies settingsOpen.
     useEffect(() => {
-        if (!settingsOpen && !confirmReset) return;
+        if (!settingsOpen && !confirmReset && !closeGuard) return;
         const onKey = (e: KeyboardEvent) => {
             if (e.key !== 'Escape') return;
             // Start over did not need a handoff before, because focus never
@@ -1359,13 +1374,14 @@ function App() {
             // goes to the lockup, NOT to the settings Reset button: this dialog
             // is normally raised by Ctrl+R or by the lockup itself with Settings
             // closed, where that button does not exist.
-            if (confirmReset) { setConfirmReset(false); focusLockup(); }
+            if (closeGuard) { setCloseGuard(false); focusLockup(); }
+            else if (confirmReset) { setConfirmReset(false); focusLockup(); }
             else if (confirmDefaults) { setConfirmDefaults(false); focusResetTrigger(); }
             else setSettingsOpen(false);
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [settingsOpen, confirmReset, confirmDefaults]);
+    }, [settingsOpen, confirmReset, confirmDefaults, closeGuard]);
 
     // Ctrl/Cmd+R starts over (muscle memory for "reload").
     //
@@ -2875,6 +2891,32 @@ function App() {
                                 no dialog in the way, where moving focus would be
                                 an unasked-for jump. */}
                             <Button onClick={() => { doReset(); focusLockup(); }}>Start over</Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {closeGuard && (
+                <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/60 backdrop-blur-sm">
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="floe-close-title"
+                        className="animate-floe-in mx-4 w-full max-w-sm rounded-xl border border-white/10 bg-zinc-900 p-5 shadow-2xl"
+                    >
+                        <h2 id="floe-close-title" className="text-sm font-semibold text-white">Close Floe?</h2>
+                        <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">
+                            {sending
+                                ? "You're still sending. If you close now, the transfer stops and the other side gets nothing."
+                                : receiving
+                                    ? "You're still receiving. If you close now, the transfer stops before the files finish."
+                                    : 'A transfer is still running. Closing Floe will stop it.'}
+                        </p>
+                        <div className="mt-4 flex justify-end gap-2">
+                            <Button variant="outline" autoFocus onClick={() => { setCloseGuard(false); focusLockup(); }}>Keep going</Button>
+                            {/* No local dismiss on purpose: the app is about to
+                                exit, and clearing the dialog first would flash
+                                the live UI during teardown. */}
+                            <Button onClick={() => { ConfirmClose().catch(() => {}); }}>Close anyway</Button>
                         </div>
                     </div>
                 </div>

@@ -38,7 +38,8 @@ desktop app starts as soon as it connects. The moment the sender is known, the c
 is incoming (the file name and size, or the file count and total) before the first byte lands.
 
 The badge at the top right shows **DIRECT** or **RELAY** once the route is known, and a progress
-bar shows the current file with speed and time remaining. **Cancel** stops it.
+bar shows the current file with speed and time remaining. **Cancel** stops it. Closing the
+window mid-receive asks first, so one stray click cannot cut a transfer off.
 
 When it finishes you get a Windows notification, and a transfer that fails raises one too, so
 a failure behind a minimized window is never silent. Canceling does not notify. On success the

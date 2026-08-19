@@ -243,6 +243,90 @@ func TestSupersededTransferDoesNotToast(t *testing.T) {
 	}
 }
 
+// TestCloseBlockedLifecycle pins the close guard's predicate across the
+// transfer lifecycle, including the superseded-generation hole: an old
+// goroutine's stale deferred clear must not un-guard the live transfer.
+func TestCloseBlockedLifecycle(t *testing.T) {
+	a := &App{}
+
+	if a.closeBlocked() {
+		t.Fatal("fresh app must not block close")
+	}
+
+	g1 := a.beginTransfer()
+	if !a.closeBlocked() {
+		t.Fatal("live transfer must block close")
+	}
+
+	a.clearTransfer(g1)
+	if a.closeBlocked() {
+		t.Fatal("finished transfer must not block close")
+	}
+
+	// Supersede: g2 begins, then g1's stale deferred clear fires late.
+	g1 = a.beginTransfer()
+	g2 := a.beginTransfer()
+	a.clearTransfer(g1) // stale; must be a no-op
+	if !a.closeBlocked() {
+		t.Fatal("a superseded goroutine's stale clear un-guarded the live transfer")
+	}
+	a.clearTransfer(g2)
+	if a.closeBlocked() {
+		t.Fatal("live transfer's clear must un-guard")
+	}
+
+	// A cancelled transfer must not prompt a user who already gave up.
+	a.beginTransfer()
+	a.CancelTransfer()
+	if a.closeBlocked() {
+		t.Fatal("cancelled transfer must not block close")
+	}
+}
+
+// TestConfirmCloseCancelsLatchesAndQuits: Close anyway aborts the transfer,
+// quits exactly once, and latches allowClose one-way, so not even a LATER
+// transfer can re-block the close that is already in motion.
+func TestConfirmCloseCancelsLatchesAndQuits(t *testing.T) {
+	quits := 0
+	a := &App{quitFn: func() { quits++ }}
+
+	g := a.beginTransfer()
+	sc, conn := &fakeCloser{}, &fakeCloser{}
+	if !a.setSignaling(g, sc) || !a.setConn(g, conn) {
+		t.Fatal("setters refused for the live generation")
+	}
+
+	a.ConfirmClose()
+
+	if sc.closed != 1 || conn.closed != 1 {
+		t.Fatalf("handles closed sc=%d conn=%d, want 1 and 1", sc.closed, conn.closed)
+	}
+	if quits != 1 {
+		t.Fatalf("quit called %d times, want 1", quits)
+	}
+	if a.closeBlocked() {
+		t.Fatal("close still blocked after ConfirmClose")
+	}
+
+	// The latch is one-way by design: the app is exiting, and a transfer that
+	// somehow begins during teardown must not resurrect the guard.
+	a.beginTransfer()
+	if a.closeBlocked() {
+		t.Fatal("allowClose latch did not survive a later beginTransfer")
+	}
+}
+
+// TestConfirmCloseIdle covers "transfer finished while the dialog was open,
+// user clicks Close anyway": nothing to cancel, quit still happens.
+func TestConfirmCloseIdle(t *testing.T) {
+	quits := 0
+	a := &App{quitFn: func() { quits++ }}
+	a.ConfirmClose()
+	if quits != 1 {
+		t.Fatalf("quit called %d times, want 1", quits)
+	}
+}
+
 // TestSecondInstanceFilesStageUntilFirstPull pins the multi-select "Send with
 // Floe" fix. Explorer launches one process per selected file; before the
 // frontend's first pull every forward must be staged (an emit would be
