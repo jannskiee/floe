@@ -6,12 +6,12 @@ export function CancelTransfer() {
   return window['go']['main']['App']['CancelTransfer']();
 }
 
-export function ConfirmClose() {
-  return window['go']['main']['App']['ConfirmClose']();
-}
-
 export function CheckForUpdate() {
   return window['go']['main']['App']['CheckForUpdate']();
+}
+
+export function ConfirmClose() {
+  return window['go']['main']['App']['ConfirmClose']();
 }
 
 export function ContextMenuEnabled() {
