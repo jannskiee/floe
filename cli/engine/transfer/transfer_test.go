@@ -143,6 +143,15 @@ func TestSanitizeComponent(t *testing.T) {
 		{"right to left override", "photo‮gnp.exe", "linux", "photo_gnp.exe"},
 		{"directional isolates", "a⁦b⁩c.txt", "windows", "a_b_c.txt"},
 		{"invisible marks", "a‎b.txt", "darwin", "a_b.txt"},
+		// U+061C is the fourth Bidi_Control character and reorders exactly like
+		// the RLM beside it, so leaving it out would be an inconsistency inside
+		// a set the code presents as complete.
+		{"arabic letter mark", "a؜b.txt", "linux", "a_b.txt"},
+		// C1 controls: U+0085 is a line break. The browser twin strips these,
+		// so Go has to as well or the two surfaces disagree on the same name.
+		{"c1 next line", "ab.txt", "windows", "a_b.txt"},
+		{"c1 upper bound", "ab.txt", "linux", "a_b.txt"},
+		{"just below c1 is untouched", "a b.txt", "linux", "a b.txt"},
 
 		// Right-to-left SCRIPT carries its own directionality and uses none of
 		// those controls, so it must pass through byte for byte.

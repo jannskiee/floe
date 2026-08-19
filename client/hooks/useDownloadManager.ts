@@ -41,7 +41,7 @@ export function useDownloadManager(
             setDownloadProgress({
                 current: i + 1,
                 total: receivedFiles.length,
-                label: `Downloading: ${file.fileName}`
+                label: `Downloading: ${sanitizeFileName(file.fileName)}`
             });
 
             const link = document.createElement('a');
@@ -74,7 +74,7 @@ export function useDownloadManager(
                 setDownloadProgress({
                     current: i + 1,
                     total: receivedFiles.length,
-                    label: `Processing: ${file.fileName}`
+                    label: `Processing: ${sanitizeFileName(file.fileName)}`
                 });
 
                 try {

@@ -362,11 +362,15 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// it actually opened. Writing to a device silently discards the
 				// payload while every byte count still adds up, so turn it into
 				// the loud error the caller already handles.
+				// A failed Stat is not treated as a failure: the file is already
+				// open and writable, and refusing on a stat hiccup would break a
+				// transfer that would otherwise succeed.
 				if st, statErr := currentFile.Stat(); statErr == nil && !st.Mode().IsRegular() {
+					name := currentFile.Name()
 					currentFile.Close()
 					currentFile = nil
 					return fmt.Errorf("refusing to write %s: not a regular file (%s)",
-						destPath, st.Mode())
+						name, st.Mode())
 				}
 				// The name actually claimed on disk, which differs from the
 				// sender's whenever createUnique de-collided or safeJoin
@@ -615,9 +619,16 @@ func safeJoin(outputDir, fileName string) string {
 // The match is on the WHOLE component, case-insensitively, and deliberately
 // NOT on the stem before the extension. The widespread advice is stem-based,
 // but "CON.txt", "AUX.log" and even "NUL.txt" all create ordinary files on
-// Windows 11; only the bare device name misbehaves, and only "NUL" actually
-// swallows the data. Matching the whole component means nothing that provably
-// works gets renamed. "CONTRACT.pdf" never matches under either rule.
+// Windows 11, so a stem rule would rename names that demonstrably work.
+// "CONTRACT.pdf" never matches under either rule.
+//
+// On Windows 11 with go1.26.3, measured, only bare "NUL" actually reaches a
+// device; "CON", "AUX", "PRN", "COM1".."COM9" and "LPT1".."LPT9" all produce
+// ordinary files. The rest of the list is kept anyway rather than trimmed to
+// NUL alone: the set is a documented Win32 constraint that older Windows
+// versions and non-Go APIs do enforce, and renaming a file nobody sensibly
+// calls "CON" is far cheaper than silently losing one. The IsRegular check at
+// the call site is what actually catches whatever this list misses.
 var reservedDeviceNames = map[string]struct{}{
 	"CON": {}, "PRN": {}, "AUX": {}, "NUL": {},
 	"COM1": {}, "COM2": {}, "COM3": {}, "COM4": {}, "COM5": {},
@@ -680,9 +691,13 @@ func sanitizeComponent(name, goos string) string {
 	// substitution before this code ever sees the name.
 	clean := strings.Map(func(r rune) rune {
 		switch {
-		case r < 0x20 || r == 0x7f:
+		// C0 and C1 controls, and DEL. C1 matters because U+0085 is a line
+		// break: the browser twin strips it, so Go has to as well or the two
+		// surfaces disagree on the same name.
+		case r < 0x20 || (r >= 0x7f && r <= 0x9f):
 			return '_'
-		case r == '‎' || r == '‏', // LRM, RLM
+		case r == '؜', // ALM, the fourth Bidi_Control mark
+			r == '‎' || r == '‏', // LRM, RLM
 			r >= '‪' && r <= '‮', // embeddings and overrides
 			r >= '⁦' && r <= '⁩': // isolates
 			return '_'
