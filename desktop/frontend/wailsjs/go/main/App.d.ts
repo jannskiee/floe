@@ -4,6 +4,8 @@ import {main} from '../models';
 
 export function CancelTransfer():Promise<void>;
 
+export function ConfirmClose():Promise<void>;
+
 export function CheckForUpdate():Promise<main.UpdateInfo>;
 
 export function ContextMenuEnabled():Promise<boolean>;

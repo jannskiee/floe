@@ -92,6 +92,14 @@ type App struct {
 	curSC     closer
 	curConn   closer
 
+	// busy is true from beginTransfer until the owning goroutine's deferred
+	// clearTransfer; together with !cancelled it is the close guard's
+	// predicate. allowClose is the one-way "Close anyway" latch: once set,
+	// onBeforeClose can never again prevent quitting, no matter what any
+	// later transfer does.
+	busy       bool
+	allowClose bool
+
 	// wake keeps the machine awake for the duration of a connected transfer
 	// (Windows only; a no-op on other platforms). See wake.go.
 	wake *wakeGuard
@@ -108,6 +116,10 @@ type App struct {
 	// notifyFn is the test seam for OS notifications; nil means the real Wails
 	// runtime notification (see notify).
 	notifyFn func(title, body string)
+
+	// quitFn is the test seam for quitting; nil means runtime.Quit, which
+	// log.Fatals on the nil context a bare test App carries.
+	quitFn func()
 }
 
 // NewApp creates a new App application struct
@@ -526,6 +538,7 @@ func (a *App) beginTransfer() uint64 {
 	defer a.mu.Unlock()
 	a.gen++
 	a.cancelled = false
+	a.busy = true
 	a.curSC, a.curConn = nil, nil
 	return a.gen
 }
@@ -566,6 +579,9 @@ func (a *App) clearTransfer(g uint64) {
 		return
 	}
 	a.curSC, a.curConn = nil, nil
+	// Behind the gen guard on purpose: a superseded goroutine's stale
+	// deferred clear must not un-guard the live transfer's close prompt.
+	a.busy = false
 }
 
 // transferActive reports whether generation g is still the live, uncancelled
@@ -602,6 +618,51 @@ func (a *App) CancelTransfer() {
 	if sc != nil {
 		sc.Close()
 	}
+}
+
+// closeBlocked reports whether quitting must be intercepted: a live,
+// uncancelled transfer is in flight and the user has not yet said
+// "Close anyway". Pure state, testable on a bare &App{}.
+func (a *App) closeBlocked() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.busy && !a.cancelled && !a.allowClose
+}
+
+// onBeforeClose is the Wails close hook, covering every close path (the
+// custom titlebar X, Alt+F4, the taskbar's Close). It MUST return
+// immediately: on a real WM_CLOSE it runs inline on the Windows message-pump
+// thread, so blocking here freezes the window. No dialog from Go, therefore;
+// just tell the frontend to ask. EventsEmit posts and returns, never blocks.
+// Returning false whenever no transfer is active is the property that makes
+// an unclosable window impossible.
+func (a *App) onBeforeClose(ctx context.Context) bool {
+	if !a.closeBlocked() {
+		return false
+	}
+	runtime.EventsEmit(ctx, "close:blocked")
+	return true
+}
+
+// ConfirmClose is the "Close anyway" button. The latch comes first,
+// unconditionally: even a wedged cancel after this line can never leave the
+// window unclosable, because the re-entered onBeforeClose now returns false.
+// Then abort the transfer (closes both connections synchronously, so the
+// peer sees the drop rather than a silent stall; cancelled also suppresses
+// the failure toast, since a user-ordered close is not a failure) and quit.
+// Deliberately no wait for the transfer goroutine's cleanup: a leftover
+// .part staging file is the accepted cost of an instant close, and the
+// shutdown hook tidies it.
+func (a *App) ConfirmClose() {
+	a.mu.Lock()
+	a.allowClose = true
+	a.mu.Unlock()
+	a.CancelTransfer()
+	if a.quitFn != nil {
+		a.quitFn()
+		return
+	}
+	runtime.Quit(a.ctx)
 }
 
 // StartSend validates the given paths and launches the send flow in the
