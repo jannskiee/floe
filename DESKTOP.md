@@ -148,6 +148,28 @@ verify the connection independently of the server.
 - [x] Receiver path-traversal: `transfer.safeJoin` strips volume names + `..`/`.`/empty
       segments and falls back to `received_file`; `TestSafeJoin` covers `../../etc/passwd`,
       `/etc/passwd`, `C:\...`, UNC `\\host\share\...`, dot-segments, empty. All pass.
+
+**Character sanitizing (added 2026-08-19, the traversal audit above missed it):**
+- [x] Traversal was solid, but `safeJoin` did no character filtering, so a name that is
+      ordinary on Linux could not be represented on Windows. Measured on Windows 11 /
+      go1.26.3: `backup:2026-08-19.log` wrote its payload to an NTFS alternate data stream
+      and left a visible 0-byte file, `NUL` wrote to the null device and left nothing, and
+      `what?.txt` could not be created at all, which aborted the rest of the batch. In every
+      case `Write` returned the full count, so the receiver's byte-count integrity guard
+      passed and the transfer reported success.
+- [x] `evil.exe ` (trailing space) was the security half: the bytes landed on a real
+      `evil.exe`, but `applyMOTW` then wrote `evil.exe :Zone.Identifier`, where the space is
+      interior and survives, so the saved file carried no Mark of the Web and Windows applied
+      neither SmartScreen nor Office Protected View. A sender chose that by picking a name.
+- [x] Fixed by `sanitizeComponent(name, goos)`, called per component inside `safeJoin`'s
+      existing loop and before its `..`/`.`/empty filter. Controls and Unicode bidi overrides
+      go on every platform; the Win32 reserved characters, trailing dots and spaces, and
+      device names are Windows-only, so Linux and macOS keep byte-exact names.
+      `TestSanitizeComponent` pins every rule on all three target values, and
+      `sanitize_windows_test.go` proves the on-disk result including the zone tag.
+      Note the device-name rule matches the WHOLE component: `CON.txt` and `NUL.txt` create
+      ordinary files on Windows 11, and only bare `NUL` swallows data, so the widespread
+      stem-based rule would rename names that demonstrably work.
 - [x] Client CVEs: overrides live in `client/pnpm-workspace.yaml`; `corepack pnpm audit`
       (prod + full) reports "No known vulnerabilities found."
 
