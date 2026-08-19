@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-// TestSanitizedNamesLandOnRealFiles drives the real safeJoin + createUnique +
-// applyMOTW chain with the names that broke it, and asserts on what is actually
+// TestSanitizedNamesLandOnRealFiles drives the real safeJoin + claimPart +
+// commitPart + applyMOTW chain with the names that broke it, and asserts on what is actually
 // on disk afterwards.
 //
 // Every assertion below fails on the pre-fix code, each for a different reason:

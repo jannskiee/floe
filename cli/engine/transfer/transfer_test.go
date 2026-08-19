@@ -167,7 +167,7 @@ func TestSanitizeComponent(t *testing.T) {
 				t.Errorf("sanitizeComponent(%q, %q) = %q, want %q", tc.in, tc.goos, got, tc.want)
 			}
 			// Sanitizing is idempotent, which is what makes the mapping safe to
-			// reason about across repeat sends and after createUnique.
+			// reason about across repeat sends and after claimPart de-collides.
 			if again := sanitizeComponent(got, tc.goos); again != got {
 				t.Errorf("not idempotent: sanitizeComponent(%q, %q) = %q", got, tc.goos, again)
 			}

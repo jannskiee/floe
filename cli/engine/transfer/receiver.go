@@ -419,6 +419,11 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				if currentFile != nil {
 					staged := currentFile
 					partPath := staged.Name()
+					// Flush to disk before declaring the bytes safe: the docs
+					// extend the no-half-written promise to power loss, and NTFS
+					// journals metadata, not data. Negligible next to a network
+					// transfer.
+					_ = staged.Sync()
 					staged.Close()
 					currentFile = nil
 					fmt.Println()
@@ -448,8 +453,13 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					// staging file is deliberately left in place: the bytes are
 					// complete and verified, and deleting them over a transient
 					// AV lock would be data loss.
-					finalPath, commitErr := commitPart(partPath, currentDest, currentBase)
+					// Unregister BEFORE the commit: from this line the bytes are
+					// verified complete, and an AbandonPartials landing mid-commit
+					// (Ctrl+C, the desktop shutdown hook) must not delete them.
+					// A crash between here and the rename leaves the intact .part
+					// for the user, which is the designed-safe artifact.
 					unregisterPartial(staged)
+					finalPath, commitErr := commitPart(partPath, currentDest, currentBase)
 					if commitErr != nil {
 						return fmt.Errorf("received %q in full but could not finish saving it: %w",
 							currentSavedName, commitErr)
@@ -833,18 +843,20 @@ func claimPart(base string) (part *os.File, dest string, err error) {
 // never overwriting anything that is not ours.
 //
 // Go's os.Rename REPLACES an existing destination on every platform, Windows
-// included (MoveFileEx with REPLACE_EXISTING), so a bare rename here would
-// silently clobber a file that appeared at the destination mid-transfer. The
-// never-overwrite claim is therefore made explicitly: O_EXCL-create an empty
-// placeholder at the candidate (the same atomic claim claimPart uses), then
-// rename the .part over our own placeholder, where the replace semantics are
-// the mechanism rather than the hazard.
+// included, so a bare rename here would silently clobber a file that appeared
+// at the destination mid-transfer. renameNoReplace makes the never-overwrite
+// claim instead: atomically on Windows (MoveFileEx without the replace flag,
+// so the final name never holds anything but the complete file, not even for
+// an instant), and via a placeholder created and consumed inside the one call
+// elsewhere.
 //
 // The rename gets a bounded retry because an AV scanner or indexer can hold
 // the just-closed .part briefly (Go's Windows opens grant no
-// FILE_SHARE_DELETE). On final failure the placeholder is removed and the
-// .part is deliberately LEFT IN PLACE: its bytes are complete and verified,
-// and deleting them over a transient lock would be data loss.
+// FILE_SHARE_DELETE). A "destination exists" failure advances to the next
+// candidate immediately instead of retrying: waiting cannot make a name free.
+// On final failure the .part is deliberately LEFT IN PLACE: its bytes are
+// complete and verified, and deleting them over a transient lock would be
+// data loss.
 func commitPart(partPath, claimedDest, basePath string) (dest string, err error) {
 	for i := 0; i < 100000; i++ {
 		candidate := candidatePath(basePath, i)
@@ -860,30 +872,22 @@ func commitPart(partPath, claimedDest, basePath string) (dest string, err error)
 				continue
 			}
 		}
-		placeholder, oerr := os.OpenFile(candidate, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0666)
-		if oerr != nil {
-			if os.IsExist(oerr) {
-				continue // final name taken since the claim; advance
-			}
-			return "", oerr
-		}
-		// The true device backstop: stat the handle we actually opened at the
-		// name the bytes are about to wear.
-		if st, serr := placeholder.Stat(); serr == nil && !st.Mode().IsRegular() {
-			placeholder.Close()
-			return "", fmt.Errorf("refusing to write %s: not a regular file (%s)",
-				candidate, st.Mode())
-		}
-		placeholder.Close()
-
 		var rerr error
 		for attempt := 0; attempt < 5; attempt++ {
-			if rerr = os.Rename(partPath, candidate); rerr == nil {
+			rerr = renameNoReplace(partPath, candidate)
+			if rerr == nil {
 				return candidate, nil
 			}
-			time.Sleep(200 * time.Millisecond)
+			if os.IsExist(rerr) {
+				break // name taken since the claim; advance to the next
+			}
+			if attempt < 4 {
+				time.Sleep(200 * time.Millisecond)
+			}
 		}
-		_ = os.Remove(candidate) // take back the placeholder; keep the .part
+		if os.IsExist(rerr) {
+			continue
+		}
 		return "", fmt.Errorf("could not move %s into place: %w", partPath, rerr)
 	}
 	return "", fmt.Errorf("too many files named like %q", filepath.Base(basePath))
