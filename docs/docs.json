@@ -155,7 +155,6 @@
     "groups": [
       {
         "group": "Getting started",
-        "icon": "rocket",
         "pages": [
           "introduction",
           "quickstart",
@@ -164,7 +163,6 @@
       },
       {
         "group": "Core concepts",
-        "icon": "lightbulb",
         "pages": [
           "how-it-works/signaling",
           "how-it-works/direct-connection",
@@ -177,7 +175,6 @@
       },
       {
         "group": "Web app",
-        "icon": "globe",
         "pages": [
           "web-app/sending",
           "web-app/receiving"
@@ -185,7 +182,6 @@
       },
       {
         "group": "Desktop app",
-        "icon": "monitor",
         "pages": [
           "desktop/installation",
           "desktop/sending",
@@ -196,7 +192,6 @@
       },
       {
         "group": "CLI",
-        "icon": "terminal",
         "pages": [
           "cli/installation",
           "cli/send",
@@ -209,7 +204,6 @@
       },
       {
         "group": "Self-hosting",
-        "icon": "server",
         "pages": [
           {
             "group": "Get started",
@@ -247,7 +241,6 @@
       },
       {
         "group": "Help",
-        "icon": "life-buoy",
         "pages": [
           "troubleshooting",
           "faq"
@@ -255,7 +248,6 @@
       },
       {
         "group": "Reference",
-        "icon": "book-open",
         "pages": [
           "reference/architecture",
           "reference/http-api",
@@ -264,7 +256,6 @@
       },
       {
         "group": "Changelog",
-        "icon": "history",
         "pages": [
           "changelog"
         ]
@@ -274,23 +265,23 @@
       "anchors": [
         {
           "anchor": "Quickstart",
-          "href": "/quickstart",
-          "icon": "zap"
+          "icon": "zap",
+          "href": "/quickstart"
         },
         {
           "anchor": "File size limits",
-          "href": "/how-it-works/2gb-limit",
-          "icon": "scale"
+          "icon": "scale",
+          "href": "/how-it-works/2gb-limit"
         },
         {
           "anchor": "Troubleshooting",
-          "href": "/troubleshooting",
-          "icon": "wrench"
+          "icon": "wrench",
+          "href": "/troubleshooting"
         },
         {
           "anchor": "Self-host with Docker",
-          "href": "/self-hosting/quickstart",
-          "icon": "container"
+          "icon": "container",
+          "href": "/self-hosting/quickstart"
         }
       ]
     }

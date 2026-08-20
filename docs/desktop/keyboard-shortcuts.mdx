@@ -32,21 +32,22 @@ a dialog open, it does nothing at all. The offer itself survives all of those, s
 the tab you cleared brings it within reach again. `Ctrl` `Shift` `Z` is deliberately not an undo,
 because it is redo on every platform that has it.
 
-<Warning>
-  `Ctrl` `R` asks for confirmation in three cases: when a transfer is actually moving data, when
-  the text box holds a note that has not been sent, and when you cleared a note that had never
-  been sent and its **Undo** is still available, whether or not its bar is still up. The prompts
-  cover both paths to Start over, the shortcut itself and clicking the Floe lockup in the
-  titlebar. The unsent-note dialog reads "The text you typed has not been sent yet. Starting over
-  will clear it."; the cleared-note one reads "The text you cleared can still be brought back.
-  Starting over will discard it."
+**`Ctrl` `R` asks first when there is something to lose, and only then.** Three cases prompt: a
+transfer that is actually moving data, a note in the text box that has not been sent, and a note
+you cleared that had never been sent and whose **Undo** is still available, whether or not its bar
+is still on screen. The dialog is titled **Start over?**, and the buttons are **Keep going** and
+**Start over**.
 
-  A note counts as sent only while the box still holds exactly what went out, so typing a new
-  one after a send prompts again, and so does a note you typed and then abandoned in favor of
-  sending files. Staged files never prompt on their own, because the originals are untouched on
-  disk, and neither does a send or a receive that is still connecting, so Start over stays a
-  one-click escape from a stuck connection.
-</Warning>
+The two note prompts quote what is at stake. The unsent one reads "The text you typed has not been
+sent yet. Starting over will clear it."; the cleared one reads "The text you cleared can still be
+brought back. Starting over will discard it." Both cover either route to Start over, the shortcut
+and clicking the Floe lockup in the titlebar.
+
+A note counts as sent only while the box still holds exactly what went out, so typing a new one
+after a send prompts again, and so does a note you typed and then abandoned in favor of sending
+files. Staged files never prompt, because the originals are untouched on disk. Neither does a send
+or receive that is still connecting, which keeps Start over a one-click escape from a stuck
+connection.
 
 **`Ctrl` `R` does not reload the app.** In a browser that key reloads the page, which here
 would abandon a transfer in progress. Floe intercepts it and uses it to clear the card instead.

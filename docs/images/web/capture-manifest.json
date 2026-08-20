@@ -1,0 +1,96 @@
+{
+  "base": "https://www.floe.one",
+  "viewport": {
+    "width": 1280,
+    "height": 900
+  },
+  "deviceScaleFactor": 3,
+  "roomDead": true,
+  "statsAttempts": 1,
+  "shots": [
+    {
+      "name": "01-send-staged.png",
+      "note": "three files staged, relay checkbox, Create secure link",
+      "css": [
+        512,
+        560.75
+      ],
+      "pixels": [
+        1536,
+        1683
+      ],
+      "scale": 3,
+      "bytes": 125141
+    },
+    {
+      "name": "02-send-share-panel.png",
+      "note": "share link with Copy, Show QR, waiting for peer",
+      "css": [
+        512,
+        591.75
+      ],
+      "pixels": [
+        1536,
+        1776
+      ],
+      "scale": 3,
+      "bytes": 127129
+    },
+    {
+      "name": "04-receive-waiting.png",
+      "note": "three-step pipeline and the stats checkbox",
+      "css": [
+        512,
+        370.75
+      ],
+      "pixels": [
+        1536,
+        1116
+      ],
+      "scale": 3,
+      "bytes": 95738
+    },
+    {
+      "name": "03-connection-indicator.png",
+      "note": "the connection badge with its in-product explanation open",
+      "css": [
+        532,
+        630.75
+      ],
+      "pixels": [
+        1596,
+        1890
+      ],
+      "scale": 3,
+      "bytes": 167231
+    },
+    {
+      "name": "05-receive-downloads.png",
+      "note": "per-file rows plus Download All and Download ZIP",
+      "css": [
+        512,
+        512.75
+      ],
+      "pixels": [
+        1536,
+        1539
+      ],
+      "scale": 3,
+      "bytes": 103598
+    },
+    {
+      "name": "06-in-app-browser.png",
+      "note": "the prompt shown inside an in-app browser",
+      "css": [
+        430,
+        502.25
+      ],
+      "pixels": [
+        1290,
+        1506
+      ],
+      "scale": 3,
+      "bytes": 126357
+    }
+  ]
+}
