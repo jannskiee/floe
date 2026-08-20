@@ -95,8 +95,10 @@ and without a Redis database configured it lives in memory and resets on restart
 Beyond the transfer itself they make exactly two kinds of optional request, and both have an off
 switch: the byte-count report above, and an update check.
 
-The update check runs once a day in Floe Desktop (GitHub builds 0.2.3 and later), and in the CLI
-only when you run `floe version`. It asks GitHub whether a newer release exists. The request
+The update check runs once a day in Floe Desktop (GitHub builds 0.2.3 and later). The CLI does it
+only when you run `floe version`, and never during a transfer; `floe update` and
+`floe update --check` also reach GitHub, but those are you asking for it. It asks GitHub whether a
+newer release exists. The request
 carries nothing about you beyond what any web request reveals, and nothing downloads or installs
 by itself. Turn off **Check for updates** in the desktop
 [Settings](/desktop/settings#check-for-updates), or set `FLOE_NO_UPDATE_CHECK=1` for either

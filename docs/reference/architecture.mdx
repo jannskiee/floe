@@ -93,6 +93,14 @@ Server to client:
 | `pong` | - | Answer to a client `ping`. |
 | `error` | `message: string` | Server error. |
 
+Both transports cap a single message at 1 MB. An oversized WebSocket frame is closed with code
+`1009`. Signaling messages are SDP and ICE candidates, so this is a guard rather than a limit
+anyone meets.
+
+A room outlives a one-sided drop. When a peer disconnects the server removes only that peer and
+keeps the room for the other one, which is what lets a browser rejoin the same room after its
+socket reconnects. The room is deleted when the last peer leaves.
+
 The connection is kept alive below this layer. Every 30 seconds the server sends a WebSocket
 protocol-level ping to each `/ws` client and terminates any that did not answer the previous one.
 The Go client answers automatically, so nothing in Floe's own message set is involved. A reverse
@@ -130,9 +138,11 @@ Counters live in plain `Map`s and are swept every 60 seconds. The three HTTP lim
 rejected in middleware, which the browser sees as a `connect_error`, and a WebSocket over the
 limit is closed with code `1008`.
 
-Two behaviors that surprise people. Rejected attempts are still recorded, so a client hammering
-the server keeps itself blocked for the whole window. And setting any `MAX_*` variable to `0` does
-not disable a limit; it silently restores the default.
+Two behaviors that surprise people. **The connection limiter records rejected attempts**: it
+appends a timestamp before it compares, so a client that keeps retrying keeps itself blocked
+indefinitely rather than for one window. The three HTTP limiters do the opposite and return the
+`429` before recording anything, so those windows drain normally. And setting any `MAX_*` variable
+to `0` does not disable a limit; it silently restores the default.
 
 The active-code cap is global rather than per-IP, because it guards the size of the in-memory
 registry. It counts stored entries rather than genuinely live ones, so the number can briefly

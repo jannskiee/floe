@@ -2,6 +2,7 @@
 title: "Self-Hosted Floe Operations"
 sidebarTitle: "Operations"
 description: "Day-to-day operations for a self-hosted Floe instance: common Compose commands, updating to the latest images, and the health endpoints to point a monitor at."
+keywords: ["logs", "update containers", "health check", "restart"]
 ---
 
 ## Common commands
@@ -12,6 +13,14 @@ docker compose ps                       # check container status and health
 docker compose down                     # stop and remove the stack
 docker compose restart server           # restart only the signaling server
 ```
+
+**Restarting the server is not free.** Rooms and room codes live in that process's memory, so a
+restart ends every transfer in flight and invalidates every short code that has not been used yet.
+There is no draining and no warning. Pick a quiet moment, or expect people to need a new link.
+
+The client also waits on the server: Compose starts it only once the server reports healthy. If
+the server never gets there, you do not get a web app that cannot connect, you get no web app at
+all.
 
 ## Update to the latest code
 

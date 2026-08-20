@@ -41,8 +41,13 @@ A frame is treated as a control message only when all of these hold:
 2. Its first non-whitespace byte is `{`.
 3. It parses as JSON with a `type` field naming a message below.
 
-Anything else is file data and gets written, **including a small binary chunk that happens to
-look like a JSON object.** That case is real and the implementations handle it.
+A **binary** frame that is not a control message is file data and gets written, **including a
+small chunk that happens to look like a JSON object.** That case is real and both implementations
+handle it.
+
+A **string** frame that is not a control message is where they part company: the Go receiver
+discards it, and the browser receiver writes it into the file. Nothing in Floe sends such a frame,
+so this only matters if you are building another client.
 
 Two divergences are worth knowing if you are writing another client:
 
@@ -119,8 +124,10 @@ Receiver to sender, once per file, before any bytes move.
 
 <ResponseField name="offset" type="integer" required>
   Where the sender should start reading. Reserved for mid-file resume: both senders honor a
-  non-zero value and seek to it, but **no receiver in any current client emits one**, and no
-  resume state is kept on disk or across connections. In practice it is always `0`.
+  non-zero value and seek to it. The Go receiver hard-codes `0`. The browser receiver would reply
+  with what it already holds if a second `metadata` arrived for a file id it had buffered bytes
+  for, but no current sender ever reuses an id that way, and no resume state is kept on disk or
+  across connections. **Against any current sender it is always `0`.**
 </ResponseField>
 
 ### Binary chunks
@@ -221,6 +228,11 @@ frame boundary was wrong, which corrupts the result just as thoroughly.
 **Floe computes no hash of file contents at any point.** The check is a byte count. The transport
 already authenticates every packet, so corruption in flight is not the gap being covered here;
 truncation is.
+
+The two implementations disagree on one input. If a peer announces no usable `fileSize`, the
+browser skips the check and keeps whatever arrived, while the Go receiver reads the missing size
+as `0` and therefore discards the file. Only a peer predating the field can produce that, and none
+has shipped in a long time.
 
 Receivers that write to disk stage each file under a name ending in `.part` and rename it only
 after that check passes, so a killed transfer never leaves a file sitting under its final name.

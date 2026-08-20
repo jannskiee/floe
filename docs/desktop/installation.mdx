@@ -2,6 +2,7 @@
 title: "Install Floe Desktop"
 sidebarTitle: "Installation"
 description: "Install Floe Desktop for Windows from the Microsoft Store or a GitHub release, what differs between the two channels, plus updating and uninstalling."
+keywords: ["install desktop", "microsoft store", "windows app", "smartscreen", "webview2"]
 ---
 
 Floe Desktop is the same peer-to-peer transfer as [floe.one](https://floe.one), running as a
@@ -16,8 +17,9 @@ It is **in beta and Windows only**. macOS and Linux are planned. On anything els
 - **From the Microsoft Store:** Windows 10 version 2004 (build 19041) or later. The package
   itself declares that minimum version.
 - **From GitHub:** any Windows 10 or later. The installer stops on anything older.
-- **x64.** Both channels ship an x64 build only. The GitHub installer and the portable zip stop
-  with an architecture error on a native ARM64 machine.
+- **x64.** Both channels ship an x64 build only. On a native ARM64 machine the GitHub installer
+  refuses to run and says so; the portable zip has no such check and starts under Windows'
+  emulation instead, which works but is slower.
 - **The Microsoft Edge WebView2 Runtime**, which draws the interface. Windows 11 includes it, and
   the vast majority of Windows 10 machines already have it. You do not normally need to do
   anything about it.

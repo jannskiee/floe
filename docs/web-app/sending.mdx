@@ -29,9 +29,11 @@ settle on the list first. To change it afterwards, reload the page and start aga
 There is no size limit on a direct connection. See
 [File size limits](/how-it-works/2gb-limit) for when a cap applies and why.
 
-**Folders are the one thing the browser cannot do.** There is no folder picker, and dropping a
-folder adds nothing. Zip it first, or send it from [Floe Desktop](/desktop/sending) or the
-[CLI](/cli/send), both of which walk the folder for you and rebuild it on the other side.
+**Folders are the one thing the browser cannot do.** There is no folder picker. Dropping a folder
+does not send its contents either, and depending on the browser it may add an empty entry that
+fails when the transfer starts, so do not rely on it. Zip the folder first, or send it from
+[Floe Desktop](/desktop/sending) or the [CLI](/cli/send), both of which walk the folder for you and
+rebuild it on the other side.
 
 ## Decide whether the relay is allowed
 
@@ -74,9 +76,9 @@ appears once the server confirms the join, with three ways to hand the transfer 
 
 The link looks like `https://www.floe.one/?s=8262e1b4#room=<uuid>`. The room id sits after the
 `#`, which browsers never send to a server, so the part that actually guards your transfer stays
-on your two devices. The `?s=` value is eight random characters that carry no information; they
-exist only so each link is a distinct page, which stops a phone that already has Floe open from
-reusing a stale tab.
+on your two devices. The `?s=` value is eight random hex characters that carry no information;
+they exist only so each link is a distinct page, which stops a phone that already has Floe open
+from reusing a stale tab.
 
 **One link, one recipient.** The room holds exactly two people. Once someone joins, anyone else
 opening the same link gets a "Link Invalid" card. Create a fresh link for each person.
@@ -107,8 +109,9 @@ The other two labels have no icon.
 
 ## While it transfers
 
-The transfer begins on its own about two seconds after the other person opens the link. There is
-nothing to click.
+The transfer begins on its own, about two seconds after the two devices actually connect. On a
+fast network that is a moment after they open the link; on a slow or relayed one the connection
+itself takes longer, and the two seconds start after it. There is nothing to click.
 
 Floe checks the route before sending a single byte, so two things can stop it there:
 
@@ -116,8 +119,10 @@ Floe checks the route before sending a single byte, so two things can stop it th
   `Connection failed. Enable "Network Relay" to connect across restrictive networks.` and the
   connection is closed.
 - **The route is relayed and your files total more than 2 GB.** The status line reads
-  `Transfer blocked. Relay limit exceeded.` and nothing is sent. Remove files, or move to a
-  network that allows a direct connection.
+  `Transfer blocked. Relay limit exceeded.`, an amber banner explains the cap, and the connection
+  is closed. Nothing is sent. Because the file list is locked once the link exists, the way out is
+  to reload the page and start again with fewer files, or from a network that allows a direct
+  connection.
 
 Once it is running, two more things are worth knowing. If a file you queued is moved, renamed, or
 lives on a drive that goes away, Floe stops and names the file rather than sending a short one.

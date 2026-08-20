@@ -22,6 +22,10 @@ Apps like Facebook, Messenger, Instagram, TikTok, Snapchat, LINE, X, and WeChat 
 their own built-in browser rather than in Chrome or Safari. Those built-in browsers handle file
 transfers poorly, so Floe recognizes them and shows this instead of the transfer view.
 
+Those eight are recognized by name. Any other Android app that opens links in a plain web view is
+caught by a general check and gets the same screen, worded "This in-app browser", so an app that
+is not on the list can still land you here.
+
 <Frame caption="What Floe shows when a link is opened inside another app's browser">
   <img src="/images/web/06-in-app-browser.png" style={{ width: "100%", maxWidth: "320px", borderRadius: "12px" }} alt="A full-screen Floe prompt reading Open in your browser, with two numbered steps for reaching Safari, a Copy link to paste in browser button, and a Continue anyway link" />
 </Frame>
@@ -83,7 +87,7 @@ so if they vanish mid-transfer nothing is wrong. Once the transfer finishes they
 | Option | What it does |
 |--------|--------------|
 | **Download All** | Saves each file separately, about one every 300 ms. Your browser may ask you to allow multiple downloads. |
-| **Download ZIP** | Bundles everything into one archive named `floe_transfer_<timestamp>.zip`, where the timestamp is the moment you clicked, in milliseconds. |
+| **Download ZIP** | Bundles everything into one archive named `floe_transfer_<timestamp>.zip`. The timestamp is milliseconds since the epoch, stamped when the archive finishes building rather than when you clicked, so on a large transfer the two differ. |
 
 The two differ in more than convenience. A ZIP keeps any folder structure the sender used and
 numbers duplicate names inside the archive. Saving files one at a time flattens the structure and
@@ -103,14 +107,23 @@ CLI before the transfer finishes, the connection drops and you need a new sessio
 If **your** network blips before the first file arrives, Floe recovers on its own: it rejoins the
 room and the sender builds a fresh connection. Once files have started landing, signaling is
 finished and Floe stops rejoining, so a drop after that point ends the session and you need a new
-link for whatever did not arrive. If the sender is the one who dropped, you see
-**Peer disconnected. Waiting for reconnection**, and it does not resume by itself.
+link for whatever did not arrive.
+
+What you see when the sender drops depends on whether anything had arrived yet. Before the first
+file, the status reads **Peer disconnected. Waiting for reconnection**, and it does not resume by
+itself. **After at least one file has landed, it reads "Transfer complete" instead**, which is
+worth knowing: on a multi-file transfer that message means "nothing more is coming", not
+necessarily "everything arrived". Count the files against what the sender told you to expect.
 
 Either way, files that already finished stay in the list and stay downloadable.
 
 A file that arrives incomplete is not offered to you at all. Floe compares what arrived against
 the size the sender announced and discards anything that does not match, in either direction,
 rather than handing you a file that looks whole and is not.
+
+Two details follow from that. A mismatch stops the **rest** of the transfer too, so files queued
+behind the bad one never arrive either. And the check needs a size to compare against: if the
+sending peer announces none, which only very old releases do, the file is accepted as it stands.
 
 ## Receiving in the terminal or the desktop app instead
 

@@ -1,5 +1,5 @@
-Every receiving surface can turn the report off, and turning it off means no request is made at
-all rather than a request the server ignores.
+Every receiving surface can turn the report off, and turning it off means the byte count is never
+sent, rather than sent and ignored.
 
 - **Browser:** uncheck **Contribute to global stats** on the receiver view before the first file
   lands. The choice is saved in that browser and applies to every later transfer from it.
@@ -9,3 +9,8 @@ all rather than a request the server ignores.
   environment to opt out for good.
 
 The sender never reports on any surface, so this only ever concerns transfers you receive.
+
+This switch covers the public counter and nothing else. On floe.one the site's own anonymous
+analytics record a transfer's outcome separately, and are described under
+[Error monitoring and analytics](/security-privacy#error-monitoring-and-analytics). The CLI, the
+desktop app, and any self-hosted instance without an analytics key send neither.

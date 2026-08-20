@@ -336,9 +336,10 @@ The three HTTP limiters answer `429` with `Too many requests`, or `Too many repo
 The connection limiter is not HTTP: it refuses the Socket.IO handshake and closes the WebSocket
 with the reason `Rate limit exceeded`.
 
-Two things to know before raising a limit. Rejected attempts still count, so a client hammering
-the server keeps itself blocked for the whole window. And setting any `MAX_*` variable to `0` does
-not disable the limit; it silently restores the default.
+Two things to know before raising a limit. **The connection limiter counts rejected attempts**,
+so a client that keeps retrying keeps itself blocked indefinitely rather than for one window; the
+three HTTP limiters return the `429` before recording anything, so those recover normally. And
+setting any `MAX_*` variable to `0` does not disable the limit; it silently restores the default.
 
 Behind a reverse proxy, set `TRUSTED_PROXY_COUNT` to the number of proxy hops so the server reads
 real client IPs instead of the proxy's. The server defaults to `1`, but the Compose stack
@@ -361,8 +362,13 @@ Check which option your instance uses.
 curl http://localhost:3001/api/turn-credentials
 ```
 
-A working setup returns `turn.cloudflare.com` entries with a username and credential. If it
-returns STUN servers only, one of the two variables is missing or the API token is invalid.
+A working setup returns two entries: a `stun:stun.cloudflare.com:3478` one with no credentials,
+and a `turn:`/`turns:` one that carries a username and credential. If it returns Google STUN
+servers instead, one of the two variables is missing or the API token is invalid.
+
+Credentials are cached in memory for 12 hours, so after fixing a key either restart the server or
+wait out the cache. A key that breaks later is masked the same way: the server keeps serving the
+last good copy rather than failing over.
 
 **Self-hosted coturn.** The bundled service uses host networking, so it needs a Linux host with a
 public IP, a domain, and TLS certificates. Confirm `TURN_SECRET` and `TURN_DOMAIN` match coturn's

@@ -2,6 +2,7 @@
 title: "Run Floe Behind One Domain"
 sidebarTitle: "Reverse proxy"
 description: "Serve the Floe web client and signaling server from one domain using a reverse proxy, with copy-pasteable Caddy and nginx configs for WebSocket support."
+keywords: ["nginx", "caddy", "reverse proxy", "one domain", "websocket upgrade"]
 ---
 
 Floe has two services, but your users do not need two addresses. Put both behind one
@@ -32,9 +33,10 @@ instance that sets a non-empty socket URL loses it silently.
 
 <Warning>
   `/ws` is matched by exact string equality on the signaling server. A trailing
-  slash or a path prefix will not match, and the connection is dropped with no
-  error. If you proxy from a subpath, strip the prefix so the server still sees
-  exactly `/ws`.
+  slash or a path prefix does not match, and the upgrade is then simply never
+  handled, so the client hangs until its own timeout rather than being refused.
+  If you proxy from a subpath, strip the prefix so the server still sees exactly
+  `/ws`. The comparison is against the path alone, so a query string is fine.
 </Warning>
 
 ## Proxy configuration
