@@ -1,0 +1,268 @@
+---
+title: "Floe data-channel transfer protocol"
+sidebarTitle: "Transfer protocol"
+description: "The wire format Floe peers speak over the WebRTC data channel: message types, framing, protocol versioning, chunk sizing, backpressure, and every timeout."
+keywords: ["wire protocol", "data channel", "webrtc", "protocol version", "backpressure"]
+---
+
+Once the WebRTC data channel opens, the signaling server is out of the picture and the two peers
+speak this protocol directly. The browser, the CLI, and Floe Desktop all implement it and are
+interoperable in every direction. The CLI and the desktop app share one implementation in
+`cli/engine/transfer`; the browser has its own in `client/lib/transfer`.
+
+## The sequence
+
+The sender runs this for each file, in order.
+
+```mermaid
+sequenceDiagram
+    participant S as Sender
+    participant R as Receiver
+    S->>R: metadata
+    R->>S: ack
+    S->>R: binary chunks
+    S->>R: end
+    Note over S,R: repeats per file, in order
+    R->>S: received
+```
+
+The final `received` comes once, after every file, and only from a Go receiver. Everything else
+repeats per file.
+
+## How a frame is classified
+
+There is no length prefix and no envelope. A receiver decides whether an arriving frame is a
+control message or file data by probing it, and the rule is deliberately conservative because
+getting it wrong means either dropping a chunk or writing JSON into a file.
+
+A frame is treated as a control message only when all of these hold:
+
+1. It is at most **1000 bytes**.
+2. Its first non-whitespace byte is `{`.
+3. It parses as JSON with a `type` field naming a message below.
+
+Anything else is file data and gets written, **including a small binary chunk that happens to
+look like a JSON object.** That case is real and the implementations handle it.
+
+Two divergences are worth knowing if you are writing another client:
+
+- The Go receiver applies the 1000-byte cap to **binary** frames only, so an oversized string
+  frame is still parsed. The browser applies it to every frame. A metadata frame larger than
+  1000 bytes, which a deep folder path can produce, is therefore handled by a Go receiver and
+  misread as file data by a browser receiver.
+- **Framing differs by sender.** Go sends `metadata` and `end` as strings but `ack`, `received`,
+  and `incompatible` as binary. The browser sends `metadata`, `ack`, and `end` as strings and
+  `incompatible` as binary. Both work because every receiver decodes bytes and strings alike.
+
+## Message types
+
+### metadata
+
+Sender to receiver, before each file.
+
+```json metadata
+{
+  "type": "metadata",
+  "id": "3f2b9c1e-7a4d-4c2e-9b1f-8e6d5c4b3a21",
+  "fileName": "photo.jpg",
+  "fileSize": 6291456,
+  "index": 1,
+  "total": 3,
+  "totalBytes": 11800000,
+  "pv": 1,
+  "pvMin": 1,
+  "ver": "1.10.4"
+}
+```
+
+<ResponseField name="id" type="string" required>
+  A per-file identifier. The ack echoes it.
+</ResponseField>
+<ResponseField name="fileName" type="string" required>
+  The name as the sender sees it, including any relative path when a folder is being sent. The
+  receiver sanitizes it before writing.
+</ResponseField>
+<ResponseField name="fileSize" type="integer" required>
+  The file's length in bytes. The receiver checks the bytes it wrote against this value.
+</ResponseField>
+<ResponseField name="index" type="integer" required>
+  Position in the batch, **1-based**.
+</ResponseField>
+<ResponseField name="total" type="integer" required>
+  How many files are in the batch.
+</ResponseField>
+<ResponseField name="totalBytes" type="integer" required>
+  The batch's total size. Older senders may send `0` for a single file, in which case a receiver
+  substitutes `fileSize`.
+</ResponseField>
+<ResponseField name="pv" type="integer">
+  Highest protocol version this peer speaks. Absent on releases before v1.6.0, which are treated
+  as version 1.
+</ResponseField>
+<ResponseField name="pvMin" type="integer">
+  Lowest protocol version this peer still supports.
+</ResponseField>
+<ResponseField name="ver" type="string">
+  The human release string, and its shape depends on the build. The CLI sends `1.10.4` with no
+  leading `v`, because GoReleaser strips it. The desktop app sends the tag verbatim, as
+  `desktop-v0.2.7`. A build from source sends `dev`. Browser peers omit the field entirely. It is
+  informational and never gates a transfer.
+</ResponseField>
+
+### ack
+
+Receiver to sender, once per file, before any bytes move.
+
+```json ack
+{ "type": "ack", "id": "3f2b9c1e-...", "offset": 0, "pv": 1, "pvMin": 1, "ver": "1.10.4" }
+```
+
+<ResponseField name="offset" type="integer" required>
+  Where the sender should start reading. Reserved for mid-file resume: both senders honor a
+  non-zero value and seek to it, but **no receiver in any current client emits one**, and no
+  resume state is kept on disk or across connections. In practice it is always `0`.
+</ResponseField>
+
+### Binary chunks
+
+Raw bytes, sent until the file is exhausted. Chunk size is a local sender choice and not part of
+the protocol; every receiver handles any size.
+
+Both implementations size chunks to the connection's negotiated maximum message size, capped at
+256 KB. When that size is unavailable they fall back to different defaults: **16 KB** in the Go
+engine, **64 KB** in the browser.
+
+The browser reads the source file in 4 MB slabs and sub-slices those into chunks. The Go sender
+reads straight into a chunk-sized buffer.
+
+### end
+
+Sender to receiver, after the last chunk of a file.
+
+```json end
+{ "type": "end" }
+```
+
+### received
+
+Receiver to sender, once, after every file in the batch is written.
+
+```json received
+{ "type": "received" }
+```
+
+Only Go receivers send it, and only Go senders act on it: it lets them exit immediately instead
+of polling the SCTP buffer. The browser sender ignores it even when a Go receiver sends it, and
+always waits for its own send buffer to drain to zero instead.
+
+### incompatible
+
+Sent by the receiver **in place of the ack** when the two protocol version ranges do not overlap.
+The receiver aborts before creating any file, so the sender fails fast rather than waiting for an
+ack that never comes. Senders that predate this message type ignore it safely.
+
+```json incompatible
+{
+  "type": "incompatible",
+  "reason": "Cannot transfer: your floe is too old for this peer. ...",
+  "pv": 1,
+  "pvMin": 1,
+  "ver": "desktop-v0.2.7"
+}
+```
+
+## Protocol versioning
+
+The wire protocol carries a version of its own, independent of Floe's release numbers. That is
+what lets peers on different releases interoperate while still catching a genuine breaking
+change cleanly.
+
+- Each peer advertises `pv`, the highest version it speaks, and `pvMin`, the lowest it still
+  supports. **Both are 1 today.**
+- Two peers are compatible when their ranges overlap:
+  `max(localMin, remoteMin) <= min(localMax, remoteMax)`. They operate at the highest common
+  version.
+- A peer that omits the fields is treated as version 1, so every release ever shipped stays
+  compatible.
+- When the ranges miss, the receiver sends `incompatible` and each side prints a remedy for its
+  own surface: `floe update` on the CLI, the Microsoft Store or the download page on the desktop,
+  a page refresh in the browser.
+
+Which side is named depends on who is reading. Go peers do not trust the wire `reason`: they
+rebuild the message locally from the frame's `pv` and `pvMin`, so the side they name is always
+correct. A Go receiver also words the `reason` it puts on the wire from the recipient's point of
+view, for peers that display it verbatim. A browser receiver does not do that second step, so it
+sends the same sentence it shows itself. When a message names a remedy that makes no sense for
+your surface, compare the two version strings it prints and update the older one.
+
+Constants live in `cli/engine/transfer/protocol.go` as `ProtocolVersion` and `MinProtocolVersion`,
+and in `client/lib/transfer/protocol.ts` as `PROTOCOL_VERSION` and `MIN_PROTOCOL_VERSION`. Bump
+`ProtocolVersion` only on a breaking wire change, and raise `MinProtocolVersion` only when
+deliberately dropping support for an old format. Keep the two implementations in step.
+
+## Flow control
+
+The sender pauses when the SCTP send buffer reaches **8 MB** and resumes once it drains below
+**4 MB**. Both implementations use the same two numbers.
+
+If the buffer has not shrunk at all after 60 seconds, the Go sender gives up on the transfer.
+A wait that is merely slow does not trigger it; only a buffer that never moves does.
+
+The browser adds two drains the Go engine does not have: it waits for the buffer to fall below
+64 KB before sending each file's metadata, and it drains to zero before declaring the batch
+complete.
+
+## Integrity
+
+A file is committed only when the bytes written match `fileSize` exactly. A mismatch in either
+direction discards the file, because a short count means truncation and an over-count means a
+frame boundary was wrong, which corrupts the result just as thoroughly.
+
+**Floe computes no hash of file contents at any point.** The check is a byte count. The transport
+already authenticates every packet, so corruption in flight is not the gap being covered here;
+truncation is.
+
+Receivers that write to disk stage each file under a name ending in `.part` and rename it only
+after that check passes, so a killed transfer never leaves a file sitting under its final name.
+See [What Floe does not protect against](/how-it-works/known-limitations).
+
+## Timeouts
+
+Every value the Go engine enforces. The browser shares only the 120 second ack deadline.
+
+| Phase | Limit | What happens |
+|---|---|---|
+| Waiting for the peer's offer or answer | 30 s | Connection attempt fails |
+| ICE, DTLS, and the data channel opening | 30 s | `timed out establishing a connection` |
+| Data channel grace after the peers connect | 10 s | Connection attempt fails |
+| Sender waiting for a file's ack | 120 s | Transfer fails. Sized for a human answering the CLI's `Accept? [Y/n]` prompt |
+| Sender's send buffer not draining at all | 60 s | Transfer fails |
+| Sender waiting for delivery confirmation | 30 s | `timed out waiting for delivery confirmation from peer` |
+| Receiver connected, no data yet | 30 s | `connected, but no data arrived from the sender within 30s` |
+| Receiver mid-transfer with no progress | 60 s | Transfer fails |
+| Receiver grace before teardown | 5 s | Lets the final acknowledgement reach the sender |
+| The byte-count report | 5 s | Abandoned; never affects the files |
+
+A browser sender waits about 2 seconds after the peers connect before it checks the route and
+sends the first byte. A `floe receive` can linger for up to about 10 seconds after printing its
+summary, which is the teardown grace plus the report.
+
+## One SDP detail worth knowing
+
+Pion, the WebRTC stack behind the CLI and the desktop app, omits `a=max-message-size` from the
+answer it generates. RFC 8841 makes the absent default 65536, and Chrome then rejects every chunk
+larger than that. The Go engine patches the attribute into the answer with a value of 1 GB before
+sending it, which is what makes browser-to-CLI transfers work at all.
+
+If you are building another client against Floe, this is the non-obvious part.
+
+## Related
+
+<Columns cols={2}>
+  <Card title="HTTP API" icon="webhook" href="/reference/http-api">
+    The signaling server's endpoints, up to the point where this protocol takes over.
+  </Card>
+  <Card title="Architecture" icon="layers" href="/reference/architecture">
+    Components, transports, and the shape of a whole session.
+  </Card>
+</Columns>

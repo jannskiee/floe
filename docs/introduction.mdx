@@ -1,36 +1,71 @@
 ---
-title: "Your files never make a stop."
+title: "Floe documentation"
 sidebarTitle: "Introduction"
-description: "Floe moves files straight between devices over WebRTC. These docs cover the web app, the desktop app, the CLI, and running your own instance."
-keywords: ["overview", "getting started", "p2p file transfer", "webrtc"]
+description: "Send files peer-to-peer with Floe. Documentation for the web app at floe.one, Floe Desktop for Windows, the floe CLI, and running your own instance."
+keywords: ["floe", "docs", "peer to peer file transfer", "webrtc", "send a file", "getting started"]
 boost: 3
 ---
 
-<Columns cols={2}>
-  <Card title="Quickstart" icon="zap" href="/quickstart">
-    Send your first file in under a minute.
+**Your files never make a stop.** Floe sends them straight from one device to another over an
+encrypted connection: no account, no upload, and nothing kept on a server.
+
+## Start here
+
+<Columns cols={3}>
+  <Card title="Send a file right now" icon="zap" href="/quickstart">
+    Under a minute, in a browser.
   </Card>
+  <Card title="Run my own instance" icon="server" href="/self-hosting/quickstart">
+    Two commands with Docker Compose.
+  </Card>
+  <Card title="See how it is encrypted" icon="shield" href="/how-it-works/encryption">
+    What is protected, and by what.
+  </Card>
+</Columns>
+
+## Pick a Floe
+
+All three send to each other in any direction, so this is a question of convenience rather than
+compatibility.
+
+<Columns cols={3}>
   <Card title="Web app" icon="globe" href="/web-app/sending">
-    Send and receive in the browser at floe.one.
+    Nothing to install. Open floe.one, drop a file, share the link.
   </Card>
   <Card title="Desktop app" icon="monitor" href="/desktop/installation">
-    Get Floe Desktop for Windows. Beta.
+    Windows, in beta. Sends folders, pastes screenshots, saves where you choose.
   </Card>
   <Card title="CLI" icon="terminal" href="/cli/installation">
-    Install the `floe` binary and script your transfers.
+    macOS, Windows, Linux. One binary for servers and scripts.
   </Card>
-  <Card title="Self-hosting" icon="server" href="/self-hosting/overview">
-    Run your own instance with Docker Compose.
+</Columns>
+
+Not sure which? [Compare the three](/choosing-floe).
+
+## What you should know
+
+**Encrypted end to end.** Every transfer runs over an encrypted WebRTC data channel, so nobody
+in between can read it, Floe's own servers included. See
+[Security and privacy](/security-privacy), and
+[what Floe does not protect against](/how-it-works/known-limitations) for the honest other half.
+
+**No accounts, no uploads.** The signaling server introduces the two devices and then steps out
+of the way. File data never reaches it. See [How a transfer works](/how-it-works/signaling).
+
+**No size limit on a direct connection.** Most transfers connect directly. When a network makes
+that impossible and the transfer falls back to a relay, it is capped at 2 GB per session to keep
+Floe free. See [The 2 GB Relay Limit](/how-it-works/2gb-limit).
+
+## Going further
+
+<Columns cols={3}>
+  <Card title="Self-hosting" icon="container" href="/self-hosting/overview">
+    Run the whole stack on your own infrastructure.
+  </Card>
+  <Card title="Reference" icon="book-open" href="/reference/architecture">
+    The architecture, the HTTP API, and the wire protocol.
   </Card>
   <Card title="Changelog" icon="history" href="/changelog">
     Every release across web, desktop, and CLI.
   </Card>
 </Columns>
-
----
-
-**Encrypted end to end.** DTLS protects every transfer; no one, including Floe's servers, can read your files. See [Security & privacy](/security-privacy).
-
-**No accounts, no uploads.** The signaling server only brokers the connection, then steps aside.
-
-**No size limit on direct transfers.** Relayed sessions are capped at 2 GB to keep the service free. See [the 2 GB limit](/how-it-works/2gb-limit).

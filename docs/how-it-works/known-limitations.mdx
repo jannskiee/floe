@@ -1,0 +1,118 @@
+---
+title: "What Floe does not protect against"
+sidebarTitle: "Known limitations"
+description: "An honest list of Floe's limits: what the signaling server could do in principle, what the relay sees, why there is no verification code yet, and where the browser runs out of room."
+keywords: ["threat model", "security limits", "mitm", "privacy limits", "caveats"]
+---
+
+Floe encrypts every transfer end to end and never puts your files on a server. Both of those
+are true and neither is the whole story. This page is the other half: the things Floe does not
+do, written plainly, so you can decide whether it fits what you are sending.
+
+Nothing here is a bug report. Each item is a design consequence, and each one says what you can
+do about it.
+
+## The signaling server is trusted to introduce you honestly
+
+Two devices agree on encryption keys by exchanging certificate fingerprints, and those
+fingerprints travel through the signaling server during setup. The server cannot read your files
+and never sees one. But a server that wanted to could hand each side a fingerprint it controls
+instead of the other peer's, sit in the middle, and decrypt everything.
+
+This is true of every WebRTC application, not just Floe. It is the reason the next item matters.
+
+**What you can do:** [run your own instance](/self-hosting/overview). A server you operate is a
+server you do not have to trust in this sense. On `api.floe.one` you are trusting the same
+operator who publishes the client, which is the ordinary situation for any hosted service.
+
+## There is no verification code to compare
+
+The usual defense against the previous item is a short code, derived from both certificate
+fingerprints, that the two people read to each other over a channel an attacker does not
+control. If the codes match, nobody is in the middle.
+
+Floe computes that code internally. **No client displays it today.** It has been added and
+removed more than once, and it is not in the web app, Floe Desktop, or the CLI as it ships now.
+Until one of them shows it, there is no way to detect the attack described above from inside
+Floe.
+
+**What you can do:** for anything where that attack is part of your threat model, self-host, or
+encrypt the file yourself before you send it.
+
+## The other person learns your IP address
+
+A direct connection is two devices talking to each other, which means each one knows where the
+other is. That is not a leak, it is how any peer-to-peer connection works, and a video call
+does the same thing.
+
+**What you can do:** Floe Desktop has a [Hide my IP address](/desktop/settings#hide-my-ip-address)
+switch that forces every transfer through the relay, so the other side sees the relay's address
+instead of yours. The web app and the CLI have no equivalent. The trade is speed and the 2 GB
+session cap.
+
+## The relay sees more than the signaling server does
+
+When a direct path is impossible, traffic goes through a TURN relay. The relay cannot read
+anything: the data is encrypted before it arrives and decrypted only on the recipient's device.
+
+But the relay is an endpoint that both peers connect to, so it observes both IP addresses and
+the timing and size of what it forwards. On `floe.one` that relay is Cloudflare's Realtime TURN
+network, which is infrastructure Floe does not own, and your provider may log that metadata for
+its own security purposes.
+
+**What you can do:** stay on a direct connection where you can, or self-host with
+[your own coturn relay](/self-hosting/turn-relay).
+
+## A browser receiver holds each file in memory
+
+The web app keeps each incoming file in memory until that file is complete, then hands it to
+your browser as a download. A large enough file exhausts the tab, and on a phone that ceiling
+arrives sooner than you would like.
+
+Zipping compounds it: **Download ZIP** holds every file at once before it writes the archive.
+
+**What you can do:** receive multi-gigabyte transfers with [Floe Desktop](/desktop/receiving) or
+the [CLI](/cli/receive), which write straight to disk and have no such ceiling. In the browser,
+save files one at a time rather than zipping when the total is large.
+
+## Floe does not hash your files
+
+A completed file is checked against the size the sender announced, and a mismatch in either
+direction discards it. That catches a truncated or over-run transfer, which is what actually
+happens when a connection dies partway.
+
+It is not a content checksum. Floe computes no hash of file contents anywhere, so the docs never
+claim one. In practice the transport already authenticates every packet, so silent corruption in
+flight is not the gap; the gap is that Floe cannot tell you the file on disk is byte-identical to
+the one that left.
+
+**What you can do:** compare hashes yourself when that guarantee matters. `sha256sum` on Linux,
+`shasum -a 256` on macOS, `Get-FileHash` on Windows.
+
+## The public counter is a vanity metric
+
+The total on the homepage is fed by receivers reporting a byte count after a transfer. It is
+protected by a per-IP rate limit and a per-report size cap, and nothing else. Anyone can post a
+plausible number to it.
+
+It is an honest best-effort figure, not an audited one, and it is deliberately built that way:
+adding real integrity would mean identifying the reporter, which is exactly what the counter
+avoids. It carries no file names, no per-transfer records, and no link to anyone. See
+[Aggregate statistics](/security-privacy#aggregate-statistics).
+
+## A self-hosted server runs as a single process
+
+Rooms, room codes, and the rate limiters all live in one process's memory. Running two replicas
+behind a load balancer does not scale Floe out; it silently breaks pairing, because the two
+peers can land on different replicas and never see each other.
+
+**What you can do:** run one instance. A single small server handles a lot, since file data
+never passes through it. If you need redundancy, use a failover pair rather than a load-balanced
+set, and accept that in-flight transfers do not survive the switch.
+
+## Reporting something that is not on this list
+
+If you find a security issue in Floe, report it privately through
+[GitHub Security Advisories](https://github.com/jannskiee/floe/security/advisories/new) or the
+contact in [SECURITY.md](https://github.com/jannskiee/floe/blob/main/SECURITY.md). Please do not
+open a public issue before there is a fix.
