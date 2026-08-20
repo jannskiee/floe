@@ -56,40 +56,97 @@
       {
         "header": "Product",
         "items": [
-          { "label": "Floe", "href": "https://www.floe.one" },
-          { "label": "Download", "href": "https://www.floe.one/download" },
-          { "label": "How It Works", "href": "https://www.floe.one/how-it-works" }
+          {
+            "label": "Floe",
+            "href": "https://www.floe.one"
+          },
+          {
+            "label": "Download",
+            "href": "https://www.floe.one/download"
+          },
+          {
+            "label": "How It Works",
+            "href": "https://www.floe.one/how-it-works"
+          }
         ]
       },
       {
         "header": "Documentation",
         "items": [
-          { "label": "Quickstart", "href": "https://www.floe.one/docs/quickstart" },
-          { "label": "Web App", "href": "https://www.floe.one/docs/web-app/sending" },
-          { "label": "CLI", "href": "https://www.floe.one/docs/cli/installation" },
-          { "label": "Desktop App", "href": "https://www.floe.one/docs/desktop/installation" },
-          { "label": "Self-Hosting", "href": "https://www.floe.one/docs/self-hosting/overview" },
-          { "label": "FAQ", "href": "https://www.floe.one/docs/faq" },
-          { "label": "Changelog", "href": "https://www.floe.one/docs/changelog" }
+          {
+            "label": "Quickstart",
+            "href": "https://www.floe.one/docs/quickstart"
+          },
+          {
+            "label": "Web App",
+            "href": "https://www.floe.one/docs/web-app/sending"
+          },
+          {
+            "label": "CLI",
+            "href": "https://www.floe.one/docs/cli/installation"
+          },
+          {
+            "label": "Desktop App",
+            "href": "https://www.floe.one/docs/desktop/installation"
+          },
+          {
+            "label": "Self-Hosting",
+            "href": "https://www.floe.one/docs/self-hosting/overview"
+          },
+          {
+            "label": "FAQ",
+            "href": "https://www.floe.one/docs/faq"
+          },
+          {
+            "label": "Changelog",
+            "href": "https://www.floe.one/docs/changelog"
+          }
         ]
       },
       {
         "header": "Project",
         "items": [
-          { "label": "GitHub", "href": "https://github.com/jannskiee/floe" },
-          { "label": "Releases", "href": "https://github.com/jannskiee/floe/releases" },
-          { "label": "Report an Issue", "href": "https://github.com/jannskiee/floe/issues" },
-          { "label": "Contributing", "href": "https://github.com/jannskiee/floe/blob/main/CONTRIBUTING.md" },
-          { "label": "Sponsor", "href": "https://github.com/sponsors/jannskiee" }
+          {
+            "label": "GitHub",
+            "href": "https://github.com/jannskiee/floe"
+          },
+          {
+            "label": "Releases",
+            "href": "https://github.com/jannskiee/floe/releases"
+          },
+          {
+            "label": "Report an Issue",
+            "href": "https://github.com/jannskiee/floe/issues"
+          },
+          {
+            "label": "Contributing",
+            "href": "https://github.com/jannskiee/floe/blob/main/CONTRIBUTING.md"
+          },
+          {
+            "label": "Sponsor",
+            "href": "https://github.com/sponsors/jannskiee"
+          }
         ]
       },
       {
         "header": "Legal",
         "items": [
-          { "label": "Privacy Policy", "href": "https://www.floe.one/privacy" },
-          { "label": "Terms of Use", "href": "https://www.floe.one/terms" },
-          { "label": "Security Policy", "href": "https://github.com/jannskiee/floe/security/policy" },
-          { "label": "License (MIT)", "href": "https://github.com/jannskiee/floe/blob/main/LICENSE" }
+          {
+            "label": "Privacy Policy",
+            "href": "https://www.floe.one/privacy"
+          },
+          {
+            "label": "Terms of Use",
+            "href": "https://www.floe.one/terms"
+          },
+          {
+            "label": "Security Policy",
+            "href": "https://github.com/jannskiee/floe/security/policy"
+          },
+          {
+            "label": "License (MIT)",
+            "href": "https://github.com/jannskiee/floe/blob/main/LICENSE"
+          }
         ]
       }
     ]
@@ -98,17 +155,37 @@
     "groups": [
       {
         "group": "Getting started",
-        "pages": ["introduction", "quickstart"]
+        "icon": "rocket",
+        "pages": [
+          "introduction",
+          "quickstart",
+          "choosing-floe"
+        ]
       },
       {
-        "group": "Web",
+        "group": "Core concepts",
+        "icon": "lightbulb",
+        "pages": [
+          "how-it-works/signaling",
+          "how-it-works/direct-connection",
+          "how-it-works/relay-connection",
+          "how-it-works/2gb-limit",
+          "how-it-works/encryption",
+          "security-privacy",
+          "how-it-works/known-limitations"
+        ]
+      },
+      {
+        "group": "Web app",
+        "icon": "globe",
         "pages": [
           "web-app/sending",
           "web-app/receiving"
         ]
       },
       {
-        "group": "Desktop",
+        "group": "Desktop app",
+        "icon": "monitor",
         "pages": [
           "desktop/installation",
           "desktop/sending",
@@ -119,6 +196,7 @@
       },
       {
         "group": "CLI",
+        "icon": "terminal",
         "pages": [
           "cli/installation",
           "cli/send",
@@ -131,42 +209,101 @@
       },
       {
         "group": "Self-hosting",
+        "icon": "server",
         "pages": [
-          "self-hosting/overview",
-          "self-hosting/quickstart",
-          "self-hosting/without-docker",
-          "self-hosting/images",
-          "self-hosting/unraid",
-          "self-hosting/configuration",
-          "self-hosting/build-time-url",
-          "self-hosting/reverse-proxy",
-          "self-hosting/production",
-          "self-hosting/turn-relay",
-          "self-hosting/operations"
-        ]
-      },
-      {
-        "group": "How it works",
-        "pages": [
-          "how-it-works/signaling",
-          "how-it-works/direct-connection",
-          "how-it-works/relay-connection",
-          "how-it-works/2gb-limit",
-          "how-it-works/encryption",
-          "security-privacy"
+          {
+            "group": "Get started",
+            "expanded": true,
+            "pages": [
+              "self-hosting/overview",
+              "self-hosting/quickstart",
+              "self-hosting/without-docker",
+              "self-hosting/unraid"
+            ]
+          },
+          {
+            "group": "Configure",
+            "pages": [
+              "self-hosting/configuration",
+              "self-hosting/build-time-url",
+              "self-hosting/images"
+            ]
+          },
+          {
+            "group": "Deploy",
+            "pages": [
+              "self-hosting/reverse-proxy",
+              "self-hosting/production",
+              "self-hosting/turn-relay"
+            ]
+          },
+          {
+            "group": "Operate",
+            "pages": [
+              "self-hosting/operations"
+            ]
+          }
         ]
       },
       {
         "group": "Help",
-        "pages": ["faq", "troubleshooting"]
+        "icon": "life-buoy",
+        "pages": [
+          "troubleshooting",
+          "faq"
+        ]
       },
       {
         "group": "Reference",
+        "icon": "book-open",
         "pages": [
           "reference/architecture",
+          "reference/http-api",
+          "reference/transfer-protocol"
+        ]
+      },
+      {
+        "group": "Changelog",
+        "icon": "history",
+        "pages": [
           "changelog"
         ]
       }
+    ],
+    "global": {
+      "anchors": [
+        {
+          "anchor": "Quickstart",
+          "href": "/quickstart",
+          "icon": "zap"
+        },
+        {
+          "anchor": "File size limits",
+          "href": "/how-it-works/2gb-limit",
+          "icon": "scale"
+        },
+        {
+          "anchor": "Troubleshooting",
+          "href": "/troubleshooting",
+          "icon": "wrench"
+        },
+        {
+          "anchor": "Self-host with Docker",
+          "href": "/self-hosting/quickstart",
+          "icon": "container"
+        }
+      ]
+    }
+  },
+  "search": {
+    "prompt": "Search the Floe docs"
+  },
+  "contextual": {
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude"
     ]
   }
 }

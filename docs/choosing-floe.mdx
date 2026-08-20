@@ -1,0 +1,99 @@
+---
+title: "Which Floe should I use?"
+sidebarTitle: "Which Floe to use"
+description: "Compare the Floe web app, Floe Desktop for Windows, and the floe CLI: what each one can send, where files land, and which features only one of them has."
+keywords: ["web vs desktop", "web vs cli", "compare", "which version", "difference"]
+---
+
+There are three Floes and they all talk to each other, so the one you pick is about
+convenience rather than compatibility. Any of them can send to any other, in any direction,
+across different networks.
+
+If you only want one sentence: **use the browser unless you need folders, a place on disk, or
+a script.**
+
+<Columns cols={3}>
+  <Card title="Web app" icon="globe" href="/web-app/sending">
+    Nothing to install. Best for a one-off, and the only one your recipient definitely already
+    has.
+  </Card>
+  <Card title="Floe Desktop" icon="monitor" href="/desktop/installation">
+    Windows only, in beta. Best for folders, large files, and sending the same way every day.
+  </Card>
+  <Card title="CLI" icon="terminal" href="/cli/installation">
+    macOS, Windows, Linux. Best for servers, scripts, and anything headless.
+  </Card>
+</Columns>
+
+## Pick by what you are doing
+
+**Sending one file to someone who has never heard of Floe.** Use the browser. You send them a
+link, they open it, and the transfer starts on its own. They install nothing and no part of the
+exchange needs explaining.
+
+**Sending a folder.** Use Floe Desktop or the CLI. The browser has no folder picker, and
+dropping a folder onto the page adds nothing. Both of the others walk the folder for you and
+rebuild the same structure on the other side.
+
+**Receiving something very large.** Use Floe Desktop or the CLI. A browser receiver keeps each
+file in memory until that file is complete, so a multi-gigabyte file can exhaust a phone or a
+laptop tab. The other two write straight to disk as bytes arrive and have no such ceiling.
+
+**Transferring from a machine with no screen.** Use the CLI. It is one self-contained binary
+with no runtime dependencies, and it runs anywhere Go runs.
+
+**Sending regularly from Windows.** Use Floe Desktop. It keeps a local history of the last 50
+transfers, remembers where you save things, and can put **Send with Floe** in the File Explorer
+right-click menu.
+
+## Feature by feature
+
+| | Web app | Floe Desktop | CLI |
+|---|---|---|---|
+| Platforms | Any modern browser | Windows 10 or later, x64, beta | macOS, Windows, Linux, on Intel and ARM |
+| Install | None | Microsoft Store or a download | Package manager, one-line script, or `go install` |
+| Send files | Yes | Yes | Yes |
+| Send a folder | No | Yes | Yes |
+| Send a typed note | No | Yes, as `message.txt` | No |
+| Paste files or a screenshot | No | Yes, with `Ctrl` `V` | No |
+| Share a link | Yes | Yes | Yes |
+| Share a short code | No | Yes | Yes |
+| Show a QR code | Yes | Yes | No |
+| Join with a link | Yes | Yes | Yes |
+| Join with a short code | No | Yes | Yes |
+| Where received files go | Your browser's downloads, after the whole file is in memory | Straight to disk, in a folder you choose | Straight to disk, in `-o` or the current directory |
+| Folder structure on arrival | Flattened to a list | Rebuilt | Rebuilt |
+| Confirm before receiving | No, it starts on its own | No, it starts on its own | Yes, unless you pass `-y` |
+| Refuse the relay | Yes, the **Network relay fallback** checkbox | No | Yes, `--no-relay` |
+| Force the relay to hide your IP | No | Yes, **Hide my IP address** | No |
+| Transfer history | No | The last 50, stored on your device | No |
+| File Explorer right-click entry | No | Yes, on the build from GitHub | No |
+| Point at a self-hosted server | Automatic, it is served by that instance | **Settings**, then **Server address** | `--server` or `FLOE_SERVER` |
+
+## What is the same everywhere
+
+These are properties of the transfer itself, so they do not change with the client you pick.
+
+- **Encryption.** Every transfer runs over an encrypted WebRTC data channel. See
+  [Encryption](/how-it-works/encryption).
+- **No size limit on a direct connection**, and a 2 GB cap when the connection has to fall back
+  to the relay. See [The 2 GB Relay Limit](/how-it-works/2gb-limit).
+- **One receiver per transfer.** A room holds exactly two peers, so a link or code is spent once
+  someone joins.
+- **The sender stays connected** for the whole transfer. Closing the tab, quitting the app, or
+  stopping the process ends it.
+- **Versions do not need to match.** A browser sender and a two-year-old CLI receiver transfer
+  normally. See [Protocol versioning](/reference/transfer-protocol#protocol-versioning).
+
+## Mixing them
+
+Every combination works, and neither side needs to know what the other is using. The browser
+speaks to the signaling server over Socket.IO while the desktop app and the CLI use a WebSocket,
+but both land in the same room and the server routes between them.
+
+The one asymmetry worth remembering: **a browser recipient needs the link.** There is no place
+to type a short code in the web UI, and a browser sender never mints one. Short codes are a
+desktop and CLI feature in both directions. When you are not sure what the person on the other
+end will use, share the link, because every client accepts it.
+
+See the [cross-platform table](/quickstart#cross-platform-transfers) for how each pairing joins.

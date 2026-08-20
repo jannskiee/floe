@@ -1,0 +1,292 @@
+---
+title: "Floe signaling server HTTP API"
+sidebarTitle: "HTTP API"
+description: "Every HTTP endpoint the Floe signaling server exposes: health checks, room codes, TURN credentials, and the public byte counter, with request and response shapes."
+keywords: ["api", "endpoints", "rest", "health check", "turn credentials", "room code"]
+---
+
+The signaling server exposes seven HTTP endpoints. They exist so the three Floe clients can find
+each other and fetch relay credentials, and they are documented here for self-hosters checking a
+deployment and for contributors.
+
+Treat this as a description of the current implementation rather than a stable public contract.
+Floe ships the clients and the server together, so these shapes change when both sides change.
+There is no authentication on any of them, and no endpoint ever touches file data.
+
+The base URL is your signaling server: `https://api.floe.one` by default, or whatever you set as
+`--server`, `FLOE_SERVER`, or **Server address**.
+
+## Status and health
+
+### GET /
+
+A liveness check that also returns the server's clock.
+
+```json 200 OK
+{ "status": "ok", "timestamp": "2026-08-20T09:15:04.221Z" }
+```
+
+<ResponseField name="status" type="string" required>
+  Always `"ok"`.
+</ResponseField>
+<ResponseField name="timestamp" type="string" required>
+  The server's current time as an ISO 8601 string.
+</ResponseField>
+
+Not rate limited. On a one-domain deployment this path belongs to the web client, so `GET /` on
+the signaling server is only reachable when you address the server directly.
+
+### GET /health
+
+The endpoint to point a monitor at. It survives every deployment layout, including a
+[one-domain reverse proxy](/self-hosting/reverse-proxy).
+
+```json 200 OK
+{ "status": "healthy", "uptime": 1893.4 }
+```
+
+<ResponseField name="status" type="string" required>
+  Always `"healthy"`. Floe Desktop's **Test** button matches this value exactly, so a proxy that
+  answers with anything else fails the check.
+</ResponseField>
+<ResponseField name="uptime" type="number" required>
+  Seconds since the process started, as a float. Useful for confirming a restart actually landed.
+</ResponseField>
+
+Not rate limited.
+
+## Relay credentials
+
+### GET /api/turn-credentials
+
+Returns the ICE server list a client should use. Both the browser and the Go engine call this
+once before connecting.
+
+The response is a **JSON array**, not an object. What is in it depends on how the server is
+configured, and the precedence is fixed: Cloudflare Realtime TURN if both Cloudflare variables
+are set, then coturn if both `TURN_SECRET` and `TURN_DOMAIN` are set, then Google's public STUN
+servers.
+
+<CodeGroup>
+```json Cloudflare
+[
+  { "urls": ["stun:stun.cloudflare.com:3478"] },
+  {
+    "urls": [
+      "turn:turn.cloudflare.com:3478?transport=udp",
+      "turns:turn.cloudflare.com:443?transport=tcp"
+    ],
+    "username": "...",
+    "credential": "..."
+  }
+]
+```
+
+```json Self-hosted coturn
+[
+  { "urls": "stun:turn.example.com:3478" },
+  { "urls": "turn:turn.example.com:3478", "username": "1755690000:floeuser", "credential": "..." },
+  { "urls": "turns:turn.example.com:5349", "username": "1755690000:floeuser", "credential": "..." }
+]
+```
+
+```json No TURN configured
+[
+  { "urls": "stun:stun.l.google.com:19302" },
+  { "urls": "stun:stun1.l.google.com:19302" }
+]
+```
+</CodeGroup>
+
+Note the difference in the `urls` field between the first shape and the other two. Cloudflare
+entries carry an **array** of URLs; coturn and the STUN fallback carry a **string**. Every Floe
+client accepts either, and anything else consuming this endpoint has to as well.
+
+<ResponseField name="urls" type="string | string[]" required>
+  One or more ICE server URLs. STUN and TURN are always split into separate array entries, which
+  is what lets a client strip TURN while keeping STUN when the user refuses the relay.
+</ResponseField>
+<ResponseField name="username" type="string">
+  Present on TURN entries only. For coturn this is `{expiry_unix}:floeuser`.
+</ResponseField>
+<ResponseField name="credential" type="string">
+  Present on TURN entries only. For coturn this is `base64(HMAC-SHA1(TURN_SECRET, username))`.
+</ResponseField>
+
+Both credential paths issue a 24 hour expiry. Cloudflare credentials are minted upstream and
+cached in the server's memory for 12 hours, so a burst of page loads costs one upstream call and
+a restart re-mints.
+
+Cloudflare's raw list is trimmed before it is served, down to one STUN URL, one UDP TURN URL, and
+one TCP-based TURN URL, preferring TLS on port 443. Clients gather ICE candidates per URL per
+network interface, so every redundant URL multiplies connection setup time on a machine with VPN
+or virtual-machine adapters.
+
+**Rate limit:** 20 requests per IP per 60 seconds, configurable with `MAX_TURN_REQUESTS_PER_IP`.
+Over the limit returns `429` with `{ "error": "Too many requests" }`, and the client falls back
+to STUN only without showing an error.
+
+## Room codes
+
+Codes are three lowercase words joined by hyphens, drawn from a 288-word list with a
+cryptographically secure random source. On a collision with a live code the server draws again,
+up to ten times, and only then falls back to a four-word phrase.
+
+### POST /api/code
+
+Registers a short code for a room. Called by `floe send` and by Floe Desktop. The web app never
+calls it.
+
+<ParamField body="roomId" type="string" required>
+  The room UUID, in canonical `8-4-4-4-12` form. Any UUID version is accepted, case-insensitively.
+</ParamField>
+
+```bash Request
+curl -X POST https://api.floe.one/api/code \
+  -H "Content-Type: application/json" \
+  -d '{"roomId":"3f2b9c1e-7a4d-4c2e-9b1f-8e6d5c4b3a21"}'
+```
+
+```json 200 OK
+{ "code": "olive-tiger-castle" }
+```
+
+<ResponseField name="code" type="string" required>
+  The phrase to share. It resolves for 10 minutes from this moment.
+</ResponseField>
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `{ "error": "Invalid room ID" }` | `roomId` is missing or is not a UUID |
+| `429` | `{ "error": "Too many requests" }` | Over the per-IP code limit |
+| `503` | `{ "error": "Server busy, try again shortly" }` | `MAX_ACTIVE_CODES` live codes already registered |
+
+The `503` is a global guard, not a per-IP one. It bounds the memory the code registry can use.
+Only expiry frees a slot: resolving a code does not delete it, and a sweeper clears lapsed
+entries once a minute, so the count can briefly include codes that have already expired.
+
+### GET /api/code/:code
+
+Resolves a code back to its room. Called by `floe receive` and by Floe Desktop's **Receive** tab.
+
+<ParamField path="code" type="string" required>
+  The phrase, matched **exactly**. Codes are always lowercase, so `Olive-Tiger-Castle` does not
+  resolve. Surrounding whitespace is trimmed by the clients, not by the server.
+</ParamField>
+
+```json 200 OK
+{ "roomId": "3f2b9c1e-7a4d-4c2e-9b1f-8e6d5c4b3a21" }
+```
+
+| Status | Body | When |
+|---|---|---|
+| `404` | `{ "error": "Code not found or expired" }` | Unknown code, or past its 10 minutes |
+| `429` | `{ "error": "Too many requests" }` | Over the per-IP code limit |
+
+**Rate limit:** 60 requests per IP per 60 seconds, shared with `POST /api/code` and configurable
+with `MAX_CODE_REQUESTS_PER_IP`.
+
+## Global byte counter
+
+### GET /api/stats
+
+The all-time total shown on the Floe homepage. Answered from an in-memory value, so the homepage
+polling it every 10 seconds never reaches Redis.
+
+```json 200 OK
+{ "totalBytes": 41297834502 }
+```
+
+<ResponseField name="totalBytes" type="integer" required>
+  A single cumulative figure across every transfer this server has been told about. It carries no
+  file names, no per-transfer records, and no link to any user.
+</ResponseField>
+
+Not rate limited. On a self-hosted instance this counter is local to that server, and without
+Upstash Redis configured it lives in memory only and resets to zero on restart.
+
+### POST /api/stats/report
+
+How the counter is fed. Only the **receiving** side of a completed transfer calls this, so each
+transfer is counted once. Senders never report.
+
+<ParamField body="bytes" type="integer" required>
+  A positive integer, no larger than `MAX_REPORT_BYTES` (5 TB by default). Zero, negatives,
+  fractions, and strings are all rejected.
+</ParamField>
+
+```bash Request
+curl -X POST https://api.floe.one/api/stats/report \
+  -H "Content-Type: application/json" \
+  -d '{"bytes":6291456}'
+```
+
+```json 200 OK
+{ "totalBytes": 41297840793 }
+```
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `{ "error": "Invalid byte count" }` | `bytes` is not a positive integer within the cap |
+| `429` | `{ "error": "Too many reports" }` | Over 60 reports from this IP in 60 seconds |
+
+The rate limit here is the one limiter with **no environment override**. Every other limit is
+configurable; this one is fixed at 60 per IP per minute.
+
+Every receiver can opt out before the request is ever made. See
+[Aggregate statistics](/security-privacy#aggregate-statistics).
+
+## GET /api/config belongs to the web client
+
+There is one path that looks like it belongs here and does not. `GET /api/config` is served by
+the **Next.js client**, not by the signaling server, and it is how the browser learns which
+signaling server to use:
+
+```json 200 OK
+{ "socketUrl": "https://api.example.com" }
+```
+
+An empty `socketUrl` means the browser should use its own origin, which is the right answer
+behind a single domain.
+
+<Warning>
+  Route all of `/api/` to the signaling server and this request returns 404. Any signaling URL
+  you configured is then silently discarded and the browser falls back to its own origin. Behind
+  one domain that fallback happens to be correct, so the mistake stays invisible until the day
+  you set a value and nothing happens. See
+  [Run Floe Behind One Domain](/self-hosting/reverse-proxy) for the exact-path rule.
+</Warning>
+
+## Behavior shared by every endpoint
+
+**CORS.** Browser requests are checked against an allow-list: whatever you set as `CLIENT_URL`,
+plus `https://floe.one`, `https://www.floe.one`, and `http://localhost:3000`. The match is exact,
+including the scheme and with no trailing slash, and `CLIENT_URL` holds **one** origin. A
+comma-separated list matches nothing. Requests with no `Origin` header always pass, which is why
+the CLI and the desktop app reach your server regardless of this setting.
+
+A rejected origin does not come back as a recognizable CORS error. The server answers `500` with
+`{ "error": "Internal server error" }` while the browser reports a generic CORS failure. If you
+see that pairing, check `CLIENT_URL` first.
+
+**Errors.** Every failure returns JSON and nothing else. Anything under 500 is
+`{ "error": "Bad request" }`, anything at or above it is `{ "error": "Internal server error" }`,
+and the stack trace goes to the server's own output. This holds at every `NODE_ENV`.
+
+**Request bodies** are parsed at the default 100 kB limit. A larger body gets `413`, and
+malformed JSON gets `400`.
+
+**Client IP.** Per-IP limits read `X-Forwarded-For` according to `TRUSTED_PROXY_COUNT`. Setting
+it higher than your real number of proxy hops lets a client forge the header and slip past every
+limit. See [Configuration](/self-hosting/configuration).
+
+## Related
+
+<Columns cols={2}>
+  <Card title="Transfer protocol" icon="arrow-right-left" href="/reference/transfer-protocol">
+    What happens after the two peers connect, on the data channel itself.
+  </Card>
+  <Card title="Architecture" icon="layers" href="/reference/architecture">
+    The components, the two signaling transports, and how a session fits together.
+  </Card>
+</Columns>
