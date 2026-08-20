@@ -61,10 +61,11 @@ twice, because the folder is walked separately.
 
 - **Files copied in File Explorer** are staged by path, so nothing is duplicated on disk no
   matter how large they are.
-- **An image**, such as a screenshot from `Win` `Shift` `S`, is written to a temporary file
-  named `pasted-image-<date>-<time>.png` and staged from there. The timestamp keeps repeated
-  pastes apart, and it is also the name the person receiving sees. Floe clears these temporary
-  files the next time it starts.
+- **An image**, such as a screenshot from `Win` `Shift` `S`, is written to a temporary file named
+  `pasted-image-<date>-<time>-<ms>.png`, for example `pasted-image-20260820-143512-407.png`, and
+  staged from there. The timestamp runs down to the millisecond, so two pastes in the same second
+  stay apart, and it is also the name the person receiving sees. Floe clears these temporary files
+  the next time it starts.
 
 Paste is ignored while you are typing in a text field, so pasting a room code into the Receive
 tab still works normally.
@@ -133,7 +134,9 @@ Floe's core rather than in the window. Windows is also asked not to sleep while 
 connected. Closing the window during a transfer asks first; choosing **Close anyway** stops
 the transfer and closes Floe.
 
-When it finishes you get a Windows notification and the card reads **Sent 1 item**.
+When it finishes you get a Windows notification and the card counts what went out: **Sent 1 item**,
+or **Sent 4 items** for a batch. A text note counts as one item, because it travels as a single
+`message.txt`.
 
 ## Send from File Explorer
 

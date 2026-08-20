@@ -8,7 +8,7 @@ description: "Use the floe receive command to accept files from a peer over an e
 floe receive <code | link>
 ```
 
-Joins an existing transfer session as the receiver. Accepts either a short code (e.g. `olive-tiger-castle`) or the full browser link. After connecting, Floe prompts you to confirm the incoming transfer and then downloads the files.
+Joins an existing transfer session as the receiver. Accepts either a short code (e.g. `olive-tiger-castle`) or the full browser link. Connecting is not enough on its own: Floe waits until the sender announces the first file, then asks you to confirm the whole batch once, and only then writes anything to disk.
 
 ## Examples
 
@@ -75,6 +75,7 @@ When the first file's metadata arrives, Floe shows a summary of what is incoming
 
 - Type `n` or `no`, in any capitalization, to decline. The transfer is canceled and the connection closes.
 - Press **Enter** or type anything else to accept and begin receiving. The prompt only looks for a decline, so a typo counts as yes.
+- The same rule applies when nothing is there to answer. In a script, a cron job, or anywhere stdin is closed or piped, the prompt reads an empty answer and accepts. `echo | floe receive <code>` accepts without `-y`. Pass `-y` anyway when you mean it, so the intent is on the command line rather than in the shell's plumbing.
 
 Pass `-y` to skip this prompt and accept automatically.
 
@@ -91,7 +92,7 @@ See [Flags Reference](/cli/flags) for the global flags that matter here (`--serv
 ## Notes
 
 - Received files are saved to the output directory. Existing files are never overwritten: if a name is already taken, the incoming file is saved with a numbered suffix before the extension (`report.pdf`, then `report (1).pdf`), the same way browsers de-duplicate downloads. The progress line shows the name actually written.
-- Each file is written under a temporary name ending in `.part` and takes its final name only once every byte has arrived and been verified, so nothing half-written can ever sit under a finished-looking name. A transfer that fails or stalls partway deletes its `.part` file; files that completed earlier in the batch are kept, and retrying reuses the original name instead of a numbered one. Even if the process is killed outright or the machine loses power, the worst leftover is a `.part` file, which is safe to delete (until you do, a retry saves under a numbered name). On macOS and Linux a crash at the exact instant of completion can additionally leave an empty placeholder at the final name beside the intact `.part`; on Windows the final rename is atomic and no such instant exists.
+- Each file is written under a temporary name ending in `.part` and takes its final name only once the bytes on disk match the size the sender announced, so nothing half-written can ever sit under a finished-looking name. The check is a byte count, not a checksum: Floe computes no hash of your files at any point. A transfer that fails or stalls partway deletes its `.part` file; files that completed earlier in the batch are kept, and retrying reuses the original name instead of a numbered one. Even if the process is killed outright or the machine loses power, the worst leftover is a `.part` file, which is safe to delete (until you do, a retry saves under a numbered name). On macOS and Linux a crash at the exact instant of completion can additionally leave an empty placeholder at the final name beside the intact `.part`; on Windows the final rename is atomic and no such instant exists.
 - Directory structure is preserved when the sender sends a folder. Files land at the same relative paths inside your output directory.
 - A name your system cannot represent is adjusted before the file is written, and the progress line shows the adjusted name. On Windows that means the characters `< > : " | ? *` become underscores, trailing dots and spaces are removed, and a name that is a reserved device name (such as `NUL`) gets an underscore in front. Names are left exactly as sent on macOS and Linux, where all of those are valid. Control characters and text-direction marks are replaced with underscores on every platform, since a file name is not a place for either. A browser receiver strips them instead of replacing them, so the same file can land under slightly different names on the two surfaces.
 - On Windows, received files are tagged with the mark of the web (a `Zone.Identifier` stream), so SmartScreen and Office Protected View treat them like browser downloads when opened.

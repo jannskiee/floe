@@ -7,7 +7,7 @@ description: "Send files from the Floe web app at floe.one by generating a share
 Open [floe.one](https://floe.one) in any modern browser. No account or installation required.
 
 <Note>
-  In-app browsers (the ones embedded in Facebook, Messenger, Instagram, TikTok, Snapchat, LINE, X (Twitter), WeChat, and generic Android WebViews) have limited support for file transfers. Floe recognizes them by user agent and, instead of loading the transfer card, shows a full-screen prompt to open the page in Chrome or Safari. The card loads only once you move to a real browser or tap **Continue anyway** at the bottom of the prompt, where some features may not work.
+  In-app browsers (the ones embedded in Facebook, Messenger, Instagram, TikTok, Snapchat, LINE, X (Twitter), WeChat, and generic Android WebViews) have limited support for file transfers. Floe recognizes them by user agent and, instead of loading the transfer card, shows a full-screen prompt to open the page in Chrome or Safari. The card loads only once you move to a real browser or tap **Continue anyway (some features may not work)**. Until then the page does not join the room at all, so an in-app browser cannot consume the transfer by accident.
 </Note>
 
 ## Add files
@@ -16,7 +16,7 @@ Drop files onto the dashed drop zone inside the transfer card, or click it to op
 - A single file of any type.
 - Multiple files at once (the picker accepts multi-select).
 
-Once files are queued, the large drop zone shrinks to an **Add more files** strip above the file list.
+Once files are queued, the large drop zone shrinks to an **Add more files** strip above the file list. Both that strip and the remove button on each row disappear when you create the link, so settle on the list before you click **Create secure link**. To change it after that, reload the page and start again.
 
 There is no file size limit on direct connections. Relay connections are capped at 2 GB per session. See [The 2 GB Relay Limit](/how-it-works/2gb-limit).
 
@@ -33,7 +33,7 @@ Once at least one file is queued, a **Network relay fallback** checkbox appears 
 | On (default) | Floe attempts a direct connection first. If that fails, it automatically falls back to the encrypted TURN relay. |
 | Off | Only direct connections are attempted. If a direct path cannot be established, the transfer fails. |
 
-Unchecking it shows an amber warning that transfers may fail if either device is on mobile data or a restricted network. The checkbox disappears once you create the link, so set it before you click Create secure link. The choice lasts for the current session only and is not remembered between visits.
+Unchecking it shows an amber warning: "Relay fallback is disabled. Transfers may fail if either device is on mobile data or a restricted network and a direct connection cannot be established." The checkbox disappears once you create the link, so set it before you click **Create secure link**. The choice lasts for the current page only. It is not saved, so it is back on after a reload.
 
 Turn relay off only if you need to be certain files never pass through a relay, for example for compliance reasons. You do not need to turn it off to send more than 2 GB: the cap applies only when the connection actually ends up relayed, so leaving fallback on costs a direct transfer nothing.
 
@@ -47,7 +47,7 @@ Your browser generates the room id itself, joins that room on the signaling serv
 - **Show QR** reveals a QR code, which is hidden by default. Scan it with a phone camera to open the link instantly. Press **Hide QR** to collapse it again.
 - **Share** opens your device's native share sheet. It appears only on browsers that expose one, mostly mobile.
 
-The link has the form `https://floe.one/?s=<nonce>#room=<uuid>`. The room id sits in the fragment, so it never reaches the server. The `?s=` nonce only makes each link a distinct page, so scanning a new QR code cannot reuse a stale tab.
+The link has the form `https://www.floe.one/?s=<nonce>#room=<uuid>`. Floe builds it from the address the page itself was loaded from, so a self-hosted instance produces its own hostname. The room id sits in the fragment, so it never reaches the server. The `?s=` nonce is eight random hex characters that carry no information; they exist only to make each link a distinct page, so scanning a new QR code cannot reuse a stale tab.
 
 The link stays valid for as long as your browser tab is open, but it admits exactly **one** recipient. Once someone has joined the room, anyone else opening the same link gets a "Link Invalid" card. Create a fresh link for each person you want to send to.
 

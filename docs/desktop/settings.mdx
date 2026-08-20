@@ -160,7 +160,9 @@ drops `/api/` produces no visible error at all: relay credentials silently fall 
 STUN, and the room code quietly fails to register, so you get a share link with no code and no
 explanation.
 
-What Test tells you:
+While the check runs, the line reads `Checking the server...`. A pass reports `Connected.` on its
+own; every failure carries an `Error: ` prefix, so the second row below reaches the screen as
+`Error: That does not look like an address. Include https:// and the host name.`
 
 | Result | Meaning |
 |---|---|
@@ -217,9 +219,9 @@ file.
 
 ### Server in use
 
-Which signaling server the app is using, always visible even with Advanced collapsed, so a
-custom server can never be hiding behind a closed section. **Share links** appears too if you
-set a separate share link address.
+Which signaling server the app is using. On screen the row is labeled simply **Server**, and it
+is always visible even with Advanced collapsed, so a custom server can never hide behind a closed
+section. A **Share links** row joins it if you set a separate share link address.
 
 **Copy** puts the version, the protocol version, and the server on the clipboard. Those are the
 details to include in a bug report.
@@ -240,7 +242,9 @@ It deliberately leaves alone:
 
 ## Where settings are stored
 
-Settings live in a plain JSON file at `%APPDATA%\floe\desktop.json`:
+Settings live in a plain JSON file at `%APPDATA%\floe\desktop.json`. Floe writes it the first time
+a setting changes, so on a new install the file does not exist yet and the app runs on its
+defaults. Once written, it looks like this:
 
 ```json desktop.json
 {
@@ -267,5 +271,7 @@ Both the Microsoft Store build and the GitHub build use this same file, and the 
 its own files in that same `floe` folder, so the two coexist. The file survives an uninstall on
 purpose, so reinstalling picks up where you left off.
 
-Your save folder and transfer history are not in this file. They live in the app's local data,
-which is also kept across an uninstall.
+Your save folder and transfer history are not in this file. They live in the interface's own
+storage under `%APPDATA%\floe\webview`, as the keys `floe:saveDir` and `floe:history`. That folder
+survives an uninstall too, which is why a reinstall still knows where you save files and what you
+have already sent.

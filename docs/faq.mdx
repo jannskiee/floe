@@ -56,13 +56,13 @@ description: "Answers to common questions about Floe: how peer-to-peer file tran
   <Accordion title="Which browsers are supported?">
     Any modern browser with WebRTC support works: Chrome, Firefox, Safari, Edge, and most Chromium-based browsers. A secure context (HTTPS or localhost) is required.
 
-    In-app browsers (the web views embedded in Facebook, Messenger, Instagram, TikTok, Snapchat, LINE, X (Twitter), and WeChat, plus generic Android web views) have limited support for file transfers. Floe recognizes these by their user agent and shows a full-screen prompt with instructions for opening the page in Chrome or Safari, plus a button that copies the link. The transfer UI is held back until you leave the in-app browser, so the page does not join the room in the meantime. A "Continue anyway" link lets you try regardless.
+    In-app browsers (the web views embedded in Facebook, Messenger, Instagram, TikTok, Snapchat, LINE, X (Twitter), and WeChat, plus generic Android web views) have limited support for file transfers. Floe recognizes these by their user agent and shows a full-screen prompt with instructions for opening the page in Chrome or Safari, plus a button that copies the link. The transfer UI is held back until you leave the in-app browser, so the page does not join the room in the meantime. A "Continue anyway (some features may not work)" link lets you try regardless.
   </Accordion>
 
   <Accordion title="I'm on iOS. Why are downloads behaving oddly?">
     On iOS, use **Download ZIP** rather than downloading files individually. This is the most reliable option on Safari and iOS web views. Individual file downloads can behave inconsistently on iOS due to browser sandboxing.
 
-    The ZIP option only appears when a transfer contains more than one file, and only once every file has arrived. A single file has just its own download button, and that is the only way to save it.
+    The ZIP option only appears when a transfer contains more than one file. It shows up as soon as the second file lands, hides again while the next file streams, and settles once the transfer finishes. A single file has just its own download button, and that is the only way to save it.
   </Accordion>
 
   <Accordion title="What does the connection indicator color mean?">
