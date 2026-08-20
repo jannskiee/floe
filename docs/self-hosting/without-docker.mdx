@@ -12,6 +12,11 @@ The signaling server and the web client are two long-lived processes, so each
 needs its own terminal (or a supervisor, as below). Run each block from the
 repository root.
 
+The signaling server needs **Node.js 18 or later**, for the built-in `fetch` and
+`crypto.randomUUID` it relies on. `package.json` declares no `engines` field, so nothing stops you
+starting it on something older; it will fail at runtime instead. CI runs it on Node 20 and the
+published image is built on Node 24, so anything in that range is well trodden.
+
 ```bash Terminal
 # Signaling server (Node.js). Stays in the foreground.
 cd server
@@ -34,9 +39,7 @@ go build ./cmd/floe
 ./floe send photo.jpg --server http://localhost:3001
 ```
 
-<Note>
-  The client requires a production build (`pnpm build` then `pnpm start`) to serve static files. Use `pnpm dev` only during development, as it enables Next.js hot-reloading and is not suitable for production.
-</Note>
+The client requires a production build (`pnpm build` then `pnpm start`) to serve static files. Use `pnpm dev` only during development, as it enables Next.js hot-reloading and is not suitable for production.
 
 ## Environment variables
 

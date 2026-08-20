@@ -35,6 +35,16 @@ them can transfer with each other on your server.
 
 Both peers must be on the same server. Servers do not talk to each other.
 
+## Run one instance, not several
+
+The signaling server keeps rooms, room codes and its rate limiters in the memory of a single
+process. **Putting two replicas behind a load balancer does not scale Floe out; it breaks
+pairing**, because the two peers can land on different replicas and never find each other.
+
+One instance goes a long way. File data never passes through it, so it is brokering a handshake
+and then getting out of the way. If you need redundancy, use a failover pair rather than a
+load-balanced set, and accept that transfers in flight do not survive the switch.
+
 `CLIENT_URL` governs browser traffic only. CLI and desktop peers connect over `/ws`,
 which performs no origin check, so they reach your server regardless of that setting.
 

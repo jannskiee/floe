@@ -29,9 +29,7 @@ Pin a tag with `FLOE_IMAGE_TAG`:
 FLOE_IMAGE_TAG=1.10.4
 ```
 
-<Note>
-  The variable is `FLOE_IMAGE_TAG`, not `FLOE_VERSION`. `FLOE_VERSION` belongs to the [CLI installer](/cli/installation) and is written with a leading `v`, as in `v1.10.4`. Image tags carry no `v`, so reusing that name would resolve to a tag that does not exist.
-</Note>
+The variable is `FLOE_IMAGE_TAG`, not `FLOE_VERSION`. `FLOE_VERSION` belongs to the [CLI installer](/cli/installation) and is written with a leading `v`, as in `v1.10.4`. Image tags carry no `v`, so reusing that name would resolve to a tag that does not exist.
 
 ## Pinning a digest
 
@@ -61,11 +59,9 @@ docker buildx imagetools inspect ghcr.io/jannskiee/floe-client:latest
 
 It lists one entry per platform, so you can confirm your architecture is covered.
 
-<Note>
-  Each architecture is built and smoke-tested on its own hardware before any tag points at it, and a tag is only published once every architecture of both images has passed. A partly-built release is never visible.
+Each architecture is built and smoke-tested on its own hardware before any tag points at it, and a tag is only published once every architecture of both images has passed. A partly-built release is never visible.
 
-  That matters more than it sounds. The image optimizer fails at load time rather than at build time, and when it fails it does not error: it quietly serves the original file. So a broken ARM image would look perfectly healthy to anything that only checks whether the page loads. The smoke test asserts the optimizer actually returns WebP, on real ARM.
-</Note>
+That matters more than it sounds. The image optimizer fails at load time rather than at build time, and when it fails it does not error: it quietly serves the original file. So a broken ARM image would look perfectly healthy to anything that only checks whether the page loads. The smoke test asserts the optimizer actually returns WebP, on real ARM.
 
 32-bit ARM (`linux/arm/v7`, older Raspberry Pi models) is not published. Node dropped support for it and no prebuilt image-processing binaries exist.
 

@@ -31,9 +31,24 @@ docker compose --profile turn up -d
 
 Setting `COMPOSE_PROFILES=turn` in your `.env` applies it to every later `docker compose` command.
 
-<Note>
-  Changing `NEXT_PUBLIC_SOCKET_URL` needs only `docker compose up -d`; the client reads it at runtime. See [How the Client Finds the Signaling Server](/self-hosting/build-time-url). `NEXT_PUBLIC_SITE_URL` is the exception: it is written into the page at build time, so the published image omits those tags entirely rather than pointing them at somebody else's domain. See [Container Images](/self-hosting/images) if you want your own.
-</Note>
+Changing `NEXT_PUBLIC_SOCKET_URL` needs only `docker compose up -d`; the client reads it at runtime. See [How the Client Finds the Signaling Server](/self-hosting/build-time-url). `NEXT_PUBLIC_SITE_URL` is the exception: it is written into the page at build time, so the published image omits those tags entirely rather than pointing them at somebody else's domain. See [Container Images](/self-hosting/images) if you want your own.
+
+## The server does not log anything
+
+Worth knowing before you go looking. The signaling server has no access log, no request log, and
+no startup banner, not even a line saying which port it bound. `docker compose logs server` on a
+perfectly healthy instance is empty, and that is expected rather than a symptom.
+
+The only thing it ever writes is a stack trace when an unhandled error reaches its error handler.
+To confirm the server is alive, or that a restart actually landed, use the health endpoint below
+rather than the logs.
+
+`docker compose ps` is a similar case: **the client image ships no healthcheck**, so it never
+reports a health state. Only the server does.
+
+On `SIGTERM` or `SIGINT` the server closes every WebSocket with code `1001` and the reason
+`Server shutting down`, stops accepting connections, and exits. If something is still holding it
+open ten seconds later it exits anyway.
 
 ## Health endpoints
 
