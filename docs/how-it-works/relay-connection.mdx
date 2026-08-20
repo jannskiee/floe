@@ -69,13 +69,18 @@ in the browser or the CLI.
   still gathered and offered in that case; they simply lost.
 
   Turning the relay off does not veto a relayed connection after the fact. It removes the relay
-  entries from the address list the client uses, so it has nothing relayed to offer. Should a
-  relayed path still form because the other side offered one, the sender blocks the transfer
-  before any file data moves.
+  entries from the address list the client uses, so it has nothing relayed to offer. The other
+  side can still offer one, though, and if that path wins the two surfaces then behave
+  differently. The **browser** notices and blocks the transfer before any file data moves. The
+  **CLI does not**: `--no-relay` is ICE filtering and nothing more, so a `floe send --no-relay`
+  whose peer supplied the winning relay candidate goes ahead over it. Treat the flag as "do not
+  offer a relay" rather than as a guarantee.
 
   The browser re-reads the connection statistics every five seconds and flips the badge to amber
-  when the nominated pair is relayed. The Go engine behind the CLI and the desktop app reads it
-  once, when the connection is established.
+  when the nominated pair is relayed. Floe Desktop reads it once, when the connection is
+  established, so its badge is a snapshot rather than a live reading. The CLI never reads it at
+  all and shows no direct-or-relay indicator; it only consults the route when deciding whether the
+  size cap applies.
 
   On floe.one the signaling server hands out three endpoints and no more: a STUN URL, a TURN URL
   over UDP, and a TURN URL over TLS on port 443, which looks like ordinary HTTPS to a network that

@@ -2,6 +2,7 @@
 title: "Floe CLI Flags Reference"
 sidebarTitle: "Flags"
 description: "Complete reference for every floe CLI flag: global server, relay and interface options, receive and update flags, and supported environment variables."
+keywords: ["flags", "options", "environment variables", "exit codes", "timeouts"]
 ---
 
 ## Global flags
@@ -11,7 +12,7 @@ Every command accepts these, but only `send` and `receive` act on them. `floe ve
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--server <url>` | `https://api.floe.one` | Signaling server URL. Use `http://localhost:3001` for local testing or your self-hosted server URL. |
-| `--no-relay` | `false` | Drop every TURN entry from the ICE list, so only direct (STUN) connections are attempted. Use it when files must never pass through a relay. If no direct path exists, there is nothing left to try and the attempt ends with the ordinary `timed out establishing a connection` after 30 seconds, not a message about the relay. |
+| `--no-relay` | `false` | Drop every TURN entry from **your** ICE list, so you offer nothing relayed. It is one-sided: the peer can still offer a relay, and if that path wins the CLI proceeds over it, so pass the flag on **both** ends when it has to be a guarantee. When no path forms at all the failure is a generic connection error after about 30 seconds, never a message about the relay. |
 | `--web <url>` | _(auto-detected)_ | Web app URL included in the browser link printed by `floe send`. Auto-detected from `--server`: `https://api.floe.one` maps to `https://floe.one`, `http://localhost:3001` maps to `http://localhost:3000`, and any other server maps to itself, on the assumption that one origin serves both the API and the web app. Set `--web` only when your web app has its own hostname. |
 | `--iface <name>` | _(all interfaces)_ | Restrict WebRTC to network interfaces whose name contains this value (case-insensitive). Repeat the flag or separate names with commas, so `--iface Ethernet --iface Wi-Fi` and `--iface Ethernet,Wi-Fi` do the same thing. Use it when a VPN or virtual-machine adapter (Tailscale, VMware, WSL, Hyper-V) slows connection setup. See [Troubleshooting](/troubleshooting). |
 
@@ -105,7 +106,7 @@ In the desktop app the same choice is the **Contribute to global stats** toggle 
 |------|---------|
 | `0` | Success. Also what `floe update` returns on a build compiled from source, which prints `Cannot update a dev build.` and stops. |
 | `1` | Any error: a transfer that failed, a code that would not resolve, a declined transfer, or a package-managed install refusing to self-update. |
-| `130` | Interrupted with `Ctrl+C`. Floe prints `Canceled.` to stderr and removes the `.part` file it was writing. |
+| `130` | Interrupted, by `Ctrl+C` or by `SIGTERM`. Floe prints `Canceled.` to stderr and removes the `.part` file it was writing. |
 
 `floe` with no arguments prints help and exits `0`.
 

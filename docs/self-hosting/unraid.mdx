@@ -2,6 +2,7 @@
 title: "Deploy Floe on Unraid"
 sidebarTitle: "Unraid"
 description: "Install the Floe web client and signaling server as two coordinated Unraid containers, with direct LAN, single domain, and two hostname configuration examples."
+keywords: ["unraid", "community applications", "template"]
 ---
 
 Floe is published as two containers because the web client and signaling server
@@ -76,8 +77,10 @@ as its CORS allow-list entry.
 ## One domain behind a reverse proxy
 
 Put both containers behind a single hostname and there is no signaling address to
-keep in sync at all. Leave Floe-Client **Signaling Server URL** empty, and the
-browser talks to whatever origin served the page.
+keep in sync at all. Clear Floe-Client **Signaling Server URL**, and the browser
+talks to whatever origin served the page. The field is not blank by default: it
+ships holding the placeholder `http://YOUR-UNRAID-IP:3001`, and leaving that in
+place produces a client that loads perfectly and never connects.
 
 1. Proxy `https://floe.example.com` to the Floe-Client host port for everything
    except the signaling paths.
@@ -87,7 +90,7 @@ browser talks to whatever origin served the page.
 4. Set Floe-Server **Client URL** to `https://floe.example.com`.
 5. Set Floe-Server **Trusted Proxy Count** to the number of proxy hops, which is
    `1` for a single reverse proxy.
-6. Leave Floe-Client **Signaling Server URL** empty.
+6. Clear Floe-Client **Signaling Server URL**, including the placeholder it ships with.
 
   Step 3 is the one people miss. `GET /api/config` is served by the **client**,
   not the signaling server. Route all of `/api/` to the server and that request

@@ -2,6 +2,7 @@
 title: "Container Images"
 sidebarTitle: "Container images"
 description: "The prebuilt Floe container images on ghcr.io: names, tags, how to pin a version or a digest, and which architectures are supported."
+keywords: ["ghcr", "container image", "docker tag", "pin a version"]
 ---
 
 Floe publishes two images to GitHub Container Registry. `docker-compose.yml` pulls both, so self-hosting needs no clone, no Node, and no build.
@@ -20,7 +21,7 @@ Both are public, so `docker pull` needs no login.
 | `latest` | The newest release | **The default.** What you get if you change nothing. |
 | `1.10.4` | One exact release | You want to control when you move between versions. |
 | `1.10` | The newest patch of a minor line | You want patches automatically but not minor bumps. |
-| `main` | The newest build of `client/` or `server/` on `main` | You want changes before they are released. Every commit is gated behind the full test suite plus a smoke test of the built image. A docs-only merge leaves this tag where it is, since it starts no build. |
+| `main` | The newest build of `client/` or `server/` on `main` | You want changes before they are released. `main` only advances by merged pull request, and every image is smoke-tested on real hardware before the tag moves. A docs-only merge leaves this tag where it is, since it starts no build. |
 | `sha-<short>` | One exact commit, for example `sha-fed7ebb` | You want a build that can never move under you. |
 
 Pin a tag with `FLOE_IMAGE_TAG`:
@@ -47,7 +48,7 @@ services:
     image: ghcr.io/jannskiee/floe-server@sha256:f7d9ff66...
 ```
 
-Every tag is verified to resolve to a digest that passed a smoke test before it was applied, so a tag and its digest always refer to an image that was actually started and exercised.
+The digests a tag is built from are validated before it moves, and every tag is checked again afterwards, so a tag and its digest always refer to an image that was actually started and exercised. The second pass is detection rather than prevention: it runs after the tag moved, and its job is to make a bad publish loud instead of silent.
 
 ## Architectures
 

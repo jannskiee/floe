@@ -211,8 +211,8 @@ How the counter is fed. Only the **receiving** side of a completed transfer call
 transfer is counted once. Senders never report.
 
 <ParamField body="bytes" type="integer" required>
-  A positive integer, no larger than `MAX_REPORT_BYTES` (5 TB by default). Zero, negatives,
-  fractions, and strings are all rejected.
+  A positive integer, no larger than `MAX_REPORT_BYTES`, which defaults to 5 TiB
+  (5,497,558,138,880). Zero, negatives, fractions, and strings are all rejected.
 </ParamField>
 
 ```bash Request
@@ -267,9 +267,12 @@ A rejected origin does not come back as a recognizable CORS error. The server an
 `{ "error": "Internal server error" }` while the browser reports a generic CORS failure. If you
 see that pairing, check `CLIENT_URL` first.
 
-**Errors.** Every failure returns JSON and nothing else. Anything under 500 is
-`{ "error": "Bad request" }`, anything at or above it is `{ "error": "Internal server error" }`,
-and the stack trace goes to the server's own output. This holds at every `NODE_ENV`.
+**Errors.** Every failure returns JSON and nothing else. Each endpoint above answers with its own
+message, and those are the bodies you will normally see. An error that is *thrown* rather than
+returned falls through to a final handler that collapses it: anything under 500 becomes
+`{ "error": "Bad request" }`, anything at or above it becomes `{ "error": "Internal server error" }`,
+and the stack trace goes to the server's own output. A rejected CORS origin takes that path, which
+is why it surfaces as a bare 500. This holds at every `NODE_ENV`.
 
 **Request bodies** are parsed at the default 100 kB limit. A larger body gets `413`, and
 malformed JSON gets `400`.

@@ -2,11 +2,18 @@
 title: "Add a TURN Relay to Self-Hosted Floe"
 sidebarTitle: "TURN relay"
 description: "Add a coturn TURN relay to a self-hosted Floe instance so peers behind strict NAT, CGNAT, or corporate firewalls can still complete file transfers."
+keywords: ["coturn", "turn server", "cloudflare turn", "cgnat"]
 ---
 
 A TURN server relays the (still end-to-end encrypted) stream when two peers cannot reach each other directly. This is common with symmetric NAT or carrier-grade NAT. Without TURN, those specific transfers fail. All other transfers still work over direct connections.
 
 You have two options: a managed TURN service (recommended) or a self-hosted coturn relay.
+
+One thing to know before choosing either. If a browser cannot fetch connection details from your
+server, because the request is misrouted, rate limited, or the server is down, it falls back to a
+pair of hard-coded Google STUN addresses rather than giving up. Configuring a relay does not remove
+that fallback; it just means the fallback is rarely reached. If your instance exists so that no
+traffic leaves your control, that is worth knowing about.
 
 ## Managed TURN via Cloudflare (recommended)
 
@@ -48,7 +55,7 @@ The coturn service uses host networking (`network_mode: host`). This only works 
     This file holds your shared secret, so it is never shipped and you always create it yourself.
 
     <Warning>
-      Do not skip this. Docker creates a **directory** at that path instead, and coturn then **starts anyway** and reports healthy, running on built-in defaults with no auth secret. Relaying silently fails for exactly the peers TURN exists to serve. The giveaway is `Default realm: localdomain` in `docker compose logs coturn`.
+      Do not skip this. Docker creates a **directory** at that path instead, and coturn then **starts anyway** and sits there as `running` in `docker compose ps`, on built-in defaults with no auth secret. Relaying silently fails for exactly the peers TURN exists to serve. The giveaway is `Default realm: localdomain` in `docker compose logs coturn`.
 
       Recovering needs `rmdir coturn/turnserver.conf` **first**: copying onto a directory succeeds and writes the file inside it, so the obvious fix appears to work and does not.
     </Warning>
@@ -119,7 +126,9 @@ When TURN is configured, the response contains `turn:` and `turns:` entries, plu
 ]
 ```
 
-With Cloudflare configured, the response instead contains `turn.cloudflare.com` entries. When neither the Cloudflare variables nor `TURN_SECRET` / `TURN_DOMAIN` are set, the endpoint returns the Google public STUN servers only.
+With Cloudflare configured the response is two entries rather than three, and `urls` is an array rather than a string: one `stun:stun.cloudflare.com:3478` with **no** username or credential, and one carrying both a `turn:` and a `turns:` URL with the credentials. See [the API reference](/reference/http-api#relay-credentials) for the exact shape. When neither the Cloudflare variables nor `TURN_SECRET` / `TURN_DOMAIN` are set, the endpoint returns the Google public STUN servers only.
+
+Credentials are minted from Cloudflare once and then **cached in memory for 12 hours**. Two consequences worth planning around: rotating a Cloudflare key can take up to 12 hours to take effect unless you restart the server, and if the Cloudflare API starts failing the server keeps serving the last good copy for that long rather than falling back, so a broken key looks healthy for a while.
 
 ## How credentials work
 

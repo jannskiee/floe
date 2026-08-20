@@ -2,6 +2,7 @@
 title: "Floe Desktop Settings"
 sidebarTitle: "Settings"
 description: "Every Floe Desktop setting: where received files are saved, Hide my IP, global stats, the File Explorer entry, and pointing the app at your own server."
+keywords: ["hide my ip", "server address", "right-click menu", "reset settings"]
 ---
 
 Open Settings with the gear in the title bar, or press `Ctrl` `,`. Press `Esc` to go back.
@@ -15,7 +16,8 @@ Changes save as you make them.
 
 ### Save received files to
 
-Where everything you receive is written. Leave it blank and Floe uses your **Downloads** folder.
+Where everything you receive is written. Leave it blank and Floe uses your **Downloads** folder, or
+your home folder if you do not have one.
 It never asks per transfer.
 
 An arriving file never replaces one you already have. See
@@ -154,8 +156,12 @@ drops `/api/` produces no visible error at all: relay credentials silently fall 
 STUN, and the room code quietly fails to register, so you get a share link with no code and no
 explanation.
 
-While the check runs, the line reads `Checking the server...`. A pass reports `Connected.` on its
-own; every failure carries an `Error: ` prefix, so the second row below reaches the screen as
+While the check runs, the line reads `Checking the server...`. Each of the three stages gets six
+seconds of its own, so an address that swallows connections rather than refusing them can take
+about eighteen seconds to come back. That is slow, not stuck.
+
+A pass reports `Connected.` on its own; every failure carries an `Error: ` prefix, so the second
+row below reaches the screen as
 `Error: That does not look like an address. Include https:// and the host name.`
 
 | Result | Meaning |
@@ -236,9 +242,10 @@ It deliberately leaves alone:
 
 ## Where settings are stored
 
-Settings live in a plain JSON file at `%APPDATA%\floe\desktop.json`. Floe writes it the first time
-a setting changes, so on a new install the file does not exist yet and the app runs on its
-defaults. Once written, it looks like this:
+Settings live in a plain JSON file at `%APPDATA%\floe\desktop.json`. Floe writes it on the first
+launch, before you have touched anything, because that is when it imports the older privacy
+switches and stamps `migrated`. It is rewritten every time the Settings screen closes, changed or
+not. A fresh install looks like this:
 
 ```json desktop.json
 {
