@@ -28,13 +28,11 @@ description: "Spin up a local Floe instance with Docker Compose in a few minutes
   </Step>
 </Steps>
 
-<Tip>
-  A `.env` file is optional. Every setting has a working default, so the two commands above are genuinely all you need to try it. To change something, fetch the annotated example alongside the compose file:
+A `.env` file is optional. Every setting has a working default, so the two commands above are genuinely all you need to try it. To change something, fetch the annotated example alongside the compose file:
 
-  ```bash Terminal
-  curl -fsSL https://raw.githubusercontent.com/jannskiee/floe/main/.env.docker.example -o .env
-  ```
-</Tip>
+```bash Terminal
+curl -fsSL https://raw.githubusercontent.com/jannskiee/floe/main/.env.docker.example -o .env
+```
 
 ## What this runs
 
@@ -42,23 +40,19 @@ This starts the stack in **STUN-only** mode. Direct peer-to-peer connections are
 
 To support peers behind strict firewalls, symmetric NAT, or CGNAT, add a [TURN relay](/self-hosting/turn-relay).
 
-<Note>
-  The defaults assume the browser and the server are on the same machine. To reach the app from another device on your network, set **both** of these in `.env` to your machine's LAN IP:
+The defaults assume the browser and the server are on the same machine. To reach the app from another device on your network, set **both** of these in `.env` to your machine's LAN IP:
 
-  ```dotenv .env
-  NEXT_PUBLIC_SOCKET_URL=http://192.168.1.x:3001
-  CLIENT_URL=http://192.168.1.x:3000
-  ```
+```dotenv .env
+NEXT_PUBLIC_SOCKET_URL=http://192.168.1.x:3001
+CLIENT_URL=http://192.168.1.x:3000
+```
 
-  ```bash Terminal
-  docker compose up -d
-  ```
+```bash Terminal
+docker compose up -d
+```
 
-  Then open the app at `http://192.168.1.x:3000` on the sending machine too, not `localhost:3000`. The share link and its QR code carry whichever address the page was loaded from, so a sender sitting on `localhost` hands the phone an address that only resolves back to the phone.
+Then open the app at `http://192.168.1.x:3000` on the sending machine too, not `localhost:3000`. The share link and its QR code carry whichever address the page was loaded from, so a sender sitting on `localhost` hands the phone an address that only resolves back to the phone.
 
-  No rebuild: the client reads its server address at runtime. `CLIENT_URL` matters as much as the socket URL, because it is the origin the server's CORS check allows, and without it the browser is blocked even though the page loads.
-</Note>
+No rebuild: the client reads its server address at runtime. `CLIENT_URL` matters as much as the socket URL, because it is the origin the server's CORS check allows, and without it the browser is blocked even though the page loads.
 
-<Tip>
-  Ports are configurable. Set `CLIENT_PORT` and `PORT` in `.env` to publish the web app and the signaling server somewhere other than 3000 and 3001. If you change `PORT`, update `NEXT_PUBLIC_SOCKET_URL` to match and run `docker compose up -d`, or the browser will keep looking for the old port. No rebuild is needed; the client reads that address at runtime.
-</Tip>
+Ports are configurable. Set `CLIENT_PORT` and `PORT` in `.env` to publish the web app and the signaling server somewhere other than 3000 and 3001. If you change `PORT`, update `NEXT_PUBLIC_SOCKET_URL` to match and run `docker compose up -d`, or the browser will keep looking for the old port. No rebuild is needed; the client reads that address at runtime.

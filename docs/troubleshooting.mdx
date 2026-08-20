@@ -1,184 +1,399 @@
 ---
-title: "Floe Troubleshooting Guide"
+title: "Floe troubleshooting: fixes by error message"
 sidebarTitle: "Troubleshooting"
-description: "Fixes for common Floe issues: stuck connections, failed transfers, invalid room links, TURN relay problems, and self-hosting deployment errors."
+description: "Every message Floe can show you, what causes it, and what to do. Covers the browser, Floe Desktop, the floe CLI, and self-hosted instances."
+keywords: ["error", "not working", "cannot connect", "failed", "stuck", "troubleshooting"]
+boost: 2
 ---
 
-Most Floe transfers just work. When something goes wrong, it is almost always one of the cases below.
+Most transfers just work. When one does not, Floe usually tells you why. Find the message you are
+looking at below, or use the page search.
 
-## Sending and receiving
+If you have no message at all and the transfer simply never starts, begin with
+[The transfer never starts](#the-transfer-never-starts).
 
-<AccordionGroup>
-  <Accordion title='Floe says "Open in your browser"'>
-    Floe needs WebRTC, which some in-app browsers (the web views embedded in Facebook, Instagram, TikTok, and similar apps) do not support reliably. Floe detects them and shows an "Open in your browser" screen with steps for your platform. Follow those steps, or tap **Copy link to paste in browser** and open the link in Chrome, Safari, Edge, or Firefox. **Continue anyway (some features may not work)** proceeds regardless, but the transfer can fail.
-  </Accordion>
+## In the browser
 
-  <Accordion title="The transfer never starts or is stuck connecting">
-    Both peers must be present at the same time, and the connection is direct, so a few things can hold it up:
+### "Open in your browser"
 
-    - The sender must stay in the session for the entire transfer. If the sender closes the browser tab, quits the desktop app, or stops `floe send`, the session ends.
-    - The recipient must actually open the shared link (or run `floe receive`). In the browser and the desktop app the transfer then begins on its own. `floe receive` asks you to confirm first, so a sender can sit on "Connecting" while the recipient has simply not answered the `Accept? [Y/n]` prompt. Pass `-y` to skip it.
-    - On strict networks, a direct path may not be possible. Relay fallback has to stay on for Floe to route through the encrypted relay. In the browser it is a sender-side setting, shown as the **Network relay fallback** checkbox once the sender has picked files, and it is on by default. If you are the browser recipient you have no such control, so ask the sender to check it. Floe's own error message calls it "Network Relay". On the CLI the equivalent is not passing `--no-relay`, which drops TURN on whichever side passes it. The desktop app has no relay-fallback control at all, so the relay is always available there.
-  </Accordion>
+Floe is running inside another app's built-in browser, and those handle file transfers poorly.
+Follow the two steps on screen, or tap **Copy link to paste in browser** and open it in Chrome,
+Safari, Edge, or Firefox. **Continue anyway (some features may not work)** proceeds regardless.
 
-  <Accordion title="Transfer blocked: relay limit exceeded">
-    Relay connections are capped at **2 GB per session** to keep the service free. Direct connections have no size limit. Exactly 2 GB is allowed; only more than that is blocked.
+Until you do one of those, the page has not joined the room, so nothing is lost by switching. See
+[Receiving files](/web-app/receiving#if-floe-says-open-in-your-browser).
 
-    The quickest fix is to remove files until the total is at or under the cap. Otherwise, get a direct connection:
+### The transfer never starts
 
-    - Use a standard home or personal Wi-Fi network.
-    - Disconnect from any VPN.
-    - Avoid strict corporate or university networks.
-    - Try a personal mobile hotspot.
+Both sides have to be present at the same time, and the connection is made directly between them,
+so several things can hold it up.
 
-    In the desktop app, **Hide my IP address** forces every transfer through the relay, so the 2 GB cap applies even on a network that could have connected directly. Turn it off to send more. See [Hide my IP address](/desktop/settings#hide-my-ip-address).
+- **The sender left.** Closing the browser tab, quitting Floe Desktop, or stopping `floe send`
+  ends the session. Nothing resumes it.
+- **The recipient has not actually opened the link.** In the browser and the desktop app the
+  transfer then starts by itself. `floe receive` asks first, so a sender can sit on "Connecting"
+  while the recipient has not answered the `Accept? [Y/n]` prompt. Pass `-y` to skip it.
+- **The network will not allow a direct path,** and the relay is not available. In the browser
+  this is the sender's **Network relay fallback** checkbox, on by default. A browser recipient has
+  no such control, so ask the sender. On the CLI the equivalent is not passing `--no-relay`. Floe
+  Desktop has no relay-fallback control at all, so the relay is always available there.
 
-    See [The 2 GB Relay Limit](/how-it-works/2gb-limit) for the details.
-  </Accordion>
+### "Link Invalid"
 
-  <Accordion title="The transfer is slow">
-    Check the connection indicator. **Green (Direct)** is as fast as the slower of the two connections. **Amber (Relay)** routes through a TURN server, so speed depends on relay load and network conditions. To force the faster direct path, follow the steps above to obtain a direct connection.
+The card reads "This link is either expired, already in use, or does not exist."
 
-    Read the label, not just the color. The dot is also green when it says **Ready**, which means the signaling connection is up but the peer-to-peer path is not resolved yet, either because no peer has joined or because WebRTC is still negotiating. **Offline** (red) means signaling itself is down. Neither of those is a slow transfer, and only Direct and Relay carry the explanatory tooltip.
-  </Accordion>
+A room takes exactly one recipient, so the most common cause is that someone has already opened
+this link, including you in another tab. Ask the sender to create a new one.
 
-  <Accordion title="Downloads fail or behave oddly on iOS">
-    On iOS, when you receive more than one file, use **Download ZIP** rather than saving them one at a time. It is the most reliable option on Safari and iOS web views.
+### "Could not connect. Ask the sender to enable "Network Relay" and try again."
 
-    The **Download All** and **Download ZIP** buttons appear only for multi-file transfers. They show up as soon as the second file lands and hide again while the next file is streaming, so if they vanish mid-transfer nothing is wrong; they return between files and stay once the transfer finishes. A single file is saved from the download button on its own row in the list.
+This is the receiver's message for every failure Floe treats as expected, so the relay is not
+always the culprit. The sender may have turned their **Network relay fallback** checkbox off, run
+`floe send --no-relay`, or simply closed their tab.
 
-    Zipping holds every file in memory before it writes the archive, so a very large multi-file transfer can run out of memory on a phone. If that happens, use **Download All** or save each file from its row.
-  </Accordion>
-</AccordionGroup>
+### "Connection failed. Enable "Network Relay" to connect across restrictive networks."
 
-## CLI
+The sender's half of the same situation. The only available path was relayed and relay fallback
+was off, so Floe closed the connection rather than sending over a route you excluded.
 
-<AccordionGroup>
-  <Accordion title="The CLI cannot reach the server">
-    The CLI connects to `https://api.floe.one` by default. If you are using a self-hosted instance, pass `--server` with your signaling server URL, and make sure **both** the sender and receiver use the same value.
+### "Transfer blocked. Relay limit exceeded."
 
-    If the CLI is reaching an address you did not ask for, check your environment. `FLOE_SERVER` overrides the default whenever `--server` is not passed, and `FLOE_WEB` does the same for the browser link that `floe send` prints. Check with `$env:FLOE_SERVER` in PowerShell, or `echo $FLOE_SERVER` on macOS and Linux. See [Against a Self-Hosted Server](/cli/self-hosted-server).
-  </Accordion>
+The connection ended up relayed and the queued files total more than 2 GB. Nothing was sent.
 
-  <Accordion title="A browser recipient cannot join my CLI transfer">
-    A browser can only join by opening the link, not by entering a short code (there is no code field in the web UI). Share the **link** printed by `floe send` with browser recipients, and the **code** with CLI or [desktop](/desktop/receiving) recipients, either of which also accepts the link.
-  </Accordion>
+Remove files until the total is at or under the cap, or get a direct connection, which has no
+limit: use a normal home or personal network, disconnect from any VPN, avoid strict corporate and
+university networks, or try a personal hotspot. Exactly 2 GB is allowed; only more is refused. See
+[File size limits](/how-it-works/2gb-limit).
 
-  <Accordion title="The CLI is slow to connect when a VPN or virtual machine is running">
-    A VPN (such as Tailscale) or virtualization software (VMware, VirtualBox, WSL, Hyper-V) adds extra network interfaces. The CLI probes each one while establishing the connection, so a machine with several of them can spend longer on "Connecting..." before settling on the working path. The transfer still completes, and the browser app is unaffected.
+### "Peer disconnected. Waiting for reconnection"
 
-    Floe already ignores link-local addresses (IPv4 169.254.x.x and IPv6 fe80::), which covers dead auto-config adapters and most virtual ones. A VPN adapter with a routable address, such as Tailscale's 100.x range, is not filtered. If you still see slow connects, pin the CLI to your real interface by name:
+The other side dropped before the first file arrived. It does not resume by itself.
 
-    ```bash Terminal
-    floe receive olive-tiger-castle --iface Ethernet   # or --iface Wi-Fi
-    ```
+If **your** network blipped before any file landed, Floe rejoins the room on its own and the
+sender builds a fresh connection. Once files have started landing, signaling is finished and Floe
+stops rejoining, so a drop after that point ends the session.
 
-    Pass `--iface` more than once to allow several interfaces. The flag is an allowlist, not a preference: only the interfaces you name are used, so drop it again if you move to a different network, or the connection will fail outright rather than merely be slow. Temporarily quitting the VPN during a transfer also resolves it.
-  </Accordion>
+### "Too many refreshes. Reconnecting"
 
-  <Accordion title="Cannot transfer: your floe is too old for this peer">
-    Floe words this two ways, `Cannot transfer: your floe is too old for this peer` and `Cannot transfer: peer's floe is too old`. Peers on different Floe versions normally transfer fine, so a small version difference (for example v1.5.4 and v1.5.5) is never a problem. Either message only appears if a release changed the transfer protocol in a way the two versions cannot bridge.
+You have hit the per-IP connection limit: 30 new connections per minute. Wait a minute. This is
+usually rapid page reloads, or several devices behind one address. On a self-hosted instance raise
+`MAX_CONNECTIONS_PER_IP`.
 
-    The message prints both sides as `You:` and `Peer:`, each with its protocol range and release version. On current releases each side words the message from its own point of view, so the side named as too old is the one to update. Older releases printed the receiver's wording unchanged on the sender's side, so there a sender could be told "your floe is too old" while it was the receiver that needed updating; when in doubt, go by the version strings and update the older one. If both versions look current, update both.
+### "Transfer timed out waiting for receiver. Please try again."
 
-    ```bash Terminal
-    floe update              # script / manual installs
-    brew upgrade floe        # Homebrew
-    winget upgrade jannskiee.floe  # Winget
-    scoop update floe        # Scoop
-    ```
+The sender announced a file and the other side never acknowledged it within two minutes. Usually
+the recipient closed the tab, or their connection died between connecting and receiving.
 
-    If you are receiving from a browser, refresh the page to load the latest web client. The desktop app shares the same transfer engine and shows the same message with its own remedy line, pointing at the Microsoft Store or the download page. It has no `floe update` command, so update it the way you installed it. From the Microsoft Store, open **Library** then **Get updates**. See [Updating](/cli/update) and [Update](/desktop/installation#update).
-  </Accordion>
+### "Could not prepare files for ZIP." or "ZIP creation failed."
 
-  <Accordion title="My short code does not work">
-    Short codes are a CLI and desktop feature. In a browser you share a link instead, so there is no code to troubleshoot.
+Both suggest **Download All** instead, and that is the right move. Zipping holds every file in
+memory at once, so a large multi-file transfer can exhaust a phone or a tab. Saving files from
+their own rows uses far less memory.
 
-    Codes expire **10 minutes** after the sender starts the session, and `floe receive` then reports `code "olive-tiger-castle" not found or expired (codes expire after 10 minutes)`, quoting the code you typed. Ask the sender to start a new session for a fresh code.
+### Downloads behave oddly on iOS
 
-    That same message covers a typo, and codes are matched exactly. They are always lowercase words joined by hyphens, so `Olive-Tiger-Castle` is not the same code as `olive-tiger-castle`. Surrounding spaces are trimmed for you; nothing else is.
+Use **Download ZIP** when there is more than one file. Saving them individually behaves
+inconsistently in Safari and iOS web views.
 
-    Two nearby messages mean something else:
+The two bulk buttons appear only for multi-file transfers, and they come and go: they show as soon
+as the second file lands, hide while the next file streams, and settle once the transfer finishes.
+A single file is saved from the download button on its own row.
 
-    - `this code is no longer active; ask for a new one`: the code resolved, but nobody is sharing on it. The sender finished or quit, and codes are single use.
-    - `room is full (someone else may already be receiving)`: someone else is already receiving on that code. A room holds exactly two peers.
-  </Accordion>
-</AccordionGroup>
+### A file did not appear at all
 
-## Desktop app
+Floe compares what arrived against the size the sender announced and discards anything that does
+not match, in either direction, rather than handing you a file that looks whole and is not. Ask
+the sender to send that file again.
 
-<AccordionGroup>
-  <Accordion title="Test says the realtime connection was refused">
-    "The server answered, but the realtime connection was refused" means the address is a Floe signaling server but the WebSocket upgrade at `/ws` is not reaching it. That is almost always a reverse proxy that forwards ordinary requests without forwarding the upgrade. See [Run Floe Behind One Domain](/self-hosting/reverse-proxy).
-  </Accordion>
+## On the command line
 
-  <Accordion title="Test says the API answered with HTTP 404">
-    "The server is running, but its API answered with HTTP 404" (or another error code) means `/api/` is not being forwarded. Fix it before you use the server, because nothing else reports this failure: relay credentials fall back to public STUN and the short code silently fails to register, so you get a share link with no code and no error. See [Run Floe Behind One Domain](/self-hosting/reverse-proxy).
-  </Accordion>
+### `code "olive-tiger-castle" not found or expired (codes expire after 10 minutes)`
 
-  <Accordion title="Test says this may be the web app rather than the signaling server">
-    Something answered but not with a health check, which usually means the address points at the web app rather than the signaling server. In the default self-hosted setup the web app is on port 3000 and the signaling server on port 3001, so `http://localhost:3000` produces this and `http://localhost:3001` is what you want. The **Server address** field always wants the signaling server. See [Server](/desktop/settings#server) for what each Test result means.
+The code was mistyped, or it has passed its ten minutes.
 
-    Test never follows redirects, so a captive portal or a catch-all rewrite cannot pass itself off as a healthy server.
-  </Accordion>
+Codes are matched **exactly** and are always lowercase words joined by hyphens, so
+`Olive-Tiger-Castle` is a different string. Surrounding spaces are trimmed for you; nothing else
+is. Ask the sender to start a new session for a fresh code.
 
-  <Accordion title="There is no right-click menu setting">
-    The **Windows** section, and with it **Show in right-click menu**, is hidden in the Microsoft Store build. A packaged app cannot register the entry in a way File Explorer would read, and asking for it returns "the right-click menu is not available in the Microsoft Store build". Install the build from GitHub if you need it. See [Choose a channel](/desktop/installation#choose-a-channel).
-  </Accordion>
+### `this code is no longer active; ask for a new one`
 
-  <Accordion title="Desktop transfers are capped at 2 GB">
-    **Hide my IP address** sends every transfer through the relay, which is where the 2 GB cap applies, so it is in force even on a network that could have connected directly. The idle screen says so while it is on, and an oversized send fails with "Turn off Hide my IP to send larger files". Turn it off to send more. See [Hide my IP address](/desktop/settings#hide-my-ip-address).
-  </Accordion>
-</AccordionGroup>
+The code resolved, but nobody is sharing on it. The sender finished, quit, or their session ended.
+Codes are single use.
 
-## Self-hosting
+### `room is full (someone else may already be receiving)`
 
-<AccordionGroup>
-  <Accordion title="The browser cannot connect to my signaling server">
-    Set `NEXT_PUBLIC_SOCKET_URL` in `.env` and recreate the container. No rebuild is needed, because the client reads its server address at runtime:
+Someone else joined this transfer first. A room holds exactly two peers. Ask for a new code.
 
-    ```bash Terminal
-    docker compose up -d
-    ```
+### `timed out establishing a connection`
 
-    <Note>
-      Compose passes that value into the container as `SOCKET_URL`, which is the name the running client actually reads. If you run the client without Compose, set `SOCKET_URL` on the client process. Setting `NEXT_PUBLIC_SOCKET_URL` on an already-built client does nothing, because Next inlines that name at build time.
-    </Note>
+Thirty seconds passed without a usable path. Either the other side never joined, or neither side
+could reach the other and no relay was available.
 
-    Check what the client is actually resolving:
+If you passed `--no-relay`, this is what that looks like when no direct path exists: the flag
+removes the relay from the address list, so there is nothing else to try and the failure is this
+generic timeout rather than a message about the relay.
 
-    ```bash Terminal
-    curl http://localhost:3000/api/config
-    ```
+### `connected, but no data arrived from the sender within 30s`
 
-    An empty `socketUrl` means the browser will use its own origin, which is correct only when both services sit behind [one reverse proxy](/self-hosting/reverse-proxy). Otherwise confirm the URL is reachable from the end user's browser: `http://localhost:3001` only works when the browser runs on the same machine as the server. See [how the client finds the server](/self-hosting/build-time-url).
-  </Accordion>
+You reached the sender and they never started sending. Ask them to try again.
 
-  <Accordion title="Browser requests are blocked by CORS">
-    Set `CLIENT_URL` to your client's public origin (for example `https://app.your-domain.com`), matching scheme and host exactly, with no trailing slash. It joins the allow-list alongside `http://localhost:3000` and the floe.one origins, which are always permitted.
+### `connection closed while waiting for the receiver (transfer declined or receiver exited)`
 
-    A rejected origin does not come back as a recognizable CORS error. The server answers HTTP 500 with `{"error":"Internal server error"}` and logs the stack, while the browser reports a generic CORS failure. If you see that pairing, check `CLIENT_URL` first. See [Production Deployment](/self-hosting/production).
-  </Accordion>
+The other side answered `n` at the `Accept? [Y/n]` prompt, or their process ended.
 
-  <Accordion title="I am being rate limited (429 or Rate limit exceeded)">
-    The server runs four independent per-IP limiters, each over a 60 second window: 30 connections across Socket.IO and WebSocket (`MAX_CONNECTIONS_PER_IP`), 20 TURN credential requests (`MAX_TURN_REQUESTS_PER_IP`), 60 short-code requests (`MAX_CODE_REQUESTS_PER_IP`), and 60 global-stats reports. The three HTTP limiters answer `429` with `Too many requests`, or `Too many reports` for stats. The connection limiter is not HTTP: it refuses the Socket.IO handshake and closes the WebSocket with the reason `Rate limit exceeded`. In the browser that surfaces as "Too many refreshes. Reconnecting".
+### `timed out waiting for delivery confirmation from peer`
 
-    A `503 Server busy, try again shortly` from `POST /api/code` is a different guard. It fires once `MAX_ACTIVE_CODES` (default 10000) codes are live at once, regardless of source IP.
+Every byte was sent but the receiver never confirmed. The files may well have arrived; check with
+the recipient before resending.
 
-    Behind a reverse proxy, set `TRUSTED_PROXY_COUNT` to the number of proxy hops so the server reads real client IPs instead of the proxy IP. The server defaults to 1, but the Compose stack publishes ports directly and passes 0, so a Compose deployment behind a proxy has to set it explicitly. See [Configuration](/self-hosting/configuration).
-  </Accordion>
+### `relay connections are capped at 2 GB`
 
-  <Accordion title="The TURN relay is not working">
-    First check which relay option your instance uses.
+The same cap as in the browser, from the sending side. See
+[File size limits](/how-it-works/2gb-limit).
 
-    **Managed Cloudflare TURN:** confirm both `CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_KEY_API_TOKEN` are set in `.env`, then run `curl http://localhost:3001/api/turn-credentials`. A working setup returns `turn.cloudflare.com` entries with a username and credential. If it returns STUN servers only, one of the two variables is missing or the API token is invalid (roll it in the Cloudflare dashboard under Realtime, then TURN Server).
+### `Cannot transfer: your floe is too old for this peer`
 
-    **Self-hosted coturn:** the bundled coturn service uses host networking, so it runs on a **Linux host** with a public IP, a domain, and TLS certificates. On macOS or Windows with Docker Desktop, run coturn separately or on a Linux VM. Confirm that `TURN_SECRET` and `TURN_DOMAIN` in `.env` match coturn's `static-auth-secret` and `realm`, then start the stack with `docker compose --profile turn up -d`.
+Also worded `Cannot transfer: peer's floe is too old`. Peers on different Floe versions normally
+transfer fine, so a small version difference is never the cause. This appears only when a release
+changed the transfer protocol in a way the two versions cannot bridge.
 
-    If coturn logs `Default realm: localdomain`, it is running on built-in defaults with no auth secret and relaying will silently fail. That happens when `coturn/turnserver.conf` did not exist before the first `docker compose up`, so Docker created a directory at that path. Run `rmdir coturn/turnserver.conf` first, because copying a file onto a directory would succeed and write it inside, then fetch the example config and restart. See [TURN Relay](/self-hosting/turn-relay).
-  </Accordion>
-</AccordionGroup>
+The message prints both sides as `You:` and `Peer:` with their version strings. Update the older
+one:
 
-## Still stuck?
+```bash Terminal
+floe update                     # script or manual installs
+brew upgrade --cask floe        # Homebrew
+winget upgrade jannskiee.floe   # Winget
+scoop update floe               # Scoop
+```
 
-If none of the above helps, open an issue on [GitHub](https://github.com/jannskiee/floe/issues) with your browser and OS, whether the connection was direct or relay, and any error message you saw.
+Go peers work out the correct side themselves, so trust the version strings. A browser receiver
+words the message from its own point of view, so a CLI sender can be told to "refresh the page";
+in that case go by the versions. Refresh the page to update a browser, and update Floe Desktop
+through the Microsoft Store or by reinstalling from the download page.
+
+### `Cannot update a dev build.`
+
+The binary was built from source or installed with `go install`, so it carries no version to
+compare and cannot replace itself. Install through a package manager or the install script for a
+release build with working self-update. See [Install the Floe CLI](/cli/installation).
+
+### `installed via homebrew - run 'brew upgrade floe' to update`
+
+`floe update` refuses to replace a binary your package manager owns. Use the command it names.
+Detection is a substring match on the binary's path for `homebrew`, `cellar`, `linuxbrew`,
+`scoop`, or `winget`, so a script install living under a directory with one of those words in it
+is treated the same way.
+
+### `Warning: could not reach signaling server for TURN credentials. Using STUN only.`
+
+Floe could not fetch relay credentials and is carrying on with direct connections only. On a
+restrictive network the transfer will probably fail. Check the server address, and check
+`FLOE_SERVER` in your environment if you did not pass `--server`.
+
+### `no files to send`
+
+Every path you gave resolved to nothing, or to an empty folder. Floe checks before touching the
+network.
+
+### Slow to connect when a VPN or virtual machine is running
+
+A VPN such as Tailscale, or virtualization software such as VMware, VirtualBox, WSL, or Hyper-V,
+adds network interfaces. The CLI probes each one, so a machine with several can spend a long time
+on "Connecting..." before settling. The transfer still completes, and the browser is unaffected.
+
+Floe already ignores link-local addresses, which covers dead auto-configured adapters. A VPN
+adapter with a routable address, such as Tailscale's `100.x` range, is not filtered. Pin the CLI
+to the interface you mean:
+
+```bash Terminal
+floe receive olive-tiger-castle --iface Ethernet
+```
+
+Repeat the flag or separate names with commas for several. It is an allowlist rather than a
+preference, so remove it again when you change networks, or the connection fails outright instead
+of merely being slow.
+
+### A browser recipient cannot join a CLI transfer
+
+A browser can only join by opening the link, never by typing a code. Share the **link** that
+`floe send` prints with browser recipients, and the **code** with CLI or desktop recipients, both
+of which also accept the link.
+
+## In Floe Desktop
+
+Every failure in the app is shown with an `Error: ` prefix, so a message on screen reads
+`Error: That code was not recognized. ...`.
+
+### "That code was not recognized. Check it for typos, or ask the sender for a new one."
+
+The same causes as the CLI's expired-code message: a typo, or more than ten minutes have passed.
+It also appears when the code belongs to a different server from the one the app is set to.
+
+### "Connected, but the sender never started sending. Ask them to try again."
+
+Floe reached the sender and waited thirty seconds with nothing arriving.
+
+### "Could not reach the server. Check your internet connection."
+
+The app could not reach the signaling server at all, or the server never assigned it a role within
+twenty seconds. If you recently changed **Server address**, check it with **Test**.
+
+### The Test button says the realtime connection was refused
+
+"The server answered, but the realtime connection was refused. If it is behind a reverse proxy,
+check that /ws is being forwarded." The address is a Floe signaling server but the WebSocket
+upgrade at `/ws` is not reaching it, which is nearly always a proxy that forwards ordinary
+requests without forwarding the upgrade. See
+[Run Floe Behind One Domain](/self-hosting/reverse-proxy).
+
+### The Test button says the API answered with an HTTP error
+
+"The server is running, but its API answered with HTTP 404." `/api/` is not being forwarded. Fix
+it before relying on the server, because nothing else reports this failure: relay credentials fall
+back to public STUN and the room code silently fails to register, so you get a share link with no
+code and no error.
+
+### The Test button says it may be the web app rather than the signaling server
+
+Something answered but not with a health check. In a default self-hosted setup the web app is on
+port 3000 and the signaling server on 3001, so `http://localhost:3000` produces this and
+`http://localhost:3001` is what you want. **Server address** always wants the signaling server.
+
+Test never follows redirects, so a captive portal or a catch-all rewrite cannot pass itself off as
+a healthy server.
+
+### There is no right-click menu setting
+
+The **Windows** section, and with it **Show in right-click menu**, is hidden in the Microsoft
+Store build. A packaged app cannot register the entry in a way File Explorer would read, and
+asking for it returns "the right-click menu is not available in the Microsoft Store build".
+Install the build from GitHub if you need it.
+
+### The switch for the right-click menu keeps turning itself off
+
+The registry write was refused, which usually means a managed or locked-down machine.
+
+### Every transfer is capped at 2 GB
+
+**Hide my IP address** routes every transfer through the relay, which is where the cap lives, so
+it applies even on a network that could have connected directly. An oversized send fails with
+"Turn off Hide my IP to send larger files". See
+[Hide my IP address](/desktop/settings#hide-my-ip-address).
+
+### Floe will not start
+
+If the Microsoft Edge WebView2 runtime is missing and the machine cannot reach Microsoft's
+download, Floe cannot start and says so. Install
+[WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) yourself, then start Floe
+again. See [Install Floe Desktop](/desktop/installation).
+
+## On a self-hosted instance
+
+### The browser cannot connect to my signaling server
+
+Set the signaling address and recreate the container. No rebuild is needed, because the client
+reads it at runtime:
+
+```bash Terminal
+docker compose up -d
+```
+
+Compose passes `NEXT_PUBLIC_SOCKET_URL` into the container as `SOCKET_URL`, which is the name the
+running client reads. Outside Compose, set `SOCKET_URL` on the client process. Setting
+`NEXT_PUBLIC_SOCKET_URL` on an already-built client does nothing, because Next inlines that name
+at build time.
+
+Check what the client is actually serving:
+
+```bash Terminal
+curl http://localhost:3000/api/config
+```
+
+An empty `socketUrl` means the browser will use its own origin, which is correct only when both
+services sit behind [one reverse proxy](/self-hosting/reverse-proxy). Otherwise confirm the URL is
+reachable from your users' browsers: `http://localhost:3001` only works when the browser is on the
+same machine as the server.
+
+### Browser requests are blocked, and the server answers HTTP 500
+
+A rejected CORS origin does not come back as a recognizable CORS error. The server answers `500`
+with `{"error":"Internal server error"}` and logs the stack, while the browser reports a generic
+CORS failure. If you see that pairing, check `CLIENT_URL` first.
+
+It must match your client's public origin exactly, including the scheme and with no trailing
+slash, and it holds **one** origin. A comma-separated list matches nothing. `https://floe.one`,
+`https://www.floe.one`, and `http://localhost:3000` are always allowed in addition.
+
+### 429, or "Rate limit exceeded"
+
+Four independent per-IP limiters, each over a 60 second window: 30 connections shared across
+Socket.IO and WebSocket (`MAX_CONNECTIONS_PER_IP`), 20 TURN credential requests
+(`MAX_TURN_REQUESTS_PER_IP`), 60 room-code requests (`MAX_CODE_REQUESTS_PER_IP`), and 60 stats
+reports, which is the one limit with no environment override.
+
+The three HTTP limiters answer `429` with `Too many requests`, or `Too many reports` for stats.
+The connection limiter is not HTTP: it refuses the Socket.IO handshake and closes the WebSocket
+with the reason `Rate limit exceeded`.
+
+Two things to know before raising a limit. Rejected attempts still count, so a client hammering
+the server keeps itself blocked for the whole window. And setting any `MAX_*` variable to `0` does
+not disable the limit; it silently restores the default.
+
+Behind a reverse proxy, set `TRUSTED_PROXY_COUNT` to the number of proxy hops so the server reads
+real client IPs instead of the proxy's. The server defaults to `1`, but the Compose stack
+publishes ports directly and passes `0`, so a Compose deployment behind a proxy has to set it.
+
+### 503 "Server busy, try again shortly"
+
+`POST /api/code` returns this once `MAX_ACTIVE_CODES` codes are live at once, regardless of source
+IP. It bounds the memory the code registry can use. Only expiry frees a slot: resolving a code
+does not delete it, so a code used immediately still holds its slot for the full ten minutes.
+
+### The TURN relay is not working
+
+Check which option your instance uses.
+
+**Managed Cloudflare TURN.** Confirm both `CLOUDFLARE_TURN_KEY_ID` and
+`CLOUDFLARE_TURN_KEY_API_TOKEN` are set, then:
+
+```bash Terminal
+curl http://localhost:3001/api/turn-credentials
+```
+
+A working setup returns `turn.cloudflare.com` entries with a username and credential. If it
+returns STUN servers only, one of the two variables is missing or the API token is invalid.
+
+**Self-hosted coturn.** The bundled service uses host networking, so it needs a Linux host with a
+public IP, a domain, and TLS certificates. Confirm `TURN_SECRET` and `TURN_DOMAIN` match coturn's
+`static-auth-secret` and `realm`. Setting only one of the pair falls through to STUN with no
+warning.
+
+### coturn logs `Default realm: localdomain`
+
+coturn is running on built-in defaults with no auth secret, and relaying silently fails for
+exactly the peers it exists to serve. This happens when `coturn/turnserver.conf` did not exist
+before the first `docker compose up`, so Docker created a **directory** at that path.
+
+Run `rmdir coturn/turnserver.conf` **first**. Copying a file onto a directory succeeds and writes
+it inside, so the obvious fix appears to work and does not. Then fetch the example config and
+restart. See [TURN relay](/self-hosting/turn-relay).
+
+### The server logs nothing at all
+
+That is expected. The signaling server has no access log and no startup banner, not even a
+"listening on" line, so `docker logs` on a healthy server is empty. Use `GET /health`, which
+returns `{"status":"healthy","uptime":<seconds>}`, to confirm it is alive and to see whether a
+restart landed.
+
+### `docker compose ps` never shows the client as healthy
+
+The client image ships no healthcheck, so it has no health state to report. Only the server does.
+
+## Still stuck
+
+Open an issue on [GitHub](https://github.com/jannskiee/floe/issues) with your browser and
+operating system, whether the connection was direct or relayed, and the exact message you saw.
+
+For Floe Desktop, **Settings** has a **Copy** button under About that puts the app version, the
+protocol version, and the server on your clipboard. Those are the details worth including.

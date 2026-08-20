@@ -153,12 +153,10 @@ cannot carry it, so canonical links and share previews are omitted rather than
 pointed somewhere wrong. See [Container Images](/self-hosting/images) to build the
 client with your own domain baked in.
 
-<Note>
-  `CLIENT_URL` is matched exactly, including the scheme and with no trailing
-  slash. `https://floe.example.com` and `https://www.floe.example.com` are
-  different origins to the CORS check, so use whichever one your users actually
-  visit.
-</Note>
+`CLIENT_URL` is matched exactly, including the scheme and with no trailing
+slash. `https://floe.example.com` and `https://www.floe.example.com` are
+different origins to the CORS check, so use whichever one your users actually
+visit.
 
 `TRUSTED_PROXY_COUNT` must equal the number of proxy hops in front of the
 signaling server. One reverse proxy means `1`. A CDN in front of that proxy means
@@ -187,11 +185,9 @@ silently later. Leave **Share link address** blank on a one-domain instance and
 the app derives the link from the server address. See
 [Desktop Settings](/desktop/settings#server).
 
-<Note>
-  The test deliberately does not follow redirects, so a proxy that answers
-  `/health` with a 301 is reported as "may be the web app rather than the
-  signaling server" rather than passing.
-</Note>
+The test deliberately does not follow redirects, so a proxy that answers
+`/health` with a 301 is reported as "may be the web app rather than the
+signaling server" rather than passing.
 
 ## TURN does not go through the proxy
 

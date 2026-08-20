@@ -34,9 +34,7 @@ Prefer to run the relay yourself? Leave the Cloudflare variables unset and confi
 
 TURN requires a **public IP address**, a **domain name**, and **TLS certificates**. The bundled `coturn` service uses host networking and is intended for a Linux host with a public IP.
 
-<Warning>
-  The coturn service uses host networking (`network_mode: host`). This only works on Linux. On macOS or Windows with Docker Desktop, you will need to run coturn separately or on a Linux VM.
-</Warning>
+The coturn service uses host networking (`network_mode: host`). This only works on Linux. On macOS or Windows with Docker Desktop, you will need to run coturn separately or on a Linux VM.
 
 ## Setup
 
@@ -92,18 +90,14 @@ TURN requires a **public IP address**, a **domain name**, and **TLS certificates
     | `5349` | UDP/TCP | TURNS (TURN over TLS) |
     | `49152-65535` | UDP | Relay data range (configurable in `turnserver.conf`) |
 
-    <Warning>
-      These ports must be reachable directly. TURN is not HTTP, so it cannot be routed through the reverse proxy that fronts the web client and signaling server. Even on a [one-domain deployment](/self-hosting/reverse-proxy), coturn keeps its own ports and its own TLS certificate.
-    </Warning>
+    These ports must be reachable directly. TURN is not HTTP, so it cannot be routed through the reverse proxy that fronts the web client and signaling server. Even on a [one-domain deployment](/self-hosting/reverse-proxy), coturn keeps its own ports and its own TLS certificate.
   </Step>
   <Step title="Start the stack with the TURN profile">
     ```bash Terminal
     docker compose --profile turn up -d
     ```
 
-    <Warning>
-      Create `coturn/turnserver.conf` first, as the earlier step describes. Starting the profile without it looks successful and is not.
-    </Warning>
+    Create `coturn/turnserver.conf` first, as the earlier step describes. Starting the profile without it looks successful and is not.
   </Step>
 </Steps>
 
@@ -131,6 +125,4 @@ With Cloudflare configured, the response instead contains `turn.cloudflare.com` 
 
 The signaling server generates time-limited credentials using HMAC-SHA1. The username is `{expiry_unix_timestamp}:floeuser` and the password is `base64(HMAC-SHA1(TURN_SECRET, username))`. coturn validates these against the shared secret without needing a database of user accounts.
 
-<Note>
-  Relayed transfers stay capped at 2 GB per session even on a relay you run yourself. The cap is compiled into the browser client, the CLI, and the desktop app, not read from your server, so raising it means building all three from modified source. Direct connections are unaffected and have no size limit. See [The 2 GB Relay Limit](/how-it-works/2gb-limit).
-</Note>
+Relayed transfers stay capped at 2 GB per session even on a relay you run yourself. The cap is compiled into the browser client, the CLI, and the desktop app, not read from your server, so raising it means building all three from modified source. Direct connections are unaffected and have no size limit. See [The 2 GB Relay Limit](/how-it-works/2gb-limit).

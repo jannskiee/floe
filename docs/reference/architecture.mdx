@@ -1,114 +1,96 @@
 ---
-title: "Floe Architecture Reference"
+title: "How Floe is put together"
 sidebarTitle: "Architecture"
-description: "Reference for the Floe signaling protocol, HTTP endpoints, WebSocket events, and the WebRTC data-channel binary framing used for file transfers."
+description: "The parts of Floe, the two signaling transports they share, and how one transfer session fits together. For contributors and advanced self-hosters."
+keywords: ["architecture", "components", "signaling", "socket.io", "websocket", "design"]
 ---
 
-This page is a technical reference for contributors and advanced self-hosters. For a plain-language overview, see [How It Works](/how-it-works/signaling).
+A map of the moving parts, for contributors and for self-hosters who want to know what they are
+running. For the plain-language version, see [How a transfer works](/how-it-works/signaling).
 
 ## Components
 
-| Component | Runtime | Port | Purpose |
-|-----------|---------|------|---------|
-| Client | Next.js 16 (React 19) | 3000 | Browser UI, WebRTC peer (via simple-peer) |
-| Server | Node.js (Express 5, Socket.IO 4, ws 8) | 3001 | Signaling broker, TURN credential issuer |
-| CLI | Go 1.25 (Pion WebRTC v4) | - | Headless sender/receiver |
-| Desktop | Wails v2 (Go 1.25 backend, React frontend) | - | Windowed sender/receiver. Windows amd64 is the build shipped today |
-| TURN relay | Cloudflare Realtime TURN (floe.one) or self-hosted coturn | 3478 and 5349 (coturn); Cloudflare's own ports, including a TLS URL on 443 | Relays encrypted packets when a direct path fails |
+| Component | Runtime | Port | What it does |
+|-----------|---------|------|--------------|
+| Client | Next.js 16 (React 19) | 3000 | The browser UI and its WebRTC peer, via simple-peer |
+| Server | Node.js (Express 5, Socket.IO 4, ws 8) | 3001 | Brokers signaling, issues relay credentials |
+| CLI | Go 1.25 (Pion WebRTC v4) | - | Headless sender and receiver |
+| Desktop | Wails v2 (Go backend, React frontend) | - | Windowed sender and receiver. Windows amd64 today |
+| TURN relay | Cloudflare Realtime TURN on floe.one, or your own coturn | 3478 and 5349 for coturn | Forwards encrypted packets when no direct path exists |
 
-The CLI and the desktop app share one Go transfer engine (`cli/engine/`), joined by the workspace file `go.work`, so they behave identically on the wire. See [Desktop installation](/desktop/installation) for the app itself.
+The CLI and the desktop app share one Go transfer engine in `cli/engine/`, joined by the `go.work`
+workspace file, so they behave identically on the wire.
 
-File data never passes through the signaling server, and only end-to-end-encrypted packets ever transit the TURN relay. All file bytes travel over encrypted WebRTC data channels between peers.
+**File data never passes through the signaling server**, and only end-to-end-encrypted packets
+ever transit the relay. Every byte of every file travels over a WebRTC data channel between the
+two peers.
 
-## Signaling transports
+## The server runs as one process
 
-The server exposes two transports. Both share the same `rooms` registry (`Map<roomId, [peer, peer]>`) so browser-to-CLI and browser-to-desktop transfers work transparently.
+Rooms, room codes, and all four rate limiters live in that process's memory. Nothing is persisted
+except the global byte counter, and only when a Redis database is configured.
+
+This has one consequence worth stating plainly: **running two replicas behind a load balancer does
+not scale Floe out.** It breaks pairing, because the two peers can land on different replicas and
+never see each other. Run one instance. A single small server goes a long way, since no file data
+passes through it.
+
+## Two signaling transports, one room registry
 
 | Transport | Path | Used by |
 |-----------|------|---------|
-| Socket.IO | `/socket.io/` | Browser (web app) |
-| WebSocket | `/ws` | CLI and desktop app |
+| Socket.IO | `/socket.io/` | The web app |
+| WebSocket | `/ws` | The CLI and Floe Desktop |
 
-## HTTP endpoints
+Both share the same in-memory `rooms` registry, `Map<roomId, [peer, peer]>`, which is what makes
+browser-to-CLI and browser-to-desktop transfers work with no translation layer.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/` | Status check. Returns `{ "status": "ok", "timestamp": "..." }`. |
-| `GET` | `/health` | Liveness probe. Returns `{ "status": "healthy", "uptime": <seconds> }`. |
-| `GET` | `/api/turn-credentials` | Returns ICE server list. Prefers Cloudflare Realtime TURN when `CLOUDFLARE_TURN_KEY_ID` / `CLOUDFLARE_TURN_KEY_API_TOKEN` are set, then self-hosted coturn when `TURN_SECRET` and `TURN_DOMAIN` are both set, otherwise Google STUN only. Rate-limited to 20 requests per IP per 60 s (configurable via `MAX_TURN_REQUESTS_PER_IP`). |
-| `POST` | `/api/code` | Registers a short code for a room ID. Body: `{ "roomId": "<uuid>" }`. Response: `{ "code": "word-word-word" }`. TTL: 10 minutes. Rate-limited to 60 requests per IP per 60 s (shared with `GET /api/code/:code`, configurable via `MAX_CODE_REQUESTS_PER_IP`). Returns `503` when the number of codes held in memory hits `MAX_ACTIVE_CODES` (default 10000). |
-| `GET` | `/api/code/:code` | Resolves a short code to a room ID. Response: `{ "roomId": "<uuid>" }`. Returns 404 if expired or not found. Rate-limited to 60 requests per IP per 60 s (shared with `POST /api/code`, configurable via `MAX_CODE_REQUESTS_PER_IP`). |
-| `GET` | `/api/stats` | Returns the all-time global transfer counter: `{ "totalBytes": <integer> }`. Served from an in-memory cache (no Redis read per request). |
-| `POST` | `/api/stats/report` | Receiver peers report bytes after a completed transfer. Body: `{ "bytes": <positive integer> }`. Response: `{ "totalBytes": <integer> }`. Rate-limited to 60 requests per IP per 60 s; rejects values that are not positive integers or exceed `MAX_REPORT_BYTES` (default 5 TB). |
+`/ws` is matched by **exact string equality**. A trailing slash or a path prefix does not match,
+and the connection is dropped with no error, which matters when you put Floe behind a proxy.
 
-### TURN credentials response
+### Socket.IO events
 
-On floe.one the endpoint returns short-lived Cloudflare Realtime TURN credentials (`turn.cloudflare.com`). They are requested with a 24-hour TTL and cached in memory for 12 hours, so a burst of page loads costs one upstream call. Cloudflare's full URL list is trimmed before it is served, down to one STUN URL, one UDP TURN URL, and one TCP-based TURN URL (preferring TLS on port 443). Clients gather ICE candidates per URL per network interface, so redundant URLs multiply connection setup time on machines with VPN or VM adapters.
-
-For a self-hosted coturn relay, when `TURN_SECRET` and `TURN_DOMAIN` are set it returns:
-
-```json Response
-[
-  { "urls": "stun:turn.your-domain.com:3478" },
-  { "urls": "turn:turn.your-domain.com:3478", "username": "...", "credential": "..." },
-  { "urls": "turns:turn.your-domain.com:5349", "username": "...", "credential": "..." }
-]
-```
-
-When neither Cloudflare nor coturn is configured:
-
-```json Response
-[
-  { "urls": "stun:stun.l.google.com:19302" },
-  { "urls": "stun:stun1.l.google.com:19302" }
-]
-```
-
-For self-hosted coturn, credentials use HMAC-SHA1: `username = "{expiry_unix}:floeuser"`, `credential = base64(HMAC-SHA1(TURN_SECRET, username))`. Expiry is 24 hours from issuance.
-
-## Socket.IO events (browser)
-
-### Client to server (Socket.IO)
+Client to server:
 
 | Event | Payload | Description |
 |-------|---------|-------------|
-| `join-room` | `roomId: string` | Join a room. UUID format required. |
-| `signal` | `{ signal, target?, roomId? }` | Forward a WebRTC signal (SDP or ICE candidate) to the other peer. |
-| `ping` | callback function | Round-trip latency probe, not a keepalive. The browser sends one every 2 seconds and times the reply to drive the ping readout beside the connection dot. The server invokes the callback immediately. |
+| `join-room` | `roomId: string` | Join a room. Must be a UUID. |
+| `signal` | `{ signal, target?, roomId? }` | Forward an SDP message or ICE candidate to the other peer. `roomId` is sent but ignored; routing uses the room the server already has this peer in. |
+| `ping` | callback | A round-trip latency probe, not a keepalive. The browser sends one every 2 seconds to drive the ping readout beside the connection dot. |
 
-### Server to client (Socket.IO)
+Server to client:
 
 | Event | Payload | Description |
 |-------|---------|-------------|
-| `room-joined` | `{ role: "sender" \| "receiver" }` | Confirms room join and assigns role. |
-| `user-connected` | `peerId: string` | Notifies the sender that the receiver joined. |
-| `signal` | `{ signal, sender: peerId }` | Delivers a WebRTC signal from the other peer. |
-| `peer-disconnected` | `{}` | The other peer left the room. |
-| `room-full` | `{}` | Room already has two peers. |
+| `room-joined` | `{ role: "sender" \| "receiver" }` | Confirms the join and assigns a role. |
+| `user-connected` | `peerId: string` | The receiver arrived. Sent to the sender. |
+| `signal` | `{ signal, sender: peerId }` | A signal from the other peer. |
+| `peer-disconnected` | `{}` | The other peer left. |
+| `room-full` | `{}` | The room already holds two peers. |
 | `error` | `{ message: string }` | Server error. |
 
-## WebSocket messages (CLI and desktop, path `/ws`)
+### WebSocket messages
 
-All messages are JSON objects with a `type` field.
+Every message is a JSON object with a `type` field.
 
-### Client to server (WebSocket)
+Client to server:
 
 | `type` | Other fields | Description |
 |--------|-------------|-------------|
 | `join-room` | `roomId: string` | Join a room. |
-| `signal` | `signal, roomId: string` | Forward a WebRTC signal. |
-| `ping` | - | Server responds with `{ "type": "pong" }`. Supported, but no Floe client sends it: the CLI and the desktop app rely on WebSocket protocol-level pings instead (see below). |
+| `signal` | `signal`, `roomId: string` | Forward a signal. |
+| `ping` | - | Answered with `{"type":"pong"}`. Supported, but no Floe client sends it. |
 
-### Server to client (WebSocket)
+Server to client:
 
 | `type` | Other fields | Description |
 |--------|-------------|-------------|
 | `room-joined` | `role: "sender" \| "receiver"` | Role assignment. |
-| `user-connected` | `id: string` | Receiver joined. |
-| `signal` | `signal, sender: string` | WebRTC signal from the other peer. |
-| `peer-disconnected` | - | Other peer disconnected. |
-| `room-full` | - | Room already full. |
-| `pong` | - | Response to client `ping`. |
+| `user-connected` | `id: string` | The receiver arrived. |
+| `signal` | `signal`, `sender: string` | A signal from the other peer. |
+| `peer-disconnected` | - | The other peer left. |
+| `room-full` | - | The room already holds two peers. |
+| `pong` | - | Answer to a client `ping`. |
 | `error` | `message: string` | Server error. |
 
 The connection is kept alive below this layer. Every 30 seconds the server sends a WebSocket
@@ -116,147 +98,85 @@ protocol-level ping to each `/ws` client and terminates any that did not answer 
 The Go client answers automatically, so nothing in Floe's own message set is involved. A reverse
 proxy therefore needs an idle read timeout longer than 30 seconds, or it cuts healthy connections.
 
+## A session, end to end
+
+1. The sender generates a UUID room id. All three surfaces put it in the **fragment** of a share
+   link, and browsers never send a fragment to a server, so opening the link keeps the room id out
+   of request URLs, `Referer` headers, and analytics. The CLI and the desktop app additionally
+   register it with `POST /api/code` to get a three-word phrase; the web app has no code UI. The
+   server therefore learns the room id from that registration if there is one, and otherwise only
+   when a peer joins.
+2. The sender joins the room. The server assigns the role `sender`.
+3. The sender displays the code, link, or QR code and waits.
+4. The receiver joins the same room. The server assigns `receiver` and tells the sender someone
+   arrived.
+5. The sender creates a WebRTC offer and sends it through the server.
+6. The receiver answers.
+7. Both exchange ICE candidates as they are gathered, rather than in one batch.
+8. The data channel opens and the signaling server plays no further part.
+
 ## Rate limiting
 
 | Limit | Value | Applies to |
 |-------|-------|-----------|
-| Connection rate | 30 per IP per 60 s (configurable via `MAX_CONNECTIONS_PER_IP`) | Socket.IO connections and WebSocket `/ws` connections, shared |
-| TURN credential rate | 20 per IP per 60 s (configurable via `MAX_TURN_REQUESTS_PER_IP`) | `GET /api/turn-credentials` |
-| Code endpoint rate | 60 per IP per 60 s (configurable via `MAX_CODE_REQUESTS_PER_IP`) | `POST /api/code` and `GET /api/code/:code`, shared |
-| Active code cap | 10000 registered codes held in memory (configurable via `MAX_ACTIVE_CODES`) | `POST /api/code`. Returns `503` when the registry is full. |
-| Stats report rate | 60 per IP per 60 s | `POST /api/stats/report` |
+| Connections | 30 per IP per 60 s (`MAX_CONNECTIONS_PER_IP`) | Socket.IO and `/ws`, shared |
+| TURN credentials | 20 per IP per 60 s (`MAX_TURN_REQUESTS_PER_IP`) | `GET /api/turn-credentials` |
+| Room codes | 60 per IP per 60 s (`MAX_CODE_REQUESTS_PER_IP`) | `POST /api/code` and `GET /api/code/:code`, shared |
+| Stats reports | 60 per IP per 60 s, **not configurable** | `POST /api/stats/report` |
+| Active codes | 10000 held in memory (`MAX_ACTIVE_CODES`) | `POST /api/code`, returns `503` when full |
 
-Counters are tracked in memory (`Map<ip, timestamp[]>`) and cleaned every 60 seconds. The three HTTP limits (TURN, code, stats) respond with `429`. The connection limit is not an HTTP response: a Socket.IO handshake over the limit is rejected in the connection middleware, which the browser sees as a `connect_error`, and a WebSocket over the limit is closed with code `1008`. The active-code cap responds with `503` and applies globally, not per-IP, because it guards the size of the in-memory code registry. That cap counts stored entries rather than genuinely live ones: expired codes are swept once a minute, so the count can briefly include codes that have already expired.
+Counters live in plain `Map`s and are swept every 60 seconds. The three HTTP limiters answer
+`429`. The connection limiter is not an HTTP response: a Socket.IO handshake over the limit is
+rejected in middleware, which the browser sees as a `connect_error`, and a WebSocket over the
+limit is closed with code `1008`.
 
-## Signaling flow
+Two behaviors that surprise people. Rejected attempts are still recorded, so a client hammering
+the server keeps itself blocked for the whole window. And setting any `MAX_*` variable to `0` does
+not disable a limit; it silently restores the default.
 
-1. The sender generates a UUID room ID. All three surfaces put it in the fragment of a share link (`#room=<id>`), and browsers never send a fragment to a server, so opening the link keeps the room ID out of request URLs, `Referer` headers, and analytics. The CLI and the desktop app additionally register the room ID with `POST /api/code` to get a short phrase; the web app has no code UI. The signaling server learns the room ID from that code registration, if there is one, and otherwise only when a peer joins in the next step.
-2. Sender joins the room via `join-room`. Server assigns role `sender`.
-3. Sender shows the code, link, or QR code and waits.
-4. Receiver joins the same room via `join-room`. Server assigns role `receiver` and emits `user-connected` to the sender.
-5. Sender creates a WebRTC offer and sends it via `signal`.
-6. Receiver receives the offer, creates an answer, and sends it back via `signal`.
-7. Both peers exchange ICE candidates via `signal` (trickle ICE).
-8. WebRTC data channel opens. Signaling server plays no further part.
-
-## Data-channel transfer protocol
-
-Once the WebRTC data channel is open, the sender runs the following sequence for each file. The browser, the CLI, and the desktop app use the same protocol and are fully interoperable in every direction. The CLI and the desktop app share one implementation (`cli/engine/transfer`).
-
-### Message types
-
-**Metadata (JSON, sender to receiver)**
-
-```json Metadata
-{
-  "type": "metadata",
-  "id": "<uuid>",
-  "fileName": "photo.jpg",
-  "fileSize": 6291456,
-  "index": 1,
-  "total": 3,
-  "totalBytes": 11800000,
-  "pv": 1,
-  "pvMin": 1,
-  "ver": "1.10.4"
-}
-```
-
-`pv` and `pvMin` carry the protocol version range and are always present; `ver` is the release string (see [Protocol versioning](#protocol-versioning)). All three were added in v1.6.0 and are absent on older peers, which are treated as protocol version 1. `ver` is populated by Go peers (the CLI and the desktop app) and omitted by browser peers.
-
-**Ack (JSON, receiver to sender)**
-
-```json Ack
-{
-  "type": "ack",
-  "id": "<uuid>",
-  "offset": 0,
-  "pv": 1,
-  "pvMin": 1,
-  "ver": "1.10.4"
-}
-```
-
-`offset` is reserved for mid-file resume. Both senders honor a non-zero value and seek to it, but no receiver in any current client emits one: there is no resume state on disk or across connections, so in practice it is always 0. The ack carries the receiver's own `pv` and `pvMin` so the sender can verify compatibility from its side, plus `ver` when the receiver is a Go peer.
-
-**Binary chunks (raw bytes)**
-
-Both the Go engine (CLI and desktop) and the browser size chunks adaptively to the connection's negotiated maximum message size, capped at 256 KB. When that size is unavailable they fall back to different defaults: 16 KB in the Go engine, 64 KB in the browser. Chunk size is a local sender choice, not part of the wire protocol; receivers handle any size.
-
-**End marker (JSON, sender to receiver)**
-
-```json End marker
-{ "type": "end" }
-```
-
-**Received confirmation (JSON, receiver to sender)**
-
-After all files are complete, a Go receiver (the CLI or the desktop app) sends:
-
-```json Received
-{ "type": "received" }
-```
-
-This lets a Go sender exit cleanly instead of polling the SCTP buffer. Browser receivers never send it, and the browser sender ignores it even when a Go receiver does: it always waits for the data channel buffer to drain to zero instead.
-
-**Incompatible (JSON, receiver to sender)**
-
-Sent in place of the ack when the two peers' protocol version ranges do not overlap (see [Protocol versioning](#protocol-versioning)). It carries a human-readable `reason` plus the receiver's own version range, and `ver` when the receiver knows its release string. As with metadata and acks, Go receivers populate `ver` and browser receivers omit it.
-
-```json Incompatible
-{
-  "type": "incompatible",
-  "reason": "Cannot transfer: your floe is too old for this peer. ...",
-  "pv": 1,
-  "pvMin": 1,
-  "ver": "desktop-v0.2.7"
-}
-```
-
-The receiver sends this and aborts before creating any file, so the sender fails fast with a clear message instead of waiting for an ack that never arrives. Older senders that predate this message type ignore it safely.
-
-### Protocol versioning
-
-The transfer protocol carries its own version, independent of the Floe release version (the 1.x line). This lets peers on different releases interoperate, while still detecting a genuine breaking wire-format change cleanly.
-
-- Each peer advertises `pv` (the highest protocol version it speaks) and `pvMin` (the lowest it still supports) in its metadata and ack. Both are 1 today.
-- Two peers are compatible when their ranges overlap: `max(localMin, remoteMin) <= min(localMax, remoteMax)`. They operate at the highest common version.
-- A peer that omits the fields (any release before v1.6.0) is treated as protocol version 1, so all existing peers stay compatible.
-- When the ranges do not overlap, the receiver sends an `incompatible` message and each side prints an actionable message with a remedy for its own surface: the CLI says run `floe update`, the desktop app points at the Microsoft Store or floe.one/download, and the browser says refresh the page. The newer peer is told to ask the other side to update.
-- Which side you should trust depends on who is sending. Go peers do not read the wire `reason` at face value: they rebuild the message locally from the frame's `pv`/`pvMin`, so the side they name is always correct. A Go receiver also words the `reason` it puts on the wire from the *recipient's* point of view for the benefit of peers that display it verbatim. A browser receiver does not do that second step. It sends the same sentence it shows itself, so a browser receiver can tell a CLI sender to "refresh the page". Go senders are unaffected because they rebuild; when the message looks wrong for your surface, compare the two version strings it prints and update the older one.
-- `ver` is the human release string, and its exact shape depends on which build sent it. The CLI sends its version with no leading `v` (`1.10.4`), because GoReleaser strips it at build time. The desktop app sends the tag verbatim (`desktop-v0.2.7`). Anything built from source sends the literal `dev`. It is optional: Go peers always send it, browser peers never do. It is informational only, used for the peer-version note the CLI prints when the two releases differ, and it never gates a transfer.
-
-The constants live in `cli/engine/transfer/protocol.go` (`ProtocolVersion`, `MinProtocolVersion`) and `client/lib/transfer/protocol.ts` (`PROTOCOL_VERSION`, `MIN_PROTOCOL_VERSION`). Bump `ProtocolVersion` only on a breaking wire change; raise `MinProtocolVersion` only when deliberately dropping support for an old wire format.
-
-### Backpressure
-
-The sender pauses when the SCTP send buffer reaches the high-water mark (8 MB) and resumes when it drains below the low-water mark (4 MB). This prevents buffer overflow on large or slow transfers.
-
-### Multi-file transfers
-
-The four-step sequence (metadata, ack, binary chunks, end) repeats for each file in order. The receiver processes files sequentially.
+The active-code cap is global rather than per-IP, because it guards the size of the in-memory
+registry. It counts stored entries rather than genuinely live ones, so the number can briefly
+include codes that have already expired but that the once-a-minute sweeper has not cleared.
 
 ## Room codes
 
-Codes are three random words joined by hyphens (e.g. `olive-tiger-castle`), sampled from a 288-word corpus in `server/words.json` using `crypto.randomInt` (a CSPRNG, bias-free), since the code phrase is the only secret guarding a transfer. On collision the server simply draws a new phrase, up to 10 times; only if all 10 draws collide does it fall back to a four-word phrase. An expired code counts as free. Codes expire 10 minutes after registration. The number of registered codes held in memory is capped by `MAX_ACTIVE_CODES` (default 10000); `POST /api/code` returns `503` when the cap is reached. Expired codes are swept once a minute, so that count can briefly include codes that have already expired.
+Three random words joined by hyphens, drawn from a 288-word list in `server/words.json` using
+`crypto.randomInt`, a cryptographically secure source rather than `Math.random`. That matters
+because the phrase is the only secret guarding the transfer.
+
+On a collision with a code that is still live, the server draws again, up to ten times, and only
+if all ten collide does it fall back to a four-word phrase. An expired code counts as free. Codes
+expire ten minutes after registration, and resolving one does not delete it.
 
 ## Global statistics counter
 
-The homepage shows a public, all-time counter of total bytes transferred across every Floe user. Because file data never reaches the server, the counter is fed out-of-band: after a transfer completes, the **receiver** reports the number of bytes it received via `POST /api/stats/report`. Only the receiver reports (the browser, CLI, and desktop receivers), so each transfer is counted exactly once. The sender never reports, and the data-channel protocol is unchanged.
+The homepage shows a public, all-time total of bytes transferred by everyone. Because file data
+never reaches the server, the counter is fed out of band: after a transfer completes the
+**receiver** reports the number of bytes it received. Only the receiver reports, so each transfer
+is counted once, and the data-channel protocol is unchanged.
 
-The global total is **viewable only in the browser** (`GlobalStats.tsx` on the homepage, polling `GET /api/stats` every 10 seconds). The CLI and desktop receivers contribute to the counter but never fetch or display it.
+The total is **viewable only in the browser**. The CLI and desktop receivers contribute to it and
+never fetch or display it.
 
-The server keeps the running total in two places:
+The server keeps the running total in two places. An in-memory value answers every read, so
+homepage polling never touches Redis. Each accepted report additionally fires an atomic increment
+against Upstash Redis over its REST API, and the in-memory value is seeded from that key on
+startup, so the total survives restarts. Without Redis configured the counter is memory-only and
+resets to zero on restart.
 
-- **In-memory cache (`cachedTotal`).** Every `GET /api/stats` is answered from this value, so homepage polling never incurs a Redis read.
-- **Upstash Redis (durable).** Each accepted report fires an atomic `INCRBY floe:bytes_total` over the Upstash REST API. On startup the server seeds `cachedTotal` from this key, so the total survives restarts and redeploys.
+Guardrails are deliberately light: a per-IP rate limit and a per-report size cap. The figure is an
+honest best-effort metric rather than an audited count, and the stored value is a single anonymous
+integer with no file names, no per-transfer rows, and no link to any user or IP. Every receiving
+surface can opt out, and the opt-out happens on the client before any request is made; the server
+has no role in it.
 
-If `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` are not configured, the counter runs in memory only and resets to 0 on restart. The endpoint never blocks a transfer: reports are fire-and-forget on the client, and a Redis write failure is swallowed rather than surfaced.
+## Where the details are
 
-Guardrails are deliberately lightweight. A per-IP rate limit (60 reports per 60 s) and a per-report cap (`MAX_REPORT_BYTES`, default 5 TB) reject abuse and implausible values, but the figure is an honest best-effort metric, not a tamper-proof audited count. The stored value is a single anonymous integer: it carries no file names, no per-transfer records, and no link to any user or IP.
-
-**Opt-out:** All three receiving surfaces support opting out of the byte-count report. The opt-out is enforced on the receiver side before the HTTP request is made; the server has no role in it.
-
-- Browser: a "Contribute to global stats" toggle on the receiver view, persisted in `localStorage['floe:report-stats']`. When unchecked, the `fetch` to `/api/stats/report` and the optimistic `floe:bytes-reported` event are both skipped.
-- CLI: `--no-report` flag on `floe receive`, or `FLOE_NO_STATS=1` environment variable. Both gate the report by passing an empty `statsURL` into `ReceiveFiles`, which hits the existing `if serverURL == "" { return }` guard in `reportBytesToServer`.
-- Desktop: a "Contribute to global stats" toggle in [Settings](/desktop/settings), persisted to the desktop config file (with a one-time import from the older `localStorage['floe:report-stats']` value). When it is off, the app passes an empty `statsURL` into the shared engine receiver and hits the same guard as the CLI.
+<Columns cols={2}>
+  <Card title="HTTP API" icon="webhook" href="/reference/http-api">
+    Every endpoint, with request and response shapes, status codes, and the CORS rules.
+  </Card>
+  <Card title="Transfer protocol" icon="arrow-right-left" href="/reference/transfer-protocol">
+    The data-channel wire format, protocol versioning, flow control, and every timeout.
+  </Card>
+</Columns>

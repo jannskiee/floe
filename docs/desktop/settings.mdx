@@ -133,14 +133,12 @@ To use your own instance, put its address in **Server address**. Leave the field
 back to Floe's server, or use the **Use default server** button that appears once a custom
 address is set.
 
-<Warning>
-  **Both people must be on the same server.** Servers do not talk to each other. Once you point
-  Floe at your own instance, you can no longer transfer with someone on floe.one, and they
-  cannot reach you. That is the point of self-hosting, but it does surprise people.
+**Both people must be on the same server.** Servers do not talk to each other. Once you point
+Floe at your own instance, you can no longer transfer with someone on floe.one, and they
+cannot reach you. That is the point of self-hosting, but it does surprise people.
 
-  Being on the same server is not enough on its own to reach you: whoever wants to receive still
-  needs the room code or link, which only exists while you are sharing.
-</Warning>
+Being on the same server is not enough on its own to reach you: whoever wants to receive still
+needs the room code or link, which only exists while you are sharing.
 
 Click **Test** to check an address before relying on it. The check runs three stages, because
 each one catches a failure the others cannot:
@@ -256,12 +254,10 @@ defaults. Once written, it looks like this:
 Empty address fields mean "use Floe's defaults", so a fresh install and a cleared field behave
 identically. The file is written atomically, so an interrupted write cannot corrupt it.
 
-<Warning>
-  Edit it only while Floe is closed. The app rewrites the whole record whenever any setting
-  changes, so an edit made while it is running is overwritten. Leave `migrated` set to `true`:
-  without it Floe treats the older privacy switches as never having been set and re-imports them
-  from its older storage, discarding whatever you wrote.
-</Warning>
+Edit it only while Floe is closed. The app rewrites the whole record whenever any setting
+changes, so an edit made while it is running is overwritten. Leave `migrated` set to `true`:
+without it Floe treats the older privacy switches as never having been set and re-imports them
+from its older storage, discarding whatever you wrote.
 
 Both the Microsoft Store build and the GitHub build use this same file, and the `floe` CLI keeps
 its own files in that same `floe` folder, so the two coexist. The file survives an uninstall on
