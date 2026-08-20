@@ -2,37 +2,99 @@
 title: "File size limits and the 2 GB relay cap"
 sidebarTitle: "File size limits"
 description: "Direct Floe transfers have no size limit. Relayed ones are capped at 2 GB per session. What decides which you get, and how to stay on the unlimited path."
-keywords: ["file size limit", "maximum file size", "2 GB", "relay cap", "how big a file"]
+keywords: ["file size limit", "maximum file size", "2 GB", "relay cap", "how big a file", "large files"]
 boost: 2
 ---
 
-When your files go through the Floe TURN relay server, every byte of data passes through the infrastructure. That costs real money in server bandwidth. Direct connections cost nothing because files travel entirely between the two devices.
+**A direct transfer has no size limit.** Floe does not cap it, because the file never touches
+anything Floe pays for. Most transfers are direct.
 
-To keep Floe free and running for everyone, relay transfers are capped at **2 GB per session**. This limit applies only to relay connections. Direct connections have no limit.
+**A relayed transfer is capped at 2 GB per session.** When a network blocks the direct path, the
+file goes through a relay instead, and relay bandwidth costs real money. The cap is what keeps
+Floe free.
 
-<Note>
-  In the desktop app, turning on [Hide my IP address](/desktop/settings#hide-my-ip-address) forces every transfer through the relay so the other peer never sees your address. The 2 GB cap therefore always applies while it is on. Turn it off to send larger files.
-</Note>
+So the practical answer to "how big a file can I send" is: as big as you like, as long as the two
+devices can reach each other directly. See
+[Direct connections](/how-it-works/direct-connection) for what decides that.
 
-## How to get a direct connection
+## How to stay on the unlimited path
 
-These steps increase the likelihood of a direct connection, which has no size limit:
+These improve your odds of a direct connection:
 
-- Use a standard home or personal Wi-Fi network.
+- Use a normal home or personal Wi-Fi network.
 - Disconnect from any VPN.
-- Avoid transferring from strict corporate or university networks.
-- Try using a personal mobile hotspot if you are on a restricted network.
+- Avoid strict corporate and university networks.
+- Try a personal mobile hotspot when you cannot avoid one.
 
-If both peers are on typical consumer networks, a direct connection will almost always succeed.
+Two devices on ordinary consumer networks almost always connect directly, even on different
+networks and even on mobile data.
 
 ## What counts as one session
 
-A session is one sender and one receiver: a room holds exactly two peers, so a share link cannot be opened by two recipients at once.
+A session is one sender and one receiver. The room holds exactly two people, so a link cannot be
+opened by two recipients and there is no way for a session to accumulate.
 
-The limit is checked once, before any file data moves. When the connection turns out to run through the relay, Floe compares the total size of everything you queued against 2 GB and either allows the whole transfer or refuses it. It is not a running meter that stops you partway, so a 3 GB batch over a relay is declined up front rather than truncated at 2 GB.
+The check happens **once, before any file data moves**. When the connection turns out to be
+relayed, Floe compares the total size of everything you queued against 2 GB and either allows the
+whole transfer or refuses it. It is not a meter that stops you partway, so a 3 GB batch over a
+relay is declined up front rather than truncated at 2 GB.
 
-Starting a new transfer runs the check again from scratch, so splitting a large batch into transfers of under 2 GB each works. Intentionally cycling sessions to work around the cap goes against the spirit of the free service.
+Exactly 2 GB is allowed. Only more than that is refused.
 
-<Accordion title="Technical details">
-  The 2 GB cap is enforced by the Floe apps themselves: the web app, the desktop app, and the CLI all apply the same rule. Once the connection is established, the sender checks the selected route: if it runs through the TURN relay and the queued files total more than 2 GB, the transfer is blocked before any file data moves and an error is displayed. The comparison is strictly greater than the limit, so a payload of exactly 2 GB is allowed. The limit applies per sender session, not per file, and it is sender-side local policy: the receiver runs no size check of its own. Direct connections bypass this check entirely, as no relay bandwidth is consumed. If the route cannot be determined, the sender allows the transfer rather than blocking a legitimate one.
+Starting a new transfer runs the check again from scratch, so splitting a large batch into pieces
+under the cap works. Deliberately cycling sessions to get around the cap goes against the spirit
+of a free service.
+
+## What you see when it stops you
+
+**In the browser**, the status line reads `Transfer blocked. Relay limit exceeded.` and nothing is
+sent.
+
+**In the CLI**, the send fails with `relay connections are capped at 2 GB`, naming the total you
+selected.
+
+**In Floe Desktop**, the same message, plus `Turn off Hide my IP to send larger files` when that
+setting is what forced the relay.
+
+## One case that catches people out
+
+Floe Desktop's [Hide my IP address](/desktop/settings#hide-my-ip-address) setting routes every
+transfer through the relay on purpose, so the other person never sees your address. While it is
+on, **the 2 GB cap applies to every transfer**, even on a network that could easily have connected
+directly. Turn it off to send more.
+
+You never need to turn relay fallback off to send something large. The cap applies only when the
+connection actually ends up relayed, so leaving fallback on costs a direct transfer nothing and
+saves the transfer that would otherwise have failed.
+
+## Two other limits, which are not Floe's
+
+A **browser receiver** keeps each incoming file in memory until that file is complete, then hands
+it to the browser as a download. A large enough file exhausts the tab, and on a phone that happens
+sooner. Floe Desktop and the CLI write straight to disk and have no such ceiling, which makes them
+the better choice for anything multi-gigabyte. **Download ZIP** compounds it, because zipping
+holds every file at once.
+
+Your **disk** is the other one. Nothing checks that the receiving device has room before the
+transfer starts.
+
+<Accordion title="How the cap is enforced">
+  The 2 GB cap is local policy on the sending side, applied identically by the web app, the
+  desktop app, and the CLI. It is not part of the wire protocol and the receiver runs no size
+  check of its own.
+
+  Once the connection is established, the sender inspects the network path that actually won. If
+  it runs through a relay and the queued files total more than the limit, the transfer is blocked
+  before any file data moves. The comparison is strictly greater than, so a payload of exactly
+  2 GB passes. Direct connections skip the check entirely.
+
+  **If the route cannot be determined, the sender allows the transfer** rather than blocking a
+  legitimate one. That is deliberate: a probe hiccup should never stop a transfer that would have
+  worked. The consequence is that a relayed transfer over 2 GB can still start and then fail
+  partway, in the rare case where Floe could not tell it was relayed.
+
+  The limit lives in `RELAY_SIZE_LIMIT` in `client/lib/relay.ts` and `RelaySizeLimit` in
+  `cli/engine/transfer/relay.go`. It is compiled into all three clients rather than served by the
+  signaling server, so raising it on a self-hosted instance means building the clients from
+  modified source. See [TURN relay](/self-hosting/turn-relay).
 </Accordion>

@@ -8,10 +8,8 @@ Floe Desktop is the same peer-to-peer transfer as [floe.one](https://floe.one), 
 native Windows app. It uses the same transfer engine as the `floe` CLI, so it sends to and
 receives from browser peers and CLI peers without any extra setup.
 
-<Note>
-  Floe Desktop is in beta and Windows only. macOS and Linux are planned. On other platforms,
-  use the [web app](/web-app/sending) or the [CLI](/cli/installation).
-</Note>
+It is **in beta and Windows only**. macOS and Linux are planned. On anything else, use the
+[web app](/web-app/sending) or the [CLI](/cli/installation).
 
 ## Requirements
 
@@ -24,16 +22,14 @@ receives from browser peers and CLI peers without any extra setup.
   the vast majority of Windows 10 machines already have it. You do not normally need to do
   anything about it.
 
-<Note>
-  If it is missing, Floe asks to download and install it when you start the app, then carries on
-  once that finishes. Decline, and Floe closes and asks again the next time you start it. The
-  installer from GitHub also installs it during setup.
+If the runtime is missing, Floe offers to download and install it when you start the app, then
+carries on once that finishes. Decline, and Floe closes and asks again next time. The installer
+from GitHub also installs it during setup.
 
-  One case needs care. If the machine cannot reach Microsoft's download at that moment, because
-  it is offline or behind a filtering proxy, the runtime cannot install and Floe cannot start.
-  Install [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) yourself, then
-  start Floe again.
-</Note>
+One case needs care. If the machine cannot reach Microsoft's download at that moment, because it
+is offline or behind a filtering proxy, the runtime cannot install and Floe cannot start. Install
+[WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) yourself, then start Floe
+again.
 
 ## Choose a channel
 
@@ -118,11 +114,9 @@ including in a bug report.
 | Microsoft Store | Automatic. The Store updates the app in the background. To force a check, open the Store, go to **Library**, then **Get updates**. |
 | GitHub release | Manual, with a built-in notice. Builds 0.2.3 and later ask GitHub once a day whether a newer release exists and show a dismissible notice when one does; earlier builds do not, so check the download page yourself. Nothing installs by itself: download the new installer and run it over your existing install, or unzip a new portable build. The daily check can be turned off in [Settings](/desktop/settings#check-for-updates). |
 
-<Note>
-  Desktop builds are published as GitHub pre-releases, so they never appear under **Latest
-  release** on the releases page. Watch [floe.one/download](https://floe.one/download) or the
-  [full release list](https://github.com/jannskiee/floe/releases) instead.
-</Note>
+Desktop builds are published as GitHub pre-releases, so they never appear under **Latest
+release** on the releases page. Watch [floe.one/download](https://floe.one/download) or the
+[full release list](https://github.com/jannskiee/floe/releases) instead.
 
 Desktop releases carry their own `desktop-vX.Y.Z` version numbers, separate from the `vX.Y.Z`
 tags that release the CLI and the server. The two lines never need to match, and you never need

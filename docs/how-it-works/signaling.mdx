@@ -1,61 +1,75 @@
 ---
-title: "How Floe Signaling Works"
-sidebarTitle: "Signaling"
-description: "How the Floe signaling server brokers the initial WebRTC handshake between sender and receiver without ever seeing the files being transferred."
+title: "How a Floe transfer works"
+sidebarTitle: "How a transfer works"
+description: "Floe's server introduces two devices to each other and then gets out of the way. What it does during those few seconds, and what it never does at any point."
+keywords: ["how it works", "signaling", "webrtc", "peer to peer", "does floe store files"]
 ---
 
-When you create a transfer in Floe, your device generates a unique room ID and joins that room on the signaling server. The sender shares a code or link. When the recipient joins the same room, the two devices introduce themselves through the server and exchange the information they need to connect to each other. Once that handshake is complete, the server steps aside.
+Floe never moves your file. It introduces two devices, they build a connection between
+themselves, and the file crosses that connection directly. The server's whole job lasts a few
+seconds at the start.
 
-The signaling server never touches file data, never stores your files or any record of what you send, and carries no file data once the WebRTC connection is established. The only thing it keeps is a single anonymous running total of bytes transferred, used for the public counter on the homepage (see below).
+That is the entire idea. The rest of this page is what those few seconds consist of.
 
-## Connection lifecycle
+## Step by step
 
-1. You create a transfer and share the link or short code with the recipient.
-2. Both devices join the same room on the signaling server.
-3. The server assigns roles: the first peer to join is the **sender**, the second is the **receiver**.
-4. Peers exchange a WebRTC offer, answer, and ICE candidates through the server.
-5. Once a usable network path is found, the data channel opens between the two devices. On most networks that path is direct. When a strict firewall or carrier-grade NAT blocks a direct path, the channel runs through a [TURN relay](/how-it-works/relay-connection) instead.
-6. The signaling server drops out of the transfer path. Every byte of file data flows over the data channel and never returns to the server. The only later contact about the transfer itself is optional: the receiver can report the transfer's byte count for the public counter, and that can be turned off.
+```mermaid
+flowchart LR
+    S["Your device"] -- "1 join a room" --> SV[("Signaling server")]
+    R["Their device"] -- "2 join the same room" --> SV
+    SV -- "3 pass along offer, answer, addresses" --> S
+    SV -- "3 pass along offer, answer, addresses" --> R
+    S == "4 the file, encrypted, straight across" ==> R
+```
 
-## What the signaling server does
+1. **You create a transfer.** Your device makes up a random room id and joins that room. You share
+   a link containing it, or a three-word code that maps to it.
+2. **They join the same room.** The server now has two devices in one room and tells the first one
+   that someone arrived.
+3. **The two devices introduce themselves.** They pass an offer, an answer, and a list of network
+   addresses through the server, each trying to find a path to the other.
+4. **The connection opens and the server drops out.** Every byte of the file travels over that
+   connection. None of it goes back through the server.
 
-- Assigns roles: the first peer to join a room becomes the **sender**, the second becomes the **receiver**. A room holds exactly two peers, so a third device trying to join is turned away with `room-full`. A share link cannot be opened by two recipients at once.
-- Relays WebRTC negotiation messages: the initial offer, the answer, and ICE candidates.
-- Issues short-lived TURN credentials when a TURN server is configured.
-- Registers short human-readable codes (e.g. `olive-tiger-castle`) that map to room IDs.
-- Adds the size of each completed transfer to one anonymous global byte total, for the public homepage counter.
+On most networks the path found in step 3 is direct, device to device. When a firewall or a
+carrier's network makes that impossible, the connection runs through an encrypted relay instead.
+See [Direct connections](/how-it-works/direct-connection) and
+[Relay fallback](/how-it-works/relay-connection).
 
-## What the signaling server never does
+## What the server does
 
-- Handle file data of any kind.
-- Store files, file names, transfer content, or logs of what you send or receive.
-- Link the byte total to you. The counter is a single shared number with no per-user or per-transfer records.
-- Retain peer information after the session ends. The room entry is dropped as soon as both peers disconnect. A short code stays resolvable until its 10-minute TTL expires, but it maps to nothing except a random room UUID.
+- Puts two devices in a room and assigns roles. The first to join sends, the second receives.
+- Passes the connection-setup messages between them.
+- Hands out short-lived credentials for the relay, when one is configured.
+- Turns a room id into a three-word code, when the sender asks for one, and back again for ten
+  minutes.
+- Adds the size of a finished transfer to one public running total, if the receiving side is
+  willing. That is a single shared number, and every client can switch it off. See
+  [Security and privacy](/security-privacy#aggregate-statistics).
 
-<Accordion title="Technical details">
-  **Transports:** Browser clients connect via Socket.IO. The CLI and the [desktop app](/desktop/installation) connect via WebSocket at `/ws`, using the same signaling client. All of them share a single in-memory `rooms` registry (`Map<roomId, [peer, peer]>`), so any surface can transfer to any other: browser to CLI, browser to desktop, CLI to desktop.
+## What the server never does
 
-  **WebRTC negotiation flow:**
-  1. Sender joins the room (`join-room` event) and receives the `sender` role.
-  2. When the receiver joins, the server emits `user-connected` to the sender.
-  3. Sender creates an SDP offer and sends it via the `signal` event.
-  4. Receiver sets the remote description, creates an SDP answer, and sends it back.
-  5. Both peers exchange ICE candidates via `signal` events (trickle ICE).
-  6. Once ICE negotiation completes, the WebRTC data channel opens over the nominated candidate pair, either directly between the peers or through a TURN relay.
+- Touch file data. Not in transit, not at rest, not in any form.
+- Store file names, contents, or a record of what you sent or to whom.
+- Keep peer information after the session. The room is dropped as soon as both sides are gone. A
+  short code outlives it by up to ten minutes, and even then it maps to nothing but a random id.
+- Connect the byte total to you. It is one number with no per-user or per-transfer rows behind it.
 
-  **Short codes:** Registered via `POST /api/code` with a room UUID. The server picks three random words from a 288-word list using a cryptographically secure random source (`crypto.randomInt`, not `Math.random`), because the code phrase is the only secret guarding a transfer, and maps them to the room ID with a 10-minute TTL. If a generated phrase collides with a code that is still live, the server retries, and in the very unlikely event that ten attempts all collide it issues a four-word phrase instead. `GET /api/code/:code` resolves a code back to its room UUID.
+## A room holds exactly two people
 
-  **TURN credentials:** Issued via `GET /api/turn-credentials`. On floe.one the server mints short-lived credentials (up to 24 hours) from Cloudflare's Realtime TURN service. Self-hosted instances can instead use coturn with HMAC-SHA1 credentials, which requires both `TURN_SECRET` and `TURN_DOMAIN` to be set (setting only one falls through to STUN with no error), or skip TURN entirely, in which case the endpoint returns public STUN servers only.
+The room is the transfer. It takes one sender and one receiver, and a third device trying to join
+is turned away. That is why a link or a code is spent once someone opens it, and why a second
+person opening the same link sees an error rather than joining in.
 
-  **Rate limiting:** 30 connections per IP per 60 seconds for Socket.IO and WebSocket; 20 requests per IP per 60 seconds for the TURN credential endpoint; 60 requests per IP per 60 seconds shared across `POST /api/code` and `GET /api/code/:code`; 60 reports per IP per 60 seconds for the stats endpoint. The signaling server also caps the number of registered room codes held in memory (10000 by default), a count that includes expired codes the 60-second sweeper has not cleared yet; `POST /api/code` returns `503` when that cap is hit.
+For a second recipient, start a second transfer.
 
-  **Global stats counter:** After a transfer completes, the receiver sends `POST /api/stats/report` with just the byte count. The sender never reports. The server keeps a single anonymous running total (cached in memory, optionally persisted to Upstash Redis) and serves it from `GET /api/stats` for the homepage counter. No file names, contents, or per-transfer records are stored. The total is displayed only in the browser; the CLI and desktop receivers contribute without ever showing it. Every receiver can opt out: the browser has a "Contribute to global stats" toggle, the CLI takes `--no-report` or `FLOE_NO_STATS=1`, and the desktop app has a [Contribute to global stats](/desktop/settings#contribute-to-global-stats) setting that is remembered between runs. When a receiver opts out, no report is sent at all. See the [architecture reference](/reference/architecture#global-statistics-counter) for details.
+## Where to go deeper
 
-  **Data-channel transfer protocol:** Once the WebRTC data channel opens, the sender runs this sequence for each file:
-  1. Sends a JSON `metadata` message with a per-file id, the filename, the size in bytes, the file's index and total count in the batch, the batch's total byte count, and the sender's protocol version range and release string.
-  2. Waits for the receiver to reply with a JSON `ack` message. The ack carries a byte offset, so a transfer can resume mid-file, plus the receiver's own protocol version range. If the two ranges do not overlap, the receiver sends an `incompatible` message instead of an ack, and both sides stop before any file bytes move with a prompt to update or refresh.
-  3. Streams the file as binary chunks until the whole file is sent. Every sender (the browser, and the shared Go engine behind the CLI and the desktop app) sizes chunks adaptively to what the connection negotiates, up to 256 KB, and applies backpressure-based flow control, pausing when the data channel's send buffer fills.
-  4. Sends a JSON `end` message to signal completion.
-
-  For multi-file transfers, this sequence repeats for each file in order. Once everything is written and verified, a CLI or desktop receiver sends one final `received` message so its sender knows delivery is confirmed and can close cleanly. Browser receivers never send it.
-</Accordion>
+<Columns cols={2}>
+  <Card title="HTTP API" icon="webhook" href="/reference/http-api">
+    The endpoints behind room codes, relay credentials, and the byte counter.
+  </Card>
+  <Card title="Transfer protocol" icon="arrow-right-left" href="/reference/transfer-protocol">
+    What the two devices say to each other once the connection is open.
+  </Card>
+</Columns>

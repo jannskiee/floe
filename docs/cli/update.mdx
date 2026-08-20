@@ -21,15 +21,12 @@ Detection is a substring match for `homebrew`, `cellar`, `linuxbrew`, `scoop`, o
 anywhere in the binary's path, so a script install that happens to live under a directory
 containing one of those words is treated as package-managed too.
 
-<Note>
-  This page covers the `floe` command-line tool. Floe Desktop updates on its own track: the
-  Microsoft Store build updates itself, while the GitHub `.exe` and `.zip` builds (0.2.3 and
-  later) show a daily update notice but never install anything, so you download and run the
-  current build again. `floe update` never touches the desktop app, and desktop builds ship on
-  their own `desktop-v*` tags as GitHub pre-releases, so they are never picked up by
-  `floe update` or the install scripts. See
-  [Update Floe Desktop](/desktop/installation#update).
-</Note>
+This page is about the `floe` command-line tool only. Floe Desktop updates on its own track: the
+Microsoft Store build updates itself, and the GitHub `.exe` and `.zip` builds (0.2.3 and later)
+show a daily notice but never install anything, so you download and run the current build again.
+`floe update` never touches the desktop app. Desktop builds ship on their own `desktop-v*` tags as
+GitHub pre-releases, so neither `floe update` nor the install scripts ever pick them up. See
+[Update Floe Desktop](/desktop/installation#update).
 
 ## Script and manual installs
 

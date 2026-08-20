@@ -1,0 +1,11 @@
+Every receiving surface can turn the report off, and turning it off means no request is made at
+all rather than a request the server ignores.
+
+- **Browser:** uncheck **Contribute to global stats** on the receiver view before the first file
+  lands. The choice is saved in that browser and applies to every later transfer from it.
+- **Floe Desktop:** turn off **Contribute to global stats** in
+  [Settings](/desktop/settings#contribute-to-global-stats). It is saved with your other settings.
+- **CLI:** pass `--no-report` to `floe receive` for one transfer, or set `FLOE_NO_STATS=1` in your
+  environment to opt out for good.
+
+The sender never reports on any surface, so this only ever concerns transfers you receive.

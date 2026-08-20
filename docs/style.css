@@ -618,3 +618,80 @@ html:not(.dark) #content-area a.link {
 .dark #changelog-filters button.rounded-full:not(.bg-primary):not(.font-medium):hover {
   background-color: rgb(255 255 255 / 0.12);
 }
+
+/* Sidebar hover, black or white by mode (user call, 2026-08-20).
+
+   Three separate utilities decide what the sidebar does on hover, and none of
+   them lands on a plain foreground colour:
+
+     - page links are `hover:text-gray-900 dark:hover:text-gray-300`
+     - the shortcut anchors' labels are the same pair
+     - the anchor ICONS are `group-hover:bg-white dark:group-hover:bg-white`
+
+   That last one is a real defect rather than a taste question. The icon is a
+   CSS mask, so background-color is its colour, and Mintlify sets it to white in
+   BOTH modes. On the light sidebar the icon therefore turns white on white and
+   disappears at exactly the moment the pointer is on it. Verified on the
+   rendered DOM, 2026-08-20.
+
+   Everything here resolves to the same near-black and white this file uses for
+   every other selected or hovered state, so the sidebar has one hover colour
+   rather than four near-misses. No !important is needed: an id plus a class
+   plus a pseudo-class outranks a single utility, and this sheet is unlayered so
+   it wins over the layered utility regardless.
+
+   The row's background wash on hover (`hover:bg-gray-600/5`) is deliberately
+   left alone. It is neutral already, and it is what makes the hover target
+   legible without colouring the text twice. */
+#sidebar a:hover,
+#sidebar a:hover span,
+#sidebar a.nav-anchor:hover {
+  color: rgb(17 17 17);
+}
+
+.dark #sidebar a:hover,
+.dark #sidebar a:hover span,
+.dark #sidebar a.nav-anchor:hover {
+  color: rgb(255 255 255);
+}
+
+/* The shortcut icons: chip and glyph, black or white by mode.
+
+   The icon is drawn as a small rounded chip with a masked glyph inside it, and
+   on hover Mintlify paints the CHIP with the accent. Measured on the rendered
+   page, 2026-08-20, both modes:
+
+     chip at rest   transparent (light) / rgb(12,13,15) (dark)
+     chip on hover  rgb(0,163,201) in BOTH modes
+     glyph on hover white in BOTH modes
+
+   Two things are wrong with that. The accent chip is the one loud colour left
+   in a sidebar that is otherwise strictly neutral, and the glyph is hard-coded
+   white for a chip that is about to stop being dark.
+
+   So the pair is inverted instead, the same way this file already treats
+   tooltips: a black chip with a white glyph on the light page, a white chip
+   with a black glyph on the dark one. Both halves have to move together, or the
+   glyph disappears into its own chip.
+
+   Specificity is deliberate. The accent declaration is important and carries an
+   id, so plain `#sidebar a:hover svg` with !important still loses; escalating a
+   test rule against the live page showed the boundary sits between (1,1,4) and
+   (1,2,5). `[class]` buys a class-level unit without hard-coding a DOM shape
+   Mintlify is free to change, and `:has(> svg)` keeps this off any other div
+   that might appear inside a sidebar link. */
+#sidebar a:hover div[class]:has(> svg) {
+  background-color: rgb(17 17 17) !important;
+}
+
+#sidebar a:hover svg[class] {
+  background-color: rgb(255 255 255) !important;
+}
+
+.dark #sidebar a:hover div[class]:has(> svg) {
+  background-color: rgb(255 255 255) !important;
+}
+
+.dark #sidebar a:hover svg[class] {
+  background-color: rgb(17 17 17) !important;
+}

@@ -1,34 +1,72 @@
 ---
-title: "Direct Peer-to-Peer Connection"
-sidebarTitle: "Direct connection"
-description: "How Floe uses STUN and ICE to open a direct WebRTC data channel between two peers so files transfer without ever touching a server."
+title: "Direct connections in Floe"
+sidebarTitle: "Direct connections"
+description: "A direct Floe transfer goes device to device with nothing in between, which is why it has no size limit. How two devices on different networks manage to find each other."
+keywords: ["direct connection", "peer to peer", "stun", "nat traversal", "hole punching"]
 ---
 
-A direct connection means your files travel straight from your device to the recipient's device. No server sits in between. Speed is limited only by the slower of your two internet connections.
+A direct connection means the file goes from your device to theirs with nothing in between. No
+server carries it, so nobody is paying for the bandwidth and nothing caps the size. The speed is
+whatever the slower of your two internet connections can manage.
 
-## STUN
+Most transfers are direct, including ones between a laptop on home Wi-Fi and a phone on mobile
+data on the other side of the country.
 
-To find a direct path, WebRTC uses a **STUN server**. Think of it like asking someone outside your house "what is my address from out there?" STUN helps each device discover its public IP address and port so the two peers can reach each other.
+## How two devices on different networks find each other
 
-## What direct connections mean for you
+Almost nothing on the internet has a public address of its own. Your laptop sits behind a router,
+your phone sits behind your carrier's equipment, and neither can be dialed directly the way a web
+server can.
 
-- Transfer speed limited only by your internet connection.
-- No file size limit.
-- Zero bandwidth cost to Floe's servers.
-- Files never touch any server after the connection is established.
+WebRTC gets around this with a **STUN server**, whose only job is to answer one question: "what
+does my address look like from out there?" Each device asks, gets an answer, and passes that
+answer to the other through Floe's signaling server. Both then start sending packets toward the
+other's address at the same moment. Because each side's router has just seen an outgoing packet to
+that destination, it lets the incoming one through. The two streams meet in the middle.
 
-## When to expect a direct connection
+This is usually called NAT hole punching. It is why a transfer between two completely different
+networks still says **Direct**, and why no file data touches a server even though neither device
+had a reachable address to begin with.
 
-Most home Wi-Fi and personal mobile hotspots support direct connections. You are most likely to connect directly on standard consumer networks.
+The STUN server only ever sees the request for an address. It never sees a file, and it is out of
+the picture the moment the connection exists.
 
-Strict corporate firewalls, university networks, and carrier-grade NAT can block direct paths. In those cases, Floe automatically tries a [relay connection](/how-it-works/relay-connection) if relay fallback is enabled.
+## What direct means for you
 
-<Accordion title="Technical details">
-  **ICE (Interactive Connectivity Establishment):** WebRTC uses the ICE protocol to find a usable network path. Each peer gathers a list of "candidates" (IP/port combinations it might be reachable on), including local addresses, server-reflexive addresses from STUN, and relay addresses from TURN. Peers exchange their candidates via the signaling server and try each pair until one works.
+- **No size limit.** Nothing is metered, so nothing is capped.
+- **As fast as your connection allows.** Usually the sender's upload speed is the ceiling.
+- **Nothing to pay for and nothing to trust.** No server sees the traffic, encrypted or otherwise.
 
-  **STUN servers used:** On floe.one, one Cloudflare endpoint: `stun.cloudflare.com:3478`. Cloudflare's raw ICE list also contains a STUN entry on port 53, but the signaling server trims the list to one URL per connectivity class before serving it, so clients only ever see the 3478 entry. `stun.l.google.com:19302` and `stun1.l.google.com:19302` serve as the fallback when no TURN service is configured. On a self-hosted instance with coturn, the TURN endpoints also double as STUN.
+## When you get one, and when you do not
 
-  **Trickle ICE:** Candidates are sent incrementally as they are gathered rather than waiting for the full list. This reduces connection time significantly.
+Standard home Wi-Fi, personal hotspots, and most mobile networks connect directly.
 
-  **Candidate types that produce direct connections:** anything other than `relay`. In practice that means `host` (same network), `srflx` (server-reflexive, discovered via STUN), and `prflx` (peer-reflexive, learned during connectivity checks). Floe classifies a connection as relayed only when the nominated candidate pair has a `relay` candidate on one side or the other. Every other outcome counts as direct.
+Some networks defeat hole punching. Strict corporate and university firewalls block the attempt
+outright, and carrier-grade NAT, where a provider puts thousands of customers behind one shared
+address, can make the address discovered through STUN useless. In those cases Floe falls back to
+a [relay](/how-it-works/relay-connection), if you have allowed it to.
+
+If you want to improve your odds of a direct connection, the levers are: use a normal home or
+personal network, disconnect from any VPN, and try a personal hotspot when you are on a corporate
+or university network.
+
+<Accordion title="How Floe decides a connection counts as direct">
+  WebRTC gathers **candidates**, which are address-and-port combinations a device might be
+  reachable on, and tries pairs of them until one works. Candidates come in four kinds: `host`
+  (an address on the local network), `srflx` (server-reflexive, the public address STUN reported),
+  `prflx` (peer-reflexive, learned during the connectivity checks themselves), and `relay` (an
+  address on a TURN relay).
+
+  Candidates are sent as they are discovered rather than in one batch at the end, which is called
+  trickle ICE and cuts setup time noticeably.
+
+  Floe calls a connection relayed only when the pair that actually won has a `relay` candidate on
+  one side or the other. Every other outcome is direct. Note that this is decided by the winning
+  pair, not by what was offered: relay candidates are usually gathered and offered too, they just
+  did not win.
+
+  On floe.one the STUN endpoint is Cloudflare's, at `stun.cloudflare.com:3478`. When no relay
+  service is configured at all, which is the default for a fresh self-hosted instance, clients
+  fall back to Google's public STUN servers. A self-hosted coturn relay doubles as the STUN
+  server for that instance.
 </Accordion>

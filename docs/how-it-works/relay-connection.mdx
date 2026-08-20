@@ -1,58 +1,84 @@
 ---
-title: "TURN Relay Fallback Connection"
+title: "Relay fallback when a direct connection is impossible"
 sidebarTitle: "Relay fallback"
-description: "How Floe falls back to a TURN server as an encrypted bridge when strict NAT or firewalls block a direct peer-to-peer WebRTC connection."
+description: "Some networks make a direct connection impossible. Floe then routes the transfer through an encrypted relay that cannot read it, at the cost of speed and a 2 GB session cap."
+keywords: ["relay", "turn", "cgnat", "firewall", "why is my transfer slow", "amber"]
 ---
 
-Some networks make it impossible for two devices to connect directly. This happens on strict corporate firewalls, university networks, and when a mobile carrier places many users behind a single shared IP address (carrier-grade NAT). In these cases, a direct path cannot be found and Floe falls back to a relay.
+Some networks make it impossible for two devices to reach each other directly. Strict corporate
+and university firewalls do it deliberately, and carrier-grade NAT, where a mobile provider puts
+many customers behind one shared address, does it as a side effect.
 
-## Direct vs relay at a glance
+When that happens, Floe routes the transfer through a **relay**: a server both devices can reach,
+which forwards packets between them. Think of a courier carrying a locked box. It gets the box
+where it needs to go and cannot open it.
 
-| | Direct | Relay |
+## Direct and relayed, side by side
+
+| | Direct | Relayed |
 |---|---|---|
-| Speed | Limited only by your internet | Depends on relay server load |
-| File size limit | None | 2 GB per session |
-| When used | Most home and mobile networks | Strict firewalls, carrier-grade NAT |
-| Bandwidth cost | Zero (files never touch a server) | Uses Floe relay infrastructure |
-| Encryption | DTLS end-to-end | DTLS end-to-end |
+| Speed | Whatever your connections allow | Depends on the relay and the detour |
+| Size limit | None | 2 GB per session |
+| Who pays for the bandwidth | Nobody | Floe, or you, if you self-host |
+| Encryption | End to end | End to end, unchanged |
+| Typical networks | Home Wi-Fi, hotspots, most mobile | Corporate, university, carrier-grade NAT |
+| Badge | **Direct**, green | **Relay**, amber |
 
-## TURN fallback
+The encryption row is the important one. Relaying changes the route, not the protection. Your
+files are encrypted before they reach the relay and decrypted only on the other device, so the
+relay forwards packets it cannot read.
 
-When a direct connection fails, Floe automatically routes through a **TURN server** on Cloudflare's global anycast network. A TURN server acts as a secure bridge. Your data travels through it on the way to the recipient, like a courier carrying a locked box it cannot open.
+## What it costs you
 
-## Encryption
+**Speed**, because every byte takes a detour through a third machine instead of going straight
+across.
 
-Even through a relay, your files are protected by **DTLS encryption** built into WebRTC. The relay server sees only encrypted data packets. It cannot read, inspect, or store your files.
+**Size**, because relay bandwidth costs real money. Relayed transfers are capped at 2 GB per
+session. See [File size limits](/how-it-works/2gb-limit).
 
-## What relay connections mean for you
+**A little more metadata exposure.** The relay is an endpoint both devices connect to, so it sees
+both IP addresses and the timing and size of what it forwards. It cannot see contents. On
+floe.one the relay is Cloudflare's Realtime TURN network, which means a relayed transfer does
+cross infrastructure Floe does not own. See
+[What Floe does not protect against](/how-it-works/known-limitations).
 
-- Transfer works even on networks that block direct connections.
-- Files remain encrypted end-to-end in transit.
-- Speeds may be slower depending on relay server load and network conditions.
-- Relay transfers are capped at **2 GB per session**. See [The 2 GB Relay Limit](/how-it-works/2gb-limit).
+## Turning it off, and the opposite
 
-## Disabling relay fallback
+**In the browser**, the **Network relay fallback** checkbox appears on the sending side once you
+have picked files. It is on by default. Off means only direct connections are attempted, and the
+transfer fails if none is possible. A browser recipient has no such control, so if you are
+receiving and a transfer will not start, this is the sender's setting to check.
 
-If you need to ensure files never pass through a relay, you can disable it. In the browser, toggle off **Network relay fallback** before creating the link (the toggle appears once you have picked files, just above the Create secure link button). In the CLI, pass `--no-relay`:
+**In the CLI**, `--no-relay` does the same thing, on either `floe send` or `floe receive`.
 
 ```bash Terminal
 floe send photo.jpg --no-relay
 ```
 
-With relay disabled, the transfer fails if a direct path cannot be established.
+**Floe Desktop has no relay-fallback switch at all**, so the relay is always available there. Its
+[Hide my IP address](/desktop/settings#hide-my-ip-address) setting is the opposite control: it
+makes the relay the **only** path, so the other person sees the relay's address rather than yours.
+That means every transfer is relayed and every transfer is capped at 2 GB while it is on.
 
-<Warning>
-  The desktop app has no relay-fallback switch. Its **Hide my IP address** setting is the
-  opposite control: it makes the relay the only path, so every transfer is relayed and capped
-  at 2 GB. See [the desktop settings reference](/desktop/settings#hide-my-ip-address).
-</Warning>
+Nothing in Floe offers a direct-only mode in the desktop app, and nothing offers a relay-only mode
+in the browser or the CLI.
 
-<Accordion title="Technical details">
-  **TURN (Traversal Using Relays around NAT):** ICE tries the candidate pairs and nominates one that works. When the nominated pair has a `relay` candidate on either side, traffic goes through the TURN server, which forwards packets between the peers. This is decided by the winning pair, not by an absence of other candidates: host and reflexive candidates are still gathered and offered, they simply did not win. The data is still DTLS-encrypted end-to-end before it reaches the TURN server.
+<Accordion title="How the route is chosen, and how Floe knows which it got">
+  ICE tries the candidate pairs it gathered and nominates one that works. Traffic is relayed when
+  the nominated pair has a `relay` candidate on either side. Host and reflexive candidates are
+  still gathered and offered in that case; they simply lost.
 
-  **Credentials:** The signaling server mints short-lived credentials from Cloudflare's Realtime TURN service and hands them to peers via `/api/turn-credentials`. Credentials are valid for up to 24 hours. (Self-hosted deployments can instead use coturn with time-limited HMAC-SHA1 credentials; see the self-hosting guide.)
+  Turning the relay off does not veto a relayed connection after the fact. It removes the relay
+  entries from the address list the client uses, so it has nothing relayed to offer. Should a
+  relayed path still form because the other side offered one, the sender blocks the transfer
+  before any file data moves.
 
-  **Endpoints:** the signaling server hands peers a minimal set of three: `stun:stun.cloudflare.com:3478` for address discovery, `turn:turn.cloudflare.com:3478` over UDP as the primary relay path, and `turns:turn.cloudflare.com:443` over TLS as the fallback on networks that block UDP (TLS on port 443 looks like ordinary HTTPS traffic). Cloudflare mints more endpoint variants, but every extra URL multiplies the connection checks each client runs during setup, so the redundant ones are trimmed before serving.
+  The browser re-reads the connection statistics every five seconds and flips the badge to amber
+  when the nominated pair is relayed. The Go engine behind the CLI and the desktop app reads it
+  once, when the connection is established.
 
-  **Relay detection:** The browser polls `RTCStatsReport` every 5 seconds and examines the nominated candidate pair. If either candidate is of type `relay`, the connection indicator shows amber.
+  On floe.one the signaling server hands out three endpoints and no more: a STUN URL, a TURN URL
+  over UDP, and a TURN URL over TLS on port 443, which looks like ordinary HTTPS to a network that
+  blocks everything else. Cloudflare offers more variants, but every extra URL multiplies the
+  connectivity checks each client runs during setup, so the list is trimmed before it is served.
 </Accordion>

@@ -99,6 +99,33 @@ When opted out, no request is sent to the server and the global counter is not i
 
 In the desktop app the same choice is the **Contribute to global stats** toggle in **Settings**, and turning it off is the equivalent of `--no-report`.
 
+## Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success. Also what `floe update` returns on a build compiled from source, which prints `Cannot update a dev build.` and stops. |
+| `1` | Any error: a transfer that failed, a code that would not resolve, a declined transfer, or a package-managed install refusing to self-update. |
+| `130` | Interrupted with `Ctrl+C`. Floe prints `Canceled.` to stderr and removes the `.part` file it was writing. |
+
+`floe` with no arguments prints help and exits `0`.
+
+## Timeouts
+
+Floe gives up rather than hanging, and the limits differ by phase. The ones you are most likely to
+meet:
+
+| Phase | Limit |
+|-------|-------|
+| Establishing the connection | 30 seconds, then `timed out establishing a connection` |
+| Receiver connected, sender never starts | 30 seconds, then `connected, but no data arrived from the sender within 30s` |
+| Sender waiting for the receiver to accept | 120 seconds, sized for a human answering the `Accept? [Y/n]` prompt |
+| A transfer that stops making progress | 60 seconds |
+| The byte-count report after a transfer | 5 seconds, and it never affects the files |
+
+A `floe receive` can sit for up to about ten seconds after printing its summary. That is a five
+second grace period so the final acknowledgement reaches the sender, plus the report. The full
+list is in the [transfer protocol reference](/reference/transfer-protocol#timeouts).
+
 ## Examples
 
 Use a local dev server for both sender and receiver:

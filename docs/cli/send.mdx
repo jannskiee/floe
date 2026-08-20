@@ -83,6 +83,11 @@ floe send ./documents/
 
 The same applies to a trailing backslash on Windows. Shell tab-completion often adds one, so drop it if you want the folder name preserved.
 
+Symlinks inside a folder are not followed. A symlinked file is measured as the link rather than
+its target, so the size in the sending panel, the batch total, and the relay check all count it as
+a few bytes; the file itself still transfers whole. A symlink to a directory is treated as a file
+and fails to read. Copy what you mean to send, or send the target path directly.
+
 ## Flags
 
 See [Flags Reference](/cli/flags) for `--server`, `--no-relay`, `--web`, and `--iface`.

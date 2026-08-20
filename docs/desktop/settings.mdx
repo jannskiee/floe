@@ -44,11 +44,9 @@ The setting applies to your side only, and the person on the other end does not 
 Their app shows the connection as **Relay**, which is exactly what it shows whenever a direct
 path is impossible, so it does not single you out.
 
-<Note>
-  This is not the web app's **Network relay fallback** toggle, despite the similar subject.
-  That one lets you turn the relay **off**. This one makes the relay the **only** path. The
-  desktop app has no direct-only mode.
-</Note>
+This is not the web app's **Network relay fallback** checkbox, despite the similar subject. That
+one lets you turn the relay **off**. This one makes the relay the **only** path. The desktop app
+has no direct-only mode, and the browser has no relay-only mode.
 
 <Warning>
   **Hide my IP needs a relay to exist.** On Floe's own server there is always one. If you point
@@ -74,10 +72,8 @@ The same opt-out exists on every surface: a checkbox on the receiver view in the
 `--no-report` or `FLOE_NO_STATS=1` for the CLI. See
 [Security and Privacy](/security-privacy#aggregate-statistics).
 
-<Note>
-  The report follows whichever server the app is set to. Point Floe at your own server and your
-  byte counts go to your server's counter, not to floe.one.
-</Note>
+The report follows whichever server the app is set to, so pointing Floe at your own instance
+sends your byte counts to that server's counter rather than to floe.one.
 
 ### Check for updates
 
