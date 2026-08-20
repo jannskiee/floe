@@ -10,7 +10,7 @@ Most Floe transfers just work. When something goes wrong, it is almost always on
 
 <AccordionGroup>
   <Accordion title='Floe says "Open in your browser"'>
-    Floe needs WebRTC, which some in-app browsers (the web views embedded in Facebook, Instagram, TikTok, and similar apps) do not support reliably. Floe detects them and shows an "Open in your browser" screen with steps for your platform. Follow those steps, or tap **Copy link to paste in browser** and open the link in Chrome, Safari, Edge, or Firefox. **Continue anyway** lets you proceed regardless, but the transfer may fail.
+    Floe needs WebRTC, which some in-app browsers (the web views embedded in Facebook, Instagram, TikTok, and similar apps) do not support reliably. Floe detects them and shows an "Open in your browser" screen with steps for your platform. Follow those steps, or tap **Copy link to paste in browser** and open the link in Chrome, Safari, Edge, or Firefox. **Continue anyway (some features may not work)** proceeds regardless, but the transfer can fail.
   </Accordion>
 
   <Accordion title="The transfer never starts or is stuck connecting">
@@ -45,7 +45,7 @@ Most Floe transfers just work. When something goes wrong, it is almost always on
   <Accordion title="Downloads fail or behave oddly on iOS">
     On iOS, when you receive more than one file, use **Download ZIP** rather than saving them one at a time. It is the most reliable option on Safari and iOS web views.
 
-    The **Download All** and **Download ZIP** buttons appear only for multi-file transfers, and only once the transfer has finished. A single file is saved from the download button on its own row in the list.
+    The **Download All** and **Download ZIP** buttons appear only for multi-file transfers. They show up as soon as the second file lands and hide again while the next file is streaming, so if they vanish mid-transfer nothing is wrong; they return between files and stay once the transfer finishes. A single file is saved from the download button on its own row in the list.
 
     Zipping holds every file in memory before it writes the archive, so a very large multi-file transfer can run out of memory on a phone. If that happens, use **Download All** or save each file from its row.
   </Accordion>
@@ -95,6 +95,8 @@ Most Floe transfers just work. When something goes wrong, it is almost always on
     Short codes are a CLI and desktop feature. In a browser you share a link instead, so there is no code to troubleshoot.
 
     Codes expire **10 minutes** after the sender starts the session, and `floe receive` then reports `code "olive-tiger-castle" not found or expired (codes expire after 10 minutes)`, quoting the code you typed. Ask the sender to start a new session for a fresh code.
+
+    That same message covers a typo, and codes are matched exactly. They are always lowercase words joined by hyphens, so `Olive-Tiger-Castle` is not the same code as `olive-tiger-castle`. Surrounding spaces are trimmed for you; nothing else is.
 
     Two nearby messages mean something else:
 

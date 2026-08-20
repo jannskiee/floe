@@ -11,7 +11,7 @@ When someone sends you files via Floe, they share a link (e.g. `https://floe.one
 Click the link or scan the QR code. The page connects to the signaling server and joins the sender's room automatically. No account or installation is needed.
 
 <Note>
-  Some in-app browsers (embedded in Facebook, Messenger, Instagram, TikTok, Snapchat, LINE, X (Twitter), WeChat, and generic Android WebViews) have limited support for file transfers. Floe recognizes them by user agent, and instead of loading the transfer view it shows a full-screen prompt with steps for opening the page in Chrome or Safari, plus a **Copy link to paste in browser** button. A **Continue anyway** link sits at the bottom, but some features may not work.
+  Some in-app browsers (embedded in Facebook, Messenger, Instagram, TikTok, Snapchat, LINE, X (Twitter), WeChat, and generic Android WebViews) have limited support for file transfers. Floe recognizes them by user agent, and instead of loading the transfer view it shows a full-screen prompt with steps for opening the page in Chrome or Safari, plus a **Copy link to paste in browser** button. A **Continue anyway (some features may not work)** link sits at the end of the prompt. Until you use one of those, the page does not join the room, so an in-app browser cannot take the one receiver slot by accident.
 </Note>
 
 ## Connection
@@ -48,12 +48,12 @@ Your choice is saved in your browser and applies to all future transfers from th
 
 Each file gets a download button (the download-arrow icon, no label) on its row as soon as it arrives, so you can save files while the rest are still streaming.
 
-When a transfer contains **two or more** files, two extra buttons appear once everything has arrived:
+On a transfer of two or more files, two more buttons appear below the list as soon as the second file lands. They hide again while the next file streams, then come back between files. Once the transfer finishes they stay put.
 
 | Option | Behavior |
 |--------|---------|
 | **Download All** | Saves each file individually, roughly one every 300 ms. Your browser may ask you to allow multiple downloads. |
-| **Download ZIP** | Bundles every file into one archive named `floe_transfer_<timestamp>.zip`. Duplicate file names are de-duplicated automatically. |
+| **Download ZIP** | Bundles every file into one archive named `floe_transfer_<timestamp>.zip`, where the timestamp is the moment you clicked, in milliseconds. Duplicate names inside the archive are numbered automatically, and folder structure is preserved. Saving files one at a time flattens them instead. |
 
 A single-file transfer shows only that file's own download button.
 

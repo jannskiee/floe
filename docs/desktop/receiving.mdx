@@ -149,6 +149,10 @@ on the same signaling server. See [Troubleshooting](/troubleshooting).
 
 A transfer that fails or is canceled partway deletes the `.part` file it was writing, so
 nothing half-written is left behind under a finished-looking name. Files that completed before
-the failure are kept, and a retry can use the original name rather than a numbered one. If Floe
-is closed abruptly or the machine loses power mid-transfer, the unfinished file is left as a
-`.part` file rather than under a finished-looking name; it is safe to delete.
+the failure are kept, and a retry can use the original name rather than a numbered one.
+
+Closing Floe while a transfer runs behaves the same way. The prompt asks first, and choosing
+**Close anyway** stops the transfer and removes the `.part` file on the way out, so a clean quit
+leaves nothing behind at all. Only an unclean end leaves one: the machine loses power, or the
+process is ended from Task Manager. The unfinished file then sits there as a `.part` file rather
+than under a finished-looking name, and it is safe to delete.

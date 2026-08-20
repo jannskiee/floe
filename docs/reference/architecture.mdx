@@ -74,7 +74,7 @@ For self-hosted coturn, credentials use HMAC-SHA1: `username = "{expiry_unix}:fl
 |-------|---------|-------------|
 | `join-room` | `roomId: string` | Join a room. UUID format required. |
 | `signal` | `{ signal, target?, roomId? }` | Forward a WebRTC signal (SDP or ICE candidate) to the other peer. |
-| `ping` | callback function | Keepalive. Server invokes the callback immediately. |
+| `ping` | callback function | Round-trip latency probe, not a keepalive. The browser sends one every 2 seconds and times the reply to drive the ping readout beside the connection dot. The server invokes the callback immediately. |
 
 ### Server to client (Socket.IO)
 
@@ -97,7 +97,7 @@ All messages are JSON objects with a `type` field.
 |--------|-------------|-------------|
 | `join-room` | `roomId: string` | Join a room. |
 | `signal` | `signal, roomId: string` | Forward a WebRTC signal. |
-| `ping` | - | Keepalive. Server responds with `{ "type": "pong" }`. |
+| `ping` | - | Server responds with `{ "type": "pong" }`. Supported, but no Floe client sends it: the CLI and the desktop app rely on WebSocket protocol-level pings instead (see below). |
 
 ### Server to client (WebSocket)
 
@@ -110,6 +110,11 @@ All messages are JSON objects with a `type` field.
 | `room-full` | - | Room already full. |
 | `pong` | - | Response to client `ping`. |
 | `error` | `message: string` | Server error. |
+
+The connection is kept alive below this layer. Every 30 seconds the server sends a WebSocket
+protocol-level ping to each `/ws` client and terminates any that did not answer the previous one.
+The Go client answers automatically, so nothing in Floe's own message set is involved. A reverse
+proxy therefore needs an idle read timeout longer than 30 seconds, or it cuts healthy connections.
 
 ## Rate limiting
 
@@ -153,7 +158,7 @@ Once the WebRTC data channel is open, the sender runs the following sequence for
   "totalBytes": 11800000,
   "pv": 1,
   "pvMin": 1,
-  "ver": "v1.6.0"
+  "ver": "1.10.4"
 }
 ```
 
@@ -168,15 +173,15 @@ Once the WebRTC data channel is open, the sender runs the following sequence for
   "offset": 0,
   "pv": 1,
   "pvMin": 1,
-  "ver": "v1.6.0"
+  "ver": "1.10.4"
 }
 ```
 
-`offset` supports mid-file resume. In normal operation it is always 0. The ack carries the receiver's own `pv` and `pvMin` so the sender can verify compatibility from its side, plus `ver` when the receiver is a Go peer.
+`offset` is reserved for mid-file resume. Both senders honor a non-zero value and seek to it, but no receiver in any current client emits one: there is no resume state on disk or across connections, so in practice it is always 0. The ack carries the receiver's own `pv` and `pvMin` so the sender can verify compatibility from its side, plus `ver` when the receiver is a Go peer.
 
 **Binary chunks (raw bytes)**
 
-Both the Go engine (CLI and desktop) and the browser size chunks adaptively to the connection's negotiated maximum message size, capped at 256 KB. Chunk size is a local sender choice, not part of the wire protocol; receivers handle any size.
+Both the Go engine (CLI and desktop) and the browser size chunks adaptively to the connection's negotiated maximum message size, capped at 256 KB. When that size is unavailable they fall back to different defaults: 16 KB in the Go engine, 64 KB in the browser. Chunk size is a local sender choice, not part of the wire protocol; receivers handle any size.
 
 **End marker (JSON, sender to receiver)**
 
@@ -192,7 +197,7 @@ After all files are complete, a Go receiver (the CLI or the desktop app) sends:
 { "type": "received" }
 ```
 
-This lets the sender exit cleanly instead of polling the SCTP buffer. Browser receivers do not send this; the sender waits for the data channel buffer to drain to zero.
+This lets a Go sender exit cleanly instead of polling the SCTP buffer. Browser receivers never send it, and the browser sender ignores it even when a Go receiver does: it always waits for the data channel buffer to drain to zero instead.
 
 **Incompatible (JSON, receiver to sender)**
 
@@ -204,7 +209,7 @@ Sent in place of the ack when the two peers' protocol version ranges do not over
   "reason": "Cannot transfer: your floe is too old for this peer. ...",
   "pv": 1,
   "pvMin": 1,
-  "ver": "v1.6.0"
+  "ver": "desktop-v0.2.7"
 }
 ```
 
@@ -217,8 +222,9 @@ The transfer protocol carries its own version, independent of the Floe release v
 - Each peer advertises `pv` (the highest protocol version it speaks) and `pvMin` (the lowest it still supports) in its metadata and ack. Both are 1 today.
 - Two peers are compatible when their ranges overlap: `max(localMin, remoteMin) <= min(localMax, remoteMax)`. They operate at the highest common version.
 - A peer that omits the fields (any release before v1.6.0) is treated as protocol version 1, so all existing peers stay compatible.
-- When the ranges do not overlap, the receiver sends an `incompatible` message and each side prints an actionable message with a remedy for its own surface: the CLI says run `floe update`, the desktop app points at the Microsoft Store or floe.one/download, and the browser says refresh the page. The newer peer is told to ask the other side to update. Current Go peers rebuild the message locally from the frame's `pv`/`pvMin`; the `reason` carried on the wire is worded from the recipient's perspective, so older peers that display it verbatim still name the correct side.
-- `ver` is the human release string (for example `v1.6.0`). It is optional: Go peers (the CLI and the desktop app) always send it, browser peers never do. It is informational only, used for the optional peer-version note the CLI prints on either side when the two releases differ, and it never gates a transfer.
+- When the ranges do not overlap, the receiver sends an `incompatible` message and each side prints an actionable message with a remedy for its own surface: the CLI says run `floe update`, the desktop app points at the Microsoft Store or floe.one/download, and the browser says refresh the page. The newer peer is told to ask the other side to update.
+- Which side you should trust depends on who is sending. Go peers do not read the wire `reason` at face value: they rebuild the message locally from the frame's `pv`/`pvMin`, so the side they name is always correct. A Go receiver also words the `reason` it puts on the wire from the *recipient's* point of view for the benefit of peers that display it verbatim. A browser receiver does not do that second step. It sends the same sentence it shows itself, so a browser receiver can tell a CLI sender to "refresh the page". Go senders are unaffected because they rebuild; when the message looks wrong for your surface, compare the two version strings it prints and update the older one.
+- `ver` is the human release string, and its exact shape depends on which build sent it. The CLI sends its version with no leading `v` (`1.10.4`), because GoReleaser strips it at build time. The desktop app sends the tag verbatim (`desktop-v0.2.7`). Anything built from source sends the literal `dev`. It is optional: Go peers always send it, browser peers never do. It is informational only, used for the peer-version note the CLI prints when the two releases differ, and it never gates a transfer.
 
 The constants live in `cli/engine/transfer/protocol.go` (`ProtocolVersion`, `MinProtocolVersion`) and `client/lib/transfer/protocol.ts` (`PROTOCOL_VERSION`, `MIN_PROTOCOL_VERSION`). Bump `ProtocolVersion` only on a breaking wire change; raise `MinProtocolVersion` only when deliberately dropping support for an old wire format.
 
