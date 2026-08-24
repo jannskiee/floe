@@ -7,14 +7,15 @@
 
      Color is a presentation attribute and dark mode is a CSS rule, in that
      order on purpose. Presentation attributes sit at specificity 0, so the
-     media query wins wherever it is honored, and any consumer that drops
-     <style> still gets the dark-ink bolt rather than nothing. The query
+     media query wins wherever it is honored, and any consumer that drops the
+     style block still gets the dark-ink bolt rather than nothing. The query
      follows the viewer's browser/OS theme, not the site's: a favicon lives in
      the tab strip, not on the page.
 
-     The app-icon rasters beside this file keep their #0a0a0a tile on purpose.
-     App icons are always tiles, and theirs are proportioned to match the
-     desktop icon and the Store assets (see commit fc878c0). -->
+     The app-icon rasters keep their #0a0a0a tile on purpose: apple-icon.png
+     and favicon.ico here, icon-192/512 and icon-maskable-512 in public/. An
+     app icon is a tile on every platform, and these are proportioned to match
+     the desktop icon and the Store assets (see commit fc878c0). -->
 <svg width="64" height="64" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
     <style>
         @media (prefers-color-scheme: dark) {
