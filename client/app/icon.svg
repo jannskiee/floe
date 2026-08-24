@@ -1,4 +1,32 @@
-<svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="24" height="24" fill="#0a0a0a"/>
-  <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z" fill="white" stroke="white" stroke-width="0.5" stroke-linejoin="round" transform="translate(12 12) scale(0.8) translate(-12 -12)"/>
+<!-- The Floe mark: a bare lightning bolt, no tile.
+
+     Same path and stroke as docs/favicon.svg, so the two tab icons are the
+     same artwork in light mode. They diverge in dark mode, and not by choice:
+     Mintlify rasterizes its favicon at build time and serves PNGs, so a media
+     query in that file is flattened away. Fixing the docs side needs a
+     light/dark pair in docs.json, not a rule in the SVG.
+
+     The round-joined stroke rides the path as a shape modifier rather than an
+     outline: it softens every corner and fattens the mark in one move, which
+     is what makes it legible at 16px.
+
+     Color is a presentation attribute and dark mode is a CSS rule, in that
+     order on purpose. Presentation attributes sit at specificity 0, so the
+     media query wins wherever it is honored, and any consumer that drops the
+     style block still gets the dark-ink bolt rather than nothing. The query
+     follows the viewer's browser/OS theme, not the site's: a favicon lives in
+     the tab strip, not on the page.
+
+     The app-icon rasters keep their #0a0a0a tile on purpose: apple-icon.png
+     and favicon.ico here, icon-192/512 and icon-maskable-512 in public/. An
+     app icon is a tile on every platform, and these are proportioned to match
+     the desktop icon and the Store assets (see commit fc878c0). -->
+<svg width="64" height="64" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+    <style>
+        @media (prefers-color-scheme: dark) {
+            .bolt { fill: #fff; stroke: #fff; }
+        }
+    </style>
+    <path class="bolt" d="M13 2L3 14H12L11 22L21 10H12L13 2Z"
+          fill="#09090b" stroke="#09090b" stroke-width="1" stroke-linejoin="round"/>
 </svg>

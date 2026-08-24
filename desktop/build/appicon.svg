@@ -52,10 +52,14 @@
     />
   </g>
 
-  <!-- bolt mark. The round-joined stroke is what softens every corner, and it
-       is the same construction floe.one uses in client/app/icon.svg, so the
-       desktop icon and the website mark stay identical in proportion:
-       18 path units wide + 0.5 stroke, scaled 31.5, is 61.7% of the squircle. -->
+  <!-- bolt mark. The round-joined stroke is what softens every corner, the same
+       construction every Floe surface uses. Proportion inside the tile: 18 path
+       units wide + 0.5 stroke, scaled 31.5, is 61.7% of the squircle, matching
+       the web app-icon rasters (icon-192/512, apple-icon).
+
+       The web favicon is the one surface this does not track. client/app/icon.svg
+       is a bare, full-bleed mark at stroke 1, with no tile to be proportioned
+       against, so it is deliberately weighted differently. -->
   <path
     d="M13 2L3 14H12L11 22L21 10H12L13 2Z"
     transform="translate(134,134) scale(31.5)"
