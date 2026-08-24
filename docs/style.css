@@ -197,56 +197,6 @@
   color: rgb(212 212 216);
 }
 
-/* Sidebar group headers as floe.one eyebrows.
-
-   floe.one labels every landing section with an 11px Geist Mono uppercase
-   eyebrow tracked at 0.2em; this carries that identity into the sidebar.
-   #sidebar, .sidebar-group-header, and .sidebar-title are all on Mintlify's
-   documented hook list, so this is the low-risk tier of custom CSS; if the
-   hooks ever move, the headers just revert to the default sans style.
-
-   Geist Mono itself is not loadable through docs.json (fonts has no mono
-   slot), so ui-monospace serves in practice: SF Mono on macOS, Cascadia on
-   Windows. Do not @font-face a root-absolute url() here; the docs live under
-   /docs in production and root-absolute asset paths 404 (the footer-logo
-   lesson above).
-
-   The colours are not floe.one's zinc-600 verbatim because that fails WCAG
-   at 11px (2.57:1 on zinc-950). These sit at 5.76:1 light (#65656F on
-   #FFFFFF) and 5.32:1 dark (#85858E on rgb(12,13,15)). docs.json sets no
-   background.color, so both grounds are Mintlify's defaults and the dark one
-   can move under us; re-measure if it does. */
-#sidebar .sidebar-group-header .sidebar-title {
-  font-family: "Geist Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
-  font-size: 11px;
-  font-weight: 400;
-  text-transform: uppercase;
-  letter-spacing: 0.2em;
-  color: #65656F;
-}
-
-.dark #sidebar .sidebar-group-header .sidebar-title {
-  color: #85858E;
-}
-
-/* The page-header eyebrow (the group name above every H1) gets the same mono
-   treatment. No color override: Mintlify paints it text-primary per mode,
-   so it renders the glowing ice #00A3C9 in light and the pale ice #B1DDEB
-   in dark. The light value measures 2.97:1 on white, under AA for 11px
-   text; the user saw exactly this rendering and chose it deliberately
-   (2026-08-09, "now i like this color"), so treat that as a recorded
-   accessibility exception, not an oversight. The eyebrow is one of the few
-   places floe.one sanctions ice text. .eyebrow is a documented hook. The
-   weight matches the sidebar group headers above so the two eyebrow styles
-   stay identical. */
-.eyebrow {
-  font-family: "Geist Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
-  font-size: 11px;
-  font-weight: 400;
-  text-transform: uppercase;
-  letter-spacing: 0.2em;
-}
-
 /* Card icons, neutral in both modes.
 
    Mintlify paints a Card's icon with the same CSS-mask pattern as the footer
@@ -621,77 +571,31 @@ html:not(.dark) #content-area a.link {
 
 /* Sidebar hover, black or white by mode (user call, 2026-08-20).
 
-   Three separate utilities decide what the sidebar does on hover, and none of
-   them lands on a plain foreground colour:
-
-     - page links are `hover:text-gray-900 dark:hover:text-gray-300`
-     - the shortcut anchors' labels are the same pair
-     - the anchor ICONS are `group-hover:bg-white dark:group-hover:bg-white`
-
-   That last one is a real defect rather than a taste question. The icon is a
-   CSS mask, so background-color is its colour, and Mintlify sets it to white in
-   BOTH modes. On the light sidebar the icon therefore turns white on white and
-   disappears at exactly the moment the pointer is on it. Verified on the
-   rendered DOM, 2026-08-20.
-
-   Everything here resolves to the same near-black and white this file uses for
-   every other selected or hovered state, so the sidebar has one hover colour
-   rather than four near-misses. No !important is needed: an id plus a class
-   plus a pseudo-class outranks a single utility, and this sheet is unlayered so
-   it wins over the layered utility regardless.
+   Mintlify hovers a page link to `hover:text-gray-900 dark:hover:text-gray-300`,
+   which is a near-miss rather than a plain foreground colour. These two rules
+   put it on the same near-black and white this file uses for every other
+   selected or hovered state, so the sidebar has one hover colour rather than
+   two near-misses. No !important is needed: an id plus a class plus a
+   pseudo-class outranks a single utility, and this sheet is unlayered so it
+   wins over the layered utility regardless.
 
    The row's background wash on hover (`hover:bg-gray-600/5`) is deliberately
    left alone. It is neutral already, and it is what makes the hover target
-   legible without colouring the text twice. */
+   legible without colouring the text twice.
+
+   This rule used to cover the sidebar shortcut anchors and their icon chips as
+   well, including a real Mintlify defect where the masked glyph turned white
+   on white on the light sidebar at exactly the moment the pointer reached it.
+   The shortcut row (navigation.global.anchors) was removed on 2026-08-25, so
+   that half of this rule went with it. If the anchors ever come back, the
+   defect comes back with them, and the fix is in this file's history rather
+   than something to rediscover. */
 #sidebar a:hover,
-#sidebar a:hover span,
-#sidebar a.nav-anchor:hover {
+#sidebar a:hover span {
   color: rgb(17 17 17);
 }
 
 .dark #sidebar a:hover,
-.dark #sidebar a:hover span,
-.dark #sidebar a.nav-anchor:hover {
+.dark #sidebar a:hover span {
   color: rgb(255 255 255);
-}
-
-/* The shortcut icons: chip and glyph, black or white by mode.
-
-   The icon is drawn as a small rounded chip with a masked glyph inside it, and
-   on hover Mintlify paints the CHIP with the accent. Measured on the rendered
-   page, 2026-08-20, both modes:
-
-     chip at rest   transparent (light) / rgb(12,13,15) (dark)
-     chip on hover  rgb(0,163,201) in BOTH modes
-     glyph on hover white in BOTH modes
-
-   Two things are wrong with that. The accent chip is the one loud colour left
-   in a sidebar that is otherwise strictly neutral, and the glyph is hard-coded
-   white for a chip that is about to stop being dark.
-
-   So the pair is inverted instead, the same way this file already treats
-   tooltips: a black chip with a white glyph on the light page, a white chip
-   with a black glyph on the dark one. Both halves have to move together, or the
-   glyph disappears into its own chip.
-
-   Specificity is deliberate. The accent declaration is important and carries an
-   id, so plain `#sidebar a:hover svg` with !important still loses; escalating a
-   test rule against the live page showed the boundary sits between (1,1,4) and
-   (1,2,5). `[class]` buys a class-level unit without hard-coding a DOM shape
-   Mintlify is free to change, and `:has(> svg)` keeps this off any other div
-   that might appear inside a sidebar link. */
-#sidebar a:hover div[class]:has(> svg) {
-  background-color: rgb(17 17 17) !important;
-}
-
-#sidebar a:hover svg[class] {
-  background-color: rgb(255 255 255) !important;
-}
-
-.dark #sidebar a:hover div[class]:has(> svg) {
-  background-color: rgb(255 255 255) !important;
-}
-
-.dark #sidebar a:hover svg[class] {
-  background-color: rgb(17 17 17) !important;
 }

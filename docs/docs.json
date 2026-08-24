@@ -205,38 +205,17 @@
       {
         "group": "Self-hosting",
         "pages": [
-          {
-            "group": "Get started",
-            "expanded": true,
-            "pages": [
-              "self-hosting/overview",
-              "self-hosting/quickstart",
-              "self-hosting/without-docker",
-              "self-hosting/unraid"
-            ]
-          },
-          {
-            "group": "Configure",
-            "pages": [
-              "self-hosting/configuration",
-              "self-hosting/build-time-url",
-              "self-hosting/images"
-            ]
-          },
-          {
-            "group": "Deploy",
-            "pages": [
-              "self-hosting/reverse-proxy",
-              "self-hosting/production",
-              "self-hosting/turn-relay"
-            ]
-          },
-          {
-            "group": "Operate",
-            "pages": [
-              "self-hosting/operations"
-            ]
-          }
+          "self-hosting/overview",
+          "self-hosting/quickstart",
+          "self-hosting/without-docker",
+          "self-hosting/unraid",
+          "self-hosting/configuration",
+          "self-hosting/build-time-url",
+          "self-hosting/images",
+          "self-hosting/reverse-proxy",
+          "self-hosting/production",
+          "self-hosting/turn-relay",
+          "self-hosting/operations"
         ]
       },
       {
@@ -260,31 +239,7 @@
           "changelog"
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Quickstart",
-          "icon": "zap",
-          "href": "/quickstart"
-        },
-        {
-          "anchor": "File size limits",
-          "icon": "scale",
-          "href": "/how-it-works/2gb-limit"
-        },
-        {
-          "anchor": "Troubleshooting",
-          "icon": "wrench",
-          "href": "/troubleshooting"
-        },
-        {
-          "anchor": "Self-host with Docker",
-          "icon": "container",
-          "href": "/self-hosting/quickstart"
-        }
-      ]
-    }
+    ]
   },
   "search": {
     "prompt": "Search the Floe docs"
