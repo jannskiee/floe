@@ -1,9 +1,14 @@
 <!-- The Floe mark: a bare lightning bolt, no tile.
 
-     Same path and construction as docs/favicon.svg, so the tab icon reads the
-     same on floe.one and on floe.one/docs. The round-joined stroke rides the
-     path as a shape modifier rather than an outline: it softens every corner
-     and fattens the mark in one move, which is what makes it legible at 16px.
+     Same path and stroke as docs/favicon.svg, so the two tab icons are the
+     same artwork in light mode. They diverge in dark mode, and not by choice:
+     Mintlify rasterizes its favicon at build time and serves PNGs, so a media
+     query in that file is flattened away. Fixing the docs side needs a
+     light/dark pair in docs.json, not a rule in the SVG.
+
+     The round-joined stroke rides the path as a shape modifier rather than an
+     outline: it softens every corner and fattens the mark in one move, which
+     is what makes it legible at 16px.
 
      Color is a presentation attribute and dark mode is a CSS rule, in that
      order on purpose. Presentation attributes sit at specificity 0, so the

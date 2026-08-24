@@ -1,11 +1,11 @@
 <!-- The Floe mark for LIGHT backgrounds (GitHub's light theme). Dark ink.
-     Paired with floe-mark-dark.svg by the <picture> element in README.md.
+     Paired with floe-mark-dark.svg by the picture element in README.md.
 
      Same artwork as client/app/icon.svg, but with the ink pinned instead of
-     driven by a media query, because GitHub renders README images through
-     <img> and may sanitize <style> out of them. <picture> is GitHub's own
-     documented mechanism for theme-aware images, so it is used here rather
-     than relying on what survives sanitizing. -->
+     driven by a media query, because GitHub renders README images through an
+     img tag and may sanitize the style block out of them. The picture element
+     is GitHub's own documented mechanism for theme-aware images, so it is used
+     here rather than relying on what survives sanitizing. -->
 <svg width="64" height="64" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
     <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z"
           fill="#09090b" stroke="#09090b" stroke-width="1" stroke-linejoin="round"/>
