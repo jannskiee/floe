@@ -5,9 +5,13 @@
      artwork and vice versa. The bolt and the word "Floe" invert between the two
      files; "Docs" and the separator stay grey in both.
 
-     THE BOLT IS UNCHANGED. It is the exact path and stroke from
-     client/app/icon.svg, so this logo stays identical to the favicon, the PWA
-     icons and the desktop app icon. Only the lockup around it was rebuilt.
+     THE BOLT IS UNCHANGED. It is the exact path every Floe surface draws, at
+     the 0.5 stroke it shares with the PWA icons and the desktop app icon. Only
+     the lockup around it was rebuilt.
+
+     The two favicons draw that same path at stroke 1 instead: favicon.svg here
+     and client/app/icon.svg are bare, full-bleed marks with no tile, and they
+     need the extra weight to read at 16px. Same shape, weighted per surface.
 
      Metrics come from vercel.com/docs, measured off its rendered DOM rather
      than eyeballed: an 8px gap between every part (their `gap-2`), an 18px
