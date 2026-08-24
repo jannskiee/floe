@@ -5,9 +5,9 @@
      path as a shape modifier rather than an outline: it softens every corner
      and fattens the mark in one move, which is what makes it legible at 16px.
 
-     Colour is a presentation attribute and dark mode is a CSS rule, in that
+     Color is a presentation attribute and dark mode is a CSS rule, in that
      order on purpose. Presentation attributes sit at specificity 0, so the
-     media query wins wherever it is honoured, and any consumer that drops
+     media query wins wherever it is honored, and any consumer that drops
      <style> still gets the dark-ink bolt rather than nothing. The query
      follows the viewer's browser/OS theme, not the site's: a favicon lives in
      the tab strip, not on the page.
