@@ -1,0 +1,8 @@
+<!-- The Floe mark for DARK backgrounds (GitHub's dark theme). White ink.
+     Paired with floe-mark-light.svg by the <picture> element in README.md.
+     See that file for why the ink is pinned rather than driven by a media
+     query. -->
+<svg width="64" height="64" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+    <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z"
+          fill="#fff" stroke="#fff" stroke-width="1" stroke-linejoin="round"/>
+</svg>

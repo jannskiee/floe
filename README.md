@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="client/app/icon.svg" alt="Floe" width="100" height="100" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/floe-mark-dark.svg">
+    <img src=".github/assets/floe-mark-light.svg" alt="Floe" width="100" height="100" />
+  </picture>
 </p>
 
 <h1 align="center">Floe</h1>
