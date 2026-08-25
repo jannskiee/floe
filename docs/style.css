@@ -599,3 +599,56 @@ html:not(.dark) #content-area a.link {
 .dark #sidebar a:hover span {
   color: rgb(255 255 255);
 }
+
+/* Related topics, monochrome on hover as well (user call, 2026-08-26).
+
+   Mintlify's related-pages add-on renders up to five page links below the
+   article, painted `text-gray-950 dark:text-gray-50 hover:text-primary
+   dark:hover:text-primary-light`. With the ice colors config that hover is
+   rgb(0,163,201) on the light page and rgb(177,221,235) on the dark one: the
+   last accent left on a resting docs page, after the sidebar, TOC, tabs,
+   chips and assistant were each taken neutral before it.
+
+   Neutralising the hover alone would have taken the affordance with the
+   colour. Unlike every other hover in this file, the rest state here is
+   already the full foreground (rgb(10,15,16) light, rgb(242,247,249) dark,
+   measured on floe.one/docs 2026-08-26), so a hover landing on rgb(17,17,17)
+   or white is a step of a few units that nobody sees. The rows are quieted to
+   72 percent instead and hover to the full foreground, which is the grammar
+   the footer links (0.62 to 0.85) and the sidebar (gray to white) already use
+   above. That composites to rgb(84,84,84) at rest in light and
+   rgb(187,187,188) in dark, 7.6:1 and 10.1:1, both past AA for a 14px label,
+   and the hover is a 67-unit step in either mode.
+
+   The label span carries no colour class of its own, so it inherits. The file
+   glyph does not: it is a real stroked svg with its own text-gray-500, and it
+   keeps that gray through the hover exactly as Mintlify draws it. That gray
+   leans 7 units blue, as does the block's heading, because Mintlify derives
+   its gray ramp from the primary hue (the same tint the changelog chips
+   further up were de-tinted for), but at that magnitude it is below the
+   visible threshold and not worth a rule. The focus ring stays ice on
+   purpose, like every other focus ring on the site.
+
+   The hook is the wrapper's utility string, because Mintlify ships this block
+   with no id, no data-component-part and no semantic class. Verified on
+   floe.one/docs 2026-08-26, both themes, post-hydration: the selector matches
+   exactly one element per page and it is the only .my-8 in the content area.
+   If the ice ever comes back, that string moved; re-read the rendered DOM. No
+   !important is needed, for the usual reason: both hover utilities live in
+   @layer utilities and carry none of their own, and this sheet is
+   unlayered. */
+#content-area > div.my-8.flex.flex-col a {
+  color: rgb(17 17 17 / 0.72);
+}
+
+#content-area > div.my-8.flex.flex-col a:hover {
+  color: rgb(17 17 17);
+}
+
+.dark #content-area > div.my-8.flex.flex-col a {
+  color: rgb(255 255 255 / 0.72);
+}
+
+.dark #content-area > div.my-8.flex.flex-col a:hover {
+  color: rgb(255 255 255);
+}
