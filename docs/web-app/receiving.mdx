@@ -34,8 +34,8 @@ Follow the two steps, or tap **Copy link to paste in browser** and open it yours
 Safari, Edge, or Firefox. **Continue anyway (some features may not work)** proceeds regardless.
 
 Until you do one of those, the page has not joined the room. That is deliberate: a room takes
-exactly one recipient, so an in-app browser cannot silently consume your transfer and leave the
-real one with a dead link.
+exactly one recipient, so an in-app browser cannot silently take that seat and lock the real
+browser out.
 
 ## While you wait
 
@@ -146,8 +146,10 @@ See [floe receive](/cli/receive) and [Receive files in the desktop app](/desktop
 
 ## If the link does not work
 
-**"Link Invalid"** means the link is expired, malformed, or already used. A room takes exactly one
-recipient, so a link someone else has already opened will not work for you. Ask for a new one.
+**"Link Invalid"** means the link is malformed or already in use, which are its only two causes.
+A room takes exactly
+one recipient, so a link that someone else is already receiving on will not work for you. Ask for
+a new one.
 
 **A short code that will not resolve** came from `floe send` or Floe Desktop and lasts ten
 minutes. Links from the web app carry no code and stay valid as long as the sender's tab is open.

@@ -12,22 +12,29 @@ interoperable in every direction. The CLI and the desktop app share one implemen
 
 ## The sequence
 
-The sender runs this for each file, in order.
+The sender runs this for each file, in order:
 
-```mermaid
-sequenceDiagram
-    participant S as Sender
-    participant R as Receiver
-    S->>R: metadata
-    R->>S: ack
-    S->>R: binary chunks
-    S->>R: end
-    Note over S,R: repeats per file, in order
-    R->>S: received
-```
+1. **`metadata`**, sender to receiver, naming the file and its size.
+2. **`ack`**, receiver back to sender, before any bytes move.
+3. **Binary chunks**, sender to receiver, until the file is exhausted.
+4. **`end`**, sender to receiver, closing the file off.
 
-The final `received` comes once, after every file, and only from a Go receiver. Everything else
-repeats per file.
+The next file starts again at step 1. The final `received` comes once, after every file, and only
+from a Go receiver.
+
+Four things that order does not show.
+
+- **Step 3 is zero or more frames.** An empty file is `metadata`, `ack`, `end`, with no binary
+  frame between them at all.
+- **There is no cancel message.** Cancellation is a channel close, and a receiver declining at
+  the CLI's prompt closes the channel without sending anything. Every wait in the Go engine
+  watches for that close as a separate signal and gives up at once. The browser sender does not:
+  it sees a close only through its buffer-drain polls, so a decline reaches it as the full 120
+  second ack timeout instead.
+- **A person can sit between steps 1 and 2.** `floe receive` prints `Accept? [Y/n]` and waits for
+  an answer before it sends the ack. That is the whole reason the ack deadline is 120 seconds.
+- **The end of a batch is a race, not a message.** A Go sender finishes on whichever comes
+  first: the `received` frame, its send buffer reaching zero, or the 30 second timeout expiring.
 
 ## How a frame is classified
 

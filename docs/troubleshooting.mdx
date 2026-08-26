@@ -42,8 +42,9 @@ so several things can hold it up.
 
 The card reads "This link is either expired, already in use, or does not exist."
 
-A room takes exactly one recipient, so the most common cause is that someone has already opened
-this link, including you in another tab. Ask the sender to create a new one.
+A room takes exactly one recipient, so the most common cause is that someone is already connected
+on this link, including you in another tab. Opening a link does not use it up, so closing the other
+tab frees the seat. Otherwise ask the sender for a new link.
 
 ### "Could not connect. Ask the sender to enable "Network Relay" and try again."
 
@@ -117,8 +118,10 @@ is. Ask the sender to start a new session for a fresh code.
 
 ### `this code is no longer active; ask for a new one`
 
-The code resolved, but nobody is sharing on it. The sender finished, quit, or their session ended.
-Codes are single use.
+The code resolved, but nobody is sharing on it. The sender finished, quit, or their session ended,
+and joining the empty room they left behind is what produces this message. A word code stays valid for its
+full ten minutes, and a pasted share link does not expire at all. Either way it now points at a
+room nobody is in, so ask for a new one.
 
 ### `room is full (someone else may already be receiving)`
 

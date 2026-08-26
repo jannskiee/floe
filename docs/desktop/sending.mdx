@@ -104,8 +104,9 @@ files one at a time, which behaves inconsistently there. See
 The room code expires 10 minutes after you click Send. The link keeps working for as long as
 Floe is still waiting, so for a longer wait, share the link.
 
-A room takes exactly one receiver. Once someone joins, the code and link are spent, and a second
-person opening the same link gets an error. Send again for a second recipient. See
+A room takes exactly one receiver. While someone is connected, a second person opening the same
+link gets an error. Nothing is used up by that: if the recipient drops off, the seat frees and the
+code and link keep working. Send again for a second recipient. See
 [How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-people).
 
 Floe handles one transfer at a time, so wait for the current one to finish before starting the
