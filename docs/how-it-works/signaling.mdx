@@ -60,12 +60,12 @@ See [Direct connections](/how-it-works/direct-connection) and
 ## A room holds exactly two people
 
 The room is the transfer. It takes one sender and one receiver, and a third device that tries to
-join is turned away: the web app shows **Link Invalid**, while the CLI and
-the desktop app say `room is full`.
+join is turned away: the web app shows **Link Invalid**, while the CLI and the desktop app say
+`room is full`.
 
 Nothing is used up along the way. A code keeps resolving for its full ten minutes, and a link
-keeps working while the transfer is live. What turns a third device away is the second seat
-already being taken, not the link having been opened once.
+keeps working while the transfer is live. The refusal is about the second seat already being
+taken, not about the link having been opened once.
 
 The seat frees again once that device disconnects and the server notices, which takes up to about
 a minute if the drop was not a clean one. Whether the transfer survives that gap depends on who is
