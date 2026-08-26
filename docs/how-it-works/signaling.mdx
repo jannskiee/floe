@@ -13,23 +13,24 @@ That is the entire idea. The rest of this page is what those few seconds consist
 
 ## Step by step
 
-```mermaid
-flowchart LR
-    S["Your device"] -- "1 join a room" --> SV[("Signaling server")]
-    R["Their device"] -- "2 join the same room" --> SV
-    SV -- "3 pass along offer, answer, addresses" --> S
-    SV -- "3 pass along offer, answer, addresses" --> R
-    S == "4 the file, encrypted, straight across" ==> R
-```
+<Steps>
+  <Step title="You create a transfer">
+    Your device makes up a random room id and joins that room. You share a link containing it, or
+    a three-word code that maps to it.
+  </Step>
+  <Step title="They join the same room">
+    The server now has two devices in one room, and tells the first one that someone arrived.
+  </Step>
+  <Step title="The two devices introduce themselves">
+    They pass an offer, an answer, and a list of network addresses through the server, each
+    trying to find a path to the other.
+  </Step>
+  <Step title="The connection opens and the server drops out">
+    Every byte of the file travels over that connection. None of it goes back through the server.
+  </Step>
+</Steps>
 
-1. **You create a transfer.** Your device makes up a random room id and joins that room. You share
-   a link containing it, or a three-word code that maps to it.
-2. **They join the same room.** The server now has two devices in one room and tells the first one
-   that someone arrived.
-3. **The two devices introduce themselves.** They pass an offer, an answer, and a list of network
-   addresses through the server, each trying to find a path to the other.
-4. **The connection opens and the server drops out.** Every byte of the file travels over that
-   connection. None of it goes back through the server.
+Steps 1 to 3 all pass through the server. Step 4 does not.
 
 On most networks the path found in step 3 is direct, device to device. When a firewall or a
 carrier's network makes that impossible, the connection runs through an encrypted relay instead.
@@ -40,7 +41,7 @@ See [Direct connections](/how-it-works/direct-connection) and
 
 - Puts two devices in a room and assigns roles. The first to join sends, the second receives.
 - Passes the connection-setup messages between them.
-- Hands out short-lived credentials for the relay, when one is configured.
+- Hands out time-limited credentials for the relay, when one is configured.
 - Turns a room id into a three-word code, when the sender asks for one, and back again for ten
   minutes.
 - Adds the size of a finished transfer to one public running total, if the receiving side is
@@ -51,15 +52,25 @@ See [Direct connections](/how-it-works/direct-connection) and
 
 - Touch file data. Not in transit, not at rest, not in any form.
 - Store file names, contents, or a record of what you sent or to whom.
-- Keep peer information after the session. The room is dropped as soon as both sides are gone. A
-  short code outlives it by up to ten minutes, and even then it maps to nothing but a random id.
+- Keep peer information after the session. The room is dropped when the last connection to it
+  closes. A short code outlives it by up to ten minutes, and even then it maps to nothing but a
+  random id.
 - Connect the byte total to you. It is one number with no per-user or per-transfer rows behind it.
 
 ## A room holds exactly two people
 
-The room is the transfer. It takes one sender and one receiver, and a third device trying to join
-is turned away. That is why a link or a code is spent once someone opens it, and why a second
-person opening the same link sees an error rather than joining in.
+The room is the transfer. It takes one sender and one receiver, and a third device that tries to
+join is turned away: the web app shows **Link Invalid**, while the CLI and
+the desktop app say `room is full`.
+
+Nothing is used up along the way. A code keeps resolving for its full ten minutes, and a link
+keeps working while the transfer is live. What turns a third device away is the second seat
+already being taken, not the link having been opened once.
+
+The seat frees again once that device disconnects and the server notices, which takes up to about
+a minute if the drop was not a clean one. Whether the transfer survives that gap depends on who is
+sending: the web app holds its room open and waits for whoever arrives next, while `floe send` and
+the desktop app end the transfer as soon as the receiving side goes.
 
 For a second recipient, start a second transfer.
 

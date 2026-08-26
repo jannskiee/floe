@@ -31,8 +31,8 @@ networks and even on mobile data.
 
 ## What counts as one session
 
-A session is one sender and one receiver. The room holds exactly two people, so a link cannot be
-opened by two recipients and there is no way for a session to accumulate.
+A session is one sender and one receiver. The room holds exactly two people, so only one recipient
+is ever connected at a time and there is no way for a session to accumulate.
 
 The check happens **once, before any file data moves**. When the connection turns out to be
 relayed, Floe compares the total size of everything you queued against 2 GB and either allows the

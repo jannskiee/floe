@@ -15,7 +15,7 @@ docker compose restart server           # restart only the signaling server
 ```
 
 **Restarting the server is not free.** Rooms and room codes live in that process's memory, so a
-restart ends every transfer in flight and invalidates every short code that has not been used yet.
+restart ends every transfer in flight and invalidates every short code that has not yet expired.
 There is no draining and no warning. Pick a quiet moment, or expect people to need a new link.
 
 The client also waits on the server: Compose starts it only once the server reports healthy. If
