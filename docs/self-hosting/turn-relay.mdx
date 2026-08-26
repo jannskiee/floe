@@ -134,4 +134,4 @@ Credentials are minted from Cloudflare once and then **cached in memory for 12 h
 
 The signaling server generates time-limited credentials using HMAC-SHA1. The username is `{expiry_unix_timestamp}:floeuser` and the password is `base64(HMAC-SHA1(TURN_SECRET, username))`. coturn validates these against the shared secret without needing a database of user accounts.
 
-Relayed transfers stay capped at 2 GB per session even on a relay you run yourself. The cap is compiled into the browser client, the CLI, and the desktop app, not read from your server, so raising it means building all three from modified source. Direct connections are unaffected and have no size limit. See [The 2 GB Relay Limit](/how-it-works/2gb-limit).
+Relayed transfers stay capped at 2 GB per session even on a relay you run yourself. The cap is compiled into the browser client, the CLI, and the desktop app, not read from your server, so raising it means building all three from modified source. Direct connections are unaffected and have no size limit. See [File size limits](/how-it-works/2gb-limit).
