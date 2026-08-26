@@ -5,6 +5,7 @@ import { ServiceWorkerRegistration } from '@/components/ServiceWorkerRegistratio
 import Script from 'next/script';
 
 import { siteUrl, metadataBase } from '@/lib/siteUrl';
+import { sharedOpenGraph, sharedTwitter } from '@/lib/socialMetadata';
 
 const geistSans = Geist({
     variable: '--font-geist-sans',
@@ -17,7 +18,30 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-    title: 'Floe',
+    // A template object, not a plain string. Two distinct jobs:
+    //   default  what "/" renders (app/page.tsx exports no metadata of its own),
+    //            AND the fallback for any future segment that forgets a title.
+    //   template applied to CHILD segments only, never to the segment that
+    //            declares it, so "/" renders `default` verbatim rather than
+    //            "Floe - Floe". Next stashes the parent template only for items
+    //            before the last two, and "/" resolves to just
+    //            [root layout, page], so it never sees one.
+    //
+    // The separator is " - " and it is not a free choice. The docs at /docs are
+    // a Mintlify deployment (see the rewrite in next.config.mjs) that renders
+    // "{page title} - {name}" from docs/docs.json and offers no way to configure
+    // it. Any other separator here splits the site's tab titles across two
+    // conventions at the exact boundary a visitor crosses most often. Before
+    // this template existed every page hand-wrote its own suffix, and they
+    // drifted: /download and /how-it-works shipped "| Floe" while /privacy and
+    // /terms shipped "· Floe" (U+00B7 MIDDLE DOT).
+    //
+    // Pages below set a bare title and let this apply the suffix. A page that
+    // ever needs to opt out entirely should use `title: { absolute: '...' }`.
+    title: {
+        default: 'Floe',
+        template: '%s - Floe',
+    },
     description:
         'Send files directly to anyone. No uploads, no accounts, end-to-end encrypted. Works in your browser, as a Windows desktop app, or from the CLI.',
     metadataBase,
@@ -27,39 +51,21 @@ export const metadata: Metadata = {
     alternates: {
         canonical: '/',
     },
+    // siteName, type, locale and the conditional images now live in
+    // lib/socialMetadata so the four child pages can spread them back in. They
+    // have to: metadata merging is shallow, so a page that declares openGraph
+    // replaces this whole object rather than merging into it.
     openGraph: {
+        ...sharedOpenGraph,
         title: 'Floe: Encrypted P2P File Transfer. No Uploads.',
         description:
             'Send files directly from your device to anyone in the world. No accounts, no file storage, no size limits on direct transfers. Fully end-to-end encrypted with WebRTC.',
-        siteName: 'Floe',
-        // Images are the opposite case to canonical: a relative image with no
-        // metadataBase resolves against http://localhost:3000, which renders
-        // nothing in a link preview. Omitting beats emitting a broken URL.
-        //
-        // Both image arrays must stay conditional TOGETHER. Next copies the
-        // resolved Open Graph images into twitter when twitter declares none, so
-        // dropping only one of them still leaks localhost into the other.
-        images: siteUrl
-            ? [
-                  {
-                      // Relative path resolves against metadataBase above.
-                      url: '/og.png?v=3',
-                      width: 1200,
-                      height: 630,
-                      alt: 'Floe: encrypted peer-to-peer file transfer',
-                  },
-              ]
-            : undefined,
-        type: 'website',
-        locale: 'en_US',
     },
     twitter: {
-        // Without an image, a large-image card renders as an empty box.
-        card: siteUrl ? 'summary_large_image' : 'summary',
+        ...sharedTwitter,
         title: 'Floe: Encrypted P2P File Transfer. No Uploads.',
         description:
             'Send files directly from your device to anyone in the world. No accounts, no file storage, fully end-to-end encrypted.',
-        images: siteUrl ? ['/og.png?v=3'] : undefined,
     },
 };
 

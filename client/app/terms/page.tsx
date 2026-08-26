@@ -6,14 +6,20 @@ import {
     LegalSection,
     LegalShell,
 } from '@/components/legal/LegalShell';
+import { sharedOpenGraph, sharedTwitter } from '@/lib/socialMetadata';
 
 export const metadata: Metadata = {
-    title: 'Terms of Use · Floe',
+    // Bare title: the "%s - Floe" template in app/layout.tsx adds the suffix.
+    title: 'Terms of Use',
     description:
         'The terms for using Floe: acceptable use, your responsibility for what you send, the MIT license, and relay usage limits.',
     alternates: {
         canonical: '/terms',
     },
+    // Spread before overriding: a bare object here would replace the root's
+    // whole openGraph block and drop the images with it.
+    openGraph: { ...sharedOpenGraph, title: 'Floe Terms of Use' },
+    twitter: { ...sharedTwitter, title: 'Floe Terms of Use' },
 };
 
 const toc = [

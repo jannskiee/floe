@@ -189,6 +189,16 @@ jobs:
           # Use the live signaling server — matches the default in client/.env.example
           NEXT_PUBLIC_SOCKET_URL: https://api.floe.one
 
+      # Reads the prerendered HTML the Build step just produced. It has to be
+      # the built output: the tab title is assembled at render time from
+      # title.template in app/layout.tsx plus a bare title on each page, so no
+      # test that imports a module can see the string a visitor actually gets.
+      # A step rather than a job on purpose — this rides an already-gated job, so
+      # CI green's needs list is untouched.
+      - name: Check page titles
+        run: node scripts/check-titles.mjs
+        working-directory: client
+
   server:
     name: Server (Node.js)
     runs-on: ubuntu-latest

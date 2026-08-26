@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { AppWindow } from '@/components/landing/AppWindow';
+import { sharedOpenGraph, sharedTwitter } from '@/lib/socialMetadata';
 import { DownloadCta } from './DownloadCta';
 import {
     DESKTOP_VERSION,
@@ -19,13 +20,20 @@ import {
 // table, global chrome. The version, date, and every asset URL derive from
 // lib/desktopRelease so a release bump touches exactly one file.
 export const metadata: Metadata = {
-    title: 'Download | Floe',
+    // Bare title: the "%s - Floe" template in app/layout.tsx adds the suffix.
+    title: 'Download',
     // No "or use Floe in your browser" clause: the page's only CTA is the Store
     // badge and its body carries no route to "/", so promising a browser option
     // here would be advertising something this page does not offer.
     description:
         'Get Floe Desktop for Windows from the Microsoft Store (beta), or install the floe CLI: free, encrypted, peer-to-peer file transfer.',
     alternates: { canonical: '/download' },
+    // Spread before overriding, never a bare object: declaring either key
+    // replaces the root layout's whole block, so the spread is what keeps
+    // siteName, type, locale and the conditional images. Only the title differs
+    // per route; the descriptions are inherited from `description` above.
+    openGraph: { ...sharedOpenGraph, title: 'Download Floe Desktop for Windows' },
+    twitter: { ...sharedTwitter, title: 'Download Floe Desktop for Windows' },
 };
 
 const OTHER_WAYS: {
