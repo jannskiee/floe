@@ -1,5 +1,5 @@
 ---
-title: "Floe CLI Flags Reference"
+title: "CLI flags reference"
 sidebarTitle: "Flags"
 description: "Complete reference for every floe CLI flag: global server, relay and interface options, receive and update flags, and supported environment variables."
 keywords: ["flags", "options", "environment variables", "exit codes", "timeouts"]
@@ -16,7 +16,7 @@ Every command accepts these, but only `send` and `receive` act on them. `floe ve
 | `--web <url>` | _(auto-detected)_ | Web app URL included in the browser link printed by `floe send`. Auto-detected from `--server`: `https://api.floe.one` maps to `https://floe.one`, `http://localhost:3001` maps to `http://localhost:3000`, and any other server maps to itself, on the assumption that one origin serves both the API and the web app. Set `--web` only when your web app has its own hostname. |
 | `--iface <name>` | _(all interfaces)_ | Restrict WebRTC to network interfaces whose name contains this value (case-insensitive). Repeat the flag or separate names with commas, so `--iface Ethernet --iface Wi-Fi` and `--iface Ethernet,Wi-Fi` do the same thing. Use it when a VPN or virtual-machine adapter (Tailscale, VMware, WSL, Hyper-V) slows connection setup. See [Troubleshooting](/troubleshooting). |
 
-The desktop app has equivalents for two of these. `--server` and `--web` are **Server address** and **Share link address**, under Advanced in **Settings**. `--no-relay` has no desktop equivalent: the **Hide my IP address** toggle does the opposite, forcing every transfer through the relay rather than refusing it. See [Desktop Settings](/desktop/settings).
+The desktop app has equivalents for two of these. `--server` and `--web` are **Server address** and **Share link address**, under Advanced in **Settings**. `--no-relay` has no desktop equivalent: the **Hide my IP address** toggle does the opposite, forcing every transfer through the relay rather than refusing it. See [Desktop app settings](/desktop/settings).
 
 ## Help and version flags
 
@@ -154,4 +154,4 @@ Save received files to a specific folder and auto-accept:
 floe receive olive-tiger-castle -o ~/Downloads -y
 ```
 
-See [Against a Self-Hosted Server](/cli/self-hosted-server) for more server configuration examples.
+See [Use a self-hosted server](/cli/self-hosted-server) for more server configuration examples.

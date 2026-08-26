@@ -1,5 +1,5 @@
 ---
-title: "Self-Hosted Floe Operations"
+title: "Day-to-day operations"
 sidebarTitle: "Operations"
 description: "Day-to-day operations for a self-hosted Floe instance: common Compose commands, updating to the latest images, and the health endpoints to point a monitor at."
 keywords: ["logs", "update containers", "health check", "restart"]
@@ -40,7 +40,7 @@ docker compose --profile turn up -d
 
 Setting `COMPOSE_PROFILES=turn` in your `.env` applies it to every later `docker compose` command.
 
-Changing `NEXT_PUBLIC_SOCKET_URL` needs only `docker compose up -d`; the client reads it at runtime. See [How the Client Finds the Signaling Server](/self-hosting/build-time-url). `NEXT_PUBLIC_SITE_URL` is the exception: it is written into the page at build time, so the published image omits those tags entirely rather than pointing them at somebody else's domain. See [Container Images](/self-hosting/images) if you want your own.
+Changing `NEXT_PUBLIC_SOCKET_URL` needs only `docker compose up -d`; the client reads it at runtime. See [How the client finds the server](/self-hosting/build-time-url). `NEXT_PUBLIC_SITE_URL` is the exception: it is written into the page at build time, so the published image omits those tags entirely rather than pointing them at somebody else's domain. See [Container images](/self-hosting/images) if you want your own.
 
 ## The server does not log anything
 

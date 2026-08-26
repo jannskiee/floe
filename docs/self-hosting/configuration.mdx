@@ -1,5 +1,5 @@
 ---
-title: "Self-Hosted Floe Configuration"
+title: "Configuration reference"
 sidebarTitle: "Configuration"
 description: "Environment variable reference for a self-hosted Floe instance, covering client build-time URLs, CORS, TURN credentials, and stats persistence."
 keywords: ["environment variables", "CLIENT_URL", "settings", "env file"]
@@ -12,7 +12,7 @@ Under Docker Compose, every setting below is read from an optional `.env` file n
 | Variable | Service | Required | Default | Purpose |
 |----------|---------|----------|---------|---------|
 | `NEXT_PUBLIC_SOCKET_URL` | client (runtime) | No | `http://localhost:3001` | URL the **browser** uses to reach the signaling server. Read at runtime, so changing it needs only `docker compose up -d`, no rebuild. Set it **empty** when both services share one origin behind a [reverse proxy](/self-hosting/reverse-proxy); the browser then uses its own. Docker Compose passes this into the client container as `SOCKET_URL`, which is the name the container itself reads, so outside Compose set `SOCKET_URL` directly. See [how the client finds the server](/self-hosting/build-time-url). |
-| `FLOE_IMAGE_TAG` | compose | No | `latest` | Which published image tag to run, for example `1.10.4`, `1.10`, `main`, or `sha-fed7ebb`. See [Container Images](/self-hosting/images). Not to be confused with `FLOE_VERSION`, which belongs to the CLI installer and carries a leading `v`. |
+| `FLOE_IMAGE_TAG` | compose | No | `latest` | Which published image tag to run, for example `1.10.4`, `1.10`, `main`, or `sha-fed7ebb`. See [Container images](/self-hosting/images). Not to be confused with `FLOE_VERSION`, which belongs to the CLI installer and carries a leading `v`. |
 | `NEXT_PUBLIC_SITE_URL` | client (build) | No | _(none)_ | Canonical public origin of your client (e.g. `https://app.your-domain.com`), used for canonical, Open Graph, JSON-LD, and sitemap URLs. Inlined at build time, so the published image cannot carry it and omits those tags instead of claiming `floe.one`. Set it only when building the client yourself. |
 | `PORT` | server | No | `3001` | **Host** port the signaling server is published on. Inside the container it always listens on 3001; Docker Compose maps `${PORT}` to it. Outside Docker this is the port the server process binds directly. Change this and you must also update `NEXT_PUBLIC_SOCKET_URL` to match, then run `docker compose up -d`, or browsers keep dialing the old port. No rebuild is needed, because the client reads that address at runtime. |
 | `CLIENT_PORT` | client | No | `3000` | **Host** port the web client is published on. Inside the container it always listens on 3000. Compose-only; it has no effect outside Docker. |
@@ -45,7 +45,7 @@ seconds. Every other limit on this page is configurable; that one is not.
 
 For local testing nothing needs setting. Every value has a working default, and the client already points at `http://localhost:3001` with no `.env` file at all.
 
-The first case that genuinely needs one is reaching the app from another device on your network, which takes `NEXT_PUBLIC_SOCKET_URL` and `CLIENT_URL` together. See [Quick Start](/self-hosting/quickstart).
+The first case that genuinely needs one is reaching the app from another device on your network, which takes `NEXT_PUBLIC_SOCKET_URL` and `CLIENT_URL` together. See [Docker quickstart](/self-hosting/quickstart).
 
 ## Production configuration
 
@@ -65,4 +65,4 @@ CLOUDFLARE_TURN_KEY_API_TOKEN=your-api-token
 # TURN_DOMAIN=turn.your-domain.com
 ```
 
-See [Production Deployment](/self-hosting/production) for the full setup.
+See [Production deployment](/self-hosting/production) for the full setup.

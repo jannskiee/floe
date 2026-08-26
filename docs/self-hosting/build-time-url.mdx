@@ -1,5 +1,5 @@
 ---
-title: "How the Client Finds the Signaling Server"
+title: "How the client finds the server"
 sidebarTitle: "Server discovery"
 description: "How a self-hosted Floe web client resolves its signaling server address at runtime with SOCKET_URL, and when a rebuild is still required."
 keywords: ["SOCKET_URL", "NEXT_PUBLIC_SOCKET_URL", "api/config", "server discovery"]
@@ -25,7 +25,7 @@ The first match wins.
   or step 3 always returns 404 and any `SOCKET_URL` you set is silently
   discarded in favor of step 4. With an empty `SOCKET_URL` step 4 is the answer
   you wanted anyway, so the mistake stays invisible until the day you set one.
-  See [Run Floe Behind One Domain](/self-hosting/reverse-proxy) for the
+  See [Run behind one domain](/self-hosting/reverse-proxy) for the
   exact-path rule that keeps `/api/config` on the client.
 </Warning>
 
@@ -70,4 +70,4 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up -d
 
 This affects only SEO and link previews. Transfers, signaling, and the relay are
 unaffected, and all of those are configured at runtime. See
-[Container Images](/self-hosting/images).
+[Container images](/self-hosting/images).

@@ -1,5 +1,5 @@
 ---
-title: "Run Floe Behind One Domain"
+title: "Run behind one domain"
 sidebarTitle: "Reverse proxy"
 description: "Serve the Floe web client and signaling server from one domain using a reverse proxy, with copy-pasteable Caddy and nginx configs for WebSocket support."
 keywords: ["nginx", "caddy", "reverse proxy", "one domain", "websocket upgrade"]
@@ -152,7 +152,7 @@ docker compose up -d
 `NEXT_PUBLIC_SITE_URL` is the only build-time value here, which is why the
 comment above tells you the running stack does not read it. The published image
 cannot carry it, so canonical links and share previews are omitted rather than
-pointed somewhere wrong. See [Container Images](/self-hosting/images) to build the
+pointed somewhere wrong. See [Container images](/self-hosting/images) to build the
 client with your own domain baked in.
 
 `CLIENT_URL` is matched exactly, including the scheme and with no trailing
@@ -185,7 +185,7 @@ signaling server, that the realtime `/ws` connection is accepted, and that
 forwards only some of those is named in the failure message instead of breaking
 silently later. Leave **Share link address** blank on a one-domain instance and
 the app derives the link from the server address. See
-[Desktop Settings](/desktop/settings#server).
+[Desktop app settings](/desktop/settings#server).
 
 The test deliberately does not follow redirects, so a proxy that answers
 `/health` with a 301 is reported as "may be the web app rather than the
@@ -215,4 +215,4 @@ check.
 
 Splitting the client and server across `app.your-domain.com` and
 `api.your-domain.com` is still fully supported. See
-[Production Deployment](/self-hosting/production).
+[Production deployment](/self-hosting/production).
