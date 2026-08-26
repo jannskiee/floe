@@ -7,14 +7,20 @@ import {
     LegalSection,
     LegalShell,
 } from '@/components/legal/LegalShell';
+import { sharedOpenGraph, sharedTwitter } from '@/lib/socialMetadata';
 
 export const metadata: Metadata = {
-    title: 'Privacy Policy · Floe',
+    // Bare title: the "%s - Floe" template in app/layout.tsx adds the suffix.
+    title: 'Privacy Policy',
     description:
         'How Floe handles your data: files stream peer to peer and are never stored, and the only tally we keep is one anonymous global byte total.',
     alternates: {
         canonical: '/privacy',
     },
+    // Spread before overriding: a bare object here would replace the root's
+    // whole openGraph block and drop the images with it.
+    openGraph: { ...sharedOpenGraph, title: 'Floe Privacy Policy' },
+    twitter: { ...sharedTwitter, title: 'Floe Privacy Policy' },
 };
 
 const toc = [

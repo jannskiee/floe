@@ -3,18 +3,24 @@ import type { Metadata } from 'next';
 import { ArrowLeft, Zap, Server, ShieldCheck, BookOpen } from 'lucide-react';
 import Link from 'next/link';
 import { Footer } from '@/components/layout/Footer';
+import { sharedOpenGraph, sharedTwitter } from '@/lib/socialMetadata';
 
 // This page is static prose: no hooks, no state, no event handlers, no browser
 // APIs. It carried 'use client' until 2026-07, which forced the whole body into
 // a client-hydrated subtree and forced the metadata below out into a
 // pass-through layout.tsx. As a Server Component it can export metadata itself.
 export const metadata: Metadata = {
-    title: 'How It Works | Floe',
+    // Bare title: the "%s - Floe" template in app/layout.tsx adds the suffix.
+    title: 'How It Works',
     description:
         'Learn how Floe transfers files directly between devices using WebRTC, end-to-end encryption, and TURN relay fallback.',
     alternates: {
         canonical: '/how-it-works',
     },
+    // Spread before overriding: a bare object here would replace the root's
+    // whole openGraph block and drop the images with it.
+    openGraph: { ...sharedOpenGraph, title: 'How Floe Works' },
+    twitter: { ...sharedTwitter, title: 'How Floe Works' },
 };
 
 export default function HowItWorks() {
