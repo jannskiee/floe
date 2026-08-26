@@ -21,7 +21,7 @@ The signaling server brokers WebRTC connection setup (offer, answer, ICE candida
 
 Those are the ports inside the containers. In production you normally put both
 behind a single domain, so your users never see either one. See
-[Reverse Proxy](/self-hosting/reverse-proxy).
+[Run behind one domain](/self-hosting/reverse-proxy).
 
 ## Who can connect
 
@@ -67,13 +67,13 @@ which performs no origin check, so they reach your server regardless of that set
   <Card title="How the client finds the server" href="/self-hosting/build-time-url">
     Runtime `SOCKET_URL` resolution, and the one value that is still baked in at build time.
   </Card>
-  <Card title="Reverse Proxy" href="/self-hosting/reverse-proxy">
+  <Card title="Reverse proxy" href="/self-hosting/reverse-proxy">
     Serve the client and signaling server from one domain, with Caddy and nginx examples.
   </Card>
   <Card title="Production deployment" href="/self-hosting/production">
     HTTPS, custom domains, and the two-subdomain layout.
   </Card>
-  <Card title="TURN Relay" href="/self-hosting/turn-relay">
+  <Card title="TURN relay" href="/self-hosting/turn-relay">
     Use Cloudflare's managed TURN or add coturn to support peers behind strict NAT or CGNAT.
   </Card>
   <Card title="Operations" href="/self-hosting/operations">
