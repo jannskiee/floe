@@ -31,8 +31,8 @@ them can transfer with each other on your server.
 | Client | How it points at your instance |
 |--------|-------------------------------|
 | Web app | Loads from your `client` container. Nothing for the user to configure. |
-| CLI | `floe send --server https://floe.example.com`. See [Use the Floe CLI with a Self-Hosted Server](/cli/self-hosted-server). |
-| Floe Desktop | Settings, **Advanced**, then **Server address**. **Test** checks the address before you rely on it, and **Use default server** returns the app to `api.floe.one`. See [Desktop Settings](/desktop/settings#server). |
+| CLI | `floe send --server https://floe.example.com`. See [Use a self-hosted server](/cli/self-hosted-server). |
+| Floe Desktop | Settings, **Advanced**, then **Server address**. **Test** checks the address before you rely on it, and **Use default server** returns the app to `api.floe.one`. See [Desktop app settings](/desktop/settings#server). |
 
 Both peers must be on the same server. Servers do not talk to each other.
 
@@ -52,10 +52,10 @@ which performs no origin check, so they reach your server regardless of that set
 ## Contents
 
 <Columns cols={2}>
-  <Card title="Quick Start" href="/self-hosting/quickstart">
+  <Card title="Docker quickstart" href="/self-hosting/quickstart">
     Get the stack running with Docker Compose in minutes.
   </Card>
-  <Card title="Container Images" href="/self-hosting/images">
+  <Card title="Container images" href="/self-hosting/images">
     The prebuilt images on ghcr.io: tags, pinning a version or digest, and supported architectures.
   </Card>
   <Card title="Unraid" href="/self-hosting/unraid">
@@ -64,13 +64,13 @@ which performs no origin check, so they reach your server regardless of that set
   <Card title="Configuration" href="/self-hosting/configuration">
     Environment variable reference for all settings.
   </Card>
-  <Card title="How the Client Finds the Signaling Server" href="/self-hosting/build-time-url">
+  <Card title="How the client finds the server" href="/self-hosting/build-time-url">
     Runtime `SOCKET_URL` resolution, and the one value that is still baked in at build time.
   </Card>
   <Card title="Reverse Proxy" href="/self-hosting/reverse-proxy">
     Serve the client and signaling server from one domain, with Caddy and nginx examples.
   </Card>
-  <Card title="Production Deployment" href="/self-hosting/production">
+  <Card title="Production deployment" href="/self-hosting/production">
     HTTPS, custom domains, and the two-subdomain layout.
   </Card>
   <Card title="TURN Relay" href="/self-hosting/turn-relay">

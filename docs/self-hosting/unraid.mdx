@@ -11,7 +11,7 @@ instance.
 
 Both templates pull the same multi-architecture images the Docker Compose stack
 uses, so amd64 and arm64 Unraid hosts are covered by the same template and nothing
-is built on your server. See [Container Images](/self-hosting/images).
+is built on your server. See [Container images](/self-hosting/images).
 
 ## Before you start
 
@@ -59,7 +59,7 @@ as its CORS allow-list entry.
     That value is the container's `SOCKET_URL`. The client hands it to the browser
     from `GET /api/config` on every page load, so changing it later takes a
     container restart and never a rebuild. See
-    [How the Client Finds the Signaling Server](/self-hosting/build-time-url).
+    [How the client finds the server](/self-hosting/build-time-url).
 
   </Step>
   <Step title="Open and test Floe">
@@ -101,7 +101,7 @@ place produces a client that loads perfectly and never connects.
 
 Copy-pasteable Caddy and nginx configurations for exactly this routing, including
 the exact-path rule that keeps `/api/config` on the client, are in
-[Run Floe Behind One Domain](/self-hosting/reverse-proxy).
+[Run behind one domain](/self-hosting/reverse-proxy).
 
 ## Two hostnames behind a reverse proxy
 
@@ -136,4 +136,4 @@ Both templates follow the `latest` image tag, which changes only when Floe
 publishes a version tag. Use Unraid's normal container update flow to pull a new
 release. The containers store no files or application settings in volumes, so
 there is no appdata directory to migrate. To pin a specific version or a digest
-instead, see [Container Images](/self-hosting/images).
+instead, see [Container images](/self-hosting/images).

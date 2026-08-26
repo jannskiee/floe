@@ -72,7 +72,7 @@ and no request is made at all.
 
 The same opt-out exists on every surface: a checkbox on the receiver view in the browser, and
 `--no-report` or `FLOE_NO_STATS=1` for the CLI. See
-[Security and Privacy](/security-privacy#aggregate-statistics).
+[Security and privacy](/security-privacy#aggregate-statistics).
 
 The report follows whichever server the app is set to, so pointing Floe at your own instance
 sends your byte counts to that server's counter rather than to floe.one.
@@ -180,7 +180,7 @@ row below reaches the screen as
 | The server is running, but its API answered with HTTP ... If it is behind a reverse proxy, check that /api/ is being forwarded. | Stage three failed. |
 | The server is running, but it did not return usable connection details. | Stage three answered, but with no ICE servers in the list. |
 
-See [Run Floe Behind One Domain](/self-hosting/reverse-proxy) for a proxy configuration that
+See [Run behind one domain](/self-hosting/reverse-proxy) for a proxy configuration that
 forwards all three.
 
 ### Share link address
@@ -193,7 +193,7 @@ API is on `api.example.com` and the web app on `app.example.com`, needs it. With
 share link would point at the API, which serves no web app, and the link would be dead.
 
 This mirrors the CLI's `--web` flag. See
-[Use the Floe CLI with a Self-Hosted Server](/cli/self-hosted-server).
+[Use a self-hosted server](/cli/self-hosted-server).
 
 ## About
 
