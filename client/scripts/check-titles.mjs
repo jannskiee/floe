@@ -49,18 +49,29 @@ const EXPECTED = {
 // These are the characters that have been wrongly used as one here before.
 const FORBIDDEN_SEPARATORS = /[|·–—]/;
 
+const ENTITIES = {
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&#x27;': "'",
+    '&#39;': "'",
+};
+
+// One pass over the string, not a chain of .replace() calls. Chaining and
+// unescaping &amp; first would turn a literal "&amp;lt;" into "&lt;" and then
+// into "<", decoding it twice. A single regex with a lookup table consumes each
+// entity exactly once and cannot re-read what it just produced.
+function decodeEntities(text) {
+    return text.replace(/&(?:amp|lt|gt|quot|#x27|#39);/g, (entity) => ENTITIES[entity]);
+}
+
 function titlesIn(html) {
     // Only <head>. Both of the /_not-found titles landed there, while an SVG
     // <title> in the body is not a document title and must not be counted.
     const head = html.split(/<\/head>/i)[0];
     return [...head.matchAll(/<title[^>]*>([\s\S]*?)<\/title>/gi)].map((m) =>
-        m[1]
-            .replace(/&amp;/g, '&')
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&quot;/g, '"')
-            .replace(/&#x27;|&#39;/g, "'")
-            .trim()
+        decodeEntities(m[1]).trim()
     );
 }
 
