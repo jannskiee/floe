@@ -262,10 +262,13 @@ wails.json, the exe version resource, and all marketing. At tag time, bump
 wails.json's `productVersion` and the concrete version examples in
 docs/desktop/installation.mdx and docs/desktop/settings.mdx; the release workflow
 rewrites wails.json only in the runner's working tree, so the committed value
-goes stale otherwise. Bump `DESKTOP_VERSION` and `DESKTOP_RELEASE_DATE` in
-client/lib/desktopRelease.ts in a follow-up only AFTER the release assets are
-published: /download derives its links from them, and bumping early points the
-page at assets that do not exist yet (0.2.2 and 0.2.3 both shipped this way).
+goes stale otherwise. The release order, which files carry a version pin, and
+when `client/lib/desktopRelease.ts` may be bumped are in
+`.claude/skills/floe-release/SKILL.md`: /download derives its links from it,
+so bump only after the assets exist (the 0.2.3 bump landed 15 minutes after
+its assets; that margin is the whole reason for the order). The skill's
+`scripts/check-version-pins.mjs` measures the pin surface instead of listing
+it, and CI refuses a `DESKTOP_VERSION` whose release assets do not exist yet.
 
 Packaged-build behavior (verified empirically 2026-08-02 on a loose-layout
 package of this app): the app's HKCU registry writes are virtualized into the
@@ -301,9 +304,10 @@ binary.
 - [ ] g. Each release after: write the changelog entry BEFORE tagging. Add it
       under `Unreleased` in `docs/changelog.mdx`, merge, then relabel it to
       `desktop-vX.Y.Z` with the date at tag time, the way the CLI already does
-      (see commit b5bc70e). The generated GitHub release body is boilerplate and
-      carries no account of what changed, and /download's "Release notes" link
-      points at the docs changelog, so skipping this leaves that link empty.
+      (see commit d7e432f, #296). The generated GitHub release body is
+      boilerplate and carries no account of what changed, and /download's
+      "Release notes" link points at the docs changelog, so skipping this
+      leaves that link empty.
       Tag the entry `["Desktop"]`; the full contract for labels, dates and tag
       values is the MDX comment at the top of `docs/changelog.mdx`.
       Then paste a plain-text condensation into Partner Center's "What's new in
@@ -312,7 +316,7 @@ binary.
       hand. Judge that by what reaches a user, not by whether code changed:
       `desktop-v0.2.1` did move the Store tile colour, so it earned the short
       entry it now has, whereas a release that is only CI or build plumbing
-      earns nothing.
+      earns nothing. The runbook is `.claude/skills/floe-release/SKILL.md`.
 - [ ] h. Each release after: once the GitHub release is published, launch the
       PREVIOUS build and confirm the update notice fires and names the new
       version (the notice shipped in 0.2.3; the first release after it is the
