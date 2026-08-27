@@ -1,13 +1,13 @@
 // Package transfer implements the Floe data channel protocol for sending files.
 //
 // Protocol (same as the web app — must stay compatible for CLI↔Browser):
-//   1. Sender → Receiver: metadata JSON  (file name, size, index, total, pv, pvMin, ver)
-//   2. Receiver → Sender: ack JSON       (confirms ready, offset for resume, pv, pvMin, ver)
-//      OR:       incompatible JSON       (sent instead of ack when protocol ranges do not overlap)
-//   3. Sender → Receiver: binary chunks  (raw file bytes; chunk size adapts to
-//      the negotiated SCTP max-message-size, capped at 256 KB — see chunkSizeFor)
-//   4. Sender → Receiver: end JSON       (signals end of this file)
-//   Repeat for each file.
+//  1. Sender → Receiver: metadata JSON  (file name, size, index, total, pv, pvMin, ver)
+//  2. Receiver → Sender: ack JSON       (confirms ready, offset for resume, pv, pvMin, ver)
+//     OR:       incompatible JSON       (sent instead of ack when protocol ranges do not overlap)
+//  3. Sender → Receiver: binary chunks  (raw file bytes; chunk size adapts to
+//     the negotiated SCTP max-message-size, capped at 256 KB — see chunkSizeFor)
+//  4. Sender → Receiver: end JSON       (signals end of this file)
+//     Repeat for each file.
 //
 // pv/pvMin are the protocol version range (see protocol.go). ver is the human
 // release string (e.g. "v1.5.5") used only for the optional informational note;
@@ -266,6 +266,9 @@ drainLoop:
 	for {
 		select {
 		case raw := <-ackCh:
+			if len(raw) > controlMsgMax {
+				continue // same bound as the ack loop in sendFile
+			}
 			var msg struct {
 				Type string `json:"type"`
 			}
@@ -287,6 +290,9 @@ drainLoop:
 			for {
 				select {
 				case raw := <-ackCh:
+					if len(raw) > controlMsgMax {
+						continue
+					}
 					var msg struct {
 						Type string `json:"type"`
 					}
@@ -411,6 +417,12 @@ ackLoop:
 	for {
 		select {
 		case raw := <-ackCh:
+			// Same bound the browser's waitForAck gets from classifyControl: a real ack
+			// or incompatible is a few hundred bytes, and peer prose past this is
+			// never something to parse, let alone print.
+			if len(raw) > controlMsgMax {
+				continue
+			}
 			var base struct {
 				Type string `json:"type"`
 			}
@@ -442,8 +454,18 @@ ackLoop:
 								MinProtocolVersion, ProtocolVersion, ack.PvMin, ack.Pv, updateHint))
 						}
 						if ack.Ver != "" && localVer != "" && ack.Ver != localVer {
-							fmt.Printf("  Peer version: %s\n", ack.Ver)
+							fmt.Printf("  Peer version: %s\n", displayText(ack.Ver, maxDisplayVer))
 						}
+					}
+					// The offset is the receiver's word for how much of this
+					// file it already has, straight off the wire. Outside the
+					// file it is a receiver bug or a hostile peer: a negative
+					// one made Seek fail with a bare "invalid argument", and
+					// one past the end sent zero bytes plus an end marker the
+					// receiver then refused as incomplete. Name the number
+					// instead, before the file is touched.
+					if ack.Offset < 0 || ack.Offset > fileSize {
+						return fmt.Errorf("receiver asked to resume at byte %d of a %d-byte file", ack.Offset, fileSize)
 					}
 					offset = ack.Offset
 					break ackLoop

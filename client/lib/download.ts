@@ -5,7 +5,7 @@
  * in lib/transfer/protocol.ts casts the metadata JSON straight to its interface,
  * so `fileName` is whatever the other side chose to send.
  *
- * Two sanitized forms, because the two consumers need different things:
+ * Three sanitized forms, because the three consumers need different things:
  *
  *  - `sanitizeFileName` is flat, for the `download` attribute of an anchor. It
  *    keeps only the last path segment, so a name like `../../etc/passwd` can
@@ -13,8 +13,11 @@
  *  - `sanitizeZipEntryName` keeps the directory structure, because a CLI folder
  *    send legitimately puts `project/src/main.go` on the wire and flattening it
  *    would break a working feature. It drops the segments that could escape.
+ *  - `sanitizeDisplayText` is for text a person reads (an error banner, a
+ *    status line): the same invisible characters go and the length is capped,
+ *    and none of the file-system rules apply.
  *
- * Both apply the Windows rules unconditionally, unlike the Go receiver, which
+ * The two file-name forms apply the Windows rules unconditionally, unlike the Go receiver, which
  * only applies them when it is running on Windows. The difference is deliberate:
  * the Go receiver writes to a disk whose OS it knows, while a ZIP built here is
  * portable and may be extracted on Windows no matter where it was downloaded, so
@@ -49,6 +52,37 @@ const FALLBACK = 'received_file';
 
 /** Longest single path segment we will emit, in UTF-16 units. */
 const MAX_SEGMENT = 200;
+
+/** Longest peer-supplied string shown to a person, in UTF-16 units. */
+const MAX_DISPLAY = 200;
+
+/**
+ * Makes a peer-supplied string safe to put in front of a person: the same
+ * invisible characters `sanitizeSegment` removes (controls and the four bidi
+ * controls) are removed, and the length is capped with an ellipsis. Display
+ * only: a name that will touch a disk or a ZIP goes through `sanitizeFileName`
+ * or `sanitizeZipEntryName`, which also apply the Windows rules; text in an
+ * error banner is not a file name and keeps its `:` and `?`. React escapes
+ * HTML, not this: a bidi override in a rendered string reorders the glyphs
+ * around it exactly as it would in a file manager.
+ *
+ * When the cap bites, the stem is shortened and the extension is kept: a plain
+ * cut at the end would hide what a long name is (251 a's plus `.exe` would show
+ * as a's and an ellipsis), which is the disguise this exists to close. Same
+ * 16-unit tail rule as `sanitizeSegment`; a leading dot is a dotfile, not an
+ * extension. Never splits a surrogate pair.
+ */
+export function sanitizeDisplayText(text: unknown, max = MAX_DISPLAY): string {
+    if (typeof text !== 'string') return '';
+    const out = text.replace(INVISIBLE, '');
+    if (out.length <= max) return out;
+    const dot = out.lastIndexOf('.');
+    const ext = dot > 0 && out.length - dot <= 16 ? out.slice(dot) : '';
+    let stem = out.slice(0, max - 1 - ext.length);
+    const last = stem.charCodeAt(stem.length - 1);
+    if (last >= 0xd800 && last <= 0xdbff) stem = stem.slice(0, -1);
+    return stem + '…' + ext;
+}
 
 /**
  * Cleans one path segment. Returns '' when nothing survives; callers decide

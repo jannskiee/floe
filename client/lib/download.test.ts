@@ -3,6 +3,7 @@ import { zip, unzipSync } from 'fflate';
 import {
     buildZipEntries,
     dedupeFileName,
+    sanitizeDisplayText,
     sanitizeFileName,
     sanitizeZipEntryName,
 } from './download';
@@ -172,6 +173,72 @@ describe('sanitizeZipEntryName', () => {
             expect(got.startsWith('/')).toBe(false);
             expect(got.endsWith('/')).toBe(false);
             expect(got.includes('//')).toBe(false);
+        }
+    });
+});
+
+describe('sanitizeDisplayText', () => {
+    it('removes the text-direction override and control characters', () => {
+        expect(sanitizeDisplayText('photo\u202egnp.exe')).toBe('photognp.exe');
+        expect(sanitizeDisplayText('\u001b[2Kfake.txt')).toBe('[2Kfake.txt');
+        expect(sanitizeDisplayText('a\rb')).toBe('ab');
+    });
+
+    it('keeps characters that are only a problem for a file system', () => {
+        // Text in a banner is not a file name: the Windows rules do not apply,
+        // and right-to-left script needs no control character.
+        expect(sanitizeDisplayText('a:b?c.txt')).toBe('a:b?c.txt');
+        expect(sanitizeDisplayText('تقرير.pdf')).toBe('تقرير.pdf');
+    });
+
+    it('caps a long string with an ellipsis', () => {
+        const got = sanitizeDisplayText('x'.repeat(5000));
+        expect(got.length).toBe(200);
+        expect(got.endsWith('…')).toBe(true);
+    });
+
+    it('never splits a surrogate pair', () => {
+        const got = sanitizeDisplayText('\u{1F600}'.repeat(300));
+        expect(got.length).toBeLessThanOrEqual(200);
+        expect(got.endsWith('…')).toBe(true);
+        // A lone high surrogate before the ellipsis would be unrenderable.
+        expect(/[\uD800-\uDBFF]…$/.test(got)).toBe(false);
+    });
+
+    it('keeps a short extension when capping, so a long name cannot hide what it is', () => {
+        const got = sanitizeDisplayText('n'.repeat(250) + '.txt');
+        expect(got).toBe('n'.repeat(195) + '….txt');
+        expect(got.length).toBe(200);
+        // The spoof the cap would otherwise introduce: a long stem in front
+        // of .exe must still end in .exe on screen.
+        expect(sanitizeDisplayText('a'.repeat(251) + '.exe').endsWith('….exe')).toBe(true);
+    });
+
+    it('does not treat a long tail or a leading dot as an extension', () => {
+        const longTail = sanitizeDisplayText('n'.repeat(250) + '.' + 'e'.repeat(20));
+        expect(longTail.length).toBe(200);
+        expect(longTail.endsWith('…')).toBe(true);
+        const dotfile = sanitizeDisplayText('.' + 'n'.repeat(250));
+        expect(dotfile.length).toBe(200);
+        expect(dotfile.endsWith('…')).toBe(true);
+    });
+
+    it('keeps the extension without splitting a surrogate pair', () => {
+        const got = sanitizeDisplayText('\u{1F600}'.repeat(150) + '.png');
+        expect(got.endsWith('….png')).toBe(true);
+        expect(got.length).toBeLessThanOrEqual(200);
+        const beforeEllipsis = got.charCodeAt(got.length - 6);
+        expect(beforeEllipsis >= 0xd800 && beforeEllipsis <= 0xdbff).toBe(false);
+    });
+
+    it('honors a custom cap', () => {
+        expect(sanitizeDisplayText('abcdefgh', 4)).toBe('abc…');
+        expect(sanitizeDisplayText('abcd', 4)).toBe('abcd');
+    });
+
+    it('returns an empty string for a non-string, which the wire format allows', () => {
+        for (const bad of [undefined, null, 42, {}, []]) {
+            expect(sanitizeDisplayText(bad)).toBe('');
         }
     });
 });

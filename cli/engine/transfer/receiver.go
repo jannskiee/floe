@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -65,7 +66,7 @@ func reportBytesToServer(serverURL string, byteCount int64) {
 type IncomingInfo struct {
 	Files      int    `json:"files"`      // total files in the batch
 	TotalBytes int64  `json:"totalBytes"` // batch size; falls back to the single file's size, 0 when the sender predates totalBytes
-	FirstName  string `json:"firstName"`  // sender-supplied name of the first file (display only, NOT the on-disk name)
+	FirstName  string `json:"firstName"`  // sender-supplied name of the first file after displayText (controls and bidi marks replaced, at most maxDisplayName runes); display only, NOT the on-disk name
 }
 
 // ReceiveOptions carries the optional callbacks for GUI clients. The zero
@@ -150,9 +151,10 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 	// Process messages sequentially
 	var currentFile *os.File // the .part staging file the bytes are written to
 	var currentInfo FileInfo
-	var currentBase string      // safeJoin output; the de-collision sequence starts here
-	var currentDest string      // final path claimed for the file (see claimPart)
-	var currentSavedName string // FINAL on-disk name, relative to outputDir (see Progress.SavedName)
+	var currentDisplayName string // displayText(currentInfo.FileName): every print, callback and error uses this, never the raw name
+	var currentBase string        // safeJoin output; the de-collision sequence starts here
+	var currentDest string        // final path claimed for the file (see claimPart)
+	var currentSavedName string   // FINAL on-disk name, relative to outputDir (see Progress.SavedName)
 	var bytesReceived int64
 	var totalReceived int64
 	var bar *progressbar.ProgressBar
@@ -225,7 +227,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// it instead of returning a false "saved" outcome.
 				if currentFile != nil {
 					return fmt.Errorf("connection closed mid-transfer: %s (%d of %d bytes)",
-						currentInfo.FileName, bytesReceived, currentInfo.FileSize)
+						currentDisplayName, bytesReceived, currentInfo.FileSize)
 				}
 				if filesReceived == 0 {
 					return fmt.Errorf("connection closed before any file arrived (the sender canceled, or the transfer was blocked)")
@@ -242,7 +244,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				case <-done:
 					if currentFile != nil {
 						return fmt.Errorf("connection closed mid-transfer: %s (%d of %d bytes)",
-							currentInfo.FileName, bytesReceived, currentInfo.FileSize)
+							currentDisplayName, bytesReceived, currentInfo.FileSize)
 					}
 					if filesReceived == 0 {
 						return fmt.Errorf("connection closed before any file arrived (the sender canceled, or the transfer was blocked)")
@@ -261,7 +263,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					return fmt.Errorf("connected, but no data arrived from the sender within %s", receiveIdleTimeout)
 				case currentFile != nil:
 					return fmt.Errorf("transfer stalled: no data for %s (%d of %d bytes of %q)",
-						receiveStallTimeout, bytesReceived, currentInfo.FileSize, currentInfo.FileName)
+						receiveStallTimeout, bytesReceived, currentInfo.FileSize, currentDisplayName)
 				default:
 					return fmt.Errorf("transfer stalled: no data for %s (%d of %d files received)",
 						receiveStallTimeout, filesReceived, currentInfo.Total)
@@ -269,11 +271,24 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 			}
 		}
 
+		// A string is never file data (the `if msg.IsString { continue }` rule
+		// below is what proves it), so a string past the control cap is not
+		// something to write and not something to parse: it is a peer sending
+		// prose where a control message belongs. Fail loudly rather than skip
+		// it: skipping leaves the sender waiting on an ack that never comes and
+		// this side to the stall watchdog, whereas returning lets the caller's
+		// deferred Close reach the sender within a second. Over-cap BINARY is
+		// file data and falls through to classifyControl, which declines it.
+		if msg.IsString && len(msg.Data) > controlMsgMax {
+			rejectDescription(dc, localVer, fmt.Sprintf("control message is %d bytes, limit %d", len(msg.Data), controlMsgMax))
+			return fmt.Errorf("rejected the sender's control message: %d bytes, limit %d", len(msg.Data), controlMsgMax)
+		}
+
 		// Decide whether this is a Floe control message (metadata/end) or file
 		// data. Only recognized control types are consumed as control — a small
 		// binary chunk that merely happens to be a JSON object is file data and
 		// must be written, never dropped.
-		msgType, isControl := classifyControl(msg.Data, msg.IsString)
+		msgType, isControl := classifyControl(msg.Data)
 		if isControl {
 			switch msgType {
 
@@ -281,7 +296,13 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// A new file is starting
 				info, err := parseMetadata(string(msg.Data))
 				if err != nil {
-					continue
+					// classifyControl already proved this is a metadata object, so a failure
+					// here is a sender whose numbers cannot be right (a negative size, a size
+					// past 2^53). This used to `continue`, which left the sender waiting on an
+					// ack that never came and this side to the stall watchdog. Returning lets
+					// the caller's deferred Close reach the sender within a second.
+					rejectDescription(dc, localVer, err.Error())
+					return fmt.Errorf("rejected the sender's file description: %w", err)
 				}
 				// A second metadata while a file is still open means the sender
 				// abandoned the current file without an "end". Close and delete
@@ -299,6 +320,12 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					currentFile = nil
 				}
 				currentInfo = info
+				// The one display form of the name. safeJoin below derives the
+				// on-disk name from the raw info.FileName under different rules
+				// (Windows reserved characters, trailing trims, a length that is
+				// a compatibility surface), so the two may differ; SavedName
+				// carries the on-disk one.
+				currentDisplayName = displayText(info.FileName, maxDisplayName)
 				bytesReceived = 0
 
 				// On first file: check compat, show summary, and optionally prompt
@@ -329,13 +356,13 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 
 					// Optional informational note when release versions differ
 					if info.Ver != "" && localVer != "" && info.Ver != localVer {
-						fmt.Printf("  Peer version: %s\n", info.Ver)
+						fmt.Printf("  Peer version: %s\n", displayText(info.Ver, maxDisplayVer))
 					}
 
 					var incomingLabel string
 					switch {
 					case info.Total == 1:
-						incomingLabel = info.FileName + " · " + formatBytes(info.FileSize)
+						incomingLabel = currentDisplayName + " · " + formatBytes(info.FileSize)
 					case info.TotalBytes > 0:
 						incomingLabel = pluralize(info.Total, "file") + " · " + formatBytes(info.TotalBytes)
 					default:
@@ -350,7 +377,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 						if info.Total == 1 && tb == 0 {
 							tb = info.FileSize // legacy sender: the single file's size is still known
 						}
-						opts.OnIncoming(IncomingInfo{Files: info.Total, TotalBytes: tb, FirstName: info.FileName})
+						opts.OnIncoming(IncomingInfo{Files: info.Total, TotalBytes: tb, FirstName: currentDisplayName})
 					}
 
 					if !autoAccept {
@@ -401,8 +428,11 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// sender's whenever claimPart de-collided or safeJoin sanitized.
 				// Everything user-facing below reports this name, never the
 				// .part staging name, so progress lines and history read as the
-				// file the user will end up with.
-				currentSavedName = currentInfo.FileName
+				// file the user will end up with. The fallback is the claimed
+				// path's own base name, never the sender's string: Rel fails
+				// only when the two paths are on different volumes, and the
+				// name is still whatever claimPart wrote.
+				currentSavedName = filepath.ToSlash(filepath.Base(currentDest))
 				if rel, relErr := filepath.Rel(outputDir, currentDest); relErr == nil {
 					currentSavedName = filepath.ToSlash(rel)
 				}
@@ -464,7 +494,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					if bytesReceived != currentInfo.FileSize {
 						_ = os.Remove(partPath)
 						return fmt.Errorf("incomplete file %q: received %d of %d bytes",
-							currentInfo.FileName, bytesReceived, currentInfo.FileSize)
+							currentDisplayName, bytesReceived, currentInfo.FileSize)
 					}
 
 					// Mark the file as internet-sourced (Windows MOTW) so
@@ -493,7 +523,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 							currentSavedName = s
 							if onProgress != nil {
 								onProgress(Progress{
-									FileName:   currentInfo.FileName,
+									FileName:   currentDisplayName,
 									FileIndex:  currentInfo.Index,
 									FileCount:  currentInfo.Total,
 									FileBytes:  bytesReceived,
@@ -558,6 +588,15 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 		if currentFile == nil {
 			continue // no file open yet; shouldn't happen in normal flow
 		}
+		// Hold the sender to the size it announced, frame by frame. The "end"
+		// handler already refuses a byte count that differs, but only once
+		// every byte has been written, so a sender that simply never stops
+		// could fill the disk first. Failing on the first frame that would
+		// cross the line bounds the damage to the announced size, and the
+		// deferred cleanup removes the .part.
+		if bytesReceived+int64(len(msg.Data)) > currentInfo.FileSize {
+			return fmt.Errorf("sender exceeded the announced size of %q", currentDisplayName)
+		}
 		n, err := currentFile.Write(msg.Data)
 		if err != nil {
 			return fmt.Errorf("write error: %w", err)
@@ -568,7 +607,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 			bar.Add(n)
 		} else {
 			onProgress(Progress{
-				FileName:   currentInfo.FileName,
+				FileName:   currentDisplayName,
 				FileIndex:  currentInfo.Index,
 				FileCount:  currentInfo.Total,
 				FileBytes:  bytesReceived,
@@ -581,23 +620,55 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 	}
 }
 
+// rejectDescription tells the sender why its file description was refused, in
+// the one frame every sender already knows how to display: an "incompatible"
+// whose pv range overlaps ours. The Go sender prints its Reason through
+// compatErrorFromIncompatible (display-safe and capped there) and the browser
+// hands it to the error banner, so the person at the sending end reads the
+// actual reason instead of the "connection closed while waiting for the
+// receiver" that the close alone would produce. Best effort: a failed send
+// changes nothing, because the caller's deferred Close reaches the sender
+// either way.
+func rejectDescription(dc *webrtc.DataChannel, localVer, detail string) {
+	msg, _ := json.Marshal(incompatibleMsg{
+		Type:   "incompatible",
+		Reason: "receiver rejected the file description: " + detail,
+		Pv:     ProtocolVersion,
+		PvMin:  MinProtocolVersion,
+		Ver:    localVer,
+	})
+	_ = dc.Send(msg)
+}
+
+// controlMsgMax is the largest message probed as a control message, string or
+// binary, matching the browser's CONTROL_MSG_MAX. A real control message is a
+// few hundred bytes at most, so anything past this is either file data or a
+// peer sending prose where a control message belongs.
+const controlMsgMax = 1000
+
 // classifyControl reports whether a data channel message is a Floe control
 // message and, if so, its type.
 //
 // Control messages are JSON objects. The browser (SimplePeer) sends them as
 // strings, but depending on SCTP framing they can also arrive as small binary
-// messages, so binary payloads up to 1000 bytes are probed too (matching the
-// browser's `data.byteLength <= 1000` guard). Crucially, a message is treated
-// as control ONLY when it parses as a JSON object whose "type" is a known
-// control type. Anything else — including a small file whose bytes happen to be
-// a JSON object — is file data and must be written, not dropped.
+// messages, so binary payloads are probed too. The size probe applies to
+// string and binary alike (matching the browser's `data.byteLength <= 1000`
+// guard, which never asks about framing): the Floe sender uses SendText for
+// its metadata, so the old binary-only gate left strings bounded by nothing
+// but pion's 1 GB default and let a hostile peer hand parseMetadata a file
+// name of any length. The message loop rejects an over-cap STRING with an
+// error before this runs; an over-cap BINARY lands here and is file data.
+// Crucially, a message is treated as control ONLY when it parses as a JSON
+// object whose "type" is a known control type. Anything else, including a
+// small file whose bytes happen to be a JSON object, is file data and must be
+// written, not dropped.
 //
 // The receiver only acts on "metadata" and "end". The other recognized types
 // ("ack", "received", "incompatible") flow in the opposite direction; they are
 // classified as control so they are never mistakenly written as file data if
 // they somehow arrive on this side.
-func classifyControl(data []byte, isString bool) (msgType string, isControl bool) {
-	if !isString && len(data) > 1000 {
+func classifyControl(data []byte) (msgType string, isControl bool) {
+	if len(data) > controlMsgMax {
 		return "", false
 	}
 	if !looksLikeJSONObject(data) {
@@ -632,7 +703,24 @@ func looksLikeJSONObject(data []byte) bool {
 	return false
 }
 
-// parseMetadata extracts FileInfo from a raw metadata JSON string.
+// maxAnnouncedSize bounds fileSize and totalBytes at 2^53-1, the browser's
+// Number.MAX_SAFE_INTEGER guard in normalizeFileSize: above it the JSON number
+// was not exact where it was written, and above 2^63 the float64 to int64
+// conversion yields MinInt64 on amd64, so 1e300 used to arrive as a negative
+// size and crash formatBytes.
+const maxAnnouncedSize = 1<<53 - 1
+
+// byteCount validates one peer-supplied size. Zero is a real size and passes.
+func byteCount(field string, v float64) (int64, error) {
+	if v < 0 || v > maxAnnouncedSize || v != math.Trunc(v) {
+		return 0, fmt.Errorf("%s %v is not a byte count", field, v)
+	}
+	return int64(v), nil
+}
+
+// parseMetadata extracts FileInfo from a raw metadata JSON string. The numbers
+// are validated here, at the one place they enter, so no later caller has to
+// wonder whether a size is negative or a position is zero.
 func parseMetadata(text string) (FileInfo, error) {
 	var m struct {
 		Type       string  `json:"type"`
@@ -652,13 +740,30 @@ func parseMetadata(text string) (FileInfo, error) {
 	if m.Type != "metadata" {
 		return FileInfo{}, fmt.Errorf("not a metadata message")
 	}
+	fileSize, err := byteCount("file size", m.FileSize)
+	if err != nil {
+		return FileInfo{}, err
+	}
+	totalBytes, err := byteCount("batch size", m.TotalBytes)
+	if err != nil {
+		return FileInfo{}, err
+	}
+	if m.Index < 1 || m.Total < 1 {
+		return FileInfo{}, fmt.Errorf("file index %d of %d is not a position in a batch", m.Index, m.Total)
+	}
+	// Zero means "not announced" (pre-1.6.0 senders) and is fine; a batch that
+	// is smaller than one of its own files is not, and the desktop preview
+	// would show it as the batch size ("1 B" for a 5 GB file).
+	if totalBytes > 0 && totalBytes < fileSize {
+		return FileInfo{}, fmt.Errorf("batch size %d is smaller than the file size %d", totalBytes, fileSize)
+	}
 	return FileInfo{
 		ID:         m.ID,
 		FileName:   m.FileName,
-		FileSize:   int64(m.FileSize),
+		FileSize:   fileSize,
 		Index:      m.Index,
 		Total:      m.Total,
-		TotalBytes: int64(m.TotalBytes),
+		TotalBytes: totalBytes,
 		Pv:         m.Pv,
 		PvMin:      m.PvMin,
 		Ver:        m.Ver,
@@ -726,13 +831,18 @@ var reservedDeviceNames = map[string]struct{}{
 // two legitimate outputs: "" when everything was stripped, and ".." when a
 // trailing trim exposes one. safeJoin's existing filter handles both.
 //
+// This function runs only inside safeJoin, AFTER the Incoming box, the accept
+// prompt, OnIncoming and OnProgress have already used the name, so it protects
+// the disk and nothing else. The terminal and the GUI callbacks are protected
+// by displayText, which shares sanitizeRune with this function so the two can
+// never disagree about what a control or a bidi mark becomes.
+//
 // Two classes of rule, gated differently on purpose:
 //
 //   - Every platform: C0 controls, DEL, and the Unicode bidi controls become
-//     "_". Controls are never valid in a name, and this name is printed to a
-//     terminal (the incoming box, the progress bar, the summary), where a bare
-//     \r rewrites the line and \x1b injects escape sequences that can scrub the
-//     accept prompt. The bidi controls are the spoofing vector:
+//     "_". Controls are never valid in a name, and a bare \r or \x1b inside one
+//     is only ever an attempt at the terminal or the file manager that shows it.
+//     The bidi controls are the spoofing vector:
 //     "photo‮gnp.exe" renders as "photoexe.png" in Explorer, Finder and
 //     GNOME Files alike, so gating them to Windows would leave the other two
 //     exposed. Text that is inherently right-to-left (Arabic, Hebrew) needs no
@@ -770,23 +880,7 @@ func sanitizeComponent(name, goos string) string {
 	// strings.Map rewrites invalid UTF-8 to U+FFFD. That is harmless here:
 	// FileName arrives through json.Unmarshal, which has already made the same
 	// substitution before this code ever sees the name.
-	clean := strings.Map(func(r rune) rune {
-		switch {
-		// C0 and C1 controls, and DEL. C1 matters because U+0085 is a line
-		// break: the browser twin strips it, so Go has to as well or the two
-		// surfaces disagree on the same name.
-		case r < 0x20 || (r >= 0x7f && r <= 0x9f):
-			return '_'
-		case r == '؜', // ALM, the fourth Bidi_Control mark
-			r == '‎' || r == '‏', // LRM, RLM
-			r >= '‪' && r <= '‮', // embeddings and overrides
-			r >= '⁦' && r <= '⁩': // isolates
-			return '_'
-		case windows && strings.ContainsRune(`<>:"|?*`, r):
-			return '_'
-		}
-		return r
-	}, name)
+	clean := strings.Map(func(r rune) rune { return sanitizeRune(r, windows) }, name)
 
 	if !windows {
 		return clean
@@ -801,6 +895,31 @@ func sanitizeComponent(name, goos string) string {
 		return "_" + trimmed
 	}
 	return trimmed
+}
+
+// sanitizeRune is the one mapping shared by sanitizeComponent (on disk) and
+// displayText (on screen), so the two can never disagree about what a control
+// or a bidi mark becomes. windows adds the Win32 reserved characters, which
+// only matter when this receiver's filesystem is the target.
+//
+// C1 matters because U+0085 is a line break: the browser twin strips it, so
+// Go has to as well or the two surfaces disagree on the same name. The bidi
+// set is written as escapes rather than the characters themselves, because
+// the characters are invisible in an editor and one of them reverses the
+// display of the line it sits on.
+func sanitizeRune(r rune, windows bool) rune {
+	switch {
+	case r < 0x20 || (r >= 0x7f && r <= 0x9f): // C0, DEL, C1 (U+0085 is a line break)
+		return '_'
+	case r == '\u061c', // ALM, the fourth Bidi_Control mark
+		r == '\u200e' || r == '\u200f', // LRM, RLM
+		r >= '\u202a' && r <= '\u202e', // embeddings and overrides
+		r >= '\u2066' && r <= '\u2069': // isolates
+		return '_'
+	case windows && strings.ContainsRune(`<>:"|?*`, r):
+		return '_'
+	}
+	return r
 }
 
 // partSuffix marks a staging file that is still being written. The full final

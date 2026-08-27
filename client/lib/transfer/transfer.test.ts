@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { sendFiles, type SenderDeps, type FileEntry } from './sender';
 import { createReceiver } from './receiver';
-import { metadataMessage, endMessage, ackMessage } from './protocol';
+import { metadataMessage, endMessage, ackMessage, incompatibleMessage, CONTROL_MSG_MAX } from './protocol';
 
 const enc = new TextEncoder();
 
@@ -402,6 +402,132 @@ describe('receiver: truncation guard', () => {
         expect(h.completed).toEqual(['a.bin']);
         expect(h.errors).toEqual([]);
     });
+
+    it('shows a display-safe name in the incomplete-file error', () => {
+        // A bidi override in the announced name would reorder the words of
+        // the banner around it exactly as it does in a file manager, so the
+        // error carries the display form of the name, not the wire string.
+        const h = harness();
+        h.rx.handleMessage(
+            enc.encode(JSON.stringify({
+                type: 'metadata', id: 'a', fileName: 'photo\u202egnp.exe',
+                fileSize: 100, index: 1, total: 1, totalBytes: 100,
+            }))
+        );
+        const chunk = new Uint8Array(60);
+        for (let i = 0; i < 60; i++) chunk[i] = (i + 1) % 256;
+        h.rx.handleMessage(chunk);
+        h.rx.handleMessage(enc.encode(endMessage()));
+        expect(h.errors).toHaveLength(1);
+        expect(h.errors[0]).toContain('Incomplete file "photognp.exe"');
+        expect(h.errors[0]).not.toContain('\u202e');
+    });
+});
+
+/**
+ * The rejection reason and the version string in an ack are peer-supplied and
+ * used to land in the error banner verbatim. React escapes HTML, not control
+ * characters or bidi marks, so the sender cleans and caps them first.
+ */
+// Loopback deps whose receiver side is scripted: `reply` builds the frame that
+// answers the sender's metadata, delivered on a microtask like the loopback
+// harness above so waitForAck is registered before it fires. `sent` collects
+// every string frame the sender emits, for "never announced the file as done"
+// assertions.
+function scriptedDeps(reply: (metadataId: string) => string, sent: string[] = []): SenderDeps {
+    let senderDataHandler: ((d: Uint8Array | ArrayBuffer) => void) | null = null;
+    return {
+        send: (d) => {
+            if (typeof d !== 'string') return;
+            sent.push(d);
+            const parsed = JSON.parse(d) as { type: string; id?: string };
+            if (parsed.type === 'metadata' && parsed.id) {
+                const frame = enc.encode(reply(parsed.id));
+                // A fixture past the control cap is dropped by classifyControl
+                // and the sender waits out the ack timeout, so pin the size.
+                expect(frame.byteLength).toBeLessThanOrEqual(CONTROL_MSG_MAX);
+                queueMicrotask(() => senderDataHandler?.(frame));
+            }
+        },
+        onData: (handler) => {
+            senderDataHandler = handler;
+            return () => { senderDataHandler = null; };
+        },
+        channel: makeBufferChannel(),
+        sctpMaxMessageSize: null,
+    };
+}
+
+describe('sender: rejection text is display-safe', () => {
+    it('cleans and caps an incompatible reason', async () => {
+        // 70 lines of an erase-line escape: 910 bytes once JSON-escaped, and
+        // 350 characters after the invisible ones go, so the cap is exercised.
+        const reason = '\u001b[2Kxx\n'.repeat(70);
+        const errors: string[] = [];
+        await sendFiles(scriptedDeps(() => incompatibleMessage(reason)),
+            [{ id: 'x', file: makeFile(16, 'a.bin') }],
+            { onError: (m) => errors.push(m) });
+        expect(errors).toHaveLength(1);
+        expect(errors[0].length).toBeLessThanOrEqual(300);
+        expect(errors[0].endsWith('…')).toBe(true);
+        expect(errors[0]).not.toContain('\u001b');
+        expect(errors[0]).not.toContain('\n');
+    });
+
+    it('cleans the version string in an ack that fails the compat check', async () => {
+        const ver = 'v\u202e' + 'x'.repeat(850);
+        const errors: string[] = [];
+        await sendFiles(
+            scriptedDeps((id) => JSON.stringify({ type: 'ack', id, offset: 0, pv: 2, pvMin: 2, ver })),
+            [{ id: 'x', file: makeFile(16, 'a.bin') }],
+            { onError: (m) => errors.push(m) });
+        expect(errors).toHaveLength(1);
+        expect(errors[0]).toContain('Cannot transfer');
+        expect(errors[0]).not.toContain('\u202e');
+    });
+});
+
+/**
+ * The ack's offset is the receiver's word for how much of the file it already
+ * has, cast straight off the wire. A negative one used to make the chunk loop
+ * spin forever on empty slabs, and one past the end sent an end marker after
+ * zero bytes. Each test carries a 5 s timeout because the failure mode is a hang.
+ */
+describe('sender: resume offset from the receiver', () => {
+    it('refuses a negative offset instead of spinning forever', async () => {
+        const errors: string[] = [];
+        const sent: string[] = [];
+        await sendFiles(
+            scriptedDeps((id) => ackMessage(id, -1e9), sent),
+            [{ id: 'x', file: makeFile(16, 'a.bin') }],
+            { onError: (m) => errors.push(m) });
+        expect(errors).toHaveLength(1);
+        expect(errors[0]).toContain('-1000000000');
+        expect(sent.some((f) => f.includes('"end"'))).toBe(false);
+    }, 5000);
+
+    it('refuses an offset past the end of the file', async () => {
+        const errors: string[] = [];
+        const sent: string[] = [];
+        await sendFiles(
+            scriptedDeps((id) => ackMessage(id, 17), sent),
+            [{ id: 'x', file: makeFile(16, 'a.bin') }],
+            { onError: (m) => errors.push(m) });
+        expect(errors).toHaveLength(1);
+        expect(errors[0]).toContain('17');
+        expect(sent.some((f) => f.includes('"end"'))).toBe(false);
+    }, 5000);
+
+    it('still accepts a resume from inside the file', async () => {
+        const errors: string[] = [];
+        const sent: string[] = [];
+        await sendFiles(
+            scriptedDeps((id) => ackMessage(id, 8), sent),
+            [{ id: 'x', file: makeFile(16, 'a.bin') }],
+            { onError: (m) => errors.push(m) });
+        expect(errors).toEqual([]);
+        expect(sent.some((f) => f.includes('"end"'))).toBe(true);
+    }, 5000);
 });
 
 /**

@@ -64,6 +64,13 @@ func CompatErrorMessage(localTooOld bool, localVer, remoteVer string, localMin, 
 // compatErrorMessage lets GUI callers replace the CLI-only local update
 // instruction. An empty updateHint preserves the CLI wording exactly.
 func compatErrorMessage(localTooOld bool, localVer, remoteVer string, localMin, localMax, remoteMin, remoteMax int, updateHint string) string {
+	// remoteVer is peer-supplied and this string is printed by the CLI, shown on
+	// the desktop status line and wrapped into the sender's returned error, so it
+	// is made display-safe here, once, for every caller. localVer is our own;
+	// peerCompatErrorMessage swaps the two, so both are mapped rather than
+	// trusting the argument order.
+	localVer = displayText(localVer, maxDisplayVer)
+	remoteVer = displayText(remoteVer, maxDisplayVer)
 	localRange := fmt.Sprintf("protocol %d", localMin)
 	if localMax != localMin {
 		localRange = fmt.Sprintf("protocol %d-%d", localMin, localMax)
@@ -116,7 +123,11 @@ func compatErrorFromIncompatible(localVer, updateHint string, incompat incompati
 			MinProtocolVersion, ProtocolVersion, incompat.PvMin, incompat.Pv, updateHint)
 	}
 	if incompat.Reason != "" {
-		return incompat.Reason
+		// Peer prose, reached only by a legacy peer that sent no pv range or by
+		// a contradictory one whose range overlaps ours yet still rejected. It
+		// goes straight to the sender's terminal or status line, and uncapped
+		// it could paint the whole screen.
+		return displayText(incompat.Reason, maxDisplayReason)
 	}
 	return "peer rejected transfer: protocol incompatible"
 }

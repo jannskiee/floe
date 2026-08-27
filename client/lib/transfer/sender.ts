@@ -16,6 +16,7 @@ import {
     type Ack,
     type Incompatible,
 } from './protocol';
+import { sanitizeDisplayText } from '../download';
 
 export interface SenderCallbacks {
     onFileStart?: (index: number, total: number, fileName: string) => void;
@@ -229,7 +230,9 @@ async function sendSingleFile(
         return false;
     }
     if (ackResult.type === 'incompatible') {
-        cb.onError?.(ackResult.reason);
+        // The reason is peer prose headed for the error banner: clean and cap
+        // it, and fall back to our own wording when nothing readable is left.
+        cb.onError?.(sanitizeDisplayText(ackResult.reason, 300) || 'The other side rejected the transfer.');
         return false;
     }
 
@@ -250,6 +253,20 @@ async function sendSingleFile(
             ));
             return false;
         }
+    }
+
+    // The offset is the receiver's word for how much of this file it already
+    // has, and classifyControl casts it straight off the wire. Outside the
+    // file it is a receiver bug or a hostile peer: a negative one made the
+    // chunk loop below spin forever on empty slabs, and a missing one sent an
+    // end marker after zero bytes. Refuse it before the file is touched.
+    const resumeAt: unknown = ackResult.offset;
+    if (typeof resumeAt !== 'number' || !Number.isInteger(resumeAt) || resumeAt < 0 || resumeAt > file.size) {
+        cb.onError?.(
+            `The receiver asked to resume "${file.name}" from byte ${String(resumeAt)} of ${file.size}, ` +
+            `which is not possible. Please try again.`
+        );
+        return false;
     }
 
     // The ack means the receiver has consumed everything before this file and

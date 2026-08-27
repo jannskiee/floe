@@ -3,6 +3,7 @@ package transfer
 import (
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // TestSafeJoin verifies that no crafted file name can escape the output dir.
@@ -278,7 +280,7 @@ func TestLooksLikeJSONObject(t *testing.T) {
 	}{
 		{`{"type":"end"}`, true},
 		{"  \r\n\t{\"a\":1}", true}, // leading whitespace tolerated
-		{`[1,2,3]`, false},         // array, not object
+		{`[1,2,3]`, false},          // array, not object
 		{`"a string"`, false},
 		{`123`, false},
 		{"", false},
@@ -298,41 +300,49 @@ func TestClassifyControl(t *testing.T) {
 	cases := []struct {
 		name        string
 		data        string
-		isString    bool
 		wantType    string
 		wantControl bool
 	}{
-		{"metadata string", `{"type":"metadata","id":"x","fileName":"a","fileSize":1,"index":1,"total":1}`, true, "metadata", true},
-		{"end string", `{"type":"end"}`, true, "end", true},
-		{"metadata as small binary", `{"type":"metadata","id":"x"}`, false, "metadata", true},
+		{"metadata string", `{"type":"metadata","id":"x","fileName":"a","fileSize":1,"index":1,"total":1}`, "metadata", true},
+		{"end string", `{"type":"end"}`, "end", true},
+		{"metadata as small binary", `{"type":"metadata","id":"x"}`, "metadata", true},
 		// Protocol-direction messages are control so they are never written as file data.
-		{"ack type is control", `{"type":"ack","id":"x","offset":0}`, false, "ack", true},
-		{"received type is control", `{"type":"received"}`, false, "received", true},
-		{"incompatible type is control", `{"type":"incompatible","reason":"too old"}`, false, "incompatible", true},
+		{"ack type is control", `{"type":"ack","id":"x","offset":0}`, "ack", true},
+		{"received type is control", `{"type":"received"}`, "received", true},
+		{"incompatible type is control", `{"type":"incompatible","reason":"too old"}`, "incompatible", true},
 		// A tiny JSON file (its own content) must be treated as DATA, not dropped.
-		{"json file content under 1KB", `{"hello":"world","n":42}`, false, "", false},
+		{"json file content under 1KB", `{"hello":"world","n":42}`, "", false},
 		// A JSON object whose type is unknown is still data, not control.
-		{"unknown type", `{"type":"chat","msg":"hi"}`, false, "", false},
+		{"unknown type", `{"type":"chat","msg":"hi"}`, "", false},
 		// Raw binary that isn't JSON is data.
-		{"raw binary", "\x89PNG\r\n\x1a\n....", false, "", false},
+		{"raw binary", "\x89PNG\r\n\x1a\n....", "", false},
 		// A string that isn't a control message is skipped (not control, not data).
-		{"non-control string", "just some text", true, "", false},
+		{"non-control string", "just some text", "", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotType, gotControl := classifyControl([]byte(tc.data), tc.isString)
+			gotType, gotControl := classifyControl([]byte(tc.data))
 			if gotType != tc.wantType || gotControl != tc.wantControl {
-				t.Errorf("classifyControl(%q, isString=%v) = (%q, %v), want (%q, %v)",
-					tc.data, tc.isString, gotType, gotControl, tc.wantType, tc.wantControl)
+				t.Errorf("classifyControl(%q) = (%q, %v), want (%q, %v)",
+					tc.data, gotType, gotControl, tc.wantType, tc.wantControl)
 			}
 		})
 	}
 
-	// A binary JSON object LARGER than 1000 bytes must be data (control probe is
-	// capped at 1000 bytes for binary, matching the browser guard).
+	// Past controlMsgMax the framing no longer matters. A binary JSON object
+	// larger than the cap is file data (matching the browser guard), and the
+	// same shape arriving as a string, which is how a Floe sender frames its
+	// metadata, is declined here too: the old gate was binary-only, so a
+	// string was bounded by nothing but pion's default message size. The
+	// message loop rejects an over-cap string with an error before it ever
+	// asks this function; TestReceiverRejectsOversizeStringControl covers that.
 	big := `{"type":"metadata",` + `"pad":"` + strings.Repeat("x", 1100) + `"}`
-	if _, isControl := classifyControl([]byte(big), false); isControl {
+	if _, isControl := classifyControl([]byte(big)); isControl {
 		t.Errorf("classifyControl on >1000-byte binary should be data, got control")
+	}
+	bigString := `{"type":"metadata","id":"x","fileName":"` + strings.Repeat("n", 1100) + `","fileSize":1,"index":1,"total":1}`
+	if _, isControl := classifyControl([]byte(bigString)); isControl {
+		t.Errorf("classifyControl on a >1000-byte string metadata should not be control")
 	}
 }
 
@@ -628,5 +638,235 @@ func TestCommitPart(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(final2); string(b) != "mine" {
 		t.Errorf("payload content = %q, want %q", b, "mine")
+	}
+}
+
+// TestDisplayText pins the display sanitizer: the on-disk rune mapping, a rune
+// cap with an ellipsis, and nothing else. The Windows-only rules do not apply,
+// because a name on screen is not stored anywhere. Every row is also checked
+// for idempotence, which is what lets a value that was displayed once be run
+// through again (the desktop persists FirstName into history) unchanged.
+func TestDisplayText(t *testing.T) {
+	exact := []struct {
+		name string
+		in   string
+		max  int
+		want string
+	}{
+		{"right to left override", "photo\u202egnp.exe", maxDisplayName, "photo_gnp.exe"},
+		{"escape sequence", "\x1b[2Kfake.txt", maxDisplayName, "_[2Kfake.txt"},
+		{"carriage return", "a\rb", maxDisplayName, "a_b"},
+		{"arabic script untouched", "تقرير.pdf", maxDisplayName, "تقرير.pdf"},
+		{"accented latin untouched", "réport résumé.pdf", maxDisplayName, "réport résumé.pdf"},
+		{"underscore untouched", "a_b.txt", maxDisplayName, "a_b.txt"},
+		{"windows reserved char kept on screen", "backup:2026.log", maxDisplayName, "backup:2026.log"},
+		{"empty", "", maxDisplayName, ""},
+		{"real version string", "v1.10.4", maxDisplayVer, "v1.10.4"},
+		// The cap shortens the stem and keeps the extension, so a long name
+		// cannot hide what it is at the accept prompt.
+		{"long name keeps its extension", strings.Repeat("n", 250) + ".txt", maxDisplayName, strings.Repeat("n", 195) + "….txt"},
+		{"long stem before exe still says exe", strings.Repeat("a", 251) + ".exe", maxDisplayName, strings.Repeat("a", 195) + "….exe"},
+		{"tail past 16 runes is not an extension", strings.Repeat("n", 250) + "." + strings.Repeat("e", 20), maxDisplayName, strings.Repeat("n", 199) + "…"},
+		{"dotfile has no extension to keep", "." + strings.Repeat("n", 250), maxDisplayName, "." + strings.Repeat("n", 198) + "…"},
+	}
+	for _, tc := range exact {
+		t.Run(tc.name, func(t *testing.T) {
+			got := displayText(tc.in, tc.max)
+			if got != tc.want {
+				t.Errorf("displayText(%q, %d) = %q, want %q", tc.in, tc.max, got, tc.want)
+			}
+			if again := displayText(got, tc.max); again != got {
+				t.Errorf("not idempotent: displayText(%q) = %q", got, again)
+			}
+		})
+	}
+
+	capped := []struct {
+		name  string
+		in    string
+		max   int
+		check func(t *testing.T, got string)
+	}{
+		{"5000 ascii runes", strings.Repeat("x", 5000), maxDisplayName, func(t *testing.T, got string) {
+			if n := utf8.RuneCountInString(got); n != 200 {
+				t.Errorf("rune count = %d, want 200", n)
+			}
+			if !strings.HasSuffix(got, "…") || !strings.HasPrefix(got, strings.Repeat("x", 199)) {
+				t.Errorf("want 199 x then an ellipsis, got %q", got)
+			}
+		}},
+		{"300 emoji, a cut that must not split a rune", strings.Repeat("😀", 300), maxDisplayName, func(t *testing.T, got string) {
+			if n := utf8.RuneCountInString(got); n != 200 {
+				t.Errorf("rune count = %d, want 200", n)
+			}
+			if !utf8.ValidString(got) {
+				t.Errorf("cut inside a rune: %q", got)
+			}
+		}},
+		{"10 KB version string", strings.Repeat("v", 10*1024), maxDisplayVer, func(t *testing.T, got string) {
+			if n := utf8.RuneCountInString(got); n != 64 {
+				t.Errorf("rune count = %d, want 64", n)
+			}
+		}},
+		{"5 KB multi-line reason", strings.Repeat("line one\nline two\n", 300), maxDisplayReason, func(t *testing.T, got string) {
+			if n := utf8.RuneCountInString(got); n != 300 {
+				t.Errorf("rune count = %d, want 300", n)
+			}
+			if strings.Contains(got, "\n") {
+				t.Errorf("a newline survived: %q", got)
+			}
+		}},
+	}
+	for _, tc := range capped {
+		t.Run(tc.name, func(t *testing.T) {
+			got := displayText(tc.in, tc.max)
+			tc.check(t, got)
+			if again := displayText(got, tc.max); again != got {
+				t.Errorf("not idempotent: displayText(%q) = %q", got, again)
+			}
+		})
+	}
+}
+
+// TestSanitizeRuneSharedByBothSanitizers is the drift guard: off Windows, the
+// on-disk sanitizer and the display sanitizer must agree on every hostile
+// input, because a name that reads one way in the accept prompt and lands
+// another way on disk is the spoof this fix exists to close.
+func TestSanitizeRuneSharedByBothSanitizers(t *testing.T) {
+	hostile := []string{
+		"photo\u202egnp.exe",
+		"esc\x1b[2Kfake.txt",
+		"log\r\n.txt",
+		"del\x7f.txt",
+		"a\u2066b\u2069c.txt",
+		"a\u200eb.txt",
+		"a\u061cb.txt",
+		"a\u0085b.txt",
+		"a\x00b.txt",
+		"backup:2026-08-19.log",
+		"what?.txt",
+		"تقرير.pdf",
+	}
+	for _, in := range hostile {
+		got, want := displayText(in, 10000), sanitizeComponent(in, "linux")
+		if got != want {
+			t.Errorf("displayText(%q) = %q, but sanitizeComponent(linux) = %q", in, got, want)
+		}
+	}
+}
+
+// TestFormatBytesNeverPanics pins the guard for the crash a hostile size used
+// to cause: math.Log of a negative is NaN, int(NaN) is MinInt64 on amd64, and
+// the clamp only guarded the top, so units[i] panicked on the receive
+// goroutine and, in the desktop app, ended the whole process.
+func TestFormatBytesNeverPanics(t *testing.T) {
+	for _, tc := range []struct {
+		in   int64
+		want string
+	}{
+		{-1, "0 Bytes"},
+		{math.MinInt64, "0 Bytes"},
+		{0, "0 Bytes"},
+		{1536, "1.5 KB"},
+	} {
+		if got := formatBytes(tc.in); got != tc.want {
+			t.Errorf("formatBytes(%d) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+	if got := formatBytes(math.MaxInt64); !strings.Contains(got, "TB") {
+		t.Errorf("formatBytes(MaxInt64) = %q, want a TB value", got)
+	}
+}
+
+// TestTruncateNameCountsRunes: the cut is in runes, so a multi-byte name never
+// loses half a character to the ellipsis.
+func TestTruncateNameCountsRunes(t *testing.T) {
+	got := truncateName("ééééé", 3)
+	if got != "éé…" {
+		t.Errorf("truncateName(ééééé, 3) = %q, want %q", got, "éé…")
+	}
+	if !utf8.ValidString(got) {
+		t.Errorf("cut inside a rune: %q", got)
+	}
+	if got := truncateName("ab", 3); got != "ab" {
+		t.Errorf("short name changed: %q", got)
+	}
+}
+
+// TestParseMetadataRejectsImpossibleNumbers pins the validation at the one
+// place peer numbers enter: a size that is negative, fractional or beyond the
+// range JSON can carry exactly, and a batch position of zero, are refused
+// with an error rather than handed to formatBytes and claimPart.
+func TestParseMetadataRejectsImpossibleNumbers(t *testing.T) {
+	frame := func(fields string) string {
+		return `{"type":"metadata","id":"x","fileName":"a.bin",` + fields + `}`
+	}
+	reject := []struct{ name, fields string }{
+		{"negative size", `"fileSize":-1,"index":1,"total":1`},
+		{"size past int64", `"fileSize":1e300,"index":1,"total":1`},
+		{"fractional size", `"fileSize":1.5,"index":1,"total":1`},
+		{"size past float64", `"fileSize":1e999,"index":1,"total":1`}, // json.Unmarshal range error
+		{"negative batch size", `"fileSize":1,"index":1,"total":1,"totalBytes":-1`},
+		{"index zero", `"fileSize":1,"index":0,"total":1`},
+		{"total zero", `"fileSize":1,"index":1,"total":0`},
+		{"batch smaller than its own file", `"fileSize":10,"index":1,"total":1,"totalBytes":5`},
+	}
+	for _, tc := range reject {
+		t.Run("rejects "+tc.name, func(t *testing.T) {
+			if info, err := parseMetadata(frame(tc.fields)); err == nil {
+				t.Errorf("parseMetadata accepted %s: %+v", tc.fields, info)
+			}
+		})
+	}
+	accept := []struct {
+		name   string
+		fields string
+		size   int64
+	}{
+		{"zero size", `"fileSize":0,"index":1,"total":1`, 0},
+		{"absent batch size", `"fileSize":1,"index":1,"total":1`, 1},
+		{"batch equal to its single file", `"fileSize":10,"index":1,"total":1,"totalBytes":10`, 10},
+		{"largest exact size", `"fileSize":9007199254740991,"index":1,"total":1`, 9007199254740991},
+	}
+	for _, tc := range accept {
+		t.Run("accepts "+tc.name, func(t *testing.T) {
+			info, err := parseMetadata(frame(tc.fields))
+			if err != nil {
+				t.Fatalf("parseMetadata rejected %s: %v", tc.fields, err)
+			}
+			if info.FileSize != tc.size {
+				t.Errorf("FileSize = %d, want %d", info.FileSize, tc.size)
+			}
+		})
+	}
+}
+
+// TestCompatErrorMessageSanitizesPeerStrings: the peer's version string and
+// its legacy reason are printed by the CLI and shown on the desktop status
+// line, so they arrive there cleaned and capped no matter which path built
+// the message.
+func TestCompatErrorMessageSanitizesPeerStrings(t *testing.T) {
+	msg := CompatErrorMessage(false, "v1", "v2\x1b[2K\u202e", 1, 1, 2, 2)
+	if !strings.Contains(msg, "v2_[2K_") || strings.Contains(msg, "\x1b") {
+		t.Errorf("remote version not cleaned: %q", msg)
+	}
+	msg = compatErrorMessage(true, "v1", "v2\x1b[2K\u202e", 1, 1, 2, 2, "hint")
+	if !strings.Contains(msg, "v2_[2K_") || strings.Contains(msg, "\x1b") {
+		t.Errorf("remote version not cleaned on the GUI path: %q", msg)
+	}
+
+	// A legacy peer's reason is the only prose the sender prints verbatim.
+	legacy := compatErrorFromIncompatible("v1", "", incompatibleMsg{Reason: strings.Repeat("evil\n", 1000)})
+	if n := utf8.RuneCountInString(legacy); n > 300 {
+		t.Errorf("legacy reason is %d runes, want at most 300", n)
+	}
+	if strings.Contains(legacy, "\n") {
+		t.Errorf("a newline survived in the legacy reason: %q", legacy)
+	}
+
+	// A current peer's ver is capped before it is embedded in the rebuilt message.
+	rebuilt := compatErrorFromIncompatible("v1", "", incompatibleMsg{Ver: strings.Repeat("v", 10*1024), Pv: 2, PvMin: 2})
+	if n := utf8.RuneCountInString(rebuilt); n >= 500 {
+		t.Errorf("rebuilt message is %d runes for a 10 KB ver, want under 500", n)
 	}
 }
