@@ -199,6 +199,23 @@ jobs:
         run: node scripts/check-titles.mjs
         working-directory: client
 
+      # /download derives every desktop asset URL from DESKTOP_VERSION, so a
+      # bump that lands before the desktop-v* release exists points the page at
+      # 404s (the 0.2.3 bump landed 15 minutes after its assets; that margin is
+      # the whole reason for the order). Ask GitHub, not git: the checkout
+      # above is depth 1 without tags. A step rather than a job for the same
+      # reason as the title check.
+      - name: Check desktop release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="$(grep -o "DESKTOP_VERSION = '[^']*'" client/lib/desktopRelease.ts | grep -o '[0-9.]\+')"
+          names="$(gh release view "desktop-v$v" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          for a in "floe-desktop-setup-$v.exe" "floe-desktop-$v-windows-amd64.zip" SHA256SUMS.txt; do
+            printf '%s\n' "$names" | grep -qxF "$a" || { echo "desktop-v$v is missing asset $a" >&2; exit 1; }
+          done
+          echo "desktop-v$v has all assets"
+
   server:
     name: Server (Node.js)
     runs-on: ubuntu-latest

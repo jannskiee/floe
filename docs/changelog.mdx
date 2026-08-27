@@ -10,8 +10,11 @@ rss: true
   1. `label` is the git tag, verbatim: v1.9.1, desktop-v0.2.2, or Unreleased.
      It also generates the anchor (v1.7.0 becomes #v1-7-0), so never edit a
      label that has already shipped.
-  2. `description` is the release date as YYYY-MM-DD, using the tag's local
-     date. Omit it only while the entry is still Unreleased.
+  2. `description` is the release date as YYYY-MM-DD, using the tag's UTC
+     date (GitHub, CI and DESKTOP_RELEASE_DATE run on UTC; before 08:00 Manila
+     that is yesterday's date). Entries up to v1.8.0, plus desktop-v0.1.0 and
+     desktop-v0.2.0, carry the Manila date. Omit it only while the entry is
+     still Unreleased.
   3. `tags` come from exactly four values, spelled exactly like this:
        "Web"           the web app, and self-hosted web clients
        "Desktop"       the Windows app
