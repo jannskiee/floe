@@ -915,14 +915,51 @@ function parseEnvFile(root, relPath) {
     const file = join(root, relPath);
     const vals = new Map();
     if (!existsSync(file)) return { vals, file, relPath };
-    let n = 0;
-    for (const line of read(file).split('\n')) {
-        n++;
-        const m = line.match(/^#?\s*([A-Z_][A-Z0-9_]*)=(.*)$/);
+    const lines = read(file).split('\n');
+    for (let i = 0; i < lines.length; i++) {
+        const m = lines[i].match(/^#?\s*([A-Z_][A-Z0-9_]*)=(.*)$/);
         if (!m || vals.has(m[1])) continue;
-        vals.set(m[1], { value: m[2].replace(/\s+#.*$/, '').trim(), line: n });
+        // The contiguous comment block right above a key often restates the
+        // default ("(default: 30)", "1 (default)", "(default: 5 TB)") and
+        // drifts on its own: a sim changed the code default and two stale
+        // lines here would have shipped on exit 0. The nearest mention wins,
+        // and the scan stops at a blank line or another key.
+        let commentDefault = null;
+        let commentLine = 0;
+        for (
+            let j = i - 1;
+            j >= 0 &&
+            /^\s*#/.test(lines[j]) &&
+            !/^#?\s*[A-Z_][A-Z0-9_]*=/.test(lines[j]);
+            j--
+        ) {
+            const d =
+                lines[j].match(
+                    /\bdefault:?\s+`?(\d[\w.]*(?:\s*(?:KB|MB|GB|TB))?)`?/i
+                ) || lines[j].match(/(\d[\w.]*)\s+\(default\)/i);
+            if (d && commentDefault === null) {
+                commentDefault = d[1];
+                commentLine = j + 1;
+            }
+        }
+        vals.set(m[1], {
+            value: m[2].replace(/\s+#.*$/, '').trim(),
+            line: i + 1,
+            commentDefault,
+            commentLine,
+        });
     }
     return { vals, file, relPath };
+}
+
+// "5 TB" in a comment is the same claim as 5497558138880 in code.
+function bytesOf(value) {
+    const m = String(value).match(/^(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)$/i);
+    if (!m) return null;
+    return String(
+        Number(m[1]) *
+            1024 ** { KB: 1, MB: 2, GB: 3, TB: 4 }[m[2].toUpperCase()]
+    );
 }
 
 function parseCompose(root) {
@@ -1179,20 +1216,41 @@ function checkEnv(ctx) {
             );
         }
     }
-    // Defaults: NOTE for the deployment surfaces (they may legitimately differ).
-    const soft = (key, value, where, kind) => {
+    // Defaults: NOTE for the operator surfaces (they may legitimately differ):
+    // server/.env.example (the value line and the comment above it),
+    // .env.docker.example (same two), docker-compose.yml `:-` defaults and
+    // the unraid templates.
+    const soft = (key, value, where, kind, how = 'value') => {
         if (BUILD_DEPENDENT[key] || !server.keys.has(key)) return;
         const code = server.keys.get(key);
-        if (code === null || value === '' || sameValue(value, code)) return;
+        const cmp = bytesOf(value) ?? value;
+        if (code === null || value === '' || sameValue(cmp, code)) return;
         if (ALLOW[key]?.[kind] === value) return;
+        const claim =
+            how === 'comment'
+                ? `${key}: the comment says default ${value}`
+                : `${key}=${value} here`;
         report.note(
             'env',
             where,
-            `${key}=${value} here but server/server.js defaults to ${code}`
+            `${claim} but server/server.js defaults to ${code}`
         );
     };
-    for (const [k, v] of dockerExample.vals)
-        soft(k, v.value, `${dockerExample.relPath}:${v.line}`, 'docker');
+    const softFile = (parsed, kind) => {
+        for (const [k, v] of parsed.vals) {
+            soft(k, v.value, `${parsed.relPath}:${v.line}`, kind);
+            if (v.commentDefault !== null)
+                soft(
+                    k,
+                    v.commentDefault,
+                    `${parsed.relPath}:${v.commentLine}`,
+                    kind,
+                    'comment'
+                );
+        }
+    };
+    softFile(serverExample, 'server-example');
+    softFile(dockerExample, 'docker');
     for (const [k, v] of compose.defaults)
         soft(k, v.value, `docker-compose.yml:${v.line}`, 'docker');
     for (const [k, v] of unraid.defaults) soft(k, v.value, v.where, 'unraid');

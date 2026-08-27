@@ -25,3 +25,5 @@
 7.  **`%G?` shows E on main.** Expected: the squash commit is signed with GitHub's web-flow GPG key, which is not in the local GPG keyring (allowed_signers governs SSH signatures and plays no part here). Only G on branch commits matters.
 
 8.  **Repo squash defaults.** As of 2026-08-28 the repository setting is `squash_merge_commit_title: PR_TITLE` and `squash_merge_commit_message: PR_BODY` (previously `COMMIT_OR_PR_TITLE` / `COMMIT_MESSAGES`, which concatenated every branch commit into the squash body). ship-it passes `--subject` and `--body-file` explicitly regardless, so a setting change cannot bring the concatenation back.
+
+9.  **wait-ci exits 4.** gh is not authenticated, the PR number does not exist, the SHA is not in the repo, or a flag is missing its value. Fix the target (`gh auth status`, `gh pr view <n>`, `git rev-parse <sha>`) and run it again once; do not retry the same command in a loop.

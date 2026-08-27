@@ -1,9 +1,12 @@
 ---
 name: 'ship-it'
-description: 'Land a change end to end: classify the CI lane, run the local checks CI would run, make a signed commit from PowerShell with git commit -F, open the PR from a body file, wait for the CI green check by SHA, triage a stuck or red PR, squash-merge with an explicit subject and body. Use for: commit this (even a checkpoint), open a PR, ship it, is CI green yet, the PR is stuck or red, merge it.'
+description: 'Land a change end to end: classify the CI lane, run the local checks CI would run, sign the commit from PowerShell (git commit -F), open the PR from a body file, wait for the CI green check by SHA, triage a stuck or red PR, squash-merge with explicit subject and body. Use for: commit this (even a checkpoint), open a PR, ship it, is CI green yet, the PR is stuck or red, merge it. Not for cutting a v* or desktop-v* release; that is floe-release.'
 ---
 
 # ship-it
+
+Paths below are relative to the repo root and exist on main only after PR #344 merged;
+from a worktree of an older main, use the absolute path to a checkout that has them.
 
 ## 0. Checkpoint or ship?
 
@@ -12,25 +15,32 @@ only. Ship = every step. Never skip step 4's signing recipe for either.
 
 ## 1. Where am I
 
-- `git branch --show-current` must not be main (main rejects pushes with GH013; no
-  bypass, not even the owner). On main: `git checkout -b <free-form name>`.
+- `git branch --show-current` must print a non-main branch name (a detached HEAD prints
+  nothing and passes a naive "not main" check). main rejects pushes with GH013; no
+  bypass, not even the owner. On main: `git checkout -b <free-form name>`.
 - `git fetch origin` so origin/main is current (local main has been stale before).
-- `git status --short`, stage by name. Never `git add -A` while next dev runs: it writes
-  client/AGENTS.md, client/CLAUDE.md and rewrites next-env.d.ts.
+- `git status --short`, then stage by name, now: unstaged edits classify as nothing in
+  step 2. Never `git add -A` while next dev runs: it writes client/AGENTS.md,
+  client/CLAUDE.md and rewrites next-env.d.ts.
 
 ## 2. Lane
 
-`git diff --name-only origin/main...HEAD` plus `git diff --name-only --cached`. Same
-rule as ci.yml's changes job: any path not under docs/ is code (full matrix, about
-10 min); anything under .github/workflows/ or .github/scripts/ also runs actionlint and
-shellcheck. references/lanes.md maps touched areas to local commands.
+`git diff --name-only --cached` plus `git diff --name-only origin/main...HEAD` (staged
+first, per step 1; an unstaged edit is invisible to both). Same rule as ci.yml's
+`Detect changed paths` job: any path not under docs/ is code (full matrix, about
+10 min); anything under .github/workflows/ or .github/scripts/ also runs `Lint
+workflows` (actionlint and shellcheck). references/lanes.md maps touched areas to local
+commands.
 
 ## 3. Local checks
 
-Run only the rows for touched areas. If docs or root markdown changed, run docs-verify
-first. Skip what only CI can arbitrate (e2e x3, back-compat, wails/NSIS packaging,
-docker-smoke, shellcheck) and say so in the test plan. actionlint is installed here, so
-workflow edits get `actionlint -color` locally.
+Run only the rows for touched areas. If docs or root markdown changed, run docs-verify's
+script first (layer 1; the claim walk is the author's job before this point). Skip what
+only CI can arbitrate and say so in the test plan: `E2E (browser + CLI interop, <os>)`
+x3, `Back-compat (HEAD vs latest release)`, the packaging steps of `Desktop (Wails,
+windows-latest)`, `Docker (self-hosting stack)`, and the shellcheck half of `Lint
+workflows`. actionlint is installed here, so workflow edits get `actionlint -color`
+locally.
 
 ## 4. Commit (PowerShell tool only)
 
@@ -45,21 +55,24 @@ trailer (CLAUDE.md, Git Conventions).
 
 ## 5. Push and PR
 
-`git push -u origin <branch>`. Write the body file (## Summary, ## Test plan, no AI
-footer) and `gh pr create --title "<subject>" --body-file <file>`. Never pass
-quote-bearing text inline from PowerShell; PowerShell 5.1 mangles it. A title that
-itself contains a double quote goes through the Bash tool instead (gh needs no signing,
-so the PowerShell rule does not apply to it).
+`git push -u origin <branch>` (either tool; no signing involved). Write the body file
+(## Summary, ## Test plan, no AI footer) and
+`gh pr create --title "<subject>" --body-file <file>`. Never pass quote-bearing text
+inline from PowerShell: PowerShell 5.1 mangles interior double quotes, and its
+double-quoted strings also expand `$name` and backticks. A title containing `"`, `$` or
+a backtick goes through the Bash tool instead (gh needs no signing, so the PowerShell
+rule does not apply to it).
 
 ## 6. Wait
 
-`node .claude/skills/ship-it/scripts/wait-ci.mjs <pr-number>`. Docs lanes finish within
-a minute; for code lanes run it with run_in_background (the tool call cap is 600 s, the
-script's default timeout is 9 min, rerun to keep waiting). Exit 0 green. 1 red: the
-failed job names and a `gh run view <id> --log-failed` command are printed (a gate that
-completed as skipped or neutral counts as red). 2 dropped event: run the printed
-`gh workflow run ci.yml --ref <branch>` once, then wait again (gh pr checks will not list
-dispatched jobs; this script reads check-runs by SHA). 3 timeout. Anything else:
+`node .claude/skills/ship-it/scripts/wait-ci.mjs <pr-number>` (either tool). Docs
+lanes finish within a minute; for code lanes run it with run_in_background (the tool
+call cap is 600 s, the script's default timeout is 9 min, rerun to keep waiting). Exit 0
+green. 1 red: the failed job names and a `gh run view <id> --log-failed` command are
+printed (a gate that completed as skipped or neutral counts as red). 2 dropped event:
+run the printed `gh workflow run ci.yml --ref <branch>` once, then wait again (gh pr
+checks will not list dispatched jobs; this script reads check-runs by SHA). 3 timeout.
+4: fix the target (see references/blocked-pr.md), do not retry. Anything else:
 references/blocked-pr.md.
 
 ## 7. Merge
@@ -67,8 +80,8 @@ references/blocked-pr.md.
 `gh pr merge <n> --squash --subject "<subject> (#<n>)" --body-file <same body file>`.
 Pass both anyway so the result never depends on the repo setting (it was
 COMMIT_MESSAGES until 2026-08-28, which concatenated every branch commit into the squash
-body). The subject is verbatim, so you add the (#n). A subject containing a double
-quote goes through the Bash tool, as in step 5.
+body). The subject is verbatim, so you add the (#n). A subject containing `"`, `$` or a
+backtick goes through the Bash tool, as in step 5.
 
 ## 8. Confirm
 

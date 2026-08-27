@@ -261,3 +261,35 @@ test('headingSlugs: the three heading shapes the docs use', () => {
     assert.ok(update.ids.has('v1-10-4'));
     assert.equal(slug('v1.10.4'), 'v1-10-4');
 });
+
+test('a server/.env.example value or comment default that contradicts server.js is a NOTE', () => {
+    const root = fresh();
+    edit(root, 'server/.env.example', (t) => {
+        assert.ok(
+            t.includes('(default: 30).') &&
+                t.includes('MAX_CONNECTIONS_PER_IP=30'),
+            'fixture assumes the MAX_CONNECTIONS_PER_IP block shape'
+        );
+        return t
+            .replace('(default: 30).', '(default: 31).')
+            .replace('MAX_CONNECTIONS_PER_IP=30', 'MAX_CONNECTIONS_PER_IP=32');
+    });
+    const r = run(root);
+    assert.equal(r.status, 0, r.out);
+    const notes = r.out
+        .split('\n')
+        .filter(
+            (l) =>
+                l.startsWith('NOTE  env  server/.env.example') &&
+                l.includes('MAX_CONNECTIONS_PER_IP')
+        );
+    assert.equal(notes.length, 2, r.out);
+    assert.ok(
+        notes.some((l) => l.includes('=32') && l.includes('defaults to 30'))
+    );
+    assert.ok(
+        notes.some(
+            (l) => l.includes('default 31') && l.includes('defaults to 30')
+        )
+    );
+});
