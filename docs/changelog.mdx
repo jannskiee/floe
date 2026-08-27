@@ -43,18 +43,29 @@ Floe ships on two version lines. `vX.Y.Z` releases floe.one, the `floe` CLI, and
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
-<Update label="Unreleased" tags={["CLI", "Web", "Desktop"]}>
+<Update label="desktop-v0.2.8" description="2026-08-27" tags={["Desktop"]}>
+  **A file name chosen by the other side can no longer disguise its extension in the incoming preview, and an impossible file size no longer closes the app**
+
+  - The incoming preview shows a cleaned name: control characters and text-direction marks become underscores, and a name longer than 200 characters is shortened with its extension kept. The name saved on disk is unchanged, and the progress line and History show the name as it was saved.
+  - A sender that announced a negative or impossibly large file size ended the whole app before the preview appeared. Sizes and file counts are now checked as the announcement arrives, and an announcement that cannot be right ends the transfer with an error in the status line instead.
+  - A file that keeps arriving past the size the sender announced is stopped at the first extra byte and the partial file is removed.
+  - The status line shows cleaned messages from the shared engine, including the version string and rejection reason a peer sends back.
+  - A control message longer than 1000 bytes ends the transfer with an error instead of being parsed, and a receiver that asks to resume from a position outside the file is refused.
+  - The fix is on the receiving side, so a transfer is protected once the receiving end runs Floe Desktop 0.2.8 or `floe` 1.10.5. The wire protocol is unchanged, so 0.2.8 transfers with older CLI, desktop, and browser peers in both directions.
+</Update>
+
+<Update label="v1.10.5" description="2026-08-27" tags={["CLI", "Web", "Self-hosting"]}>
   **A file name or version string chosen by the other side can no longer rewrite the terminal, disguise its extension in the accept prompt, or crash the receiver**
 
   - `floe receive` showed the sender's file name exactly as sent in the Incoming box and the `Accept? [Y/n]` prompt. The name was only cleaned later, when the file was written, so a name containing terminal control codes could erase or redraw the prompt, and a text-direction mark could make `photo` followed by a reversed `exe.png` read as an image while the file was a program. The Incoming box, the accept prompt, the peer version note, progress reporting, and every error message now show a cleaned name: control characters and text-direction marks become underscores, and names longer than 200 characters are shortened with the extension kept. The name saved on disk is unchanged.
-  - A sender that announced a negative or impossibly large file size made the receiver crash before the prompt appeared, and in Floe Desktop that ended the whole app. Sizes and file counts are now checked as the announcement arrives, an announcement that cannot be right ends the transfer with an error instead, and `floe send` shows that reason rather than only reporting a closed connection.
+  - A sender that announced a negative or impossibly large file size made the receiver crash before the prompt appeared. Sizes and file counts are now checked as the announcement arrives, an announcement that cannot be right ends the transfer with an error instead, and `floe send` shows that reason rather than only reporting a closed connection.
   - A file that keeps arriving past the size the sender announced is stopped at the first extra byte and the partial file is removed, instead of the overrun being caught only when the file ends.
-  - A receiver that asks to resume from a position outside the file is refused by `floe send` and by the web app, instead of the transfer hanging or sending nothing.
+  - A receiver that asks to resume from a position outside the file is refused by `floe send`, instead of the transfer hanging or sending nothing.
   - `floe receive` now ends the transfer with an error when a control message is longer than 1000 bytes, instead of parsing it, matching the limit the web app has always enforced. `floe send` drops such a frame and keeps waiting for a valid one.
   - `floe send` cleans and shortens the version string and the rejection reason a receiver sends back before printing them.
-  - Web app: the error shown when a file arrives incomplete, and the message shown when the other side rejects a transfer, have control characters and text-direction marks removed and are shortened before they appear on the page.
-  - Desktop: the incoming preview shows the cleaned name, the progress line and History show the name as it was saved, the status line shows the cleaned messages from the shared engine, and the crash above no longer takes the app down.
-  - The wire protocol is unchanged, so this still transfers with older CLI, desktop, and browser peers in both directions.
+  - Web app: the error shown when a file arrives incomplete, and the message shown when the other side rejects a transfer, have control characters and text-direction marks removed and are shortened before they appear on the page. The web app also refuses a resume position outside the file instead of sending nothing forever.
+  - Self-hosting: the published images are rebuilt as `1.10.5`. Nothing in the server changed, so pull when convenient. If you pinned `FLOE_IMAGE_TAG=1.10.4`, move to `1.10.5`.
+  - The fix is on the receiving side. A transfer is protected once the receiving end is running `floe` 1.10.5 or Floe Desktop 0.2.8; sending from an updated build to a peer that has not updated is unchanged. The wire protocol is unchanged, so v1.10.5 still speaks to older CLI, desktop, and browser peers in both directions.
 </Update>
 
 <Update label="desktop-v0.2.7" description="2026-08-19" tags={["Desktop", "CLI"]}>

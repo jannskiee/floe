@@ -25,7 +25,7 @@ These come from the CLI framework rather than from Floe itself.
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--help` | `-h` | `false` | Print usage and exit. Works on every command, so `floe send --help` and `floe receive --help` each print that command's own flags. |
-| `--version` | `-v` | `false` | Print the installed version and exit, for example `floe 1.10.4`. Root only: `floe --version` works, `floe send --version` does not. See [Alternatives](/cli/version#alternatives). |
+| `--version` | `-v` | `false` | Print the installed version and exit, for example `floe 1.10.5`. Root only: `floe --version` works, `floe send --version` does not. See [Alternatives](/cli/version#alternatives). |
 
 `floe completion` and `floe help` come from the same place and are not part of Floe's own interface. Run `floe completion --help` if you want shell completion.
 
@@ -75,7 +75,7 @@ Specific to the `update` command.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--check` | `false` | Report whether a newer release exists and exit without installing it. On an up-to-date binary the flag changes nothing: `floe update` prints `Already up to date (1.10.4)` and stops either way (the installed version carries no leading `v`). On a package-managed install the update guard runs first, so `--check` stops with the upgrade command for your package manager instead of a version report. See [Update the CLI](/cli/update). |
+| `--check` | `false` | Report whether a newer release exists and exit without installing it. On an up-to-date binary the flag changes nothing: `floe update` prints `Already up to date (1.10.5)` and stops either way (the installed version carries no leading `v`). On a package-managed install the update guard runs first, so `--check` stops with the upgrade command for your package manager instead of a version report. See [Update the CLI](/cli/update). |
 
 ## Opting out of the global counter
 
