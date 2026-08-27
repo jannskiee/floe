@@ -5,12 +5,27 @@ import (
 	"math"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/schollz/progressbar/v3"
 )
 
+// Display caps, in runes, for peer-supplied strings. Display only: nothing
+// here touches the on-disk name (safeJoin owns that, and its lack of a cap is
+// a compatibility surface) or anything on the wire.
+const (
+	maxDisplayName   = 200 // the browser's MAX_SEGMENT, so both surfaces agree
+	maxDisplayVer    = 64  // real values: "v1.10.4", "desktop-v0.2.7", "dev"
+	maxDisplayReason = 300 // a current peer's reason is three short lines
+)
+
 func formatBytes(n int64) string {
-	if n == 0 {
+	// <= 0, not == 0: math.Log of a negative is NaN, int(NaN) is MinInt64 on
+	// amd64, and the clamp below only guards the top, so units[i] panicked on
+	// any negative input. int64(1e300) is MinInt64 too, so a sender announcing
+	// an absurd size arrived here as a negative one. parseMetadata now rejects
+	// both before they reach this function; this keeps the next caller safe.
+	if n <= 0 {
 		return "0 Bytes"
 	}
 	units := []string{"Bytes", "KB", "MB", "GB", "TB"}
@@ -55,11 +70,56 @@ func pluralize(n int, word string) string {
 	return fmt.Sprintf("%d %ss", n, word)
 }
 
+// truncateName caps name at maxLen runes, ending a cut name with an ellipsis.
+// Runes, not bytes: a byte slice could land inside a multi-byte sequence and
+// hand the terminal a broken UTF-8 tail.
 func truncateName(name string, maxLen int) string {
-	if len(name) <= maxLen {
+	if utf8.RuneCountInString(name) <= maxLen {
 		return name
 	}
-	return name[:maxLen-1] + "…"
+	r := []rune(name)
+	return string(r[:maxLen-1]) + "…"
+}
+
+// displayExtMax is the longest tail after the final "." that displayText keeps
+// when it shortens a name, matching the 16-unit rule of the browser's
+// sanitizeSegment so both surfaces agree on what counts as an extension.
+const displayExtMax = 16
+
+// displayText makes a peer-supplied string safe to print to a terminal, hand
+// to a GUI callback, or embed in an error: C0/C1 controls, DEL and the Unicode
+// bidi controls become "_" through the same sanitizeRune the on-disk sanitizer
+// uses, and the result is capped at maxRunes. It is deliberately NOT
+// sanitizeComponent: the Windows-only rules describe what a filesystem can
+// store, and a name shown on screen is not stored anywhere.
+//
+// When the cap bites, the stem is shortened and the extension is kept. A plain
+// cut at the end would hide what a long name IS at the accept prompt: 251 a's
+// plus ".exe" would show as 199 a's and an ellipsis, which is exactly the
+// disguise this function exists to close. A tail longer than displayExtMax is
+// not an extension and a leading "." is a dotfile, so both get the plain cut.
+// The progress bar keeps truncateName: its label is already the on-disk name.
+//
+// Everything that arrives from the peer and reaches a person goes through
+// here: the file name (Incoming box, accept prompt, OnIncoming, OnProgress,
+// error strings), the peer's ver, and an incompatible reason.
+func displayText(s string, maxRunes int) string {
+	clean := strings.Map(func(r rune) rune { return sanitizeRune(r, false) }, s)
+	r := []rune(clean)
+	if len(r) <= maxRunes {
+		return clean
+	}
+	var ext []rune
+	if dot := strings.LastIndex(clean, "."); dot > 0 {
+		if tail := []rune(clean[dot:]); len(tail) <= displayExtMax {
+			ext = tail
+		}
+	}
+	stem := maxRunes - 1 - len(ext)
+	if stem < 1 {
+		return truncateName(clean, maxRunes)
+	}
+	return string(r[:stem]) + "…" + string(ext)
 }
 
 func newProgressBar(size int64, index, total int, name string) *progressbar.ProgressBar {

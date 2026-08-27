@@ -5,7 +5,7 @@ package transfer
 // render a live progress bar. The CLI does not use it; it renders a terminal
 // progress bar instead.
 type Progress struct {
-	FileName   string `json:"fileName"`   // sender-supplied name of the current file
+	FileName   string `json:"fileName"`   // sender-supplied name of the current file, display-safe (see displayText); on the receive side never the on-disk name, see SavedName
 	FileIndex  int    `json:"fileIndex"`  // 1-based index of the current file
 	FileCount  int    `json:"fileCount"`  // total number of files in the transfer
 	FileBytes  int64  `json:"fileBytes"`  // bytes moved so far for the current file

@@ -170,6 +170,21 @@ verify the connection independently of the server.
       Note the device-name rule matches the WHOLE component: `CON.txt` and `NUL.txt` create
       ordinary files on Windows 11, and only bare `NUL` swallows data, so the widespread
       stem-based rule would rename names that demonstrably work.
+- [x] Display side (2026-08-28): `sanitizeComponent` only ever ran inside `safeJoin`, which
+      sits BELOW the Incoming box, the accept prompt, `OnIncoming` and `OnProgress`, so the
+      claim in its doc comment that it protected the terminal was structurally false: every
+      one of those sinks carried the raw peer string (a bidi override read `photo\u202egnp.exe`
+      as an image at the prompt, and a bare ESC could scrub the prompt itself). Fixed by
+      `displayText`, which shares one `sanitizeRune` with the on-disk sanitizer so the two
+      can never drift, and now guards every print, callback payload and error string in the
+      engine (file name, peer `ver`, incompatible `reason`); the desktop inherits it through
+      `FirstName` and `Progress.FileName` with no TS-side sanitizer. In the same pass:
+      `parseMetadata` rejects negative, fractional or past-2^53 sizes and zero positions
+      (`fileSize:-1` reached `formatBytes` as MinInt64 and panicked on `units[i]`, and with
+      no `recover` on the transfer goroutine that ended the whole desktop process before the
+      preview appeared), and the 1000-byte control-message cap applies to strings too, where
+      the old binary-only gate left a `SendText` metadata bounded by nothing but pion's
+      default. `hostile_test.go` pins each of these over a real pion pair.
 - [x] Client CVEs: overrides live in `client/pnpm-workspace.yaml`; `corepack pnpm audit`
       (prod + full) reports "No known vulnerabilities found."
 

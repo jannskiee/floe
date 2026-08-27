@@ -1,5 +1,6 @@
 // Floe wire-protocol constants and message helpers.
 // Mirrors cli/internal/transfer/sender.go + receiver.go — keep in sync.
+import { sanitizeDisplayText } from '../download';
 
 export const CONTROL_MSG_MAX = 1000; // bytes; matches browser byteLength guard
 export const HIGH_WATER = 8 * 1024 * 1024; // 8 MB — pause sending at/above
@@ -154,6 +155,8 @@ export function compatErrorMessage(
     remoteMin: number,
     remoteMax: number
 ): string {
+    // Peer-supplied, and this covers both callers (the ver in receiver.ts and sender.ts).
+    remoteVer = sanitizeDisplayText(remoteVer, 64);
     const localRange = localMin === localMax ? `protocol ${localMin}` : `protocol ${localMin}-${localMax}`;
     const remoteRange = remoteMin === remoteMax ? `protocol ${remoteMin}` : `protocol ${remoteMin}-${remoteMax}`;
     const localStr = localVer ? `${localRange} (${localVer})` : localRange;

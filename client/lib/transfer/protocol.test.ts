@@ -7,6 +7,7 @@ import {
     MAX_CHUNK,
     chunkSize,
     classifyControl,
+    compatErrorMessage,
     metadataMessage,
     ackMessage,
     endMessage,
@@ -67,6 +68,17 @@ describe('message builders round-trip', () => {
         const raw = endMessage();
         const msg = JSON.parse(raw);
         expect(msg).toMatchObject({ type: 'end' });
+    });
+});
+
+describe('compatErrorMessage', () => {
+    it('cleans the peer-supplied version string', () => {
+        // The peer's ver lands in the error banner, so a bidi override or an
+        // escape inside it is dropped before the message is built.
+        const msg = compatErrorMessage(false, '', 'v2\u202e\u001b', 1, 1, 1, 1);
+        expect(msg).toContain('v2');
+        expect(msg).not.toContain('\u202e');
+        expect(msg).not.toContain('\u001b');
     });
 });
 

@@ -84,6 +84,10 @@ The characters `< > : " | ? *` become underscores, trailing dots and spaces are 
 name that is a reserved device name (such as `NUL`) gets an underscore in front. If two files
 end up with the same adjusted name, the second is numbered exactly as above.
 
+The incoming preview shows the name with control characters and text-direction marks replaced,
+and a long name shortened with its extension kept. The progress line and History show the name
+as it was saved, so they match the file in your folder.
+
 This matters for more than tidiness. Before Floe did this, a file called `backup:2026-08-19.log`
 appeared in your folder as an empty file called `backup`, because Windows had quietly routed the
 contents somewhere else, and the transfer still reported success.

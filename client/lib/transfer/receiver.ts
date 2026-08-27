@@ -11,6 +11,7 @@ import {
     normalizeFileSize,
     type Metadata,
 } from './protocol';
+import { sanitizeDisplayText } from '../download';
 
 export interface ReceivedFile {
     id: string;
@@ -160,7 +161,10 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: U
                 // back-compat surface: a peer that sends nothing we can compare
                 // against behaves exactly as it did before.
                 if (expectedSize !== null && fileData.received !== expectedSize) {
-                    const name = currentMetadata.fileName;
+                    // The name lands in an error banner, so it is the display
+                    // form: a bidi override in the wire string would reorder
+                    // the words of the banner around it.
+                    const name = sanitizeDisplayText(currentMetadata.fileName);
                     const got = fileData.received;
                     const want = expectedSize;
                     partialDownloads.delete(currentMetadata.id);
