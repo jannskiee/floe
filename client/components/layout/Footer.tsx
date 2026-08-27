@@ -22,10 +22,10 @@ const columns: {
         label: 'Documentation',
         links: [
             { name: 'Quickstart', href: 'https://www.floe.one/docs/quickstart', external: true },
-            { name: 'Web App', href: 'https://www.floe.one/docs/web-app/sending', external: true },
+            { name: 'Web app', href: 'https://www.floe.one/docs/web-app/sending', external: true },
             { name: 'CLI', href: 'https://www.floe.one/docs/cli/installation', external: true },
-            { name: 'Desktop App', href: 'https://www.floe.one/docs/desktop/installation', external: true },
-            { name: 'Self-Hosting', href: 'https://www.floe.one/docs/self-hosting/overview', external: true },
+            { name: 'Desktop app', href: 'https://www.floe.one/docs/desktop/installation', external: true },
+            { name: 'Self-hosting', href: 'https://www.floe.one/docs/self-hosting/overview', external: true },
             { name: 'FAQ', href: 'https://www.floe.one/docs/faq', external: true },
             { name: 'Changelog', href: 'https://www.floe.one/docs/changelog', external: true },
         ],

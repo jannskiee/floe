@@ -78,7 +78,7 @@
             "href": "https://www.floe.one/docs/quickstart"
           },
           {
-            "label": "Web App",
+            "label": "Web app",
             "href": "https://www.floe.one/docs/web-app/sending"
           },
           {
@@ -86,11 +86,11 @@
             "href": "https://www.floe.one/docs/cli/installation"
           },
           {
-            "label": "Desktop App",
+            "label": "Desktop app",
             "href": "https://www.floe.one/docs/desktop/installation"
           },
           {
-            "label": "Self-Hosting",
+            "label": "Self-hosting",
             "href": "https://www.floe.one/docs/self-hosting/overview"
           },
           {

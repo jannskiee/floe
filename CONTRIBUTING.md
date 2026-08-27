@@ -21,7 +21,7 @@ For most contributions (UI, pages, components), you only need to run the client.
 ### Prerequisites
 
 - **Node.js 22 or newer** for the client and the signaling server (CI tests the client on Node 22 and the server on Node 20).
-- **pnpm 11** for the client. The repo pins `pnpm@11.1.2` through the `packageManager` field: install it directly with `npm install -g pnpm@11`, or run `corepack enable` once (Corepack ships with Node 22 and picks up the pinned version automatically; on Windows run it from an elevated terminal).
+- **pnpm 11** for the client. The repo pins `pnpm@11.1.2` through the `packageManager` field: install it directly with `npm install -g pnpm@11`, or run `corepack enable` once (Corepack ships with Node 22 through 24 and picks up the pinned version automatically; Node 25 dropped it, so run `npm install -g corepack` first there; on Windows run it from an elevated terminal).
 - **Go 1.25 or newer** for the CLI and the desktop app.
 - **Docker** (optional) for the full-stack Compose setup below.
 
