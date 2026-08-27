@@ -1,6 +1,6 @@
 ---
 name: floe-run
-description: 'Use when starting the local Floe stack for a manual check: run the app, start the local signaling server, next dev, browser QA, screenshots, reproducing a transfer bug, or a CLI-to-browser test. Starts server/ with the public stats counter neutralized (test bytes written to Upstash are permanent), proves it before anything can receive, and prints the URLs and CLI flags to use.'
+description: "Use when starting the local Floe stack for a manual check: run the app, start the local signaling server, next dev, browser QA, screenshots, reproducing a transfer bug, or a CLI-to-browser test. Starts server/ with the public stats counter neutralized (test bytes written to Upstash are permanent), proves it before anything can receive, and prints the URLs and CLI flags to use. Not for the production server on the Azure VM, and not needed for pnpm test:e2e on its own (Playwright's webServer starts server/ and the client itself)."
 ---
 
 # Run the local Floe stack
@@ -34,21 +34,40 @@ node .claude/skills/floe-run/scripts/floe-run.mjs check            what is bound
 node .claude/skills/floe-run/scripts/floe-run.mjs stop             kill what this script started
 ```
 
+`check` exits 0 when `:3001` is owned by this script, healthy, and reading
+`totalBytes=0`; 1 when `:3001` is bound but not owned, or owned but unhealthy;
+2 when nothing is bound. On an idle machine 2 is the expected answer, not a
+failure.
+
+The server prints nothing at startup (`server.js` has a bare `server.listen`),
+so the only server line in the log is the READY block's `server pid`. The
+`start` wrapper stays alive for the stack's lifetime and exits 0 with
+`floe-run: stopped` after `stop`.
+
+When a port is busy, `start` refuses with exit 3 and `check` names the owner
+hint (`netstat -ano | findstr :3001` here, `lsof` elsewhere). Wait for the
+other run to finish, or ask. Never kill it.
+
 `stop` refuses a pidfile from another checkout and any pid whose process image
 no longer matches what this run spawned (exit 1), and it also frees a `:3000`
 listener orphaned by a wrapper that died without teardown.
 
-After a branch switch and before `--client`:
-`corepack pnpm --dir client install --frozen-lockfile` (or plain `pnpm` where
-it is on PATH; pnpm 11's dependency check fails on a stale tree). The script
-spawns `pnpm dev` when pnpm is on PATH and `corepack pnpm dev` otherwise. On
-the maintainer's Windows box pnpm is not on PATH; corepack is gone from Node
-25+, so install pnpm directly there (memory `project_pnpm_via_corepack`).
+On a fresh worktree, and after a branch switch, before `--client`:
+`cd client && corepack pnpm install --frozen-lockfile` (PowerShell:
+`Push-Location client; corepack pnpm install --frozen-lockfile; Pop-Location`).
+Run it from `client/`, not with `--dir` from the root: from the root, corepack
+picks pnpm 11.7.0, which refuses client's 11.1.2 pin. Plain `pnpm` works the
+same where it is on PATH; pnpm 11's dependency check fails on a stale tree.
+
+The script spawns `pnpm dev` when pnpm is on PATH and `corepack pnpm dev`
+otherwise. On the maintainer's Windows box pnpm is not on PATH, so the script
+falls back to corepack there; on Node 25 or newer corepack is gone, so install
+pnpm directly (memory `project_pnpm_via_corepack`).
 
 `--client` makes next dev rewrite `client/next-env.d.ts` and generate
 `client/AGENTS.md` and `client/CLAUDE.md`. Do not commit them: run
-`git checkout -- client/next-env.d.ts` afterwards and delete the two generated
-files.
+`git checkout -- client/next-env.d.ts` after `stop`, and delete
+`client/AGENTS.md` and `client/CLAUDE.md`.
 
 ## What start proves
 

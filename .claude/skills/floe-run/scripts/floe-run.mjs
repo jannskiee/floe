@@ -517,7 +517,7 @@ async function check(flags) {
         verdict = 'nothing is bound on :3001';
     } else if (!own.owned) {
         code = 1;
-        verdict = `:3001 is bound but not by this script (${own.reason}); zero is necessary, not sufficient`;
+        verdict = `:3001 is bound but not by this script (${own.reason}); zero is necessary, not sufficient. Find the owner with: ${ownerHint(SERVER_PORT)}`;
     } else if (!healthy) {
         code = 1;
         verdict = 'owned, but /health is not answering';
