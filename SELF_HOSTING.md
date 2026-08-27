@@ -1,4 +1,4 @@
-# Self-Hosting Floe
+# Self-hosting Floe
 
 Run your own Floe instance (the web client and the signaling server) on your own
 infrastructure, independent of `floe.one`. File data still flows peer-to-peer; the
