@@ -11,6 +11,10 @@ live in `client/lib/desktopRelease.ts`; the changelog contract is the MDX
 comment at the top of `docs/changelog.mdx`; the pin checker is
 `scripts/check-version-pins.mjs`.
 
+The skill's paths exist on `main` only once PR #343 has merged; from an older
+checkout, run the script by its absolute path from a checkout that has it.
+The CI asset step lands with the same PR.
+
 Green workflows and four 200s prove that the assets exist at the URLs
 /download will derive; they prove nothing about the update notice, the Store
 listing, or whether the changelog says the right thing, which is what steps 7
@@ -45,16 +49,36 @@ All fix PRs merged, CI green. No code in the prep PR.
 
 ## 2. One prep PR: changelog + pins
 
-- Entry per the contract in `docs/changelog.mdx`. Date = the tag's UTC date.
-  Write the date you will tag on (UTC) and tag the same UTC day; if the day
-  slips, correct the `description` in the follow-up PR (labels are immutable
-  once shipped, descriptions are not). If tagging is not imminent, label it
-  `Unreleased` and relabel later (DESKTOP.md step g; precedent d7e432f, #296,
-  which relabeled one `Unreleased` entry into desktop-v0.2.4 and v1.10.1).
+- Entry per the contract in `docs/changelog.mdx`. Date = the tag's UTC date
+  (step 3 has the command for today's UTC date). Write the date you will tag
+  on (UTC) and tag the same UTC day; if the day slips, correct the
+  `description` in the follow-up PR (labels are immutable once shipped,
+  descriptions are not). If tagging is not imminent, label it `Unreleased` and
+  relabel later (DESKTOP.md step g; precedent d7e432f, #296).
+- For a PAIRED release the relabel is a SPLIT: the single `Unreleased` entry
+  becomes two entries with the same UTC date, each with its own bold headline.
+  `desktop-vX.Y.Z` comes first, tags starting with `Desktop`, carrying the
+  bullets a desktop user notices, in desktop wording. Then `vX.Y.Z`, tags
+  `CLI` first and then `Web` / `Self-hosting` as applicable, carrying the CLI
+  bullets, the `Web app:` bullet, and a `Self-hosting:` images-rebuilt bullet
+  whenever `server/` or `client/` changed. d7e432f (#296) is the precedent. A
+  receiver-side change on a PR that is also sender-side or web-side still
+  pairs: receiver-side wins.
 - `node .claude/skills/floe-release/scripts/check-version-pins.mjs --cli v1.10.5 --desktop desktop-v0.2.8 --phase prep`
-  (omit the series you are not releasing). Fix every STALE and MISSING line,
-  rerun until green. It measures the pin surface; it does not know which files
-  ought to carry a version, so read each hit.
+  (omit the series you are not releasing). It measures the tree the script
+  lives in; `--root <dir>` measures another checkout, such as a scratch
+  worktree. By default it sweeps the three newest tags of each series and
+  labels every STALE line with the tag it belongs to; `--old-cli` and
+  `--old-desktop` (comma-separated) override the sweep. Fix every STALE and
+  MISSING line that is a pin and rerun. It does not know which files ought to
+  carry a version, so read each hit: a line that is release history (the
+  history section of DESKTOP.md, a workflow comment naming a past release)
+  stays, so green is not always reachable, and the report says which hits
+  you judged to be history.
+- Make the prep edits with the Edit tool or PowerShell. A Git Bash `sed -i`
+  rewrites a CRLF working copy to LF: harmless to the commit under autocrlf,
+  noisy in the working tree (git warns on every touch, and tools that do not
+  normalize show every line as changed).
 - Do NOT touch `client/lib/desktopRelease.ts`. CI's "Check desktop release
   assets" step fails a bump whose release does not exist, and /download would
   point at 404s. The 0.2.3 bump landed 15 minutes after its assets; that
@@ -64,16 +88,30 @@ All fix PRs merged, CI green. No code in the prep PR.
 
 ## 3. Tag (PowerShell tool; annotated, unsigned, deliberate)
 
-Confirm the push with the user first: a `v*` tag is permanent.
+Confirm the push with the user first: a `v*` tag is permanent. `--no-sign`
+keeps the tag unsigned whatever `tag.gpgSign` says.
 
 ```text
 git fetch origin main
-git tag -a v1.10.5 <sha> -m "v1.10.5"
-git tag -a desktop-v0.2.8 <sha> -m "desktop-v0.2.8"
+git tag -a --no-sign v1.10.5 <sha> -m "v1.10.5"
+git tag -a --no-sign desktop-v0.2.8 <sha> -m "desktop-v0.2.8"
 git push origin v1.10.5 desktop-v0.2.8
 ```
 
-UTC date of the tag (this is the changelog date and `DESKTOP_RELEASE_DATE`):
+Today's UTC date, which the changelog `description` from step 2 must equal on
+the day you push:
+
+```text
+date -u +%F                                              (bash)
+(Get-Date).ToUniversalTime().ToString('yyyy-MM-dd')      (PowerShell)
+```
+
+A Manila evening is still "today" in UTC; the UTC date only catches up with
+Manila at 08:00, so a tag pushed between midnight and 08:00 Manila carries
+yesterday's date.
+
+UTC date of the tag once it exists (this is the changelog date and
+`DESKTOP_RELEASE_DATE`):
 
 ```text
 git for-each-ref --format='%(taggerdate:iso8601-strict)' refs/tags/desktop-v0.2.8
@@ -122,7 +160,11 @@ Bump `DESKTOP_VERSION` and `DESKTOP_RELEASE_DATE` together; the date is the
 tag's UTC date as "Mon D, YYYY" (`desktopRelease.test.ts` rejects a future
 date against the runner's UTC clock; #324's second commit fixed exactly that).
 Relabel an `Unreleased` entry now if you used one. Run the checker with
-`--phase follow-up` (asserts the new pin and the date against the tag). CI's
+`--phase follow-up`: it reads the tag's date from `git for-each-ref`, so the
+tag must exist locally (step 3, or `git fetch --tags`). Without it the checker
+stops with exit 2 and "tag desktop-v0.2.8 is not known here: either run git
+fetch --tags, or you are running follow-up before step 3 (the tag must exist
+first)". With it, it asserts the new pin and the date against the tag. CI's
 release-asset step is the merge gate.
 
 ## 7. Store submission (one in flight at a time)

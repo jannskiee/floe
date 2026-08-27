@@ -8,7 +8,10 @@
  * transfer-protocol.mdx held five copies of it that no prep PR ever touched.
  * A hand-maintained "files to bump" list is exactly the thing that goes
  * stale, so this walks the tree for the OLD strings and reports every
- * survivor, plus a short list of files that must carry the NEW one.
+ * survivor, plus a short list of files that must carry the NEW one. The
+ * sweep covers the three newest tags of each series, not only the previous
+ * one: example pins in .env.docker.example and docker-compose.yml sat on
+ * 1.10.1 through three releases because each run only looked one tag back.
  *
  * Why two phases: client/lib/desktopRelease.ts is the one pin that must NOT
  * move in the prep PR. /download derives every desktop asset URL from it, so
@@ -20,27 +23,30 @@
  * date against the CI runner's UTC clock (#324 needed a second commit for
  * exactly this).
  *
- * Usage, from the repo root:
+ * Usage (the current directory does not matter; the tree measured is the one
+ * this script lives in, or the one --root names):
  *   node .claude/skills/floe-release/scripts/check-version-pins.mjs
  *       --cli vX.Y.Z and/or --desktop desktop-vX.Y.Z [--phase prep|follow-up]
- *       [--old-cli vA.B.C] [--old-desktop desktop-vA.B.C] [--allow <path>]...
- *       [--json]
+ *       [--root <dir>] [--old-cli vA.B.C[,vD.E.F...]]
+ *       [--old-desktop desktop-vA.B.C[,...]] [--allow <path>]... [--json]
  *   node .claude/skills/floe-release/scripts/check-version-pins.mjs --self-test
  * Exit: 0 green, 1 findings, 2 usage or git errors.
  */
 import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // scripts/ -> floe-release/ -> skills/ -> .claude/ -> repo root.
-const ROOT = path.resolve(
+const DEFAULT_ROOT = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     '..',
     '..',
     '..',
     '..'
 );
+let ROOT = DEFAULT_ROOT;
+const SWEEP = 3;
 const SKIP_DIRS = new Set([
     '.git',
     'node_modules',
@@ -61,11 +67,16 @@ const SKIP_PATHS = new Set([
     // Its version strings are fixtures for the comparison logic.
     'desktop/updatecheck_test.go',
 ]);
+// Lockfiles and dependency manifests carry other projects' versions: cobra
+// sat at v1.10.2 while Floe shipped v1.10.2, and no Floe pin lives in them.
 const SKIP_NAMES = new Set([
     'pnpm-lock.yaml',
     'package-lock.json',
+    'package.json',
     'go.sum',
     'go.work.sum',
+    'go.mod',
+    'go.work',
 ]);
 const BINARY = /\.(png|jpe?g|gif|webp|ico|exe|zip|msix|woff2?|ttf|pdf)$/i;
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -136,13 +147,17 @@ function usage(message) {
     process.exit(2);
 }
 
+const CLI_TAG = /^v\d+\.\d+\.\d+$/;
+const DESKTOP_TAG = /^desktop-v\d+\.\d+\.\d+$/;
+
 function parseArgs(argv) {
     const opts = {
         cli: null,
         desktop: null,
-        oldCli: null,
-        oldDesktop: null,
+        oldCli: [],
+        oldDesktop: [],
         phase: 'prep',
+        root: null,
         allow: [],
         json: false,
     };
@@ -152,11 +167,17 @@ function parseArgs(argv) {
             if (i + 1 >= argv.length) usage(`${arg} needs a value`);
             return argv[++i];
         };
+        const list = () =>
+            value()
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean);
         if (arg === '--cli') opts.cli = value();
         else if (arg === '--desktop') opts.desktop = value();
-        else if (arg === '--old-cli') opts.oldCli = value();
-        else if (arg === '--old-desktop') opts.oldDesktop = value();
+        else if (arg === '--old-cli') opts.oldCli.push(...list());
+        else if (arg === '--old-desktop') opts.oldDesktop.push(...list());
         else if (arg === '--phase') opts.phase = value();
+        else if (arg === '--root') opts.root = value();
         else if (arg === '--allow')
             opts.allow.push(value().replace(/\\/g, '/').replace(/\/$/, ''));
         else if (arg === '--json') opts.json = true;
@@ -166,22 +187,23 @@ function parseArgs(argv) {
         usage(
             'pass --cli vX.Y.Z and/or --desktop desktop-vX.Y.Z, or --self-test'
         );
-    for (const [flag, tag] of [
-        ['--cli', opts.cli],
-        ['--old-cli', opts.oldCli],
-    ]) {
-        if (tag && !/^v\d+\.\d+\.\d+$/.test(tag))
-            usage(`${flag} wants vX.Y.Z, got ${tag}`);
+    for (const tag of [opts.cli, ...opts.oldCli]) {
+        if (tag && !CLI_TAG.test(tag))
+            usage(`--cli and --old-cli want vX.Y.Z, got ${tag}`);
     }
-    for (const [flag, tag] of [
-        ['--desktop', opts.desktop],
-        ['--old-desktop', opts.oldDesktop],
-    ]) {
-        if (tag && !/^desktop-v\d+\.\d+\.\d+$/.test(tag))
-            usage(`${flag} wants desktop-vX.Y.Z, got ${tag}`);
+    for (const tag of [opts.desktop, ...opts.oldDesktop]) {
+        if (tag && !DESKTOP_TAG.test(tag))
+            usage(
+                `--desktop and --old-desktop want desktop-vX.Y.Z, got ${tag}`
+            );
     }
     if (!['prep', 'follow-up'].includes(opts.phase))
         usage(`--phase wants prep or follow-up, got ${opts.phase}`);
+    if (opts.root) {
+        opts.root = path.resolve(opts.root);
+        if (!existsSync(path.join(opts.root, 'CLAUDE.md')))
+            usage(`--root ${opts.root} does not look like a Floe checkout`);
+    }
     return opts;
 }
 
@@ -199,18 +221,18 @@ function git(args) {
     }
 }
 
-// The newest tag in the series that is not the one being cut, so the answer
+// The newest tags in the series other than the one being cut, so the answer
 // is the same before the new tag exists and when rerun after it does.
-function previousTag(pattern, newTag) {
+function previousTags(pattern, newTag) {
     const tags = git(['tag', '--list', pattern, '--sort=-v:refname'])
         .split(/\r?\n/)
-        .filter(Boolean);
-    const prev = tags.find((tag) => tag !== newTag);
-    if (!prev)
+        .filter((tag) => tag && tag !== newTag)
+        .slice(0, SWEEP);
+    if (!tags.length)
         usage(
             `no ${pattern} tag other than ${newTag} is known here; run git fetch --tags`
         );
-    return prev;
+    return tags;
 }
 
 function tagUtcDate(tag) {
@@ -221,7 +243,11 @@ function tagUtcDate(tag) {
     ]);
     // taggerdate is empty for a lightweight tag; creatordate then stands in.
     const iso = out.split(' ').find(Boolean);
-    if (!iso) usage(`tag ${tag} is not known here; run git fetch --tags`);
+    if (!iso) {
+        usage(
+            `tag ${tag} is not known here: either run git fetch --tags, or you are running follow-up before step 3 (the tag must exist first)`
+        );
+    }
     return new Date(iso);
 }
 
@@ -267,59 +293,73 @@ function* walk(dir) {
 
 if (process.argv.includes('--self-test')) selfTest();
 const opts = parseArgs(process.argv.slice(2));
-const series = [];
-if (opts.cli) {
-    const oldTag = opts.oldCli || previousTag('v*', opts.cli);
-    const num = (tag) => tag.slice(1);
-    series.push({
-        name: 'cli',
-        newTag: opts.cli,
-        oldTag,
-        newNum: num(opts.cli),
-        oldNum: num(oldTag),
-        oldRe: versionRe('cli', num(oldTag)),
-        newRe: versionRe('cli', num(opts.cli)),
-    });
+if (opts.root) ROOT = opts.root;
+
+function makeSeries(name, newTag, overrides, pattern, num) {
+    const oldTags = overrides.length
+        ? overrides
+        : previousTags(pattern, newTag);
+    return {
+        name,
+        newTag,
+        newNum: num(newTag),
+        newRe: versionRe(name, num(newTag)),
+        olds: oldTags.map((tag) => ({
+            tag,
+            num: num(tag),
+            re: versionRe(name, num(tag)),
+        })),
+    };
 }
+const series = [];
+if (opts.cli)
+    series.push(
+        makeSeries('cli', opts.cli, opts.oldCli, 'v*', (tag) => tag.slice(1))
+    );
 if (opts.desktop) {
-    const oldTag = opts.oldDesktop || previousTag('desktop-v*', opts.desktop);
-    const num = (tag) => tag.replace(/^desktop-v/, '');
-    series.push({
-        name: 'desktop',
-        newTag: opts.desktop,
-        oldTag,
-        newNum: num(opts.desktop),
-        oldNum: num(oldTag),
-        oldRe: versionRe('desktop', num(oldTag)),
-        newRe: versionRe('desktop', num(opts.desktop)),
-    });
+    series.push(
+        makeSeries(
+            'desktop',
+            opts.desktop,
+            opts.oldDesktop,
+            'desktop-v*',
+            (tag) => tag.replace(/^desktop-v/, '')
+        )
+    );
 }
 const desktop = series.find((s) => s.name === 'desktop');
 const findings = { stale: [], wrongPhase: [], missing: [], date: [] };
 const allowed = (rel) =>
     opts.allow.some((a) => rel === a || rel.startsWith(`${a}/`));
 
-// STALE: every surviving old string. In prep the pin file is exempt for the
-// desktop series, because holding the old version there is the point.
+// STALE: every surviving old string, labeled with the tag it belongs to. In
+// prep the pin file is exempt for the desktop series, because holding the old
+// version there is the point.
 for (const { abs, rel } of walk(ROOT)) {
     if (allowed(rel)) continue;
     const lines = readFileSync(abs, 'utf8').split(/\r?\n/);
     lines.forEach((line, i) => {
-        const hit = series.some((s) => {
+        const hits = [];
+        for (const s of series) {
             if (
                 rel === PIN_FILE &&
                 s.name === 'desktop' &&
                 opts.phase === 'prep'
             )
-                return false;
-            return s.oldRe.test(line);
-        });
-        if (hit) findings.stale.push(`${rel}:${i + 1}: ${line.trim()}`);
+                continue;
+            for (const old of s.olds) if (old.re.test(line)) hits.push(old.tag);
+        }
+        if (hits.length)
+            findings.stale.push(
+                `${rel}:${i + 1} (${hits.join(', ')}): ${line.trim()}`
+            );
     });
 }
 
-// The pin file: old in prep, new plus the tag's UTC date in follow-up.
+// The pin file: the previous release in prep, the new one plus the tag's UTC
+// date in follow-up.
 if (desktop) {
+    const previous = desktop.olds[0].num;
     const pin = readText(PIN_FILE) || '';
     const version = pin.match(/DESKTOP_VERSION = '([^']*)'/)?.[1];
     const date = pin.match(/DESKTOP_RELEASE_DATE = '([^']*)'/)?.[1];
@@ -332,9 +372,9 @@ if (desktop) {
             findings.wrongPhase.push(
                 `${PIN_FILE}: DESKTOP_VERSION is already '${version}'; bump it in the follow-up PR, after the assets exist`
             );
-        } else if (version !== desktop.oldNum) {
+        } else if (version !== previous) {
             warnings.push(
-                `${PIN_FILE}: DESKTOP_VERSION is '${version}', expected the previous release '${desktop.oldNum}'`
+                `${PIN_FILE}: DESKTOP_VERSION is '${version}', expected the previous release '${previous}'`
             );
         }
     } else {
@@ -418,15 +458,18 @@ const groups = [
     ['DATE', findings.date],
 ];
 const total = groups.reduce((n, [, items]) => n + items.length, 0);
-const scope = series.map((s) => `${s.oldTag} -> ${s.newTag}`).join(', ');
-const summary = `check-version-pins: ${opts.phase} for ${scope}: ${total ? `${total} finding(s)` : 'green'}`;
+const scope = series
+    .map((s) => `${s.olds.map((o) => o.tag).join(', ')} -> ${s.newTag}`)
+    .join('; ');
+const summary = `check-version-pins: ${opts.phase} for ${scope} in ${ROOT}: ${total ? `${total} finding(s)` : 'green'}`;
 if (opts.json) {
     const report = {
         phase: opts.phase,
+        root: ROOT,
         series: series.map((s) => ({
             ...s,
-            oldRe: s.oldRe.source,
             newRe: s.newRe.source,
+            olds: s.olds.map((o) => ({ ...o, re: o.re.source })),
         })),
         findings,
         warnings,
