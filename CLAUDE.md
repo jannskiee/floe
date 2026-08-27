@@ -25,7 +25,7 @@ pnpm dev         # dev server on :3000
 pnpm build       # production build
 pnpm lint        # ESLint
 pnpm test        # vitest unit suite
-pnpm test:e2e    # Playwright e2e (needs client + server running)
+pnpm test:e2e    # Playwright e2e (starts server/ and the client itself; adopts running ones)
 ```
 
 ### Server (Node.js)

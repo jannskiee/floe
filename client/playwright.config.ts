@@ -74,6 +74,12 @@ export default defineConfig({
                 // once; keep the suite clear of the 20/min default so a 429 can never
                 // silently reroute the CLI onto public Google STUN mid-test.
                 MAX_TURN_REQUESTS_PER_IP: '1000',
+                // Never let e2e touch the public all-time counter: server/.env can
+                // hold live Upstash write creds and the counter only takes INCRBY
+                // (65 MB got in on 2026-07-10; on 2026-08-16 a local server seeded
+                // 197 GB from production). Both keys non-empty, or dotenv refills them.
+                UPSTASH_REDIS_REST_URL: 'http://127.0.0.1:9',
+                UPSTASH_REDIS_REST_TOKEN: 'local-e2e-sentinel',
             },
         },
         {
