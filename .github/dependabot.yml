@@ -53,15 +53,24 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
-    # Wails is never Dependabot's call. ci.yml pins WAILS_VERSION and greps
-    # desktop/go.mod for that exact string, because the Wails CLI embeds
-    # runtime assets that must match the library and this repo has eaten one
-    # version drift already (#262). Any bump, major, minor or patch, fails
-    # the desktop job on arrival unless ci.yml and desktop-release.yml move
-    # in the same commit. Wails moves by hand. Security advisories ignore
-    # this block.
+    # Wails is never Dependabot's call for a routine bump. ci.yml pins
+    # WAILS_VERSION and greps desktop/go.mod for that exact string, because
+    # the Wails CLI embeds runtime assets that must match the library and this
+    # repo has eaten one version drift already (#262). Any routine bump, major,
+    # minor or patch, fails the desktop job on arrival unless ci.yml and
+    # desktop-release.yml move in the same commit, so Wails moves by hand.
+    # The three update-types are spelled out rather than left as a bare
+    # dependency-name on purpose. An ignore applies to version updates AND
+    # security updates, but update-types scopes it to version updates only
+    # ("update-types only affects version updates, not security updates"), so
+    # a Wails advisory can still open its own PR. A bare dependency-name would
+    # have silenced that too. Same shape as the node ignore below.
     ignore:
       - dependency-name: "github.com/wailsapp/wails/v2"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
     groups:
       go-deps:
         patterns:
