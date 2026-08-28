@@ -43,6 +43,15 @@ Floe ships on two version lines. `vX.Y.Z` releases floe.one, the `floe` CLI, and
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
+<Update label="Unreleased" tags={["CLI"]}>
+  **The CLI can hide your IP address by forcing the relay, and says which route each transfer took**
+
+  - A new `--relay-only` flag on `floe send` and `floe receive` routes the whole transfer through the TURN relay and never tries a direct path, so the other side sees the relay's address instead of yours. It is the command-line twin of Floe Desktop's **Hide my IP address** setting, applies to your side only, and can be kept on with `FLOE_RELAY_ONLY=1`. While it is on, the 2 GB relay cap applies to every transfer. It cannot be combined with `--no-relay`, and a typed `--no-relay` overrides the variable for that one command.
+  - Once the connection is up, the `Connected` line names the route: `Connected (direct)` when the two devices talk to each other, `Connected (relay)` when the transfer runs through the TURN relay. If the route cannot be read, the line stays `Connected` and the transfer proceeds as before.
+  - Against a server that offers no TURN relay, `--relay-only` has nowhere to go and fails after about 30 seconds with `timed out establishing a connection`, the same generic timeout `--no-relay` produces when no direct path exists.
+  - The wire protocol is unchanged, so this still transfers with older CLI, desktop, and browser peers in both directions.
+</Update>
+
 <Update label="desktop-v0.2.8" description="2026-08-27" tags={["Desktop"]}>
   **A file name chosen by the other side can no longer disguise its extension in the incoming preview, and an impossible file size no longer closes the app**
 

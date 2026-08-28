@@ -36,10 +36,11 @@ var version = "dev"
 
 // Shared flags
 var (
-	flagServer  string
-	flagNoRelay bool
-	flagWebURL  string
-	flagIface   []string
+	flagServer    string
+	flagNoRelay   bool
+	flagRelayOnly bool
+	flagWebURL    string
+	flagIface     []string
 )
 
 // ── Root command ─────────────────────────────────────────────────────────────
@@ -63,27 +64,44 @@ Documentation: https://www.floe.one/docs`,
 	// hook would silently disable this one. Do not add one without moving this
 	// logic somewhere both paths reach.
 	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-		// Precedence: an explicit flag beats the environment, which beats the
-		// compiled default. Changed() is load-bearing rather than a string
-		// compare against the default, because --server HAS a non-empty default
-		// and so a compare cannot tell "typed the default" from "typed nothing".
-		// It is also what keeps a stray FLOE_SERVER in a developer or CI shell
-		// from retargeting the e2e suite, whose spawned CLI children inherit the
-		// parent environment.
-		if !cmd.Flags().Changed("server") {
-			if v := os.Getenv("FLOE_SERVER"); v != "" {
-				flagServer = v
-			}
-		}
-		if !cmd.Flags().Changed("web") {
-			if v := os.Getenv("FLOE_WEB"); v != "" {
-				flagWebURL = v
-			}
-		}
+		applyEnv(cmd, os.Getenv)
 		flagServer = serverurl.Normalize(flagServer)
 		flagWebURL = serverurl.Normalize(flagWebURL)
 		return nil
 	},
+}
+
+// applyEnv fills in, from the environment, every shared flag the user did not
+// type. getenv is a parameter so tests can drive it without touching the
+// process environment.
+//
+// Precedence: an explicit flag beats the environment, which beats the
+// compiled default. Changed() is load-bearing rather than a string compare
+// against the default, because --server HAS a non-empty default and so a
+// compare cannot tell "typed the default" from "typed nothing". It is also
+// what keeps a stray FLOE_SERVER in a developer or CI shell from retargeting
+// the e2e suite, whose spawned CLI children inherit the parent environment.
+func applyEnv(cmd *cobra.Command, getenv func(string) string) {
+	if !cmd.Flags().Changed("server") {
+		if v := getenv("FLOE_SERVER"); v != "" {
+			flagServer = v
+		}
+	}
+	if !cmd.Flags().Changed("web") {
+		if v := getenv("FLOE_WEB"); v != "" {
+			flagWebURL = v
+		}
+	}
+	// FLOE_RELAY_ONLY is a standing preference; a typed --no-relay is a
+	// decision about this one transfer and wins over it, the same way a typed
+	// --server beats FLOE_SERVER. Cobra's mutual-exclusion check only looks at
+	// flags that were typed, so this is the one place the pair is reconciled
+	// when one half came from the environment.
+	if !cmd.Flags().Changed("relay-only") && !cmd.Flags().Changed("no-relay") {
+		if getenv("FLOE_RELAY_ONLY") == "1" {
+			flagRelayOnly = true
+		}
+	}
 }
 
 func init() {
@@ -92,6 +110,11 @@ func init() {
 		"signaling server URL (use http://localhost:3001 for local testing) [env: FLOE_SERVER]")
 	rootCmd.PersistentFlags().BoolVar(&flagNoRelay, "no-relay", false,
 		"disable TURN relay (direct connections only)")
+	rootCmd.PersistentFlags().BoolVar(&flagRelayOnly, "relay-only", false,
+		"route through the TURN relay only, hiding your IP from the peer (2 GB cap applies) [env: FLOE_RELAY_ONLY]")
+	// One refuses the relay, the other requires it; together they describe no
+	// connection at all.
+	rootCmd.MarkFlagsMutuallyExclusive("relay-only", "no-relay")
 	rootCmd.PersistentFlags().StringVar(&flagWebURL, "web", "",
 		"web app URL shown in the browser link (auto-detected if not set) [env: FLOE_WEB]")
 	rootCmd.PersistentFlags().StringSliceVar(&flagIface, "iface", nil,
@@ -105,6 +128,34 @@ func init() {
 	// Enable `floe --version` (and -v) in addition to the `version` subcommand.
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("floe {{.Version}}\n")
+}
+
+// peerOptions translates the shared flags into the engine's connection
+// options. Both send and receive build their peer from the same flags, so this
+// is the one place the mapping lives.
+func peerOptions() []peer.Option {
+	opts := []peer.Option{peer.WithInterfaceAllowlist(flagIface)}
+	if flagRelayOnly {
+		opts = append(opts, peer.WithRelayOnly())
+	}
+	return opts
+}
+
+// connectedLine is the status line printed once the data channel is open. It
+// names the route ICE settled on, "direct" or "relay", so a user can tell at a
+// glance whether the transfer is device to device or through the TURN relay.
+// It fails open to the bare word: a route that cannot be read (or one this
+// build does not know) must never turn a working connection into a confusing
+// line, and other tooling matches "  Connected" as a prefix.
+func connectedLine(ct string, err error) string {
+	if err != nil {
+		return "  Connected"
+	}
+	switch ct {
+	case "direct", "relay":
+		return "  Connected (" + ct + ")"
+	}
+	return "  Connected"
 }
 
 // ── floe send ────────────────────────────────────────────────────────────────
@@ -219,7 +270,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 	_ = peerId // used internally by signaling routing
 
 	// 8. Set up WebRTC as the initiator (sender creates offer + data channel)
-	conn, err := peer.New(iceServers, sc, peer.WithInterfaceAllowlist(flagIface))
+	conn, err := peer.New(iceServers, sc, peerOptions()...)
 	if err != nil {
 		return fmt.Errorf("failed to create peer connection: %w", err)
 	}
@@ -231,7 +282,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("WebRTC setup failed: %w", err)
 	}
 
-	fmt.Println("  Connected")
+	fmt.Println(connectedLine(conn.ConnectionType()))
 	fmt.Println()
 
 	// 9. Send files. The pump comes from the connection, not from SendFiles: see
@@ -339,7 +390,7 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	fmt.Println("  Connecting to sender...")
 
 	// 6. Set up WebRTC as the responder (receiver waits for offer)
-	conn, err := peer.New(iceServers, sc, peer.WithInterfaceAllowlist(flagIface))
+	conn, err := peer.New(iceServers, sc, peerOptions()...)
 	if err != nil {
 		return fmt.Errorf("failed to create peer connection: %w", err)
 	}
@@ -350,7 +401,7 @@ func runReceive(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("WebRTC setup failed: %w", err)
 	}
 
-	fmt.Println("  Connected")
+	fmt.Println(connectedLine(conn.ConnectionType()))
 
 	// 7. Receive files
 	statsURL := flagServer

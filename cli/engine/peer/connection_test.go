@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/pion/webrtc/v4"
 )
 
@@ -58,5 +59,35 @@ func TestConnectionTypeUnconnected(t *testing.T) {
 	conn := &Connection{pc: pc}
 	if _, err := conn.ConnectionType(); err == nil {
 		t.Fatal("expected an error before a candidate pair is selected, got nil")
+	}
+}
+
+// TestWithRelayOnlySetsRelayPolicy verifies the option lands on the peer
+// connection as ICE transport policy "relay", which is what makes pion gather
+// and pair relay candidates only. Without the option the policy stays "all".
+func TestWithRelayOnlySetsRelayPolicy(t *testing.T) {
+	tests := []struct {
+		name string
+		opts []Option
+		want webrtc.ICETransportPolicy
+	}{
+		{"default gathers every path", nil, webrtc.ICETransportPolicyAll},
+		{"WithRelayOnly restricts to relay", []Option{WithRelayOnly()}, webrtc.ICETransportPolicyRelay},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// A zero-value signaling client is enough: New only reads it from
+			// goroutines that block on its channels, and nothing here starts
+			// ICE gathering, which is the only path that writes to it.
+			conn, err := New(nil, &signaling.Client{}, tc.opts...)
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			defer conn.Close()
+
+			if got := conn.pc.GetConfiguration().ICETransportPolicy; got != tc.want {
+				t.Errorf("ICETransportPolicy = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

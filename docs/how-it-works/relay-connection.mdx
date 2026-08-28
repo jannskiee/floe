@@ -22,7 +22,7 @@ where it needs to go and cannot open it.
 | Who pays for the bandwidth | Nobody | Floe, or you, if you self-host |
 | Encryption | End to end | End to end, unchanged |
 | Typical networks | Home Wi-Fi, hotspots, most mobile | Corporate, university, carrier-grade NAT |
-| Badge | **Direct**, green | **Relay**, amber |
+| Badge | **Direct**, green; `Connected (direct)` in the CLI | **Relay**, amber; `Connected (relay)` in the CLI |
 
 The encryption row is the important one. Relaying changes the route, not the protection. Your
 files are encrypted before they reach the relay and decrypted only on the other device, so the
@@ -55,13 +55,22 @@ receiving and a transfer will not start, this is the sender's setting to check.
 floe send photo.jpg --no-relay
 ```
 
-**Floe Desktop has no relay-fallback switch at all**, so the relay is always available there. Its
-[Hide my IP address](/desktop/settings#hide-my-ip-address) setting is the opposite control: it
-makes the relay the **only** path, so the other person sees the relay's address rather than yours.
-That means every transfer is relayed and every transfer is capped at 2 GB while it is on.
+The CLI also has the opposite switch. `--relay-only` makes the relay the **only** path, so the
+other person sees the relay's address rather than yours, and every transfer is capped at 2 GB while
+it is on. Set `FLOE_RELAY_ONLY=1` to keep it on. The two flags cannot be combined.
 
-Nothing in Floe offers a direct-only mode in the desktop app, and nothing offers a relay-only mode
-in the browser or the CLI.
+```bash Terminal
+floe receive olive-tiger-castle --relay-only
+```
+
+**Floe Desktop has no relay-fallback switch at all**, so the relay is always available there. Its
+[Hide my IP address](/desktop/settings#hide-my-ip-address) setting is the same control as
+`--relay-only`: it makes the relay the **only** path, so the other person sees the relay's address
+rather than yours. That means every transfer is relayed and every transfer is capped at 2 GB while
+it is on.
+
+Nothing in Floe offers a direct-only mode in the desktop app, and the browser has no relay-only
+mode.
 
 <Accordion title="How the route is chosen, and how Floe knows which it got">
   ICE tries the candidate pairs it gathered and nominates one that works. Traffic is relayed when
@@ -77,10 +86,11 @@ in the browser or the CLI.
   offer a relay" rather than as a guarantee.
 
   The browser re-reads the connection statistics every five seconds and flips the badge to amber
-  when the nominated pair is relayed. Floe Desktop reads it once, when the connection is
-  established, so its badge is a snapshot rather than a live reading. The CLI never reads it at
-  all and shows no direct-or-relay indicator; it only consults the route when deciding whether the
-  size cap applies.
+  when the nominated pair is relayed. Floe Desktop and the CLI each read it once, when the
+  connection is established, so their indicators are a snapshot rather than a live reading: the
+  desktop badge, and the CLI's `Connected (direct)` or `Connected (relay)` line. When the CLI
+  cannot read the route it prints `Connected` alone and carries on. The sender consults the route
+  a second time only to decide whether the size cap applies.
 
   On floe.one the signaling server hands out three endpoints and no more: a STUN URL, a TURN URL
   over UDP, and a TURN URL over TLS on port 443, which looks like ordinary HTTPS to a network that

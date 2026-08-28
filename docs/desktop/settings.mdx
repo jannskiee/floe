@@ -48,7 +48,9 @@ path is impossible, so it does not single you out.
 
 This is not the web app's **Network relay fallback** checkbox, despite the similar subject. That
 one lets you turn the relay **off**. This one makes the relay the **only** path. The desktop app
-has no direct-only mode, and the browser has no relay-only mode.
+has no direct-only mode, and the browser has no relay-only mode. On the command line the same
+switch is `--relay-only` on `floe send` or `floe receive`, and `FLOE_RELAY_ONLY=1` keeps it on.
+See the [CLI flags reference](/cli/flags).
 
 <Warning>
   **Hide my IP needs a relay to exist.** On Floe's own server there is always one. If you point
@@ -56,7 +58,7 @@ has no direct-only mode, and the browser has no relay-only mode.
   connection has nowhere to go, and the transfer fails with a generic connection error rather
   than a message explaining why. If transfers stop working right after you switch servers, turn
   Hide my IP off and try again. To keep using it, add a relay to your instance. See
-  [TURN relay](/self-hosting/turn-relay).
+  [TURN relay](/self-hosting/turn-relay). The CLI's `--relay-only` fails the same way.
 </Warning>
 
 ### Contribute to global stats
