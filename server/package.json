@@ -17,7 +17,7 @@
     "express": "^5.2.1",
     "helmet": "^8.3.0",
     "socket.io": "^4.8.3",
-    "ws": "^8.21.2"
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"
