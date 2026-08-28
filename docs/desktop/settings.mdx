@@ -70,8 +70,10 @@ names, no contents, no record of who sent what, and no link to you.
 The sender never reports, so this setting only matters for transfers you receive. Turn it off
 and no request is made at all.
 
-The same opt-out exists on every surface: a checkbox on the receiver view in the browser, and
-`--no-report` or `FLOE_NO_STATS=1` for the CLI. See
+The same opt-out exists on every surface. Here it is this switch, saved with your other settings
+in `desktop.json`; there is no environment variable for it, and `FLOE_NO_STATS` belongs to the
+CLI. In the browser it is a checkbox on the receiver view, and for the CLI it is `--no-report` or
+`FLOE_NO_STATS=1`. See
 [Security and privacy](/security-privacy#aggregate-statistics).
 
 The report follows whichever server the app is set to, so pointing Floe at your own instance

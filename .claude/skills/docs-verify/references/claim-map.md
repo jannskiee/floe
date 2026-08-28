@@ -12,7 +12,13 @@ The map names where a value is stated; grep the old literal repo-wide before fin
 ## Protocol version
 
 - `ProtocolVersion` / `MinProtocolVersion` (cli/engine/transfer/protocol.go) and `PROTOCOL_VERSION` / `MIN_PROTOCOL_VERSION` (client/lib/transfer/protocol.ts).
-- Docs: docs/reference/transfer-protocol.mdx "Protocol versioning" plus every `pv` / `pvMin` example on that page, docs/desktop/settings.mdx "Transfer protocol", docs/changelog.mdx intro (the "no release so far has changed the transfer protocol" sentence), CLAUDE.md "Transfer Protocol Versioning".
+- Tests: `TestProtocolVersionPinnedToClient` (cli/engine/transfer/protocol_test.go) and the `constants` block of client/lib/transfer/protocol.test.ts pin both numbers by hand and name each other; the script does not compare them.
+- Docs: docs/reference/transfer-protocol.mdx "Protocol versioning" (which also names both test files) plus every `pv` / `pvMin` example on that page, docs/desktop/settings.mdx "Transfer protocol", docs/changelog.mdx intro (the "no release so far has changed the transfer protocol" sentence), CLAUDE.md "Transfer Protocol Versioning".
+
+## Deployed commit
+
+- `GET` in client/app/api/config/route.ts: `commit` is `VERCEL_GIT_COMMIT_SHA`, then `SOURCE_COMMIT`, else `null`, with an empty value counting as unset; `socketUrl` is unchanged.
+- Docs: docs/reference/http-api.mdx "GET /api/config belongs to the web client" (the example and the `commit` paragraph), docs/self-hosting/build-time-url.mdx (the paragraph under the resolution table), docs/self-hosting/configuration.mdx `SOURCE_COMMIT` row (script: presence only); the CONTRIBUTING.md client table and client/.env.example omit it deliberately, as they do `SOCKET_URL`, so the script reports two NOTEs.
 
 ## Timeouts
 

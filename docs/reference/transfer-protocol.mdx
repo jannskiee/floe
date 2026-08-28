@@ -212,7 +212,11 @@ your surface, compare the two version strings it prints and update the older one
 Constants live in `cli/engine/transfer/protocol.go` as `ProtocolVersion` and `MinProtocolVersion`,
 and in `client/lib/transfer/protocol.ts` as `PROTOCOL_VERSION` and `MIN_PROTOCOL_VERSION`. Bump
 `ProtocolVersion` only on a breaking wire change, and raise `MinProtocolVersion` only when
-deliberately dropping support for an old format. Keep the two implementations in step.
+deliberately dropping support for an old format. Keep the two implementations in step. A test on
+each side pins both numbers and names its twin (`TestProtocolVersionPinnedToClient` in
+`cli/engine/transfer/protocol_test.go`, the `constants` block in
+`client/lib/transfer/protocol.test.ts`), so a bump cannot land on one side without a failing test
+pointing at the other.
 
 ## Flow control
 

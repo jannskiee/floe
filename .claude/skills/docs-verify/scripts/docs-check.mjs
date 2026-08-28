@@ -148,8 +148,15 @@ const CURATED = {
         'MAX_REPORT_BYTES',
     ],
 };
-// Runtime flags the client reads that no operator sets.
-const ENV_IGNORE_CLIENT = new Set(['NODE_ENV', 'NEXT_RUNTIME', 'VERCEL', 'CI']);
+// Runtime flags the client reads that no operator sets (Vercel sets
+// VERCEL_GIT_COMMIT_SHA itself; a self-host uses SOURCE_COMMIT instead).
+const ENV_IGNORE_CLIENT = new Set([
+    'NODE_ENV',
+    'NEXT_RUNTIME',
+    'VERCEL',
+    'CI',
+    'VERCEL_GIT_COMMIT_SHA',
+]);
 // server.js reads exactly 14 keys today. Fewer means the extractor regex broke,
 // not that the server lost a setting; raise this when a key is added.
 const SERVER_KEY_FLOOR = 14;

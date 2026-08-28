@@ -19,6 +19,11 @@ The first match wins.
 | 3 | `SOCKET_URL` on the running client container, served from `GET /api/config` | The normal path for a self-hosted instance. |
 | 4 | The page's own origin | When `SOCKET_URL` is empty, which is what you want [behind one domain](/self-hosting/reverse-proxy). |
 
+The same response also carries `commit`, the source revision the client was deployed from
+(`SOURCE_COMMIT` in the client's environment, `null` when unset). It plays no part in resolution
+and exists so the version a running instance serves can be checked; see the
+[HTTP API](/reference/http-api) reference.
+
 <Warning>
   `GET /api/config` is served by the **client**, not the signaling server. If
   both sit behind one reverse proxy, do not route all of `/api/` to the server,

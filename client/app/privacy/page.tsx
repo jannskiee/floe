@@ -97,8 +97,8 @@ export default function PrivacyPolicy() {
                             bytes transferred, shown on our homepage. The sender never reports. We do
                             not store file names, file contents, or any link between this number and
                             you. You can opt out of this report: uncheck
-                            &quot;Contribute to global stats&quot; on the receiver view in the browser,
-                            or use <InlineCode>--no-report</InlineCode> (or set{' '}
+                            &quot;Contribute to global stats&quot; on the receiver view in the browser or in
+                            Floe Desktop&apos;s Settings, or use <InlineCode>--no-report</InlineCode> (or set{' '}
                             <InlineCode>FLOE_NO_STATS=1</InlineCode>) when using the CLI.
                         </>,
                         <>
