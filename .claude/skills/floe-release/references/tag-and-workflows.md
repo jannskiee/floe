@@ -32,7 +32,7 @@ Read from the workflow files on `main` on 2026-08-28. When a workflow changes, r
 - `desktop/wails.json` is stamped from the tag in the runner's working tree, never committed, so the committed `productVersion` only feeds the dispatch path. Bump it anyway so the tree matches what shipped.
 - Assets: `floe-desktop-setup-$V.exe` (NSIS installer), `floe-desktop-$V-windows-amd64.zip` (exe plus LICENSE), `SHA256SUMS.txt` (LF endings on purpose, so `sha256sum -c` works). Published with `gh release create --verify-tag --prerelease --latest=false`; both flags are unconditional.
 - The release body is boilerplate; /download's "Release notes" link points at the docs changelog instead.
-- The MSIX is a workflow ARTIFACT, `floe-desktop-msix-<X.Y.Z>-run<run_number>`, built into `dist-msix/` so the release glob never attaches it. The run id comes from `gh run list --workflow desktop-release.yml`; fetch with `gh run download <id> -n <artifact-name>`.
+- The MSIX is a workflow ARTIFACT, `floe-desktop-msix-<X.Y.Z>-run<run_number>`, built into `dist-msix/` so the release glob never attaches it. The run id comes from `gh run list --workflow desktop-release.yml`; fetch with `gh run download <id> -n <artifact-name>`. `.claude/skills/store-submit/scripts/msix-preflight.mjs` does both, skips a canceled twin run (2026-08-27), and verifies the manifest inside.
 - Publishing is the last step, so a failed run leaves no release. No ruleset protects `desktop-v*`: delete the tag and re-cut the same number. Once the Store has accepted a version, a lower Identity version is refused, so a shipped desktop number is never reused.
 
 ## `workflow_dispatch` on desktop-release.yml

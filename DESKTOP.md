@@ -310,8 +310,10 @@ binary.
       leaves that link empty.
       Tag the entry `["Desktop"]`; the full contract for labels, dates and tag
       values is the MDX comment at the top of `docs/changelog.mdx`.
-      Then paste a plain-text condensation into Partner Center's "What's new in
-      this version" (optional, 1500 characters, no markdown). A release with
+      Then submit with `.claude/skills/store-submit/SKILL.md`, which renders the
+      entry into Partner Center's plain-text "What's new in this version" field
+      (1500 characters, no markdown, no links to other channels) and drives the
+      submission. A release with
       nothing a user can see gets no entry, which is the point of writing it by
       hand. Judge that by what reaches a user, not by whether code changed:
       `desktop-v0.2.1` did move the Store tile colour, so it earned the short

@@ -62,6 +62,9 @@ const SKIP_PATHS = new Set([
     'desktop/frontend/wailsjs',
     'desktop/frontend/dist',
     '.claude/skills/floe-release',
+    // Its SKILL.md examples, the submission history in references/ and the
+    // version-mapping self-test all name shipped versions on purpose.
+    '.claude/skills/store-submit',
     // Shipped labels are history; the contract at the top forbids editing them.
     'docs/changelog.mdx',
     // Its version strings are fixtures for the comparison logic.

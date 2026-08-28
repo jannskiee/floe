@@ -1,6 +1,6 @@
 ---
 name: floe-release
-description: 'Use when cutting a Floe release (a v* or desktop-v* tag): the changelog entry, the release version pins and DESKTOP_VERSION in client/lib/desktopRelease.ts, verifying release assets, or the Microsoft Store submission. Gives the verified order, the paired-release decision and the UTC date rule; the wrong order points floe.one/download at a 404. Not for dependency, action or toolchain bumps.'
+description: 'Use when cutting a Floe release (a v* or desktop-v* tag): the changelog entry, the release version pins and DESKTOP_VERSION in client/lib/desktopRelease.ts, or verifying release assets. Gives the verified order, the paired-release decision and the UTC date rule; the wrong order points floe.one/download at a 404. Not for dependency, action or toolchain bumps, and not for the Microsoft Store (Partner Center) submission itself; that is store-submit.'
 ---
 
 # Floe release runbook
@@ -182,16 +182,14 @@ release-asset step is the merge gate.
 
 ## 7. Store submission (one in flight at a time)
 
-One in flight is checkable: Partner Center's overview must show the previous
-submission as "In Microsoft Store", not "In certification"; the Start update
-button exists only then. MSIX = the desktop-release.yml run's ARTIFACT
-`floe-desktop-msix-<X.Y.Z>-run<run_number>`, never a release-page asset:
-`gh run list --workflow desktop-release.yml --limit 1` for the run id, then
-`gh run download <id> -n <artifact-name>`. The Partner Center click path and
-its DOM idioms live in memory (`project_floe_store_identity`: standing
-authorization and URLs; `reference_release_automation_traps` and
-`project_release_1_10_3_and_0_2_6`: the flow that worked). Paste a plain-text
-condensation of the entry into "What's new".
+Run `.claude/skills/store-submit/SKILL.md`. It checks that Partner Center
+shows the previous submission as "In Microsoft Store" (Start update exists
+only then), fetches and verifies the tag's MSIX from the desktop-release.yml
+run's ARTIFACT `floe-desktop-msix-<X.Y.Z>-run<run_number>` (never a
+release-page asset; a canceled twin run holds no artifact, 2026-08-27),
+renders this release's changelog entry into the plain-text "What's new"
+field, and drives Partner Center through Submit for certification. Come
+back here for step 8 once it reports "Update in certification".
 
 ## 8. DESKTOP.md step h
 
