@@ -5,13 +5,15 @@
 # limit, so the monthly cadence only throttles routine version bumps.
 version: 2
 updates:
-  # client/ (pnpm, packageManager pnpm@11.1.2) and server/ (plain npm) share
-  # one npm entry via the multi-directory form. Grouping is per directory,
-  # so client and server still arrive as separate single grouped PRs.
+  # client/ (pnpm, packageManager pnpm@11.1.2), server/ (plain npm) and
+  # desktop/frontend/ (plain npm) share one npm entry via the multi-directory
+  # form. Grouping is per directory, so each still arrives as its own single
+  # grouped PR.
   - package-ecosystem: "npm"
     directories:
       - "/client"
       - "/server"
+      - "/desktop/frontend"
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 5
@@ -30,13 +32,30 @@ updates:
           - "minor"
           - "patch"
 
+  # The two Go modules the root go.work joins. desktop/ had no entry until
+  # now, so it moved only when a security advisory landed and drifted from
+  # cli/ in between: #345 arrived as a four-module jump because nothing
+  # routine had touched desktop/go.mod. That drift is not contained to the
+  # desktop app, because goreleaser builds the CLI with the workspace active,
+  # so a version only desktop/ requires still reaches the released binary.
   - package-ecosystem: "gomod"
-    directory: "/cli"
+    directories:
+      - "/cli"
+      - "/desktop"
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+    # Wails is never Dependabot's call. ci.yml pins WAILS_VERSION and greps
+    # desktop/go.mod for that exact string, because the Wails CLI embeds
+    # runtime assets that must match the library and this repo has eaten one
+    # version drift already (#262). Any bump, major, minor or patch, fails
+    # the desktop job on arrival unless ci.yml and desktop-release.yml move
+    # in the same commit. Wails moves by hand. Security advisories ignore
+    # this block.
+    ignore:
+      - dependency-name: "github.com/wailsapp/wails/v2"
     groups:
       go-deps:
         patterns:
