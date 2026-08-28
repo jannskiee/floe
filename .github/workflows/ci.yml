@@ -324,6 +324,11 @@ jobs:
         # Must precede any Go command in desktop/: main.go embeds
         # frontend/dist, which does not exist on a fresh checkout.
         working-directory: desktop/frontend
+        # bash, not the Windows default pwsh: GitHub's pwsh wrapper appends
+        # `exit $LASTEXITCODE`, so only the LAST command decides the step
+        # result and a failing `npm ci` is not reliably fatal. bash runs with
+        # -e, so the first failure stops the step and is the one reported.
+        shell: bash
         run: |
           npm ci
           npm test
