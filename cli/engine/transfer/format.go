@@ -15,7 +15,7 @@ import (
 // a compatibility surface) or anything on the wire.
 const (
 	maxDisplayName   = 200 // the browser's MAX_SEGMENT, so both surfaces agree
-	maxDisplayVer    = 64  // real values: "v1.10.4", "desktop-v0.2.7", "dev"
+	maxDisplayVer    = 64  // real values look like "v1.2.3", "desktop-v0.1.2", "dev"
 	maxDisplayReason = 300 // a current peer's reason is three short lines
 )
 

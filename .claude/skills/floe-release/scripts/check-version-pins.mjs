@@ -69,6 +69,9 @@ const SKIP_PATHS = new Set([
 ]);
 // Lockfiles and dependency manifests carry other projects' versions: cobra
 // sat at v1.10.2 while Floe shipped v1.10.2, and no Floe pin lives in them.
+// Test fixtures carry example versions, never pins: a Go table row that
+// says "v1.10.4" is test data, and a slug fixture is not a download link.
+const TEST_FIXTURE = /(_test\.go|\.test\.(ts|tsx|mjs|js))$/;
 const SKIP_NAMES = new Set([
     'pnpm-lock.yaml',
     'package-lock.json',
@@ -276,6 +279,7 @@ function* walk(dir) {
             if (
                 SKIP_PATHS.has(rel) ||
                 SKIP_NAMES.has(entry.name) ||
+                TEST_FIXTURE.test(entry.name) ||
                 BINARY.test(entry.name)
             )
                 continue;

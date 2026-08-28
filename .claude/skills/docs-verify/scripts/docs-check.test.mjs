@@ -114,17 +114,20 @@ test('an anchor that matches nothing on a page with only stable headings is HARD
 
 test('a link to an unstable heading (the live-id case) is NOTE, not HARD', () => {
     const root = fresh();
+    // #340 gave the live heading an explicit id, so synthesize an unstable
+    // one: Mintlify keeps the quotes in the id it generates for it.
+    appendLine(root, 'docs/faq.mdx', '### Says "hello" to the reader');
     const n = appendLine(
         root,
         'docs/faq.mdx',
-        'See [x](/web-app/receiving#if-floe-says-open-in-your-browser).'
+        'See [x](/faq#says-hello-to-the-reader).'
     );
     const r = run(root);
     assert.equal(r.status, 0, r.out);
     assert.match(
         r.out,
         new RegExp(
-            `NOTE  links  docs/faq\\.mdx:${n}  #if-floe-says-open-in-your-browser targets an unstable heading`
+            `NOTE  links  docs/faq\\.mdx:${n}  #says-hello-to-the-reader targets an unstable heading`
         )
     );
     assert.doesNotMatch(r.out, new RegExp(`HARD  links  docs/faq\\.mdx:${n}`));
