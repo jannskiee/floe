@@ -57,7 +57,7 @@ floe-server)
     ;;
 
 floe-client)
-    # The client's /api/config just echoes SOCKET_URL, so this leg needs no
+    # The client's /api/config echoes SOCKET_URL (plus a commit field that is null
     # signaling server. Two runs with DIFFERENT values is the real proof that the
     # address is resolved at runtime and not baked, which is the whole premise of
     # shipping one image to everyone.
@@ -66,7 +66,7 @@ floe-client)
     echo "OK  / -> 200"
 
     cfg="$(curl --fail --silent http://localhost:3000/api/config)"
-    [ "$cfg" = '{"socketUrl":"http://localhost:3001"}' ] \
+    echo "$cfg" | grep -q '"socketUrl":"http://localhost:3001"' \
         || fail "/api/config was $cfg, expected the SOCKET_URL value"
     echo "OK  /api/config reflects SOCKET_URL"
 
@@ -107,7 +107,7 @@ floe-client)
     wait_for http://localhost:3000/ || fail "client never served / on the second run"
 
     cfg2="$(curl --fail --silent http://localhost:3000/api/config)"
-    [ "$cfg2" = '{"socketUrl":"https://signal.example.test"}' ] \
+    echo "$cfg2" | grep -q '"socketUrl":"https://signal.example.test"' \
         || fail "/api/config was $cfg2 on the second run, so the URL is baked, not runtime"
     echo "OK  /api/config follows a changed SOCKET_URL with no rebuild"
     ;;

@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
+    PROTOCOL_VERSION,
+    MIN_PROTOCOL_VERSION,
     CONTROL_MSG_MAX,
     HIGH_WATER,
     LOW_WATER,
@@ -24,6 +26,12 @@ function toArrayBuffer(s: string): ArrayBuffer {
 }
 
 describe('constants', () => {
+    // Pinned to the Go twins ProtocolVersion / MinProtocolVersion in
+    // cli/engine/transfer/protocol.go, where TestProtocolVersionPinnedToClient
+    // holds the same numbers. Bump both sides together, or peers on the two
+    // implementations refuse each other before any bytes move.
+    it('PROTOCOL_VERSION is 1', () => expect(PROTOCOL_VERSION).toBe(1));
+    it('MIN_PROTOCOL_VERSION is 1', () => expect(MIN_PROTOCOL_VERSION).toBe(1));
     it('CONTROL_MSG_MAX is 1000', () => expect(CONTROL_MSG_MAX).toBe(1000));
     it('HIGH_WATER is 8 MB', () => expect(HIGH_WATER).toBe(8 * 1024 * 1024));
     it('LOW_WATER is 4 MB', () => expect(LOW_WATER).toBe(4 * 1024 * 1024));

@@ -242,12 +242,26 @@ There is one path that looks like it belongs here and does not. `GET /api/config
 the **Next.js client**, not by the signaling server, and it is how the browser learns which
 signaling server to use:
 
+```bash Request
+curl https://www.floe.one/api/config
+```
+
 ```json 200 OK
-{ "socketUrl": "https://api.example.com" }
+{ "socketUrl": "", "commit": "ef3663793dd9466a2df7bedb7133ca79aca51809" }
 ```
 
 An empty `socketUrl` means the browser should use its own origin, which is the right answer
-behind a single domain.
+behind a single domain. It is also what floe.one answers, because floe.one compiles its server
+address into the build and never sets `SOCKET_URL`; a self-hosted instance that sets it sees the
+value here.
+
+`commit` is the source revision the client was deployed from, so anyone can check what an
+instance is running without taking the page's own word for it. On floe.one it is the full
+40-character SHA of the commit Vercel deployed, read from `VERCEL_GIT_COMMIT_SHA`, and it names
+a commit in the public repository. A self-hosted instance reports whatever `SOURCE_COMMIT` is set
+to in the client's environment (see [Configuration](/self-hosting/configuration)), and `null`
+when it is unset. The value is informational: nothing signs it, and it describes the web client
+only. The signaling server has no version endpoint.
 
 Route all of `/api/` to the signaling server and this request returns 404. Any signaling URL
 you configured is then silently discarded and the browser falls back to its own origin. Behind
