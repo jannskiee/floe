@@ -95,8 +95,15 @@ keeps the tag unsigned whatever `tag.gpgSign` says.
 git fetch origin main
 git tag -a --no-sign v1.10.5 <sha> -m "v1.10.5"
 git tag -a --no-sign desktop-v0.2.8 <sha> -m "desktop-v0.2.8"
-git push origin v1.10.5 desktop-v0.2.8
+git push origin v1.10.5
+git push origin desktop-v0.2.8
 ```
+
+One tag per push, on purpose. Pushing both refs in one `git push` (measured on
+2026-08-28, v1.10.5 + desktop-v0.2.8) fired release.yml, desktop-release.yml and
+images.yml TWICE each; the twin runs raced, and the ones that lost to a transient
+module-proxy error looked like failed releases while their twins had already
+published. Push one tag, wait for its runs to start, then push the other.
 
 Today's UTC date, which the changelog `description` from step 2 must equal on
 the day you push:
@@ -126,6 +133,12 @@ gh run view <id> --json status,conclusion --jq '.status + " " + .conclusion'
 
 gh's embedded jq only: the jq binary is not on this box and a jq-based loop
 fails silently (memory `project_pnpm_via_corepack`).
+
+If a workflow fails, first check `gh run list --workflow <file> --limit 3` for a
+TWIN run on the same tag: a duplicate trigger that succeeded means the release
+is already published, so cancel the failed twin (`gh run cancel <id>`) and do not
+rerun it (a rerun would race the published release). Only when there is no
+successful twin does the following apply.
 
 If a workflow fails: desktop-release.yml publishes only at its last step, so a
 failed run leaves no release (and any MSIX artifact it uploaded is superseded
