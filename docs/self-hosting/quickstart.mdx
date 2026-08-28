@@ -25,7 +25,7 @@ keywords: ["docker compose", "try self hosting", "get started"]
     Docker pulls the [prebuilt images](/self-hosting/images) and starts the client and server containers. Nothing is compiled locally.
   </Step>
   <Step title="Open the app">
-    Open [http://localhost:3000](http://localhost:3000) in your browser. Pick a file and press **Create secure link**, then paste that link into a second tab to join as the receiver. **Show QR** renders the same link as a scannable code, which is how you receive on a phone once the app is reachable from one (see the note below).
+    Open [http://localhost:3000](http://localhost:3000) in your browser. Pick a file and click **Create secure link**, then paste that link into a second tab to join as the receiver. **Show QR** renders the same link as a scannable code, which is how you receive on a phone once the app is reachable from one (see the note below).
   </Step>
 </Steps>
 
@@ -37,7 +37,7 @@ curl -fsSL https://raw.githubusercontent.com/jannskiee/floe/main/.env.docker.exa
 
 ## What this runs
 
-This starts the stack in **STUN-only** mode. Direct peer-to-peer connections are used, which work on most home and mobile networks. No files pass through the server.
+This starts the stack in **STUN-only** mode. Floe uses direct peer-to-peer connections, which work on most home and mobile networks. No files pass through the server.
 
 To support peers behind strict firewalls, symmetric NAT, or CGNAT, add a [TURN relay](/self-hosting/turn-relay).
 

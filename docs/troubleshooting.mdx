@@ -330,7 +330,7 @@ slash, and it holds **one** origin. A comma-separated list matches nothing. `htt
 
 ### 429, or "Rate limit exceeded"
 
-Four independent per-IP limiters, each over a 60 second window: 30 connections shared across
+Four independent per-IP limiters, each over a 60-second window: 30 connections shared across
 Socket.IO and WebSocket (`MAX_CONNECTIONS_PER_IP`), 20 TURN credential requests
 (`MAX_TURN_REQUESTS_PER_IP`), 60 room-code requests (`MAX_CODE_REQUESTS_PER_IP`), and 60 stats
 reports, which is the one limit with no environment override.

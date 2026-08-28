@@ -34,7 +34,7 @@ Four things that order does not show.
 - **A person can sit between steps 1 and 2.** `floe receive` prints `Accept? [Y/n]` and waits for
   an answer before it sends the ack. That is the whole reason the ack deadline is 120 seconds.
 - **The end of a batch is a race, not a message.** A Go sender finishes on whichever comes
-  first: the `received` frame, its send buffer reaching zero, or the 30 second timeout expiring.
+  first: the `received` frame, its send buffer reaching zero, or the 30-second timeout expiring.
 
 ## How a frame is classified
 
@@ -247,7 +247,7 @@ See [Known limitations](/how-it-works/known-limitations).
 
 ## Timeouts
 
-Every value the Go engine enforces. The browser shares only the 120 second ack deadline.
+Every value the Go engine enforces. The browser shares only the 120-second ack deadline.
 
 | Phase | Limit | What happens |
 |---|---|---|

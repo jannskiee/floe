@@ -104,7 +104,7 @@ client accepts either, and anything else consuming this endpoint has to as well.
 
 <ResponseField name="urls" type="string | string[]" required>
   One or more ICE server URLs. STUN and TURN are always split into separate array entries, which
-  is what lets a client strip TURN while keeping STUN when the user refuses the relay.
+  is what lets a client strip TURN while keeping STUN when its user turns off relay fallback.
 </ResponseField>
 <ResponseField name="username" type="string">
   Present on TURN entries only. For coturn this is `{expiry_unix}:floeuser`.
@@ -113,7 +113,7 @@ client accepts either, and anything else consuming this endpoint has to as well.
   Present on TURN entries only. For coturn this is `base64(HMAC-SHA1(TURN_SECRET, username))`.
 </ResponseField>
 
-Both credential paths issue a 24 hour expiry. Cloudflare credentials are minted upstream and
+Both credential paths issue a 24-hour expiry. Cloudflare credentials are minted upstream and
 cached in the server's memory for 12 hours, so a burst of page loads costs one upstream call and
 a restart re-mints.
 
