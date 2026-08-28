@@ -81,7 +81,7 @@ Specific to the `update` command.
 
 After a successful transfer, the **receiver** sends only the total byte count to the signaling server it is connected to (`api.floe.one` by default, or your own server when you set `--server` or `FLOE_SERVER`) to power the public "transferred globally" counter. No file names, contents, or identity are included. The **sender** never reports.
 
-Errors are ignored, so a failed report never changes the outcome of a transfer. The request goes out after every file is written and the summary has printed, and it carries a 5 second timeout, so an unreachable server can delay `floe receive` from exiting by a few seconds but never affects the files.
+Errors are ignored, so a failed report never changes the outcome of a transfer. The request goes out after every file is written and the summary has printed, and it carries a 5-second timeout, so an unreachable server can delay `floe receive` from exiting by a few seconds but never affects the files.
 
 To opt out for a single transfer, pass `--no-report`:
 
@@ -123,8 +123,8 @@ meet:
 | A transfer that stops making progress | 60 seconds |
 | The byte-count report after a transfer | 5 seconds, and it never affects the files |
 
-A `floe receive` can sit for up to about ten seconds after printing its summary. That is a five
-second grace period so the final acknowledgement reaches the sender, plus the report. The full
+A `floe receive` can sit for up to about ten seconds after printing its summary. That is a five-second
+grace period so the final acknowledgement reaches the sender, plus the report. The full
 list is in the [transfer protocol reference](/reference/transfer-protocol#timeouts).
 
 ## Examples
