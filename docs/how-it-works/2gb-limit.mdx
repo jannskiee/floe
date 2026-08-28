@@ -58,10 +58,10 @@ setting is what forced the relay.
 
 ## One case that catches people out
 
-Floe Desktop's [Hide my IP address](/desktop/settings#hide-my-ip-address) setting routes every
-transfer through the relay on purpose, so the other person never sees your address. While it is
-on, **the 2 GB cap applies to every transfer**, even on a network that could easily have connected
-directly. Turn it off to send more.
+Floe Desktop's [Hide my IP address](/desktop/settings#hide-my-ip-address) setting, and the CLI's
+`--relay-only` flag, route every transfer through the relay on purpose, so the other person never
+sees your address. While either is on, **the 2 GB cap applies to every transfer**, even on a
+network that could easily have connected directly. Turn it off, or drop the flag, to send more.
 
 You never need to turn relay fallback off to send something large. The cap applies only when the
 connection actually ends up relayed, so leaving fallback on costs a direct transfer nothing and

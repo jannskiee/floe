@@ -136,6 +136,13 @@ If you passed `--no-relay`, this is what that looks like when no direct path exi
 removes the relay from the address list, so there is nothing else to try and the failure is this
 generic timeout rather than a message about the relay.
 
+`--relay-only` fails the same way when the server offers no TURN relay. With only STUN in the
+list, a relay-only connection has nowhere to go, and after thirty seconds the command ends with
+`WebRTC setup failed: timed out establishing a connection` and exit code 1. The other side ends
+with the same line at the same moment, since no pair of addresses could ever form. On Floe's own
+server there is always a relay, so this points at a self-hosted server without one: drop the
+flag, or add a relay to the instance. See [TURN relay](/self-hosting/turn-relay).
+
 ### `connected, but no data arrived from the sender within 30s`
 
 You reached the sender and they never started sending. Ask them to try again.

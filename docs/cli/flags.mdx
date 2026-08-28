@@ -7,16 +7,17 @@ keywords: ["flags", "options", "environment variables", "exit codes", "timeouts"
 
 ## Global flags
 
-Every command accepts these, but only `send` and `receive` act on them. `floe version` and `floe update` parse them and then ignore them, so `floe version --server https://floe.example.com` is accepted and changes nothing.
+Every command accepts these, but only `send` and `receive` act on them. `floe version` and `floe update` parse them and then ignore them, so `floe version --server https://floe.example.com` is accepted and changes nothing. The one exception is the pair `--relay-only` and `--no-relay`, which every command refuses together.
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--server <url>` | `https://api.floe.one` | Signaling server URL. Use `http://localhost:3001` for local testing or your self-hosted server URL. |
 | `--no-relay` | `false` | Drop every TURN entry from **your** ICE list, so you offer nothing relayed. It is one-sided: the peer can still offer a relay, and if that path wins the CLI proceeds over it, so pass the flag on **both** ends when it has to be a guarantee. When no path forms at all the failure is a generic connection error after about 30 seconds, never a message about the relay. |
+| `--relay-only` | `false` | Route everything through the TURN relay and never try a direct path, so the other side sees the relay's address instead of yours. It is the command-line twin of the desktop app's **Hide my IP address** switch, and it applies to your side only. While it is on, the 2 GB relay cap applies to every transfer, even on a network that could have connected directly; see [File size limits](/how-it-works/2gb-limit). It needs a relay to exist: against a server that offers STUN only, the connection fails after about 30 seconds with `timed out establishing a connection`. Cannot be combined with `--no-relay`. Also settable with `FLOE_RELAY_ONLY=1`. |
 | `--web <url>` | _(auto-detected)_ | Web app URL included in the browser link printed by `floe send`. Auto-detected from `--server`: `https://api.floe.one` maps to `https://floe.one`, `http://localhost:3001` maps to `http://localhost:3000`, and any other server maps to itself, on the assumption that one origin serves both the API and the web app. Set `--web` only when your web app has its own hostname. |
 | `--iface <name>` | _(all interfaces)_ | Restrict WebRTC to network interfaces whose name contains this value (case-insensitive). Repeat the flag or separate names with commas, so `--iface Ethernet --iface Wi-Fi` and `--iface Ethernet,Wi-Fi` do the same thing. Use it when a VPN or virtual-machine adapter (Tailscale, VMware, WSL, Hyper-V) slows connection setup. See [Troubleshooting](/troubleshooting). |
 
-The desktop app has equivalents for two of these. `--server` and `--web` are **Server address** and **Share link address**, under Advanced in **Settings**. `--no-relay` has no desktop equivalent: the **Hide my IP address** toggle does the opposite, forcing every transfer through the relay rather than refusing it. See [Desktop app settings](/desktop/settings).
+The desktop app has equivalents for three of these. `--server` and `--web` are **Server address** and **Share link address**, under Advanced in **Settings**, and `--relay-only` is the **Hide my IP address** toggle under Privacy. `--no-relay` has no desktop equivalent: Floe Desktop can require the relay but never refuse it. See [Desktop app settings](/desktop/settings).
 
 ## Help and version flags
 
@@ -31,12 +32,13 @@ These come from the CLI framework rather than from Floe itself.
 
 ## Environment variables
 
-Floe reads four environment variables. If you run your own signaling server, set it once in your environment instead of passing `--server` on every command.
+Floe reads five environment variables. If you run your own signaling server, set it once in your environment instead of passing `--server` on every command.
 
 | Variable | Equivalent flag | Description |
 |----------|-----------------|-------------|
 | `FLOE_SERVER` | `--server` | Signaling server URL, used by every command. |
 | `FLOE_WEB` | `--web` | Web app URL used for the browser link printed by `floe send`. |
+| `FLOE_RELAY_ONLY` | `--relay-only` | Set to `1` to route every transfer through the relay, hiding your IP address from the other side. A typed `--no-relay` overrides it for that one command, since the two can never both be on. |
 | `FLOE_NO_STATS` | `--no-report` | Set to `1` to never report byte counts. Applies to `floe receive`. See [Opting out of the global counter](#opting-out-of-the-global-counter). |
 | `FLOE_NO_UPDATE_CHECK` | _(no flag)_ | Set to `1` to suppress the "Update available" hint that `floe version` prints. It does not affect transfers or `floe update` itself. |
 
@@ -140,6 +142,12 @@ Disable relay fallback (direct connections only):
 
 ```bash Terminal
 floe send photo.jpg --no-relay
+```
+
+Hide your IP address from the other side by forcing the relay (the 2 GB cap applies):
+
+```bash Terminal
+floe send photo.jpg --relay-only
 ```
 
 Point the browser link at a custom web client:

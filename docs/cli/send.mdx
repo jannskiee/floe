@@ -49,7 +49,7 @@ Once the recipient connects, Floe negotiates the WebRTC connection and streams e
 
 ```text Output
   Connecting...
-  Connected
+  Connected (direct)
 
   [1/3] report.pdf 100% [███████████████] (1.4 MB/s)
   [2/3] photo.jpg 100% [███████████████] (2.1 MB/s)
@@ -60,6 +60,8 @@ Once the recipient connects, Floe negotiates the WebRTC connection and streams e
   Time   8s · avg 1.4 MB/s
   ─────────────────────────────────────────────────
 ```
+
+The `Connected` line names the route ICE settled on: `(direct)` when the two devices talk to each other, `(relay)` when the transfer runs through the TURN relay, where the 2 GB cap applies (see [File size limits](/how-it-works/2gb-limit)). It is read once, as the connection comes up. On the rare occasion the route cannot be read, the line is `Connected` alone and the transfer proceeds.
 
 While a file is still in flight its line also carries elapsed and remaining time, for example `  [1/3] report.pdf  85% [██████████░░░░░] (1.4 MB/s) [6s:1s]`. Those brackets disappear once the line reaches 100%. The bar stretches to the width of your terminal, so the number of blocks varies with your window, and names longer than 30 characters are truncated. The rate in parentheses uses base-1000 units (`kB`, `MB`), while the summary rows below it use base-1024 units, so the two do not always agree to the decimal.
 
@@ -91,11 +93,11 @@ and fails to read. Copy what you mean to send, or send the target path directly.
 
 ## Flags
 
-See [CLI flags reference](/cli/flags) for `--server`, `--no-relay`, `--web`, and `--iface`.
+See [CLI flags reference](/cli/flags) for `--server`, `--no-relay`, `--relay-only`, `--web`, and `--iface`.
 
 ## Notes
 
-- Relayed transfers are capped at 2 GB per session; direct connections have no size limit. When the selected route runs through the TURN relay and the queued files total more than 2 GB, `floe send` blocks the transfer before any file data moves. See [File size limits](/how-it-works/2gb-limit).
+- Relayed transfers are capped at 2 GB per session; direct connections have no size limit. When the selected route runs through the TURN relay and the queued files total more than 2 GB, `floe send` blocks the transfer before any file data moves. With `--relay-only` every transfer is relayed, so the cap always applies. See [File size limits](/how-it-works/2gb-limit).
 - Press `Ctrl+C` at any time to cancel the transfer and close the session.
 - If the short code cannot be registered (for example, the signaling server is unreachable), Floe prints a warning and continues with the link only.
 - Files are streamed in the order they are listed. For multiple files, progress is shown per file.

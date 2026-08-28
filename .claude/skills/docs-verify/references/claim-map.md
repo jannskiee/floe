@@ -39,9 +39,10 @@ The map names where a value is stated; grep the old literal repo-wide before fin
 
 ## CLI flags and environment
 
-- cli/cmd/floe/main.go: `flagServer` (`--server`, with its compiled default), `flagNoRelay`, `flagWebURL` (`--web`), `flagIface` (`--iface`, repeatable), `flagOutput` (`-o`, with its default), `flagAutoAccept` (`-y`), `flagNoReport`, `flagUpdateCheck` (`--check`); `FLOE_SERVER` and `FLOE_WEB` in the root `PersistentPreRunE`, `FLOE_NO_STATS` in the receive command.
+- cli/cmd/floe/main.go: `flagServer` (`--server`, with its compiled default), `flagNoRelay`, `flagRelayOnly` (`--relay-only`, mutually exclusive with `--no-relay` via `MarkFlagsMutuallyExclusive`), `flagWebURL` (`--web`), `flagIface` (`--iface`, repeatable), `flagOutput` (`-o`, with its default), `flagAutoAccept` (`-y`), `flagNoReport`, `flagUpdateCheck` (`--check`); `FLOE_SERVER`, `FLOE_WEB` and `FLOE_RELAY_ONLY` in `applyEnv` (called from the root `PersistentPreRunE`; a typed `--no-relay` beats `FLOE_RELAY_ONLY`), `FLOE_NO_STATS` in the receive command.
+- cli/cmd/floe/main.go `connectedLine`: the `Connected (direct)` / `Connected (relay)` / bare `Connected` status line, read once from `Connection.ConnectionType()` after setup.
 - cli/internal/selfupdate/selfupdate.go: `FLOE_NO_UPDATE_CHECK`.
-- Docs: docs/cli/flags.mdx (every table), docs/cli/receive.mdx, docs/cli/update.mdx, docs/cli/self-hosted-server.mdx, docs/snippets/stats-optout.mdx, README.md CLI section.
+- Docs: docs/cli/flags.mdx (every table), docs/cli/send.mdx and docs/cli/receive.mdx ("Output" quotes the `Connected` line), docs/cli/update.mdx, docs/cli/self-hosted-server.mdx, docs/snippets/stats-optout.mdx, README.md CLI section. `--relay-only` is also described as the twin of Hide my IP in docs/how-it-works/relay-connection.mdx (the badge row, "Turning it off, and the opposite", and the accordion), docs/desktop/settings.mdx "Hide my IP address", docs/choosing-floe.mdx (the "Force the relay" row), docs/how-it-works/known-limitations.mdx, docs/security-privacy.mdx, docs/how-it-works/2gb-limit.mdx "One case that catches people out", and docs/troubleshooting.mdx `timed out establishing a connection`.
 
 ## Versions
 

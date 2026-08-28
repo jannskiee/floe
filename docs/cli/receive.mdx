@@ -43,7 +43,7 @@ Running `floe receive olive-tiger-castle -o ~/Downloads`:
 
 ```text Output
   Connecting to sender...
-  Connected
+  Connected (direct)
 
   ─────────────────────────────────────────────────
   Incoming   2 files · 2.3 MB
@@ -61,6 +61,8 @@ Running `floe receive olive-tiger-castle -o ~/Downloads`:
 ```
 
 With no `-o` flag, files save to the current directory.
+
+The `Connected` line names the route: `(direct)` when the two devices talk to each other, `(relay)` when the transfer runs through the TURN relay. It reads `Connected` alone only when the route could not be determined, and the transfer proceeds either way.
 
 ## Confirmation prompt
 
@@ -88,7 +90,7 @@ Pass `-y` to skip this prompt and accept automatically.
 | `--yes` | `-y` | `false` | Accept incoming files without the confirmation prompt. |
 | `--no-report` | | `false` | Do not report the transferred byte count to Floe's public global counter. Set `FLOE_NO_STATS=1` to opt out permanently. |
 
-See [CLI flags reference](/cli/flags) for the global flags that matter here (`--server`, `--no-relay`, `--iface`) and full opt-out documentation.
+See [CLI flags reference](/cli/flags) for the global flags that matter here (`--server`, `--no-relay`, `--relay-only`, `--iface`) and full opt-out documentation.
 
 ## Notes
 
