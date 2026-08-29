@@ -343,15 +343,54 @@ export function mainSha({ gh }) {
 }
 
 /** true, false, or null on a 4xx compare (unknown sha, unrelated). */
+/**
+ * The compare API caps its `files` array at this many entries, with no
+ * truncation flag. Measured 2026-08-30: `5dedc94...7590ddb` (119 commits)
+ * returned exactly 300 filenames and not one of them under `server/`,
+ * although five commits in the range change it. Read as "not touched", that
+ * turned a STALE server row CURRENT.
+ */
+export const COMPARE_FILES_CAP = 300;
+
+/** The tree object id of one top-level directory at a ref, or null. */
+export function treeShaFor({ gh, ref, dir }) {
+    const json = gh([
+        'api',
+        `repos/${REPO}/git/trees/${ref}`,
+        '--jq',
+        `[.tree[] | select(.path == "${dir}") | .sha]`,
+    ]);
+    const list = JSON.parse(json);
+    return Array.isArray(list) && list.length ? String(list[0]) : null;
+}
+
+/**
+ * Whether `dir` differs between two commits. Tree objects first: two calls
+ * whatever the range, immune to the file cap, and they answer the question
+ * the report actually asks (does the deployed code differ) rather than
+ * whether some commit touched the path. compare stays as the fallback and
+ * refuses to answer once it is at the cap, so a truncated answer can never
+ * read as CURRENT.
+ */
 export function compareTouches({ gh, base, head, dir }) {
+    try {
+        const b = treeShaFor({ gh, ref: base, dir });
+        const h = treeShaFor({ gh, ref: head, dir });
+        if (b && h) return b !== h;
+    } catch {
+        // The tree call is the preferred oracle, not a required one.
+    }
     try {
         const json = gh([
             'api',
             `repos/${REPO}/compare/${base}...${head}`,
             '--jq',
-            '[.files[].filename]',
+            '{ n: (.files | length), f: [.files[].filename] }',
         ]);
-        return touchesDir(JSON.parse(json), dir);
+        const r = JSON.parse(json);
+        if (!r || !Array.isArray(r.f)) return null;
+        if (r.n >= COMPARE_FILES_CAP) return null;
+        return touchesDir(r.f, dir);
     } catch {
         return null;
     }
