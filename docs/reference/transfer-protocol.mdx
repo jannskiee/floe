@@ -83,7 +83,7 @@ Sender to receiver, before each file.
   "totalBytes": 11800000,
   "pv": 1,
   "pvMin": 1,
-  "ver": "1.10.5"
+  "ver": "1.10.6"
 }
 ```
 
@@ -115,7 +115,7 @@ Sender to receiver, before each file.
   Lowest protocol version this peer still supports.
 </ResponseField>
 <ResponseField name="ver" type="string">
-  The human release string, and its shape depends on the build. The CLI sends `1.10.5` with no
+  The human release string, and its shape depends on the build. The CLI sends `1.10.6` with no
   leading `v`, because GoReleaser strips it. The desktop app sends the tag verbatim, as
   `desktop-v0.2.8`. A build from source sends `dev`. Browser peers omit the field entirely. It is
   informational and never gates a transfer.
@@ -126,7 +126,7 @@ Sender to receiver, before each file.
 Receiver to sender, once per file, before any bytes move.
 
 ```json ack
-{ "type": "ack", "id": "3f2b9c1e-...", "offset": 0, "pv": 1, "pvMin": 1, "ver": "1.10.5" }
+{ "type": "ack", "id": "3f2b9c1e-...", "offset": 0, "pv": 1, "pvMin": 1, "ver": "1.10.6" }
 ```
 
 <ResponseField name="offset" type="integer" required>
