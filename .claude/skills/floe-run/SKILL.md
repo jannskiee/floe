@@ -85,7 +85,9 @@ pnpm directly (memory `project_pnpm_via_corepack`).
 A green `start` or `check` proves the environment and nothing else: zero is
 necessary, not sufficient (only the pidfile says this script set the
 environment), and it says nothing about whether a transfer works, which is
-what the e2e suite and a hand test are for.
+what the e2e suite and a hand test are for. The deep cross-surface
+matrix (the built desktop app, a forced relay, production, the installed
+binaries) is `.claude/skills/transfer-audit/SKILL.md`.
 
 ## Tell the user
 

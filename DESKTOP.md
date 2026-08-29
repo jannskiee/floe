@@ -313,7 +313,10 @@ binary.
       Then submit with `.claude/skills/store-submit/SKILL.md`, which renders the
       entry into Partner Center's plain-text "What's new in this version" field
       (1500 characters, no markdown, no links to other channels) and drives the
-      submission. A release with
+      submission. After the Store build lands, run
+      `.claude/skills/transfer-audit/SKILL.md`: it drives real transfers across
+      web, CLI and the installed desktop, direct and relayed, and reports which
+      surface is behind. A release with
       nothing a user can see gets no entry, which is the point of writing it by
       hand. Judge that by what reaches a user, not by whether code changed:
       `desktop-v0.2.1` did move the Store tile colour, so it earned the short

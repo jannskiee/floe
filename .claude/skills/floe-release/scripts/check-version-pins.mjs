@@ -65,6 +65,9 @@ const SKIP_PATHS = new Set([
     // Its SKILL.md examples, the submission history in references/ and the
     // version-mapping self-test all name shipped versions on purpose.
     '.claude/skills/store-submit',
+    // Its triage table names the early-message-race fix boundary (v1.10.2,
+    // desktop-v0.2.5) and its runbook names the bucket version it verified.
+    '.claude/skills/transfer-audit',
     // Shipped labels are history; the contract at the top forbids editing them.
     'docs/changelog.mdx',
     // Its version strings are fixtures for the comparison logic.
