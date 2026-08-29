@@ -43,12 +43,15 @@ Floe ships on two version lines. `vX.Y.Z` releases floe.one, the `floe` CLI, and
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
-<Update label="Unreleased" tags={["CLI"]}>
+<Update label="v1.10.6" description="2026-08-29" tags={["CLI", "Web", "Self-hosting"]}>
   **The CLI can hide your IP address by forcing the relay, and says which route each transfer took**
 
   - A new `--relay-only` flag on `floe send` and `floe receive` routes the whole transfer through the TURN relay and never tries a direct path, so the other side sees the relay's address instead of yours. It is the command-line twin of Floe Desktop's **Hide my IP address** setting, applies to your side only, and can be kept on with `FLOE_RELAY_ONLY=1`. While it is on, the 2 GB relay cap applies to every transfer. It cannot be combined with `--no-relay`, and a typed `--no-relay` overrides the variable for that one command.
-  - Once the connection is up, the `Connected` line names the route: `Connected (direct)` when the two devices talk to each other, `Connected (relay)` when the transfer runs through the TURN relay. If the route cannot be read, the line stays `Connected` and the transfer proceeds as before.
+  - Once the connection is up, the `Connected` line names the route: `Connected (direct)` when the two devices talk to each other, `Connected (relay)` when the transfer runs through the TURN relay. If the route cannot be read, the line stays `Connected` and the transfer proceeds as before. A script that matched that line exactly should match on the `Connected` prefix instead.
   - Against a server that offers no TURN relay, `--relay-only` has nowhere to go and fails after about 30 seconds with `timed out establishing a connection`, the same generic timeout `--no-relay` produces when no direct path exists.
+  - Web app: the privacy policy's opt-out instructions now name Floe Desktop's Settings switch alongside the browser checkbox and the CLI's `--no-report`. Only the wording was incomplete; all three opt-outs already worked.
+  - Self-hosting: `GET /api/config` now returns a `commit` field next to `socketUrl`, naming the source revision the client was deployed from, so anyone can check which build an instance is running. Set `SOURCE_COMMIT` in the client container's environment to fill it in; it reports `null` when unset. Compose does not pass the variable through, so add it to the client service yourself if you want it served.
+  - Self-hosting: the published images are rebuilt as `1.10.6`, picking up Next.js 16.3.3, which fixes two advisories rated critical in Next.js itself. Update rather than waiting. If you pinned `FLOE_IMAGE_TAG=1.10.5`, move to `1.10.6`.
   - The wire protocol is unchanged, so this still transfers with older CLI, desktop, and browser peers in both directions.
 </Update>
 
