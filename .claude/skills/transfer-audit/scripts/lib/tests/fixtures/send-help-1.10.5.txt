@@ -1,0 +1,13 @@
+Send files or folders to a peer
+
+Usage:
+  floe send <file|folder> [file|folder...] [flags]
+
+Flags:
+  -h, --help   help for send
+
+Global Flags:
+      --iface strings   restrict WebRTC to network interfaces matching these names (repeatable, e.g. --iface Ethernet); use when a VPN/VM adapter slows connection setup
+      --no-relay        disable TURN relay (direct connections only)
+      --server string   signaling server URL (use http://localhost:3001 for local testing) [env: FLOE_SERVER] (default "https://api.floe.one")
+      --web string      web app URL shown in the browser link (auto-detected if not set) [env: FLOE_WEB]
