@@ -10,7 +10,9 @@ import {
     cliUnderTestOracle,
     collectVersions,
     commitCurrency,
+    COMPARE_FILES_CAP,
     compareQuad,
+    compareTouches,
     compareVersions,
     gatingDrift,
     identityVersion,
@@ -23,6 +25,7 @@ import {
     pickLatestDesktop,
     protocolParity,
     touchesDir,
+    treeShaFor,
     versionStatus,
 } from './versions.mjs';
 
@@ -227,8 +230,12 @@ test('collectVersions with injected gh, exec and fetch', async () => {
             ]);
         if (key.startsWith('api repos/jannskiee/floe/commits/main'))
             return 'ffffffffffffffffffffffffffffffffffffffff';
+        // The tree oracle answers first: the same tree id at both refs
+        // means the directory is identical, so the row is CURRENT.
+        if (key.startsWith('api repos/jannskiee/floe/git/trees/'))
+            return JSON.stringify(['same-tree-object']);
         if (key.startsWith('api repos/jannskiee/floe/compare/'))
-            return JSON.stringify(['docs/changelog.mdx']);
+            return JSON.stringify({ n: 1, f: ['docs/changelog.mdx'] });
         throw new Error(`unexpected gh ${key}`);
     };
     const exec = (cmd, args, opts) => {
@@ -307,7 +314,17 @@ test('collectVersions with injected gh, exec and fetch', async () => {
     assert.equal(by2['Web floe.one'].status, 'CURRENT');
     assert.equal(by2['Server api.floe.one'].status, 'CURRENT');
     assert.equal(by2['Server api.floe.one'].gate, true);
-    assert.ok(calls.some((c) => /compare\/1234567\.\.\./.test(c)));
+    // The directory tree object is the currency oracle now: the compare
+    // endpoint caps its file list at 300 and cannot be trusted to say a
+    // directory was untouched.
+    assert.ok(
+        calls.some((c) => c.includes('git/trees/1234567')),
+        'the deployed ref tree is read'
+    );
+    assert.ok(
+        !calls.some((c) => c.includes('compare/1234567')),
+        'compare is not needed when the trees answer'
+    );
 
     // gh failure degrades to UNKNOWN with the auth hint, never a throw.
     const v3 = await collectVersions({
@@ -352,4 +369,108 @@ test('parseAppx picks the highest Version when several packages match', () => {
     assert.equal(compareQuad('1.2.10.0', '1.2.9.0'), 1);
     assert.equal(compareQuad('1.2.8', '1.2.8.0'), 0);
     assert.equal(compareQuad('0.9.9.9', '1.0.0.0'), -1);
+});
+
+test('compareTouches reads the directory tree, and a capped compare never reads as CURRENT', () => {
+    // 2026-08-30, found by the skill auditing its own report: the compare
+    // API caps .files at 300 with no truncation flag, so a 119-commit range
+    // came back with 300 filenames and not one under server/, which read as
+    // "not touched" and printed CURRENT for a server five commits behind.
+    const calls = [];
+    const treeGh = (args) => {
+        calls.push(args.join(' '));
+        const url = args[1];
+        if (/git\/trees\/base/.test(url)) return JSON.stringify(['tree-old']);
+        if (/git\/trees\/head/.test(url)) return JSON.stringify(['tree-new']);
+        throw new Error('unexpected ' + url);
+    };
+    assert.equal(
+        compareTouches({
+            gh: treeGh,
+            base: 'base',
+            head: 'head',
+            dir: 'server',
+        }),
+        true,
+        'different trees mean the deployed directory differs'
+    );
+    assert.ok(
+        calls.every((c) => !/compare/.test(c)),
+        'the compare endpoint is not consulted when trees answer'
+    );
+    assert.match(calls[0], /git\/trees\/base/);
+    assert.match(calls[0], /select\(\.path == "server"\)/);
+    assert.equal(
+        treeShaFor({ gh: treeGh, ref: 'head', dir: 'server' }),
+        'tree-new'
+    );
+
+    assert.equal(
+        compareTouches({
+            gh: () => JSON.stringify(['same']),
+            base: 'a',
+            head: 'b',
+            dir: 'server',
+        }),
+        false,
+        'the same tree is current whatever happened in between'
+    );
+
+    // No tree entry for the directory: fall back to compare.
+    const viaCompare = (n, names) => (args) =>
+        /git\/trees/.test(args[1])
+            ? JSON.stringify([])
+            : JSON.stringify({ n, f: names });
+    assert.equal(
+        compareTouches({
+            gh: viaCompare(2, ['server/server.js', 'README.md']),
+            base: 'a',
+            head: 'b',
+            dir: 'server',
+        }),
+        true
+    );
+    assert.equal(
+        compareTouches({
+            gh: viaCompare(2, ['client/page.tsx', 'README.md']),
+            base: 'a',
+            head: 'b',
+            dir: 'server',
+        }),
+        false
+    );
+
+    // At the cap the answer is unknown, never false.
+    const capped = viaCompare(
+        COMPARE_FILES_CAP,
+        Array.from(
+            { length: COMPARE_FILES_CAP },
+            (_, i) => 'docs/f' + i + '.mdx'
+        )
+    );
+    assert.equal(
+        compareTouches({ gh: capped, base: 'a', head: 'b', dir: 'server' }),
+        null
+    );
+    assert.equal(
+        commitCurrency({ deployed: 'a', main: 'b', touched: null }),
+        'UNKNOWN',
+        'so the row reads UNKNOWN, not CURRENT'
+    );
+    assert.equal(
+        commitCurrency({ deployed: 'a', main: 'b', touched: true }),
+        'STALE'
+    );
+    assert.equal(
+        compareTouches({
+            gh: () => {
+                throw new Error('gh missing');
+            },
+            base: 'a',
+            head: 'b',
+            dir: 'server',
+        }),
+        null,
+        'a broken gh is unknown, not current'
+    );
 });

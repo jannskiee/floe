@@ -53,6 +53,12 @@ const FIXTURES = fileURLToPath(new URL('./tests/fixtures/', import.meta.url));
 const SEND_FIXTURE = join(FIXTURES, 'send-1.10.5.stdout.txt');
 const RECEIVE_FIXTURE = join(FIXTURES, 'receive-1.10.5.stdout.txt');
 const HELP_FIXTURE = join(FIXTURES, 'send-help-1.10.5.txt');
+/**
+ * Fixture text with line endings normalized. git checks these files out
+ * CRLF on Windows (core.autocrlf), and a test that matches against a \n
+ * string would silently stop matching on a fresh clone.
+ */
+const fixture = (p) => readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
 const INFRA = { server: 'http://localhost:3001', web: 'http://localhost:3000' };
 const made = [];
 
@@ -269,7 +275,7 @@ test('parseVersion and parseHelpFlags', () => {
     assert.equal(parseVersion('floe dev\n'), 'dev');
     assert.equal(parseVersion('floe head-abc1234\r\n'), 'head-abc1234');
     assert.equal(parseVersion('nope'), null);
-    const help = readFileSync(HELP_FIXTURE, 'utf8');
+    const help = fixture(HELP_FIXTURE);
     const flags = parseHelpFlags(help);
     for (const f of ['--help', '--iface', '--no-relay', '--server', '--web'])
         assert.ok(flags.includes(f), f);
@@ -282,7 +288,7 @@ test('parseVersion and parseHelpFlags', () => {
 });
 
 test('parseCode, parseLink and parseSummary on the shipped 1.10.5 sender transcript', () => {
-    const out = readFileSync(SEND_FIXTURE, 'utf8');
+    const out = fixture(SEND_FIXTURE);
     assert.match(parseCode(out), /^[a-z]+(-[a-z]+){2,3}$/);
     assert.equal(
         parseLink(out),
@@ -305,7 +311,7 @@ test('parseCode, parseLink and parseSummary on the shipped 1.10.5 sender transcr
 });
 
 test('parseSummary on the shipped 1.10.5 receiver transcript', () => {
-    const out = readFileSync(RECEIVE_FIXTURE, 'utf8');
+    const out = fixture(RECEIVE_FIXTURE);
     const s = parseSummary(out);
     assert.equal(s.complete, true);
     assert.equal(s.files, 1);
