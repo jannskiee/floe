@@ -22,6 +22,23 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+    # @vitejs/plugin-react 6 peers on vite "^8.0.0" exclusively (the other three
+    # peers it declares are optional). vite 8 is itself under a live
+    # `@dependabot ignore this major version`, set when #359 was closed because
+    # @vitejs/plugin-react 4.7.0 caps vite at ^7.0.0. So a plugin-react major can
+    # never resolve here until vite 8 is taken by hand, and Dependabot re-opens an
+    # unmergeable PR on every new 6.x release: #371 was that PR, and seven 6.x
+    # releases shipped in the five months after 6.0.0. Scoped with update-types so
+    # 4.x minors and patches still arrive and so a plugin-react advisory can still
+    # open its own security PR ("update-types only affects version updates, not
+    # security updates"). A bare dependency-name would have silenced that too.
+    # One update-type, following the node ignore below rather than the wails one:
+    # only the major is unwanted. Lift this together with the vite 8 ignore when
+    # vite 8 and plugin-react 6 are taken as one hand-built pair.
+    ignore:
+      - dependency-name: "@vitejs/plugin-react"
+        update-types:
+          - "version-update:semver-major"
     groups:
       # Minor and patch only: a single incompatible major inside a 20-update
       # group PR blocks every other update in it (day one: the TypeScript
