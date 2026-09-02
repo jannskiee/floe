@@ -876,12 +876,12 @@ export function P2PTransfer() {
                                     // It wraps below about 430px, which is most phones.
                                     className={`group relative mt-2 flex flex-col items-center justify-center rounded-xl border border-dashed p-10 text-center transition-all sm:p-14 ${isDragging
                                         ? 'border-ice bg-ice/[0.04]'
-                                        : 'border-white/15 hover:border-ice/40 hover:bg-white/[0.02]'
+                                        : 'border-white/15 hover:border-white/35 hover:bg-white/[0.02]'
                                         }`}
                                 >
                                     <div className={`mb-4 flex h-12 w-12 items-center justify-center rounded-full border transition ${isDragging
                                         ? 'border-ice/60 bg-ice/10'
-                                        : 'border-white/10 bg-white/[0.03] group-hover:border-ice/30'
+                                        : 'border-white/10 bg-white/[0.03] group-hover:border-white/25'
                                         }`}>
                                         <UploadCloud className={`h-5 w-5 transition ${isDragging ? 'text-ice' : 'text-zinc-400 group-hover:text-zinc-200'
                                             }`} />
@@ -913,7 +913,7 @@ export function P2PTransfer() {
                                     onDrop={handleDrop}
                                     className={`group relative mt-2 flex items-center justify-center gap-2 rounded-lg border border-dashed py-3 transition-all ${isDragging
                                         ? 'border-ice bg-ice/[0.04]'
-                                        : 'border-white/15 hover:border-ice/40 hover:bg-white/[0.02]'
+                                        : 'border-white/15 hover:border-white/35 hover:bg-white/[0.02]'
                                         }`}
                                 >
                                     <Plus className={`h-3.5 w-3.5 transition ${isDragging ? 'text-ice' : 'text-zinc-500 group-hover:text-zinc-300'}`} />
