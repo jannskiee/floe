@@ -98,6 +98,14 @@ type Connection struct {
 	// early is the data channel's message pump, wired the instant the channel
 	// exists rather than when the transfer layer gets around to it. See attach.
 	early *Early
+
+	// done is closed exactly once by Close and is the only thing that stops
+	// dispatchSignals and handleCandidates. Neither sc.Signal nor candidates
+	// is ever closed: dispatchSignals SENDS into candidates, so closing that
+	// channel would race a live send into a panic, and sc.Signal belongs to
+	// the signaling client, whose Close shuts the socket without closing it.
+	closeOnce sync.Once
+	done      chan struct{}
 }
 
 // Early carries a data channel's incoming messages and its close signal.
@@ -235,6 +243,7 @@ func New(iceServers []webrtc.ICEServer, sc *signaling.Client, opts ...Option) (*
 		answers:    make(chan webrtc.SessionDescription, 1),
 		candidates: make(chan webrtc.ICECandidateInit, 64),
 		connected:  make(chan error, 1),
+		done:       make(chan struct{}),
 	}
 
 	// When pion discovers a local ICE candidate, forward it to the remote peer.
@@ -430,8 +439,11 @@ func (conn *Connection) WaitConnected() error {
 	return <-conn.connected
 }
 
-// Close tears down the peer connection.
+// Close tears down the peer connection and releases the two goroutines New
+// started. Idempotent: the CLI defers this once, but the desktop builds a
+// fresh Connection per transfer, so a leak here is unbounded over a session.
 func (conn *Connection) Close() {
+	conn.closeOnce.Do(func() { close(conn.done) })
 	conn.pc.Close()
 }
 
@@ -529,7 +541,18 @@ func (conn *Connection) addRemoteCandidate(c webrtc.ICECandidateInit) {
 // dispatchSignals runs in a goroutine. It reads raw JSON from the signaling
 // channel and routes each message to the offers, answers, or candidates channel.
 func (conn *Connection) dispatchSignals() {
-	for rawSignal := range conn.sc.Signal {
+	for {
+		var rawSignal json.RawMessage
+		select {
+		case <-conn.done:
+			return
+		case raw, ok := <-conn.sc.Signal:
+			if !ok {
+				return
+			}
+			rawSignal = raw
+		}
+
 		var payload signalPayload
 		if err := json.Unmarshal(rawSignal, &payload); err != nil {
 			continue
@@ -557,8 +580,16 @@ func (conn *Connection) dispatchSignals() {
 // handleCandidates runs in a goroutine. It drains the candidates channel and
 // adds each remote ICE candidate (or buffers it if remote desc not yet set).
 func (conn *Connection) handleCandidates() {
-	for c := range conn.candidates {
-		conn.addRemoteCandidate(c)
+	for {
+		select {
+		case <-conn.done:
+			return
+		case c, ok := <-conn.candidates:
+			if !ok {
+				return
+			}
+			conn.addRemoteCandidate(c)
+		}
 	}
 }
 

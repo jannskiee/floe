@@ -1,8 +1,10 @@
 package peer
 
 import (
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/pion/webrtc/v4"
@@ -90,4 +92,65 @@ func TestWithRelayOnlySetsRelayPolicy(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCloseReleasesGoroutines is the regression test for the leak the desktop
+// pays for. New starts dispatchSignals and handleCandidates; before Close
+// closed conn.done, dispatchSignals ranged over conn.sc.Signal and
+// handleCandidates over conn.candidates, and neither channel is ever closed by
+// anyone. Connection.Close called only pc.Close, so both goroutines parked
+// forever holding a closed *webrtc.PeerConnection alive.
+//
+// It costs nothing in the CLI (one Connection per process, then exit) and is
+// unbounded on the desktop, which builds a fresh Connection for every send and
+// every receive.
+//
+// The count is sampled rather than asserted exactly: pion starts its own
+// goroutines and the runtime keeps some of them briefly after Close. What
+// matters is that the delta does not scale with the number of connections,
+// which is what a per-Connection leak looks like.
+func TestCloseReleasesGoroutines(t *testing.T) {
+	settle := func() int {
+		for i := 0; i < 50; i++ {
+			runtime.GC()
+			time.Sleep(20 * time.Millisecond)
+		}
+		return runtime.NumGoroutine()
+	}
+
+	before := settle()
+
+	const rounds = 20
+	for i := 0; i < rounds; i++ {
+		// A zero-value signaling client leaves sc.Signal nil, so the dispatcher
+		// can never be released by a channel close. done is the only exit, which
+		// is exactly the property under test.
+		conn, err := New(nil, &signaling.Client{})
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		conn.Close()
+	}
+
+	after := settle()
+
+	// Two goroutines per Connection would be 40 here. Anything under one per
+	// round means they are being released; the slack absorbs pion's own.
+	if leaked := after - before; leaked >= rounds {
+		t.Fatalf("goroutines grew by %d across %d connections (before %d, after %d): "+
+			"dispatchSignals or handleCandidates is not exiting on Close",
+			leaked, rounds, before, after)
+	}
+}
+
+// Close is called from more than one defer on some paths, and the desktop's
+// cancel path can race it. Closing conn.done twice would panic.
+func TestCloseIsIdempotent(t *testing.T) {
+	conn, err := New(nil, &signaling.Client{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	conn.Close()
+	conn.Close()
+	conn.Close()
 }
