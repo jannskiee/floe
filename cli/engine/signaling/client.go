@@ -152,11 +152,26 @@ func (c *Client) readLoop() {
 		}
 
 		switch msg.Type {
+		// Non-blocking, like every other case below. Both channels are buffered
+		// to 1 and every consumer reads them exactly once, so a second frame can
+		// only arrive when nobody is waiting for it. The server re-sends
+		// user-connected to the room's first peer on every second-peer join and
+		// keeps the surviving seat across a one-sided drop, so a receiver that
+		// dropped and rejoined twice filled the buffer and then wedged this loop
+		// for good. readLoop is the only reader of the socket, so a wedge here
+		// silently stops trickle ICE and the transfer dies at the 30s connect
+		// timeout with nothing to diagnose from.
 		case "room-joined":
-			c.Role <- msg.Role
+			select {
+			case c.Role <- msg.Role:
+			default:
+			}
 
 		case "user-connected":
-			c.PeerConnected <- msg.ID
+			select {
+			case c.PeerConnected <- msg.ID:
+			default:
+			}
 
 		case "signal":
 			if len(msg.Signal) > 0 {
