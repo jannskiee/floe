@@ -927,7 +927,7 @@ function parseEnvFile(root, relPath) {
         const m = lines[i].match(/^#?\s*([A-Z_][A-Z0-9_]*)=(.*)$/);
         if (!m || vals.has(m[1])) continue;
         // The contiguous comment block right above a key often restates the
-        // default ("(default: 30)", "1 (default)", "(default: 5 TB)") and
+        // default ("(default: 30)", "1 (default)", "(default: 5 TiB)") and
         // drifts on its own: a sim changed the code default and two stale
         // lines here would have shipped on exit 0. The nearest mention wins,
         // and the scan stops at a blank line or another key.
@@ -942,7 +942,7 @@ function parseEnvFile(root, relPath) {
         ) {
             const d =
                 lines[j].match(
-                    /\bdefault:?\s+`?(\d[\w.]*(?:\s*(?:KB|MB|GB|TB))?)`?/i
+                    /\bdefault:?\s+`?(\d[\w.]*(?:\s*(?:[KMGT]i?B))?)`?/i
                 ) || lines[j].match(/(\d[\w.]*)\s+\(default\)/i);
             if (d && commentDefault === null) {
                 commentDefault = d[1];
@@ -959,13 +959,15 @@ function parseEnvFile(root, relPath) {
     return { vals, file, relPath };
 }
 
-// "5 TB" in a comment is the same claim as 5497558138880 in code.
+// "5 TiB" in a comment is the same claim as 5497558138880 in code. The suffix
+// is read as binary either way: the multiplier below has always been 1024**n,
+// so both the accurate label and the loose one resolve to the same number.
 function bytesOf(value) {
-    const m = String(value).match(/^(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)$/i);
+    const m = String(value).match(/^(\d+(?:\.\d+)?)\s*([KMGT]i?B)$/i);
     if (!m) return null;
     return String(
         Number(m[1]) *
-            1024 ** { KB: 1, MB: 2, GB: 3, TB: 4 }[m[2].toUpperCase()]
+            1024 ** { K: 1, M: 2, G: 3, T: 4 }[m[2][0].toUpperCase()]
     );
 }
 

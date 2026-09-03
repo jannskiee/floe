@@ -47,7 +47,7 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:   "floe",
-	Short: "Floe — secure P2P file transfer",
+	Short: "Floe - secure P2P file transfer",
 	Long: `Floe transfers files directly between devices using WebRTC.
 Files are encrypted end-to-end. Nothing is stored on any server.
 

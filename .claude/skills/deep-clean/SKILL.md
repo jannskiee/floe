@@ -14,8 +14,8 @@ than in prose here. Symbols, not lines: the fence is `DENY_NAME`,
 the buckets come from `repoRules`, `tempCandidates` and
 `scratchpadCandidates`.
 
-The skill's paths exist on `main` only once PR #376 has merged; from an older
-checkout, run the script by its absolute path from a checkout that has it.
+Paths below are relative to the repo root. From a worktree or checkout that
+predates the skill, run the script by its absolute path from one that has it.
 
 This skill is a conductor. It kills no process, closes no browser tab and
 edits no firewall rule, because `floe-run` and `transfer-audit` already own

@@ -5,8 +5,8 @@ description: 'Land a change end to end: classify the CI lane, run the local chec
 
 # ship-it
 
-Paths below are relative to the repo root and exist on main only after PR #344 merged;
-from a worktree of an older main, use the absolute path to a checkout that has them.
+Paths below are relative to the repo root. From a worktree or checkout that
+predates the skill, use the absolute path to one that has them.
 
 ## 0. Checkpoint or ship?
 

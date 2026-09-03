@@ -145,7 +145,7 @@ Even with the overlay this is a production build with no hot reload, so use it t
 | `TURN_DOMAIN` | No | Your self-hosted TURN relay server domain. |
 | `UPSTASH_REDIS_REST_URL` | No | Upstash Redis REST URL for the durable global transfer counter. Omit to run the counter in memory only (resets on restart). |
 | `UPSTASH_REDIS_REST_TOKEN` | No | Upstash Redis REST token, paired with the URL above. |
-| `MAX_REPORT_BYTES` | No | Max bytes accepted per `/api/stats/report` call (default: 5 TB). |
+| `MAX_REPORT_BYTES` | No | Max bytes accepted per `/api/stats/report` call (default: 5 TiB). |
 
 > **Note:** TURN is optional. Without it, only direct connections work. This is fine for local development and most home networks.
 
