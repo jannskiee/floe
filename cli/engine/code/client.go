@@ -10,13 +10,19 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
+
+// client bounds both calls. http.DefaultClient has no timeout, and Resolve's
+// error is fatal to `floe receive`, so this is generous: a slow link that
+// resolves today must keep resolving.
+var client = &http.Client{Timeout: 30 * time.Second}
 
 // Register calls POST /api/code on the signaling server to get a short code
 // that resolves to the given roomId. Returns the code phrase e.g. "olive-tiger-castle".
 func Register(serverURL, roomId string) (string, error) {
 	body, _ := json.Marshal(map[string]string{"roomId": roomId})
-	resp, err := http.Post(serverURL+"/api/code", "application/json", bytes.NewReader(body))
+	resp, err := client.Post(serverURL+"/api/code", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("could not register code: %w", err)
 	}
@@ -62,8 +68,12 @@ func Resolve(serverURL, input string) (string, error) {
 		return roomId, nil
 	}
 
-	// Otherwise treat it as a word code and resolve via the server
-	resp, err := http.Get(serverURL + "/api/code/" + url.PathEscape(input))
+	// Otherwise treat it as a word code and resolve via the server. Fold case
+	// first: every entry in the server's words.json is lowercase ASCII and the
+	// lookup is a plain Map.get, so "Olive-Tiger-Castle" (what a phone keyboard
+	// autocapitalizes to) used to be a hard 404 reading "code not found or
+	// expired".
+	resp, err := client.Get(serverURL + "/api/code/" + url.PathEscape(strings.ToLower(input)))
 	if err != nil {
 		return "", fmt.Errorf("could not reach signaling server: %w", err)
 	}

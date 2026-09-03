@@ -1,6 +1,8 @@
 package ice
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"testing"
 
@@ -113,5 +115,38 @@ func TestIceURLClass(t *testing.T) {
 		if got := iceURLClass(u); got != want {
 			t.Errorf("iceURLClass(%q) = %q, want %q", u, got, want)
 		}
+	}
+}
+
+// Fetch must never return an error: both callers in cmd/floe treat one as
+// fatal, and a 429 from the server's TURN limiter is a documented degrade that
+// still completes over direct STUN. It must, however, say something. The
+// silent version of this fallback is what serverurl.go's own comment blames
+// for "a relayed transfer dies with no message".
+func TestFetchFallsBackWithoutErroringOnHTTPError(t *testing.T) {
+	for _, status := range []int{429, 500, 404} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(`{"error":"nope"}`))
+		}))
+
+		servers, err := Fetch(srv.URL)
+		srv.Close()
+
+		if err != nil {
+			t.Fatalf("status %d: Fetch returned an error (%v); both callers abort the transfer on one", status, err)
+		}
+		if len(servers) == 0 {
+			t.Fatalf("status %d: Fetch returned no ICE servers; the STUN fallback is what keeps a direct transfer working", status)
+		}
+	}
+}
+
+// A server that accepts the connection and never answers must not hang the
+// command forever. The budget is 30s, so this only proves the client is bounded
+// at all, not the exact number.
+func TestFetchClientHasATimeout(t *testing.T) {
+	if client.Timeout <= 0 {
+		t.Fatal("ice.Fetch runs on a client with no timeout; a black-holing server hangs `floe send` at step 2 indefinitely")
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/pion/webrtc/v4"
 )
@@ -111,14 +112,31 @@ type iceServerJSON struct {
 
 // Fetch fetches ICE server credentials from serverURL/api/turn-credentials.
 // Falls back to Google STUN if the endpoint is unreachable or misconfigured.
+// client bounds the fetch. http.DefaultClient has no timeout at all, so a
+// server that accepts the TCP connection and then never answers used to hang
+// `floe send` at step 2 forever. Generous on purpose: falling back to STUN
+// costs a relay, so a slow-but-working server should still win.
+var client = &http.Client{Timeout: 30 * time.Second}
+
 func Fetch(serverURL string) ([]webrtc.ICEServer, error) {
-	resp, err := http.Get(serverURL + "/api/turn-credentials")
+	resp, err := client.Get(serverURL + "/api/turn-credentials")
 	if err != nil {
 		// Server unreachable — use public Google STUN as fallback
 		fmt.Println("  Warning: could not reach signaling server for TURN credentials. Using STUN only.")
 		return defaults(), nil
 	}
 	defer resp.Body.Close()
+
+	// An HTTP error used to be silent: the body is not a JSON array, Decode
+	// fails, and the STUN-only fallback below returns with nothing printed.
+	// serverurl.go documents the consequence, that a relayed transfer dies with
+	// no message. Say so, but still fall back rather than erroring: both callers
+	// treat a Fetch error as fatal, and a 429 from the TURN limiter is a
+	// documented degrade that today completes over direct STUN.
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("  Warning: signaling server returned %d for TURN credentials. Using STUN only.\n", resp.StatusCode)
+		return defaults(), nil
+	}
 
 	var raw []iceServerJSON
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil || len(raw) == 0 {
