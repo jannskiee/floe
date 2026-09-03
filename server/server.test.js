@@ -176,14 +176,14 @@ describe('handleSignal', () => {
         pA.msgs.length = 0;
         pB.msgs.length = 0;
 
-        handleSignal(pA, { type: 'offer' }, 'peer-B', null);
+        handleSignal(pA, { type: 'offer' }, 'peer-B');
 
         assert.equal(pB.msgs.length, 1);
         assert.equal(pB.msgs[0].type, 'signal');
         assert.equal(pA.msgs.length, 0, 'sender should not receive its own signal');
     });
 
-    it('routes signal by roomId when no targetId is given', () => {
+    it('routes to the other peer in the room the server recorded for the sender', () => {
         const pA = makePeer('peer-A');
         const pB = makePeer('peer-B');
         handleJoinRoom(pA, ROOM_ID);
@@ -191,13 +191,13 @@ describe('handleSignal', () => {
         pA.msgs.length = 0;
         pB.msgs.length = 0;
 
-        handleSignal(pA, { type: 'candidate' }, null, ROOM_ID);
+        handleSignal(pA, { type: 'candidate' }, null);
 
         assert.equal(pB.msgs.length, 1);
         assert.equal(pB.msgs[0].type, 'signal');
     });
 
-    it('falls back to sender.roomId when neither targetId nor explicit roomId is given', () => {
+    it('routes by sender.roomId with an explicit null targetId', () => {
         const pA = makePeer('peer-A');
         const pB = makePeer('peer-B');
         handleJoinRoom(pA, ROOM_ID);
@@ -205,7 +205,7 @@ describe('handleSignal', () => {
         pA.msgs.length = 0;
         pB.msgs.length = 0;
 
-        handleSignal(pA, { type: 'candidate' }, null, null);
+        handleSignal(pA, { type: 'candidate' }, null);
 
         assert.equal(pB.msgs.length, 1);
     });
@@ -216,7 +216,7 @@ describe('handleSignal', () => {
         pA.msgs.length = 0;
 
         // Should not throw.
-        handleSignal(pA, { type: 'offer' }, 'nonexistent-id', null);
+        handleSignal(pA, { type: 'offer' }, 'nonexistent-id');
         assert.equal(pA.msgs.length, 0);
     });
 
@@ -227,7 +227,7 @@ describe('handleSignal', () => {
         handleJoinRoom(pB, ROOM_ID);
         pB.msgs.length = 0;
 
-        handleSignal(pA, null, 'peer-B', null);
+        handleSignal(pA, null, 'peer-B');
         assert.equal(pB.msgs.length, 0);
     });
 
