@@ -265,6 +265,12 @@ Every value the Go engine enforces. The browser shares only the 120-second ack d
 | Receiver mid-transfer with no progress | 60 s | Transfer fails |
 | Receiver grace before teardown | 5 s | Lets the final acknowledgement reach the sender |
 | The byte-count report | 5 s | Abandoned; never affects the files |
+| Fetching TURN credentials over HTTP | 30 s | Warns and falls back to STUN only |
+| Registering or resolving a room code over HTTP | 30 s | `could not register code` or `could not reach signaling server` |
+
+One deadline sits outside the engine. `floe send` and `floe receive` give the server 20 seconds
+to answer `join-room` before failing with `timed out waiting for the server to assign a role`.
+Floe Desktop has always used the same 20 seconds.
 
 A browser sender waits about 2 seconds after the peers connect before it checks the route and
 sends the first byte. A `floe receive` can linger for up to about 10 seconds after printing its

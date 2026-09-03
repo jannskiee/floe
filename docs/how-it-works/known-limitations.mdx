@@ -31,7 +31,8 @@ The usual defense against the previous item is a short code, derived from both c
 fingerprints, that the two people read to each other over a channel an attacker does not
 control. If the codes match, nobody is in the middle.
 
-Floe computes that code internally. **No client displays it today.** It has been added and
+Floe still carries the code that derives it, but nothing calls it. **No client computes or
+displays it today.** It has been added and
 removed more than once, and it is not in the web app, Floe Desktop, or the CLI as it ships now.
 Until one of them shows it, there is no way to detect the attack described above from inside
 Floe.

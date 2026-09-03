@@ -124,7 +124,8 @@ or virtual-machine adapters.
 
 **Rate limit:** 20 requests per IP per 60 seconds, configurable with `MAX_TURN_REQUESTS_PER_IP`.
 Over the limit returns `429` with `{ "error": "Too many requests" }`, and the client falls back
-to STUN only without showing an error.
+to STUN only. The browser and Floe Desktop show nothing; the CLI prints `Warning: signaling
+server returned 429 for TURN credentials. Using STUN only.`
 
 ## Room codes
 

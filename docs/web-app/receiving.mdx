@@ -111,9 +111,9 @@ link for whatever did not arrive.
 
 What you see when the sender drops depends on whether anything had arrived yet. Before the first
 file, the status reads **Peer disconnected. Waiting for reconnection**, and it does not resume by
-itself. **After at least one file has landed, it reads "Transfer complete" instead**, which is
-worth knowing: on a multi-file transfer that message means "nothing more is coming", not
-necessarily "everything arrived". Count the files against what the sender told you to expect.
+itself. After at least one file has landed, the status names what actually arrived: a partial
+multi-file transfer reads **Sender disconnected. 1 of 3 files received**, and only a batch where
+every announced file landed reads **Transfer complete**.
 
 Either way, files that already finished stay in the list and stay downloadable.
 
