@@ -12,7 +12,7 @@
 import {StrictMode, act} from 'react';
 import {render, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import {describe, expect, it} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import App from '../App';
 
 // main.tsx wraps App in StrictMode, so the tests do too. Not ceremony:
@@ -215,5 +215,47 @@ describe('the history store', () => {
         // bytes. The store is documented as user-editable, so they were
         // recoverable right up until that ran.
         expect(localStorage.getItem('floe:history')).toBe('{not json');
+    });
+});
+
+describe('the progress label', () => {
+    // Drives the real send:progress path, so it covers track() as well as the
+    // two formatters. Date.now is stubbed rather than the timers faked: track
+    // derives speed from Date.now deltas, and faking timers would also stall
+    // testing-library's waitFor.
+    it('matches the web and CLI on sub-megabyte speed and multi-hour ETA', async () => {
+        let now = 1_700_000_000_000;
+        const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+        try {
+            mount();
+            await settled();
+
+            const prog = (totalBytes: number) => ({
+                fileName: 'big.bin',
+                fileIndex: 1,
+                fileCount: 1,
+                fileBytes: totalBytes,
+                fileSize: 20_000_000,
+                totalBytes,
+                grandTotal: 20_000_000,
+                savedName: '',
+            });
+
+            // The first event sets the marker; no rate is known yet.
+            act(() => wails.emit('send:progress', prog(0)));
+            // 5000 bytes in 10s is 500 B/s, and the 19,995,000 left at that rate
+            // is 39,990s.
+            now += 10_000;
+            act(() => wails.emit('send:progress', prog(5000)));
+
+            const label = await screen.findByText(/big\.bin/);
+            // toFixed(0) on the KB branch printed "0 KB/s" here, while bytes
+            // were still moving. The web and the CLI both print one decimal.
+            expect(label.textContent).toContain('0.5 KB/s');
+            // Without the hours branch this read "666m 30s".
+            expect(label.textContent).toContain('ETA 11h 6m');
+        } finally {
+            clock.mockRestore();
+        }
     });
 });

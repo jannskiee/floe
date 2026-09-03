@@ -24,12 +24,20 @@ describe('formatETA', () => {
     it('formats seconds', () => {
         expect(formatETA(0)).toBe('0s');
         expect(formatETA(30)).toBe('30s');
-        expect(formatETA(59.9)).toBe('60s');
     });
 
     it('formats minutes and seconds', () => {
         expect(formatETA(90)).toBe('1m 30s');
-        expect(formatETA(3599)).toBe('59m 59s'); // Math.ceil(3599 % 60) = ceil(59) = 59
+        expect(formatETA(3599)).toBe('59m 59s');
+    });
+
+    // The carry. Rounding the remainder instead of the whole value let the
+    // seconds field reach 60, so these three read "60s", "1m 60s" and
+    // "2m 60s". The Go twin truncates and never had it.
+    it('never prints a seconds field of 60', () => {
+        expect(formatETA(59.9)).toBe('1m 0s');
+        expect(formatETA(119.5)).toBe('2m 0s');
+        expect(formatETA(179.1)).toBe('3m 0s');
     });
 
     it('formats hours and minutes', () => {

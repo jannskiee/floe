@@ -121,15 +121,28 @@ interface Prog {
 
 type Marker = {t: number; bytes: number} | null;
 
+// Both mirror client/lib/transferUtils.ts, which mirrors
+// cli/engine/transfer/format.go. The web and the CLI already agreed; the
+// desktop was the outlier on both counts, so the desktop is what moves.
 function fmtSpeed(bps: number): string {
     if (!isFinite(bps) || bps <= 0) return '';
-    return bps >= 1024 * 1024 ? (bps / 1048576).toFixed(1) + ' MB/s' : (bps / 1024).toFixed(0) + ' KB/s';
+    // One decimal on BOTH branches. toFixed(0) on the KB branch printed
+    // "0 KB/s" while bytes were still moving, and lost a significant digit
+    // at every rate under a megabyte.
+    return bps >= 1024 * 1024
+        ? (bps / 1048576).toFixed(1) + ' MB/s'
+        : (bps / 1024).toFixed(1) + ' KB/s';
 }
 
 function fmtEta(sec: number): string {
     if (!isFinite(sec) || sec < 0) return '';
-    if (sec < 60) return `${Math.ceil(sec)}s`;
-    return `${Math.floor(sec / 60)}m ${Math.ceil(sec % 60)}s`;
+    // Three branches, not two. Without the hours branch a 20 GB transfer on a
+    // slow link read "166m 40s" where the web and the CLI both said "2h 46m".
+    // Rounding first is what keeps the minutes branch from printing "1m 60s".
+    const s = Math.ceil(sec);
+    if (s < 60) return `${s}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+    return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 }
 
 // track computes percent, speed, and ETA for a progress event. It uses an
