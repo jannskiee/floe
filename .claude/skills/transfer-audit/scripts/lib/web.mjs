@@ -60,7 +60,7 @@ export const TEXT = Object.freeze({
     downloadZip: /^Download ZIP$/, // :1059 (accessible name of the button)
     roomJoined: 'Secure room joined', // :1009
     allSent: 'All Files Sent!', // :755
-    // :203, :212: onPeerDisconnected replaces allSent with this as soon as
+    // onPeerDisconnected and onDisconnect: replaces allSent with this as soon as
     // the peer leaves, and on the sender it is only reachable after
     // onAllSent set transferCompleteRef; a CLI receiver exits within the
     // 500 ms poll, so the sender must accept both.
@@ -68,7 +68,7 @@ export const TEXT = Object.freeze({
     relayBlocked: 'Transfer blocked. Relay limit exceeded.', // :636
     relayBanner:
         'Transfer limit exceeded. Relay connections are capped at 2 GB.', // :843
-    connectionFailed: 'Connection failed', // :402, :624, :705
+    connectionFailed: 'Connection failed', // the three setStatus('Connection failed') sites
     linkInvalid: 'Link Invalid', // :810
     tooManyRefreshes: 'Too many refreshes. Reconnecting', // :217
     received: /^(\d+) files? received$/, // :1110
