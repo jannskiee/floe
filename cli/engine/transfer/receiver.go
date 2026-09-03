@@ -175,21 +175,10 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 	// in place.
 	defer func() {
 		if currentFile != nil {
-			// Unregister first, then let the owner's own Close arbitrate
-			// ownership of the PATH. AbandonPartials closes registered files
-			// from another goroutine and then removes their paths; once that
-			// has happened, the path may already belong to a brand-new
-			// transfer's staging file, so removing by path would destroy
-			// someone else's bytes (a torture test proved exactly that
-			// theft). Abandon always closes before removing, so the arbiter
-			// is exact: our Close succeeding means abandon never touched the
-			// file and the path is still ours to remove; our Close failing
-			// means abandon owned the endgame and already removed it.
-			name := currentFile.Name()
-			unregisterPartial(currentFile)
-			if currentFile.Close() == nil {
-				_ = os.Remove(name)
-			}
+			// discardPart, not a Close and Remove here: the unregister-then-Close
+			// ordering is what keeps this from deleting another transfer's file,
+			// and it is argued once, on the function.
+			discardPart(currentFile)
 		}
 	}()
 
@@ -225,34 +214,14 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// with no completed files is never success: the sender cancelled
 				// or was blocked (for example by its relay size cap), so report
 				// it instead of returning a false "saved" outcome.
-				if currentFile != nil {
-					return fmt.Errorf("connection closed mid-transfer: %s (%d of %d bytes)",
-						currentDisplayName, bytesReceived, currentInfo.FileSize)
-				}
-				if filesReceived == 0 {
-					return fmt.Errorf("connection closed before any file arrived (the sender canceled, or the transfer was blocked)")
-				}
-				if currentInfo.Total > 0 && filesReceived < currentInfo.Total {
-					return fmt.Errorf("connection closed after %d of %d files", filesReceived, currentInfo.Total)
-				}
-				return nil
+				return closedError(currentFile, currentDisplayName, bytesReceived, currentInfo, filesReceived)
 			case <-stallTimer.C:
 				// If the close raced the timer, report the close: it is the
 				// more precise diagnosis, and it keeps behavior identical to
 				// the done case above.
 				select {
 				case <-done:
-					if currentFile != nil {
-						return fmt.Errorf("connection closed mid-transfer: %s (%d of %d bytes)",
-							currentDisplayName, bytesReceived, currentInfo.FileSize)
-					}
-					if filesReceived == 0 {
-						return fmt.Errorf("connection closed before any file arrived (the sender canceled, or the transfer was blocked)")
-					}
-					if currentInfo.Total > 0 && filesReceived < currentInfo.Total {
-						return fmt.Errorf("connection closed after %d of %d files", filesReceived, currentInfo.Total)
-					}
-					return nil
+					return closedError(currentFile, currentDisplayName, bytesReceived, currentInfo, filesReceived)
 				default:
 				}
 				// Phase-aware stall errors. Deliberately no protocol or
@@ -310,13 +279,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// handle leaks and the abandoned staging file lingers, keeping
 				// its claimed final name blocked.
 				if currentFile != nil {
-					// Unregister, then Close-as-ownership-test; see the
-					// deferred cleanup above.
-					name := currentFile.Name()
-					unregisterPartial(currentFile)
-					if currentFile.Close() == nil {
-						_ = os.Remove(name)
-					}
+					discardPart(currentFile)
 					currentFile = nil
 				}
 				currentInfo = info
@@ -415,11 +378,9 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// open and writable, and refusing on a stat hiccup would break a
 				// transfer that would otherwise succeed.
 				if st, statErr := currentFile.Stat(); statErr == nil && !st.Mode().IsRegular() {
+					// Read the name before discarding: discardPart closes the handle.
 					name := currentFile.Name()
-					unregisterPartial(currentFile)
-					if currentFile.Close() == nil {
-						_ = os.Remove(name)
-					}
+					discardPart(currentFile)
 					currentFile = nil
 					return fmt.Errorf("refusing to write %s: not a regular file (%s)",
 						name, st.Mode())
@@ -618,6 +579,25 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 			})
 		}
 	}
+}
+
+// closedError judges a closed connection: nil when everything the sender
+// announced actually arrived, and the most specific diagnosis otherwise.
+// Two verbatim copies of this ladder lived twenty lines apart, one in the
+// done case and one in the stall timer's race-with-close check, which is two
+// places to get "was this a clean finish?" wrong.
+func closedError(currentFile *os.File, displayName string, bytesReceived int64, info FileInfo, filesReceived int) error {
+	if currentFile != nil {
+		return fmt.Errorf("connection closed mid-transfer: %s (%d of %d bytes)",
+			displayName, bytesReceived, info.FileSize)
+	}
+	if filesReceived == 0 {
+		return fmt.Errorf("connection closed before any file arrived (the sender canceled, or the transfer was blocked)")
+	}
+	if info.Total > 0 && filesReceived < info.Total {
+		return fmt.Errorf("connection closed after %d of %d files", filesReceived, info.Total)
+	}
+	return nil
 }
 
 // rejectDescription tells the sender why its file description was refused, in

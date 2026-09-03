@@ -43,7 +43,13 @@ const (
 // It caps at maxChunkSize and never exceeds the negotiated ceiling, so dc.Send
 // can never return ErrOutboundPacketTooLarge (pion/sctp enforces the limit on
 // send). A zero sctpMax (capabilities not yet available) falls back to the
-// proven default. Mirrors chunkSize() in client/lib/transfer/protocol.ts.
+// proven default.
+//
+// The ADAPTIVE half mirrors chunkSize() in client/lib/transfer/protocol.ts:
+// both cap at 256 KB and both send exactly the negotiated ceiling below it.
+// The FALLBACK does not. This is 16 KB and the browser's DEFAULT_CHUNK is
+// 64 KB, and both are deliberate: it applies only when the SCTP ceiling is
+// unknown, which is exactly when the conservative number is wanted here.
 func chunkSizeFor(sctpMax uint32) int {
 	if sctpMax == 0 {
 		return defaultChunkSize
@@ -100,6 +106,20 @@ type ackMsg struct {
 // endMsg is sent after the last chunk of each file.
 type endMsg struct {
 	Type string `json:"type"`
+}
+
+// isReceived reports whether raw is the receiver's delivery confirmation.
+// The size bound is the same one the ack loop applies: a frame larger than a
+// control message is file data and must never be JSON-parsed. Two verbatim
+// copies of this lived fourteen lines apart in the drain handshake.
+func isReceived(raw []byte) bool {
+	if len(raw) > controlMsgMax {
+		return false
+	}
+	var msg struct {
+		Type string `json:"type"`
+	}
+	return json.Unmarshal(raw, &msg) == nil && msg.Type == "received"
 }
 
 // SendOptions carries optional behavior for GUI clients. The zero value is
@@ -269,10 +289,7 @@ drainLoop:
 			if len(raw) > controlMsgMax {
 				continue // same bound as the ack loop in sendFile
 			}
-			var msg struct {
-				Type string `json:"type"`
-			}
-			if json.Unmarshal(raw, &msg) == nil && msg.Type == "received" {
+			if isReceived(raw) {
 				break drainLoop
 			}
 		case <-drainTick.C:
@@ -293,10 +310,7 @@ drainLoop:
 					if len(raw) > controlMsgMax {
 						continue
 					}
-					var msg struct {
-						Type string `json:"type"`
-					}
-					if json.Unmarshal(raw, &msg) == nil && msg.Type == "received" {
+					if isReceived(raw) {
 						break drainLoop
 					}
 				default:

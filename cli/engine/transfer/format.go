@@ -14,7 +14,7 @@ import (
 // here touches the on-disk name (safeJoin owns that, and its lack of a cap is
 // a compatibility surface) or anything on the wire.
 const (
-	maxDisplayName   = 200 // the browser's MAX_SEGMENT, so both surfaces agree
+	maxDisplayName   = 200 // the browser's MAX_SEGMENT: the two agree on DISPLAY
 	maxDisplayVer    = 64  // real values look like "v1.2.3", "desktop-v0.1.2", "dev"
 	maxDisplayReason = 300 // a current peer's reason is three short lines
 )
