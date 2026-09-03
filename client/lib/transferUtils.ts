@@ -12,11 +12,11 @@ export function formatSpeed(bytesPerSec: number): string {
 
 export function formatETA(etaSeconds: number): string {
     if (!Number.isFinite(etaSeconds) || etaSeconds < 0) return '';
-    if (etaSeconds < 60) {
-        return `${Math.ceil(etaSeconds)}s`;
-    } else if (etaSeconds < 3600) {
-        return `${Math.floor(etaSeconds / 60)}m ${Math.ceil(etaSeconds % 60)}s`;
-    } else {
-        return `${Math.floor(etaSeconds / 3600)}h ${Math.floor((etaSeconds % 3600) / 60)}m`;
-    }
+    // Round to whole seconds FIRST. Applying Math.ceil to the remainder
+    // instead let it reach 60, so 119.5s printed "1m 60s" and 59.9s printed
+    // "60s". The Go twin truncates and never had either.
+    const s = Math.ceil(etaSeconds);
+    if (s < 60) return `${s}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+    return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 }
