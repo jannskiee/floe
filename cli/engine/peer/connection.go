@@ -450,7 +450,9 @@ func (conn *Connection) Close() {
 // Fingerprints returns the local and remote DTLS certificate fingerprints from
 // the negotiated SDPs (e.g. "sha-256 AB:CD:..."). Call after the data channel is
 // open, when both descriptions are set. These feed the connection verification
-// code (see engine/verify) so peers can detect a man-in-the-middle.
+// code (see engine/verify) so peers can detect a man-in-the-middle. Retained
+// but unwired: no surface calls this today, and PAKE (DESKTOP.md 3b) is the
+// intended consumer.
 func (conn *Connection) Fingerprints() (local, remote string, err error) {
 	ld := conn.pc.LocalDescription()
 	rd := conn.pc.RemoteDescription()

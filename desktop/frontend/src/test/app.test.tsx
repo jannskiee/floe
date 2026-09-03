@@ -177,3 +177,43 @@ describe('the once-registered handlers', () => {
         expect(await screen.findByText('Peer connected. Sending...')).toBeTruthy();
     });
 });
+
+describe('the route badge', () => {
+    it('goes back to green when a relayed send finishes', async () => {
+        const {container} = mount();
+        await settled();
+
+        // StatusDot renders two spans; the solid one is h-1.5 w-1.5. Matching
+        // on rounded-full alone also picks up the left rail's ambient glow.
+        const dot = () => container.querySelector('span.h-1\\.5.w-1\\.5.rounded-full');
+        act(() => {
+            wails.emit('send:route', 'relay');
+        });
+        await waitFor(() => expect(dot()?.className).toContain('bg-amber-500'));
+
+        act(() => {
+            wails.emit('send:done');
+        });
+
+        // relayTone reads route while idle, so a finished relayed transfer used
+        // to leave an amber dot beside the word Ready.
+        await waitFor(() => expect(dot()?.className).toContain('bg-green-500'));
+        expect(dot()?.className).not.toContain('bg-amber-500');
+    });
+});
+
+describe('the history store', () => {
+    it('does not overwrite a corrupt store on mount', async () => {
+        localStorage.setItem('floe:history', '{not json');
+        mount();
+        await settled();
+        // Let every mount effect, including the persist one, run.
+        await waitFor(() => expect(wails.calls).toContain('GetPendingFiles'));
+
+        // loadHistory swallows the parse error and returns [], and the persist
+        // effect used to fire on mount and write that [] straight back over the
+        // bytes. The store is documented as user-editable, so they were
+        // recoverable right up until that ran.
+        expect(localStorage.getItem('floe:history')).toBe('{not json');
+    });
+});

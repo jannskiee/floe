@@ -19,7 +19,6 @@ import (
 	"github.com/jannskiee/floe/cli/engine/serverurl"
 	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/jannskiee/floe/cli/engine/transfer"
-	"github.com/jannskiee/floe/cli/engine/verify"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -902,10 +901,6 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 		return
 	}
 
-	if local, remote, fErr := conn.Fingerprints(); fErr == nil {
-		vc := verify.Code(local, remote)
-		go emit("send:verify", vc) // off the transfer critical path
-	}
 	if ct, ctErr := conn.ConnectionType(); ctErr == nil {
 		emit("send:route", ct) // "direct" or "relay", best-effort
 	}
@@ -1060,10 +1055,6 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 		return "", fmt.Errorf("WebRTC setup failed: %w", err)
 	}
 
-	if local, remote, fErr := conn.Fingerprints(); fErr == nil {
-		vc := verify.Code(local, remote)
-		go emit("recv:verify", vc) // off the transfer critical path
-	}
 	if ct, ctErr := conn.ConnectionType(); ctErr == nil {
 		emit("recv:route", ct) // "direct" or "relay", best-effort
 	}

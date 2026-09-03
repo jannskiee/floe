@@ -46,7 +46,7 @@ cli/
     ice/               STUN/TURN credential fetch
     code/              short room-code register and resolve
     serverurl/         normalizes user-supplied server URLs
-    verify/            short authentication string from DTLS fingerprints
+    verify/            short authentication string from DTLS fingerprints (retained, unwired)
   internal/
     selfupdate/        CLI-only self updater (stays private)
 desktop/               Wails app: imports cli/engine/...
@@ -119,6 +119,12 @@ verify the connection independently of the server.
       `engine/verify` + `verify.ts` stay (tested, zero cost). PAKE (3b) is the
       intended replacement: it does the same MITM check automatically, so the
       human compare never comes back.
+- [x] The last CALLERS went with the UI. Until then `desktop/app.go` still
+      ran `Fingerprints()` + `verify.Code()` per transfer and emitted
+      `send:verify` / `recv:verify`, which no frontend has listened for
+      since 2026-07-04, so "zero cost" was true of the browser and not of
+      the desktop. `engine/verify` and `Connection.Fingerprints()` are now
+      retained but UNWIRED: tested, called by nothing, and waiting for 3b.
 
 **3b - PAKE auto-verification (removes the human compare)**
 - [ ] PAKE (CPace or SPAKE2) keyed by the room code, bound to the DTLS fingerprints,
