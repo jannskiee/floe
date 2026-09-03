@@ -162,10 +162,42 @@ export function P2PTransfer() {
     const progressRef = useRef(0);
     const fileListRef = useRef<HTMLDivElement>(null);
 
+    // A latest-ref for the once-registered handlers, the same idiom and for the
+    // same reason as useSignaling's cbRef: onUserConnected and
+    // joinRoomAsReceiver both capture their closure before any peer exists, so
+    // reading the state directly reported connection: "unknown" for every
+    // transfer on both roles. Written in an effect rather than during render,
+    // because react-hooks forbids the render-time assignment and because these
+    // reads all happen on a transfer boundary, long after the commit.
+    const connectionTypeRef = useRef<string | null>(null);
+    // What the sender announced, from the first metadata. 0 until then.
+    const expectedFilesRef = useRef(0);
+    // Timers the unmount cleanup has to reach.
+    const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const iceProbeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const iceServersRef = useRef<RTCIceServer[]>([
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
     ]);
+
+    // What to say when a receive ends. transferCompleteRef is set after EVERY
+    // file, not after the last one, so a receiver that got 1 of 3 and then lost
+    // the sender was told "Transfer complete". The ref and every guard that
+    // reads it stay exactly as they are: they also gate the reconnect path, and
+    // re-pointing them at an all-files meaning would turn a usable partial
+    // receive into a permanent reconnect spinner. Only the sentence changes.
+    const receiveOutcome = () => {
+        const got = receivedFilesRef.current.length;
+        const want = expectedFilesRef.current;
+        if (want > 0 && got < want) {
+            return `Sender disconnected. ${got} of ${want} files received`;
+        }
+        return 'Transfer complete';
+    };
+
+    useEffect(() => {
+        connectionTypeRef.current = connectionType;
+    });
 
     const { requestWakeLock, releaseWakeLock } = useWakeLock();
 
@@ -209,7 +241,7 @@ export function P2PTransfer() {
         },
         onPeerDisconnected: () => {
             if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
-                setStatus('Transfer complete');
+                setStatus(receiveOutcome());
             } else {
                 setStatus('Peer disconnected. Waiting for reconnection');
             }
@@ -218,7 +250,7 @@ export function P2PTransfer() {
         },
         onDisconnect: () => {
             if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
-                setStatus('Transfer complete');
+                setStatus(receiveOutcome());
             }
         },
         onConnectError: (err) => {
@@ -304,7 +336,8 @@ export function P2PTransfer() {
             document.body.removeChild(textarea);
         }
         setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        if (copyResetRef.current) clearTimeout(copyResetRef.current);
+        copyResetRef.current = setTimeout(() => setCopied(false), 2000);
     };
 
     const handleShare = async () => {
@@ -414,11 +447,18 @@ export function P2PTransfer() {
         const rx = createReceiver({
             send: (d) => peer.send(d),
             onFileStart: (index, total) => {
+                expectedFilesRef.current = total;
                 setTransferSpeed('');
                 setEstimatedTime('');
                 setStatus(`Receiving file ${index} of ${total}`);
             },
-            onProgress: (pct) => setProgress(pct),
+            onProgress: (pct) => {
+                // Written on both roles now. It was sender-only, and the
+                // receiver error scope reads it, so every receiver failure
+                // reached Sentry as 0% however far it had actually got.
+                progressRef.current = pct;
+                setProgress(pct);
+            },
             onSpeed: (bps, eta) => {
                 setTransferSpeed(formatSpeed(bps));
                 setEstimatedTime(formatETA(eta));
@@ -446,7 +486,7 @@ export function P2PTransfer() {
                 track('transfer-received', {
                     files: fileCount,
                     bytes: totalBytes,
-                    connection: connectionType ?? 'unknown',
+                    connection: connectionTypeRef.current ?? 'unknown',
                     role: 'receiver',
                 });
                 reportBytes(totalBytes);
@@ -462,6 +502,7 @@ export function P2PTransfer() {
     };
 
     useEffect(() => {
+        let cancelled = false;
         const roomFromUrl = getRoomFromUrl();
 
         if (roomFromUrl) {
@@ -477,16 +518,31 @@ export function P2PTransfer() {
                 setStatus('Access Denied');
                 return;
             }
-            fetchIceServers().then(() => joinRoomAsReceiver(roomFromUrl));
+            // The credentials fetch is a round trip, and unmounting during it
+            // used to leave the .then to build a SimplePeer, register
+            // onRoomFull, emit join-room and assign peerRef, with no cleanup
+            // left to tear any of it down. useSignaling already does exactly
+            // this one file away.
+            fetchIceServers().then(() => {
+                if (cancelled) return;
+                joinRoomAsReceiver(roomFromUrl);
+            });
         } else {
             fetchIceServers();
         }
 
         return () => {
+            cancelled = true;
             stopConnectionTypePolling();
             releaseWakeLock();
             peerRef.current?.destroy();
             receivedFilesRef.current.forEach((f) => URL.revokeObjectURL(f.downloadUrl));
+            // Three timers that outlived the component: the link-ack fallback
+            // would setGeneratedLink post-unmount, the ICE probe would getStats
+            // a destroyed peer, and the copy reset would setCopied on nothing.
+            if (linkAckFallbackRef.current) clearTimeout(linkAckFallbackRef.current);
+            if (iceProbeRef.current) clearTimeout(iceProbeRef.current);
+            if (copyResetRef.current) clearTimeout(copyResetRef.current);
         };
         // joinRoomAsReceiver is intentionally excluded: this effect must run once on mount only.
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -600,7 +656,7 @@ export function P2PTransfer() {
                     data: { relayEnabled, filesCount: files.length, totalBytes },
                 });
 
-                setTimeout(async () => {
+                iceProbeRef.current = setTimeout(async () => {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const pc = (peer as any)._pc as RTCPeerConnection | undefined;
                     let isRelay = false;
@@ -769,7 +825,7 @@ export function P2PTransfer() {
                     track('transfer-complete', {
                         files: fileList.length,
                         bytes: fileList.reduce((s, f) => s + f.file.size, 0),
-                        connection: connectionType ?? 'unknown',
+                        connection: connectionTypeRef.current ?? 'unknown',
                         role: 'sender',
                     });
                 },
