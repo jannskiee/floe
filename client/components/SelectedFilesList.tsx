@@ -8,15 +8,16 @@ interface SelectedFilesListProps {
     files: FileWithId[];
     currentFileIndex: number;
     progress: number;
-    generatedLink: string;
+    filesLocked: boolean;
     status: string;
     onDeleteFile: (id: string) => void;
     listRef: RefObject<HTMLDivElement | null>;
 }
 
 /**
- * Sender-side scrollable list of the files queued for transfer. Before the link
- * exists each row has a delete button; during/after transfer it shows a
+ * Sender-side scrollable list of the files queued for transfer. While the set
+ * is still editable each row has a delete button; once it is sealed (Create
+ * clicked) it shows a
  * per-file checkmark or spinner. Purely presentational; the file state and the
  * scroll ref live in P2PTransfer.
  */
@@ -24,7 +25,7 @@ export function SelectedFilesList({
     files,
     currentFileIndex,
     progress,
-    generatedLink,
+    filesLocked,
     status,
     onDeleteFile,
     listRef,
@@ -64,7 +65,7 @@ export function SelectedFilesList({
                         </span>
                     </div>
                     <div className="ml-auto flex items-center gap-2">
-                        {!generatedLink ? (
+                        {!filesLocked ? (
                             <button
                                 onClick={() => onDeleteFile(item.id)}
                                 className="relative before:absolute before:-inset-2 p-1.5 rounded-md hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition-all"
