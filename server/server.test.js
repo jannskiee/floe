@@ -329,7 +329,7 @@ describe('handleDisconnect', () => {
 // ---------------------------------------------------------------------------
 
 describe('validateReportBytes', () => {
-    const MAX = 5 * 1024 ** 4; // 5 TB
+    const MAX = 5 * 1024 ** 4; // 5 TiB
 
     it('accepts a valid byte count', () => {
         assert.equal(validateReportBytes(1024, MAX), true);
