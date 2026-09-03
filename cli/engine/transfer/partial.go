@@ -43,6 +43,27 @@ func unregisterPartial(f *os.File) {
 	delete(partialFiles, f)
 }
 
+// discardPart drops a staging file the receive loop is giving up on.
+//
+// The order is the whole correctness argument and it is why this is one
+// function rather than three copies. Unregister FIRST, so a concurrent
+// AbandonPartials cannot pick the handle up after we have decided to drop it.
+// Then use our own Close as the ownership test: it succeeding means abandon
+// never touched this file and the path is still ours to remove; it failing
+// means abandon owned the endgame and has already removed it, so removing by
+// path here would delete whatever now sits at that name. A torture test
+// proved exactly that theft when the code trusted the path string alone.
+//
+// There were three verbatim copies of this before, which is three places to
+// get an ordering this subtle wrong.
+func discardPart(f *os.File) {
+	name := f.Name()
+	unregisterPartial(f)
+	if f.Close() == nil {
+		_ = os.Remove(name)
+	}
+}
+
 // AbandonPartials best-effort removes every in-flight staging file. Close
 // comes first: Go opens files on Windows without FILE_SHARE_DELETE, so
 // removing a file the receive loop still holds open fails with a sharing
