@@ -88,6 +88,13 @@ export function P2PTransfer() {
     const [isSender, setIsSender] = useState<boolean | null>(null);
     const [status, setStatus] = useState('Idle');
     const [generatedLink, setGeneratedLink] = useState('');
+    // Set the instant Create is clicked. Everything that can change the file
+    // set is gated on this rather than on generatedLink, because the link is
+    // not rendered until the room-joined ack (or the 3s fallback), and
+    // onUserConnected captures the files array at click time. A file dropped
+    // in that window was counted in the header and shown with a green tick by
+    // SelectedFilesList, and never sent.
+    const [linkPending, setLinkPending] = useState(false);
     const [currentFileIndex, setCurrentFileIndex] = useState(0);
     const [progress, setProgress] = useState(0);
     const [receivedFiles, setReceivedFiles] = useState<ReceivedFile[]>([]);
@@ -128,6 +135,8 @@ export function P2PTransfer() {
     const { relayEnabled, setRelayEnabled } = useRelayConfiguration();
 
     const [relayBlocked, setRelayBlocked] = useState(false);
+    // The staged set is sealed once Create is clicked and stays sealed.
+    const filesLocked = linkPending || generatedLink !== '';
     // Live check, used before the transfer is blocked. It derives from
     // connectionType, which peer.destroy() resets to null, so the blocked state
     // below is latched separately or tearing the connection down would also
@@ -524,6 +533,7 @@ export function P2PTransfer() {
     }, [isConnected, connectionType]);
 
     const handleCreateLink = () => {
+        setLinkPending(true);
         const newRoomId = uuidv4();
         // A unique per-link nonce in the query string (not the fragment) makes
         // every transfer link a distinct document. Without it, two links differ
@@ -864,7 +874,7 @@ export function P2PTransfer() {
                                 />
                             )}
 
-                            {isSender && !generatedLink && files.length === 0 && (
+                            {isSender && !filesLocked && files.length === 0 && (
                                 <div
                                     onDragOver={handleDragOver}
                                     onDragLeave={handleDragLeave}
@@ -906,7 +916,7 @@ export function P2PTransfer() {
                                 </div>
                             )}
 
-                            {isSender && !generatedLink && files.length > 0 && (
+                            {isSender && !filesLocked && files.length > 0 && (
                                 <div
                                     onDragOver={handleDragOver}
                                     onDragLeave={handleDragLeave}
@@ -963,13 +973,13 @@ export function P2PTransfer() {
                                             files={files}
                                             currentFileIndex={currentFileIndex}
                                             progress={progress}
-                                            generatedLink={generatedLink}
+                                            filesLocked={filesLocked}
                                             status={status}
                                             onDeleteFile={handleDeleteFile}
                                             listRef={fileListRef}
                                         />
 
-                                        {files.length > 0 && !generatedLink && (
+                                        {files.length > 0 && !filesLocked && (
                                             <div className="mt-4 space-y-4">
                                                 <RelayFallbackToggle relayEnabled={relayEnabled} onChange={setRelayEnabled} />
 
