@@ -36,7 +36,7 @@
 #   ping                                  -> pong, pid, ps
 #   find-window {class?, title?, pid?, timeoutMs?}
 #                                         -> hwnd, pid, exe, class, title, rect{l,t,r,b,w,h}, minimized, visible, count
-#                                            defaults: class wailsWindow, title Floe (desktop/main.go:86);
+#                                            defaults: class wailsWindow, title Floe (desktop/main.go applyEnv);
 #                                            an empty class or title means any (pid alone is a valid filter)
 #   wait-tree {hwnd, name?, controlType?, timeoutMs?}
 #                                         -> ready, nodes, waitedMs
@@ -243,8 +243,8 @@ $HWND_MESSAGE = [IntPtr](-3)
 $WAILS_COPYDATA_ID = 1542
 
 $DEFAULT_CLASS = 'wailsWindow'      # wails v2.12.0 window.go:81
-$DEFAULT_TITLE = 'Floe'             # desktop/main.go:86
-$DEFAULT_UNIQUE_ID = 'one.floe.desktop'   # desktop/main.go:100
+$DEFAULT_TITLE = 'Floe'             # desktop/main.go applyEnv
+$DEFAULT_UNIQUE_ID = 'one.floe.desktop'   # desktop/main.go applyEnv
 $CODE_PLACEHOLDER = 'amber-otter-cloud'   # App.tsx receive view
 $TREE_READY_NAME = 'Settings'             # TitleBar.tsx aria-label, mounted on every screen
 

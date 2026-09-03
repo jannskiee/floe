@@ -137,7 +137,7 @@ function fillCreation(pid, entry) {
     );
 }
 
-// main.go:465-467: a cobra error exits 1; main.go:455-462: Ctrl+C prints
+// main.go runUpdate: a cobra error exits 1; main.go runUpdate: Ctrl+C prints
 // "  Canceled." on stderr and exits 130.
 export const EXIT_MAP = Object.freeze({ 0: 'ok', 1: 'error', 130: 'canceled' });
 
@@ -145,48 +145,48 @@ export const EXIT_MAP = Object.freeze({ 0: 'ok', 1: 'error', 130: 'canceled' });
 // architecture design's list with each string checked against the source;
 // the design's "expected receiver role, got sender" does not exist (the
 // receiver's wrong-role message is "this code is no longer active",
-// main.go:331), so role-race matches the sender's message at main.go:172.
+// main.go runReceive), so role-race matches the sender's message at main.go runSend.
 // The last four are the retry-eligible infra signatures the report design
 // names (section 10), added so a cell runner can key on them.
 export const STDERR_CLASSES = Object.freeze([
-    // cli/engine/transfer/relay.go:29,70 behind cobra's "Error: " prefix.
+    // cli/engine/transfer/relay.go ErrRelayOverLimit behind cobra's "Error: " prefix.
     [
         'relay-cap-refusal',
         /^Error: transfer blocked: relay connections are capped at 2 GB \(selected /m,
     ],
-    // cli/engine/transfer/receiver.go:263
+    // cli/engine/transfer/receiver.go ReceiveFilesWithOptions
     [
         'stall-before-metadata',
         /connected, but no data arrived from the sender within/,
     ],
-    // receiver.go:265-269
+    // receiver.go ReceiveFilesWithOptions
     ['stall-mid-file', /transfer stalled: no data for/],
-    // main.go:172
+    // main.go runSend
     ['role-race', /expected sender role, got "receiver"/],
-    // cli/engine/code/client.go:73
+    // cli/engine/code/client.go Resolve
     ['code-expired', /not found or expired/],
-    // main.go:331
+    // main.go runReceive
     ['code-spent', /this code is no longer active/],
-    // main.go:175 and :334
+    // main.go runSend and runReceive
     ['room-full', /room is full/],
-    // receiver.go:233 and :250
+    // receiver.go ReceiveFilesWithOptions
     ['peer-refused', /connection closed before any file arrived/],
-    // cli/engine/transfer/sender.go:481
+    // cli/engine/transfer/sender.go sendFile
     ['ack-timeout', /timed out waiting for ack/],
-    // cli/engine/peer/connection.go:320,347,379,424
+    // cli/engine/peer/connection.go SetupAsSender
     [
         'connect-timeout',
         /timed out (establishing a connection|waiting for the peer to answer|waiting for the peer's offer)/,
     ],
-    // cli/engine/transfer/protocol.go:92-106
+    // cli/engine/transfer/protocol.go compatErrorMessage
     ['incompatible', /Cannot transfer: /],
-    // main.go:141 and :297
+    // main.go runSend and runReceive
     ['ice-fetch-failed', /failed to fetch ICE credentials/],
-    // main.go:160 and :315
+    // main.go runSend and runReceive
     ['signaling-connect-failed', /failed to connect to signaling server/],
-    // cli/engine/code/client.go:68
+    // cli/engine/code/client.go Resolve
     ['code-unreachable', /could not reach signaling server/],
-    // main.go:215
+    // main.go runSend
     ['peer-left-early', /peer disconnected before connecting/],
 ]);
 

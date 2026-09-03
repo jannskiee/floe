@@ -5,7 +5,7 @@
  * 1.10.5 prints the same lines; the parser fixtures under tests/fixtures/
  * are captured from that binary).
  *
- * Command lines (main.go:91-98 and :268-273):
+ * Command lines (main.go applyEnv and runSend):
  *   <bin> send <paths...> --server <s> --web <w> [--no-relay] [--relay-only]
  *   <bin> receive <code|link> --server <s> --output <dir> --yes --no-report
  * --no-relay only when the cell asks for it (the judge's C3: C2C and L2C
@@ -15,11 +15,11 @@
  * never sent to a shipped CLI and the S-REL-C2C cell stays NA until it ships.
  *
  * Environment (buildEnv): PION_LOG_*, FLOE_SERVER, FLOE_WEB and FLOE_NO_STATS
- * are stripped from the inherited environment (main.go:73-82 reads
+ * are stripped from the inherited environment (main.go rootCmd reads
  * FLOE_SERVER when --server is not passed, and a stray one in the auditor's
  * shell must not retarget a child), FLOE_NO_UPDATE_CHECK=1 always
  * (selfupdate.go returns before any cache read or write), FLOE_NO_STATS=1 on
- * every receiver (main.go:356-359: either it or --no-report blanks the stats
+ * every receiver (main.go runReceive: either it or --no-report blanks the stats
  * URL; the adapter sends both), PION_LOG_TRACE=ice only under --pion-trace.
  *
  * Stats proof for a receiver is argv plus env, recorded verbatim; the CLI
@@ -48,20 +48,20 @@ import {
 export const START_TIMEOUT_MS = 30_000;
 export const STOP_GRACE_MS = 5_000;
 
-// main.go:107 version template "floe {{.Version}}"; GoReleaser strips the v.
+// main.go init version template "floe {{.Version}}"; GoReleaser strips the v.
 export const VERSION_RE = /^floe (\S+)\s*$/m;
-// main.go:203 box row via format.go PrintBox "  %s%s   %s": three lowercase
+// main.go runSend box row via format.go PrintBox "  %s%s   %s": three lowercase
 // words, four after ten collisions (server/server.js generateCode).
 export const CODE_RE = /^\s*Code\s+([a-z]+(?:-[a-z]+){2,3})\s*$/m;
-// client/e2e/helpers.ts:177
+// client/e2e/helpers.ts spawnSend
 export const LINK_RE = /https?:\/\/\S*#room=[^\s]+/;
-// Summary rows: sender.go:319-323 (Sent, Time), receiver.go:548-552
+// Summary rows: sender.go SendFilesWithOptions (Sent, Time), receiver.go ReceiveFilesWithOptions
 // (Received, Time, Saved to). Labels are padded to the longest label.
 export const SUMMARY_ROW_RE =
     /^ {2}(Sent|Received|Time|Saved to) {3,}(.+?)\s*$/gm;
 // pion/ice/v4 agent.go:780 under PION_LOG_TRACE=ice.
 export const PION_PAIR_RE = /Set selected candidate pair: (.*)$/;
-// relay.go:70 wrapped by cobra's "Error: " prefix (main.go SilenceUsage).
+// relay.go checkRelayGate wrapped by cobra's "Error: " prefix (main.go SilenceUsage).
 export const REFUSAL_PREFIX =
     'Error: transfer blocked: relay connections are capped at 2 GB (selected ';
 
@@ -69,18 +69,18 @@ export const REFUSAL_PREFIX =
 // route suffix a later CLI may print.
 export const MARKERS = Object.freeze({
     turnWarning:
-        /^ {2}Warning: could not reach signaling server for TURN credentials\. Using STUN only\.$/, // ice/credentials.go:118
+        /^ {2}Warning: could not reach signaling server for TURN credentials\. Using STUN only\.$/, // ice/credentials.go Fetch
     codeWarning: /^ {2}Warning: could not generate short code/, // :184
     sending: /^ {2}Sending {3}(.+)$/, // :200
     waiting: /^ {2}Waiting for peer\.\.\.$/, // :208
     connecting: /^ {2}Connecting\.\.\.$/, // :228
     connectingToSender: /^ {2}Connecting to sender\.\.\.$/, // :339
-    connected: /^ {2}Connected(?: \((direct|relay)\))?$/, // :234, :353
-    peerVersion: /^ {2}Peer version: (.+)$/, // sender.go:457, receiver.go:359
-    incoming: /^ {2}Incoming {3}(.+)$/, // receiver.go:372
-    progress: /^ {2}\[(\d+)\/(\d+)\] /, // format.go:128
-    savedAs: /^ {2}Saved as (.+)$/, // receiver.go:536
-    canceled: /^ {2}Canceled\.$/, // main.go:455 (stderr)
+    connected: /^ {2}Connected(?: \((direct|relay)\))?$/, // runSend and runReceive
+    peerVersion: /^ {2}Peer version: (.+)$/, // sender.go sendFile, receiver.go ReceiveFilesWithOptions
+    incoming: /^ {2}Incoming {3}(.+)$/, // receiver.go ReceiveFilesWithOptions
+    progress: /^ {2}\[(\d+)\/(\d+)\] /, // format.go newProgressBar
+    savedAs: /^ {2}Saved as (.+)$/, // receiver.go ReceiveFilesWithOptions
+    canceled: /^ {2}Canceled\.$/, // main.go runUpdate (stderr)
 });
 
 export function parseVersion(stdout = '') {
@@ -143,7 +143,7 @@ export function parseSummary(stdout = '') {
 /**
  * The last pion "Set selected candidate pair" line on stderr, split at
  * "<->" into the local and remote candidate types, or null. verdict is
- * 'relay' when either side is a relay candidate (relay.go:59-62 rule).
+ * 'relay' when either side is a relay candidate (relay.go pathTypeOf rule).
  */
 export function parsePionPair(stderr = '') {
     const lines = stderr.split(/\r?\n/).filter((l) => PION_PAIR_RE.test(l));
@@ -375,7 +375,7 @@ export class CliLeg extends Leg {
     async start() {
         const { opts } = this;
         const timeout = this.budget(opts.startTimeoutMs ?? START_TIMEOUT_MS);
-        // main.go:139/:295 fetch TURN, :158/:313 open /ws, :181 registers a
+        // main.go runSend and runReceive fetch TURN, open /ws, and register a
         // code (sender) and code.Resolve GETs one (receiver by code).
         spend(opts.ledger, 'turn');
         spend(opts.ledger, 'conn');
@@ -393,7 +393,7 @@ export class CliLeg extends Leg {
         });
         try {
             if (opts.role === 'sender') {
-                // The Code row prints before the Link row (main.go:202-205),
+                // The Code row prints before the Link row (main.go runSend),
                 // so once the link is out the code is final or absent.
                 const hit = await this.h.waitLine(LINK_RE, timeout);
                 this.marks.link = hit.t;

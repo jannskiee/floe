@@ -80,8 +80,8 @@ export const PACKAGE_FAMILY = 'JanCarloParedes.FloeDesktop_r1y5w9chaxnzc';
 export const WINDOWS_APPS = 'C:\\Program Files\\WindowsApps\\';
 export const EXE_NAME = 'floe-desktop.exe';
 export const WINDOW_CLASS = 'wailsWindow'; // wails v2.12.0 window.go:81
-export const WINDOW_TITLE = 'Floe'; // desktop/main.go:86
-export const SINGLE_INSTANCE_ID = 'one.floe.desktop'; // desktop/main.go:100
+export const WINDOW_TITLE = 'Floe'; // desktop/main.go applyEnv
+export const SINGLE_INSTANCE_ID = 'one.floe.desktop'; // desktop/main.go applyEnv
 export const WAILSDEV_URL = 'http://localhost:34115';
 export const LAUNCH_MODES = Object.freeze([
     'store',
