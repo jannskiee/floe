@@ -253,7 +253,11 @@ func fromCache() (string, bool) {
 	if err := json.Unmarshal(data, &c); err != nil {
 		return "", false
 	}
-	if time.Since(c.CheckedAt) > cacheTTL {
+	// A negative age (the clock moved backwards since the write, or the file was
+	// hand-edited) is a miss too. Without this a future checked_at never expires
+	// and the update check is pinned off for good. desktop/updatecheck.go has
+	// carried this guard; this is its twin.
+	if age := time.Since(c.CheckedAt); age < 0 || age > cacheTTL {
 		return "", false
 	}
 	return c.Latest, true

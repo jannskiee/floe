@@ -1,10 +1,12 @@
 package selfupdate
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 )
 
 func TestCompareVersions(t *testing.T) {
@@ -164,5 +166,44 @@ func TestCopyFileSetsMode(t *testing.T) {
 		if info.Mode().Perm() != 0o755 {
 			t.Errorf("mode = %v, want 0755", info.Mode().Perm())
 		}
+	}
+}
+
+// A future checked_at must be a miss. Without the guard time.Since is negative,
+// the "> cacheTTL" test is false, and the entry never expires: the update check
+// stays off until wall time catches up to whatever was written. The desktop's
+// twin in desktop/updatecheck.go has always had this.
+func TestFromCacheRejectsAFutureTimestamp(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	if runtime.GOOS == "windows" {
+		t.Setenv("AppData", dir)
+	}
+	p := cacheFilePath()
+	if p == "" {
+		t.Skip("no user config dir on this machine")
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	write := func(at time.Time) {
+		b, err := json.Marshal(cacheEntry{CheckedAt: at, Latest: "v9.9.9"})
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if err := os.WriteFile(p, b, 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+
+	write(time.Now().Add(-time.Minute))
+	if got, ok := fromCache(); !ok || got != "v9.9.9" {
+		t.Fatalf("a fresh entry should hit: got %q ok=%v", got, ok)
+	}
+
+	write(time.Now().Add(72 * time.Hour))
+	if _, ok := fromCache(); ok {
+		t.Fatal("a future checked_at was treated as a hit; the update check would stay pinned off")
 	}
 }

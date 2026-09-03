@@ -18,6 +18,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jannskiee/floe/cli/engine/code"
@@ -33,6 +34,11 @@ import (
 // Build-time version — set by goreleaser: -ldflags "-X main.version=1.0.0"
 // (GoReleaser's {{ .Version }} strips the tag's leading v.)
 var version = "dev"
+
+// roleAssignTimeout bounds the wait for the server to answer join-room. The
+// desktop copy of the role select has always had it; without it a server that
+// accepts the socket and then goes quiet hangs the command indefinitely.
+const roleAssignTimeout = 20 * time.Second
 
 // Shared flags
 var (
@@ -217,6 +223,9 @@ func runSend(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to join room: %w", err)
 	}
 
+	// PeerLeft and the deadline are what the desktop copy of this block has
+	// carried all along. Without them a server that accepts the socket and then
+	// goes quiet hangs the command with no output and no way out but Ctrl+C.
 	select {
 	case role := <-sc.Role:
 		if role != "sender" {
@@ -226,6 +235,10 @@ func runSend(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("room is full")
 	case errMsg := <-sc.Errors:
 		return fmt.Errorf("server error: %s", errMsg)
+	case <-sc.PeerLeft:
+		return fmt.Errorf("connection closed before the server assigned a role")
+	case <-time.After(roleAssignTimeout):
+		return fmt.Errorf("timed out waiting for the server to assign a role")
 	}
 
 	// 5. Register a short code phrase for this room
@@ -372,6 +385,9 @@ func runReceive(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to join room: %w", err)
 	}
 
+	// PeerLeft and the deadline are what the desktop copy of this block has
+	// carried all along. Without them a server that accepts the socket and then
+	// goes quiet hangs the command with no output and no way out but Ctrl+C.
 	select {
 	case role := <-sc.Role:
 		if role != "receiver" {
@@ -385,6 +401,10 @@ func runReceive(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("room is full (someone else may already be receiving)")
 	case errMsg := <-sc.Errors:
 		return fmt.Errorf("server error: %s", errMsg)
+	case <-sc.PeerLeft:
+		return fmt.Errorf("connection closed before the server assigned a role")
+	case <-time.After(roleAssignTimeout):
+		return fmt.Errorf("timed out waiting for the server to assign a role")
 	}
 
 	fmt.Println("  Connecting to sender...")
