@@ -1020,7 +1020,7 @@ export function P2PTransfer() {
                                                 </span>
                                                 <span className={`text-right font-mono text-[10px] uppercase tracking-[0.2em] ${showRelayLimitNotice ? 'text-amber-500' : 'text-zinc-600'
                                                     }`}>
-                                                    {files.length} · {formatBytes(totalBytes)}{connectionType === 'relay' || relayBlocked ? ' / 2.0 GB' : ''}
+                                                    {files.length} · {formatBytes(totalBytes)}{connectionType === 'relay' || relayBlocked ? ` / ${formatBytes(RELAY_SIZE_LIMIT)}` : ''}
                                                 </span>
                                             </div>
                                         )}

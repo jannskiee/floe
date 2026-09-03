@@ -164,7 +164,11 @@ export function compatErrorMessage(
     if (localTooOld) {
         return `Cannot transfer: your browser is running an older version of Floe.\nYou: ${localStr}  Peer: ${remoteStr}\nRefresh the page to get the latest version.`;
     }
-    return `Cannot transfer: peer's floe is too old.\nYou: ${localStr}  Peer: ${remoteStr}\nAsk the other side to run \`floe update\`.`;
+    // Not "run `floe update`": the peer may be a browser or the desktop app,
+    // and only the CLI has that command. Go passes an updateHint for exactly
+    // this; the browser has no way to know which surface it is talking to, so
+    // it says the thing that is true of all three.
+    return `Cannot transfer: peer's floe is too old.\nYou: ${localStr}  Peer: ${remoteStr}\nAsk the other side to update Floe.`;
 }
 
 // --- Control message classifier ---
