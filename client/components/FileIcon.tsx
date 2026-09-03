@@ -17,7 +17,9 @@ export const FileIcon = ({
     fileName,
     className = 'h-4 w-4 text-zinc-200',
 }: FileIconProps) => {
-    const ext = fileName.split('.').pop()?.toLowerCase();
+    // Requires a real dot: split('.') on an extensionless name returns the
+    // whole name, so a file called "PNG" or "zip" used to get a type icon.
+    const ext = fileName.includes('.') ? fileName.split('.').pop()?.toLowerCase() : '';
 
     if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(ext || ''))
         return <FileImage className={className} />;
@@ -38,6 +40,7 @@ export const FileIcon = ({
             'tsx',
             'jsx',
             'py',
+            'go',
             'html',
             'css',
             'json',
