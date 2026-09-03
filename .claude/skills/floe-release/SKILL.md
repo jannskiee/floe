@@ -11,9 +11,8 @@ live in `client/lib/desktopRelease.ts`; the changelog contract is the MDX
 comment at the top of `docs/changelog.mdx`; the pin checker is
 `scripts/check-version-pins.mjs`.
 
-The skill's paths exist on `main` only once PR #343 has merged; from an older
-checkout, run the script by its absolute path from a checkout that has it.
-The CI asset step lands with the same PR.
+Paths below are relative to the repo root. From a worktree or checkout that
+predates the skill, run the script by its absolute path from one that has it.
 
 Green workflows and four 200s prove that the assets exist at the URLs
 /download will derive; they prove nothing about the update notice, the Store

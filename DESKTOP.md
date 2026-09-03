@@ -359,7 +359,7 @@ remains).
 ## Dev commands
 
 ```
-# Engine + CLI (from repo root, Go 1.20+ for the -C flag)
+# Engine + CLI (from repo root; go.mod requires Go 1.25)
 go -C cli build ./...
 go -C cli test ./...
 

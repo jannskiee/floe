@@ -30,7 +30,7 @@ Under Docker Compose, every setting below is read from an optional `.env` file n
 | `TURN_DOMAIN` | server | No | _(none)_ | Public hostname of your self-hosted TURN server (e.g. `turn.your-domain.com`). Must match coturn's `realm`. |
 | `UPSTASH_REDIS_REST_URL` | server | No | _(none)_ | REST URL of an [Upstash Redis](https://upstash.com) database, used to durably persist the global transfer counter shown on the homepage. If empty, the counter runs in memory only and resets to 0 on every restart. |
 | `UPSTASH_REDIS_REST_TOKEN` | server | No | _(none)_ | REST token that pairs with `UPSTASH_REDIS_REST_URL`. Both must be set together for durable stats. Use the **read+write** token (the default one in the Upstash console), not the read-only token. The server needs write access to increment the counter; with a read-only token, writes are silently rejected and the total never persists. |
-| `MAX_REPORT_BYTES` | server | No | `5497558138880` (5 TB) | Maximum bytes accepted in a single `POST /api/stats/report` request. Rejects implausibly large single-transfer reports. |
+| `MAX_REPORT_BYTES` | server | No | `5497558138880` (5 TiB) | Maximum bytes accepted in a single `POST /api/stats/report` request. Rejects implausibly large single-transfer reports. |
 
 ### Two things about the limits
 

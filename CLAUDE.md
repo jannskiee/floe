@@ -13,7 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 File data never touches the server. WebRTC data channels carry it directly between peers. The server only brokers WebRTC signaling (offer/answer/ICE candidates) and optionally issues TURN relay credentials.
 
-The Go side is a two-module workspace: the root `go.work` joins `cli/` and `desktop/` so the desktop app builds against the engine without publishing it. Release and CI builds can set `GOWORK=off` and rely on the `replace` directive in `desktop/go.mod`.
+The Go side is a two-module workspace: the root `go.work` joins `cli/` and `desktop/` so the desktop app builds against the engine without publishing it. The workspace is active for every build, goreleaser's included, so a `desktop/go.mod` bump can change the dependency graph of the released `floe` binary. The `replace` directive in `desktop/go.mod` would make `GOWORK=off` work, but no Floe build sets it; the only `GOWORK=off` in the repo is the `go install` of the external Wails CLI.
 
 ## Commands
 
@@ -73,7 +73,7 @@ TURN_SECRET=                 # optional coturn HMAC secret (used when Cloudflare
 TURN_DOMAIN=                 # optional coturn hostname
 UPSTASH_REDIS_REST_URL=      # optional, durable global stats counter
 UPSTASH_REDIS_REST_TOKEN=    # optional, pairs with the URL above
-MAX_REPORT_BYTES=            # optional, per-report cap (default 5 TB)
+MAX_REPORT_BYTES=            # optional, per-report cap (default 5 TiB)
 NODE_ENV=                    # optional, production suppresses stack traces
 TRUSTED_PROXY_COUNT=         # optional, proxy hops for client-IP parsing (default 1; affects every per-IP limiter)
 MAX_CONNECTIONS_PER_IP=      # optional, plus MAX_CODE_REQUESTS_PER_IP, MAX_TURN_REQUESTS_PER_IP,

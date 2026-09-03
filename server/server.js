@@ -87,7 +87,7 @@ const TURN_MAX_REQUESTS = parseInt(process.env.MAX_TURN_REQUESTS_PER_IP, 10) || 
 const statsRateLimits = new Map();
 const STATS_RATE_WINDOW = 60000;
 const STATS_MAX_REPORTS = 60; // per IP per minute
-const MAX_REPORT_BYTES = parseInt(process.env.MAX_REPORT_BYTES || '', 10) || (5 * 1024 * 1024 * 1024 * 1024); // 5 TB
+const MAX_REPORT_BYTES = parseInt(process.env.MAX_REPORT_BYTES || '', 10) || (5 * 1024 * 1024 * 1024 * 1024); // 5 TiB
 
 // Per-IP limiter for the code endpoints (register + resolve). These were the
 // only unauthenticated HTTP routes without a limiter: unbounded POSTs grow

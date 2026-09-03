@@ -16,8 +16,8 @@ the package identity is the `<Identity>` element of
 URL, selector and JS idiom is in `references/partner-center.md`; the page
 wins over that file, and the file gets the correction with the date.
 
-The skill's paths exist on `main` once its PR has merged; from an older
-checkout, run the scripts by absolute path from a checkout that has them.
+Paths below are relative to the repo root. From a worktree or checkout that
+predates the skill, run the scripts by absolute path from one that has them.
 
 Browser work uses the Claude-in-Chrome tools. Load them once, in one call:
 
