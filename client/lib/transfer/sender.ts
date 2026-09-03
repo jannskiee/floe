@@ -282,16 +282,33 @@ async function sendSingleFile(
 
     let offset = ackResult.offset;
 
+    // Waits for the buffer to fall below LOW_WATER, or for the peer to go
+    // away. The escape is destroyed(), never a deadline: a time-based one
+    // would let a truncated file fall through to the unconditional end marker
+    // below and return true, which is exactly the failure the slab read guard
+    // further down records having already been fixed once.
+    //
+    // Without any escape at all, a receiver that closed its tab while the
+    // buffer sat above HIGH_WATER left this promise unsettled for the life of
+    // the page: sendSingleFile never returned, so sendFiles never reached its
+    // finally, and the 500ms progress ticker and the 4 MB slab stayed
+    // reachable. emitView early-returns on destroyed(), so it was invisible.
     const waitForBuffer = () =>
         new Promise<void>((r) => {
-            const onLow = () => {
+            let poll: ReturnType<typeof setInterval> | null = null;
+            const finish = () => {
                 channel.removeEventListener('bufferedamountlow', onLow);
+                if (poll) clearInterval(poll);
                 r();
             };
-            if (channel.bufferedAmount < LOW_WATER) {
+            const onLow = () => finish();
+            if (channel.bufferedAmount < LOW_WATER || destroyed()) {
                 r();
             } else {
                 channel.addEventListener('bufferedamountlow', onLow);
+                poll = setInterval(() => {
+                    if (destroyed() || channel.bufferedAmount < LOW_WATER) finish();
+                }, 200);
             }
         });
 
@@ -362,22 +379,35 @@ function waitForAck(
     onData: (handler: (data: Uint8Array | ArrayBuffer) => void) => () => void,
     fileId: string
 ): Promise<AckResult> {
+    // Both arms of the race clean up after the other wins. The listener used
+    // to survive a timeout (and the timeout aborts the transfer, so it stayed
+    // on a live peer), and the 120s timer used to survive an ack, so an
+    // N-file transfer left N pending timers each retaining its closure.
+    let off: (() => void) | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const done = (r: AckResult): AckResult => {
+        off?.();
+        off = null;
+        if (timer) clearTimeout(timer);
+        timer = null;
+        return r;
+    };
     return Promise.race([
         new Promise<AckResult>((resolve) => {
-            const off = onData((raw) => {
+            off = onData((raw) => {
                 const buf = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
                 const msg = classifyControl(buf);
                 if (!msg) return;
                 if (msg.type === 'ack' && (msg as Ack).id === fileId) {
-                    off();
                     const ack = msg as Ack;
                     resolve({ type: 'ack', offset: ack.offset, pv: ack.pv, pvMin: ack.pvMin, ver: ack.ver });
                 } else if (msg.type === 'incompatible') {
-                    off();
                     resolve({ type: 'incompatible', reason: (msg as Incompatible).reason });
                 }
             });
         }),
-        new Promise<AckResult>((resolve) => setTimeout(() => resolve({ type: 'timeout' }), ACK_TIMEOUT_MS)),
-    ]);
+        new Promise<AckResult>((resolve) => {
+            timer = setTimeout(() => resolve({ type: 'timeout' }), ACK_TIMEOUT_MS);
+        }),
+    ]).then(done);
 }
