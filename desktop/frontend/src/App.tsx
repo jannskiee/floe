@@ -1096,6 +1096,10 @@ function App() {
             if (sendCancel.current) return;
             setSendProg(null);
             setSending(false);
+            // route is cleared on every terminal path, not just on cancel and
+            // Start over. relayTone reads it while idle, so a finished relayed
+            // transfer left an amber dot next to the word Ready.
+            setRoute('');
             setSendDone(true);
             setSendStatus('');
             // Record what went out, so Start over can tell the note that was
@@ -1109,6 +1113,7 @@ function App() {
         });
         EventsOn('send:error', (msg: string) => {
             if (sendCancel.current) return;
+            setRoute('');
             setSendStatus(friendlyError(msg) + serverNote());
             setSending(false);
             // The progress row goes with the transfer. Left behind it froze
@@ -1246,14 +1251,33 @@ function App() {
                 const rep = localStorage.getItem('floe:report-stats') !== '0';
                 setHideIP(hip);
                 setReportStats(rep);
-                void SetSettings(c.server || '', c.web || '', hip, rep);
+                // .catch, not void: this is inside a .then callback, so the
+                // chain's own .catch below never sees its rejection. It is the
+                // one bridge call in the file that had none, and it rejects for
+                // real when os.UserConfigDir fails, on every launch.
+                SetSettings(c.server || '', c.web || '', hip, rep).catch(() => {});
             })
             .catch(() => {});
     }, []);
 
     // Persist only the transfer tabs; relaunching into History would be odd.
     useEffect(() => { if (mode !== 'history') localStorage.setItem('floe:mode', mode); }, [mode]);
-    useEffect(() => { localStorage.setItem('floe:history', JSON.stringify(history)); }, [history]);
+    // Persists only what the app changed. loadHistory swallows a parse error
+    // and returns [], and this effect used to fire on mount, so a corrupt or
+    // hand-edited store was overwritten with "[]" before anything could report
+    // a problem. The store is documented as user-editable, so those bytes were
+    // recoverable right up until this ran.
+    //
+    // The guard is IDENTITY, not a run counter: a ref flag set on the first
+    // run is still set on the second, and StrictMode double-invokes effects in
+    // development, so the counter version still wrote the fallback back under
+    // `wails dev`. loadHistory runs once as a lazy initializer, so the array it
+    // produced keeps its identity until setHistory makes a new one.
+    const loadedHistory = useRef(history);
+    useEffect(() => {
+        if (history === loadedHistory.current) return;
+        localStorage.setItem('floe:history', JSON.stringify(history));
+    }, [history]);
     useEffect(() => { localStorage.setItem('floe:saveDir', output); }, [output]);
 
     // Per-visit settings-screen state, forgotten when Settings closes by ANY route.
@@ -1738,6 +1762,9 @@ function App() {
         } finally {
             if (recvAttempt.current !== attempt) return;
             setReceiving(false);
+            // Inside the generation guard on purpose: outside it, a stale
+            // attempt returning late would clear a newer attempt's route.
+            setRoute('');
             // Every exit clears the progress row, not just the successful one.
             // On failure it used to stay frozen on screen and keep Start over
             // convinced a transfer was still running, which showed the cancel
