@@ -39,6 +39,9 @@ jobs:
       # 'true' when any changed file is under .github/workflows/. Gates the
       # actionlint job; push events always report true, same as code.
       workflows: ${{ steps.filter.outputs.workflows }}
+      # 'true' when any changed file is under .claude/skills/. Gates the skills
+      # job; push events always report true, same as code.
+      skills: ${{ steps.filter.outputs.skills }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -55,8 +58,13 @@ jobs:
           # by PR merge, and a multi-commit (rebase) merge would make a HEAD^1
           # diff under-classify the push.
           if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-            echo "workflows=true" >> "$GITHUB_OUTPUT"
+            # Grouped, not three individual redirects: shellcheck's SC2129
+            # fires at three and actionlint runs shellcheck in CI.
+            {
+              echo "code=true"
+              echo "workflows=true"
+              echo "skills=true"
+            } >> "$GITHUB_OUTPUT"
             echo "push event: full suite"
             exit 0
           fi
@@ -69,13 +77,35 @@ jobs:
           # side.
           changed="$(git diff --name-only --no-renames HEAD^1 HEAD)"
           non_docs="$(printf '%s\n' "$changed" | grep -v '^docs/' || true)"
-          if [ -n "$non_docs" ]; then
+          # The negation above is what keeps a new top-level directory from
+          # silently skipping CI, so it is not widened. The ONE subtraction
+          # below is .claude/skills/ specifically, not .claude/ and not any
+          # other prefix: a skills-only PR runs the skills job instead, which
+          # is the job that actually tests what it changed, rather than paying
+          # for a three-OS Playwright matrix and a Windows Wails packaging run
+          # that exercise none of it. Anything else outside docs/ still counts
+          # as code, including .claude/ paths that are not skills.
+          non_docs_code="$(printf '%s\n' "$non_docs" | grep -v '^\.claude/skills/' || true)"
+          if [ -n "$non_docs_code" ]; then
             echo "code=true" >> "$GITHUB_OUTPUT"
             echo "non-docs changes:"
-            echo "$non_docs"
+            echo "$non_docs_code"
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
-            echo "docs-only change: heavy jobs will be skipped"
+            if [ -n "$non_docs" ]; then
+              echo "skills-only change: heavy jobs will be skipped, the skills job runs"
+            else
+              echo "docs-only change: heavy jobs will be skipped"
+            fi
+          fi
+          # Third classification: skills edits gate the skills job.
+          skills_files="$(printf '%s\n' "$changed" | grep -E '^\.claude/skills/' || true)"
+          if [ -n "$skills_files" ]; then
+            echo "skills=true" >> "$GITHUB_OUTPUT"
+            echo "skills changes:"
+            echo "$skills_files"
+          else
+            echo "skills=false" >> "$GITHUB_OUTPUT"
           fi
           # Same diff, second classification: workflow edits gate actionlint.
           # scripts/ counts too. images.yml calls .github/scripts/smoke-image.sh,
@@ -131,6 +161,66 @@ jobs:
         # .github/scripts/smoke-image.sh, so check it directly. shellcheck is
         # preinstalled on ubuntu-latest.
         run: shellcheck .github/scripts/*.sh
+
+  guardrails:
+    name: Repo guardrails
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # No `if:` and no dependency on `changes`, on purpose. This must run on
+    # every PR including a docs-only or skills-only one, because both sides of
+    # what it checks can break it: the map lives under .claude/skills/ and the
+    # code it maps lives in the product tree. It costs seconds.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Peer-data consumer map
+        # Fails when a file starts referencing a peer field without a row, when
+        # a row names a file that is gone, or when a row's anchor symbol moved
+        # out from under it. #405 split desktop/app.go, six anchors moved, and
+        # the break sat on main until #407 because NOTHING ran this: it is a
+        # script, not a *.test.mjs, so even the skills job below would not have
+        # caught it.
+        run: node .claude/skills/untrusted-peer-data/scripts/check-consumers.mjs
+
+  skills:
+    name: Skill test suites
+    runs-on: windows-latest
+    timeout-minutes: 20
+    needs: [changes]
+    if: needs.changes.outputs.skills == 'true'
+    # Deliberately NOT in the CI green gate's needs yet. CLAUDE.md's exception
+    # for deterministic linters would permit going straight in, but 19 of the
+    # 26 suites write files, spawn processes or fetch, and one of them tests a
+    # deletion tool. It soaks outside the gate (visible, non-blocking) and gets
+    # promoted once a few runs have shown it is hermetic.
+    #
+    # windows-latest because parts of the transfer-audit suite drive the
+    # PowerShell UIA helper and WSL.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Run the skill suites
+        shell: bash
+        # A GLOB, not a directory: `node --test <dir>` fails on Node 22, which
+        # docs-check.test.mjs records. Quoted so node expands it, not bash.
+        # 26 files, 13,203 lines, run by nothing until now.
+        run: node --test ".claude/skills/**/*.test.mjs"
 
   build-and-lint:
     name: Build & Lint
@@ -757,13 +847,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # Every job in this workflow must be listed here, or its failure is
-    # invisible to branch protection. Nothing is soaking outside the gate
-    # right now; see CLAUDE.md for the promotion policy a new job follows.
+    # invisible to branch protection. One job is soaking outside the gate right
+    # now: `skills`, which runs the 26 skill test suites. It is deliberately
+    # absent from this list until a few runs have shown it hermetic, because
+    # most of those suites write files or spawn processes. `guardrails` went
+    # straight in, as CLAUDE.md's exception for deterministic linters allows.
+    # See CLAUDE.md for the promotion policy.
     #
     # if: always() is load-bearing and must never become !cancelled():
     # without always() a failed or cancelled dependency would skip this job,
     # and GitHub counts a skipped required check as passing.
-    needs: [changes, actionlint, build-and-lint, server, cli, desktop, e2e, back-compat, docker-smoke]
+    needs: [changes, actionlint, guardrails, build-and-lint, server, cli, desktop, e2e, back-compat, docker-smoke]
     if: always()
     steps:
       - name: Report dependency results
