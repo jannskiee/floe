@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState} from 'react';
-import type {CSSProperties, MutableRefObject, ReactNode} from 'react';
+import type {MutableRefObject} from 'react';
 import {
     CancelTransfer,
     ConfirmClose,
@@ -27,7 +27,6 @@ import {
 } from "../wailsjs/go/main/App";
 import {EventsOn, EventsOff, OnFileDrop, OnFileDropOff, BrowserOpenURL} from "../wailsjs/runtime/runtime";
 import {
-    AlertCircle,
     ArrowDownLeft,
     ArrowLeft,
     ArrowUpRight,
@@ -39,17 +38,11 @@ import {
     Folder,
     FolderOpen,
     History,
-    Loader2,
-    QrCode,
     Send,
-    Share2,
     SquareArrowOutUpRight,
-    Undo2,
-    UploadCloud,
     X,
 } from 'lucide-react';
-import QRCode from 'react-qr-code';
-import {BoltMark, Button, Eyebrow, Input, StatusDot, cn} from './components/ui';
+import {BoltMark, Button, cn, Eyebrow, Input, rowDescClass, rowLabelClass, StatusDot} from './components/ui';
 import {advancedSummary, hostOf} from './settings';
 import {histKey} from './history';
 import {UNDO_WINDOW_MS, clearLabel, clearedAnnouncement, clearedLabel, restorable, restoredAnnouncement, stagedSnapshot, supersededBy, undoLabel, type Cleared} from './clear';
@@ -61,8 +54,11 @@ import {baseName, mergePaths, normPath} from './paths';
 import {HISTORY_CAP, fmtWhen, loadHistory, type HistEntry} from './history';
 import {DOWNLOAD_URL, bareVersion, isNewerDesktopVersion} from './update';
 import TitleBar from './components/TitleBar';
-import FileIcon from './components/FileIcon';
 import {Tooltip} from './components/Tooltip';
+import {UNDO_ANCHOR_ID, UpdateNotice, UndoToast} from './components/Toasts';
+import {SettingRow, SettingField} from './components/SettingsPrimitives';
+import {ProgressRow, StatusLine, FooterNote, Dropzone, FileList, FileSummary} from './components/TransferBits';
+import SharePanel from './components/SharePanel';
 
 type Mode = 'send' | 'receive' | 'history';
 
@@ -70,23 +66,6 @@ type Mode = 'send' | 'receive' | 'history';
 // a reset lands on the exact same copy a fresh launch shows.
 const INITIAL_SEND_STATUS = 'Select or drag files, then click Send.';
 const INITIAL_RECV_STATUS = 'Enter a code or link, then click Receive.';
-
-function ProgressRow({prog}: {prog: {pct: number; label: string}}) {
-    return (
-        <div className="animate-floe-in space-y-2">
-            <div className="flex items-baseline justify-between gap-3 font-mono text-[11px] text-zinc-400">
-                <span className="truncate">{prog.label}</span>
-                <span className="shrink-0 text-zinc-500">{prog.pct}%</span>
-            </div>
-            <div className="h-1 w-full overflow-hidden rounded-full bg-white/10">
-                <div
-                    className="h-full rounded-full bg-white transition-[width] duration-150"
-                    style={{width: `${prog.pct}%`}}
-                />
-            </div>
-        </div>
-    );
-}
 
 /** webPlaceholder shows what the Web address field falls back to when left blank,
  *  so the derivation is visible instead of implied. Mirrors engine/serverurl.Web,
@@ -98,89 +77,6 @@ function webPlaceholder(server: string): string {
     return s;
 }
 
-/** StatusLine is the small centred status/error line under a card.
- *
- *  `live` is opt-in. An aria-live region only announces changes while it is in the
- *  DOM, so the element has to stay mounted through the empty state to work, which
- *  costs a permanently reserved 20px. That is right for the Settings server test,
- *  where the result arrives seconds later and is the entire point of pressing the
- *  button, and wrong for the send and receive lines, which sit in tight layouts and
- *  should collapse to nothing when idle. */
-function StatusLine({text, busy, live}: {text: string; busy: boolean; live?: boolean}) {
-    if (!text && !live) return null;
-    const isError = text.startsWith('Error');
-    return (
-        <p
-            {...(live ? {role: 'status' as const, 'aria-live': 'polite' as const} : {})}
-            className={cn('flex min-h-5 items-center justify-center gap-2 text-center text-xs', isError ? 'text-red-400' : 'text-zinc-500')}
-        >
-            {busy && <Loader2 className="size-3.5 shrink-0 animate-spin"/>}
-            {isError && <AlertCircle className="size-3.5 shrink-0"/>}
-            <span>{text}</span>
-        </p>
-    );
-}
-
-/** UpdateNotice is the app's one toast, and a notice only: nothing downloads or
- *  installs here, so it carries a single action plus a dismiss (a "Later"
- *  button would just be a second X, and snooze semantics belong to
- *  auto-updaters with a payload waiting). It persists until acted on: an
- *  actionable notice that auto-hides is one most users never see, and there is
- *  no notification center to replay it. z-30 keeps tooltips (z-40) and the
- *  dialogs (z-50) painting over it, so the documented paint-order/Escape
- *  invariant is untouched; Escape closes it only while focus is inside the
- *  card, never from the global chain. It must not steal focus on appear.
- *  Screen-reader announcement lives in the persistent sr-only region at the
- *  app root, not here: a live region that mounts with its content already
- *  inside announces nothing. */
-function UpdateNotice({version, onDismiss}: {version: string; onDismiss: () => void}) {
-    return (
-        <div
-            role="group"
-            aria-label="Update available"
-            onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onDismiss(); } }}
-            className={cn(
-                'floe-notice-edge fixed right-4 top-[52px] z-30 isolate flex h-12 items-center gap-3 rounded-xl pl-4 pr-1.5',
-                'bg-zinc-900/80 ring-1 ring-inset ring-white/10 backdrop-blur-xl backdrop-saturate-150',
-                'shadow-[0_1px_1px_rgba(0,0,0,0.06),0_4px_8px_-4px_rgba(0,0,0,0.28),0_16px_32px_-12px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.07)]',
-                'animate-floe-notice-in motion-reduce:animate-none',
-            )}
-        >
-            {/* strokeWidth 3 on a 16px lucide renders a whole 2.0 device px, so
-                the glyph is true white and crisp; the default 2 draws 1.33px
-                straddling pixel boundaries, which antialiases to fuzzy grey. */}
-            <Download className="size-4 shrink-0 text-white" strokeWidth={3} aria-hidden/>
-            <div className="flex min-w-0 items-center gap-2">
-                <h2 className="whitespace-nowrap text-[13px] font-semibold leading-none tracking-[-0.01em] text-zinc-50">Update available</h2>
-                {/* A chip, not bare text, by the owner's choice: the boxed
-                    version reads as a badge. Center-aligned like any badge, so
-                    no baseline nudge. */}
-                <span className="whitespace-nowrap rounded bg-white/[0.07] px-1.5 py-1 font-mono text-[11px] leading-none text-zinc-300">{bareVersion(version)}</span>
-            </div>
-            <div className="flex shrink-0 items-center">
-                {/* No px override: cn is a plain join, so the base px-3 wins
-                    over any px-* here anyway (equal specificity, later in the
-                    sheet). h-7 and text-xs do apply. */}
-                <Button className="h-7 text-xs" onClick={() => { BrowserOpenURL(DOWNLOAD_URL); onDismiss(); }}>
-                    Get update
-                </Button>
-                {/* Ink-symmetric margins, not flex gaps: the button's edge is
-                    flush while the X's ink sits ~10px inside its hit box, so
-                    14px of margin on the button side and 4px on the X side
-                    give the divider equal ~14px optical gaps to both. */}
-                <span className="ml-3.5 mr-1 h-5 w-px bg-white/[0.14]" aria-hidden/>
-                <button
-                    aria-label="Dismiss update notice"
-                    onClick={onDismiss}
-                    className="grid size-7 shrink-0 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-100 focus-visible:outline-2 focus-visible:outline-ice"
-                >
-                    <X className="size-3.5"/>
-                </button>
-            </div>
-        </div>
-    );
-}
-
 // Windows paths compare case-insensitively; normalize for dedupe and removal but
 // keep the original strings for display and for the Go side.
 const isWindows = navigator.userAgent.includes('Windows');
@@ -188,117 +84,6 @@ const isWindows = navigator.userAgent.includes('Windows');
 // WKWebView reports "Macintosh" even on Apple Silicon; the UA is synchronous, unlike
 // the Wails Environment() promise, so the once-registered key listener can read it.
 const isMac = navigator.userAgent.includes('Macintosh');
-/** UndoToast is the app's second toast, and the opposite kind to the first:
- *  the update notice stands until it is acted on, while this one exists only
- *  for as long as the undo behind it does. It sits bottom centre, in the empty
- *  space under the card, so the two can never collide, and it is a pill rather
- *  than a rounded rectangle because it carries a passing sentence rather than a
- *  standing task.
- *
- *  Same material as the notice (blurred zinc, an inset hairline, the layered
- *  shadow) so they read as one family, but deliberately WITHOUT the ice rim:
- *  that is the notice's one accent, and ice otherwise belongs to focus rings
- *  and the OS drag highlight.
- *
- *  The full-width positioner is pointer-events-none so this cannot swallow a
- *  click meant for the card behind it; only the pill itself takes the pointer.
- *  Hovering the pill holds the countdown, so the offer cannot expire out from
- *  under a pointer travelling towards it.
- *
- *  Screen-reader announcement lives in the persistent sr-only region at the app
- *  root, next to the update notice's, for the reason documented there: a live
- *  region that mounts with its text already inside announces nothing. */
-function UndoToast({label, action, onUndo, onHold, onArm}: {
-    label: string;
-    action: string;
-    onUndo: () => void;
-    onHold: () => void;
-    onArm: () => void;
-}) {
-    // Centred under the console, not under the window: the left edge mirrors
-    // the hero rail's own w-[42%] max-w-[460px] rule, so the pill lines up with
-    // the card it is talking about at every window width. Fixed rather than
-    // absolute inside main, because that column scrolls and would carry the
-    // toast away with it.
-    // The px-8 on the positioner matches the console's own gutter, so a long
-    // line can never run to the edges of the column.
-    return (
-        <div className="pointer-events-none fixed bottom-8 left-[min(42%,460px)] right-0 z-30 flex justify-center px-8">
-            <div
-                onMouseEnter={onHold}
-                onMouseLeave={onArm}
-                className={cn(
-                    // The card's surface, corner and fill, but only as wide as
-                    // what it has to say: at these labels that is about half the
-                    // card, which is the size a passing message should be. A bar
-                    // the full width of the card read as a second card.
-                    'pointer-events-auto flex h-12 max-w-full items-center gap-3 rounded-xl border border-white/10 bg-zinc-900/60 pl-4 pr-2.5',
-                    'shadow-2xl ring-1 ring-white/5 backdrop-blur-xl backdrop-saturate-150',
-                    'animate-floe-toast-in motion-reduce:animate-none',
-                )}
-            >
-                <Undo2 className="size-4 shrink-0 text-zinc-400" strokeWidth={2.5} aria-hidden/>
-                <span className="truncate text-[13px] leading-none tracking-[-0.005em] text-zinc-200">{label}</span>
-                <button
-                    id="floe-undo-clear"
-                    aria-label={action}
-                    onClick={onUndo}
-                    // Hold the countdown only for a keyboard landing. The focus
-                    // move that brings the user here happens after a mouse click
-                    // too, and holding then would pin the offer open until they
-                    // clicked something else. :focus-visible is exactly that
-                    // distinction, and Tooltip.tsx already leans on it.
-                    onFocus={(e) => { if (e.currentTarget.matches(':focus-visible')) onHold(); }}
-                    onBlur={onArm}
-                    className="ml-1 h-8 shrink-0 rounded-md border border-white/10 bg-white/[0.06] px-3 text-[13px] font-medium leading-none text-zinc-100 transition-colors hover:border-white/20 hover:bg-white/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice/60"
-                >
-                    Undo
-                </button>
-            </div>
-        </div>
-    );
-}
-
-/** Switch is the settings toggle: a small track/thumb pair driven by an
- *  sr-only checkbox so keyboard and screen-reader behavior come for free.
- *  32x18 with a 14px thumb (travel 32 - 14 - 2*2 = 14px = translate-x-3.5),
- *  desktop proportions rather than the chunkier mobile 36x20. Deliberately no
- *  group-hover coupling: the primitive stays context-free, and the row's own
- *  hover fill already signals interactivity. */
-function Switch({checked, onChange}: {checked: boolean; onChange: (v: boolean) => void}) {
-    return (
-        <span className="relative inline-flex shrink-0">
-            <input
-                type="checkbox"
-                checked={checked}
-                onChange={(e) => onChange(e.target.checked)}
-                className="peer sr-only"
-            />
-            <span
-                className={cn(
-                    'relative h-[18px] w-8 rounded-full transition-colors peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ice/60',
-                    checked ? 'bg-white' : 'bg-white/10 ring-1 ring-inset ring-white/15',
-                )}
-            >
-                <span
-                    className={cn(
-                        'absolute left-0.5 top-0.5 size-3.5 rounded-full transition-transform duration-150 ease-out',
-                        checked ? 'translate-x-3.5 bg-zinc-950' : 'bg-zinc-400',
-                    )}
-                />
-            </span>
-        </span>
-    );
-}
-
-// One geometry, three call sites: SettingRow, SettingField, and the Advanced
-// disclosure button. Kept as consts so the three cannot drift apart.
-//
-// 13px labels match the TitleBar wordmark; 12/16 descriptions are one line under
-// the 12-word copy rule. About rows flip the emphasis: dim key, legible mono
-// value, with the label at zinc-400 rather than zinc-500 so it keeps AA contrast.
-const rowLabelClass = 'block text-[13px] font-medium leading-5 text-zinc-200';
-const rowDescClass = 'mt-0.5 block text-xs leading-4 text-zinc-500';
 const aboutLabelClass = 'text-[13px] leading-5 text-zinc-400';
 const aboutValueClass = 'shrink-0 font-mono text-xs text-zinc-300';
 
@@ -311,272 +96,6 @@ const cardClass = 'overflow-hidden rounded-lg border border-white/[0.06] bg-whit
 // collapsed Advanced disclosure (v4 divide-y compiles to :not(:last-child)
 // border-bottom with no hidden/collapsed escape).
 const insetHairline = '[&>*+*]:relative [&>*+*]:before:absolute [&>*+*]:before:inset-x-3.5 [&>*+*]:before:top-0 [&>*+*]:before:h-px [&>*+*]:before:bg-white/[0.05]';
-
-/** SettingRow is one settings entry: stacked label and one-line description with
- *  a trailing switch. The hover fill is the row's interactivity signal (the card
- *  clips it to the rounded corners); the whole row stays one click target. */
-function SettingRow({checked, onChange, label, description}: {
-    checked: boolean;
-    onChange: (v: boolean) => void;
-    label: string;
-    description?: string;
-}) {
-    return (
-        <label className="flex cursor-pointer select-none items-center justify-between gap-4 px-3.5 py-2.5 transition-colors hover:bg-white/[0.04]">
-            <span className="min-w-0">
-                <span className={rowLabelClass}>{label}</span>
-                {description && <span className={rowDescClass}>{description}</span>}
-            </span>
-            <Switch checked={checked} onChange={onChange}/>
-        </label>
-    );
-}
-
-/** SettingField is the text-input counterpart to SettingRow: the same label and
- *  description treatment, but the control sits underneath, because a settings row
- *  is too narrow to hold a description and a usable text field side by side.
- *
- *  This used to render its label as a <span>, which looks identical but is not a
- *  label, so both address inputs had no accessible name at all and announced as
- *  "edit text, blank".
- *
- *  children is a render prop rather than a plain node so the wiring cannot be got
- *  wrong. aria-describedby has to sit on the control itself; on a wrapping element
- *  it associates with nothing and silently does nothing. Handing the ids to the
- *  caller means a new field is spelled the same way as the existing ones or it
- *  does not compile.
- *
- *  description is optional under the 12-word copy rule; when absent the ids
- *  object OMITS the aria-describedby key entirely, never a dangling id. Padding
- *  comes from the caller, so the same field works inside a card row and inside
- *  the Advanced panel. */
-function SettingField({htmlFor, label, description, className, children}: {
-    htmlFor: string;
-    label: string;
-    description?: string;
-    className?: string;
-    children: (ids: {id: string; 'aria-describedby'?: string}) => ReactNode;
-}) {
-    const descId = `${htmlFor}-description`;
-    return (
-        <div className={className}>
-            <label htmlFor={htmlFor} className={rowLabelClass}>{label}</label>
-            {description && <p id={descId} className={rowDescClass}>{description}</p>}
-            <div className="mt-2">
-                {children(description ? {id: htmlFor, 'aria-describedby': descId} : {id: htmlFor})}
-            </div>
-        </div>
-    );
-}
-
-/** FooterNote is the reassurance/warning line under the card and the settings
- *  screen, styled to match the browser transfer card's footer. */
-function FooterNote({busy}: {busy: boolean}) {
-    return (
-        <p className={cn('text-center text-[10px] uppercase leading-relaxed tracking-wide', busy ? 'text-amber-300/80' : 'text-zinc-500')}>
-            {busy ? 'Keep this window open. Closing it cancels the transfer.' : 'End-to-end encrypted. Files are never stored on a server.'}
-        </p>
-    );
-}
-
-// Wails highlights the element carrying this var while an OS drag hovers it.
-// Dropping works window-wide regardless (OnFileDrop useDropTarget=false); the
-// var only drives the hover highlight.
-const dropVar = {['--wails-drop-target' as never]: 'drop'} as CSSProperties;
-
-/** Dropzone is the file selector: a full invitation while the selection is empty,
- *  a slim "Add files" row once files are picked. */
-function Dropzone({expanded, onPickFiles, onPickFolder}: {
-    expanded: boolean;
-    onPickFiles: () => void;
-    onPickFolder: () => void;
-}) {
-    if (!expanded) {
-        return (
-            <div style={dropVar} className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-white/40 bg-white/[0.02] py-1.5 pl-3 pr-1.5 transition-colors hover:border-white/70">
-                <span className="flex min-w-0 items-baseline gap-2.5">
-                    <span className="text-sm font-medium text-zinc-200">Add files</span>
-                    <span className="truncate font-mono text-[10px] uppercase tracking-[0.15em] text-zinc-600">or drop anywhere</span>
-                </span>
-                <span className="flex shrink-0 gap-1">
-                    <Button variant="ghost" className="px-2 py-1.5" onClick={onPickFiles} aria-label="Add files">
-                        <Files/>
-                    </Button>
-                    <Button variant="ghost" className="px-2 py-1.5" onClick={onPickFolder} aria-label="Add a folder">
-                        <Folder/>
-                    </Button>
-                </span>
-            </div>
-        );
-    }
-    return (
-        <div style={dropVar} className="group rounded-xl border border-dashed border-white/40 bg-white/[0.02] p-5 text-center transition-colors hover:border-white/70 hover:bg-white/[0.03]">
-            <span className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] transition group-hover:border-white/25">
-                <UploadCloud className="h-5 w-5 text-white/70 transition group-hover:text-white"/>
-            </span>
-            <p className="text-sm font-medium text-zinc-200">Select files to send</p>
-            <p className="mt-1 font-mono text-[11px] text-zinc-500">or drag them onto the window</p>
-            <div className="mt-3 flex gap-2">
-                <Button variant="outline" className="flex-1" onClick={onPickFiles}>
-                    <Files/> Files
-                </Button>
-                <Button variant="outline" className="flex-1" onClick={onPickFolder}>
-                    <Folder/> Folder
-                </Button>
-            </div>
-        </div>
-    );
-}
-
-/** FileList is the editable selection: compact rows with a remove control. */
-function FileList({files, onRemove}: {files: string[]; onRemove: (path: string) => void}) {
-    return (
-        <ul className="custom-scrollbar max-h-40 space-y-1.5 overflow-y-auto">
-            {files.map((f) => (
-                <li key={f} className="flex items-center gap-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02] py-1.5 pl-2 pr-1">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/[0.04] ring-1 ring-inset ring-white/10">
-                        <FileIcon name={f}/>
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-sm text-zinc-300">{baseName(f)}</span>
-                    <button
-                        onClick={() => onRemove(f)}
-                        aria-label={`Remove ${baseName(f)}`}
-                        className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-600 transition-colors hover:bg-white/10 hover:text-zinc-200"
-                    >
-                        <X className="size-3.5"/>
-                    </button>
-                </li>
-            ))}
-        </ul>
-    );
-}
-
-/** FileSummary collapses the selection to one row while a transfer is in flight;
- *  the chevron expands a read-only list. */
-function FileSummary({files, open, onToggle}: {files: string[]; open: boolean; onToggle: () => void}) {
-    return (
-        <div className="space-y-1.5">
-            <button
-                onClick={onToggle}
-                className="flex w-full items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-left transition-colors hover:bg-white/[0.04]"
-            >
-                <span className="flex items-center gap-2.5">
-                    <Files className="size-4 text-zinc-400"/>
-                    <span className="text-sm text-zinc-300">{files.length} {files.length === 1 ? 'item' : 'items'}</span>
-                </span>
-                <ChevronDown className={cn('size-4 text-zinc-500 transition-transform', open && 'rotate-180')}/>
-            </button>
-            {open && (
-                <ul className="custom-scrollbar max-h-32 space-y-1.5 overflow-y-auto">
-                    {files.map((f) => (
-                        <li key={f} className="flex items-center gap-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2 py-1.5">
-                            <FileIcon name={f}/>
-                            <span className="min-w-0 truncate text-sm text-zinc-300">{baseName(f)}</span>
-                        </li>
-                    ))}
-                </ul>
-            )}
-        </div>
-    );
-}
-
-/** SharePanel is the single share surface, mirroring the browser's ShareLinkPanel:
- *  code hero + a [Copy link] [Show QR] [Share] action row. Shown only while
- *  waiting for the receiver: rooms are one-to-one, so the code is consumed
- *  (dead to anyone else) the moment the receiver joins. Callers gate on the
- *  link because code registration can fail while the link is always valid; the
- *  code hero simply drops out when the code is empty. */
-function SharePanel({code, link}: {code: string; link: string}) {
-    const [copied, setCopied] = useState<'code' | 'link' | null>(null);
-    const [qrOpen, setQrOpen] = useState(false);
-    async function copy(kind: 'code' | 'link', text: string) {
-        try {
-            await navigator.clipboard.writeText(text);
-            setCopied(kind);
-            setTimeout(() => setCopied(null), 1500);
-        } catch {
-            // clipboard unavailable
-        }
-    }
-    // Mirrors the browser's share handler: user-cancel is not an error; anything
-    // else falls back to copying the link.
-    async function share() {
-        try {
-            await navigator.share({url: link});
-        } catch (err) {
-            if ((err as Error).name !== 'AbortError') copy('link', link);
-        }
-    }
-    // Small centered action buttons mirroring the browser ShareLinkPanel's row;
-    // raw buttons because their py-1.5/text-xs sizing conflicts with Button's.
-    const actionBtn =
-        'inline-flex items-center justify-center gap-1.5 rounded-md border py-1.5 text-xs font-medium transition-all focus-visible:outline-2 focus-visible:outline-ice';
-    const actionIdle = 'border-white/10 bg-white/[0.04] text-zinc-400 hover:bg-white/10 hover:text-zinc-100';
-    return (
-        <div className="animate-floe-in space-y-3 rounded-xl border border-white/[0.08] bg-black/40 p-4">
-            {code && (
-                <div>
-                    <Eyebrow className="mb-2">Room code</Eyebrow>
-                    <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-zinc-950 py-2 pl-3 pr-1.5 transition hover:border-white/20">
-                        <span className="min-w-0 flex-1 break-all font-mono text-base font-semibold tracking-[0.2em] text-white">{code}</span>
-                        <Tooltip label="Copy code" align="end" className="shrink-0">
-                            <button
-                                onClick={() => copy('code', code)}
-                                aria-label="Copy code"
-                                className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
-                            >
-                                {copied === 'code' ? <Check className="size-3.5 text-green-500"/> : <Copy className="size-3.5"/>}
-                            </button>
-                        </Tooltip>
-                    </div>
-                </div>
-            )}
-            <div>
-                <Eyebrow className="mb-2">Share link</Eyebrow>
-                <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-zinc-950 py-2 pl-3 pr-1.5 transition hover:border-white/20">
-                    <code className="min-w-0 flex-1 break-all font-mono text-xs leading-relaxed text-zinc-300">{link}</code>
-                    <Tooltip label="Copy link" align="end" className="shrink-0">
-                        <button
-                            onClick={() => copy('link', link)}
-                            aria-label="Copy link"
-                            className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
-                        >
-                            {copied === 'link' ? <Check className="size-3.5 text-green-500"/> : <Copy className="size-3.5"/>}
-                        </button>
-                    </Tooltip>
-                </div>
-            </div>
-            <div className="flex items-center justify-center gap-2 pt-0.5">
-                <button
-                    onClick={() => setQrOpen((o) => !o)}
-                    aria-pressed={qrOpen}
-                    aria-label="Toggle QR code"
-                    className={cn(actionBtn, 'w-24', qrOpen ? 'border-white/20 bg-white/10 text-zinc-100' : actionIdle)}
-                >
-                    <QrCode className="h-3.5 w-3.5"/>
-                    {qrOpen ? 'Hide QR' : 'Show QR'}
-                </button>
-                {/* Web Share needs webview support: WebView2 (Windows) does not expose
-                    it today, so this renders only where the API exists — the same
-                    feature gate as the browser app. */}
-                {typeof navigator.share === 'function' && (
-                    <button onClick={share} aria-label="Share link" className={cn(actionBtn, 'w-20', actionIdle)}>
-                        <Share2 className="h-3.5 w-3.5"/>
-                        Share
-                    </button>
-                )}
-            </div>
-            {qrOpen && (
-                <div className="animate-floe-in flex flex-col items-center gap-2 pt-1">
-                    <div className="rounded-2xl bg-white p-3 shadow-lg ring-1 ring-white/10">
-                        <QRCode value={link} size={128} style={{height: 128, width: 128}} fgColor="#09090b" bgColor="#ffffff" level="M"/>
-                    </div>
-                    <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-600">Scan to receive files</p>
-                </div>
-            )}
-        </div>
-    );
-}
 
 function App() {
     // Only the transfer tabs are ever persisted; anything else in the store
@@ -1549,7 +1068,7 @@ function App() {
         // synchronous product of a click on a button that destroyed itself, so
         // the choice is a destination or nowhere. Same id lookup as
         // focusResetTrigger, for the same reason.
-        requestAnimationFrame(() => document.getElementById('floe-undo-clear')?.focus());
+        requestAnimationFrame(() => document.getElementById(UNDO_ANCHOR_ID)?.focus());
     }
 
     // Undo replaces rather than merges, because it cannot collide: new content on
