@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-/**
+
+    /**
  * Tests for deep-clean.mjs.
  *
  * The suite builds a synthetic checkout and a synthetic temp dir, both
@@ -661,7 +662,11 @@ describe('regressions found by the second red team', () => {
         try {
             const repo = newRepo(base, 'repo');
             const temp = path.join(base, 'temp');
-            const slug = path.resolve(repo).replace(/[:\/]/g, '-');
+            // The backslash matters: without it the slug keeps its separators,
+            // path.join reads them as separators again, and the session is
+            // never found. This assertion passed for months on that basis,
+            // proving nothing about the mask it was written to catch.
+            const slug = path.resolve(repo).replace(/[:\\/]/g, '-');
             const sess = path.join(temp, 'claude', slug, 'old-session');
             w(path.join(sess, '.git', 'HEAD'), 'ref');
             const secret = w(
@@ -821,6 +826,89 @@ describe('parseFirewall', () => {
             parseFirewall('{"Name":"x","Program":"C:\\\\nope\\\\a.exe"}')
                 .length,
             1
+        );
+    });
+});
+
+describe('the regression CI found on the skills job first real run', () => {
+    /**
+     * The allow roots were recorded under one spelling while every candidate
+     * was matched under two, so a temp root whose real path differs from the
+     * name it is reached by refused everything inside it. GitHub's Windows
+     * runner hits this because os.tmpdir() reads %TEMP%, which Windows spells
+     * C:\Users\RUNNER~1\... for the account runneradmin; macOS hits it
+     * because os.tmpdir() returns /var/folders/... whose realpath is
+     * /private/var/folders/.... Four tests failed on 2026-09-04 with one cause
+     * between them: every candidate under the temp dir read as "outside the
+     * allowed roots", which took the whole scratchpad bucket and --include
+     * with it. The fence failed closed, so nothing was ever wrongly deleted.
+     *
+     * A directory reached through a link stands in for the short name: both
+     * are one directory under two names, which is the property that broke,
+     * and unlike an 8.3 name a link can be built on every platform.
+     */
+    it('allows a temp root reached by a name that is not its real path', () => {
+        const real = path.join(BASE, 'aliased-real');
+        const alias = path.join(BASE, 'aliased-link');
+        fs.mkdirSync(path.join(real, 'work'), { recursive: true });
+        try {
+            fs.symlinkSync(
+                real,
+                alias,
+                process.platform === 'win32' ? 'junction' : 'dir'
+            );
+        } catch {
+            return; // no symlink rights; the fixture cannot be built here
+        }
+        assert.notEqual(
+            path.resolve(alias),
+            fs.realpathSync.native(alias),
+            'fixture is void unless the root has two spellings'
+        );
+
+        const fence = makeFence(REPO, [], alias);
+        assert.equal(
+            fence(path.join(alias, 'work')),
+            null,
+            'a candidate inside the temp root must not read as outside it'
+        );
+        // The same spelling-independence, in the direction where getting it
+        // wrong deletes something: a denied path must bind under both names.
+        for (const spelling of [alias, real]) {
+            assert.notEqual(
+                fence(path.join(spelling, 'floe-audit', 'bin')),
+                null,
+                `deny must bind through ${spelling}`
+            );
+        }
+    });
+/**
+     * The same mismatch one function along. --root is realpathed on the way
+     * in, but the scratchpad directory is named for the path the harness was
+     * given, so the slug the lookup built could not match the slug on disk and
+     * the whole bucket came back absent. That is what failed the age-sort and
+     * the --include guard on CI, with the fence failure sitting on top of it.
+     */
+    it('finds the scratchpad when --root is not spelled as its real path', () => {
+        const alias = tryLink(REPO, path.join(BASE, 'repo-alias'));
+        if (!alias) return; // no symlink rights here
+        const slug = path.resolve(alias).replace(/[:\\/]/g, '-');
+        fs.mkdirSync(path.join(TEMP, 'claude', slug, 'aliased-session'), {
+            recursive: true,
+        });
+        const r = run([
+            'survey',
+            '--json',
+            '--age-minutes',
+            '0',
+            '--root',
+            alias,
+            '--temp-root',
+            TEMP,
+        ]);
+        assert.equal(
+            bucketOf(JSON.parse(r.stdout), 'scratchpad:aliased-session'),
+            'safe'
         );
     });
 });
