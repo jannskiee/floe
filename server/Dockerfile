@@ -17,7 +17,10 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 # Application files. words.json is required at runtime (require('./words.json')).
-COPY server.js words.json ./
+# A glob, not a list: a new module that never reached the image would build
+# clean and then die at container start with MODULE_NOT_FOUND. .dockerignore
+# already excludes *.test.js.
+COPY *.js words.json ./
 
 # Run as the unprivileged user that the node image already provides.
 USER node

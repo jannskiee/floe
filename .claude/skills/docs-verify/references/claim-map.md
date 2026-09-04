@@ -30,7 +30,7 @@ The map names where a value is stated; grep the old literal repo-wide before fin
 
 ## Rate limits and caps
 
-- server/server.js: `MAX_CONNECTIONS_PER_IP`, `TURN_MAX_REQUESTS`, `CODE_MAX_REQUESTS`, `STATS_MAX_REPORTS` (fixed, no env var), `MAX_ACTIVE_CODES`, `MAX_REPORT_BYTES`; windows `RATE_LIMIT_WINDOW`, `TURN_RATE_WINDOW`, `CODE_RATE_WINDOW`, `STATS_RATE_WINDOW`.
+- server/server.js: `MAX_CONNECTIONS_PER_IP`, `CODE_MAX_REQUESTS`, `STATS_MAX_REPORTS` (fixed, no env var), `MAX_ACTIVE_CODES`, `MAX_REPORT_BYTES`; windows `RATE_LIMIT_WINDOW`, `CODE_RATE_WINDOW`, `STATS_RATE_WINDOW`. server/turn.js: `TURN_MAX_REQUESTS`, `TURN_RATE_WINDOW`.
 - Docs: docs/self-hosting/configuration.mdx table and "Two things about the limits" (script: server rows), CONTRIBUTING.md server table (script), docs/reference/architecture.mdx "Rate limiting" table, docs/reference/http-api.mdx "Rate limit" line under each endpoint, docs/troubleshooting.mdx "429" and "503" sections, CLAUDE.md "Rate Limiting", server/.env.example comments (script, NOTE).
 
 ## Room code TTL
@@ -40,7 +40,7 @@ The map names where a value is stated; grep the old literal repo-wide before fin
 
 ## TURN credential lifetimes
 
-- server/server.js: the `ttl` local in the coturn HMAC path, `CF_TURN_TTL`, `CF_CACHE_MS`.
+- server/turn.js: the `ttl` local in the coturn HMAC path, `CF_TURN_TTL`, `CF_CACHE_MS`.
 - Docs: docs/self-hosting/turn-relay.mdx (the expiry sentence under the coturn setup and "How credentials work"), docs/reference/http-api.mdx `GET /api/turn-credentials`, docs/troubleshooting.mdx "The TURN relay is not working", CLAUDE.md "TURN Credentials".
 
 ## CLI flags and environment

@@ -78,6 +78,7 @@ export const SURFACES = [
     'cli',
     'desktop',
     'server/server.js',
+    'server/turn.js',
     'server/.env.example',
     '.env.docker.example',
     'docker-compose.yml',
@@ -157,8 +158,12 @@ const ENV_IGNORE_CLIENT = new Set([
     'CI',
     'VERCEL_GIT_COMMIT_SHA',
 ]);
-// server.js reads exactly 14 keys today. Fewer means the extractor regex broke,
-// not that the server lost a setting; raise this when a key is added.
+// The server modules read exactly 14 keys between them today. Fewer means the
+// extractor regex broke, not that the server lost a setting; raise this when a
+// key is added. Counting across the directory rather than one file is what
+// keeps a module extraction from tripping this: the five TURN keys moving to
+// server/turn.js left server.js holding nine, and the hard fail below returns
+// early, taking every downstream env comparison with it.
 const SERVER_KEY_FLOOR = 14;
 
 // ---------------------------------------------------------------------------
@@ -784,10 +789,18 @@ function checkLabels(ctx) {
 // ---------------------------------------------------------------------------
 
 function serverEnv(root) {
-    const file = join(root, 'server', 'server.js');
+    const dir = join(root, 'server');
+    // server.js stays the anchor every report line points at; the scan is
+    // the whole directory. Tests are excluded because they set env vars to
+    // drive cases, which would invent keys the server never reads.
+    const file = join(dir, 'server.js');
     const keys = new Map();
     if (!existsSync(file)) return { keys, file };
-    for (const line of read(file).split('\n')) {
+    const sources = readdirSync(dir)
+        .filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'))
+        .sort()
+        .map((f) => join(dir, f));
+    for (const line of sources.flatMap((s) => read(s).split(String.fromCharCode(10)))) {
         for (const m of line.matchAll(/process\.env\.([A-Z_][A-Z0-9_]*)/g)) {
             const key = m[1];
             const esc = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -1178,7 +1191,7 @@ function checkEnv(ctx) {
             report.note(
                 'env',
                 `${serverFile}:1`,
-                `${k} is documented in ${places.join(', ')} but server/server.js never reads it`
+                `${k} is documented in ${places.join(', ')} but no module in server/ reads it`
             );
     }
     for (const k of contrib.client.keys()) {
@@ -1210,7 +1223,7 @@ function checkEnv(ctx) {
             report.hardLine(
                 'env',
                 `${confRel}:${row.line}`,
-                `${key} documented default ${row.def} but server/server.js defaults to ${code}`
+                `${key} documented default ${row.def} but server/ defaults to ${code}`
             );
         }
     }
@@ -1221,7 +1234,7 @@ function checkEnv(ctx) {
             report.hardLine(
                 'env',
                 `${contribRel}:${row.line}`,
-                `${key} (default: ${row.def}) but server/server.js defaults to ${code}`
+                `${key} (default: ${row.def}) but server/ defaults to ${code}`
             );
         }
     }
@@ -1242,7 +1255,7 @@ function checkEnv(ctx) {
         report.note(
             'env',
             where,
-            `${claim} but server/server.js defaults to ${code}`
+            `${claim} but server/ defaults to ${code}`
         );
     };
     const softFile = (parsed, kind) => {
