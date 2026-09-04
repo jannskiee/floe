@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { ExternalLink, Copy, Check, SquareArrowOutUpRight } from 'lucide-react';
+import { copyText } from '@/lib/clipboard';
 
 interface UmamiWindow extends Window {
     umami?: {
@@ -37,21 +38,6 @@ function isAndroid(ua: string): boolean {
     return /Android/i.test(ua);
 }
 
-function copyLinkFallback(url: string) {
-    try {
-        const textarea = document.createElement('textarea');
-        textarea.value = url;
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textarea);
-    } catch {
-        // URL is visible on screen so user can copy manually
-    }
-}
-
 interface Props {
     children: React.ReactNode;
 }
@@ -83,12 +69,12 @@ export function InAppBrowserGuard({ children }: Props) {
         }
     }, []);
 
+    // This component only ever renders inside a Facebook, Instagram, TikTok
+    // or WeChat webview, which is the environment most likely to block the
+    // async clipboard API, so it was the worst place to claim "Link copied"
+    // unconditionally. The URL stays on screen for a manual copy either way.
     const handleCopy = async () => {
-        try {
-            await navigator.clipboard.writeText(currentUrl);
-        } catch {
-            copyLinkFallback(currentUrl);
-        }
+        if (!(await copyText(currentUrl))) return;
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };

@@ -26,6 +26,7 @@ import { useRelayConfiguration } from '@/hooks/useRelayConfiguration';
 import { RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, probeIsRelay } from '@/lib/relay';
 import { buildShareLink, getRoomFromUrl, isValidRoomId } from '@/lib/roomLink';
 import { classifyPeerError } from '@/lib/peerErrors';
+import { copyText } from '@/lib/clipboard';
 import { resolveSocketUrl } from '@/lib/socketUrl';
 
 import {
@@ -297,19 +298,12 @@ export function P2PTransfer() {
         isSender,
     ]);
 
+    // Nothing is shown when the copy fails. The link is on screen right
+    // above this button, so a silent no-op leaves the user with the one thing
+    // that still works, where the green "Copied" it used to show regardless
+    // told them to stop looking at it.
     const handleCopy = async () => {
-        try {
-            await navigator.clipboard.writeText(generatedLink);
-        } catch {
-            const textarea = document.createElement('textarea');
-            textarea.value = generatedLink;
-            textarea.style.position = 'fixed';
-            textarea.style.opacity = '0';
-            document.body.appendChild(textarea);
-            textarea.select();
-            document.execCommand('copy');
-            document.body.removeChild(textarea);
-        }
+        if (!(await copyText(generatedLink))) return;
         setCopied(true);
         if (copyResetRef.current) clearTimeout(copyResetRef.current);
         copyResetRef.current = setTimeout(() => setCopied(false), 2000);

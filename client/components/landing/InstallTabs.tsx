@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
+import { copyText } from '@/lib/clipboard';
 
 // Install commands are copied verbatim from README.md; keep them in sync.
 //
@@ -20,14 +21,13 @@ export function InstallTabs() {
     const [active, setActive] = useState(0);
     const [copied, setCopied] = useState(false);
 
+    // This site was already honest, and gains the textarea fallback it never
+    // had. Clipboard still unavailable (permissions or insecure context) and
+    // the command stays selectable.
     const copy = async () => {
-        try {
-            await navigator.clipboard.writeText(CLI_INSTALL_TABS[active].command);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-        } catch {
-            // Clipboard unavailable (permissions or insecure context); the command stays selectable.
-        }
+        if (!(await copyText(CLI_INSTALL_TABS[active].command))) return;
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
     };
 
     return (
