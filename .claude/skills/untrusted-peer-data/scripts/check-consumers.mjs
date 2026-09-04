@@ -76,14 +76,23 @@ export const FIELDS = {
         member: ['ver', 'reason'],
     },
 };
-// Files the map keeps although no token appears in them: they receive peer
-// text under another name (`raw`, `names`, an SDP string) and would otherwise
-// draw a permanent obsolete-row warning that trains people to ignore
-// warnings. A STALE still fires if one of them is deleted.
+// Files the map keeps although no token appears in them, for either of two
+// reasons: they receive peer text under another name (`raw`, `names`, an SDP
+// string), or every row they hold is a `none` row recording a sink that was
+// checked and found peer-free. Both would otherwise draw a permanent
+// obsolete-row warning that trains people to ignore warnings. A STALE still
+// fires if one of them is deleted.
+//
+// desktop/app.go is the second kind, since #405 split the peer-handling half
+// out to transfer.go and reveal.go. What is left there is `notify` and
+// `notifyTransferFailed`, whose every call site passes a literal string
+// ("Floe - send failed", "Floe"), so nothing peer-chosen reaches an OS
+// notification. That is worth keeping as a row rather than deleting.
 export const TOKEN_FREE = new Set([
     'desktop/frontend/src/errors.ts',
     'desktop/frontend/src/history.ts',
     'cli/engine/peer/connection.go',
+    'desktop/app.go',
 ]);
 const tokenRegex = (f) =>
     new RegExp(`\\b(${f.word.join('|')})\\b|\\.(${f.member.join('|')})\\b`);
