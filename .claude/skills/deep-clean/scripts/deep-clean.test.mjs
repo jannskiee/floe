@@ -824,3 +824,57 @@ describe('parseFirewall', () => {
         );
     });
 });
+
+describe('the regression CI found on the skills job first real run', () => {
+    /**
+     * The allow roots were recorded under one spelling while every candidate
+     * was matched under two, so a temp root whose real path differs from the
+     * name it is reached by refused everything inside it. GitHub's Windows
+     * runner hits this because os.tmpdir() reads %TEMP%, which Windows spells
+     * C:\Users\RUNNER~1\... for the account runneradmin; macOS hits it
+     * because os.tmpdir() returns /var/folders/... whose realpath is
+     * /private/var/folders/.... Four tests failed on 2026-09-04 with one cause
+     * between them: every candidate under the temp dir read as "outside the
+     * allowed roots", which took the whole scratchpad bucket and --include
+     * with it. The fence failed closed, so nothing was ever wrongly deleted.
+     *
+     * A directory reached through a link stands in for the short name: both
+     * are one directory under two names, which is the property that broke,
+     * and unlike an 8.3 name a link can be built on every platform.
+     */
+    it('allows a temp root reached by a name that is not its real path', () => {
+        const real = path.join(BASE, 'aliased-real');
+        const alias = path.join(BASE, 'aliased-link');
+        fs.mkdirSync(path.join(real, 'work'), { recursive: true });
+        try {
+            fs.symlinkSync(
+                real,
+                alias,
+                process.platform === 'win32' ? 'junction' : 'dir'
+            );
+        } catch {
+            return; // no symlink rights; the fixture cannot be built here
+        }
+        assert.notEqual(
+            path.resolve(alias),
+            fs.realpathSync.native(alias),
+            'fixture is void unless the root has two spellings'
+        );
+
+        const fence = makeFence(REPO, [], alias);
+        assert.equal(
+            fence(path.join(alias, 'work')),
+            null,
+            'a candidate inside the temp root must not read as outside it'
+        );
+        // The same spelling-independence, in the direction where getting it
+        // wrong deletes something: a denied path must bind under both names.
+        for (const spelling of [alias, real]) {
+            assert.notEqual(
+                fence(path.join(spelling, 'floe-audit', 'bin')),
+                null,
+                `deny must bind through ${spelling}`
+            );
+        }
+    });
+});

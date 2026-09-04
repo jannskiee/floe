@@ -299,13 +299,47 @@ function denyList(roots, tempRoot) {
     return out;
 }
 
+/**
+ * Every allow root under both of its spellings. A candidate is matched in its
+ * literal and its real form, so a root recorded under one spelling refuses the
+ * other. Two real cases, neither of them exotic: os.tmpdir() reads %TEMP%,
+ * which Windows hands back as an 8.3 short name when the account name is
+ * longer than eight characters (C:UsersRUNNER~1... on a GitHub runner),
+ * and macOS returns /var/folders/... whose realpath is /private/var/folders/.
+ * In both, realpathSync.native yields a path that does not start with the root
+ * as spelled, so every candidate under the temp directory read as outside it
+ * and the fence refused the whole bucket. Adding the other name of a directory
+ * that is already allowed admits no new directory.
+ */
+function spellings(p) {
+    const abs = path.resolve(p);
+    return [...new Set([abs, realOrSelf(abs)])];
+}
+
+function allowRootsFor(root, tempRoot) {
+    return [...new Set([...spellings(root), ...spellings(tempRoot)])];
+}
+
 export function makeFence(root, keeps, tempRoot = os.tmpdir()) {
-    const allowRoots = [
-        ...new Set([path.resolve(root), path.resolve(tempRoot)]),
-    ];
-    const deny = denyList([root, DEFAULT_ROOT], tempRoot).concat(
-        keeps.map((k) => ({ path: k, why: 'protected by --keep' }))
-    );
+    const rootForms = spellings(root);
+    const tempForms = spellings(tempRoot);
+    const allowRoots = [...new Set([...rootForms, ...tempForms])];
+    // Deny rules are GENERATED under every spelling of the roots they are
+    // built from, rather than realpathed afterwards. Almost every rule names
+    // a path that does not exist (server/.env in a checkout that has none),
+    // and realpathSync returns the spelling it was handed for those, so a
+    // post-hoc pass would silently leave the rule bound to one name. Getting
+    // this wrong is the direction that deletes something.
+    const deny = tempForms
+        .flatMap((t) => denyList([...rootForms, DEFAULT_ROOT], t))
+        .concat(
+            keeps.flatMap((k) =>
+                spellings(k).map((f) => ({
+                    path: f,
+                    why: 'protected by --keep',
+                }))
+            )
+        );
 
     /** @returns {null | string} null when deletable, else the refusal reason. */
     return function fence(candidate) {
@@ -924,9 +958,7 @@ export function buildCandidates(opts) {
         realOrSelf(path.resolve(root, k))
     );
     const fence = makeFence(root, keeps, tempRoot);
-    const allowRoots = [
-        ...new Set([path.resolve(root), path.resolve(tempRoot)]),
-    ];
+    const allowRoots = allowRootsFor(root, tempRoot);
     const tracked = trackedPaths(root);
     if (tracked === null) return { error: 'not a git checkout' };
 
