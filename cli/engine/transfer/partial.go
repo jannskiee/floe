@@ -1,8 +1,12 @@
 package transfer
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
+	"time"
 )
 
 // The registry of in-flight .part staging files, so an exit path that cannot
@@ -79,4 +83,114 @@ func AbandonPartials() {
 		_ = os.Remove(name)
 		delete(partialFiles, f)
 	}
+}
+
+// partSuffix marks a staging file that is still being written. The full final
+// name stays in front of it ("report.pdf.part"), so Explorer shows what the
+// file will become, and ".part" is the convention download managers established
+// for "incomplete": a crash-stale leftover can never be mistaken for a finished
+// file. Bytes always land in a .part first; the final name is only ever taken
+// by the rename in commitPart, so a process kill at any moment leaves nothing
+// on disk that looks complete.
+const partSuffix = ".part"
+
+// candidatePath returns the i-th de-collision candidate for base: base itself
+// for i == 0, then "stem (i)ext". Shared by claimPart and commitPart so a
+// commit-time re-collision numbers from the base and can never produce
+// "shot (1) (1).png".
+func candidatePath(base string, i int) string {
+	if i == 0 {
+		return base
+	}
+	ext := filepath.Ext(base)
+	stem := strings.TrimSuffix(base, ext)
+	return fmt.Sprintf("%s (%d)%s", stem, i, ext)
+}
+
+// claimPart reserves a final name for an incoming file and opens its .part
+// staging file. It never overwrites: a candidate whose final name is taken by
+// an existing file or directory is skipped, as is one whose .part exists (a
+// concurrent receive's live claim, or a stale leftover from a crash, which is
+// deliberately not reused because it cannot be told apart from a live one).
+// The O_EXCL open of the .part is the atomic claim, so two concurrent receives
+// racing for the same name cannot both win a candidate.
+//
+// A candidate occupied by something that is neither a regular file nor a
+// directory (a device that survived name sanitizing) aborts loudly instead of
+// advancing: writing "past" a device would succeed byte-for-byte and vanish,
+// and failing before any bandwidth is spent beats failing after.
+func claimPart(base string) (part *os.File, dest string, err error) {
+	for i := 0; i < 100000; i++ {
+		candidate := candidatePath(base, i)
+		if st, lerr := os.Lstat(candidate); lerr == nil {
+			if !st.Mode().IsRegular() && !st.IsDir() {
+				return nil, "", fmt.Errorf("refusing to write %s: not a regular file (%s)",
+					candidate, st.Mode())
+			}
+			continue // final name taken; advance
+		}
+		f, oerr := os.OpenFile(candidate+partSuffix, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0666)
+		if oerr == nil {
+			return f, candidate, nil
+		}
+		if !os.IsExist(oerr) {
+			return nil, "", oerr
+		}
+		// A live or stale .part blocks this candidate; advance.
+	}
+	return nil, "", fmt.Errorf("too many files named like %q", filepath.Base(base))
+}
+
+// commitPart publishes a verified .part staging file at its final name,
+// never overwriting anything that is not ours.
+//
+// Go's os.Rename REPLACES an existing destination on every platform, Windows
+// included, so a bare rename here would silently clobber a file that appeared
+// at the destination mid-transfer. renameNoReplace makes the never-overwrite
+// claim instead: atomically on Windows (MoveFileEx without the replace flag,
+// so the final name never holds anything but the complete file, not even for
+// an instant), and via a placeholder created and consumed inside the one call
+// elsewhere.
+//
+// The rename gets a bounded retry because an AV scanner or indexer can hold
+// the just-closed .part briefly (Go's Windows opens grant no
+// FILE_SHARE_DELETE). A "destination exists" failure advances to the next
+// candidate immediately instead of retrying: waiting cannot make a name free.
+// On final failure the .part is deliberately LEFT IN PLACE: its bytes are
+// complete and verified, and deleting them over a transient lock would be
+// data loss.
+func commitPart(partPath, claimedDest, basePath string) (dest string, err error) {
+	for i := 0; i < 100000; i++ {
+		candidate := candidatePath(basePath, i)
+		if i > 0 && candidate == claimedDest {
+			continue // already tried first, below
+		}
+		if i == 0 {
+			candidate = claimedDest // our claim gets the first shot
+		}
+		// Another receiver's live claim on this candidate; leave it alone.
+		if candidate+partSuffix != partPath {
+			if _, perr := os.Lstat(candidate + partSuffix); perr == nil {
+				continue
+			}
+		}
+		var rerr error
+		for attempt := 0; attempt < 5; attempt++ {
+			rerr = renameNoReplace(partPath, candidate)
+			if rerr == nil {
+				return candidate, nil
+			}
+			if os.IsExist(rerr) {
+				break // name taken since the claim; advance to the next
+			}
+			if attempt < 4 {
+				time.Sleep(200 * time.Millisecond)
+			}
+		}
+		if os.IsExist(rerr) {
+			continue
+		}
+		return "", fmt.Errorf("could not move %s into place: %w", partPath, rerr)
+	}
+	return "", fmt.Errorf("too many files named like %q", filepath.Base(basePath))
 }
