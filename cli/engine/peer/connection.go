@@ -5,8 +5,6 @@ package peer
 import (
 	"encoding/json"
 	"fmt"
-	"net"
-	"strings"
 	"sync"
 	"time"
 
@@ -23,48 +21,6 @@ const (
 	connectTimeout    = 30 * time.Second // waiting for ICE/DTLS + the data channel to open
 	connectGrace      = 10 * time.Second // extra grace for the data channel after "connected"
 )
-
-// keepICEIP reports whether an interface IP should be used for ICE candidate
-// gathering. It drops link-local addresses (IPv4 169.254.0.0/16 and IPv6
-// fe80::/10), which are handed out by virtual and VPN adapters (Hyper-V, WSL,
-// VMware, Tailscale) and by APIPA auto-config when DHCP fails. Such addresses
-// never form a working peer-to-peer path, but pion would otherwise gather a host
-// candidate on each and spend 20-30s running connectivity checks that fail with
-// "socket operation attempted to an unreachable host" before settling on the
-// real interface (often falling back to the relay). Filtering by the link-local
-// IP class is unambiguous and safe: it never removes a routable interface.
-func keepICEIP(ip net.IP) bool {
-	return !ip.IsLinkLocalUnicast()
-}
-
-// makeInterfaceAllowFilter builds an ICE interface filter that keeps only the
-// interfaces whose name contains one of the given substrings (case-insensitive).
-// It is used for the opt-in `--iface` flag so power users on machines with many
-// virtual/VPN adapters (VMware, WSL, Tailscale) can pin ICE to their real NIC,
-// e.g. `--iface Ethernet`. The link-local IP filter above already handles the
-// common case; this is the manual override for the rest. Returns nil (no filter)
-// for an empty allowlist so the default behavior is unchanged.
-func makeInterfaceAllowFilter(names []string) func(string) bool {
-	var wanted []string
-	for _, n := range names {
-		n = strings.ToLower(strings.TrimSpace(n))
-		if n != "" {
-			wanted = append(wanted, n)
-		}
-	}
-	if len(wanted) == 0 {
-		return nil
-	}
-	return func(ifName string) bool {
-		lower := strings.ToLower(ifName)
-		for _, w := range wanted {
-			if strings.Contains(lower, w) {
-				return true
-			}
-		}
-		return false
-	}
-}
 
 // signalPayload is the JSON structure for WebRTC signals sent over the
 // signaling channel. It can be either an SDP (offer/answer) or an ICE candidate.
@@ -497,18 +453,6 @@ func (conn *Connection) ConnectionType() (string, error) {
 	return "direct", nil
 }
 
-// extractFingerprint returns the value of the first "a=fingerprint:" attribute
-// in an SDP (e.g. "sha-256 AB:CD:..."), or "" if absent.
-func extractFingerprint(sdp string) string {
-	for _, line := range strings.Split(sdp, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "a=fingerprint:") {
-			return strings.TrimSpace(line[len("a=fingerprint:"):])
-		}
-	}
-	return ""
-}
-
 // setRemoteDesc sets the remote SDP and flushes any buffered ICE candidates.
 func (conn *Connection) setRemoteDesc(desc webrtc.SessionDescription) error {
 	if err := conn.pc.SetRemoteDescription(desc); err != nil {
@@ -593,39 +537,4 @@ func (conn *Connection) handleCandidates() {
 			conn.addRemoteCandidate(c)
 		}
 	}
-}
-
-// patchMaxMessageSize injects a=max-message-size into the SDP.
-//
-// pion/webrtc v3.3.6 does NOT include a=max-message-size in the SDP it
-// generates. Per RFC 8841 §5, when the attribute is absent the remote peer
-// MUST assume a default of 65536 bytes. Chrome enforces this default: any
-// call to RTCDataChannel.send() with a payload larger than 65536 bytes throws
-// "Failure to send data" (TypeError per the WebRTC spec §6.2 step 4).
-//
-// The browser's chunk size starts at 160 KB (chunkSizeRef = 160*1024), so
-// every single chunk send fails. The fix is to explicitly advertise a large
-// max-message-size (1 GB) after the a=sctp-port line that pion DOES emit.
-// pion/sctp transparently handles SCTP-level fragmentation for large messages.
-func patchMaxMessageSize(sdp string) string {
-	const maxMsgAttr = "a=max-message-size:1073741824\r\n" // 1 GB
-
-	// If the attribute already exists (future pion versions), replace it.
-	if strings.Contains(sdp, "a=max-message-size:") {
-		lines := strings.Split(sdp, "\r\n")
-		for i, line := range lines {
-			if strings.HasPrefix(line, "a=max-message-size:") {
-				lines[i] = "a=max-message-size:1073741824"
-			}
-		}
-		return strings.Join(lines, "\r\n")
-	}
-
-	// Otherwise inject it right after a=sctp-port:5000
-	return strings.Replace(
-		sdp,
-		"a=sctp-port:5000\r\n",
-		"a=sctp-port:5000\r\n"+maxMsgAttr,
-		1,
-	)
 }
