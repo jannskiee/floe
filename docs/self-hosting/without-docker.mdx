@@ -57,11 +57,11 @@ Set at minimum:
 - In `client/.env.local`: `NEXT_PUBLIC_SITE_URL`, set to your own public address
 
 That third one matters more here than it does under Docker, and it is easy to miss. The published
-image omits canonical links, Open Graph tags and the sitemap when no site URL is set, rather than
+image omits canonical links, Open Graph tags, and the sitemap when no site URL is set, rather than
 claiming somebody else's domain. **A build you run yourself does not do that.** The omit behavior
 is switched on by a flag that only the official Dockerfile sets, so a plain `pnpm build` with
 `NEXT_PUBLIC_SITE_URL` unset falls back to `https://www.floe.one`: your instance would serve
-canonical tags, share previews and a sitemap advertising floe.one instead of itself.
+canonical tags, share previews, and a sitemap advertising floe.one instead of itself.
 
 Set it to your own origin, or accept that those tags point somewhere else. It is inlined at build
 time, so changing it later means another `pnpm build`.

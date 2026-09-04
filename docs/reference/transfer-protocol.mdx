@@ -29,8 +29,8 @@ Four things that order does not show.
 - **There is no cancel message.** Cancellation is a channel close, and a receiver declining at
   the CLI's prompt closes the channel without sending anything. Every wait in the Go engine
   watches for that close as a separate signal and gives up at once. The browser sender does not:
-  it sees a close only through its buffer-drain polls, so a decline reaches it as the full 120
-  second ack timeout instead.
+  it sees a close only through its buffer-drain polls, so a decline reaches it as the full
+  120-second ack timeout instead.
 - **A person can sit between steps 1 and 2.** `floe receive` prints `Accept? [Y/n]` and waits for
   an answer before it sends the ack. That is the whole reason the ack deadline is 120 seconds.
 - **The end of a batch is a race, not a message.** A Go sender finishes on whichever comes
