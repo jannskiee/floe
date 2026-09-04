@@ -259,3 +259,60 @@ describe('the progress label', () => {
         }
     });
 });
+
+/**
+ * Smoke renders for the two views nothing has ever mounted.
+ *
+ * Every existing test in this file leaves `mode` at its 'send' default, so the
+ * receive console and the history console have no render coverage of any kind.
+ * That matters because they are next in line to be extracted into top-level
+ * components, and a JSX move that silently dropped a branch would take the
+ * whole suite green with it.
+ *
+ * These are deliberately shallow. They assert that each view mounts and shows
+ * the controls that make it that view, which is what a bad extraction breaks;
+ * they do not try to cover behavior the views do not have tests for today.
+ */
+describe('the views no other test mounts', () => {
+    it('renders the receive console when the Receive tab is chosen', async () => {
+        mount();
+        await settled();
+
+        await userEvent.click(screen.getByRole('button', {name: 'Receive'}));
+
+        // The code field is the view: placeholder, not label, because the
+        // Eyebrow above it is not associated with the input.
+        expect(
+            screen.getByPlaceholderText('amber-otter-cloud')
+        ).toBeInstanceOf(HTMLInputElement);
+        // And the save-folder field, which is the half that reads a real path.
+        expect(screen.getByPlaceholderText('Downloads (default)')).toBeTruthy();
+    });
+
+    it('renders the history console, empty and populated', async () => {
+        localStorage.setItem(
+            'floe:history',
+            JSON.stringify([
+                {kind: 'recv', names: ['report.pdf'], count: 1, at: Date.now(), bytes: 1024},
+            ])
+        );
+        mount();
+        await settled();
+
+        await userEvent.click(screen.getByRole('button', {name: 'History'}));
+
+        // A seeded row must actually reach the list. Asserting only the empty
+        // state would pass against a view that renders nothing at all.
+        expect(await screen.findByText('report.pdf')).toBeTruthy();
+        expect(screen.queryByText('No transfers yet.')).toBeNull();
+    });
+
+    it('shows the empty state when there is no history', async () => {
+        mount();
+        await settled();
+
+        await userEvent.click(screen.getByRole('button', {name: 'History'}));
+
+        expect(await screen.findByText('No transfers yet.')).toBeTruthy();
+    });
+});
