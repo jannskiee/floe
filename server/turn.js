@@ -44,6 +44,15 @@ function generateCoturnCredentials() {
     const ttl = 24 * 3600;
     const expiry = Math.floor(Date.now() / 1000) + ttl;
     const username = `${expiry}:floeuser`;
+    // SHA-1 is not a choice here. The TURN REST credential mechanism
+    // (draft-uberti-behave-turn-rest) specifies HMAC-SHA1, and coturn
+    // accepts nothing else under use-auth-secret, so any other digest
+    // produces credentials the relay rejects. HMAC-SHA1 is also not the
+    // broken thing: SHA-1 collision attacks do not carry to HMAC-SHA1.
+    // CodeQL flags this as js/weak-cryptographic-algorithm; alert 1 was
+    // dismissed on this exact line while it lived in server.js, and moving
+    // the file re-raised it because a dismissal is pinned to a location.
+    // The rationale lives here now so it travels with the code.
     const password = crypto.createHmac('sha1', turnSecret).update(username).digest('base64');
 
     return [
