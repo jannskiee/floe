@@ -38,7 +38,7 @@ Both peers must be on the same server. Servers do not talk to each other.
 
 ## Run one instance, not several
 
-The signaling server keeps rooms, room codes and its rate limiters in the memory of a single
+The signaling server keeps rooms, room codes, and its rate limiters in the memory of a single
 process. **Putting two replicas behind a load balancer does not scale Floe out; it breaks
 pairing**, because the two peers can land on different replicas and never find each other.
 
