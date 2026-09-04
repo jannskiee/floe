@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-/**
+
+    /**
  * Tests for deep-clean.mjs.
  *
  * The suite builds a synthetic checkout and a synthetic temp dir, both
@@ -661,7 +662,11 @@ describe('regressions found by the second red team', () => {
         try {
             const repo = newRepo(base, 'repo');
             const temp = path.join(base, 'temp');
-            const slug = path.resolve(repo).replace(/[:\/]/g, '-');
+            // The backslash matters: without it the slug keeps its separators,
+            // path.join reads them as separators again, and the session is
+            // never found. This assertion passed for months on that basis,
+            // proving nothing about the mask it was written to catch.
+            const slug = path.resolve(repo).replace(/[:\\/]/g, '-');
             const sess = path.join(temp, 'claude', slug, 'old-session');
             w(path.join(sess, '.git', 'HEAD'), 'ref');
             const secret = w(
@@ -876,5 +881,34 @@ describe('the regression CI found on the skills job first real run', () => {
                 `deny must bind through ${spelling}`
             );
         }
+    });
+/**
+     * The same mismatch one function along. --root is realpathed on the way
+     * in, but the scratchpad directory is named for the path the harness was
+     * given, so the slug the lookup built could not match the slug on disk and
+     * the whole bucket came back absent. That is what failed the age-sort and
+     * the --include guard on CI, with the fence failure sitting on top of it.
+     */
+    it('finds the scratchpad when --root is not spelled as its real path', () => {
+        const alias = tryLink(REPO, path.join(BASE, 'repo-alias'));
+        if (!alias) return; // no symlink rights here
+        const slug = path.resolve(alias).replace(/[:\\/]/g, '-');
+        fs.mkdirSync(path.join(TEMP, 'claude', slug, 'aliased-session'), {
+            recursive: true,
+        });
+        const r = run([
+            'survey',
+            '--json',
+            '--age-minutes',
+            '0',
+            '--root',
+            alias,
+            '--temp-root',
+            TEMP,
+        ]);
+        assert.equal(
+            bucketOf(JSON.parse(r.stdout), 'scratchpad:aliased-session'),
+            'safe'
+        );
     });
 });

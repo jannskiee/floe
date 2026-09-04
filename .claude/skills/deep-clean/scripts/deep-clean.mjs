@@ -748,7 +748,7 @@ function untrackedDirs(root, tracked) {
     return res;
 }
 
-function tempCandidates(root, scratchDays, tempRoot) {
+function tempCandidates(rootForms, scratchDays, tempRoot) {
     const out = [];
     let entries = [];
     try {
@@ -788,52 +788,64 @@ function tempCandidates(root, scratchDays, tempRoot) {
             });
         }
     }
-    out.push(...scratchpadCandidates(root, scratchDays, tempRoot));
+    out.push(...scratchpadCandidates(rootForms, scratchDays, tempRoot));
     return out;
 }
 
-function scratchpadCandidates(root, scratchDays, tempRoot) {
+function scratchpadCandidates(rootForms, scratchDays, tempRoot) {
     const base = path.join(tempRoot, 'claude');
-    const want = path
-        .resolve(root)
-        .replace(/[:\\/]/g, '-')
-        .toLowerCase();
+    // The directory is named for the project path as whoever created it
+    // spelled it, and that is not necessarily how this process spells it:
+    // --root is realpathed on the way in, while the harness that made the
+    // directory used the path it was handed. An account name longer than
+    // eight characters (RUNNER~1) or any linked component makes the two
+    // disagree, and then the entire scratchpad bucket reads as absent.
+    // Match on any spelling of the root rather than assuming one.
+    const wants = new Set(
+        rootForms.map((r) => r.replace(/[:\\/]/g, '-').toLowerCase())
+    );
     let projects = [];
     try {
         projects = fs.readdirSync(base, { withFileTypes: true });
     } catch {
         return [];
     }
-    const hit = projects.find(
-        (d) => d.isDirectory() && d.name.toLowerCase() === want
+    // Every matching project directory, not the first. Both spellings can
+    // exist on disk at once (one harness wrote the path it was given, a
+    // later one wrote the resolved path), and they hold different sessions.
+    // Taking find() here silently dropped whichever the readdir order put
+    // second.
+    const dirs = projects.filter(
+        (d) => d.isDirectory() && wants.has(d.name.toLowerCase())
     );
-    if (!hit) return [];
-    const projectDir = path.join(base, hit.name);
-    let sessions = [];
-    try {
-        sessions = fs.readdirSync(projectDir, { withFileTypes: true });
-    } catch {
-        return [];
-    }
     const cutoff = Date.now() - scratchDays * 86400000;
     const out = [];
-    for (const s of sessions) {
-        if (!s.isDirectory()) continue;
-        const p = path.join(projectDir, s.name);
-        const m = measure(p);
-        const empty = m.files === 0 && !m.capped;
-        const old = !m.capped && m.newest > 0 && m.newest < cutoff;
-        out.push({
-            id: `scratchpad:${s.name}`,
-            path: p,
-            bucket: empty || old ? 'safe' : 'ask',
-            why: empty
-                ? 'empty session scratchpad'
-                : old
-                  ? `session scratchpad, untouched for over ${scratchDays} days`
-                  : 'recent session scratchpad; another session may still be using it',
-            group: 'scratchpad',
-        });
+    for (const dir of dirs) {
+        const projectDir = path.join(base, dir.name);
+        let sessions = [];
+        try {
+            sessions = fs.readdirSync(projectDir, { withFileTypes: true });
+        } catch {
+            continue;
+        }
+        for (const s of sessions) {
+            if (!s.isDirectory()) continue;
+            const p = path.join(projectDir, s.name);
+            const m = measure(p);
+            const empty = m.files === 0 && !m.capped;
+            const old = !m.capped && m.newest > 0 && m.newest < cutoff;
+            out.push({
+                id: `scratchpad:${s.name}`,
+                path: p,
+                bucket: empty || old ? 'safe' : 'ask',
+                why: empty
+                    ? 'empty session scratchpad'
+                    : old
+                      ? `session scratchpad, untouched for over ${scratchDays} days`
+                      : 'recent session scratchpad; another session may still be using it',
+                group: 'scratchpad',
+            });
+        }
     }
     return out;
 }
@@ -959,6 +971,15 @@ export function buildCandidates(opts) {
     );
     const fence = makeFence(root, keeps, tempRoot);
     const allowRoots = allowRootsFor(root, tempRoot);
+    // rootLiteral is the spelling the caller used, before --root was
+    // realpathed. Only the scratchpad lookup needs it, and it needs it
+    // badly: see scratchpadCandidates.
+    const rootForms = [
+        ...new Set([
+            ...spellings(root),
+            ...spellings(opts.rootLiteral ?? root),
+        ]),
+    ];
     const tracked = trackedPaths(root);
     if (tracked === null) return { error: 'not a git checkout' };
 
@@ -966,7 +987,7 @@ export function buildCandidates(opts) {
         ...repoRules(root),
         ...repoGlobCandidates(root),
         ...untrackedDirs(root, tracked),
-        ...tempCandidates(root, scratchDays, tempRoot),
+        ...tempCandidates(rootForms, scratchDays, tempRoot),
     ];
 
     const ageCut = Date.now() - ageMinutes * 60000;
@@ -1134,6 +1155,7 @@ function parseArgs(argv) {
     const o = {
         cmd: 'survey',
         root: DEFAULT_ROOT,
+        rootLiteral: DEFAULT_ROOT,
         ageMinutes: 30,
         scratchDays: 7,
         includes: [],
@@ -1153,7 +1175,12 @@ function parseArgs(argv) {
             if (i >= argv.length) throw new Error(`${a} needs a value`);
             return argv[i];
         };
-        if (a === '--root') o.root = realOrSelf(path.resolve(next()));
+        if (a === '--root') {
+            // Both spellings are kept. The fence wants the real one; the
+            // scratchpad lookup has to try the one the caller typed too.
+            o.rootLiteral = path.resolve(next());
+            o.root = realOrSelf(o.rootLiteral);
+        }
         else if (a === '--temp-root')
             o.tempRoot = realOrSelf(path.resolve(next()));
         else if (a === '--age-minutes') o.ageMinutes = Number(next());
