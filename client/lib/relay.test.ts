@@ -1,10 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-    RELAY_SIZE_LIMIT,
-    filterIceServers,
-    evaluateRelayGate,
-    isRelayPair,
-} from './relay';
+import { RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, isRelayPair, probeIsRelay } from './relay';
 
 const STUN: RTCIceServer = { urls: 'stun:stun.l.google.com:19302' };
 const TURN: RTCIceServer = { urls: 'turn:turn.example.com:3478' };
@@ -83,5 +78,78 @@ describe('evaluateRelayGate', () => {
         expect(
             evaluateRelayGate({ isRelay: true, relayEnabled: true, totalSize: RELAY_SIZE_LIMIT })
         ).toEqual({ action: 'proceed' });
+    });
+});
+
+describe('probeIsRelay', () => {
+    // A minimal stand-in for RTCStatsReport: the real one is a Map with an
+    // extra forEach signature, and only get/forEach are used.
+    const report = (entries: Record<string, unknown>) =>
+        new Map(Object.entries(entries)) as unknown as RTCStatsReport;
+
+    const pair = (id: string, local: string, remote: string, over: Record<string, unknown> = {}) => ({
+        [`p-${id}`]: {
+            type: 'candidate-pair',
+            state: 'succeeded',
+            nominated: true,
+            localCandidateId: `l-${id}`,
+            remoteCandidateId: `r-${id}`,
+            ...over,
+        },
+        [`l-${id}`]: { type: 'local-candidate', candidateType: local },
+        [`r-${id}`]: { type: 'remote-candidate', candidateType: remote },
+    });
+
+    it('reports direct for a host-to-host pair', () => {
+        expect(probeIsRelay(report(pair('a', 'host', 'srflx')))).toBe(false);
+    });
+
+    it('reports relay when either side is a relay candidate', () => {
+        expect(probeIsRelay(report(pair('a', 'relay', 'host')))).toBe(true);
+        expect(probeIsRelay(report(pair('a', 'host', 'relay')))).toBe(true);
+    });
+
+    it('LATCHES: one relay pair wins over any number of direct pairs', () => {
+        // This is the case the two previous implementations disagreed on. The
+        // gate latched; the badge took whichever pair the iterator yielded
+        // last, so the badge could read Direct while the gate blocked the
+        // transfer as relay. Latching is the conservative direction, because
+        // the reading gates the 2 GB relay cap.
+        const both = report({ ...pair('direct', 'host', 'host'), ...pair('relay', 'relay', 'host') });
+        expect(probeIsRelay(both)).toBe(true);
+        // ...and independent of insertion order.
+        const reversed = report({ ...pair('relay', 'relay', 'host'), ...pair('direct', 'host', 'host') });
+        expect(probeIsRelay(reversed)).toBe(true);
+    });
+
+    it('ignores pairs that are not both nominated and succeeded', () => {
+        expect(probeIsRelay(report(pair('a', 'relay', 'host', { nominated: false })))).toBe(false);
+        expect(probeIsRelay(report(pair('a', 'relay', 'host', { state: 'failed' })))).toBe(false);
+    });
+
+    it('ignores reports that are not candidate pairs', () => {
+        expect(
+            probeIsRelay(report({ t: { type: 'transport', selectedCandidatePairId: 'p-a' } }))
+        ).toBe(false);
+    });
+
+    it('reports direct for an empty report rather than throwing', () => {
+        expect(probeIsRelay(report({}))).toBe(false);
+    });
+
+    it('survives a pair whose candidates are missing from the report', () => {
+        expect(
+            probeIsRelay(
+                report({
+                    'p-a': {
+                        type: 'candidate-pair',
+                        state: 'succeeded',
+                        nominated: true,
+                        localCandidateId: 'gone',
+                        remoteCandidateId: 'also-gone',
+                    },
+                })
+            )
+        ).toBe(false);
     });
 });
