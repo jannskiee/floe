@@ -364,6 +364,12 @@ export function P2PTransfer() {
         setStatus('Connecting');
 
         onRoomFull(() => {
+            // Deliberately not receiveOutcome(): this branch is unreachable and
+            // its string is never rendered. A room-full answer only follows a
+            // join-room, and the reconnect path returns before re-joining once
+            // a file has landed (see the guard in the socket reconnect
+            // handler), so the condition below is false on every real path.
+            // The receiver renders status only under includes('Receiving').
             if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
                 setStatus('Transfer complete');
                 return;
@@ -624,6 +630,13 @@ export function P2PTransfer() {
             if (peerRef.current && !peerRef.current.destroyed) {
                 peerRef.current.destroy();
             }
+            // The destroyed peer's ICE probe goes with it. simple-peer nulls
+            // _pc on destroy, so the orphan cannot reach getStats(); what it
+            // does instead is record a false "ICE resolved: direct" breadcrumb
+            // against a dead peer. Clear at the event that invalidates the
+            // probe, not when the next peer connects: a replacement that never
+            // connects would otherwise leave the stale one armed.
+            if (iceProbeRef.current) clearTimeout(iceProbeRef.current);
             // Clear the previous verdict. A blocked transfer tears its peer down,
             // so the next receiver to join arrives here; without this the amber
             // "capped at 2 GB" banner would still be up during a transfer that
@@ -1046,6 +1059,13 @@ export function P2PTransfer() {
                                                     Create secure link ({files.length} {files.length === 1 ? 'file' : 'files'})
                                                     <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 ml-1.5 sm:ml-2 shrink-0" />
                                                 </Button>
+                                            </div>
+                                        )}
+
+                                        {files.length > 0 && filesLocked && !generatedLink && (
+                                            <div className="mt-4 flex w-full items-center justify-center gap-2 py-2.5 text-xs text-zinc-400">
+                                                <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                                                <span>Creating secure link...</span>
                                             </div>
                                         )}
 
