@@ -29,6 +29,15 @@ on:
 # needs, and any job added later starts from zero permissions.
 permissions: {}
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Never cancel a publish, for the same reason images.yml does not: this
+  # workflow creates a GitHub Release and uploads assets to it. A two-tag push
+  # once fired every tag workflow twice and the duplicates raced the published
+  # release, so a second run on the same ref queues behind the first instead
+  # of running beside it.
+  cancel-in-progress: false
+
 jobs:
   build:
     name: Build & publish (windows)
@@ -37,6 +46,10 @@ jobs:
     permissions:
       # Create the GitHub Release and upload its assets (tag path only).
       contents: write
+    env:
+      # Must match desktop/go.mod (asserted in the install step below) and
+      # ci.yml's desktop job; bump all three together.
+      WAILS_VERSION: v2.12.0
 
     steps:
       - name: Checkout
@@ -104,6 +117,12 @@ jobs:
           npm test
           npm run build
 
+      - name: Vet
+        # ci.yml vets desktop/ on every code PR; the release path did not, so a
+        # vet-clean main could still ship from a tag that was not.
+        working-directory: desktop
+        run: go vet ./...
+
       - name: Go tests
         # A release must not outrun its tests. The workspace (go.work) resolves
         # the ../cli engine inside this checkout.
@@ -112,14 +131,27 @@ jobs:
 
       - name: Install Wails CLI
         shell: bash
-        # Pinned to the version in desktop/go.mod. GOWORK=off so `go install`
-        # of an external tool is never influenced by this repo's workspace.
-        run: GOWORK=off go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+        # Pinned to the version desktop/go.mod links against; the grep fails
+        # the job if the two drift (the CLI embeds runtime assets that must
+        # match the library, and this repo has eaten one version drift
+        # already, #262). The comment here used to claim the pin without
+        # enforcing it: the version was a literal in this run: string, so a
+        # go.mod bump would have shipped a mismatched CLI with a green build.
+        # GOWORK=off so `go install` of an external tool is never influenced
+        # by this repo's workspace.
+        run: |
+          grep -q "github.com/wailsapp/wails/v2 ${WAILS_VERSION}\$" desktop/go.mod \
+            || { echo "WAILS_VERSION ${WAILS_VERSION} does not match desktop/go.mod" >&2; exit 1; }
+          GOWORK=off go install "github.com/wailsapp/wails/v2/cmd/wails@${WAILS_VERSION}"
 
       - name: Install NSIS
         shell: bash
+        # One retry, as in ci.yml. This is the path where a transient
+        # chocolatey blip costs a failed tag run, which cannot be re-cut
+        # cheaply, so it matters more here than on a PR.
         run: |
-          choco install nsis -y --no-progress
+          choco install nsis -y --no-progress \
+            || { echo "choco install failed once; retrying" >&2; sleep 10; choco install nsis -y --no-progress; }
           # wails build -nsis silently skips the installer when makensis is
           # missing (it warns and returns success), so resolve it now or fail.
           export PATH="$PATH:/c/Program Files (x86)/NSIS"

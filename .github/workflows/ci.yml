@@ -290,9 +290,12 @@ jobs:
     # the tag-triggered desktop-release.yml, which is how the plated Store
     # icon (#250) survived every PR and shipped through a full certification
     # cycle; these steps make packaging breakage a PR-time failure instead.
-    # The steps mirror desktop-release.yml by hand (that workflow stays
-    # untouched on purpose; keep the two in sync), the app builds as version
-    # "dev", and nothing is uploaded or published.
+    # The steps mirror desktop-release.yml by hand and the two must be kept in
+    # sync; the app builds as version "dev", and nothing is uploaded or
+    # published. The mirroring is no longer one-way: the vet step, the Wails
+    # pin assertion and the NSIS retry below were copied INTO
+    # desktop-release.yml, because the tag path is the one that cannot be
+    # re-run cheaply and it had been the weaker of the two.
     runs-on: windows-latest
     timeout-minutes: 15
     needs: [changes]
