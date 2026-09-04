@@ -169,7 +169,8 @@ Even with the overlay this is a production build with no hot reload, so use it t
 ## Code Style
 
 - TypeScript for all new client code
-- Match the formatting of the surrounding code (Prettier is configured repo-wide), and lint before pushing: `pnpm lint` (in `client/`)
+- Match the formatting of the surrounding code, and lint before pushing: `pnpm lint` (in `client/`)
+- There is a root `.prettierrc`, but no CI job runs it and almost nothing in the repo is formatted to it. Measured on 2026-09-05: of 320 tracked files Prettier will parse, 315 are unformatted, and the 5 it accepts are lockfiles and generated JSON. The config leaves `printWidth` at the default 80 against a codebase written to about 120, so `npm run format` would reflow essentially every file in the repository. Do not run it. Formatting a file you are already editing is fine; reformatting one you are not is a diff nobody can review.
 - Keep components focused and readable
 
 ---
