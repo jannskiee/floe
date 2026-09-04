@@ -171,8 +171,9 @@ entries once a minute, so the count can briefly include codes that have already 
 Resolves a code back to its room. Called by `floe receive` and by Floe Desktop's **Receive** tab.
 
 <ParamField path="code" type="string" required>
-  The phrase, matched **exactly**. Codes are always lowercase, so `Olive-Tiger-Castle` does not
-  resolve. Surrounding whitespace is trimmed by the clients, not by the server.
+  The phrase, matched **exactly**: the server looks up the code exactly as it arrives. `floe
+  receive` and Floe Desktop lowercase and trim what you type before calling this, so
+  `Olive-Tiger-Castle` resolves from either of them. A direct caller has to send lowercase itself.
 </ParamField>
 
 ```json 200 OK
