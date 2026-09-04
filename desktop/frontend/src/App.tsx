@@ -56,6 +56,9 @@ import {UNDO_WINDOW_MS, clearLabel, clearedAnnouncement, clearedLabel, restorabl
 import {resetWarning} from './reset';
 import {friendlyError} from './errors';
 import {fmtBytes, formatIncoming, type IncomingPreview} from './incoming';
+import {track, type Marker, type Prog} from './progress';
+import {baseName, mergePaths, normPath} from './paths';
+import {HISTORY_CAP, fmtWhen, loadHistory, type HistEntry} from './history';
 import {DOWNLOAD_URL, bareVersion, isNewerDesktopVersion} from './update';
 import TitleBar from './components/TitleBar';
 import FileIcon from './components/FileIcon';
@@ -63,109 +66,10 @@ import {Tooltip} from './components/Tooltip';
 
 type Mode = 'send' | 'receive' | 'history';
 
-// One completed transfer, persisted locally in localStorage['floe:history'].
-interface HistEntry {
-    kind: 'send' | 'recv';
-    names: string[];
-    count: number;
-    dir?: string;
-    at: number;
-    bytes?: number; // total transferred size; absent on entries from older builds
-}
-
-const HISTORY_CAP = 50;
-
 // Initial status lines, shared by the useState initializers and Start-over so
 // a reset lands on the exact same copy a fresh launch shows.
 const INITIAL_SEND_STATUS = 'Select or drag files, then click Send.';
 const INITIAL_RECV_STATUS = 'Enter a code or link, then click Receive.';
-
-function loadHistory(): HistEntry[] {
-    // A corrupted store must never break the app; fall back to empty.
-    try {
-        const raw = JSON.parse(localStorage.getItem('floe:history') || '[]');
-        return Array.isArray(raw) ? raw : [];
-    } catch {
-        return [];
-    }
-}
-
-// fmtWhen renders a history timestamp as "Today, 19:55", "Yesterday, 09:12",
-// or "Jul 19, 19:55", comparing calendar days (not 24h windows).
-function fmtWhen(ts: number): string {
-    const d = new Date(ts);
-    const now = new Date();
-    const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-    const day =
-        d.toDateString() === now.toDateString() ? 'Today' :
-        d.toDateString() === yesterday.toDateString() ? 'Yesterday' :
-        `${d.toLocaleString('en', {month: 'short'})} ${d.getDate()}`;
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mm = String(d.getMinutes()).padStart(2, '0');
-    return `${day}, ${hh}:${mm}`;
-}
-
-interface Prog {
-    fileName: string;
-    fileIndex: number;
-    fileCount: number;
-    fileBytes: number;
-    fileSize: number;
-    totalBytes: number;
-    grandTotal: number;
-    // On-disk name the receiver wrote, relative to the save folder. Differs from
-    // fileName when a collision was de-duplicated to "name (1).ext". Empty on
-    // send events. Anything that opens or reveals a received file must use this.
-    savedName: string;
-}
-
-type Marker = {t: number; bytes: number} | null;
-
-// Both mirror client/lib/transferUtils.ts, which mirrors
-// cli/engine/transfer/format.go. The web and the CLI already agreed; the
-// desktop was the outlier on both counts, so the desktop is what moves.
-function fmtSpeed(bps: number): string {
-    if (!isFinite(bps) || bps <= 0) return '';
-    // One decimal on BOTH branches. toFixed(0) on the KB branch printed
-    // "0 KB/s" while bytes were still moving, and lost a significant digit
-    // at every rate under a megabyte.
-    return bps >= 1024 * 1024
-        ? (bps / 1048576).toFixed(1) + ' MB/s'
-        : (bps / 1024).toFixed(1) + ' KB/s';
-}
-
-function fmtEta(sec: number): string {
-    if (!isFinite(sec) || sec < 0) return '';
-    // Three branches, not two. Without the hours branch a 20 GB transfer on a
-    // slow link read "166m 40s" where the web and the CLI both said "2h 46m".
-    // Rounding first is what keeps the minutes branch from printing "1m 60s".
-    const s = Math.ceil(sec);
-    if (s < 60) return `${s}s`;
-    if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
-    return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
-}
-
-// track computes percent, speed, and ETA for a progress event. It uses an
-// average-since-start speed (stable) keyed off a per-transfer marker ref.
-function track(ref: MutableRefObject<Marker>, p: Prog): {pct: number; label: string} {
-    const denom = p.grandTotal > 0 ? p.grandTotal : p.fileSize;
-    const num = p.grandTotal > 0 ? p.totalBytes : p.fileBytes;
-    const pct = denom > 0 ? Math.min(100, Math.round((num / denom) * 100)) : 0;
-
-    const now = Date.now();
-    if (!ref.current) ref.current = {t: now, bytes: num};
-    const dt = (now - ref.current.t) / 1000;
-    const speed = dt > 0.2 ? (num - ref.current.bytes) / dt : 0;
-    const eta = speed > 0 ? (denom - num) / speed : Infinity;
-
-    const tag = p.fileCount > 1 ? `[${p.fileIndex}/${p.fileCount}] ` : '';
-    let label = `${tag}${p.savedName || p.fileName} - ${pct}%  (${fmtBytes(num)} / ${fmtBytes(denom)})`;
-    const s = fmtSpeed(speed);
-    const e = fmtEta(eta);
-    if (s) label += `, ${s}`;
-    if (e && pct < 100) label += `, ETA ${e}`;
-    return {pct, label};
-}
 
 function ProgressRow({prog}: {prog: {pct: number; label: string}}) {
     return (
@@ -277,7 +181,6 @@ function UpdateNotice({version, onDismiss}: {version: string; onDismiss: () => v
     );
 }
 
-
 // Windows paths compare case-insensitively; normalize for dedupe and removal but
 // keep the original strings for display and for the Go side.
 const isWindows = navigator.userAgent.includes('Windows');
@@ -285,21 +188,6 @@ const isWindows = navigator.userAgent.includes('Windows');
 // WKWebView reports "Macintosh" even on Apple Silicon; the UA is synchronous, unlike
 // the Wails Environment() promise, so the once-registered key listener can read it.
 const isMac = navigator.userAgent.includes('Macintosh');
-const normPath = (p: string) => (isWindows ? p.toLowerCase() : p);
-const baseName = (p: string) => p.split(/[\\/]/).pop();
-
-function mergePaths(prev: string[], add: string[]): string[] {
-    const seen = new Set(prev.map(normPath));
-    const out = [...prev];
-    for (const p of add) {
-        if (!seen.has(normPath(p))) {
-            seen.add(normPath(p));
-            out.push(p);
-        }
-    }
-    return out;
-}
-
 /** UndoToast is the app's second toast, and the opposite kind to the first:
  *  the update notice stands until it is acted on, while this one exists only
  *  for as long as the undo behind it does. It sits bottom centre, in the empty
@@ -843,7 +731,7 @@ function App() {
     const recvBytesRef = useRef(0);
 
     // Local transfer history (successful transfers only), newest first.
-    const [history, setHistory] = useState<HistEntry[]>(loadHistory);
+    const [history, setHistory] = useState<HistEntry[]>(() => loadHistory(() => localStorage.getItem('floe:history')));
     // Whether the destructive Clear action is awaiting its inline confirm.
     const [confirmClear, setConfirmClear] = useState(false);
     // Which history row (keyed by histKey, position-independent) is expanded.
@@ -887,7 +775,7 @@ function App() {
         setSettingsOpen(false);
         setMode('send');
         setSendKind('files');
-        setFiles((prev) => mergePaths(prev, paths));
+        setFiles((prev) => mergePaths(prev, paths, isWindows));
         setSendDone(false);
         setSendStatus('');
     }
@@ -1539,7 +1427,7 @@ function App() {
             const picked = await SelectFiles();
             if (picked && picked.length) {
                 supersede('files');
-                setFiles((prev) => mergePaths(prev, picked));
+                setFiles((prev) => mergePaths(prev, picked, isWindows));
                 setSendDone(false);
                 setSendStatus('');
             }
@@ -1555,7 +1443,7 @@ function App() {
             const dir = await SelectFolder();
             if (dir) {
                 supersede('files');
-                setFiles((prev) => mergePaths(prev, [dir]));
+                setFiles((prev) => mergePaths(prev, [dir], isWindows));
                 setSendDone(false);
                 setSendStatus('');
             }
@@ -1568,7 +1456,7 @@ function App() {
     // an emptied tab, so there is no row left to remove from while one is up. If
     // Clear ever learns to clear a subset, this needs the call.
     function removeFile(path: string) {
-        setFiles((prev) => prev.filter((f) => normPath(f) !== normPath(path)));
+        setFiles((prev) => prev.filter((f) => normPath(f, isWindows) !== normPath(path, isWindows)));
         setSendDone(false);
     }
 
@@ -2030,7 +1918,6 @@ function App() {
 
     // Three states, not two. See settings.ts and its test.
     const advSummary = advancedSummary(serverAddr, webAddr);
-
 
     return (
         <div className="flex h-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100 selection:bg-ice/20">
