@@ -54,7 +54,7 @@ body:
     attributes:
       label: Version
       description: "Desktop app: Settings > About. CLI: `floe --version`. Skip for the web app."
-      placeholder: e.g., desktop-v0.2.8 or v1.10.6
+      placeholder: e.g., desktop-v0.2.9 or v1.10.7
     validations:
       required: false
 

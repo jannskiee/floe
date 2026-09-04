@@ -43,6 +43,41 @@ Floe ships on two version lines. `vX.Y.Z` releases floe.one, the `floe` CLI, and
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
+<Update label="desktop-v0.2.9" description="2026-09-04" tags={["Desktop"]}>
+  **Transfer speed and time remaining are readable again, and a finished transfer stops claiming it is still using the relay**
+
+  - Speeds under 1 MB/s read `0 KB/s` while bytes were moving. The reading now carries one decimal, the same as the web app and the CLI, so a slow transfer reads `0.5 KB/s`.
+  - Time remaining had no hours. A long transfer read `166m 40s` where the web app and the CLI both said `2h 46m`. It now rolls over into hours, and it can no longer print `1m 60s` at the moment a minute turns over.
+  - After a relayed transfer finished, the idle badge still showed the amber relay dot beside **Ready**. The route is cleared whenever a transfer ends, whether it finished, failed, or was cancelled.
+  - A History file that could not be read was replaced with an empty one on the next launch, so rows that might have been recovered by hand were destroyed before anyone could look. A store that fails to load is now left untouched.
+  - A failed settings write, which happens when the config folder cannot be written, raised an unhandled error during startup. It is now handled.
+  - Codes are matched without regard to capitalization, so `Olive-Tiger-Castle`, which is what a phone keyboard produces, resolves the same as `olive-tiger-castle`.
+  - Asking the signaling server for relay credentials or for a code now gives up after 30 seconds instead of waiting indefinitely, so a server that accepts the connection and then goes quiet no longer leaves the app waiting with nothing to show.
+  - A repeated message from the signaling server can no longer stall a connection that is being set up.
+  - Every transfer now releases the two background tasks it starts. Floe Desktop builds a fresh connection for each transfer, so these accumulated for as long as the app stayed open.
+  - The wire protocol is unchanged, so 0.2.9 transfers with older CLI, desktop, and browser peers in both directions.
+</Update>
+
+<Update label="v1.10.7" description="2026-09-04" tags={["CLI", "Web", "Self-hosting"]}>
+  **Room codes work whatever case you type them in, and the network calls that could wait forever now give up**
+
+  - A code is matched without regard to capitalization. `floe receive Olive-Tiger-Castle`, which is what a phone keyboard produces, now resolves the same as `olive-tiger-castle` instead of failing with `code not found or expired`. Room links are unchanged: the room id in a link is still case-sensitive.
+  - `floe send` and `floe receive` give the server 20 seconds to assign a role, then fail with `timed out waiting for the server to assign a role`. A server that accepted the connection and then went quiet used to hang the command indefinitely. If the other side leaves during that window, the message says so instead.
+  - Fetching relay credentials and registering or resolving a code now give up after 30 seconds. Both used to have no deadline at all.
+  - When the signaling server refuses a relay-credentials request, `floe` says so and continues without the relay, rather than falling back in silence: `Warning: signaling server returned 429 for TURN credentials. Using STUN only.`
+  - A repeated message from the signaling server can no longer stall a connection that is being set up. This is on the path every transfer takes first.
+  - Every transfer releases the two background tasks it starts instead of leaving them running.
+  - `floe update` could pin its own check off permanently if the cache carried a timestamp in the future. It now treats that as expired.
+  - Web app: files dropped in the moment between clicking **Create secure link** and the link appearing were counted, shown with a green check, and never sent. The file set is now sealed the moment you click, and the card shows that the link is being created rather than going blank for up to three seconds.
+  - Web app: a receive that ended partway through a batch reported **Transfer complete**. It now reads **Sender disconnected. 1 of 3 files received**.
+  - Web app: a sender whose receiver closed the tab at the wrong moment could wait forever instead of failing, and the acknowledgement timer was never cleared once an acknowledgement arrived.
+  - Web app: sizes are formatted safely at both ends of the range. `formatBytes` returned `NaN undefined` for a negative number and `1 undefined` past terabytes. Time remaining could read `1m 60s`.
+  - Web app: a `.go` file gets the code icon, a file with no extension at all no longer borrows one, and the relay cap beside the file count reads `2 GB`, matching every other place the number appears.
+  - Web app: when a peer is too old to talk to, the message no longer tells a browser user to run a command-line tool they may not have.
+  - Self-hosting: the published images are rebuilt as `1.10.7`. If you pinned `FLOE_IMAGE_TAG=1.10.6`, move to `1.10.7`.
+  - The wire protocol is unchanged, so this still transfers with older CLI, desktop, and browser peers in both directions.
+</Update>
+
 <Update label="v1.10.6" description="2026-08-29" tags={["CLI", "Web", "Self-hosting"]}>
   **The CLI can hide your IP address by forcing the relay, and says which route each transfer took**
 
