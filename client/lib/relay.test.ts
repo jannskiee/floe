@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, isRelayPair, probeIsRelay } from './relay';
+import { RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, isRelayPair, probeIsRelay, readConnectionType } from './relay';
 
 const STUN: RTCIceServer = { urls: 'stun:stun.l.google.com:19302' };
 const TURN: RTCIceServer = { urls: 'turn:turn.example.com:3478' };
@@ -151,5 +151,57 @@ describe('probeIsRelay', () => {
                 })
             )
         ).toBe(false);
+    });
+});
+
+describe('readConnectionType', () => {
+    const report = (entries: Record<string, unknown>) =>
+        new Map(Object.entries(entries)) as unknown as RTCStatsReport;
+
+    const pair = (id: string, local: string, remote: string, over: Record<string, unknown> = {}) => ({
+        [`p-${id}`]: {
+            type: 'candidate-pair',
+            state: 'succeeded',
+            nominated: true,
+            localCandidateId: `l-${id}`,
+            remoteCandidateId: `r-${id}`,
+            ...over,
+        },
+        [`l-${id}`]: { type: 'local-candidate', candidateType: local },
+        [`r-${id}`]: { type: 'remote-candidate', candidateType: remote },
+    });
+
+    it('answers null until ICE has nominated something', () => {
+        // The badge polls from the moment the peer connects. probeIsRelay says
+        // false here, which is right for the gate and wrong for the badge:
+        // reporting "direct" now would flash the wrong route on a connection
+        // that turns out to be relayed.
+        expect(readConnectionType(report({}))).toBeNull();
+        expect(readConnectionType(report(pair('a', 'relay', 'host', { nominated: false })))).toBeNull();
+        expect(readConnectionType(report(pair('a', 'host', 'host', { state: 'failed' })))).toBeNull();
+    });
+
+    it('agrees with the gate once a pair is nominated', () => {
+        const direct = report(pair('a', 'host', 'srflx'));
+        expect(readConnectionType(direct)).toBe('direct');
+        expect(probeIsRelay(direct)).toBe(false);
+
+        const relayed = report(pair('a', 'relay', 'host'));
+        expect(readConnectionType(relayed)).toBe('relay');
+        expect(probeIsRelay(relayed)).toBe(true);
+    });
+
+    it('cannot disagree with the gate on a mixed multi-pair report', () => {
+        // This is the whole bug: the badge used to take the last pair the
+        // iterator yielded, so it could read direct while the gate blocked as
+        // relay. Both readings now come from one scan.
+        for (const entries of [
+            { ...pair('d', 'host', 'host'), ...pair('r', 'relay', 'host') },
+            { ...pair('r', 'relay', 'host'), ...pair('d', 'host', 'host') },
+        ]) {
+            const stats = report(entries);
+            expect(readConnectionType(stats)).toBe('relay');
+            expect(probeIsRelay(stats)).toBe(true);
+        }
     });
 });

@@ -69,15 +69,38 @@ export function evaluateRelayGate(opts: {
  *  transfer start on the relay, while the reverse only shows a cap that does
  *  not bind. */
 export function probeIsRelay(stats: RTCStatsReport): boolean {
-    let isRelay = false;
+    return scanPairs(stats).relay;
+}
+
+/** readConnectionType is the badge's reading of the same scan, and it is a
+ *  different question from probeIsRelay's: it must be able to answer "I do not
+ *  know yet".
+ *
+ *  The badge polls from the moment the peer connects, so it runs before ICE has
+ *  nominated anything. probeIsRelay answers false there, which is right for the
+ *  gate (no evidence of a relay, so do not block) and wrong for the badge,
+ *  which would flash "Direct" on a connection that turns out to be relayed.
+ *  null means not yet decided, and the badge renders nothing. */
+export function readConnectionType(stats: RTCStatsReport): 'direct' | 'relay' | null {
+    const { nominated, relay } = scanPairs(stats);
+    if (!nominated) return null;
+    return relay ? 'relay' : 'direct';
+}
+
+/** One scan, two questions. `nominated` is whether ICE has settled on anything
+ *  at all; `relay` LATCHES across every nominated succeeded pair. */
+function scanPairs(stats: RTCStatsReport): { nominated: boolean; relay: boolean } {
+    let nominated = false;
+    let relay = false;
     stats.forEach((report) => {
         if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.nominated) {
+            nominated = true;
             const local = stats.get(report.localCandidateId);
             const remote = stats.get(report.remoteCandidateId);
             if (isRelayPair(local?.candidateType, remote?.candidateType)) {
-                isRelay = true;
+                relay = true;
             }
         }
     });
-    return isRelay;
+    return { nominated, relay };
 }
