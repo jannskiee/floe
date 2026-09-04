@@ -144,3 +144,13 @@ export function Card({className, children}: {className?: string; children: React
         </div>
     );
 }
+
+
+// One geometry, three call sites: SettingRow, SettingField, and the Advanced
+// disclosure button. Kept as consts so the three cannot drift apart.
+//
+// 13px labels match the TitleBar wordmark; 12/16 descriptions are one line under
+// the 12-word copy rule. About rows flip the emphasis: dim key, legible mono
+// value, with the label at zinc-400 rather than zinc-500 so it keeps AA contrast.
+export const rowLabelClass = 'block text-[13px] font-medium leading-5 text-zinc-200';
+export const rowDescClass = 'mt-0.5 block text-xs leading-4 text-zinc-500';
