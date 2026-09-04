@@ -165,6 +165,61 @@ Automated doc-maintenance PRs (style, links, SEO) are managed in the Mintlify da
 
 ci.yml also has a `workflow_dispatch` trigger: a dispatched run behaves exactly like a push (full suite, no path skips). Use it to recover from a lost push event or to re-roll the suite when investigating flaky tests. The e2e and back-compat jobs upload a Playwright evidence artifact (HTML report, traces, and stamped CLI transcripts) on every non-cancelled run, so a test that fails once and passes on the CI retry still leaves its first attempt inspectable.
 
+## File Size and Structure
+
+Split a file when it has stopped being one thing, not when it crosses a line
+count. The useful test is whether a reader looking for X has to skip past Y to
+find it. Prefer the shapes this repo already uses: pure logic in a small module
+with a `.test.ts` sibling (`clear.ts`, `reset.ts`, `download.ts`, `relay.ts`),
+presentational components in `components/` with the props they already declare,
+one Go concern per file inside the same package.
+
+Some things are one thing however long they are, and splitting them makes them
+worse. `ReceiveFilesWithOptions` is a linear protocol state machine whose
+auditability comes from being one continuous read: what has been claimed on
+disk, and what must be undone, is visible in a single pass. `App.tsx`'s mount
+effect is eleven listeners with a matching teardown and a first-render closure
+contract. Its keyboard effects reference action refs declared below them, so
+hoisting them into a hook is a temporal-dead-zone crash. The ws upgrade
+handler's ordering is load-bearing for transport quality. Leave these alone.
+
+Separate a move from a behavior change. Never put both in one commit: git
+cannot merge "this hunk moved to a new file" with "this hunk changed in
+place", and a bisect through a mixed commit tells you nothing. A pure move is
+also the only kind of change that can be PROVED rather than argued, and the
+proofs are cheap:
+
+- Go: `diff <(cd <base>/cli && go doc -all -u ./pkg) <(cd cli && go doc -all -u ./pkg)`
+  must be empty. The `-u` includes unexported symbols, and `go doc` sorts
+  within CONSTANTS, FUNCTIONS and TYPES rather than by file, so a pure move is
+  empty by construction. `go doc` cannot see `init()` ordering or cobra flag
+  registration, so a `cmd/` split is proved instead by diffing every command's
+  `--help` against a binary built from the base.
+- Desktop Go: `frontend/wailsjs/go/main/App.d.ts` must be byte-identical.
+  Wails reflects over `*App`'s package-scoped method set, so a file move
+  cannot change it, and a change there means something else moved too.
+- TypeScript: every added line in the surviving file must be an `import`, and
+  each moved block must `diff` clean against the base. Do not claim a
+  byte-identical bundle: Rollup renames module-scope bindings on a move, so
+  the `dist` hash legitimately differs.
+
+Three traps worth stating outright:
+
+- In Go, a new file named `*_windows.go`, `*_linux.go`, `*_darwin.go` or any
+  other GOOS/GOARCH suffix picks up an implicit build constraint and silently
+  disappears from every other platform. Name split files by concern
+  (`sanitize.go`, `reveal.go`, `install.go`), and run the `go doc` proof once
+  per GOOS when the file has platform branches in it.
+- In Go, a comment placed immediately above `package x` becomes the PACKAGE
+  doc comment, and Go concatenates those across files. A per-file note goes
+  below the package clause, or it silently rewrites the package's docs.
+- In React, a view extracted from a large component must be a top-level module
+  component. Defined inside its parent it is a new type on every render, so
+  controlled inputs remount and the caret jumps to the end of the field.
+
+Comments earn their place by recording a decision, a measurement, a platform
+quirk or a prohibition. A comment that restates the line beneath it does not.
+
 ## Writing Style
 
 Do not use em dashes in any markdown files or documentation. Use periods, commas, hyphens, or parentheses instead. In `docs/`, Vale checks this (`docs/.vale.ini` plus the `docs/styles/Floe/EmDash.yml` rule, surfaced as the Mintlify Grammar linter CI check), reinforced by the weekly Apply style guide automation.
