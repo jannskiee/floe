@@ -52,3 +52,32 @@ export function evaluateRelayGate(opts: {
     }
     return { action: 'proceed' };
 }
+
+/** probeIsRelay decides whether a live connection is running through the TURN
+ *  relay, from an RTCStatsReport.
+ *
+ *  It takes the STATS, not the peer connection, so the getStats() call and the
+ *  `(peer as any)._pc` cast stay at the call site and this stays testable under
+ *  client/vitest.config.ts, which has no DOM.
+ *
+ *  The verdict LATCHES: one nominated succeeded pair that is relay makes the
+ *  answer relay, whatever the other pairs say. WebRTC normally nominates a
+ *  single pair, but more than one can be nominated during an ICE restart or
+ *  across m-lines, and the two readings this replaces disagreed in exactly that
+ *  case. Latching is the conservative direction, because the reading gates the
+ *  2 GB relay cap: calling a relayed connection direct would let an oversized
+ *  transfer start on the relay, while the reverse only shows a cap that does
+ *  not bind. */
+export function probeIsRelay(stats: RTCStatsReport): boolean {
+    let isRelay = false;
+    stats.forEach((report) => {
+        if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.nominated) {
+            const local = stats.get(report.localCandidateId);
+            const remote = stats.get(report.remoteCandidateId);
+            if (isRelayPair(local?.candidateType, remote?.candidateType)) {
+                isRelay = true;
+            }
+        }
+    });
+    return isRelay;
+}

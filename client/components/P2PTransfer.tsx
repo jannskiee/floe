@@ -23,7 +23,8 @@ import { useSignaling } from '@/hooks/useSignaling';
 import { useConnectionType } from '@/hooks/useConnectionType';
 import { useTransferAnalytics } from '@/hooks/useTransferAnalytics';
 import { useRelayConfiguration } from '@/hooks/useRelayConfiguration';
-import { RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, isRelayPair } from '@/lib/relay';
+import { RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, probeIsRelay } from '@/lib/relay';
+import { buildShareLink, getRoomFromUrl, isValidRoomId } from '@/lib/roomLink';
 import { classifyPeerError } from '@/lib/peerErrors';
 import { resolveSocketUrl } from '@/lib/socketUrl';
 
@@ -57,32 +58,6 @@ import { ShareLinkPanel } from '@/components/ShareLinkPanel';
 import { TransferProgressBar } from '@/components/TransferProgressBar';
 import { SelectedFilesList } from '@/components/SelectedFilesList';
 import { ReceivedFilesList } from '@/components/ReceivedFilesList';
-
-// The room id is the transfer's only secret: anyone holding it can join as the
-// receiver. It lives in the URL fragment (#room=<id>) so it never leaves the
-// browser. Fragments are not sent to the server, are stripped from the Referer
-// header, and are ignored by pageview analytics. Older links used the
-// ?room=<id> query param (which leaked into those places); we still read them
-// for backward compatibility.
-function getRoomFromUrl(): string | null {
-    if (typeof window === 'undefined') return null;
-    const fromHash = new URLSearchParams(
-        window.location.hash.replace(/^#/, '')
-    ).get('room');
-    if (fromHash) return fromHash;
-    return new URLSearchParams(window.location.search).get('room');
-}
-
-// Mirrors the signaling server's UUID_REGEX (server.js) so the client rejects a
-// malformed room id up front instead of emitting a join the server would refuse
-// with an 'error' event the browser does not listen for. Keep in sync with the
-// server: a loose format check, not a version/variant-strict UUID validation.
-const ROOM_ID_REGEX =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function isValidRoomId(roomId: string): boolean {
-    return ROOM_ID_REGEX.test(roomId);
-}
 
 export function P2PTransfer() {
     const [isSender, setIsSender] = useState<boolean | null>(null);
@@ -300,7 +275,7 @@ export function P2PTransfer() {
 
     useEffect(() => {
         // eslint-disable-next-line react-hooks/set-state-in-effect
-        setIsSender(!getRoomFromUrl());
+        setIsSender(!getRoomFromUrl(window.location.hash, window.location.search));
     }, []);
 
     useEffect(() => {
@@ -509,7 +484,7 @@ export function P2PTransfer() {
 
     useEffect(() => {
         let cancelled = false;
-        const roomFromUrl = getRoomFromUrl();
+        const roomFromUrl = getRoomFromUrl(window.location.hash, window.location.search);
 
         if (roomFromUrl) {
             if (!isValidRoomId(roomFromUrl)) {
@@ -562,7 +537,7 @@ export function P2PTransfer() {
     // that here and reload so the receiver joins the new room from a clean slate.
     useEffect(() => {
         const onHashChange = () => {
-            const room = getRoomFromUrl();
+            const room = getRoomFromUrl(window.location.hash, window.location.search);
             if (room && room !== joinedRoomRef.current) {
                 window.location.reload();
             }
@@ -604,7 +579,7 @@ export function P2PTransfer() {
         // scanned instead of joining the new room. The secret room id stays in
         // the fragment (never sent to the server); the nonce carries no info.
         const nonce = uuidv4().slice(0, 8);
-        const link = `${window.location.protocol}//${window.location.host}/?s=${nonce}#room=${newRoomId}`;
+        const link = buildShareLink(window.location.origin, newRoomId, nonce);
         createdRoomRef.current = newRoomId;
         // Render the link only after the server confirms the join. The link is
         // an invitation into this room, so the sender must hold the room's
@@ -675,16 +650,7 @@ export function P2PTransfer() {
                     let isRelay = false;
                     if (pc) {
                         try {
-                            const stats = await pc.getStats();
-                            stats.forEach((report) => {
-                                if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.nominated) {
-                                    const lc = stats.get(report.localCandidateId);
-                                    const rc = stats.get(report.remoteCandidateId);
-                                    if (isRelayPair(lc?.candidateType, rc?.candidateType)) {
-                                        isRelay = true;
-                                    }
-                                }
-                            });
+                            isRelay = probeIsRelay(await pc.getStats());
                         } catch { }
                     }
 
@@ -1113,7 +1079,6 @@ export function P2PTransfer() {
                                     {receivedFiles.length === 0 && (
                                         <StatsContributionToggle enabled={reportStatsEnabled} onChange={setReportStatsEnabled} />
                                     )}
-
 
                                     {receivedFiles.length > 1 &&
                                         !status.includes('Receiving') && (
