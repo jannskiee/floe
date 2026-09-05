@@ -1,7 +1,7 @@
 import * as Sentry from '@sentry/nextjs';
 import { BROWSER_EXTENSION_URL_PATTERNS } from './lib/browserExtensions';
 import { isStaleBundleError } from './lib/staleBundle';
-import { scrubUrl } from './lib/scrubUrl';
+import { scrubSpanJson, scrubTransactionEvent, scrubUrl } from './lib/scrubUrl';
 
 Sentry.init({
     // Set NEXT_PUBLIC_SENTRY_DSN in your environment to enable error tracking.
@@ -79,6 +79,22 @@ Sentry.init({
         return breadcrumb;
     },
 
+    // Transactions never pass through beforeSend: the SDK routes them here
+    // instead, and the HttpContext integration stamps the full page URL,
+    // fragment included, onto every event's request.url and onto the segment
+    // span's url.full. On a receiver page that is the whole share link, so
+    // until this hook existed one trace-sampled page load in ten sent it.
+    beforeSendTransaction(event) {
+        return scrubTransactionEvent(event);
+    },
+
+    // Standalone spans (the span-streaming lifecycle) bypass
+    // beforeSendTransaction. Scrub their URL attributes the same way so a
+    // future SDK default cannot reopen the gap.
+    beforeSendSpan(span) {
+        return scrubSpanJson(span);
+    },
+
     // Session Replay is deliberately absent, and must not be added back.
     //
     // A replay envelope reports the page URL in `request.url`, and on a receiver
@@ -101,8 +117,9 @@ Sentry.init({
     // rates at 0 or absent, initializeSampling() returns before attaching any
     // listener.
     //
-    // Error and performance monitoring are unaffected and keep their scrubbing
-    // through beforeSend and beforeBreadcrumb above.
+    // Error reports keep their scrubbing through beforeSend and
+    // beforeBreadcrumb above; performance traces get theirs through
+    // beforeSendTransaction and beforeSendSpan.
 
     debug: false,
 });
