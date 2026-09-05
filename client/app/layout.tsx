@@ -94,13 +94,19 @@ export default function RootLayout({
                         defer
                         src="https://cloud.umami.is/script.js"
                         data-website-id={process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID}
-                        // BOTH of these are load-bearing privacy settings, not tidiness.
+                        // The two exclude flags are load-bearing privacy settings, not tidiness.
                         // The tracker reports location.href and only strips the fragment
                         // when exclude-hash is set, so without this a receiver opening
                         // /?s=nonce#room=<uuid> would POST the room secret to Umami, which
                         // is exactly what the privacy page promises never happens.
                         data-exclude-hash="true"
                         data-exclude-search="true"
+                        // Honor the browser's Do Not Track signal: with this set the
+                        // tracker sends nothing at all for that visitor. The live
+                        // cloud.umami.is script reads data-do-not-track and checks
+                        // navigator.doNotTrack, msDoNotTrack and window.doNotTrack
+                        // (verified 2026-09-05); the privacy page states this.
+                        data-do-not-track="true"
                         strategy="afterInteractive"
                     />
                 )}
