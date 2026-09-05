@@ -49,6 +49,12 @@ for its own security purposes.
 The relay does not see the contents of those packets. Files are encrypted before they reach it and
 decrypted only on the recipient's device.
 
+The relay's operator is contacted before the route is decided, not only when a relay carries data.
+While a connection is being set up, every device asks the STUN server for its public address and,
+unless relay fallback is off, opens a standby TURN allocation, so on floe.one Cloudflare sees each
+device's IP address and connection timing on every transfer. File data crosses it only when the
+relay path is the one that wins.
+
 Routing through a relay also changes who learns your IP address. On a direct connection the two
 devices learn each other's, which is how any peer-to-peer connection works. If you would rather
 not reveal yours, Floe Desktop's
@@ -67,8 +73,9 @@ from reusing a stale tab.
 
 Browsers never send the fragment to a server. So the room id is not in `Referer` headers when you
 click an outbound link, not in server access logs, and not captured by pageview analytics or
-third-party trackers. The signaling server learns it only when a device explicitly joins that room
-over its own connection, and even then no file bytes ever reach it.
+third-party trackers. The signaling server learns it when a device joins that room over its own
+connection, and, for a transfer started from the CLI or Floe Desktop, when the sender registers the
+three-word code for it; either way no file bytes ever reach it.
 
 ## Aggregate statistics
 
@@ -109,15 +116,20 @@ them.
 The rest of this section is about the **floe.one website only**.
 
 - **Sentry** records application errors and a 10% sample of browser performance traces. It is
-  configured to attach no cookies, no headers, and no IP address, and the room secret is stripped
-  out of every error report and breadcrumb before it is sent.
+  configured to attach no cookies and no IP address; each report carries the page address, the
+  browser's user agent, and the referring page. The room secret is stripped out of every error
+  report, breadcrumb, and performance trace before it is sent.
 - **Session replay is not enabled and will not be added.** A replay records the page address, and
   on a receiver page that address contains the room link, which is the only thing protecting the
   transfer.
 - **Umami** records cookieless, aggregate page views and transfer outcomes: file count, total
-  bytes, direct or relay, success or failure. It is configured to send neither the URL fragment
-  nor the query string, so the room secret never reaches it, and it does not follow individuals
-  across sessions or sites.
+  bytes, direct or relay, success or failure. Page views carry the browser, operating system,
+  device type, screen size, language, and a location down to city, worked out from the IP
+  address, which Umami says it does not keep. It is configured to send neither the URL fragment
+  nor the query string, so the room secret never reaches it; it sets no cookies and cannot follow
+  you to other sites, though it recognizes a returning visitor for a while through a hashed,
+  salted fingerprint that rotates on a schedule. If your browser sends Do Not Track, it records
+  nothing at all.
 
 Both are enabled only when their key is supplied. The published container image sets neither, so a
 self-hosted instance ships with both off unless you add your own.
