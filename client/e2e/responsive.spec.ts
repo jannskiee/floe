@@ -193,8 +193,8 @@ test('download: no horizontal overflow at any viewport', async ({ page }) => {
 test('how-it-works: no horizontal overflow at any viewport', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/how-it-works');
-    await expect(page.getByRole('heading', { name: 'How Floe Works' })).toBeVisible();
-    await sweepViewports(page, '/how-it-works');
+    await expect(page.getByRole('heading', { name: 'How Floe works' })).toBeVisible();
+    await sweepViewports(page, '/how-it-works', true);
 });
 
 test('privacy: no horizontal overflow at any viewport', async ({ page }) => {

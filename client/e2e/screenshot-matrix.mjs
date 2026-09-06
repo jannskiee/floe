@@ -158,6 +158,11 @@ const run = async () => {
     await page.getByRole('heading', { name: 'Floe Desktop' }).waitFor();
     for (const vp of VIEWPORTS) await capture(page, 'download', vp);
 
+    // How it works: reduced motion (set on this context) renders the signal
+    // log in its finished state, which is the section at its tallest.
+    await page.goto(BASE + '/how-it-works', { waitUntil: 'networkidle' });
+    await page.getByRole('heading', { name: 'How Floe works' }).waitFor();
+    for (const vp of VIEWPORTS) await capture(page, 'how-it-works', vp);
     // Download, non-Windows arrangement (mac UA) at the subset
     const macCtx = await browser.newContext({
         reducedMotion: 'reduce',

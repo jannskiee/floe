@@ -37,7 +37,7 @@ export function RelayFallbackToggle({ relayEnabled, onChange }: RelayFallbackTog
                     <p className="text-xs text-zinc-500 leading-relaxed">
                         Only used when a direct connection isn&apos;t possible; most transfers stay direct. 2 GB limit when relayed.{' '}
                         <a
-                            href="/how-it-works"
+                            href="/how-it-works#relay"
                             target="_blank"
                             rel="noreferrer"
                             onClick={(e) => e.stopPropagation()}

@@ -1,158 +1,203 @@
 import React from 'react';
 import type { Metadata } from 'next';
-import { ArrowLeft, Zap, Server, ShieldCheck, BookOpen } from 'lucide-react';
-import Link from 'next/link';
+import { ArrowUpRight } from 'lucide-react';
+import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
+import { RouteFigure } from '@/components/how-it-works/RouteFigure';
+import { BADGE_DIRECT, BADGE_RELAY, RELAY_CAP } from '@/lib/howItWorksStrings';
 import { sharedOpenGraph, sharedTwitter } from '@/lib/socialMetadata';
 
-// This page is static prose: no hooks, no state, no event handlers, no browser
-// APIs. It carried 'use client' until 2026-07, which forced the whole body into
-// a client-hydrated subtree and forced the metadata below out into a
-// pass-through layout.tsx. As a Server Component it can export metadata itself.
+// The short version: one drawing, three beats, a pointer to the docs. This
+// page summarizes; docs/how-it-works/* carries the depth. Under 300 words of
+// visible copy on purpose, and every sentence is literally true of the current
+// release (checked against docs/how-it-works/*.mdx, docs/security-privacy.mdx,
+// client/lib/relay.ts, server/server.js, server/turn.js and
+// cli/engine/transfer/relay.go on 2026-09-07).
+//
+// A Server Component with no client island: the figure's motion is CSS that
+// plays once on paint (see the .hiw-* rules in globals.css), so
+// e2e/hydration.spec.ts is satisfied by construction.
 export const metadata: Metadata = {
     // Bare title: the "%s - Floe" template in app/layout.tsx adds the suffix.
     title: 'How It Works',
     description:
-        'Learn how Floe transfers files directly between devices using WebRTC, end-to-end encryption, and TURN relay fallback.',
+        "Floe's server introduces two devices, then leaves. What Direct and Relay mean, why relayed transfers are capped at 2 GB, and how every transfer is encrypted.",
     alternates: {
         canonical: '/how-it-works',
     },
     // Spread before overriding: a bare object here would replace the root's
-    // whole openGraph block and drop the images with it.
-    openGraph: { ...sharedOpenGraph, title: 'How Floe Works' },
-    twitter: { ...sharedTwitter, title: 'How Floe Works' },
+    // whole openGraph block and drop the images with it. Sentence case, the
+    // same string as the h1 and the 404's link to this page.
+    openGraph: { ...sharedOpenGraph, title: 'How Floe works' },
+    twitter: { ...sharedTwitter, title: 'How Floe works' },
 };
+
+const DOCS = 'https://www.floe.one/docs/how-it-works';
+
+// The six docs pages, in the order the line reads them.
+const DOCS_PAGES: { label: string; slug: string }[] = [
+    { label: 'Signaling', slug: 'signaling' },
+    { label: 'Direct connection', slug: 'direct-connection' },
+    { label: 'Relay connection', slug: 'relay-connection' },
+    { label: `${RELAY_CAP} limit`, slug: '2gb-limit' },
+    { label: 'Encryption', slug: 'encryption' },
+    { label: 'Known limitations', slug: 'known-limitations' },
+];
+
+const LABEL = 'font-mono text-[11px] uppercase tracking-[0.2em] text-zinc-500';
+
+// The badge dot the app draws (ConnectionStatusBadge.tsx core dot, no halo):
+// green means Direct, amber means Relay, and those are the only two colors on
+// the page besides ice.
+function Dot({ tone }: { tone: 'direct' | 'relay' }) {
+    return (
+        <span
+            className={`h-1.5 w-1.5 rounded-full ${tone === 'direct' ? 'bg-green-500' : 'bg-amber-500'}`}
+            aria-hidden="true"
+        />
+    );
+}
 
 export default function HowItWorks() {
     return (
         // Same centering flex shell as / and /download, so the shared <Footer />
         // gets identical width math on every page that renders it.
         <div className="flex min-h-dvh flex-col items-center bg-zinc-950 font-sans text-zinc-100 px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-[max(1.5rem,env(safe-area-inset-left),env(safe-area-inset-right))] sm:pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-            <div className="w-full max-w-3xl space-y-8 pt-6 md:pt-12">
-                <div className="space-y-4">
-                    <Link
-                        href="/"
-                        className="inline-flex items-center text-sm text-zinc-400 hover:text-white transition-colors mb-4"
-                    >
-                        <ArrowLeft className="w-4 h-4 mr-2" /> Back to Home
-                    </Link>
-                    <h1 className="text-4xl font-bold tracking-tight text-white">
-                        How Floe Works
+            <Navbar />
+
+            <main className="w-full max-w-5xl">
+                {/* Left-aligned, unlike the centered /download hero: the line
+                    below starts under these words, at YOU. pt-24/28 clears the
+                    fixed pill; leading-none on the eyebrow drops its dead
+                    half-leading; mt-3 offsets the headline's own leading. */}
+                <header className="pt-24 sm:pt-28">
+                    <p className="font-mono text-[11px] leading-none uppercase tracking-[0.2em] text-ice">
+                        The short version
+                    </p>
+                    <h1 className="mt-3 text-4xl font-semibold tracking-tight text-zinc-100 sm:text-5xl lg:text-6xl">
+                        How Floe works
                     </h1>
-                    <p className="text-zinc-400">
-                        A plain-language overview of what happens behind the scenes when you share a file.
+                    <p className="mt-6 max-w-lg text-base leading-relaxed text-balance text-zinc-400">
+                        Two devices, one line between them. A server makes the introduction and
+                        leaves. Most transfers go straight across. When a network blocks the way, the
+                        transfer can take a relay instead, capped at {RELAY_CAP} per session.
                     </p>
-                </div>
+                </header>
 
-                {/* Hero summary card */}
-                <div className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800 space-y-4">
-                    <div className="flex items-center gap-3 text-green-400 mb-2">
-                        <ShieldCheck className="w-6 h-6" />
-                        <h2 className="text-lg font-semibold">The Short Version</h2>
-                    </div>
-                    <p className="text-zinc-300 leading-relaxed">
-                        Floe uses a technology called <strong>WebRTC</strong> to send your files directly from
-                        one device to another, whether each side is a browser tab, the desktop app, or
-                        the CLI. Think of it like handing a USB drive to someone. It
-                        happens over the internet, in real time. In most cases, no one else is in the middle.
-                        <br /><br />
-                        In some network situations, a secure relay server acts as a bridge. Either way,
-                        your files are <strong>end-to-end encrypted</strong> and never stored on any server.
-                    </p>
-                </div>
+                <RouteFigure />
 
-                {/* Direct + Relay side-by-side cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="p-5 rounded-2xl bg-zinc-900/50 border border-zinc-800 space-y-3">
-                        <div className="flex items-center gap-2.5">
-                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-green-500/10 ring-1 ring-green-500/20">
-                                <Zap className="w-4 h-4 text-green-400" />
-                            </div>
-                            <div>
-                                <p className="text-sm font-semibold text-white leading-none">Direct Connection</p>
-                                <span className="text-[10px] text-green-400 font-medium uppercase tracking-wide">Fastest</span>
-                            </div>
-                        </div>
-                        <p className="text-sm text-zinc-400 leading-relaxed">
-                            Files travel straight from your device to the recipient. No server sits in between.
-                            Speed is limited only by your internet connection.
+                {/* Three beats in the line's order. md, not sm: at 640 three text
+                    columns would be a 22ch measure. Below md they stack, and each
+                    one keeps the hero lede's max-w-lg so a 719px column at 767 does
+                    not set 14px type across 105 characters; from md the grid
+                    columns are 218px and the cap never binds. The badge tooltips in
+                    the app deep-link to #direct and #relay and the over-limit
+                    notice to #size-limit; scroll-mt-28 clears the pill for all
+                    three. */}
+                <div className="mt-12 grid gap-8 md:grid-cols-3">
+                    <section className="max-w-lg scroll-mt-28">
+                        <p className={LABEL}>Signaling</p>
+                        <h2 className="mt-3 text-base font-medium text-zinc-100">
+                            The server introduces, then leaves.
+                        </h2>
+                        <p className="mt-2 text-sm leading-relaxed text-zinc-400">
+                            It puts your two devices in a room and passes the offer, the answer, and each
+                            side&apos;s network addresses between them. Once the connection opens, it plays
+                            no further part.
                         </p>
-                        <ul className="space-y-1 text-xs text-zinc-500">
-                            <li className="flex items-center gap-1.5"><span className="text-green-500">+</span> No file size limit</li>
-                            <li className="flex items-center gap-1.5"><span className="text-green-500">+</span> Zero bandwidth cost to Floe</li>
-                            <li className="flex items-center gap-1.5"><span className="text-green-500">+</span> Works on most home and mobile networks</li>
-                        </ul>
-                    </div>
-
-                    <div className="p-5 rounded-2xl bg-zinc-900/50 border border-zinc-800 space-y-3">
-                        <div className="flex items-center gap-2.5">
-                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500/10 ring-1 ring-amber-500/20">
-                                <Server className="w-4 h-4 text-amber-400" />
-                            </div>
-                            <div>
-                                <p className="text-sm font-semibold text-white leading-none">Relay Connection</p>
-                                <span className="text-[10px] text-amber-400 font-medium uppercase tracking-wide">Via TURN Server</span>
-                            </div>
-                        </div>
-                        <p className="text-sm text-zinc-400 leading-relaxed">
-                            Used on strict corporate firewalls or carrier-grade NAT networks where a direct
-                            path cannot be found. Floe falls back automatically.
+                    </section>
+                    <section id="direct" className="max-w-lg scroll-mt-28">
+                        <p className={`flex items-center gap-2 ${LABEL}`}>
+                            <Dot tone="direct" />
+                            {BADGE_DIRECT}
                         </p>
-                        <ul className="space-y-1 text-xs text-zinc-500">
-                            <li className="flex items-center gap-1.5"><span className="text-amber-500">~</span> Works on restricted networks</li>
-                            <li className="flex items-center gap-1.5"><span className="text-amber-500">~</span> Files remain encrypted in transit</li>
-                            <li className="flex items-center gap-1.5"><span className="text-amber-500">~</span> Capped at 2 GB per session</li>
-                        </ul>
-                    </div>
+                        <h2 className="mt-3 text-base font-medium text-zinc-100">
+                            Straight across, most of the time.
+                        </h2>
+                        <p className="mt-2 text-sm leading-relaxed text-zinc-400">
+                            Device to device, with no server carrying the file. There is no size limit,
+                            and speed is whatever the slower of your two connections allows. The badge
+                            shows {BADGE_DIRECT}, in green.
+                        </p>
+                    </section>
+                    <section id="relay" className="max-w-lg scroll-mt-28">
+                        <p className={`flex items-center gap-2 ${LABEL}`}>
+                            <Dot tone="relay" />
+                            {BADGE_RELAY}
+                        </p>
+                        <h2 className="mt-3 text-base font-medium text-zinc-100">
+                            The detour, when a network blocks the way.
+                        </h2>
+                        <p className="mt-2 text-sm leading-relaxed text-zinc-400">
+                            A TURN relay both devices can reach forwards encrypted packets it cannot read;
+                            on floe.one that relay is Cloudflare&apos;s. The badge shows {BADGE_RELAY}, in
+                            amber.
+                        </p>
+                        <p id="size-limit" className="mt-3 scroll-mt-28 text-sm leading-relaxed text-zinc-400">
+                            Relay bandwidth costs money, so a relayed session is capped at {RELAY_CAP}. The
+                            sender checks once, before any file data moves; exactly {RELAY_CAP} passes.
+                        </p>
+                    </section>
                 </div>
 
-                {/* Encryption note */}
-                <p className="text-sm text-zinc-500 text-center px-4">
-                    Every connection, direct or relayed, is encrypted with{' '}
-                    <strong className="text-zinc-400">DTLS</strong> built into WebRTC. Even the relay server cannot read your files.
-                </p>
-
-                {/* Docs CTA */}
-                <div className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800 space-y-4">
-                    <div className="flex items-center gap-3">
-                        <BookOpen className="w-5 h-5 text-zinc-400" />
-                        <h2 className="text-base font-semibold text-white">Want the full technical detail?</h2>
-                    </div>
-                    <p className="text-sm text-zinc-400">
-                        The Floe documentation covers signaling, ICE and NAT traversal, DTLS encryption,
-                        and the binary transfer protocol in depth.
+                {/* Encryption is not a beat on the line, it is true of every route,
+                    so it sits alone, one shade lighter than the captions, with
+                    whitespace rather than a hairline separating it. */}
+                <div className="mt-14 max-w-2xl">
+                    <p className={LABEL}>On every route</p>
+                    <p className="mt-3 text-base leading-relaxed text-zinc-300">
+                        Every transfer is encrypted end to end with WebRTC&apos;s DTLS. The keys exist only
+                        on the two devices, and nothing is stored on any server. The browser, Floe Desktop
+                        for Windows, and the CLI all speak the same protocol.
                     </p>
-                    <a
-                        href="https://www.floe.one/docs/how-it-works/signaling"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-bold text-black transition hover:bg-zinc-200"
-                    >
-                        Read the full technical breakdown
-                        <ArrowLeft className="w-3.5 h-3.5 rotate-180" />
-                    </a>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1">
-                        {[
-                            { label: 'Signaling', href: 'https://www.floe.one/docs/how-it-works/signaling' },
-                            { label: 'Direct Connection', href: 'https://www.floe.one/docs/how-it-works/direct-connection' },
-                            { label: 'Relay Connection', href: 'https://www.floe.one/docs/how-it-works/relay-connection' },
-                            { label: '2 GB Limit', href: 'https://www.floe.one/docs/how-it-works/2gb-limit' },
-                            { label: 'Encryption', href: 'https://www.floe.one/docs/how-it-works/encryption' },
-                        ].map(({ label, href }) => (
-                            <a
-                                key={label}
-                                href={href}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-[10px] text-zinc-500 uppercase tracking-wide hover:text-white transition-colors whitespace-nowrap"
-                            >
-                                {label}
-                            </a>
+                </div>
+
+                {/* The page's one hairline besides the footer's: the handoff to the
+                    docs, which carry the depth this page leaves out. */}
+                <section className="mt-28 border-t border-white/[0.06] pt-12 sm:mt-32 sm:pt-14">
+                    <h2 className="text-2xl font-semibold tracking-tight text-zinc-100 sm:text-3xl">
+                        Want the full technical detail?
+                    </h2>
+                    <p className="mt-4 max-w-lg text-base leading-relaxed text-zinc-400">
+                        Six pages take each stop on the line apart at depth, the known limitations
+                        included.
+                    </p>
+                    <div className="mt-8">
+                        <a
+                            href={`${DOCS}/signaling`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex min-h-10 items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-bold text-black transition hover:bg-zinc-200 focus-visible:outline-2 focus-visible:outline-ice"
+                        >
+                            Read the full technical breakdown
+                            <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+                        </a>
+                    </div>
+                    {/* role="list": Tailwind's preflight strips list markers and Safari
+                        drops list semantics with them. */}
+                    <ul role="list" className="mt-8 grid gap-y-3 sm:grid-cols-3 sm:gap-x-8">
+                        {DOCS_PAGES.map((page, i) => (
+                            <li key={page.slug}>
+                                <a
+                                    href={`${DOCS}/${page.slug}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="group inline-flex min-h-10 items-center gap-3 text-sm font-medium text-zinc-300 transition hover:text-ice focus-visible:outline-2 focus-visible:outline-ice sm:min-h-0"
+                                >
+                                    <span className="font-mono text-xs text-zinc-600" aria-hidden="true">
+                                        {String(i + 1).padStart(2, '0')}
+                                    </span>
+                                    {page.label}
+                                    <ArrowUpRight
+                                        className="h-3.5 w-3.5 text-zinc-500 transition group-hover:text-ice"
+                                        aria-hidden="true"
+                                    />
+                                </a>
+                            </li>
                         ))}
-                    </div>
-                </div>
-
-            </div>
+                    </ul>
+                </section>
+            </main>
 
             <Footer />
         </div>

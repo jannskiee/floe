@@ -7,6 +7,7 @@ The map names where a value is stated; grep the old literal repo-wide before fin
 ## Relay cap
 
 - `RelaySizeLimit` (cli/engine/transfer/relay.go) and `RELAY_SIZE_LIMIT` (client/lib/relay.ts); the comparison is strictly greater-than, sender-side only.
+- `RELAY_CAP` (client/lib/howItWorksStrings.ts) derives the figure /how-it-works prints from `RELAY_SIZE_LIMIT`; its test pins `CLI_BLOCKED` to the Go wording, so a limit change on one side fails the client suite.
 - Docs: docs/how-it-works/2gb-limit.mdx (whole page, including the "exactly N is allowed" sentence), docs/troubleshooting.mdx (the relay-limit headings and the desktop "capped" heading), docs/self-hosting/turn-relay.mdx (end of "How credentials work"), docs/cli/send.mdx "Notes", docs/desktop/settings.mdx "Hide my IP address", CLAUDE.md "Relay Size Limit".
 
 ## Protocol version
@@ -47,6 +48,7 @@ The map names where a value is stated; grep the old literal repo-wide before fin
 
 - cli/cmd/floe/main.go: `flagServer` (`--server`, with its compiled default), `flagNoRelay`, `flagRelayOnly` (`--relay-only`, mutually exclusive with `--no-relay` via `MarkFlagsMutuallyExclusive`), `flagWebURL` (`--web`), `flagIface` (`--iface`, repeatable), `flagOutput` (`-o`, with its default), `flagAutoAccept` (`-y`), `flagNoReport`, `flagUpdateCheck` (`--check`); `FLOE_SERVER`, `FLOE_WEB` and `FLOE_RELAY_ONLY` in `applyEnv` (called from the root `PersistentPreRunE`; a typed `--no-relay` beats `FLOE_RELAY_ONLY`), `FLOE_NO_STATS` in the receive command.
 - cli/cmd/floe/main.go `connectedLine`: the `Connected (direct)` / `Connected (relay)` / bare `Connected` status line, read once from `Connection.ConnectionType()` after setup.
+- client/lib/howItWorksStrings.ts mirrors the badge words (client/components/ConnectionStatusBadge.tsx, desktop/frontend/src/App.tsx) for /how-it-works; its test pins them.
 - cli/internal/selfupdate/selfupdate.go: `FLOE_NO_UPDATE_CHECK`.
 - Docs: docs/cli/flags.mdx (every table), docs/cli/send.mdx and docs/cli/receive.mdx ("Output" quotes the `Connected` line), docs/cli/update.mdx, docs/cli/self-hosted-server.mdx, docs/snippets/stats-optout.mdx, README.md CLI section. `--relay-only` is also described as the twin of Hide my IP in docs/how-it-works/relay-connection.mdx (the badge row, "Turning it off, and the opposite", and the accordion), docs/desktop/settings.mdx "Hide my IP address", docs/choosing-floe.mdx (the "Force the relay" row), docs/how-it-works/known-limitations.mdx, docs/security-privacy.mdx, docs/how-it-works/2gb-limit.mdx "One case that catches people out", and docs/troubleshooting.mdx `timed out establishing a connection`.
 
@@ -62,7 +64,7 @@ Script (`env`). Canonical: docs/self-hosting/configuration.mdx. Mirrors: CONTRIB
 
 ## Docs URLs inside shipped binaries and workflows
 
-Script (`links`). cli/cmd/floe/main.go (two `https://www.floe.one/docs` strings), desktop/frontend/src/App.tsx (`BrowserOpenURL`), client/lib/desktopRelease.ts and .github/workflows/desktop-release.yml (changelog URL), client/components/layout/Footer.tsx (mirror of docs.json `footer.links`).
+Script (`links`). cli/cmd/floe/main.go (two `https://www.floe.one/docs` strings), desktop/frontend/src/App.tsx (`BrowserOpenURL`), client/lib/desktopRelease.ts and .github/workflows/desktop-release.yml (changelog URL), client/components/layout/Footer.tsx (mirror of docs.json `footer.links`). Hand-read: client/app/how-it-works/page.tsx (the six `DocsLink` hrefs under `DOCS`, labels mirroring the docs sidebar titles).
 
 ## Frozen zones (never edit)
 
@@ -76,5 +78,4 @@ Script (`links`). cli/cmd/floe/main.go (two `https://www.floe.one/docs` strings)
 - server/.env.example NODE_ENV comment describes the Express stack-trace behavior that #239 made irrelevant, and the file has two em dashes (not a `dashes` surface, so the script cannot see them).
 - CONTRIBUTING.md "Corepack ships with Node 22": true only below Node 25.
 - client/components/layout/Footer.tsx and docs/docs.json footer say "Self-Hosting"; the docs settled on "Self-hosting" (#337). Change both together.
-- client/app/how-it-works/page.tsx chips name pages by titles they do not have (the `labels` NOTEs).
 - Two links target the unstable heading in docs/web-app/receiving.mdx (the `links` NOTEs at docs/faq.mdx:62 and docs/troubleshooting.mdx:24); the heading needs an explicit `{#id}`.
