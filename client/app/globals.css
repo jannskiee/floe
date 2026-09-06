@@ -146,6 +146,18 @@
     stroke-width: 1;
     vector-effect: non-scaling-stroke;
 }
+/* The two dash-drawn paths opt out of non-scaling-stroke. Chromium lays a dash
+   out in unscaled user units while the path renders scaled, so above scale 1
+   the ink ran out before the end: at the narrow variant's 1.333 cap the ice
+   line stopped 98.8px short of THEM and the ring floated unattached, which
+   reads as a failed connection. Every earlier check missed it because they all
+   run with reduced motion, where no dash exists. The cost is that these two
+   strokes scale with the figure, 0.8px at the 320px viewport to 1.33px at the
+   cap; the ticks and the detour keep their exact hairline. */
+.hiw-fig path.hiw-direct,
+.hiw-fig path.hiw-spur {
+    vector-effect: none;
+}
 .hiw-tick {
     stroke: #52525b;
 }
@@ -160,7 +172,7 @@
     stroke-dasharray: 1 5;
     stroke-linecap: round;
 }
-.hiw-ring {
+.hiw-fig circle.hiw-ring {
     stroke: oklch(0.87 0.05 220);
     fill: #09090b;
 }

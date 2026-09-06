@@ -13,12 +13,14 @@ import { RELAY_CAP } from '@/lib/howItWorksStrings';
  *
  * Two variants, wide from md and narrow below it, both drawn from
  * routeGeometry() so the two cannot drift; the CSS gate is the only switch.
- * Motion is CSS only and plays once on paint (the figure sits in the first
- * viewport at every width): the .hiw-* rules in globals.css, inside
+ * Motion is CSS only and plays once on paint: the .hiw-* rules in globals.css,
+ * inside
  * prefers-reduced-motion: no-preference. The base rules are the finished
  * figure, so reduced motion, the e2e sweep, the screenshot matrix and a
  * JS-off reader all get the completed drawing at first paint. No client
- * island: the route stays a Server Component.
+ * island: the route stays a Server Component. A plain load puts the figure
+ * inside the first viewport at every width; a reader arriving at #direct,
+ * #relay or #size-limit lands below it and sees that same finished drawing.
  */
 
 const LABEL = 'font-mono text-[11px] uppercase tracking-[0.2em]';
@@ -71,7 +73,7 @@ function Variant({ g, className }: { g: RouteGeometry; className: string }) {
                     Them
                 </span>
                 <span
-                    className="hiw-lbl-server absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap pl-[0.2em] text-zinc-500"
+                    className="hiw-lbl-server absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap pl-[0.2em] text-zinc-400"
                     style={{ left: `${L.server.left}%`, top: `${L.server.top}%` }}
                 >
                     Signaling server
@@ -82,8 +84,8 @@ function Variant({ g, className }: { g: RouteGeometry; className: string }) {
                 >
                     <i className="h-1.5 w-1.5 rounded-full bg-green-500" />
                     Direct
-                    <span className="text-zinc-600">·</span>
-                    <span className="text-zinc-500">No size limit</span>
+                    <span className="max-sm:hidden text-zinc-500">·</span>
+                    <span className="max-sm:hidden text-zinc-400">No size limit</span>
                 </span>
                 <span
                     className="hiw-lbl-relay absolute flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 whitespace-nowrap pl-[0.2em] text-zinc-300"
@@ -91,8 +93,8 @@ function Variant({ g, className }: { g: RouteGeometry; className: string }) {
                 >
                     <i className="h-1.5 w-1.5 rounded-full bg-amber-500" />
                     Relay
-                    <span className="text-zinc-600">·</span>
-                    <span className="text-zinc-500">{RELAY_CAP} per session</span>
+                    <span className="max-sm:hidden text-zinc-500">·</span>
+                    <span className="max-sm:hidden text-zinc-400">{RELAY_CAP} per session</span>
                 </span>
             </div>
         </div>
@@ -110,8 +112,9 @@ export function RouteFigure() {
             <figcaption className="sr-only">
                 A line runs from You to Them. Two thin spurs rise from each device to the signaling
                 server and end there: it introduces the devices and takes no further part. The
-                direct line runs straight across. A dotted second path dips through a relay and
-                rejoins at Them, labeled Relay, {RELAY_CAP} per session.
+                direct line runs straight across, labeled Direct, no size limit. A dotted second
+                path dips through a relay and rejoins at Them, labeled Relay, {RELAY_CAP} per
+                session.
             </figcaption>
         </figure>
     );

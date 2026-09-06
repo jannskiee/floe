@@ -29,11 +29,14 @@ describe.each([ROUTE_WIDE, ROUTE_NARROW])('routeGeometry(%i)', (width) => {
         expect(g.them.y).toBe(g.baselineY);
     });
 
-    it('ends both spurs on the server tick and nowhere else', () => {
+    it('stops both spurs short of the server tick, level with it', () => {
+        // Flush against the tick the spurs and the tick render as one arch from
+        // YOU over to THEM, which reads as the file passing through the server.
+        expect(g.serverGap).toBeGreaterThan(0);
         expect(startOf(g.spurLeft)).toEqual(g.you);
-        expect(endOf(g.spurLeft)).toEqual({ x: g.serverTick.x1, y: g.serverTick.y1 });
+        expect(endOf(g.spurLeft)).toEqual({ x: g.serverTick.x1 - g.serverGap, y: g.serverTick.y1 });
         expect(startOf(g.spurRight)).toEqual(g.them);
-        expect(endOf(g.spurRight)).toEqual({ x: g.serverTick.x2, y: g.serverTick.y2 });
+        expect(endOf(g.spurRight)).toEqual({ x: g.serverTick.x2 + g.serverGap, y: g.serverTick.y2 });
     });
 
     it('runs the detour as a complete second path from you to them through the relay tick', () => {
@@ -70,5 +73,31 @@ describe.each([ROUTE_WIDE, ROUTE_NARROW])('routeGeometry(%i)', (width) => {
         expect(g.labels.server.left).toBe(50);
         expect(g.labels.direct.left).toBe(50);
         expect(g.labels.relay.left).toBe(50);
+    });
+
+    // Without these the anchors are free to drift anywhere inside 0..100 and
+    // still pass: a label could sit on the wrong side of the thing it names.
+    it('anchors the device labels on their own ticks', () => {
+        const pct = (v: number, of: number) => Math.round((v / of) * 1000) / 10;
+        expect(g.labels.you.left).toBe(pct(g.you.x, width));
+        expect(g.labels.them.left).toBe(pct(g.them.x, width));
+        expect(g.labels.you.top).toBe(g.labels.them.top);
+    });
+
+    it('puts each figure label on the correct side of what it names', () => {
+        const pct = (v: number) => (v / ROUTE_HEIGHT) * 100;
+        // Server label above its tick, relay label below its own.
+        expect(g.labels.server.top).toBeLessThan(pct(g.serverTick.y1));
+        expect(g.labels.relay.top).toBeGreaterThan(pct(g.relayTick.y1));
+        // Direct label above the baseline, device labels below it.
+        expect(g.labels.direct.top).toBeLessThan(pct(g.baselineY));
+        expect(g.labels.you.top).toBeGreaterThan(pct(g.baselineY));
+        // And clear of the device ticks it sits under.
+        expect(g.labels.you.top).toBeGreaterThan(pct(g.deviceTicks[0].y2));
+    });
+
+    it('reports the width and height the component feeds to viewBox and aspect-ratio', () => {
+        expect(g.width).toBe(width);
+        expect(g.height).toBe(ROUTE_HEIGHT);
     });
 });

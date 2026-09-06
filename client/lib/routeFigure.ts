@@ -11,12 +11,14 @@
 // function at two widths, so the two drawings cannot drift apart; the test
 // next door pins the endpoints.
 
-export interface Point {
+// These three type the fields of RouteGeometry and are never named by a
+// consumer, so they stay unexported.
+interface Point {
     x: number;
     y: number;
 }
 
-export interface Segment {
+interface Segment {
     x1: number;
     y1: number;
     x2: number;
@@ -25,7 +27,7 @@ export interface Segment {
 
 /** A label anchor as percentages of the figure box, for an absolutely
  *  positioned HTML span over the SVG. */
-export interface Anchor {
+interface Anchor {
     left: number;
     top: number;
 }
@@ -39,15 +41,14 @@ export interface RouteGeometry {
     deviceTicks: [Segment, Segment];
     serverTick: Segment;
     relayTick: Segment;
+    /** How far short of the server tick each spur stops, in viewBox units. */
+    serverGap: number;
     /** SVG path data. The spurs run device to server tick; the detour runs
      *  YOU to relay tick to THEM; the direct line is the baseline. */
     spurLeft: string;
     spurRight: string;
     detour: string;
     direct: string;
-    /** The detour's endpoints, exposed for the test. */
-    detourStart: Point;
-    detourEnd: Point;
     labels: {
         you: Anchor;
         them: Anchor;
@@ -66,6 +67,12 @@ const SERVER_Y = 44;
 const RELAY_Y = 236;
 const TICK = 32;
 const DEVICE_TICK = 24;
+// The spurs stop short of the server tick instead of joining it. Rendered
+// flush, the two spurs and the tick are one C1-continuous arch from YOU over
+// to THEM, which draws the opposite of what the page says: it looks like the
+// file travels through the server. The gap makes the eye read line, stop,
+// mark, stop, line, so the spurs visibly END at the server.
+const SERVER_GAP = 10;
 
 const n = (v: number) => String(Math.round(v * 100) / 100);
 const cubic = (from: Point, c1: Point, c2: Point, to: Point) =>
@@ -92,8 +99,20 @@ export function routeGeometry(width: number): RouteGeometry {
     const relayL: Point = { x: cx - TICK / 2, y: RELAY_Y };
     const relayR: Point = { x: cx + TICK / 2, y: RELAY_Y };
 
-    const spurLeft = cubic(you, { x: you.x + reach, y: BASELINE_Y }, { x: serverL.x - approach, y: SERVER_Y }, serverL);
-    const spurRight = cubic(them, { x: them.x - reach, y: BASELINE_Y }, { x: serverR.x + approach, y: SERVER_Y }, serverR);
+    // The second control point keeps the tangent horizontal at the end, so a
+    // spur still arrives flat and parallel to the tick it stops beside.
+    const spurLeft = cubic(
+        you,
+        { x: you.x + reach, y: BASELINE_Y },
+        { x: serverL.x - approach, y: SERVER_Y },
+        { x: serverL.x - SERVER_GAP, y: SERVER_Y }
+    );
+    const spurRight = cubic(
+        them,
+        { x: them.x - reach, y: BASELINE_Y },
+        { x: serverR.x + approach, y: SERVER_Y },
+        { x: serverR.x + SERVER_GAP, y: SERVER_Y }
+    );
     const detour =
         cubic(you, { x: you.x + reach, y: BASELINE_Y }, { x: relayL.x - approach, y: RELAY_Y }, relayL) +
         ` H ${n(relayR.x)}` +
@@ -116,8 +135,7 @@ export function routeGeometry(width: number): RouteGeometry {
         spurRight,
         detour,
         direct,
-        detourStart: you,
-        detourEnd: them,
+        serverGap: SERVER_GAP,
         labels: {
             you: { left: pct(you.x, width), top: pct(BASELINE_Y + 36, ROUTE_HEIGHT) },
             them: { left: pct(them.x, width), top: pct(BASELINE_Y + 36, ROUTE_HEIGHT) },

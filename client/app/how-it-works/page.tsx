@@ -32,19 +32,26 @@ export const metadata: Metadata = {
     twitter: { ...sharedTwitter, title: 'How Floe works' },
 };
 
-const DOCS = 'https://www.floe.one/docs/how-it-works';
+const DOCS_SIGNALING = 'https://www.floe.one/docs/how-it-works/signaling';
 
-// The six docs pages, in the order the line reads them.
-const DOCS_PAGES: { label: string; slug: string }[] = [
-    { label: 'Signaling', slug: 'signaling' },
-    { label: 'Direct connection', slug: 'direct-connection' },
-    { label: 'Relay connection', slug: 'relay-connection' },
-    { label: `${RELAY_CAP} limit`, slug: '2gb-limit' },
-    { label: 'Encryption', slug: 'encryption' },
-    { label: 'Known limitations', slug: 'known-limitations' },
+// The six docs pages, in the order the line reads them. Each label is that
+// page's own sidebarTitle, not an editorial shortening: a link that names a
+// page by a title it does not have is the drift docs-check's `labels` check
+// exists to catch, and it can only see a label when the href sits in the same
+// object literal, so these are written out in full.
+const DOCS_PAGES: { label: string; href: string }[] = [
+    { label: 'How a transfer works', href: 'https://www.floe.one/docs/how-it-works/signaling' },
+    { label: 'Direct connections', href: 'https://www.floe.one/docs/how-it-works/direct-connection' },
+    { label: 'Relay fallback', href: 'https://www.floe.one/docs/how-it-works/relay-connection' },
+    { label: 'File size limits', href: 'https://www.floe.one/docs/how-it-works/2gb-limit' },
+    { label: 'Encryption', href: 'https://www.floe.one/docs/how-it-works/encryption' },
+    { label: 'Known limitations', href: 'https://www.floe.one/docs/how-it-works/known-limitations' },
 ];
 
-const LABEL = 'font-mono text-[11px] uppercase tracking-[0.2em] text-zinc-500';
+// zinc-400, not the zinc-500 the landing ledgers use for their labels: at 11px
+// zinc-500 measures 4.12:1 on zinc-950, under the 4.5:1 AA minimum, and these
+// four labels are informative copy. The legal pages made the same lift.
+const LABEL = 'font-mono text-[11px] uppercase tracking-[0.2em] text-zinc-400';
 
 // The badge dot the app draws (ConnectionStatusBadge.tsx core dot, no halo):
 // green means Direct, amber means Relay, and those are the only two colors on
@@ -70,7 +77,7 @@ export default function HowItWorks() {
                     below starts under these words, at YOU. pt-24/28 clears the
                     fixed pill; leading-none on the eyebrow drops its dead
                     half-leading; mt-3 offsets the headline's own leading. */}
-                <header className="pt-24 sm:pt-28">
+                <header className="pt-[calc(6rem_+_env(safe-area-inset-top))] sm:pt-[calc(7rem_+_env(safe-area-inset-top))]">
                     <p className="font-mono text-[11px] leading-none uppercase tracking-[0.2em] text-ice">
                         The short version
                     </p>
@@ -80,7 +87,8 @@ export default function HowItWorks() {
                     <p className="mt-6 max-w-lg text-base leading-relaxed text-balance text-zinc-400">
                         Two devices, one line between them. A server makes the introduction and
                         leaves. Most transfers go straight across. When a network blocks the way, the
-                        transfer can take a relay instead, capped at {RELAY_CAP} per session.
+                        transfer can take a relay instead, capped at{' '}
+                        <span className="whitespace-nowrap">{RELAY_CAP}</span> per session.
                     </p>
                 </header>
 
@@ -95,47 +103,50 @@ export default function HowItWorks() {
                     notice to #size-limit; scroll-mt-28 clears the pill for all
                     three. */}
                 <div className="mt-12 grid gap-8 md:grid-cols-3">
-                    <section className="max-w-lg scroll-mt-28">
+                    <section className="max-w-lg scroll-mt-[calc(7rem_+_env(safe-area-inset-top))]">
                         <p className={LABEL}>Signaling</p>
                         <h2 className="mt-3 text-base font-medium text-zinc-100">
-                            The server introduces, then leaves.
+                            <span className="sr-only">Signaling. </span>The server introduces, then
+                            leaves.
                         </h2>
                         <p className="mt-2 text-sm leading-relaxed text-zinc-400">
                             It puts your two devices in a room and passes the offer, the answer, and each
-                            side&apos;s network addresses between them. Once the connection opens, it plays
-                            no further part.
+                            side&apos;s network addresses between them. Once the connection opens, no file
+                            data goes back through it.
                         </p>
                     </section>
-                    <section id="direct" className="max-w-lg scroll-mt-28">
+                    <section id="direct" className="max-w-lg scroll-mt-[calc(7rem_+_env(safe-area-inset-top))]">
                         <p className={`flex items-center gap-2 ${LABEL}`}>
                             <Dot tone="direct" />
                             {BADGE_DIRECT}
                         </p>
                         <h2 className="mt-3 text-base font-medium text-zinc-100">
-                            Straight across, most of the time.
+                            <span className="sr-only">Direct. </span>Straight across, most of the time.
                         </h2>
                         <p className="mt-2 text-sm leading-relaxed text-zinc-400">
                             Device to device, with no server carrying the file. There is no size limit,
                             and speed is whatever the slower of your two connections allows. The badge
-                            shows {BADGE_DIRECT}, in green.
+                            shows {BADGE_DIRECT} with a green dot.
                         </p>
                     </section>
-                    <section id="relay" className="max-w-lg scroll-mt-28">
+                    <section id="relay" className="max-w-lg scroll-mt-[calc(7rem_+_env(safe-area-inset-top))]">
                         <p className={`flex items-center gap-2 ${LABEL}`}>
                             <Dot tone="relay" />
                             {BADGE_RELAY}
                         </p>
                         <h2 className="mt-3 text-base font-medium text-zinc-100">
-                            The detour, when a network blocks the way.
+                            <span className="sr-only">Relay. </span>The detour, when the way is blocked.
                         </h2>
                         <p className="mt-2 text-sm leading-relaxed text-zinc-400">
                             A TURN relay both devices can reach forwards encrypted packets it cannot read;
-                            on floe.one that relay is Cloudflare&apos;s. The badge shows {BADGE_RELAY}, in
-                            amber.
+                            on floe.one that relay is Cloudflare&apos;s. The badge shows {BADGE_RELAY} with
+                            an amber dot.
                         </p>
-                        <p id="size-limit" className="mt-3 scroll-mt-28 text-sm leading-relaxed text-zinc-400">
-                            Relay bandwidth costs money, so a relayed session is capped at {RELAY_CAP}. The
-                            sender checks once, before any file data moves; exactly {RELAY_CAP} passes.
+                        <p id="size-limit" className="mt-3 scroll-mt-[calc(7rem_+_env(safe-area-inset-top))] text-sm leading-relaxed text-zinc-400">
+                            Relay bandwidth costs money, so a relayed session is capped at{' '}
+                            <span className="whitespace-nowrap">{RELAY_CAP}</span>. The sender checks once,
+                            before any file data moves; exactly{' '}
+                            <span className="whitespace-nowrap">{RELAY_CAP}</span> passes.
                         </p>
                     </section>
                 </div>
@@ -143,11 +154,11 @@ export default function HowItWorks() {
                 {/* Encryption is not a beat on the line, it is true of every route,
                     so it sits alone, one shade lighter than the captions, with
                     whitespace rather than a hairline separating it. */}
-                <div className="mt-14 max-w-2xl">
+                <div className="mt-14 max-w-lg">
                     <p className={LABEL}>On every route</p>
                     <p className="mt-3 text-base leading-relaxed text-zinc-300">
                         Every transfer is encrypted end to end with WebRTC&apos;s DTLS. The keys exist only
-                        on the two devices, and nothing is stored on any server. The browser, Floe Desktop
+                        on the two devices, and no file is stored on any server. The browser, Floe Desktop
                         for Windows, and the CLI all speak the same protocol.
                     </p>
                 </div>
@@ -164,12 +175,12 @@ export default function HowItWorks() {
                     </p>
                     <div className="mt-8">
                         <a
-                            href={`${DOCS}/signaling`}
+                            href={DOCS_SIGNALING}
                             target="_blank"
                             rel="noreferrer"
                             className="inline-flex min-h-10 items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-bold text-black transition hover:bg-zinc-200 focus-visible:outline-2 focus-visible:outline-ice"
                         >
-                            Read the full technical breakdown
+                            Read the full breakdown
                             <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
                         </a>
                     </div>
@@ -177,9 +188,9 @@ export default function HowItWorks() {
                         drops list semantics with them. */}
                     <ul role="list" className="mt-8 grid gap-y-3 sm:grid-cols-3 sm:gap-x-8">
                         {DOCS_PAGES.map((page, i) => (
-                            <li key={page.slug}>
+                            <li key={page.href}>
                                 <a
-                                    href={`${DOCS}/${page.slug}`}
+                                    href={page.href}
                                     target="_blank"
                                     rel="noreferrer"
                                     className="group inline-flex min-h-10 items-center gap-3 text-sm font-medium text-zinc-300 transition hover:text-ice focus-visible:outline-2 focus-visible:outline-ice sm:min-h-0"
