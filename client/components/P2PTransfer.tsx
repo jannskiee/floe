@@ -37,6 +37,7 @@ import {useRelayConfiguration} from '@/hooks/useRelayConfiguration';
 import {RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, probeIsRelay} from '@/lib/relay';
 import {buildShareLink, getRoomFromUrl, isValidRoomId} from '@/lib/roomLink';
 import {classifyPeerError} from '@/lib/peerErrors';
+import {decideReceiverClose} from '@/lib/receiverClose';
 import {copyText} from '@/lib/clipboard';
 import {resolveSocketUrl} from '@/lib/socketUrl';
 
@@ -132,9 +133,12 @@ export function P2PTransfer() {
     // side a moment later, and without this latch its handler overwrites the
     // real explanation with connection advice.
     const wireReasonRef = useRef(false);
-    // A teardown this side asked for. The close handler stays quiet for it,
-    // so a reconnect does not flash a failure on the way through.
-    const localTeardownRef = useRef(false);
+    // The peer THIS side tore down on purpose, so its close handler stays
+    // quiet and a reconnect does not flash a failure on the way through.
+    // Holds the instance rather than a boolean: a boolean is cleared when the
+    // replacement peer is built, and the outgoing peer's close can still be in
+    // flight at that moment, which is exactly the reconnect path.
+    const closedByUsRef = useRef<PeerInstance | null>(null);
     const hasJoinedRef = useRef(false);
     // The room this page instance is handling as a receiver. Used to detect a
     // fragment-only navigation (scanning a second QR code into the same tab).
@@ -236,7 +240,7 @@ export function P2PTransfer() {
                 setStatus('Peer disconnected. Waiting for reconnection');
             }
             // Set before destroy, so the close handler this triggers sees it.
-            localTeardownRef.current = true;
+            closedByUsRef.current = peerRef.current;
             if (peerRef.current) peerRef.current.destroy();
             releaseWakeLock();
         },
@@ -265,6 +269,7 @@ export function P2PTransfer() {
                 // the rejoin's user-connected with a brand-new initiator peer
                 // and a fresh offer, which the old half-negotiated peer cannot
                 // answer, so recreate the peer by re-running the join flow.
+                closedByUsRef.current = peerRef.current;
                 peerRef.current?.destroy();
                 hasJoinedRef.current = false;
                 joinRoomAsReceiver(joinedRoomRef.current);
@@ -366,7 +371,6 @@ export function P2PTransfer() {
         joinRoom(roomId);
 
         wireReasonRef.current = false;
-        localTeardownRef.current = false;
         const peer = new SimplePeer({
             initiator: false,
             trickle: true,
@@ -401,23 +405,25 @@ export function P2PTransfer() {
             releaseWakeLock();
             resetConnectionType();
             stopConnectionTypePolling();
-            // The connection is gone, so stop saying it is up. This handler
-            // used to write a breadcrumb and nothing else, which left the
-            // connected badge and the last status line on screen after the
-            // sender had walked away.
-            setIsConnected(false);
-            if (
-                !transferCompleteRef.current &&
-                !wireReasonRef.current &&
-                !localTeardownRef.current
-            ) {
-                if (receivedFilesRef.current.length > 0) {
-                    setStatus('Connection interrupted');
+            // The branchy part lives in client/lib/receiverClose.ts, where it
+            // can be tested: nothing in the suite mounts this component, and
+            // two of these three branches were wrong on the first attempt.
+            const decision = decideReceiverClose({
+                closedByUs: closedByUsRef.current === peer,
+                replaced: peerRef.current !== peer,
+                wireReason: wireReasonRef.current,
+                receivedCount: receivedFilesRef.current.length,
+            });
+            if (decision.kind !== 'silent') {
+                // The connection is gone, so stop saying it is up. This
+                // handler used to write a breadcrumb and nothing else, which
+                // left the connected badge and the last status line on screen
+                // after the sender had walked away.
+                setIsConnected(false);
+                if (decision.kind === 'outcome') {
+                    setStatus(receiveOutcome());
                 } else {
-                    // Only when nothing else has explained it. A peer that sent
-                    // a reason, or an error handler that already ran, wrote
-                    // something better than this.
-                    setError((prev) => prev || 'The sender ended the transfer before it finished.');
+                    setError((prev) => prev || decision.error);
                     setStatus('Transfer failed');
                 }
             }
@@ -530,7 +536,11 @@ export function P2PTransfer() {
             onError: (msg) => {
                 // Latched: this is the protocol's own account of what went
                 // wrong, and the close that follows must not talk over it.
+                // That latch also silences the peer error handler, which is
+                // where a receiver's transfer-failed event normally comes
+                // from, so report it here instead of losing it.
                 wireReasonRef.current = true;
+                track('transfer-failed', { reason: 'peer-reason', role: 'receiver' });
                 setError(msg);
                 setStatus('Transfer failed');
             },
@@ -573,7 +583,7 @@ export function P2PTransfer() {
             cancelled = true;
             stopConnectionTypePolling();
             releaseWakeLock();
-            localTeardownRef.current = true;
+            closedByUsRef.current = peerRef.current;
             peerRef.current?.destroy();
             receivedFilesRef.current.forEach((f) => URL.revokeObjectURL(f.downloadUrl));
             // Three timers that outlived the component: the link-ack fallback
@@ -661,6 +671,7 @@ export function P2PTransfer() {
 
         onUserConnected((userId: string) => {
             if (peerRef.current && !peerRef.current.destroyed) {
+                closedByUsRef.current = peerRef.current;
                 peerRef.current.destroy();
             }
             // The destroyed peer's ICE probe goes with it. simple-peer nulls

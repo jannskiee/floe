@@ -372,13 +372,23 @@ describe('sender: an abort reason reaches the wire before teardown', () => {
             addEventListener: () => {},
             removeEventListener: () => {},
         };
-        const done = sendAbortReason((d) => sent.push(d), channel, 'Transfer blocked: capped at 2 GB.');
+        let settled = false;
+        const done = sendAbortReason((d) => sent.push(d), channel, 'Transfer blocked: capped at 2 GB.').then(() => {
+            settled = true;
+        });
 
         expect(typeof sent[0]).toBe('string');
         expect(JSON.parse(sent[0] as string).type).toBe('incompatible');
 
+        // The assertion that matters: an implementation that skipped the
+        // drain would already be settled here, and the reason would go with
+        // the channel when the caller tears it down.
+        await Promise.resolve();
+        expect(settled).toBe(false);
+
         buffered = 0;
         await done;
+        expect(settled).toBe(true);
     });
 
     it('does not hang when the peer never drains', async () => {

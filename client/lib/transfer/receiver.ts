@@ -104,6 +104,9 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: s
             // folder path does it).
             if (new TextEncoder().encode(text).byteLength > CONTROL_MSG_MAX) {
                 aborted = true;
+                partialDownloads.clear();
+                currentMetadata = null;
+                expectedSize = null;
                 cb.onError?.(
                     'The sender sent a control message larger than ' +
                         `${CONTROL_MSG_MAX} bytes, so the transfer was stopped.`
@@ -177,6 +180,10 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: s
                 // on this side a moment later and its handler would otherwise
                 // overwrite the real reason with connection advice.
                 aborted = true;
+                // Nothing more is coming, so let the buffered chunks go.
+                partialDownloads.clear();
+                currentMetadata = null;
+                expectedSize = null;
                 const incompat = msg as Incompatible;
                 const reason = sanitizeDisplayText(incompat.reason ?? '', 300);
                 cb.onError?.(
@@ -226,10 +233,17 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: s
                     // then reports a timeout, which is the wrong cause two
                     // minutes late. Binary, like the compatibility path above,
                     // because nothing travelling receiver to sender is file data.
-                    const enc = new TextEncoder().encode(
-                        incompatibleMessage(`receiver discarded a file: ${detail}`)
-                    );
-                    cb.send(new Uint8Array(enc));
+                    // Best effort, and after nothing that matters locally: a
+                    // throw from a peer already torn down must not swallow the
+                    // only explanation this side ever shows.
+                    try {
+                        const enc = new TextEncoder().encode(
+                            incompatibleMessage(`receiver discarded a file: ${detail}`)
+                        );
+                        cb.send(new Uint8Array(enc));
+                    } catch {
+                        // The peer is gone; the close is all it will get.
+                    }
                     // Over-count is not truncation: it means a frame boundary
                     // was wrong, so say that rather than blaming the sender for
                     // stopping early.

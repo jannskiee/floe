@@ -180,10 +180,24 @@ export async function sendAbortReason(
         return; // already torn down; the close is all the peer will get
     }
     if (!channel) return;
+    // The loser of the race has to be told, or drainBelow keeps its 200 ms
+    // poll and its bufferedamountlow listener forever and leaves the
+    // channel threshold clamped at 0, which would then suppress the
+    // backpressure event a later transfer on the same channel depends on.
+
+    let over = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     await Promise.race([
-        drainBelow(channel, 0, () => false),
-        new Promise<void>((resolve) => setTimeout(resolve, CONTROL_FLUSH_MS)),
+        drainBelow(channel, 0, () => over),
+        new Promise<void>((resolve) => {
+            timer = setTimeout(() => {
+                over = true;
+                resolve();
+            }, CONTROL_FLUSH_MS);
+        }),
     ]);
+    over = true;
+    if (timer) clearTimeout(timer);
 }
 
 // Resolves once the channel buffer has drained to at most `threshold` bytes

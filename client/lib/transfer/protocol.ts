@@ -68,9 +68,14 @@ export interface Received {
     type: 'received';
 }
 
-// Sent by the receiver to the sender when their protocol version ranges do not
-// overlap. Sent as binary (Uint8Array) so old senders that don't know this
-// type can safely drop it rather than treating it as file data.
+// Sent when a peer stops on purpose. Two jobs, told apart by the pv range it
+// carries: a version mismatch (from the receiver, in place of the ack) when the
+// ranges miss, and a named abort (from either side) when they overlap. See
+// isAbortReason.
+//
+// Framing depends on direction. Receiver to sender is binary, which old senders
+// drop safely rather than treating as file data. Sender to receiver MUST be
+// text: on that path a binary frame is file data by definition.
 export interface Incompatible {
     type: 'incompatible';
     reason: string;
@@ -119,7 +124,10 @@ export function incompatibleMessage(reason: string): string {
     // frame as file data, so a long reason has to shrink until the whole thing
     // fits. Halving a character budget terminates, and slicing a JS string by
     // code unit can split a surrogate pair, so the trim goes through
-    // sanitizeDisplayText, which counts code points.
+    // sanitizeDisplayText, which caps in UTF-16 units and
+    // never leaves a lone surrogate at the end. Go trims the same frame by rune,
+    // so the two can land a character apart on astral text; the cap is a byte
+    // budget on the frame either way, which is what has to hold.
     let text = reason;
     let frame = buildIncompatible(text);
     for (let budget = MAX_REASON; frameBytes(frame) > CONTROL_MSG_MAX && budget > 0; budget = Math.floor(budget / 2)) {
@@ -250,6 +258,22 @@ export function classifyControl(data: string | ArrayBuffer | Uint8Array): Contro
 }
 
 /**
+ * Whether an `incompatible` frame is a version mismatch or a deliberate abort
+ * carrying a reason.
+ *
+ * The two are told apart by the `pv` range. When it OVERLAPS ours the frame is
+ * not about versions at all, so the reason is printed verbatim rather than
+ * replaced by a version remedy. That overlap is what lets a peer name why it
+ * stopped without a new message type and without a `ProtocolVersion` bump, and
+ * `cli/engine/transfer/control.go`'s `rejectDescription` has shipped on exactly
+ * this basis since v1.10.5.
+ */
+export function isAbortReason(msg: Incompatible): boolean {
+    const { ok } = checkCompat(MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, msg.pvMin ?? 1, msg.pv ?? 1);
+    return ok;
+}
+
+/**
  * Whether a frame arriving at a RECEIVER may be a control message at all.
  *
  * The wire already answers this and Floe used to ignore it. Every Floe sender
@@ -272,22 +296,6 @@ export function classifyControl(data: string | ArrayBuffer | Uint8Array): Contro
  * `readableObjectMode`: simple-peer pushes text frames through a non-objectMode
  * readable-stream Duplex, which Buffer.from()s them before Floe sees them.
  */
-/**
- * Whether an `incompatible` frame is a version mismatch or a deliberate abort
- * carrying a reason.
- *
- * The two are told apart by the `pv` range. When it OVERLAPS ours the frame is
- * not about versions at all, so the reason is printed verbatim rather than
- * replaced by a version remedy. That overlap is what lets a peer name why it
- * stopped without a new message type and without a `ProtocolVersion` bump, and
- * `cli/engine/transfer/control.go`'s `abortReason` has shipped on exactly this
- * basis since v1.10.5.
- */
-export function isAbortReason(msg: Incompatible): boolean {
-    const { ok } = checkCompat(MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, msg.pvMin ?? 1, msg.pv ?? 1);
-    return ok;
-}
-
 export function isControlFrame(data: string | ArrayBuffer | Uint8Array): data is string {
     return typeof data === 'string';
 }
