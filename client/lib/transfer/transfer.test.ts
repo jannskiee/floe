@@ -36,15 +36,19 @@ async function loopback(
     const received: { name: string; bytes: Uint8Array }[] = [];
 
     // Queue of data handlers the sender registers for acks
-    let senderDataHandler: ((d: Uint8Array | ArrayBuffer) => void) | null = null;
+    let senderDataHandler: ((d: string | Uint8Array | ArrayBuffer) => void) | null = null;
 
     const rx = createReceiver({
         send: (d) => {
             // Defer so the sender's waitForAck handler is registered before the ack fires.
             // In production there is a real network round-trip; queueMicrotask reproduces
             // that "not yet registered" gap in the synchronous loopback.
-            const data = typeof d === 'string' ? enc.encode(d) : d;
-            queueMicrotask(() => senderDataHandler?.(data));
+            //
+            // The frame is passed through as-is: a string stays a string. This
+            // harness used to encode it, modelling simple-peer's old flattening
+            // of text frames, which is exactly what readableObjectMode removes.
+            // Encoding here would hide the framing the receiver now classifies on.
+            queueMicrotask(() => senderDataHandler?.(d));
         },
         onFileComplete: (file) => {
             file.blob.arrayBuffer().then((ab) => {
@@ -55,9 +59,8 @@ async function loopback(
 
     const deps: SenderDeps = {
         send: (d) => {
-            // Sender output → receiver input
-            const data = typeof d === 'string' ? enc.encode(d) : d;
-            rx.handleMessage(data);
+            // Sender output → receiver input, framing intact (see above).
+            rx.handleMessage(d);
         },
         onData: (handler) => {
             senderDataHandler = handler;
@@ -156,7 +159,7 @@ describe('receiver: stores tight copies of chunk bytes', () => {
         for (let i = 0; i < SIZE; i++) fileBytes[i] = i + 1; // never 0x7B at index 0
 
         // Metadata first so the receiver opens a partial download.
-        rx.handleMessage(enc.encode(metadataMessage('rid', 'r.bin', SIZE, 1, 1, SIZE)));
+        rx.handleMessage(metadataMessage('rid', 'r.bin', SIZE, 1, 1, SIZE));
 
         // Place the payload inside a larger backing Buffer at a non-zero offset and
         // hand the receiver subarray VIEWS (16 bytes each) — sharing one backing AB.
@@ -166,7 +169,7 @@ describe('receiver: stores tight copies of chunk bytes', () => {
         rx.handleMessage(backing.subarray(36, 52));
         rx.handleMessage(backing.subarray(52, 68));
 
-        rx.handleMessage(enc.encode(endMessage()));
+        rx.handleMessage(endMessage());
 
         expect(completedBlob).not.toBeNull();
         const got = new Uint8Array(await completedBlob!.arrayBuffer());
@@ -181,17 +184,17 @@ describe('receiver: onAllComplete fires once per transfer', () => {
     // bytes — never once per file — so multi-file transfers are counted correctly
     // and are not partially dropped by the server's per-IP report rate limit.
     function feedFile(
-        rx: { handleMessage: (d: Uint8Array | ArrayBuffer) => void },
+        rx: { handleMessage: (d: string | Uint8Array | ArrayBuffer) => void },
         id: string,
         size: number,
         index: number,
         total: number,
     ) {
-        rx.handleMessage(enc.encode(metadataMessage(id, `${id}.bin`, size, index, total, 0)));
+        rx.handleMessage(metadataMessage(id, `${id}.bin`, size, index, total, 0));
         const chunk = new Uint8Array(size);
         for (let i = 0; i < size; i++) chunk[i] = (i + 1) % 256; // never starts with '{'
         if (size > 0) rx.handleMessage(chunk);
-        rx.handleMessage(enc.encode(endMessage()));
+        rx.handleMessage(endMessage());
     }
 
     it('fires a single time with the total bytes and file count for a 3-file transfer', () => {
@@ -249,6 +252,131 @@ describe('loopback: small binary framing guard', () => {
 });
 
 /**
+ * Framing, not content, decides whether a frame reaching a RECEIVER is control.
+ *
+ * classifyControl infers a frame's type from its bytes, so a whole small file
+ * whose content is a control-shaped JSON object was consumed as control and
+ * never written (#316). Before #311 that produced a 0-byte file that looked
+ * complete; after it, a hard error and an aborted batch. Both are the same lost
+ * bytes.
+ *
+ * Every Floe sender since v1.0.0 sends metadata and end as a TEXT frame and
+ * file chunks as BINARY, so the wire already carried the answer. The browser
+ * could not see it until the peer was given readableObjectMode, because
+ * simple-peer Buffer.from()s text frames on the way through readable-stream.
+ * These tests model the wire, which is what the loopback harness above now
+ * does too.
+ */
+describe('receiver: framing decides, not content', () => {
+    function receiver() {
+        const files: Record<string, string> = {};
+        const errors: string[] = [];
+        const pending: Promise<void>[] = [];
+        const rx = createReceiver({
+            send: () => {},
+            onFileComplete: (f) => {
+                pending.push(
+                    f.blob.arrayBuffer().then((ab) => {
+                        files[f.fileName] = new TextDecoder().decode(new Uint8Array(ab));
+                    }),
+                );
+            },
+            onError: (m) => errors.push(m),
+        });
+        return { rx, files, errors, settle: () => Promise.all(pending) };
+    }
+
+    // Every control type Floe knows, as the entire content of a small file.
+    // A binary frame is file data whatever its bytes spell.
+    const controlShaped = [
+        // The issue's own repro: 14 bytes, and a one-click send from Floe
+        // Desktop's Send-text box.
+        ['end', '{"type":"end"}'],
+        ['received', '{"type":"received"}'],
+        ['ack', '{"type":"ack","id":"x","offset":0}'],
+        ['incompatible', '{"type":"incompatible","reason":"nope"}'],
+        ['metadata', '{"type":"metadata","id":"a","fileName":"x","fileSize":1,"index":1,"total":1}'],
+        ['padded end', '   {"type":"end"}'],
+    ] as const;
+
+    it.each(controlShaped)('writes a file whose whole content is a %s frame', async (_name, content) => {
+        const h = receiver();
+        const bytes = enc.encode(content);
+        h.rx.handleMessage(metadataMessage('j', 'payload.json', bytes.byteLength, 1, 1, bytes.byteLength));
+        h.rx.handleMessage(bytes);
+        h.rx.handleMessage(endMessage());
+        await h.settle();
+
+        expect(h.errors).toEqual([]);
+        expect(h.files['payload.json']).toBe(content);
+    });
+
+    it('does not derail the rest of the batch', async () => {
+        // The failure people actually hit: one eaten frame also takes down every
+        // file queued behind it.
+        const h = receiver();
+        const trap = enc.encode('{"type":"end"}');
+        h.rx.handleMessage(metadataMessage('a', 'end.json', trap.byteLength, 1, 2, trap.byteLength + 3));
+        h.rx.handleMessage(trap);
+        h.rx.handleMessage(endMessage());
+        h.rx.handleMessage(metadataMessage('b', 'after.txt', 3, 2, 2, trap.byteLength + 3));
+        h.rx.handleMessage(enc.encode('abc'));
+        h.rx.handleMessage(endMessage());
+        await h.settle();
+
+        expect(h.errors).toEqual([]);
+        expect(Object.keys(h.files).sort()).toEqual(['after.txt', 'end.json']);
+        expect(h.files['after.txt']).toBe('abc');
+    });
+
+    it('still honors a short end marker, which is what the truncation guard needs', async () => {
+        // The reason the fix is framing and not "a control frame is only real
+        // once the announced bytes have arrived": a legitimately short end
+        // marker arrives while the budget is unsatisfied, and it is the exact
+        // frame both truncation guards depend on. A position rule would turn
+        // this precise error into a silent hang.
+        const h = receiver();
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 100, 1, 1, 100));
+        h.rx.handleMessage(new Uint8Array(40));
+        h.rx.handleMessage(endMessage());
+        await h.settle();
+
+        expect(h.errors).toHaveLength(1);
+        expect(h.errors[0]).toContain('received 40 of 100 bytes');
+        expect(h.files).toEqual({});
+    });
+
+    it('drops an unrecognized control type instead of writing it into the file', async () => {
+        // The Go receiver has always done this. The browser used to append the
+        // frame to whatever file was open, which is what made adding any new
+        // frame type unsafe for a stale tab.
+        const h = receiver();
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 1, 3));
+        h.rx.handleMessage(JSON.stringify({ type: 'somethingNew', reason: 'from a future Floe' }));
+        h.rx.handleMessage(enc.encode('abc'));
+        h.rx.handleMessage(endMessage());
+        await h.settle();
+
+        expect(h.errors).toEqual([]);
+        expect(h.files['a.bin']).toBe('abc');
+    });
+
+    it('refuses an over-cap control message instead of appending it to the file', async () => {
+        // Mirrors cli/engine/transfer/receiver.go. A deep enough folder path
+        // produces a metadata frame past the cap, and the browser used to write
+        // it into the file; the Go receiver has always rejected it.
+        const h = receiver();
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 1, 3));
+        h.rx.handleMessage('{"type":"metadata","pad":"' + 'x'.repeat(CONTROL_MSG_MAX) + '"}');
+        await h.settle();
+
+        expect(h.errors).toHaveLength(1);
+        expect(h.errors[0]).toContain(String(CONTROL_MSG_MAX));
+        expect(h.files).toEqual({});
+    });
+});
+
+/**
  * The receiver must refuse a file whose byte count does not match the size the
  * sender announced, matching cli/engine/transfer/receiver.go. Before this it
  * labelled the file with however many bytes arrived, so announced and actual
@@ -257,20 +385,20 @@ describe('loopback: small binary framing guard', () => {
 describe('receiver: truncation guard', () => {
     // Feeds metadata announcing `announced` bytes but only delivers `actual`.
     function feedTruncated(
-        rx: { handleMessage: (d: Uint8Array | ArrayBuffer) => void },
+        rx: { handleMessage: (d: string | Uint8Array | ArrayBuffer) => void },
         id: string,
         announced: number,
         actual: number,
         index = 1,
         total = 1,
     ) {
-        rx.handleMessage(enc.encode(metadataMessage(id, `${id}.bin`, announced, index, total, 0)));
+        rx.handleMessage(metadataMessage(id, `${id}.bin`, announced, index, total, 0));
         if (actual > 0) {
             const chunk = new Uint8Array(actual);
             for (let i = 0; i < actual; i++) chunk[i] = (i + 1) % 256; // never starts with '{'
             rx.handleMessage(chunk);
         }
-        rx.handleMessage(enc.encode(endMessage()));
+        rx.handleMessage(endMessage());
     }
 
     function harness() {
@@ -345,15 +473,14 @@ describe('receiver: truncation guard', () => {
     it('accepts a peer that announces no size at all', () => {
         // metadataMessage always writes a fileSize, so build the frame by hand.
         const h = harness();
-        h.rx.handleMessage(
-            enc.encode(JSON.stringify({
+        h.rx.handleMessage(JSON.stringify({
                 type: 'metadata', id: 'a', fileName: 'a.bin', index: 1, total: 1, totalBytes: 0,
-            }))
+            })
         );
         const chunk = new Uint8Array(50);
         for (let i = 0; i < 50; i++) chunk[i] = (i + 1) % 256;
         h.rx.handleMessage(chunk);
-        h.rx.handleMessage(enc.encode(endMessage()));
+        h.rx.handleMessage(endMessage());
         expect(h.completed).toEqual(['a.bin']);
         expect(h.errors).toEqual([]);
     });
@@ -361,16 +488,15 @@ describe('receiver: truncation guard', () => {
     it('treats an unusable announced size as unknown rather than failing', () => {
         for (const bad of ['100', -1, 1.5, null, Number.MAX_SAFE_INTEGER + 2]) {
             const h = harness();
-            h.rx.handleMessage(
-                enc.encode(JSON.stringify({
+            h.rx.handleMessage(JSON.stringify({
                     type: 'metadata', id: 'a', fileName: 'a.bin',
                     fileSize: bad, index: 1, total: 1, totalBytes: 0,
-                }))
+                })
             );
             const chunk = new Uint8Array(10);
             for (let i = 0; i < 10; i++) chunk[i] = (i + 1) % 256;
             h.rx.handleMessage(chunk);
-            h.rx.handleMessage(enc.encode(endMessage()));
+            h.rx.handleMessage(endMessage());
             expect(h.completed).toEqual(['a.bin']);
             expect(h.errors).toEqual([]);
         }
@@ -392,11 +518,11 @@ describe('receiver: truncation guard', () => {
             for (let i = 0; i < n; i++) c[i] = (i + 1) % 256;
             return c;
         };
-        rx.handleMessage(enc.encode(metadataMessage('a', 'a.bin', 100, 1, 1, 0)));
+        rx.handleMessage(metadataMessage('a', 'a.bin', 100, 1, 1, 0));
         rx.handleMessage(part(40));
-        rx.handleMessage(enc.encode(metadataMessage('a', 'a.bin', 100, 1, 1, 0)));
+        rx.handleMessage(metadataMessage('a', 'a.bin', 100, 1, 1, 0));
         rx.handleMessage(part(60));
-        rx.handleMessage(enc.encode(endMessage()));
+        rx.handleMessage(endMessage());
 
         expect(JSON.parse(acks[1]).offset).toBe(40);
         expect(h.completed).toEqual(['a.bin']);
@@ -408,16 +534,15 @@ describe('receiver: truncation guard', () => {
         // the banner around it exactly as it does in a file manager, so the
         // error carries the display form of the name, not the wire string.
         const h = harness();
-        h.rx.handleMessage(
-            enc.encode(JSON.stringify({
+        h.rx.handleMessage(JSON.stringify({
                 type: 'metadata', id: 'a', fileName: 'photo\u202egnp.exe',
                 fileSize: 100, index: 1, total: 1, totalBytes: 100,
-            }))
+            })
         );
         const chunk = new Uint8Array(60);
         for (let i = 0; i < 60; i++) chunk[i] = (i + 1) % 256;
         h.rx.handleMessage(chunk);
-        h.rx.handleMessage(enc.encode(endMessage()));
+        h.rx.handleMessage(endMessage());
         expect(h.errors).toHaveLength(1);
         expect(h.errors[0]).toContain('Incomplete file "photognp.exe"');
         expect(h.errors[0]).not.toContain('\u202e');
@@ -435,7 +560,7 @@ describe('receiver: truncation guard', () => {
 // every string frame the sender emits, for "never announced the file as done"
 // assertions.
 function scriptedDeps(reply: (metadataId: string) => string, sent: string[] = []): SenderDeps {
-    let senderDataHandler: ((d: Uint8Array | ArrayBuffer) => void) | null = null;
+    let senderDataHandler: ((d: string | Uint8Array | ArrayBuffer) => void) | null = null;
     return {
         send: (d) => {
             if (typeof d !== 'string') return;
@@ -551,7 +676,7 @@ describe('sender: unreadable file', () => {
 
         // The sender blocks on the ack before it reads anything, so the harness
         // has to answer it or the test just waits out the ack timeout.
-        let senderDataHandler: ((d: Uint8Array | ArrayBuffer) => void) | null = null;
+        let senderDataHandler: ((d: string | Uint8Array | ArrayBuffer) => void) | null = null;
 
         const deps: SenderDeps = {
             send: (d) => {

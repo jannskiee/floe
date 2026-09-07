@@ -38,33 +38,36 @@ Four things that order does not show.
 
 ## How a frame is classified
 
-There is no length prefix and no envelope. A receiver decides whether an arriving frame is a
-control message or file data by probing it, and the rule is deliberately conservative because
-getting it wrong means either dropping a chunk or writing JSON into a file.
+There is no length prefix and no envelope. What a frame is comes from **how it was sent**, not
+from what is inside it.
 
-A frame is treated as a control message only when all of these hold:
+In the direction file data travels, sender to receiver, a frame is a control message if and only
+if it is a **text** frame. A **binary** frame is file data, whatever its bytes spell. That is the
+whole rule, and it is what lets a small `.json` file whose entire content is `{"type":"end"}`
+arrive intact instead of being swallowed as an end marker.
 
-1. It is at most **1000 bytes**.
-2. Its first non-whitespace byte is `{`.
-3. It parses as JSON with a `type` field naming a message below.
+A text frame is then read as a control message when both of these hold:
 
-A **binary** frame that is not a control message is file data and gets written, **including a
-small chunk that happens to look like a JSON object.** That case is real and both implementations
-handle it.
+1. It is at most **1000 bytes**. A longer one is a protocol error and stops the transfer, rather
+   than being written to a file.
+2. It parses as JSON with a `type` field naming a message below.
 
-A **string** frame that is not a control message is where they part company: the Go receiver
-discards it, and the browser receiver writes it into the file. Nothing in Floe sends such a frame,
-so this only matters if you are building another client.
+A text frame that parses but names a type the receiver does not know is **ignored**. That is what
+makes a new message type safe to add: an older peer drops it instead of writing it into whatever
+file is open.
 
-Two divergences are worth knowing if you are writing another client:
+The other direction, receiver to sender, carries no file data, so nothing there can be confused
+with a chunk and a sender accepts a control message in either framing. It has to: a Go receiver
+sends `ack`, `received` and `incompatible` as binary, and a browser receiver sends `ack` as a
+string and `incompatible` as binary.
 
-- The Go receiver applies the 1000-byte cap to **binary** frames only, so an oversized string
-  frame is still parsed. The browser applies it to every frame. A metadata frame larger than
-  1000 bytes, which a deep folder path can produce, is therefore handled by a Go receiver and
-  misread as file data by a browser receiver.
-- **Framing differs by sender.** Go sends `metadata` and `end` as strings but `ack`, `received`,
-  and `incompatible` as binary. The browser sends `metadata`, `ack`, and `end` as strings and
-  `incompatible` as binary. Both work because every receiver decodes bytes and strings alike.
+If you are building another client, one rule falls out of all of this: **every frame you send to
+a receiver that is not file data has to be a text frame.** A binary one lands in somebody's file.
+
+One implementation detail worth knowing, because it is the one place the two disagree. The Go
+receiver skips leading whitespace before looking for the opening `{`; the browser requires the
+frame to start with it. So a control message padded with leading spaces is read by a Go receiver
+and treated as file data by a browser receiver. Nothing in Floe sends one.
 
 ## Message types
 

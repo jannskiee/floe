@@ -11,6 +11,17 @@ if (typeof window !== 'undefined') {
 
 import {useEffect, useRef, useState} from 'react';
 import SimplePeer, { Instance as PeerInstance } from 'simple-peer';
+
+// simple-peer extends a readable-stream Duplex and forwards its whole
+// options object to super(opts), but @types/simple-peer stops at the peer
+// options and never declares the stream ones. Declare the single one Floe
+// sets rather than casting at each construction site, which would also
+// silence a genuine typo in the peer options next to it.
+declare module 'simple-peer' {
+    interface Options {
+        readableObjectMode?: boolean;
+    }
+}
 import {v4 as uuidv4} from 'uuid';
 import * as Sentry from '@sentry/nextjs';
 import {formatSpeed, formatETA} from '@/lib/transferUtils';
@@ -347,6 +358,15 @@ export function P2PTransfer() {
         const peer = new SimplePeer({
             initiator: false,
             trickle: true,
+            // readableObjectMode keeps the SCTP text/binary bit intact.
+            // simple-peer pushes frames into a readable-stream Duplex, and
+            // without it every text frame is Buffer.from()ed before Floe sees
+            // it, so the receiver could only guess a frame from its bytes and
+            // would eat a small file whose whole content was control-shaped
+            // JSON (#316). Binary frames still arrive as a Buffer; text frames
+            // now arrive as a string. simple-peer passes its options straight
+            // to super(opts) and never sets objectMode itself.
+            readableObjectMode: true,
             config: {
                 iceServers: iceServersRef.current,
             },
@@ -614,6 +634,15 @@ export function P2PTransfer() {
             const peer = new SimplePeer({
                 initiator: true,
                 trickle: true,
+                // readableObjectMode keeps the SCTP text/binary bit intact.
+                // simple-peer pushes frames into a readable-stream Duplex, and
+                // without it every text frame is Buffer.from()ed before Floe sees
+                // it, so the receiver could only guess a frame from its bytes and
+                // would eat a small file whose whole content was control-shaped
+                // JSON (#316). Binary frames still arrive as a Buffer; text frames
+                // now arrive as a string. simple-peer passes its options straight
+                // to super(opts) and never sets objectMode itself.
+                readableObjectMode: true,
                 config: {
                     iceServers: iceConfig,
                 },

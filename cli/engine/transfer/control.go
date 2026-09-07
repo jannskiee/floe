@@ -37,27 +37,26 @@ func rejectDescription(dc *webrtc.DataChannel, localVer, detail string) {
 // peer sending prose where a control message belongs.
 const controlMsgMax = 1000
 
-// classifyControl reports whether a data channel message is a Floe control
-// message and, if so, its type.
+// classifyControl reports whether a frame's BYTES are a Floe control message
+// and, if so, its type. It answers a question about content only; whether a
+// frame is eligible to be control at all is the caller's to answer, and on the
+// receive path the answer is framing: see the ReceiveFiles message loop, which
+// calls this for string frames only.
 //
-// Control messages are JSON objects. The browser (SimplePeer) sends them as
-// strings, but depending on SCTP framing they can also arrive as small binary
-// messages, so binary payloads are probed too. The size probe applies to
-// string and binary alike (matching the browser's `data.byteLength <= 1000`
-// guard, which never asks about framing): the Floe sender uses SendText for
-// its metadata, so the old binary-only gate left strings bounded by nothing
-// but pion's 1 GB default and let a hostile peer hand parseMetadata a file
-// name of any length. The message loop rejects an over-cap STRING with an
-// error before this runs; an over-cap BINARY lands here and is file data.
-// Crucially, a message is treated as control ONLY when it parses as a JSON
-// object whose "type" is a known control type. Anything else, including a
-// small file whose bytes happen to be a JSON object, is file data and must be
-// written, not dropped.
+// Control messages are JSON objects and are capped at controlMsgMax. The cap
+// applies here regardless of framing, because without it a peer could hand
+// parseMetadata a file name bounded by nothing but pion's 1 GB default. The
+// receive loop rejects an over-cap string with an error before this runs.
+//
+// A message is treated as control ONLY when it parses as a JSON object whose
+// "type" is a known control type, so a JSON file whose "type" is something
+// else was already safe. What was not safe, and is what the framing gate on
+// the receive path fixes, is a JSON file whose "type" IS one of these.
 //
 // The receiver only acts on "metadata" and "end". The other recognized types
-// ("ack", "received", "incompatible") flow in the opposite direction; they are
-// classified as control so they are never mistakenly written as file data if
-// they somehow arrive on this side.
+// ("ack", "received", "incompatible") flow in the opposite direction and are
+// recognized here for the sender-side loops, which read this direction and
+// carry no file data.
 func classifyControl(data []byte) (msgType string, isControl bool) {
 	if len(data) > controlMsgMax {
 		return "", false

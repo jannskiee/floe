@@ -46,7 +46,7 @@ export interface SenderDeps {
     send: (data: string | Uint8Array) => void;
     // Registers a handler for incoming data (peer.on('data')).
     // Returns an unsubscribe function.
-    onData: (handler: (data: Uint8Array | ArrayBuffer) => void) => () => void;
+    onData: (handler: (data: string | Uint8Array | ArrayBuffer) => void) => () => void;
     channel: BufferChannel;
     sctpMaxMessageSize?: number | null;
 }
@@ -376,7 +376,7 @@ async function sendSingleFile(
 }
 
 function waitForAck(
-    onData: (handler: (data: Uint8Array | ArrayBuffer) => void) => () => void,
+    onData: (handler: (data: string | Uint8Array | ArrayBuffer) => void) => () => void,
     fileId: string
 ): Promise<AckResult> {
     // Both arms of the race clean up after the other wins. The listener used
@@ -395,8 +395,11 @@ function waitForAck(
     return Promise.race([
         new Promise<AckResult>((resolve) => {
             off = onData((raw) => {
-                const buf = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
-                const msg = classifyControl(buf);
+                // The SENDER keeps classifying by content, and must: a Go
+                // receiver sends its ack, received and incompatible frames as
+                // BINARY. That is safe here in a way it is not on the receive
+                // path, because no file data ever travels receiver to sender.
+                const msg = classifyControl(raw);
                 if (!msg) return;
                 if (msg.type === 'ack' && (msg as Ack).id === fileId) {
                     const ack = msg as Ack;
