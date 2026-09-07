@@ -139,10 +139,10 @@
    The spur window is longer than the draw it shows. stroke-dasharray is 1600
    against a pathLength of 1000, headroom the scaled-dash bug needs, so the ink
    lands once the sweep passes 1000 of those units and the rest of the window is
-   a tail with nothing in it: the 1800ms window is about 800ms of visible
+   a tail with nothing in it: the 1000ms window is about 450ms of visible
    drawing. The beats after it are therefore timed off that visible finish, not
    off the window, or the figure stalls with the arch just sitting there.
-   Sequence (about 2.8 s, once, no loop): the spurs draw from the devices to
+   Sequence (about 2.45 s, once, no loop): the spurs draw from the devices to
    the server tick in ice, the direct line draws across, the spurs thaw to
    zinc-700 (the server has left), the ring lands on THEM, then the relay
    detour fades in. */
@@ -208,28 +208,28 @@
     .hiw-spur {
         stroke-dasharray: 1600;
         animation:
-            hiw-draw 1800ms cubic-bezier(0, 0, 0.58, 1) 150ms backwards,
-            hiw-thaw 700ms ease 1800ms backwards;
+            hiw-draw 1000ms cubic-bezier(0, 0, 0.58, 1) 150ms backwards,
+            hiw-thaw 700ms ease 1450ms backwards;
     }
     .hiw-direct {
         stroke-dasharray: 1600;
-        animation: hiw-draw 900ms cubic-bezier(0.16, 1, 0.3, 1) 1100ms backwards;
+        animation: hiw-draw 900ms cubic-bezier(0.16, 1, 0.3, 1) 750ms backwards;
     }
     .hiw-ring {
-        animation: hiw-fade 400ms ease 1900ms backwards;
+        animation: hiw-fade 400ms ease 1550ms backwards;
     }
     .hiw-detour,
     .hiw-relay-tick {
-        animation: hiw-fade 600ms ease 2200ms backwards;
+        animation: hiw-fade 600ms ease 1850ms backwards;
     }
     .hiw-lbl-server {
         animation: hiw-fade 500ms ease 300ms backwards;
     }
     .hiw-lbl-direct {
-        animation: hiw-fade 500ms ease 1800ms backwards;
+        animation: hiw-fade 500ms ease 1450ms backwards;
     }
     .hiw-lbl-relay {
-        animation: hiw-fade 500ms ease 2300ms backwards;
+        animation: hiw-fade 500ms ease 1950ms backwards;
     }
 }
 @keyframes hiw-draw {
@@ -287,6 +287,6 @@
    no-preference and reduced motion must not gain an animation here. */
 @media (forced-colors: active) and (prefers-reduced-motion: no-preference) {
     .hiw-spur {
-        animation: hiw-draw 1800ms cubic-bezier(0, 0, 0.58, 1) 150ms backwards;
+        animation: hiw-draw 1000ms cubic-bezier(0, 0, 0.58, 1) 150ms backwards;
     }
 }
