@@ -104,13 +104,13 @@ export default function HowItWorks() {
                     inset included. */}
                 <div className="mt-12 grid gap-8 md:grid-cols-3">
                     <section className="max-w-lg scroll-mt-[calc(7rem_+_env(safe-area-inset-top))]">
-                        {/* The spacer stands in for the dot the other two labels
-                            carry, so all three label texts share a left edge
-                            across the row. */}
-                        <p className={`flex items-center gap-2 ${LABEL}`}>
-                            <span className="h-1.5 w-1.5" aria-hidden="true" />
-                            Signaling
-                        </p>
+                        {/* No spacer standing in for the dot the other two labels
+                            carry. It bought a shared left edge across the row and
+                            cost this label alignment with the heading directly under
+                            it, which is the comparison the eye actually makes: a
+                            14px indent under nothing reads as a mistake, while the
+                            other two are indented by a dot that explains it. */}
+                        <p className={`flex items-center gap-2 ${LABEL}`}>Signaling</p>
                         <h2 className="mt-3 text-base font-medium text-zinc-100">
                             <span className="sr-only">Signaling. </span>The server introduces, then
                             leaves.
