@@ -166,7 +166,7 @@ func TestReceiverRenameCollisionAtEnd(t *testing.T) {
 // a still-open staging file fails with a sharing violation.
 func TestAbandonPartialsRemovesInflight(t *testing.T) {
 	dir := t.TempDir()
-	f, _, err := claimPart(filepath.Join(dir, "doomed.bin"))
+	f, _, err := claimPart(filepath.Join(dir, "doomed.bin"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestAbandonPartialsRemovesInflight(t *testing.T) {
 func TestAbandonPartialsSparesCompletedFile(t *testing.T) {
 	dir := t.TempDir()
 	base := filepath.Join(dir, "keep.bin")
-	f, dest, err := claimPart(base)
+	f, dest, err := claimPart(base, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +267,7 @@ func TestCommitAbandonTorture(t *testing.T) {
 			defer wg.Done()
 			for r := 0; r < rounds; r++ {
 				payload := fmt.Sprintf("w%d-r%d", w, r)
-				f, dest, err := claimPart(base)
+				f, dest, err := claimPart(base, nil)
 				if err != nil {
 					continue // a concurrent abandon can beat a claim; that is its job
 				}

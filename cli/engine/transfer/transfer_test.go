@@ -523,9 +523,6 @@ func TestReportBytesToServer(t *testing.T) {
 	})
 }
 
-// TestCreateUnique verifies the receiver never overwrites: repeated creates of
-// the same name de-collide as "name (1).ext", "name (2).ext", and a name with
-// no extension gets the suffix appended at the end.
 // TestClaimPart pins the de-collision sequence across repeated claims. Each
 // claim leaves its .part in place, which is what blocks the candidate for the
 // next claim (the final names do not exist yet), so the pinned sequence proves
@@ -535,7 +532,7 @@ func TestClaimPart(t *testing.T) {
 
 	base := filepath.Join(dir, "shot.png")
 	for _, want := range []string{"shot.png", "shot (1).png", "shot (2).png"} {
-		f, dest, err := claimPart(base)
+		f, dest, err := claimPart(base, nil)
 		if err != nil {
 			t.Fatalf("claimPart(%q): %v", base, err)
 		}
@@ -550,12 +547,12 @@ func TestClaimPart(t *testing.T) {
 
 	// No extension: the suffix goes at the end.
 	noExt := filepath.Join(dir, "NOTES")
-	f1, _, err := claimPart(noExt)
+	f1, _, err := claimPart(noExt, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	f1.Close()
-	f2, dest2, err := claimPart(noExt)
+	f2, dest2, err := claimPart(noExt, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -570,7 +567,7 @@ func TestClaimPart(t *testing.T) {
 	if err := os.WriteFile(done, []byte("x"), 0666); err != nil {
 		t.Fatal(err)
 	}
-	f3, dest3, err := claimPart(done)
+	f3, dest3, err := claimPart(done, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -589,7 +586,7 @@ func TestCommitPart(t *testing.T) {
 
 	// Plain path: claim, write, commit.
 	base := filepath.Join(dir, "doc.pdf")
-	f, dest, err := claimPart(base)
+	f, dest, err := claimPart(base, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -615,7 +612,7 @@ func TestCommitPart(t *testing.T) {
 	// intruder must survive byte-identical and the payload must land at the
 	// next BASE candidate.
 	base2 := filepath.Join(dir, "clash.bin")
-	f2, dest2, err := claimPart(base2)
+	f2, dest2, err := claimPart(base2, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

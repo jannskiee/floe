@@ -94,6 +94,70 @@ func AbandonPartials() {
 // on disk that looks complete.
 const partSuffix = ".part"
 
+// maxDecollide bounds the suffix search. It is a backstop against a peer that
+// sends the same name forever, not a tuning knob: with the scan resumed by
+// nameHints the walk is linear in the number of files, so the number no longer
+// costs anything to leave high, and lowering it would newly refuse a directory
+// that legitimately holds that many files with one name.
+const maxDecollide = 100000
+
+// nameHints remembers, for one receive session, the next de-collision index to
+// try for a base path.
+//
+// Without it claimPart restarts at i == 0 for every file, so N incoming names
+// that land on one name cost N^2 Lstats. That is not a rare shape: sanitizing
+// folds seven reserved characters to "_" on Windows, so a<b.txt, a>b.txt,
+// a:b.txt, a?b.txt, a|b.txt, a*b.txt and a"b.txt all become a_b.txt. Measured
+// on Windows 11 before this: 2.8 s for 250 such files, 10.7 s for 500, 42.4 s
+// for 1000. It runs inside the metadata handler, ahead of the ack and outside
+// the select, so the stall watchdog never fires and the sender simply waits.
+//
+// Per session, not per process: the desktop app runs for days, and a map that
+// outlived a transfer would keep numbering upward against a directory the
+// person may have emptied in between.
+type nameHints struct {
+	next map[string]int
+	fold bool
+}
+
+// newNameHints reports whether to fold case from goos rather than a build tag,
+// matching sanitizeComponent, so every branch is exercised on every CI leg.
+func newNameHints(goos string) *nameHints {
+	return &nameHints{next: map[string]int{}, fold: goos == "windows" || goos == "darwin"}
+}
+
+// key folds case where the filesystem does. On NTFS and a default APFS volume
+// "Shot.png" and "shot.png" are two strings but one file, so an unfolded map
+// would give every case variant its own cold scan and hand the quadratic back
+// to whoever picks the names.
+func (h *nameHints) key(base string) string {
+	if h.fold {
+		return strings.ToLower(base)
+	}
+	return base
+}
+
+// start is where the next scan for base begins. A nil *nameHints means no
+// memory, which is the cold-scan behavior and is only for tests that pin it.
+func (h *nameHints) start(base string) int {
+	if h == nil {
+		return 0
+	}
+	return h.next[h.key(base)]
+}
+
+// record notes that index i is now taken. The hint only ever moves forward, so
+// a candidate freed later in the session costs a higher suffix and never a lost
+// file: O_EXCL, not the hint, is what makes a claim exclusive.
+func (h *nameHints) record(base string, i int) {
+	if h == nil {
+		return
+	}
+	if k := h.key(base); i+1 > h.next[k] {
+		h.next[k] = i + 1
+	}
+}
+
 // candidatePath returns the i-th de-collision candidate for base: base itself
 // for i == 0, then "stem (i)ext". Shared by claimPart and commitPart so a
 // commit-time re-collision numbers from the base and can never produce
@@ -119,8 +183,8 @@ func candidatePath(base string, i int) string {
 // directory (a device that survived name sanitizing) aborts loudly instead of
 // advancing: writing "past" a device would succeed byte-for-byte and vanish,
 // and failing before any bandwidth is spent beats failing after.
-func claimPart(base string) (part *os.File, dest string, err error) {
-	for i := 0; i < 100000; i++ {
+func claimPart(base string, hints *nameHints) (part *os.File, dest string, err error) {
+	for i := hints.start(base); i < maxDecollide; i++ {
 		candidate := candidatePath(base, i)
 		if st, lerr := os.Lstat(candidate); lerr == nil {
 			if !st.Mode().IsRegular() && !st.IsDir() {
@@ -131,6 +195,7 @@ func claimPart(base string) (part *os.File, dest string, err error) {
 		}
 		f, oerr := os.OpenFile(candidate+partSuffix, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0666)
 		if oerr == nil {
+			hints.record(base, i)
 			return f, candidate, nil
 		}
 		if !os.IsExist(oerr) {
@@ -160,7 +225,7 @@ func claimPart(base string) (part *os.File, dest string, err error) {
 // complete and verified, and deleting them over a transient lock would be
 // data loss.
 func commitPart(partPath, claimedDest, basePath string) (dest string, err error) {
-	for i := 0; i < 100000; i++ {
+	for i := 0; i < maxDecollide; i++ {
 		candidate := candidatePath(basePath, i)
 		if i > 0 && candidate == claimedDest {
 			continue // already tried first, below
