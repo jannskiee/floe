@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { sendFiles, type SenderDeps, type FileEntry } from './sender';
+import { sendFiles, sendAbortReason, CONTROL_FLUSH_MS, type SenderDeps, type FileEntry } from './sender';
 import { createReceiver } from './receiver';
-import { metadataMessage, endMessage, ackMessage, incompatibleMessage, CONTROL_MSG_MAX } from './protocol';
+import { metadataMessage, endMessage, ackMessage, incompatibleMessage, CONTROL_MSG_MAX, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION } from './protocol';
 
 const enc = new TextEncoder();
 
@@ -267,6 +267,146 @@ describe('loopback: small binary framing guard', () => {
  * These tests model the wire, which is what the loopback harness above now
  * does too.
  */
+/**
+ * A peer that stops on purpose has to say why, or the other side guesses.
+ *
+ * The reason travels on the existing `incompatible` frame with an OVERLAPPING
+ * pv range, so no new message type and no ProtocolVersion bump. A peer reads
+ * the overlap as "this is not about versions" and prints the reason verbatim
+ * rather than replacing it with an update remedy.
+ */
+describe('receiver: a peer that stops on purpose says why', () => {
+    function receiver() {
+        const sent: (string | Uint8Array)[] = [];
+        const errors: string[] = [];
+        const completed: string[] = [];
+        const rx = createReceiver({
+            send: (d) => sent.push(d),
+            onFileComplete: (f) => completed.push(f.fileName),
+            onError: (m) => errors.push(m),
+        });
+        return { rx, sent, errors, completed };
+    }
+
+    it('surfaces the reason a sender sent instead of dropping the frame', () => {
+        const h = receiver();
+        h.rx.handleMessage(incompatibleMessage('Transfer blocked: relay connections are capped at 2 GB.'));
+        expect(h.errors).toEqual(['Transfer blocked: relay connections are capped at 2 GB.']);
+    });
+
+    it('latches, so nothing that arrives after the reason reopens the transfer', () => {
+        // peer.destroy() follows the reason a moment later and surfaces as
+        // "User-Initiated Abort"; the component's latch is the other half of
+        // this. Here: no later frame may restart the receive.
+        const h = receiver();
+        h.rx.handleMessage(incompatibleMessage('Transfer blocked: relay connections are capped at 2 GB.'));
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 1, 3));
+        h.rx.handleMessage(enc.encode('abc'));
+        h.rx.handleMessage(endMessage());
+        expect(h.errors).toHaveLength(1);
+        expect(h.completed).toEqual([]);
+    });
+
+    it('does not print a version-mismatch frame as if it were a reason', () => {
+        // A non-overlapping range means the frame IS about versions, and its
+        // reason is written from the sender's point of view. Saying it back to
+        // the receiver would name the wrong side.
+        const h = receiver();
+        h.rx.handleMessage(JSON.stringify({
+            type: 'incompatible',
+            reason: 'Cannot transfer: peer floe is too old.',
+            pv: 99,
+            pvMin: 99,
+        }));
+        expect(h.errors).toEqual(['The sender stopped the transfer.']);
+    });
+
+    it('tells the sender why a file was discarded', () => {
+        // Without this the sender simply stops being acked: with more files to
+        // send it waits out the full 120 s ack deadline and then reports a
+        // timeout, which is the wrong cause two minutes late.
+        const h = receiver();
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 100, 1, 2, 200));
+        h.rx.handleMessage(new Uint8Array(40));
+        h.rx.handleMessage(endMessage());
+
+        // [0] is the ack. The abort follows it, as BINARY, because nothing
+        // travelling receiver to sender is file data.
+        const abort = h.sent[h.sent.length - 1];
+        expect(abort).toBeInstanceOf(Uint8Array);
+        const parsed = JSON.parse(new TextDecoder().decode(abort as Uint8Array));
+        expect(parsed.type).toBe('incompatible');
+        expect(parsed.reason).toContain('receiver discarded a file');
+        expect(parsed.reason).toContain('received 40 of 100 bytes');
+        // The pv range has to OVERLAP ours, or the sender rebuilds the message
+        // from pv/pvMin and prints an update remedy instead of the reason.
+        expect(parsed.pv).toBe(PROTOCOL_VERSION);
+        expect(parsed.pvMin).toBe(MIN_PROTOCOL_VERSION);
+    });
+
+    it('caps the whole encoded frame, not just the reason', () => {
+        // A receiver stops classifying a control message past CONTROL_MSG_MAX
+        // and would read the frame as file data.
+        const frame = incompatibleMessage('very long prose. '.repeat(500));
+        expect(new TextEncoder().encode(frame).byteLength).toBeLessThanOrEqual(CONTROL_MSG_MAX);
+        const parsed = JSON.parse(frame);
+        expect(parsed.type).toBe('incompatible');
+        expect(parsed.reason.length).toBeGreaterThan(0);
+    });
+});
+
+/**
+ * sendAbortReason exists for the half-second between saying why and tearing the
+ * connection down. Without the wait the frame goes with the channel and the
+ * peer sees only the close, which is issue #284 on the browser side.
+ */
+describe('sender: an abort reason reaches the wire before teardown', () => {
+    it('sends the reason as a STRING and waits for the buffer to drain', async () => {
+        // A binary frame on the sender-to-receiver path is file data by
+        // definition, so a binary reason would land in somebody's file.
+        const sent: (string | Uint8Array)[] = [];
+        let buffered = 4096;
+        const channel = {
+            get bufferedAmount() { return buffered; },
+            bufferedAmountLowThreshold: 0,
+            addEventListener: () => {},
+            removeEventListener: () => {},
+        };
+        let settled = false;
+        const done = sendAbortReason((d) => sent.push(d), channel, 'Transfer blocked: capped at 2 GB.').then(() => {
+            settled = true;
+        });
+
+        expect(typeof sent[0]).toBe('string');
+        expect(JSON.parse(sent[0] as string).type).toBe('incompatible');
+
+        // The assertion that matters: an implementation that skipped the
+        // drain would already be settled here, and the reason would go with
+        // the channel when the caller tears it down.
+        await Promise.resolve();
+        expect(settled).toBe(false);
+
+        buffered = 0;
+        await done;
+        expect(settled).toBe(true);
+    });
+
+    it('does not hang when the peer never drains', async () => {
+        const channel = {
+            bufferedAmount: 4096,
+            bufferedAmountLowThreshold: 0,
+            addEventListener: () => {},
+            removeEventListener: () => {},
+        };
+        // Resolves on the CONTROL_FLUSH_MS deadline rather than never. A peer
+        // that stopped acknowledging must not hold the teardown open.
+        await Promise.race([
+            sendAbortReason(() => {}, channel, 'why'),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('sendAbortReason never resolved')), CONTROL_FLUSH_MS + 3000)),
+        ]);
+    }, CONTROL_FLUSH_MS + 5000);
+});
+
 describe('receiver: framing decides, not content', () => {
     function receiver() {
         const files: Record<string, string> = {};
