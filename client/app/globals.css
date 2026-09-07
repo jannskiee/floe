@@ -129,7 +129,20 @@
    e2e sweep, the screenshot matrix and a JS-off reader all get the completed
    figure at first paint. Only stroke-dashoffset, stroke and opacity animate,
    and the box is reserved by aspect-ratio, so nothing shifts layout.
-   Sequence (about 2.6 s, once, no loop): the spurs draw from the devices to
+   The spurs draw on a plain ease-out rather than the expo-out the ice line
+   keeps. Under expo-out 80% of a line is laid down in the first 23% of its
+   duration, so lengthening the spurs only lengthened a tail nobody watches and
+   they still whipped out in about a quarter second however long the window got.
+   Ease-out reaches 80% at 62% of the duration, so the added time is spent on the
+   part of the draw you actually see. The handshake is slow and deliberate; the
+   ice line that follows stays snappy, which is the contrast the page is about.
+   The spur window is longer than the draw it shows. stroke-dasharray is 1600
+   against a pathLength of 1000, headroom the scaled-dash bug needs, so the ink
+   lands once the sweep passes 1000 of those units and the rest of the window is
+   a tail with nothing in it: the 1000ms window is about 450ms of visible
+   drawing. The beats after it are therefore timed off that visible finish, not
+   off the window, or the figure stalls with the arch just sitting there.
+   Sequence (about 2.45 s, once, no loop): the spurs draw from the devices to
    the server tick in ice, the direct line draws across, the spurs thaw to
    zinc-700 (the server has left), the ring lands on THEM, then the relay
    detour fades in. */
@@ -154,8 +167,16 @@
 .hiw-direct {
     shape-rendering: crispEdges;
 }
+/* zinc-500, not the zinc-600 the ticks used to be. The server tick sits ON the
+   arch now rather than beside a gap in it, so the only thing separating it from
+   the spur it abuts is this step. At #52525b that step was 1.37x the spur's ink,
+   smaller than the antialiasing wobble the same hairline picks up 30px earlier
+   as it crosses a device row, and the tick simply stopped being a mark. #71717a
+   is 2.6x, and it clears the 3:1 WCAG floor for non-text (2.57:1 -> 4.12:1)
+   that all three ticks were under. The spur stays below it at 1.91:1, which is
+   correct: it is the dimmest line on purpose and carries no meaning alone. */
 .hiw-tick {
-    stroke: #52525b;
+    stroke: #71717a;
 }
 .hiw-spur {
     stroke: #3f3f46;
@@ -188,28 +209,28 @@
     .hiw-spur {
         stroke-dasharray: 1600;
         animation:
-            hiw-draw 700ms cubic-bezier(0.16, 1, 0.3, 1) 150ms backwards,
-            hiw-thaw 700ms ease 1600ms backwards;
+            hiw-draw 1000ms cubic-bezier(0, 0, 0.58, 1) 150ms backwards,
+            hiw-thaw 700ms ease 1450ms backwards;
     }
     .hiw-direct {
         stroke-dasharray: 1600;
-        animation: hiw-draw 900ms cubic-bezier(0.16, 1, 0.3, 1) 900ms backwards;
+        animation: hiw-draw 900ms cubic-bezier(0.16, 1, 0.3, 1) 750ms backwards;
     }
     .hiw-ring {
-        animation: hiw-fade 400ms ease 1700ms backwards;
+        animation: hiw-fade 400ms ease 1550ms backwards;
     }
     .hiw-detour,
     .hiw-relay-tick {
-        animation: hiw-fade 600ms ease 2000ms backwards;
+        animation: hiw-fade 600ms ease 1850ms backwards;
     }
     .hiw-lbl-server {
         animation: hiw-fade 500ms ease 300ms backwards;
     }
     .hiw-lbl-direct {
-        animation: hiw-fade 500ms ease 1600ms backwards;
+        animation: hiw-fade 500ms ease 1450ms backwards;
     }
     .hiw-lbl-relay {
-        animation: hiw-fade 500ms ease 2100ms backwards;
+        animation: hiw-fade 500ms ease 1950ms backwards;
     }
 }
 @keyframes hiw-draw {
@@ -220,9 +241,16 @@
         stroke-dashoffset: 0;
     }
 }
+/* Cools from a lit zinc, not from ice. The spurs used to start ice-tinted, which
+   was safe while a gap broke the arch: the eye read two lit spurs and a separate
+   tick. Flush, that same keyframe would paint one unbroken ice arch from YOU over
+   the signaling server to THEM for about 750ms, before the ice baseline has drawn
+   at all, and ice is this site's color for the file's own path. The beat the
+   keyframe exists for, the server lighting up and then settling back, survives
+   the swap; the false reading does not. */
 @keyframes hiw-thaw {
     from {
-        stroke: oklch(0.87 0.05 220 / 0.55);
+        stroke: #a1a1aa;
     }
     to {
         stroke: #3f3f46;
@@ -241,9 +269,25 @@
     .hiw-fig circle.hiw-ring {
         stroke: CanvasText;
     }
+    /* The ticks take CanvasText, not GrayText: high contrast has no color step
+       to spare, and mapping a tick and the spur it now touches to the same
+       keyword erases the mark entirely. */
+    .hiw-tick {
+        stroke: CanvasText;
+    }
     .hiw-spur,
-    .hiw-tick,
     .hiw-detour {
         stroke: GrayText;
+    }
+}
+/* Draw, but do not thaw. A keyframe that animates stroke names a literal color,
+   which outranks the GrayText above for as long as the animation is in effect,
+   so in high contrast the spurs spent the whole thaw window ignoring the user's
+   colors. Keeping only the draw leaves that rule in charge throughout. Both
+   conditions, because the shorthand this replaces only exists under
+   no-preference and reduced motion must not gain an animation here. */
+@media (forced-colors: active) and (prefers-reduced-motion: no-preference) {
+    .hiw-spur {
+        animation: hiw-draw 1000ms cubic-bezier(0, 0, 0.58, 1) 150ms backwards;
     }
 }

@@ -79,6 +79,42 @@ const nextConfig = {
                     },
                 ],
             },
+            // Development only. next dev serves the whole app's CSS from a STABLE
+            // url, /_next/static/chunks/[root-of-the-server]__<id>._.css, where the
+            // id is a chunking-context ident and not a hash of the contents: the
+            // emitted file is overwritten in place across a source edit, and six
+            // other chunks in that directory share one suffix at three different
+            // sizes. Next's own default for it is no-cache, must-revalidate, which
+            // asks the browser to revalidate; Chrome did not. A page load showed
+            // transferSize 0, no network hop at all, against an encodedBodySize 32
+            // bytes adrift of what the server was serving, and the figure on
+            // /how-it-works animated with values that had not been in globals.css
+            // for an hour. A soft reload kept the stale sheet and a hard reload
+            // replaced it, so the same page ran two different animation speeds
+            // depending on which one you pressed, and visual work was being judged
+            // against code that was no longer on disk. no-store forbids keeping the
+            // response at all, which Chrome does honor.
+            //
+            // This makes `next dev` print a yellow warning on every start: "Custom
+            // Cache-Control headers detected ... can break Next.js development
+            // behavior". Expected, not a broken build. Next warns because the header
+            // takes effect; the route is not stripped, and headers() is the only
+            // lever it exposes for this (no CLI flag, no config option).
+            //
+            // The guard is load-bearing rather than defensive. Custom headers are
+            // written before the static handler, which sets its own Cache-Control
+            // only if nothing already did, so without the condition the standalone
+            // image would ship no-store on every content-hashed production chunk.
+            // headers() is invoked once at build time and frozen into
+            // routes-manifest.json; next start never calls it again.
+            ...(process.env.NODE_ENV === 'development'
+                ? [
+                      {
+                          source: '/_next/static/:path*',
+                          headers: [{ key: 'Cache-Control', value: 'no-store' }],
+                      },
+                  ]
+                : []),
         ];
     },
 

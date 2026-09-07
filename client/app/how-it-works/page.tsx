@@ -7,7 +7,7 @@ import { RouteFigure } from '@/components/how-it-works/RouteFigure';
 import { BADGE_DIRECT, BADGE_RELAY, RELAY_CAP } from '@/lib/howItWorksStrings';
 import { sharedOpenGraph, sharedTwitter } from '@/lib/socialMetadata';
 
-// The short version: one drawing, three beats, a pointer to the docs. This
+// The overview: one drawing, three beats, a pointer to the docs. This
 // page summarizes; docs/how-it-works/* carries the depth. Under 300 words of
 // visible copy on purpose, and every sentence is literally true of the current
 // release (checked against docs/how-it-works/*.mdx, docs/security-privacy.mdx,
@@ -79,7 +79,7 @@ export default function HowItWorks() {
                     half-leading; mt-3 offsets the headline's own leading. */}
                 <header className="pt-[calc(6rem_+_env(safe-area-inset-top))] sm:pt-[calc(7rem_+_env(safe-area-inset-top))]">
                     <p className="font-mono text-[11px] leading-none uppercase tracking-[0.2em] text-ice">
-                        The short version
+                        Overview
                     </p>
                     <h1 className="mt-3 text-4xl font-semibold tracking-tight text-zinc-100 sm:text-5xl lg:text-6xl">
                         How Floe works
@@ -104,13 +104,13 @@ export default function HowItWorks() {
                     inset included. */}
                 <div className="mt-12 grid gap-8 md:grid-cols-3">
                     <section className="max-w-lg scroll-mt-[calc(7rem_+_env(safe-area-inset-top))]">
-                        {/* The spacer stands in for the dot the other two labels
-                            carry, so all three label texts share a left edge
-                            across the row. */}
-                        <p className={`flex items-center gap-2 ${LABEL}`}>
-                            <span className="h-1.5 w-1.5" aria-hidden="true" />
-                            Signaling
-                        </p>
+                        {/* No spacer standing in for the dot the other two labels
+                            carry. It bought a shared left edge across the row and
+                            cost this label alignment with the heading directly under
+                            it, which is the comparison the eye actually makes: a
+                            14px indent under nothing reads as a mistake, while the
+                            other two are indented by a dot that explains it. */}
+                        <p className={`flex items-center gap-2 ${LABEL}`}>Signaling</p>
                         <h2 className="mt-3 text-base font-medium text-zinc-100">
                             <span className="sr-only">Signaling. </span>The server introduces, then
                             leaves.

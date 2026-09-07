@@ -39,6 +39,8 @@ pnpm dev
 
 Open [http://localhost:3000](http://localhost:3000). With `NEXT_PUBLIC_SOCKET_URL` set to `https://api.floe.one`, the client uses the live signaling server, so you do not need to run one locally.
 
+`pnpm dev` prints a warning that custom Cache-Control headers were detected for `/_next/static/:path*`. That is expected. `next.config.mjs` sets `Cache-Control: no-store` on dev assets, because `next dev` serves the whole app's CSS from a filename that does not change when its contents do, and browsers were reusing a stale copy on a soft reload; a page could animate with CSS you had already edited away. The header is guarded by `NODE_ENV === 'development'` and never reaches a build.
+
 ### Client + Server (Only needed if you're changing server code)
 
 Run each terminal from the repository root.

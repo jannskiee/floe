@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
-import { ROUTE_HEIGHT, ROUTE_NARROW, ROUTE_WIDE, routeGeometry } from './routeFigure';
+import { ROUTE_NARROW, ROUTE_WIDE, routeGeometry } from './routeFigure';
 
 // Every point a path visits, control points included. H carries one x at the
 // current y, so the numbers cannot simply be read in pairs.
@@ -21,6 +21,10 @@ const pointsOf = (d: string) => {
 const startOf = (d: string) => pointsOf(d)[0];
 const endOf = (d: string) => pointsOf(d).at(-1)!;
 
+// The box each variant feeds to viewBox and aspect-ratio. Pinned here rather
+// than derived, so a change to the geometry has to state the new box out loud.
+const BOX_HEIGHT: Record<number, number> = { [ROUTE_WIDE]: 280, [ROUTE_NARROW]: 176 };
+
 describe.each([ROUTE_WIDE, ROUTE_NARROW])('routeGeometry(%i)', (width) => {
     const g = routeGeometry(width);
 
@@ -30,14 +34,25 @@ describe.each([ROUTE_WIDE, ROUTE_NARROW])('routeGeometry(%i)', (width) => {
         expect(g.them.y).toBe(g.baselineY);
     });
 
-    it('stops both spurs short of the server tick, level with it', () => {
-        // Flush against the tick the spurs and the tick render as one arch from
-        // YOU over to THEM, which reads as the file passing through the server.
-        expect(g.serverGap).toBeGreaterThan(0);
+    it('lands both spurs on the ends of the server tick', () => {
+        // The spurs used to stop 10 units short of the tick. Flush against it
+        // they are C1-continuous with it, so spur, tick and spur read as one
+        // arch from YOU over to THEM, and the gap was there to break that. It
+        // never worked: a small gap between collinear, same-weight hairline
+        // ends is the grammar of a dashed line, so the eye closed it and the
+        // apex read as a stroke that had failed to render. Anything that wants
+        // the "does not pass through" reading back needs a device the eye does
+        // not close, not a wider gap.
         expect(startOf(g.spurLeft)).toEqual(g.you);
-        expect(endOf(g.spurLeft)).toEqual({ x: g.serverTick.x1 - g.serverGap, y: g.serverTick.y1 });
+        expect(endOf(g.spurLeft)).toEqual({ x: g.serverTick.x1, y: g.serverTick.y1 });
         expect(startOf(g.spurRight)).toEqual(g.them);
-        expect(endOf(g.spurRight)).toEqual({ x: g.serverTick.x2 + g.serverGap, y: g.serverTick.y2 });
+        expect(endOf(g.spurRight)).toEqual({ x: g.serverTick.x2, y: g.serverTick.y2 });
+        // Flush is half of it. The second control point has to sit at the tick's
+        // own y as well, or the spur arrives at an angle and puts a visible
+        // corner at the exact apex this file exists to keep clean. Endpoints
+        // alone do not catch that.
+        expect(pointsOf(g.spurLeft)[2].y).toBe(g.serverTick.y1);
+        expect(pointsOf(g.spurRight)[2].y).toBe(g.serverTick.y2);
     });
 
     it('runs the detour as a complete second path from you to them through the relay tick', () => {
@@ -53,13 +68,29 @@ describe.each([ROUTE_WIDE, ROUTE_NARROW])('routeGeometry(%i)', (width) => {
         expect(g.serverTick.x1 + g.serverTick.x2).toBe(width);
     });
 
+    it('mirrors the label margin above the server tick and below the relay tick', () => {
+        // Within one variant this is algebra, since height is twice the
+        // baseline; it is here to catch a box that stops being symmetric. The
+        // margin that actually matters is pinned across variants below.
+        expect(g.serverTick.y1).toBe(g.height - g.relayTick.y1);
+    });
+
+    it('puts the apex and the nadir on a half unit', () => {
+        // A 1px non-scaling stroke centered on an integer straddles two device
+        // rows at half opacity, and the tick (shape-rendering: crispEdges)
+        // snaps to one row while the spur touching it does not. On a half unit
+        // both land on the same row at the wide variant's scale of exactly 1.
+        expect(g.serverTick.y1 % 1).toBe(0.5);
+        expect(g.relayTick.y1 % 1).toBe(0.5);
+    });
+
     it('keeps every coordinate inside the viewBox', () => {
         for (const d of [g.spurLeft, g.spurRight, g.detour, g.direct]) {
             for (const { x, y } of pointsOf(d)) {
                 expect(x).toBeGreaterThanOrEqual(0);
                 expect(x).toBeLessThanOrEqual(width);
                 expect(y).toBeGreaterThanOrEqual(0);
-                expect(y).toBeLessThanOrEqual(ROUTE_HEIGHT);
+                expect(y).toBeLessThanOrEqual(g.height);
             }
         }
         for (const a of Object.values(g.labels)) {
@@ -86,7 +117,10 @@ describe.each([ROUTE_WIDE, ROUTE_NARROW])('routeGeometry(%i)', (width) => {
     });
 
     it('puts each figure label on the correct side of what it names', () => {
-        const pct = (v: number) => (v / ROUTE_HEIGHT) * 100;
+        // Against g.height, not a module constant: with a per-variant box, a
+        // fixed denominator here would compare the narrow variant's anchors to
+        // the wide variant's box and pass on the wrong numbers.
+        const pct = (v: number) => (v / g.height) * 100;
         // Server label above its tick, relay label below its own.
         expect(g.labels.server.top).toBeLessThan(pct(g.serverTick.y1));
         expect(g.labels.relay.top).toBeGreaterThan(pct(g.relayTick.y1));
@@ -95,11 +129,61 @@ describe.each([ROUTE_WIDE, ROUTE_NARROW])('routeGeometry(%i)', (width) => {
         expect(g.labels.you.top).toBeGreaterThan(pct(g.baselineY));
         // And clear of the device ticks it sits under.
         expect(g.labels.you.top).toBeGreaterThan(pct(g.deviceTicks[0].y2));
+        // And its anchor is above the relay tick. This pins the ORDER only: the
+        // label's own 11px box is not geometry and cannot be seen from here, so
+        // the clearance underneath it is measured in the browser, not asserted.
+        expect(g.labels.you.top).toBeLessThan(pct(g.relayTick.y1));
     });
 
     it('reports the width and height the component feeds to viewBox and aspect-ratio', () => {
         expect(g.width).toBe(width);
-        expect(g.height).toBe(ROUTE_HEIGHT);
+        expect(g.height).toBe(BOX_HEIGHT[width]);
+        expect(g.height).toBe(2 * g.baselineY);
+    });
+});
+
+// The phone variant used to carry the wide variant's 96-unit rise across a run
+// a third as long, and to place its control points by a fraction of the box
+// width rather than of that run. Together those made the phone a different
+// drawing: a 56 degree dome with a flat top and two walls, against 19 degrees
+// on a desktop. These two guards are what stop it drifting back.
+describe('the phone variant is the desktop drawing, not a steeper one', () => {
+    const wide = routeGeometry(ROUTE_WIDE);
+    const narrow = routeGeometry(ROUTE_NARROW);
+    // Rise over run for the spur: the baseline to the server tick, and the
+    // device tick across to it.
+    const steepness = (g: typeof wide) => (g.baselineY - g.serverTick.y1) / (g.serverTick.x1 - g.you.x);
+
+    it('keeps the narrow spur within 1.7x the wide one for steepness', () => {
+        // 1.573 as shipped. The bound is not a target: it is the point past
+        // which the phone stops being a smaller version of the same picture.
+        // Before this change the ratio was 3.45.
+        expect(steepness(narrow) / steepness(wide)).toBeLessThan(1.7);
+    });
+
+    it('holds the label margin at the same number on both variants', () => {
+        // This is the guard the per-variant check above cannot be. The phone
+        // box lost 104 units of height; what must NOT have come out of it is
+        // the room reserved for labels that do not scale with the drawing. A
+        // leading-none 11px label is 13.75 viewBox units at the 320px
+        // viewport's 0.8 scale, and it is centred 20 units off the tick, so the
+        // margin has to clear roughly 27 for the label to sit inside the box.
+        expect(narrow.serverTick.y1).toBe(wide.serverTick.y1);
+        expect(narrow.serverTick.y1).toBeGreaterThan(27);
+    });
+
+    it('places both control points at the same fraction of each spur run', () => {
+        const fractions = (g: typeof wide, path: 'spurLeft' | 'spurRight') => {
+            const [p0, p1, p2, p3] = pointsOf(g[path]);
+            const run = p3.x - p0.x;
+            return [(p1.x - p0.x) / run, (p3.x - p2.x) / run];
+        };
+        for (const path of ['spurLeft', 'spurRight'] as const) {
+            const [wideReach, wideApproach] = fractions(wide, path);
+            const [narrowReach, narrowApproach] = fractions(narrow, path);
+            expect(narrowReach, path).toBeCloseTo(wideReach, 3);
+            expect(narrowApproach, path).toBeCloseTo(wideApproach, 3);
+        }
     });
 });
 
@@ -112,9 +196,51 @@ describe.each([ROUTE_WIDE, ROUTE_NARROW])('routeGeometry(%i)', (width) => {
 // exists at all. This is the guard for that.
 describe('the draw-in dash survives the figure being scaled up', () => {
     const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
-    // The narrow variant's box is capped by max-w-[30rem] in RouteFigure.tsx.
+    const component = readFileSync(new URL('../components/how-it-works/RouteFigure.tsx', import.meta.url), 'utf8');
+    // The widest each variant can ever render, in CSS pixels. They are pixels on
+    // purpose: as rem they grew with the reader's font size while the dash that
+    // draws them did not, so at a 20px root the narrow line stopped 19.7px short
+    // of THEM and at 24px it stopped 118.4px short, with the arrival ring left
+    // floating. The two assertions below are what make these numbers facts.
     const NARROW_MAX_PX = 480;
-    const maxScale = NARROW_MAX_PX / ROUTE_NARROW;
+    const WIDE_MAX_PX = 1024;
+    const maxScale = Math.max(NARROW_MAX_PX / ROUTE_NARROW, WIDE_MAX_PX / ROUTE_WIDE);
+
+    it('caps both variants in pixels, so the scale below is measured and not assumed', () => {
+        expect(component).toContain('max-w-[' + NARROW_MAX_PX + 'px]');
+        expect(component).toContain('max-w-[' + WIDE_MAX_PX + 'px]');
+        // A rem cap is the bug: 30rem is 480px only while the root font is 16.
+        expect(component).not.toMatch(/max-w-\[[\d.]+rem\]/);
+    });
+
+    it('gates the drawing and its labels on one and the same pixel', () => {
+        // Tailwind compiles max-[N] to `not (min-width: N)`, so max-[N] and
+        // min-[N] are exact complements only when N is the SAME number. Written
+        // as max-[767px] against min-[768px] they leave a one-pixel band at 767
+        // where the phone drawing is still on show wearing the wide drawing's
+        // long labels, which is the crowding this figure already fixed once.
+        // Asserting the shared number is the invariant; asserting three string
+        // literals was what let the off-by-one through.
+        const SWAP = 768;
+        for (const cls of ['min-[' + SWAP + 'px]:block', 'min-[' + SWAP + 'px]:hidden', 'max-[' + SWAP + 'px]:hidden']) {
+            expect(component, cls).toContain(cls);
+        }
+        const gates = [...component.matchAll(/(?:min|max)-\[(\d+)px\]:/g)].map((m) => Number(m[1]));
+        expect(gates.length, 'every variant and label gate is pixel-based').toBeGreaterThanOrEqual(3);
+        expect([...new Set(gates)], 'all gates share one breakpoint').toEqual([SWAP]);
+        for (const cls of ['md:block', 'md:hidden']) {
+            expect(component, cls).not.toContain(cls);
+        }
+    });
+
+    it('puts each pixel cap on the variant it belongs to', () => {
+        // Swapping the two caps between the variants passed every earlier
+        // assertion while reproducing the exact bug this block exists to stop.
+        const line = (v: string) =>
+            component.split(/\r?\n/).find((l) => l.includes('routeGeometry(ROUTE_' + v + ')'));
+        expect(line('WIDE'), 'wide variant line').toContain('max-w-[' + WIDE_MAX_PX + 'px]');
+        expect(line('NARROW'), 'narrow variant line').toContain('max-w-[' + NARROW_MAX_PX + 'px]');
+    });
 
     it('sets a dasharray with headroom for the largest scale the figure reaches', () => {
         const values = [...css.matchAll(/\.hiw-(?:spur|direct)\s*\{[^}]*?stroke-dasharray:\s*(\d+)/g)].map((m) => Number(m[1]));

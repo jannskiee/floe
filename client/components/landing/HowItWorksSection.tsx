@@ -1,4 +1,6 @@
 import React, { ReactNode } from 'react';
+import Link from 'next/link';
+import { ArrowRight } from 'lucide-react';
 import { SectionHeader, sectionClass } from './SectionHeader';
 
 const steps: { index: string; title: string; body: ReactNode }[] = [
@@ -39,6 +41,22 @@ export function HowItWorksSection() {
                         <p className="mt-2 text-sm leading-relaxed text-zinc-400">{step.body}</p>
                     </div>
                 ))}
+            </div>
+            {/* The route this section summarizes had exactly one way in from the
+                site chrome, a footer link far below the fold: the navbar pill
+                labeled About scrolls to this section rather than to the page.
+                ArrowRight, not the ArrowUpRight the Privacy link next door
+                carries. Every ArrowUpRight in the client sits on a link that
+                leaves the site, six for six, so it has come to mean exactly
+                that; this one stays on floe.one, and a forward arrow says so. */}
+            <div className="mt-10">
+                <Link
+                    href="/how-it-works"
+                    className="group inline-flex min-h-10 items-center gap-1.5 text-sm text-zinc-300 transition hover:text-ice focus-visible:outline-2 focus-visible:outline-ice md:min-h-0"
+                >
+                    Read the overview
+                    <ArrowRight className="h-3.5 w-3.5 text-zinc-500 transition group-hover:text-ice" />
+                </Link>
             </div>
         </section>
     );
