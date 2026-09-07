@@ -483,9 +483,18 @@ ackLoop:
 		report(0) // emit the starting point (handles resume offset and 0-byte files)
 	}
 
+	// Hold the read to the size the metadata announced. Between the Stat above
+	// and this loop the file can change on disk: an active log, a download still
+	// running, a video still being written. Reading to EOF put MORE bytes on the
+	// wire than were promised, and the receiver then killed the whole batch with
+	// "sender exceeded the announced size", which names nothing either person can
+	// act on. The browser sender cannot make this mistake: a File's size is a
+	// snapshot, and both its loop bound and its slice end clamp to it.
+	announced := io.LimitReader(f, fileSize-offset)
+
 	buf := make([]byte, chunk)
 	for {
-		n, err := f.Read(buf)
+		n, err := announced.Read(buf)
 		if n > 0 {
 			// Backpressure: block until pion's buffer drains below the low-water
 			// mark before queuing more. The loop re-checks after each wakeup so a
@@ -519,6 +528,25 @@ ackLoop:
 			return fmt.Errorf("error reading file: %w", err)
 		}
 	}
+
+	// The file changed under the send. Say so here, where the cause is still
+	// visible, instead of sending an end marker and leaving the receiver to report
+	// a byte count that reads like a network fault.
+	if sentFile != fileSize {
+		return fmt.Errorf("the file shrank while it was being sent (announced %d bytes, read %d); send it again once it stops changing",
+			fileSize, sentFile)
+	}
+	// Growth is probed off the descriptor, never a second Stat. A descriptor that
+	// stats as 0 and still yields bytes (a log created moments earlier, or a
+	// /proc, /sys or character-device path, all of which collectFiles accepts) is
+	// exactly what a re-stat cannot see, and capping it silently would send an
+	// empty file that both ends reported as a success.
+	var probe [1]byte
+	if n, _ := f.Read(probe[:]); n > 0 {
+		return fmt.Errorf("the file grew while it was being sent (announced %d bytes); send it again once it stops changing",
+			fileSize)
+	}
+
 	if bar != nil {
 		fmt.Println()
 	}

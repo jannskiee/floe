@@ -73,6 +73,19 @@ describe('friendlyError', () => {
         );
     });
 
+    it('names a source file that changed under the send, not a lost connection', () => {
+        // Two backend wrappers sit in front of the engine sentence, which is
+        // why this is a substring rule rather than an equality one.
+        const grew = 'transfer failed: error sending app.log: the file grew while it was being sent (announced 64 bytes); send it again once it stops changing';
+        expect(friendlyError(grew)).toBe(
+            'Error: A file changed while it was being sent, so it was not delivered. Send it again once the file has stopped changing.',
+        );
+        const shrank = 'transfer failed: error sending app.log: the file shrank while it was being sent (announced 64 bytes, read 32); send it again once it stops changing';
+        expect(friendlyError(shrank)).toBe(
+            'Error: A file changed while it was being sent, so it was not delivered. Send it again once the file has stopped changing.',
+        );
+    });
+
     it('passes hand-written actionable messages through verbatim', () => {
         const relay = 'transfer blocked: relay connections are capped at 2 GB (selected relay). Turn off Hide my IP to send larger files';
         expect(friendlyError(relay)).toBe('Error: ' + relay);
