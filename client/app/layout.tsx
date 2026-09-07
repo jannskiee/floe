@@ -82,7 +82,14 @@ export default function RootLayout({
     children: React.ReactNode;
 }>) {
     return (
-        <html lang="en" suppressHydrationWarning className="scroll-smooth">
+        // data-scroll-behavior pairs with scroll-smooth and is required from Next 16.
+        // Up to 15, Next overrode scroll-behavior itself during a route change so the
+        // jump to the top was instant; 16 leaves it alone unless this attribute says
+        // to. Without it every in-app navigation from a scrolled position animates to
+        // the top over about 600ms, which on /how-it-works meant arriving from the
+        // footer link with the figure still off-screen above and its draw-in already
+        // half spent by the time it scrolled into view.
+        <html lang="en" suppressHydrationWarning className="scroll-smooth" data-scroll-behavior="smooth">
             <body
                 suppressHydrationWarning={true}
                 className={`${geistSans.variable} ${geistMono.variable} antialiased`}
