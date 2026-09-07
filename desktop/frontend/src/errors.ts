@@ -32,6 +32,11 @@ const RULES: Array<[pattern: string, friendly: string]> = [
     ['connection closed while waiting for the receiver', 'The receiver left or declined before the transfer started.'],
     ['no data arrived from the sender', 'Connected, but the sender never started sending. Ask them to try again.'],
     ['transfer stalled', 'The transfer stalled and gave up. Start it again.'],
+    // Both carry a reason the RECEIVER wrote about its own side, so they must
+    // sit above the receiver-voiced buckets below or a sender would be told a
+    // file it sent arrived incomplete, in the wrong voice.
+    ['receiver discarded a file', 'The other side did not get a file whole, so it was discarded. Start the transfer again.'],
+    ['receiver stopped the transfer', 'The other side stopped the transfer. Start it again.'],
     ['incomplete file', 'A file arrived incomplete, so it was not kept. Start the transfer again.'],
     // The sender caught its own source file changing between the size it
     // announced and the bytes it read, so nothing was delivered. The engine

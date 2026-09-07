@@ -86,6 +86,27 @@ describe('friendlyError', () => {
         );
     });
 
+    it('keeps a reason the receiver wrote in the receiver voice, not the sender one', () => {
+        // The reason travels back on an incompatible frame, so it reaches the
+        // SENDER. Matching the generic incomplete-file bucket first would tell
+        // the person who sent the file that a file they received was short.
+        const discarded = 'transfer failed: error sending a.bin: receiver discarded a file: incomplete file "a.bin": received 40 of 100 bytes';
+        expect(friendlyError(discarded)).toBe(
+            'Error: The other side did not get a file whole, so it was discarded. Start the transfer again.',
+        );
+        const stopped = 'transfer failed: receiver stopped the transfer: sender exceeded the announced size of "a.bin"';
+        expect(friendlyError(stopped)).toBe(
+            'Error: The other side stopped the transfer. Start it again.',
+        );
+    });
+
+    it('passes the relay cap reason a blocked sender now sends through verbatim', () => {
+        // A receiver used to see only a close and reported "The sender canceled,
+        // or the transfer was blocked". It now carries the sender's own words.
+        const capped = 'transfer failed: transfer blocked: relay connections are capped at 2 GB (selected 2.5 GB)';
+        expect(friendlyError(capped)).toBe('Error: ' + capped);
+    });
+
     it('passes hand-written actionable messages through verbatim', () => {
         const relay = 'transfer blocked: relay connections are capped at 2 GB (selected relay). Turn off Hide my IP to send larger files';
         expect(friendlyError(relay)).toBe('Error: ' + relay);
