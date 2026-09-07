@@ -90,6 +90,23 @@ the one that left.
 **What you can do:** compare hashes yourself when that guarantee matters. `sha256sum` on Linux,
 `shasum -a 256` on macOS, `Get-FileHash` on Windows.
 
+## Windows cannot keep two names that differ only by a reserved character
+
+Windows refuses `< > : " | ? *` in a file name, so a receiver running on Windows replaces
+each of them with `_` before writing. Names that were distinct on the sending machine can
+then land on the same name. A Linux folder holding `report:v1.pdf` and `report?v1.pdf`
+arrives as `report_v1.pdf` and `report_v1 (1).pdf`, and nothing on disk says which was
+which. The numbered suffix follows the order the files arrived in, which is the order they
+were sent.
+
+Nothing is overwritten and nothing is lost. The receiver never replaces an existing file, so
+the second one is saved beside the first rather than on top of it. macOS and Linux receivers
+keep both names as they were sent, because those characters are legal there.
+
+**What you can do:** if the distinction matters, rename the files before sending, or send to
+a macOS or Linux receiver. The progress line and the transfer history both show the name that
+was actually written, so you can always tell what landed where.
+
 ## The public counter is a vanity metric
 
 The total on the homepage is fed by receivers reporting a byte count after a transfer. It is

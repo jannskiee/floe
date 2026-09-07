@@ -61,7 +61,7 @@ func TestSanitizedNamesLandOnRealFiles(t *testing.T) {
 			}
 
 			// The real receive chain: claim a .part, write, commit by rename.
-			f, claimed, err := claimPart(dest)
+			f, claimed, err := claimPart(dest, nil)
 			if err != nil {
 				t.Fatalf("claimPart(%q) failed, which aborts the whole batch: %v", dest, err)
 			}

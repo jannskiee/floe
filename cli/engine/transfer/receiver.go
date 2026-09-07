@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -159,6 +160,10 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 	var start time.Time
 	filesReceived := 0
 	waitingForFirst := true
+	// Where the de-collision scan for each base path stopped. Scoped to this
+	// call so a long-lived desktop process does not carry numbering across
+	// transfers into a directory the person may have emptied in between.
+	hints := newNameHints(runtime.GOOS)
 
 	// If the transfer is interrupted (peer disconnect, stall, or error) before
 	// the "end" marker completes the current file, release the handle and
@@ -362,7 +367,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				if err := os.MkdirAll(filepath.Dir(currentBase), 0755); err != nil {
 					return fmt.Errorf("cannot create directory: %w", err)
 				}
-				currentFile, currentDest, err = claimPart(currentBase)
+				currentFile, currentDest, err = claimPart(currentBase, hints)
 				if err != nil {
 					return fmt.Errorf("cannot create file %s: %w", currentBase, err)
 				}
