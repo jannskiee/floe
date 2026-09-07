@@ -257,10 +257,25 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 		}
 
 		// Decide whether this is a Floe control message (metadata/end) or file
-		// data. Only recognized control types are consumed as control — a small
-		// binary chunk that merely happens to be a JSON object is file data and
-		// must be written, never dropped.
-		msgType, isControl := classifyControl(msg.Data)
+		// data, and decide it from the SCTP framing rather than from the bytes.
+		//
+		// Every Floe sender since v1.0.0 sends metadata and end with SendText
+		// (a JS string through simple-peer on the browser side) and file chunks
+		// with Send, so on this side a BINARY frame is file data, full stop.
+		// Probing its bytes was the bug: a whole small file whose content is a
+		// control-shaped JSON object, such as the 14 bytes {"type":"end"}, was
+		// consumed as control and never written. Desktop's StartSendText makes
+		// that a one-click send.
+		//
+		// This is a PROHIBITION as much as a decision: a future
+		// sender-to-receiver control frame MUST go out as text, or it lands in
+		// somebody's file. Receiver-to-sender frames are unaffected and stay
+		// binary, because no file data travels that way.
+		var msgType string
+		var isControl bool
+		if msg.IsString {
+			msgType, isControl = classifyControl(msg.Data)
+		}
 		if isControl {
 			switch msgType {
 
@@ -543,7 +558,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 			continue
 		}
 
-		// A string that wasn't a recognized control message is never file data.
+		// A string that was not a recognized control message is never file data.
 		if msg.IsString {
 			continue
 		}

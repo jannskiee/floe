@@ -1,5 +1,5 @@
 // Floe wire-protocol constants and message helpers.
-// Mirrors cli/internal/transfer/sender.go + receiver.go — keep in sync.
+// Mirrors cli/engine/transfer/sender.go + receiver.go - keep in sync.
 import { sanitizeDisplayText } from '../download';
 
 export const CONTROL_MSG_MAX = 1000; // bytes; matches browser byteLength guard
@@ -174,26 +174,35 @@ export function compatErrorMessage(
 // --- Control message classifier ---
 
 const decoder = new TextDecoder();
+const encoder = new TextEncoder();
 
 /**
- * Classifies a data channel message as a Floe control message or file data.
- * Returns the parsed control message if recognized, null if it should be
- * treated as file data (written to disk / appended to the receive buffer).
+ * Classifies a frame's BYTES as a Floe control message or as file data, and
+ * returns the parsed control message or null.
  *
- * Preserves exact browser semantics:
+ * This answers a question about content only. Whether a frame is ELIGIBLE to be
+ * control is the caller's to answer, and on the receive path the answer is the
+ * SCTP framing, not the bytes: see `isControlFrame` and `createReceiver`.
+ *
  *   - Only probe if byteLength <= CONTROL_MSG_MAX (1000)
  *   - Decoded text must start with '{'
  *   - JSON.parse must succeed and 'type' must be a known control type
  */
-export function classifyControl(data: ArrayBuffer | Uint8Array): ControlMessage | null {
-    const buf = data instanceof Uint8Array ? data : new Uint8Array(data);
-    if (buf.byteLength > CONTROL_MSG_MAX) return null;
-
+export function classifyControl(data: string | ArrayBuffer | Uint8Array): ControlMessage | null {
     let text: string;
-    try {
-        text = decoder.decode(buf);
-    } catch {
-        return null;
+    if (typeof data === 'string') {
+        // A JS string measures in UTF-16 code units, and the cap is a byte
+        // budget the Go receiver enforces on the same frame, so measure bytes.
+        if (encoder.encode(data).byteLength > CONTROL_MSG_MAX) return null;
+        text = data;
+    } else {
+        const buf = data instanceof Uint8Array ? data : new Uint8Array(data);
+        if (buf.byteLength > CONTROL_MSG_MAX) return null;
+        try {
+            text = decoder.decode(buf);
+        } catch {
+            return null;
+        }
     }
 
     if (!text.startsWith('{')) return null;
@@ -212,6 +221,33 @@ export function classifyControl(data: ArrayBuffer | Uint8Array): ControlMessage 
     if (t === 'received') return msg as unknown as Received;
     if (t === 'incompatible') return msg as unknown as Incompatible;
     return null;
+}
+
+/**
+ * Whether a frame arriving at a RECEIVER may be a control message at all.
+ *
+ * The wire already answers this and Floe used to ignore it. Every Floe sender
+ * since v1.0.0 sends `metadata` and `end` as a TEXT frame (a JS string handed
+ * to `peer.send`, or `dc.SendText` in the Go engine) and file chunks as BINARY.
+ * So on the receive path a binary frame is file data, whatever its bytes spell.
+ *
+ * Probing the bytes was the bug (#316): a whole small file whose content is a
+ * control-shaped JSON object, such as the 14 bytes `{"type":"end"}`, was
+ * consumed as control and never written. Floe Desktop's Send-text box makes
+ * that a one-click send.
+ *
+ * This is a PROHIBITION as much as a decision: a future sender-to-receiver
+ * control frame MUST go out as text, or it lands in somebody's file. The
+ * receiver-to-sender direction is unaffected and keeps its mixed framing
+ * (`ack` is a string, `incompatible` is binary), because no file data travels
+ * that way, so the sender's loops still classify by content.
+ *
+ * The browser could not see this bit until the peer was given
+ * `readableObjectMode`: simple-peer pushes text frames through a non-objectMode
+ * readable-stream Duplex, which Buffer.from()s them before Floe sees them.
+ */
+export function isControlFrame(data: string | ArrayBuffer | Uint8Array): data is string {
+    return typeof data === 'string';
 }
 
 /**

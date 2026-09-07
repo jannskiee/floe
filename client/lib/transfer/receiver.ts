@@ -2,6 +2,8 @@
 // Extracted from P2PTransfer.tsx peer.on('data') handler.
 import {
     classifyControl,
+    isControlFrame,
+    CONTROL_MSG_MAX,
     ackMessage,
     incompatibleMessage,
     checkCompat,
@@ -68,7 +70,7 @@ interface PartialDownload {
  *   });
  *   peer.on('data', rx.handleMessage);
  */
-export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: Uint8Array | ArrayBuffer) => void } {
+export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: string | Uint8Array | ArrayBuffer) => void } {
     const partialDownloads = new Map<string, PartialDownload>();
     let currentMetadata: Metadata | null = null;
     let hasCheckedCompat = false;
@@ -84,13 +86,35 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: U
     let receiveSpeedBytes = 0;
     let lastReceiveSpeedUpdate = 0;
 
-    function handleMessage(data: Uint8Array | ArrayBuffer): void {
+    function handleMessage(data: string | Uint8Array | ArrayBuffer): void {
         if (aborted) return;
 
-        const buf = data instanceof Uint8Array ? data : new Uint8Array(data);
-        const msg = classifyControl(buf);
+        // Framing decides, not content. See isControlFrame: a binary frame on
+        // this side is file data even when its bytes spell a control message,
+        // which is what a small .json file's whole content can do.
+        if (isControlFrame(data)) {
+            const text = data;
+            // Mirrors the Go receiver: a string past the control cap is not
+            // something to write and not something to parse, it is a peer
+            // sending prose where a control message belongs. The browser used
+            // to fall through and append it to the file instead, which quietly
+            // corrupted any transfer whose metadata ran long (a deep enough
+            // folder path does it).
+            if (new TextEncoder().encode(text).byteLength > CONTROL_MSG_MAX) {
+                aborted = true;
+                cb.onError?.(
+                    'The sender sent a control message larger than ' +
+                        `${CONTROL_MSG_MAX} bytes, so the transfer was stopped.`
+                );
+                return;
+            }
+            const msg = classifyControl(text);
+            // An unrecognized control type is dropped, not written. The Go
+            // receiver has always done this; the browser used to append it to
+            // whatever file was open, which is what made adding any new frame
+            // type unsafe.
+            if (!msg) return;
 
-        if (msg) {
             if (msg.type === 'metadata') {
                 // Protocol compatibility check on first file, before sending ack
                 // or accepting any file bytes.
@@ -217,7 +241,8 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: U
             return;
         }
 
-        // Binary chunk — file data
+        // Binary frame: file data, unconditionally.
+        const buf = data instanceof Uint8Array ? data : new Uint8Array(data);
         if (!currentMetadata) return;
         const fileData = partialDownloads.get(currentMetadata.id);
         if (!fileData) return;

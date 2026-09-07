@@ -235,6 +235,62 @@ func TestLoopbackSmallJSONFile(t *testing.T) {
 	}
 }
 
+// TestLoopbackControlShapedFiles is the #316 repro, end to end over a real pion
+// pair. TestLoopbackSmallJSONFile above only ever covered a JSON object whose
+// "type" was NOT a control type, so it passed for the wrong reason: content
+// probing declined it because of the type value, not because of the framing.
+//
+// A file whose whole content IS a control frame is what content probing could
+// not survive. Each of these arrived as a 0-byte file before #311 and as a hard
+// error afterwards; both are the same lost bytes. The receiver now decides from
+// the SCTP framing, so a binary chunk is file data whatever it spells.
+func TestLoopbackControlShapedFiles(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ICE loopback transfer in -short mode")
+	}
+
+	cases := []struct {
+		name    string
+		content string
+	}{
+		// The issue's own repro: 14 bytes, and a one-click send from desktop's
+		// Send text box.
+		{"end.json", `{"type":"end"}`},
+		{"received.json", `{"type":"received"}`},
+		{"ack.json", `{"type":"ack","id":"x","offset":0}`},
+		{"incompatible.json", `{"type":"incompatible","reason":"nope"}`},
+		// A whole metadata frame saved to a file, which is what anyone
+		// debugging the protocol ends up with on disk.
+		{"metadata.json", `{"type":"metadata","id":"a","fileName":"x","fileSize":1,"index":1,"total":1}`},
+		// Leading whitespace still reaches looksLikeJSONObject.
+		{"padded.json", "   " + `{"type":"end"}`},
+	}
+
+	srcDir := t.TempDir()
+	var paths []string
+	for _, tc := range cases {
+		srcPath := filepath.Join(srcDir, tc.name)
+		if err := os.WriteFile(srcPath, []byte(tc.content), 0644); err != nil {
+			t.Fatalf("write %s: %v", tc.name, err)
+		}
+		paths = append(paths, srcPath)
+	}
+
+	// One batch, not one transfer each: a frame eaten mid-batch also derails
+	// every file queued behind it, and that is the failure people actually hit.
+	outDir := runTransfer(t, paths)
+
+	for _, tc := range cases {
+		got, err := os.ReadFile(filepath.Join(outDir, tc.name))
+		if err != nil {
+			t.Fatalf("read %s: %v", tc.name, err)
+		}
+		if string(got) != tc.content {
+			t.Fatalf("%s corrupted in transit:\n got: %q\nwant: %q", tc.name, got, tc.content)
+		}
+	}
+}
+
 // TestLoopbackDuplicateNames is the end-to-end guard for the receiver's
 // never-overwrite rule: two files with the same base name (two pasted
 // screenshots, or a repeat send) must both survive, the second de-collided to
