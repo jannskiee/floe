@@ -13,8 +13,10 @@ import { RELAY_CAP } from '@/lib/howItWorksStrings';
  * it. Labels are the product's own badge words with the badge's green and amber
  * dots; no boxes, no arrowheads, no icons.
  *
- * Two variants, wide from md and narrow below it, both drawn from
+ * Two variants, wide from 768px and narrow below it, both drawn from
  * routeGeometry() so the two cannot drift; the CSS gate is the only switch.
+ * That gate is a pixel rather than md, and so are the width caps: see the
+ * comment beside the variants for why a rem there truncated the draw-in.
  * Motion is CSS only and plays once on paint: the .hiw-* rules in globals.css,
  * inside
  * prefers-reduced-motion: no-preference. The base rules are the finished
@@ -96,8 +98,8 @@ function Variant({ g, className }: { g: RouteGeometry; className: string }) {
                 >
                     <i className="h-1.5 w-1.5 rounded-full bg-green-500" />
                     Direct
-                    <span className="max-[767px]:hidden text-zinc-500">·</span>
-                    <span className="max-[767px]:hidden text-zinc-400">No size limit</span>
+                    <span className="max-[768px]:hidden text-zinc-500">·</span>
+                    <span className="max-[768px]:hidden text-zinc-400">No size limit</span>
                 </span>
                 <span
                     className="hiw-lbl-relay absolute flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 whitespace-nowrap pl-[0.2em] text-zinc-300"
@@ -105,8 +107,8 @@ function Variant({ g, className }: { g: RouteGeometry; className: string }) {
                 >
                     <i className="h-1.5 w-1.5 rounded-full bg-amber-500" />
                     Relay
-                    <span className="max-[767px]:hidden text-zinc-500">·</span>
-                    <span className="max-[767px]:hidden text-zinc-400">{RELAY_CAP} per session</span>
+                    <span className="max-[768px]:hidden text-zinc-500">·</span>
+                    <span className="max-[768px]:hidden text-zinc-400">{RELAY_CAP} per session</span>
                 </span>
             </div>
         </div>
@@ -124,15 +126,22 @@ export function RouteFigure() {
                 line stopped short with the arrival ring floating unattached: at a
                 20px root the narrow variant renders at scale 1.667 and the line is
                 19.7px short, at 24px it is 2.0 and 118.4px short, worse than the
-                98.8px bug the 1600 dasharray was added to fix. Chrome's ordinary
-                Large setting is enough. The switch has to move with the caps or the
-                phone drawing would stay on show up to a 1151px viewport, frozen at
-                480px, wearing the short labels the wide drawing is not supposed to
-                have. Every value here is the same number 16px roots already
+                98.8px bug the 1600 dasharray was added to fix. Chrome's Large
+                preset is enough; Very large is the 24px one.
+                The swap moves to pixels too, for a plainer reason: left on md it
+                is 48rem, so at a 24px root the phone drawing would stay on show up
+                to a 1151px viewport, frozen at 480px in a column nearly 1100px
+                wide. The three gates then have to share one number. Tailwind
+                compiles max-[N] to `not (min-width: N)`, so max-[768px] and
+                min-[768px] are exact complements; written as 767 against 768 they
+                leave a one-pixel band where the phone drawing wears the wide
+                drawing's long labels, which is the crowding this figure fixed once
+                already. Every value here is the number a 16px root already
                 produced, so nothing moves for most readers.
-                1024 also keeps the wide variant at scale exactly 1 at any font
-                size, which is what the half-unit tick y in routeFigure.ts needs to
-                land the apex on a single device row. */}
+                Capping the wide variant at 1024 also puts a ceiling of exactly 1
+                on its scale, so the half-unit tick y in routeFigure.ts can still
+                land the apex on a single device row at the widths where it is at
+                the cap. Below them it renders under 1, as it always did. */}
             <Variant g={routeGeometry(ROUTE_WIDE)} className="hidden max-w-[1024px] min-[768px]:block" />
             {/* 480 also keeps its original job: between 640 and 767 the narrow
                 drawing would otherwise reach 352px tall in a 720px column. */}

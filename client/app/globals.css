@@ -172,8 +172,9 @@
    the spur it abuts is this step. At #52525b that step was 1.37x the spur's ink,
    smaller than the antialiasing wobble the same hairline picks up 30px earlier
    as it crosses a device row, and the tick simply stopped being a mark. #71717a
-   is 2.6x, and it clears the 3:1 WCAG floor for non-text (2.53:1 -> 4.05:1)
-   that all three ticks were under. */
+   is 2.6x, and it clears the 3:1 WCAG floor for non-text (2.57:1 -> 4.12:1)
+   that all three ticks were under. The spur stays below it at 1.91:1, which is
+   correct: it is the dimmest line on purpose and carries no meaning alone. */
 .hiw-tick {
     stroke: #71717a;
 }
@@ -281,7 +282,7 @@
 }
 /* Draw, but do not thaw. A keyframe that animates stroke names a literal color,
    which outranks the GrayText above for as long as the animation is in effect,
-   so in high contrast the spurs spent their first 2.3s ignoring the user's
+   so in high contrast the spurs spent the whole thaw window ignoring the user's
    colors. Keeping only the draw leaves that rule in charge throughout. Both
    conditions, because the shorthand this replaces only exists under
    no-preference and reduced motion must not gain an animation here. */

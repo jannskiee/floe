@@ -213,16 +213,33 @@ describe('the draw-in dash survives the figure being scaled up', () => {
         expect(component).not.toMatch(/max-w-\[[\d.]+rem\]/);
     });
 
-    it('swaps the variants on the same pixel it caps them at', () => {
-        // If the swap stayed on md (48rem) while the caps were pixels, a large
-        // font would keep the phone drawing on show up to a 1151px viewport, and
-        // hand the wide drawing the short labels that belong to the narrow one.
-        for (const cls of ['min-[768px]:block', 'min-[768px]:hidden', 'max-[767px]:hidden']) {
+    it('gates the drawing and its labels on one and the same pixel', () => {
+        // Tailwind compiles max-[N] to `not (min-width: N)`, so max-[N] and
+        // min-[N] are exact complements only when N is the SAME number. Written
+        // as max-[767px] against min-[768px] they leave a one-pixel band at 767
+        // where the phone drawing is still on show wearing the wide drawing's
+        // long labels, which is the crowding this figure already fixed once.
+        // Asserting the shared number is the invariant; asserting three string
+        // literals was what let the off-by-one through.
+        const SWAP = 768;
+        for (const cls of ['min-[' + SWAP + 'px]:block', 'min-[' + SWAP + 'px]:hidden', 'max-[' + SWAP + 'px]:hidden']) {
             expect(component, cls).toContain(cls);
         }
+        const gates = [...component.matchAll(/(?:min|max)-\[(\d+)px\]:/g)].map((m) => Number(m[1]));
+        expect(gates.length, 'every variant and label gate is pixel-based').toBeGreaterThanOrEqual(3);
+        expect([...new Set(gates)], 'all gates share one breakpoint').toEqual([SWAP]);
         for (const cls of ['md:block', 'md:hidden']) {
             expect(component, cls).not.toContain(cls);
         }
+    });
+
+    it('puts each pixel cap on the variant it belongs to', () => {
+        // Swapping the two caps between the variants passed every earlier
+        // assertion while reproducing the exact bug this block exists to stop.
+        const line = (v: string) =>
+            component.split(/\r?\n/).find((l) => l.includes('routeGeometry(ROUTE_' + v + ')'));
+        expect(line('WIDE'), 'wide variant line').toContain('max-w-[' + WIDE_MAX_PX + 'px]');
+        expect(line('NARROW'), 'narrow variant line').toContain('max-w-[' + NARROW_MAX_PX + 'px]');
     });
 
     it('sets a dasharray with headroom for the largest scale the figure reaches', () => {
