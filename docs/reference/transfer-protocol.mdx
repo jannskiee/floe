@@ -26,11 +26,16 @@ Four things that order does not show.
 
 - **Step 3 is zero or more frames.** An empty file is `metadata`, `ack`, `end`, with no binary
   frame between them at all.
-- **There is no cancel message.** Cancellation is a channel close, and a receiver declining at
+- **There is no cancel message.** Canceling is a channel close, and a receiver declining at
   the CLI's prompt closes the channel without sending anything. Every wait in the Go engine
   watches for that close as a separate signal and gives up at once. The browser sender does not:
   it sees a close only through its buffer-drain polls, so a decline reaches it as the full
   120-second ack timeout instead.
+- **A peer that stops on purpose says why.** Canceling is still a bare close, but a side that
+  refuses a transfer for a reason it can name sends that reason first, in an `incompatible`
+  frame, and waits for it to flush before tearing the connection down. That covers the 2 GB relay
+  cap on the sending side and a file the receiver would not keep on the other. See
+  [incompatible](#incompatible).
 - **A person can sit between steps 1 and 2.** `floe receive` prints `Accept? [Y/n]` and waits for
   an answer before it sends the ack. That is the whole reason the ack deadline is 120 seconds.
 - **The end of a batch is a race, not a message.** A Go sender finishes on whichever comes
@@ -174,9 +179,31 @@ always waits for its own send buffer to drain to zero instead.
 
 ### incompatible
 
-Sent by the receiver **in place of the ack** when the two protocol version ranges do not overlap.
-The receiver aborts before creating any file, so the sender fails fast rather than waiting for an
-ack that never comes. Senders that predate this message type ignore it safely.
+Two jobs, told apart by the `pv` range it carries.
+
+**A version mismatch.** Sent by the receiver **in place of the ack** when the two protocol version
+ranges do not overlap. The receiver aborts before creating any file, so the sender fails fast
+rather than waiting for an ack that never comes. Senders that predate this message type ignore it
+safely.
+
+**A deliberate abort with a reason**, when the `pv` range **does** overlap. A peer reads the
+overlap as "this is not about versions" and prints the `reason` verbatim instead of rebuilding a
+version remedy from `pv` and `pvMin`. That is what lets a side that is stopping on purpose name
+the cause without a new message type and without a `ProtocolVersion` bump. It carries the relay
+cap from a sender, and a discarded file or a refused file description from a receiver.
+
+Framing depends on direction, and this is the one rule another client has to get right.
+Receiver to sender is binary, which is what every Floe receiver has always sent. **Sender to
+receiver has to be text**, because on that path a binary frame is file data by definition, and
+Go receivers from v1.5.0 to v1.5.5 will write a binary one into the file being received.
+
+The whole encoded frame stays under 1000 bytes, reason included, or a browser receiver stops
+reading it as a control message. A sender caps the reason again for display, at 300 characters.
+
+Whichever side sends it waits for the send buffer to drain, up to 2 seconds, before closing.
+Without that wait the frame is routinely lost: closing a pion connection aborts the SCTP
+association and discards whatever was still queued, so the peer would see the close and report a
+lost connection rather than the reason.
 
 ```json incompatible
 {

@@ -174,6 +174,12 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 	// connection is already established by the time SendFiles runs, so the
 	// selected ICE pair is known. Mirrors the browser's relay gate.
 	if err := relayGate(dc, totalBytes); err != nil {
+		// Tell the receiver, or all it sees is a close. Its own diagnosis for
+		// that is "the sender canceled, or the transfer was blocked", and a
+		// browser receiver used to go further and blame a relay that is
+		// already on. Sent as TEXT because this direction is the one file data
+		// travels; see abortReason.
+		abortReason(dc, localVer, err.Error(), true)
 		return err
 	}
 

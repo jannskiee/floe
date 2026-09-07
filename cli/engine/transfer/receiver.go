@@ -279,6 +279,24 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 		if isControl {
 			switch msgType {
 
+			case "incompatible":
+				// The sender is stopping on purpose and said why. Until now this
+				// was classified as control purely so it was never written as
+				// file data, then dropped, so the reason it carries went
+				// nowhere and this side reported a bare close instead.
+				//
+				// The Reason is peer prose headed for a terminal or a status
+				// line, so it goes through the same display cap as every other
+				// peer string.
+				var incompat incompatibleMsg
+				if err := json.Unmarshal(msg.Data, &incompat); err != nil {
+					return fmt.Errorf("the sender stopped the transfer")
+				}
+				if reason := displayText(incompat.Reason, maxDisplayReason); reason != "" {
+					return fmt.Errorf("%s", reason)
+				}
+				return fmt.Errorf("the sender stopped the transfer")
+
 			case "metadata":
 				// A new file is starting
 				info, err := parseMetadata(string(msg.Data))
@@ -472,8 +490,14 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					// staging file; delete it here.
 					if bytesReceived != currentInfo.FileSize {
 						_ = os.Remove(partPath)
-						return fmt.Errorf("incomplete file %q: received %d of %d bytes",
+						detail := fmt.Sprintf("incomplete file %q: received %d of %d bytes",
 							currentDisplayName, bytesReceived, currentInfo.FileSize)
+						// Without this the sender simply stops being acked. With
+						// more files to send it waits out the full 120 s ack
+						// deadline and then reports a timeout, which is the wrong
+						// cause two minutes late.
+						abortReason(dc, localVer, "receiver discarded a file: "+detail, false)
+						return fmt.Errorf("%s", detail)
 					}
 
 					// Mark the file as internet-sourced (Windows MOTW) so
@@ -574,7 +598,9 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 		// cross the line bounds the damage to the announced size, and the
 		// deferred cleanup removes the .part.
 		if bytesReceived+int64(len(msg.Data)) > currentInfo.FileSize {
-			return fmt.Errorf("sender exceeded the announced size of %q", currentDisplayName)
+			detail := fmt.Sprintf("sender exceeded the announced size of %q", currentDisplayName)
+			abortReason(dc, localVer, "receiver stopped the transfer: "+detail, false)
+			return fmt.Errorf("%s", detail)
 		}
 		n, err := currentFile.Write(msg.Data)
 		if err != nil {

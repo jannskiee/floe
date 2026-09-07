@@ -7,28 +7,99 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/pion/webrtc/v4"
 )
 
-// rejectDescription tells the sender why its file description was refused, in
-// the one frame every sender already knows how to display: an "incompatible"
-// whose pv range overlaps ours. The Go sender prints its Reason through
-// compatErrorFromIncompatible (display-safe and capped there) and the browser
-// hands it to the error banner, so the person at the sending end reads the
-// actual reason instead of the "connection closed while waiting for the
-// receiver" that the close alone would produce. Best effort: a failed send
-// changes nothing, because the caller's deferred Close reaches the sender
-// either way.
-func rejectDescription(dc *webrtc.DataChannel, localVer, detail string) {
-	msg, _ := json.Marshal(incompatibleMsg{
+// controlFlushTimeout bounds flushControl. Long enough for a SACK to come back
+// over a relay, short enough that nobody notices it on the way out.
+const controlFlushTimeout = 2 * time.Second
+
+// abortReason tells the peer why this side is stopping on purpose, in the one
+// frame every peer already knows how to display: an "incompatible" whose pv
+// range OVERLAPS ours.
+//
+// That overlap is load-bearing, and it is why this needs no new message type
+// and no ProtocolVersion bump. compatErrorFromIncompatible rebuilds the message
+// from pv/pvMin only when the ranges genuinely miss; because ours overlap it
+// falls through to Reason and prints it verbatim, instead of telling the reader
+// to run "floe update". The browser sender does the same through
+// sanitizeDisplayText. So the person at the other end reads the actual reason
+// rather than the "connection closed while waiting for the receiver" a bare
+// close produces.
+//
+// toReceiver picks the framing, and that is not a style choice. Receiver to
+// sender carries no file data, so binary is safe and is what every shipped
+// receiver already sends. Sender to receiver MUST be text: on that path a
+// binary frame is file data by definition (see the ReceiveFiles message loop),
+// and shipped Go receivers from v1.5.0 to v1.5.5 would write a binary one
+// straight into somebody's file.
+//
+// Best effort. A failed send changes nothing, because the caller's deferred
+// Close reaches the peer either way.
+func abortReason(dc *webrtc.DataChannel, localVer, reason string, toReceiver bool) {
+	if dc == nil {
+		return // nobody to tell; the relay gate runs against a nil channel in tests
+	}
+	msg := incompatibleMsg{
 		Type:   "incompatible",
-		Reason: "receiver rejected the file description: " + detail,
+		Reason: reason,
 		Pv:     ProtocolVersion,
 		PvMin:  MinProtocolVersion,
 		Ver:    localVer,
-	})
-	_ = dc.Send(msg)
+	}
+	// The cap is on the ENCODED FRAME, not the reason: a browser receiver stops
+	// classifying a control message past controlMsgMax and would read the frame
+	// as file data. Halving a rune budget terminates and never splits a
+	// character, which a byte cut would.
+	encoded, _ := json.Marshal(msg)
+	for budget := maxDisplayReason; len(encoded) > controlMsgMax && budget > 0; budget /= 2 {
+		msg.Reason = displayText(reason, budget)
+		encoded, _ = json.Marshal(msg)
+	}
+	if len(encoded) > controlMsgMax {
+		msg.Reason = ""
+		encoded, _ = json.Marshal(msg)
+	}
+	if toReceiver {
+		_ = dc.SendText(string(encoded))
+	} else {
+		_ = dc.Send(encoded)
+	}
+	flushControl(dc)
+}
+
+// rejectDescription is abortReason for the case that had it first: a file
+// description this receiver will not accept.
+func rejectDescription(dc *webrtc.DataChannel, localVer, detail string) {
+	abortReason(dc, localVer, "receiver rejected the file description: "+detail, false)
+}
+
+// flushControl waits for the SCTP send buffer to drain before the caller's
+// teardown runs.
+//
+// Without it the message is routinely lost (#284: lost in 6 of 6 rounds on one
+// machine state and delivered on another, so it is load-dependent). pion's
+// Close stops the SCTP transport and aborts the association, and
+// gatherOutboundPriorityPackets then suppresses whatever DATA was still queued.
+// The peer sees the drop and reports a closed connection rather than the
+// reason, which is the wrong cause dressed up as a network fault.
+//
+// Bounded and best effort: a peer that never acknowledges must not hold the
+// teardown open, and a reason lost at the deadline is no worse than today.
+func flushControl(dc *webrtc.DataChannel) {
+	if dc == nil {
+		return
+	}
+	deadline := time.After(controlFlushTimeout)
+	for dc.BufferedAmount() > 0 {
+		select {
+		case <-deadline:
+			return
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
 }
 
 // controlMsgMax is the largest message probed as a control message, string or
