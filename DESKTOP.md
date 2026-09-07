@@ -225,8 +225,8 @@ receiver, which is deliberate (share a link and wait) and cancellable.
 
 ## Release history
 
-Current release: `desktop-v0.2.9` (Microsoft Store 9NBQ8ZQ1065L + GitHub
-pre-release), shipped 2026-09-04. Paired with CLI `v1.10.7`, because the fixes
+Current release: `desktop-v0.2.10` (Microsoft Store 9NBQ8ZQ1065L + GitHub
+pre-release), shipped 2026-09-07. Paired with CLI `v1.10.8`, because the fixes
 they both carry live in `cli/engine`, which reaches a desktop user only through
 a desktop tag, and the receiver-side ones only protect a transfer once the
 RECEIVING peer has them.
