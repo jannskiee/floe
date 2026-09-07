@@ -81,7 +81,7 @@ export function ConnectionStatusBadge({
                                         <p className="text-[10px] font-bold text-green-400 uppercase tracking-wider mb-1">Direct Connection</p>
                                         <p className="text-[10px] font-normal normal-case tracking-normal text-zinc-400 leading-relaxed font-sans">
                                             Your files go directly to the other device, even across different networks like mobile data. No servers involved. Unlimited speed and size.{' '}
-                                            <a href="/how-it-works" target="_blank" rel="noreferrer" className="text-zinc-500 hover:text-white underline underline-offset-2 transition-colors">
+                                            <a href="/how-it-works#direct" target="_blank" rel="noreferrer" className="text-zinc-500 hover:text-white underline underline-offset-2 transition-colors">
                                                 Learn more
                                             </a>
                                         </p>
@@ -91,7 +91,7 @@ export function ConnectionStatusBadge({
                                         <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider mb-1">Relay Connection</p>
                                         <p className="text-[10px] font-normal normal-case tracking-normal text-zinc-400 leading-relaxed font-sans">
                                             A server bridges the connection when a direct path is unavailable. Your files stay encrypted. 2 GB limit per session.{' '}
-                                            <a href="/how-it-works" target="_blank" rel="noreferrer" className="text-zinc-500 hover:text-white underline underline-offset-2 transition-colors">
+                                            <a href="/how-it-works#relay" target="_blank" rel="noreferrer" className="text-zinc-500 hover:text-white underline underline-offset-2 transition-colors">
                                                 Learn more
                                             </a>
                                         </p>

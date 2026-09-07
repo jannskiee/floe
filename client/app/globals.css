@@ -120,3 +120,130 @@
         opacity: 0;
     }
 }
+/* The route figure on /how-it-works (components/how-it-works/RouteFigure.tsx).
+   The base rules ARE the finished drawing. The animation block lives inside
+   prefers-reduced-motion: no-preference on purpose, and as plain CSS rather
+   than motion-reduce: utilities: custom animations in @layer utilities beat
+   motion-reduce:animate-none in the Tailwind v4 cascade (the desktop app hit
+   this), while an unlayered media block can never lose. Reduced motion, the
+   e2e sweep, the screenshot matrix and a JS-off reader all get the completed
+   figure at first paint. Only stroke-dashoffset, stroke and opacity animate,
+   and the box is reserved by aspect-ratio, so nothing shifts layout.
+   Sequence (about 2.6 s, once, no loop): the spurs draw from the devices to
+   the server tick in ice, the direct line draws across, the spurs thaw to
+   zinc-700 (the server has left), the ring lands on THEM, then the relay
+   detour fades in. */
+.hiw-fig svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+}
+.hiw-fig path,
+.hiw-fig line,
+.hiw-fig circle {
+    fill: none;
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+}
+/* Axis-aligned, so snapping them to the device grid costs no curve quality and
+   buys a real hairline: at the canonical desktop scale of exactly 1 the box top
+   is an integer, every 1px stroke straddled two device rows, and the line the
+   page is built around rendered at about half its intended brightness. */
+.hiw-tick,
+.hiw-direct {
+    shape-rendering: crispEdges;
+}
+.hiw-tick {
+    stroke: #52525b;
+}
+.hiw-spur {
+    stroke: #3f3f46;
+}
+.hiw-direct {
+    stroke: oklch(0.87 0.05 220);
+}
+.hiw-detour {
+    stroke: #52525b;
+    stroke-dasharray: 1 5;
+    stroke-linecap: round;
+}
+.hiw-fig circle.hiw-ring {
+    stroke: oklch(0.87 0.05 220);
+    fill: #09090b;
+}
+/* 1600, not the 1000 that pathLength normalizes to. vector-effect:
+   non-scaling-stroke makes Chromium lay the dash out in unscaled user units
+   while the path renders scaled, so the ink covers dasharray/scale of the path:
+   at 1000 the ice line stopped 98.8px short of THEM at the narrow variant's
+   1.333 cap and the ring floated unattached, which reads as a failed
+   connection. 1600 covers any scale up to 1.6, well past that cap. The draw
+   therefore completes a little before its own window ends, which is invisible
+   inside a staggered sequence and is the price of one uniform hairline.
+   backwards, not both: `both` holds the animation in effect forever, which
+   pins a composited layer and drops the five 11px labels to grayscale
+   antialiasing. Every keyframe already ends on its base value, so releasing
+   them changes nothing but the text rendering. */
+@media (prefers-reduced-motion: no-preference) {
+    .hiw-spur {
+        stroke-dasharray: 1600;
+        animation:
+            hiw-draw 700ms cubic-bezier(0.16, 1, 0.3, 1) 150ms backwards,
+            hiw-thaw 700ms ease 1600ms backwards;
+    }
+    .hiw-direct {
+        stroke-dasharray: 1600;
+        animation: hiw-draw 900ms cubic-bezier(0.16, 1, 0.3, 1) 900ms backwards;
+    }
+    .hiw-ring {
+        animation: hiw-fade 400ms ease 1700ms backwards;
+    }
+    .hiw-detour,
+    .hiw-relay-tick {
+        animation: hiw-fade 600ms ease 2000ms backwards;
+    }
+    .hiw-lbl-server {
+        animation: hiw-fade 500ms ease 300ms backwards;
+    }
+    .hiw-lbl-direct {
+        animation: hiw-fade 500ms ease 1600ms backwards;
+    }
+    .hiw-lbl-relay {
+        animation: hiw-fade 500ms ease 2100ms backwards;
+    }
+}
+@keyframes hiw-draw {
+    from {
+        stroke-dashoffset: 1600;
+    }
+    to {
+        stroke-dashoffset: 0;
+    }
+}
+@keyframes hiw-thaw {
+    from {
+        stroke: oklch(0.87 0.05 220 / 0.55);
+    }
+    to {
+        stroke: #3f3f46;
+    }
+}
+@keyframes hiw-fade {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+@media (forced-colors: active) {
+    .hiw-direct,
+    .hiw-fig circle.hiw-ring {
+        stroke: CanvasText;
+    }
+    .hiw-spur,
+    .hiw-tick,
+    .hiw-detour {
+        stroke: GrayText;
+    }
+}

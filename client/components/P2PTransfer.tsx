@@ -875,7 +875,7 @@ export function P2PTransfer() {
                                     <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
                                     <div className="flex-1 text-xs text-amber-300 leading-relaxed">
                                         Transfer limit exceeded. Relay connections are capped at 2 GB. Remove files to proceed, or switch to a network that supports a direct connection.{' '}
-                                        <a href="/how-it-works" target="_blank" rel="noreferrer" className="underline underline-offset-2 text-amber-400 hover:text-white transition-colors">
+                                        <a href="/how-it-works#size-limit" target="_blank" rel="noreferrer" className="underline underline-offset-2 text-amber-400 hover:text-white transition-colors">
                                             Learn more
                                         </a>
                                     </div>
