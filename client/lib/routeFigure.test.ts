@@ -196,9 +196,34 @@ describe('the phone variant is the desktop drawing, not a steeper one', () => {
 // exists at all. This is the guard for that.
 describe('the draw-in dash survives the figure being scaled up', () => {
     const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
-    // The narrow variant's box is capped by max-w-[30rem] in RouteFigure.tsx.
+    const component = readFileSync(new URL('../components/how-it-works/RouteFigure.tsx', import.meta.url), 'utf8');
+    // The widest each variant can ever render, in CSS pixels. They are pixels on
+    // purpose: as rem they grew with the reader's font size while the dash that
+    // draws them did not, so at a 20px root the narrow line stopped 19.7px short
+    // of THEM and at 24px it stopped 118.4px short, with the arrival ring left
+    // floating. The two assertions below are what make these numbers facts.
     const NARROW_MAX_PX = 480;
-    const maxScale = NARROW_MAX_PX / ROUTE_NARROW;
+    const WIDE_MAX_PX = 1024;
+    const maxScale = Math.max(NARROW_MAX_PX / ROUTE_NARROW, WIDE_MAX_PX / ROUTE_WIDE);
+
+    it('caps both variants in pixels, so the scale below is measured and not assumed', () => {
+        expect(component).toContain('max-w-[' + NARROW_MAX_PX + 'px]');
+        expect(component).toContain('max-w-[' + WIDE_MAX_PX + 'px]');
+        // A rem cap is the bug: 30rem is 480px only while the root font is 16.
+        expect(component).not.toMatch(/max-w-\[[\d.]+rem\]/);
+    });
+
+    it('swaps the variants on the same pixel it caps them at', () => {
+        // If the swap stayed on md (48rem) while the caps were pixels, a large
+        // font would keep the phone drawing on show up to a 1151px viewport, and
+        // hand the wide drawing the short labels that belong to the narrow one.
+        for (const cls of ['min-[768px]:block', 'min-[768px]:hidden', 'max-[767px]:hidden']) {
+            expect(component, cls).toContain(cls);
+        }
+        for (const cls of ['md:block', 'md:hidden']) {
+            expect(component, cls).not.toContain(cls);
+        }
+    });
 
     it('sets a dasharray with headroom for the largest scale the figure reaches', () => {
         const values = [...css.matchAll(/\.hiw-(?:spur|direct)\s*\{[^}]*?stroke-dasharray:\s*(\d+)/g)].map((m) => Number(m[1]));

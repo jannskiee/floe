@@ -66,10 +66,11 @@ function Variant({ g, className }: { g: RouteGeometry; className: string }) {
             {/* HTML labels over the SVG so they get Geist Mono, the page's color
                 tokens and normal text rendering. Centered labels carry pl-[0.2em]
                 to repay the letter-space that tracking adds after the last glyph.
-                The Direct and Relay tails drop at md, the breakpoint that swaps the
+                The Direct and Relay tails drop on the same pixel that swaps the
                 drawing, not at sm: between 640 and 767 the long labels were being set
                 across the narrow drawing, and once its rise flattened they ran their
-                ends to within 10px of the spurs. Label form follows the variant. */}
+                ends to within 10px of the spurs. Label form follows the variant, so
+                these two gates move together or one of them lies. */}
             <div className={`pointer-events-none absolute inset-0 ${LABEL}`} aria-hidden="true">
                 <span
                     className="absolute -translate-x-1/2 pl-[0.2em] text-zinc-400"
@@ -95,8 +96,8 @@ function Variant({ g, className }: { g: RouteGeometry; className: string }) {
                 >
                     <i className="h-1.5 w-1.5 rounded-full bg-green-500" />
                     Direct
-                    <span className="max-md:hidden text-zinc-500">·</span>
-                    <span className="max-md:hidden text-zinc-400">No size limit</span>
+                    <span className="max-[767px]:hidden text-zinc-500">·</span>
+                    <span className="max-[767px]:hidden text-zinc-400">No size limit</span>
                 </span>
                 <span
                     className="hiw-lbl-relay absolute flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 whitespace-nowrap pl-[0.2em] text-zinc-300"
@@ -104,8 +105,8 @@ function Variant({ g, className }: { g: RouteGeometry; className: string }) {
                 >
                     <i className="h-1.5 w-1.5 rounded-full bg-amber-500" />
                     Relay
-                    <span className="max-md:hidden text-zinc-500">·</span>
-                    <span className="max-md:hidden text-zinc-400">{RELAY_CAP} per session</span>
+                    <span className="max-[767px]:hidden text-zinc-500">·</span>
+                    <span className="max-[767px]:hidden text-zinc-400">{RELAY_CAP} per session</span>
                 </span>
             </div>
         </div>
@@ -115,17 +116,33 @@ function Variant({ g, className }: { g: RouteGeometry; className: string }) {
 export function RouteFigure() {
     return (
         <figure className="hiw-fig mt-14 sm:mt-16">
-            <Variant g={routeGeometry(ROUTE_WIDE)} className="hidden md:block" />
-            {/* max-w-[30rem]: between 640 and 767 the narrow drawing would otherwise
-                reach 352px tall in a 720px column, taller than the wide variant is
-                at the width just above the breakpoint. */}
-            <Variant g={routeGeometry(ROUTE_NARROW)} className="max-w-[30rem] md:hidden" />
+            {/* Pixels, not rem, for both the caps and the switch. The drawing is
+                made of px: its labels are a fixed 11px that never scaled with the
+                root font, and the two variants are tuned to how much room the
+                drawing has in real pixels. Sized in rem they grew with a reader's
+                font setting while the dash that draws them did not, and the ice
+                line stopped short with the arrival ring floating unattached: at a
+                20px root the narrow variant renders at scale 1.667 and the line is
+                19.7px short, at 24px it is 2.0 and 118.4px short, worse than the
+                98.8px bug the 1600 dasharray was added to fix. Chrome's ordinary
+                Large setting is enough. The switch has to move with the caps or the
+                phone drawing would stay on show up to a 1151px viewport, frozen at
+                480px, wearing the short labels the wide drawing is not supposed to
+                have. Every value here is the same number 16px roots already
+                produced, so nothing moves for most readers.
+                1024 also keeps the wide variant at scale exactly 1 at any font
+                size, which is what the half-unit tick y in routeFigure.ts needs to
+                land the apex on a single device row. */}
+            <Variant g={routeGeometry(ROUTE_WIDE)} className="hidden max-w-[1024px] min-[768px]:block" />
+            {/* 480 also keeps its original job: between 640 and 767 the narrow
+                drawing would otherwise reach 352px tall in a 720px column. */}
+            <Variant g={routeGeometry(ROUTE_NARROW)} className="max-w-[480px] min-[768px]:hidden" />
             {/* The only description assistive tech gets; it claims exactly what is drawn. */}
             <figcaption className="sr-only">
                 A line runs from You to Them. Two thin spurs rise from each device and meet at the
-                signaling server above them: it introduces the two devices and carries no file data
-                itself. The direct line runs straight across, labeled Direct, and carries no size
-                limit. A
+                signaling server above them: it introduces the two devices and then takes no further
+                part, carrying no file data itself. The direct line runs straight across, labeled
+                Direct, and carries no size limit. A
                 dotted second path dips through a relay and rejoins at Them, labeled Relay, and is
                 capped at {RELAY_CAP} per session.
             </figcaption>
