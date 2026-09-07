@@ -114,8 +114,34 @@ export function endMessage(): string {
 }
 
 export function incompatibleMessage(reason: string): string {
+    // The cap is on the ENCODED FRAME, not on the reason. A receiver stops
+    // classifying a control message past CONTROL_MSG_MAX and would read the
+    // frame as file data, so a long reason has to shrink until the whole thing
+    // fits. Halving a character budget terminates, and slicing a JS string by
+    // code unit can split a surrogate pair, so the trim goes through
+    // sanitizeDisplayText, which counts code points.
+    let text = reason;
+    let frame = buildIncompatible(text);
+    for (let budget = MAX_REASON; frameBytes(frame) > CONTROL_MSG_MAX && budget > 0; budget = Math.floor(budget / 2)) {
+        text = sanitizeDisplayText(reason, budget);
+        frame = buildIncompatible(text);
+    }
+    if (frameBytes(frame) > CONTROL_MSG_MAX) frame = buildIncompatible('');
+    return frame;
+}
+
+// Matches maxDisplayReason in cli/engine/transfer/format.go: a current peer's
+// reason is three short lines.
+const MAX_REASON = 300;
+
+function frameBytes(frame: string): number {
+    return encoder.encode(frame).byteLength;
+}
+
+function buildIncompatible(reason: string): string {
     return JSON.stringify({
-        type: 'incompatible', reason,
+        type: 'incompatible',
+        reason,
         pv: PROTOCOL_VERSION,
         pvMin: MIN_PROTOCOL_VERSION,
     } satisfies Incompatible);
@@ -246,6 +272,22 @@ export function classifyControl(data: string | ArrayBuffer | Uint8Array): Contro
  * `readableObjectMode`: simple-peer pushes text frames through a non-objectMode
  * readable-stream Duplex, which Buffer.from()s them before Floe sees them.
  */
+/**
+ * Whether an `incompatible` frame is a version mismatch or a deliberate abort
+ * carrying a reason.
+ *
+ * The two are told apart by the `pv` range. When it OVERLAPS ours the frame is
+ * not about versions at all, so the reason is printed verbatim rather than
+ * replaced by a version remedy. That overlap is what lets a peer name why it
+ * stopped without a new message type and without a `ProtocolVersion` bump, and
+ * `cli/engine/transfer/control.go`'s `abortReason` has shipped on exactly this
+ * basis since v1.10.5.
+ */
+export function isAbortReason(msg: Incompatible): boolean {
+    const { ok } = checkCompat(MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, msg.pvMin ?? 1, msg.pv ?? 1);
+    return ok;
+}
+
 export function isControlFrame(data: string | ArrayBuffer | Uint8Array): data is string {
     return typeof data === 'string';
 }

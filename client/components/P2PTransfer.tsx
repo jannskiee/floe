@@ -26,7 +26,7 @@ import {v4 as uuidv4} from 'uuid';
 import * as Sentry from '@sentry/nextjs';
 import {formatSpeed, formatETA} from '@/lib/transferUtils';
 import {createReceiver} from '@/lib/transfer/receiver';
-import {sendFiles as sendFilesEngine} from '@/lib/transfer/sender';
+import {sendFiles as sendFilesEngine, sendAbortReason} from '@/lib/transfer/sender';
 import {useWakeLock} from '@/hooks/useWakeLock';
 import {useFileManagement, type FileWithId} from '@/hooks/useFileManagement';
 import {useDownloadManager, type ReceivedFile} from '@/hooks/useDownloadManager';
@@ -127,6 +127,14 @@ export function P2PTransfer() {
     const showRelayLimitNotice = isRelayOverLimit || relayBlocked;
 
     const peerRef = useRef<PeerInstance | null>(null);
+    // A reason that arrived on the wire wins over whatever the transport
+    // says next. peer.destroy() raises "User-Initiated Abort" on the far
+    // side a moment later, and without this latch its handler overwrites the
+    // real explanation with connection advice.
+    const wireReasonRef = useRef(false);
+    // A teardown this side asked for. The close handler stays quiet for it,
+    // so a reconnect does not flash a failure on the way through.
+    const localTeardownRef = useRef(false);
     const hasJoinedRef = useRef(false);
     // The room this page instance is handling as a receiver. Used to detect a
     // fragment-only navigation (scanning a second QR code into the same tab).
@@ -227,6 +235,8 @@ export function P2PTransfer() {
             } else {
                 setStatus('Peer disconnected. Waiting for reconnection');
             }
+            // Set before destroy, so the close handler this triggers sees it.
+            localTeardownRef.current = true;
             if (peerRef.current) peerRef.current.destroy();
             releaseWakeLock();
         },
@@ -355,6 +365,8 @@ export function P2PTransfer() {
 
         joinRoom(roomId);
 
+        wireReasonRef.current = false;
+        localTeardownRef.current = false;
         const peer = new SimplePeer({
             initiator: false,
             trickle: true,
@@ -389,6 +401,26 @@ export function P2PTransfer() {
             releaseWakeLock();
             resetConnectionType();
             stopConnectionTypePolling();
+            // The connection is gone, so stop saying it is up. This handler
+            // used to write a breadcrumb and nothing else, which left the
+            // connected badge and the last status line on screen after the
+            // sender had walked away.
+            setIsConnected(false);
+            if (
+                !transferCompleteRef.current &&
+                !wireReasonRef.current &&
+                !localTeardownRef.current
+            ) {
+                if (receivedFilesRef.current.length > 0) {
+                    setStatus('Connection interrupted');
+                } else {
+                    // Only when nothing else has explained it. A peer that sent
+                    // a reason, or an error handler that already ran, wrote
+                    // something better than this.
+                    setError((prev) => prev || 'The sender ended the transfer before it finished.');
+                    setStatus('Transfer failed');
+                }
+            }
             Sentry.addBreadcrumb({
                 category: 'webrtc',
                 message: 'Receiver peer connection closed',
@@ -397,6 +429,11 @@ export function P2PTransfer() {
             });
         });
         peer.on('error', (err) => {
+            // The peer already told us why. peer.destroy() on either side
+            // surfaces here as "User-Initiated Abort" a moment later, and
+            // overwriting the reason with connection advice is exactly the
+            // wrong-cause problem this is fixing.
+            if (wireReasonRef.current) return;
             if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
                 setStatus('Connection interrupted');
                 return;
@@ -415,7 +452,15 @@ export function P2PTransfer() {
                     level: 'warning',
                     data: { errorMessage: err.message },
                 });
-                setError('Could not connect. Ask the sender to enable "Network Relay" and try again.');
+                // A deliberate abort is not a connection problem, and telling
+                // someone to enable a relay that may already be on is the
+                // wrong cause dressed up as advice. classifyPeerError already
+                // separated the two for analytics; use the same split here.
+                setError(
+                    reason === 'abort'
+                        ? 'The sender ended the transfer. Ask them to start it again.'
+                        : 'Could not connect. Ask the sender to enable "Network Relay" and try again.'
+                );
             } else {
                 // Unexpected error — capture for investigation.
                 Sentry.withScope((scope) => {
@@ -483,6 +528,9 @@ export function P2PTransfer() {
             },
             onWaiting: () => setStatus('File received. Waiting for next file'),
             onError: (msg) => {
+                // Latched: this is the protocol's own account of what went
+                // wrong, and the close that follows must not talk over it.
+                wireReasonRef.current = true;
                 setError(msg);
                 setStatus('Transfer failed');
             },
@@ -525,6 +573,7 @@ export function P2PTransfer() {
             cancelled = true;
             stopConnectionTypePolling();
             releaseWakeLock();
+            localTeardownRef.current = true;
             peerRef.current?.destroy();
             receivedFilesRef.current.forEach((f) => URL.revokeObjectURL(f.downloadUrl));
             // Three timers that outlived the component: the link-ack fallback
@@ -704,6 +753,20 @@ export function P2PTransfer() {
                             level: 'warning',
                             data: { totalSize: verdict.totalSize, limitBytes: RELAY_SIZE_LIMIT },
                         });
+                        // Tell the receiver, or all it gets is the close, and
+                        // its own reading of that used to be "enable Network
+                        // Relay" even when relay was already on and the cap was
+                        // the whole problem. Sent as TEXT, because on the
+                        // sender-to-receiver path a binary frame is file data
+                        // by definition, and it waits for the wire so the
+                        // destroy below does not take it along.
+                        await sendAbortReason(
+                            (d) => peer.send(d),
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            (peer as any)._channel as RTCDataChannel | undefined,
+                            'Transfer blocked: relay connections are capped at 2 GB. ' +
+                                'Ask the sender to remove files, or to try a network that allows a direct connection.'
+                        );
                         // Without this the connection stayed open and the person
                         // on the other end waited forever with nothing on screen.
                         // The sibling branch above has always done this.
