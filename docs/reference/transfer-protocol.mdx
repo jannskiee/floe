@@ -236,6 +236,12 @@ A file is committed only when the bytes written match `fileSize` exactly. A mism
 direction discards the file, because a short count means truncation and an over-count means a
 frame boundary was wrong, which corrupts the result just as thoroughly.
 
+The sender holds itself to the same number. It reads at most `fileSize` bytes, so a
+file that grows after its size is announced cannot overrun the announcement, and if
+the file changed on disk in that window the sender fails locally and sends no end
+marker. The person who owns the file is told the file changed, instead of the person
+receiving it being told the transfer was incomplete.
+
 **Floe computes no hash of file contents at any point.** The check is a byte count. The transport
 already authenticates every packet, so corruption in flight is not the gap being covered here;
 truncation is.

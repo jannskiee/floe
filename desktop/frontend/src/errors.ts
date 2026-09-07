@@ -33,6 +33,11 @@ const RULES: Array<[pattern: string, friendly: string]> = [
     ['no data arrived from the sender', 'Connected, but the sender never started sending. Ask them to try again.'],
     ['transfer stalled', 'The transfer stalled and gave up. Start it again.'],
     ['incomplete file', 'A file arrived incomplete, so it was not kept. Start the transfer again.'],
+    // The sender caught its own source file changing between the size it
+    // announced and the bytes it read, so nothing was delivered. The engine
+    // sentence is already actionable but arrives behind two wrappers
+    // ('transfer failed: error sending x: ...'); say it once, cleanly.
+    ['while it was being sent', 'A file changed while it was being sent, so it was not delivered. Send it again once the file has stopped changing.'],
     ['timed out waiting for the peer', 'The other side never connected. Both people need Floe open at the same time.'],
     ['timed out waiting for ack', 'The other side never connected. Both people need Floe open at the same time.'],
     ['timed out establishing a connection', 'A connection could not be established. Check that both devices are online and try again.'],
