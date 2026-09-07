@@ -43,6 +43,30 @@ Floe ships on two version lines. `vX.Y.Z` releases floe.one, the `floe` CLI, and
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
+<Update label="desktop-v0.2.10" description="2026-09-07" tags={["Desktop"]}>
+  **A small JSON file arrives intact, a file that changes while it is being sent is caught before it is sent wrong, and a transfer that is stopped on purpose says why**
+
+  - A file whose entire content is one of Floe's own control messages, such as the 14 bytes `{"type":"end"}`, was read as that message and never written. A receiver now decides what an arriving frame is from how it was sent rather than from what is inside it, so a small `.json` file arrives byte for byte. Sending one through **Send text** was the shortest way to hit this.
+  - Sending a file that is still being written to now stops at the size Floe announced. A file that grew between being measured and being read, an active log or a download still running, put more bytes on the wire than promised, and the receiving end abandoned the whole batch with a message that named nothing anyone could act on. Growing and shrinking are both caught on the sending side now, and the message names the file rather than the network.
+  - A transfer stopped on purpose now says why. Blocking on the 2 GB relay cap, and refusing a file that did not arrive whole, both used to reach the other end as a bare disconnection; a sender with more files to send waited out the full two-minute acknowledgement deadline and then blamed a timeout.
+  - Receiving many files whose names collide once Windows-reserved characters are replaced is no longer slow. A thousand such files took about 42 seconds of pure filename searching before any of them were saved.
+  - The wire protocol is unchanged, so 0.2.10 transfers with older CLI, desktop, and browser peers in both directions.
+</Update>
+
+<Update label="v1.10.8" description="2026-09-07" tags={["CLI", "Web", "Self-hosting"]}>
+  **A small JSON file arrives intact, a file that changes while it is being sent is caught before it is sent wrong, and a transfer that is stopped on purpose says why**
+
+  - A file whose entire content is one of Floe's own control messages, such as the 14 bytes `{"type":"end"}`, was read as that message and never written. Every receiver now decides what an arriving frame is from how it was sent rather than from what is inside it, so a small `.json` file arrives byte for byte.
+  - `floe send` stops at the size it announced. A file that grew between being measured and being read, an active log or a download still running, put more bytes on the wire than promised, and the receiving end abandoned the whole batch with `sender exceeded the announced size`, which named nothing either person could act on. Growing and shrinking are both caught on the sending side now, and the message names the file's own change.
+  - A transfer stopped on purpose says why. Blocking on the 2 GB relay cap, and refusing a file that did not arrive whole, both used to reach the other end as a bare disconnection. A sender with more files to send waited out the full two-minute acknowledgement deadline and then blamed a timeout.
+  - `floe receive` no longer slows down on many files whose names collide once Windows-reserved characters are replaced. Seven characters that Windows refuses in a name all become `_`, so names that were distinct on the sending machine land on the same one; a thousand of them took about 42 seconds of pure filename searching before any were saved. What happens to those names is now written down in [Known limitations](/how-it-works/known-limitations).
+  - Web app: a receiver whose sender walked away kept showing a connected badge and its last status line. It now says the transfer ended.
+  - Web app: a receiver used to answer every connection problem with **Ask the sender to enable Network Relay**, including when the sender had deliberately stopped and when the relay was already on and its 2 GB cap was the real problem. It now says what actually happened.
+  - Web app: a control message larger than the 1000-byte limit was written into the file being received instead of being refused. A deep enough folder path can produce one.
+  - Self-hosting: the published images are rebuilt as `1.10.8`. If you pinned `FLOE_IMAGE_TAG=1.10.7`, move to `1.10.8`.
+  - The wire protocol is unchanged, so this still transfers with older CLI, desktop, and browser peers in both directions.
+</Update>
+
 <Update label="desktop-v0.2.9" description="2026-09-04" tags={["Desktop"]}>
   **Transfer speed and time remaining are readable again, and a finished transfer stops claiming it is still using the relay**
 
