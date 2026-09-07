@@ -1,5 +1,5 @@
 // Floe wire-protocol constants and message helpers.
-// Mirrors cli/internal/transfer/sender.go + receiver.go — keep in sync.
+// Mirrors cli/engine/transfer/sender.go + receiver.go - keep in sync.
 import { sanitizeDisplayText } from '../download';
 
 export const CONTROL_MSG_MAX = 1000; // bytes; matches browser byteLength guard
@@ -68,9 +68,14 @@ export interface Received {
     type: 'received';
 }
 
-// Sent by the receiver to the sender when their protocol version ranges do not
-// overlap. Sent as binary (Uint8Array) so old senders that don't know this
-// type can safely drop it rather than treating it as file data.
+// Sent when a peer stops on purpose. Two jobs, told apart by the pv range it
+// carries: a version mismatch (from the receiver, in place of the ack) when the
+// ranges miss, and a named abort (from either side) when they overlap. See
+// isAbortReason.
+//
+// Framing depends on direction. Receiver to sender is binary, which old senders
+// drop safely rather than treating as file data. Sender to receiver MUST be
+// text: on that path a binary frame is file data by definition.
 export interface Incompatible {
     type: 'incompatible';
     reason: string;
@@ -114,8 +119,37 @@ export function endMessage(): string {
 }
 
 export function incompatibleMessage(reason: string): string {
+    // The cap is on the ENCODED FRAME, not on the reason. A receiver stops
+    // classifying a control message past CONTROL_MSG_MAX and would read the
+    // frame as file data, so a long reason has to shrink until the whole thing
+    // fits. Halving a character budget terminates, and slicing a JS string by
+    // code unit can split a surrogate pair, so the trim goes through
+    // sanitizeDisplayText, which caps in UTF-16 units and
+    // never leaves a lone surrogate at the end. Go trims the same frame by rune,
+    // so the two can land a character apart on astral text; the cap is a byte
+    // budget on the frame either way, which is what has to hold.
+    let text = reason;
+    let frame = buildIncompatible(text);
+    for (let budget = MAX_REASON; frameBytes(frame) > CONTROL_MSG_MAX && budget > 0; budget = Math.floor(budget / 2)) {
+        text = sanitizeDisplayText(reason, budget);
+        frame = buildIncompatible(text);
+    }
+    if (frameBytes(frame) > CONTROL_MSG_MAX) frame = buildIncompatible('');
+    return frame;
+}
+
+// Matches maxDisplayReason in cli/engine/transfer/format.go: a current peer's
+// reason is three short lines.
+const MAX_REASON = 300;
+
+function frameBytes(frame: string): number {
+    return encoder.encode(frame).byteLength;
+}
+
+function buildIncompatible(reason: string): string {
     return JSON.stringify({
-        type: 'incompatible', reason,
+        type: 'incompatible',
+        reason,
         pv: PROTOCOL_VERSION,
         pvMin: MIN_PROTOCOL_VERSION,
     } satisfies Incompatible);
@@ -174,26 +208,35 @@ export function compatErrorMessage(
 // --- Control message classifier ---
 
 const decoder = new TextDecoder();
+const encoder = new TextEncoder();
 
 /**
- * Classifies a data channel message as a Floe control message or file data.
- * Returns the parsed control message if recognized, null if it should be
- * treated as file data (written to disk / appended to the receive buffer).
+ * Classifies a frame's BYTES as a Floe control message or as file data, and
+ * returns the parsed control message or null.
  *
- * Preserves exact browser semantics:
+ * This answers a question about content only. Whether a frame is ELIGIBLE to be
+ * control is the caller's to answer, and on the receive path the answer is the
+ * SCTP framing, not the bytes: see `isControlFrame` and `createReceiver`.
+ *
  *   - Only probe if byteLength <= CONTROL_MSG_MAX (1000)
  *   - Decoded text must start with '{'
  *   - JSON.parse must succeed and 'type' must be a known control type
  */
-export function classifyControl(data: ArrayBuffer | Uint8Array): ControlMessage | null {
-    const buf = data instanceof Uint8Array ? data : new Uint8Array(data);
-    if (buf.byteLength > CONTROL_MSG_MAX) return null;
-
+export function classifyControl(data: string | ArrayBuffer | Uint8Array): ControlMessage | null {
     let text: string;
-    try {
-        text = decoder.decode(buf);
-    } catch {
-        return null;
+    if (typeof data === 'string') {
+        // A JS string measures in UTF-16 code units, and the cap is a byte
+        // budget the Go receiver enforces on the same frame, so measure bytes.
+        if (encoder.encode(data).byteLength > CONTROL_MSG_MAX) return null;
+        text = data;
+    } else {
+        const buf = data instanceof Uint8Array ? data : new Uint8Array(data);
+        if (buf.byteLength > CONTROL_MSG_MAX) return null;
+        try {
+            text = decoder.decode(buf);
+        } catch {
+            return null;
+        }
     }
 
     if (!text.startsWith('{')) return null;
@@ -212,6 +255,49 @@ export function classifyControl(data: ArrayBuffer | Uint8Array): ControlMessage 
     if (t === 'received') return msg as unknown as Received;
     if (t === 'incompatible') return msg as unknown as Incompatible;
     return null;
+}
+
+/**
+ * Whether an `incompatible` frame is a version mismatch or a deliberate abort
+ * carrying a reason.
+ *
+ * The two are told apart by the `pv` range. When it OVERLAPS ours the frame is
+ * not about versions at all, so the reason is printed verbatim rather than
+ * replaced by a version remedy. That overlap is what lets a peer name why it
+ * stopped without a new message type and without a `ProtocolVersion` bump, and
+ * `cli/engine/transfer/control.go`'s `rejectDescription` has shipped on exactly
+ * this basis since v1.10.5.
+ */
+export function isAbortReason(msg: Incompatible): boolean {
+    const { ok } = checkCompat(MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, msg.pvMin ?? 1, msg.pv ?? 1);
+    return ok;
+}
+
+/**
+ * Whether a frame arriving at a RECEIVER may be a control message at all.
+ *
+ * The wire already answers this and Floe used to ignore it. Every Floe sender
+ * since v1.0.0 sends `metadata` and `end` as a TEXT frame (a JS string handed
+ * to `peer.send`, or `dc.SendText` in the Go engine) and file chunks as BINARY.
+ * So on the receive path a binary frame is file data, whatever its bytes spell.
+ *
+ * Probing the bytes was the bug (#316): a whole small file whose content is a
+ * control-shaped JSON object, such as the 14 bytes `{"type":"end"}`, was
+ * consumed as control and never written. Floe Desktop's Send-text box makes
+ * that a one-click send.
+ *
+ * This is a PROHIBITION as much as a decision: a future sender-to-receiver
+ * control frame MUST go out as text, or it lands in somebody's file. The
+ * receiver-to-sender direction is unaffected and keeps its mixed framing
+ * (`ack` is a string, `incompatible` is binary), because no file data travels
+ * that way, so the sender's loops still classify by content.
+ *
+ * The browser could not see this bit until the peer was given
+ * `readableObjectMode`: simple-peer pushes text frames through a non-objectMode
+ * readable-stream Duplex, which Buffer.from()s them before Floe sees them.
+ */
+export function isControlFrame(data: string | ArrayBuffer | Uint8Array): data is string {
+    return typeof data === 'string';
 }
 
 /**

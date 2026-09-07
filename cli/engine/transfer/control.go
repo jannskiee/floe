@@ -7,28 +7,99 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/pion/webrtc/v4"
 )
 
-// rejectDescription tells the sender why its file description was refused, in
-// the one frame every sender already knows how to display: an "incompatible"
-// whose pv range overlaps ours. The Go sender prints its Reason through
-// compatErrorFromIncompatible (display-safe and capped there) and the browser
-// hands it to the error banner, so the person at the sending end reads the
-// actual reason instead of the "connection closed while waiting for the
-// receiver" that the close alone would produce. Best effort: a failed send
-// changes nothing, because the caller's deferred Close reaches the sender
-// either way.
-func rejectDescription(dc *webrtc.DataChannel, localVer, detail string) {
-	msg, _ := json.Marshal(incompatibleMsg{
+// controlFlushTimeout bounds flushControl. Long enough for a SACK to come back
+// over a relay, short enough that nobody notices it on the way out.
+const controlFlushTimeout = 2 * time.Second
+
+// abortReason tells the peer why this side is stopping on purpose, in the one
+// frame every peer already knows how to display: an "incompatible" whose pv
+// range OVERLAPS ours.
+//
+// That overlap is load-bearing, and it is why this needs no new message type
+// and no ProtocolVersion bump. compatErrorFromIncompatible rebuilds the message
+// from pv/pvMin only when the ranges genuinely miss; because ours overlap it
+// falls through to Reason and prints it verbatim, instead of telling the reader
+// to run "floe update". The browser sender does the same through
+// sanitizeDisplayText. So the person at the other end reads the actual reason
+// rather than the "connection closed while waiting for the receiver" a bare
+// close produces.
+//
+// toReceiver picks the framing, and that is not a style choice. Receiver to
+// sender carries no file data, so binary is safe and is what every shipped
+// receiver already sends. Sender to receiver MUST be text: on that path a
+// binary frame is file data by definition (see the ReceiveFiles message loop),
+// and shipped Go receivers from v1.1.0 to v1.5.5 would write a binary one
+// straight into somebody's file.
+//
+// Best effort. A failed send changes nothing, because the caller's deferred
+// Close reaches the peer either way.
+func abortReason(dc *webrtc.DataChannel, localVer, reason string, toReceiver bool) {
+	if dc == nil {
+		return // nobody to tell; the relay gate runs against a nil channel in tests
+	}
+	msg := incompatibleMsg{
 		Type:   "incompatible",
-		Reason: "receiver rejected the file description: " + detail,
+		Reason: reason,
 		Pv:     ProtocolVersion,
 		PvMin:  MinProtocolVersion,
 		Ver:    localVer,
-	})
-	_ = dc.Send(msg)
+	}
+	// The cap is on the ENCODED FRAME, not the reason: a browser receiver stops
+	// classifying a control message past controlMsgMax and would read the frame
+	// as file data. Halving a rune budget terminates and never splits a
+	// character, which a byte cut would.
+	encoded, _ := json.Marshal(msg)
+	for budget := maxDisplayReason; len(encoded) > controlMsgMax && budget > 0; budget /= 2 {
+		msg.Reason = displayText(reason, budget)
+		encoded, _ = json.Marshal(msg)
+	}
+	if len(encoded) > controlMsgMax {
+		msg.Reason = ""
+		encoded, _ = json.Marshal(msg)
+	}
+	if toReceiver {
+		_ = dc.SendText(string(encoded))
+	} else {
+		_ = dc.Send(encoded)
+	}
+	flushControl(dc)
+}
+
+// rejectDescription is abortReason for the case that had it first: a file
+// description this receiver will not accept.
+func rejectDescription(dc *webrtc.DataChannel, localVer, detail string) {
+	abortReason(dc, localVer, "receiver rejected the file description: "+detail, false)
+}
+
+// flushControl waits for the SCTP send buffer to drain before the caller's
+// teardown runs.
+//
+// Without it the message is routinely lost (#284: lost in 6 of 6 rounds on one
+// machine state and delivered on another, so it is load-dependent). pion's
+// Close stops the SCTP transport and aborts the association, and
+// gatherOutboundPriorityPackets then suppresses whatever DATA was still queued.
+// The peer sees the drop and reports a closed connection rather than the
+// reason, which is the wrong cause dressed up as a network fault.
+//
+// Bounded and best effort: a peer that never acknowledges must not hold the
+// teardown open, and a reason lost at the deadline is no worse than today.
+func flushControl(dc *webrtc.DataChannel) {
+	if dc == nil {
+		return
+	}
+	deadline := time.After(controlFlushTimeout)
+	for dc.BufferedAmount() > 0 {
+		select {
+		case <-deadline:
+			return
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
 }
 
 // controlMsgMax is the largest message probed as a control message, string or
@@ -37,27 +108,26 @@ func rejectDescription(dc *webrtc.DataChannel, localVer, detail string) {
 // peer sending prose where a control message belongs.
 const controlMsgMax = 1000
 
-// classifyControl reports whether a data channel message is a Floe control
-// message and, if so, its type.
+// classifyControl reports whether a frame's BYTES are a Floe control message
+// and, if so, its type. It answers a question about content only; whether a
+// frame is eligible to be control at all is the caller's to answer, and on the
+// receive path the answer is framing: see the ReceiveFiles message loop, which
+// calls this for string frames only.
 //
-// Control messages are JSON objects. The browser (SimplePeer) sends them as
-// strings, but depending on SCTP framing they can also arrive as small binary
-// messages, so binary payloads are probed too. The size probe applies to
-// string and binary alike (matching the browser's `data.byteLength <= 1000`
-// guard, which never asks about framing): the Floe sender uses SendText for
-// its metadata, so the old binary-only gate left strings bounded by nothing
-// but pion's 1 GB default and let a hostile peer hand parseMetadata a file
-// name of any length. The message loop rejects an over-cap STRING with an
-// error before this runs; an over-cap BINARY lands here and is file data.
-// Crucially, a message is treated as control ONLY when it parses as a JSON
-// object whose "type" is a known control type. Anything else, including a
-// small file whose bytes happen to be a JSON object, is file data and must be
-// written, not dropped.
+// Control messages are JSON objects and are capped at controlMsgMax. The cap
+// applies here regardless of framing, because without it a peer could hand
+// parseMetadata a file name bounded by nothing but pion's 1 GB default. The
+// receive loop rejects an over-cap string with an error before this runs.
+//
+// A message is treated as control ONLY when it parses as a JSON object whose
+// "type" is a known control type, so a JSON file whose "type" is something
+// else was already safe. What was not safe, and is what the framing gate on
+// the receive path fixes, is a JSON file whose "type" IS one of these.
 //
 // The receiver only acts on "metadata" and "end". The other recognized types
-// ("ack", "received", "incompatible") flow in the opposite direction; they are
-// classified as control so they are never mistakenly written as file data if
-// they somehow arrive on this side.
+// ("ack", "received", "incompatible") flow in the opposite direction and are
+// recognized here for the sender-side loops, which read this direction and
+// carry no file data.
 func classifyControl(data []byte) (msgType string, isControl bool) {
 	if len(data) > controlMsgMax {
 		return "", false

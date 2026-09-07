@@ -107,6 +107,31 @@ type endMsg struct {
 	Type string `json:"type"`
 }
 
+// abortFromPeer reports the peer's reason when raw is an "incompatible"
+// frame, and "" otherwise.
+//
+// The per-file ack loop already handles this frame, but it only runs while a
+// NEXT file is coming. A receiver that refuses the LAST file, which is every
+// single-file transfer, sends its reason into the drain loop instead, and the
+// drain loop used to discard it and print a success summary over a receiver
+// that kept nothing.
+func abortFromPeer(raw []byte, localVer, updateHint string) string {
+	if len(raw) > controlMsgMax {
+		return ""
+	}
+	var base struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(raw, &base); err != nil || base.Type != "incompatible" {
+		return ""
+	}
+	var incompat incompatibleMsg
+	if err := json.Unmarshal(raw, &incompat); err != nil {
+		return ""
+	}
+	return compatErrorFromIncompatible(localVer, updateHint, incompat)
+}
+
 // isReceived reports whether raw is the receiver's delivery confirmation.
 // The size bound is the same one the ack loop applies: a frame larger than a
 // control message is file data and must never be JSON-parsed. Two verbatim
@@ -174,6 +199,12 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 	// connection is already established by the time SendFiles runs, so the
 	// selected ICE pair is known. Mirrors the browser's relay gate.
 	if err := relayGate(dc, totalBytes); err != nil {
+		// Tell the receiver, or all it sees is a close. Its own diagnosis for
+		// that is "the sender canceled, or the transfer was blocked", and a
+		// browser receiver used to go further and blame a relay that is
+		// already on. Sent as TEXT because this direction is the one file data
+		// travels; see abortReason.
+		abortReason(dc, localVer, err.Error(), true)
 		return err
 	}
 
@@ -288,6 +319,9 @@ drainLoop:
 			if len(raw) > controlMsgMax {
 				continue // same bound as the ack loop in sendFile
 			}
+			if reason := abortFromPeer(raw, localVer, opts.UpdateHint); reason != "" {
+				return fmt.Errorf("%s", reason)
+			}
 			if isReceived(raw) {
 				break drainLoop
 			}
@@ -308,6 +342,9 @@ drainLoop:
 				case raw := <-ackCh:
 					if len(raw) > controlMsgMax {
 						continue
+					}
+					if reason := abortFromPeer(raw, localVer, opts.UpdateHint); reason != "" {
+						return fmt.Errorf("%s", reason)
 					}
 					if isReceived(raw) {
 						break drainLoop
@@ -483,9 +520,18 @@ ackLoop:
 		report(0) // emit the starting point (handles resume offset and 0-byte files)
 	}
 
+	// Hold the read to the size the metadata announced. Between the Stat above
+	// and this loop the file can change on disk: an active log, a download still
+	// running, a video still being written. Reading to EOF put MORE bytes on the
+	// wire than were promised, and the receiver then killed the whole batch with
+	// "sender exceeded the announced size", which names nothing either person can
+	// act on. The browser sender cannot make this mistake: a File's size is a
+	// snapshot, and both its loop bound and its slice end clamp to it.
+	announced := io.LimitReader(f, fileSize-offset)
+
 	buf := make([]byte, chunk)
 	for {
-		n, err := f.Read(buf)
+		n, err := announced.Read(buf)
 		if n > 0 {
 			// Backpressure: block until pion's buffer drains below the low-water
 			// mark before queuing more. The loop re-checks after each wakeup so a
@@ -511,6 +557,16 @@ ackLoop:
 				return fmt.Errorf("failed to send chunk: %w", sendErr)
 			}
 			report(n)
+			// A receiver that stops us mid-file, because it caught an over-run,
+			// has nowhere else to be heard: this loop is the only thing running.
+			// Non-blocking, so a quiet peer costs nothing.
+			select {
+			case raw := <-ackCh:
+				if reason := abortFromPeer(raw, localVer, updateHint); reason != "" {
+					return fmt.Errorf("%s", reason)
+				}
+			default:
+			}
 		}
 		if err == io.EOF {
 			break
@@ -519,6 +575,34 @@ ackLoop:
 			return fmt.Errorf("error reading file: %w", err)
 		}
 	}
+
+	// The file changed under the send. Say so here, where the cause is still
+	// visible, instead of sending an end marker and leaving the receiver to report
+	// a byte count that reads like a network fault.
+	if sentFile != fileSize {
+		// The receiver is mid-file with an unfinished .part and no idea why the
+		// bytes stopped. Name it, or its own diagnosis is a stalled connection.
+		abortReason(dc, localVer, fmt.Sprintf("the sender's copy of %q changed while it was being sent, so nothing further was sent", entry.displayName), true)
+		return fmt.Errorf("the file shrank while it was being sent (announced %d bytes, read %d); send it again once it stops changing",
+			fileSize, sentFile)
+	}
+	// Growth is probed off the descriptor, never a second Stat. A descriptor that
+	// stats as 0 and still yields bytes (a log created moments earlier, or a
+	// /proc, /sys or character-device path, all of which collectFiles accepts) is
+	// exactly what a re-stat cannot see, and capping it silently would send an
+	// empty file that both ends reported as a success.
+	//
+	// Only for a regular file. A FIFO or a character device would block this
+	// read forever, and collectFiles accepts whatever os.Stat succeeded on.
+	if info.Mode().IsRegular() {
+		var probe [1]byte
+		if n, _ := f.Read(probe[:]); n > 0 {
+			abortReason(dc, localVer, fmt.Sprintf("the sender's copy of %q changed while it was being sent, so nothing further was sent", entry.displayName), true)
+			return fmt.Errorf("the file grew while it was being sent (announced %d bytes); send it again once it stops changing",
+				fileSize)
+		}
+	}
+
 	if bar != nil {
 		fmt.Println()
 	}

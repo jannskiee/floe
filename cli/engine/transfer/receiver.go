@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -159,6 +160,10 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 	var start time.Time
 	filesReceived := 0
 	waitingForFirst := true
+	// Where the de-collision scan for each base path stopped. Scoped to this
+	// call so a long-lived desktop process does not carry numbering across
+	// transfers into a directory the person may have emptied in between.
+	hints := newNameHints(runtime.GOOS)
 
 	// If the transfer is interrupted (peer disconnect, stall, or error) before
 	// the "end" marker completes the current file, release the handle and
@@ -244,20 +249,55 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 		// prose where a control message belongs. Fail loudly rather than skip
 		// it: skipping leaves the sender waiting on an ack that never comes and
 		// this side to the stall watchdog, whereas returning lets the caller's
-		// deferred Close reach the sender within a second. Over-cap BINARY is
-		// file data and falls through to classifyControl, which declines it.
+		// deferred Close reach the sender within a second. A BINARY frame of any
+		// size is file data and never reaches classifyControl at all.
 		if msg.IsString && len(msg.Data) > controlMsgMax {
 			rejectDescription(dc, localVer, fmt.Sprintf("control message is %d bytes, limit %d", len(msg.Data), controlMsgMax))
 			return fmt.Errorf("rejected the sender's control message: %d bytes, limit %d", len(msg.Data), controlMsgMax)
 		}
 
 		// Decide whether this is a Floe control message (metadata/end) or file
-		// data. Only recognized control types are consumed as control — a small
-		// binary chunk that merely happens to be a JSON object is file data and
-		// must be written, never dropped.
-		msgType, isControl := classifyControl(msg.Data)
+		// data, and decide it from the SCTP framing rather than from the bytes.
+		//
+		// Every Floe sender since v1.0.0 sends metadata and end with SendText
+		// (a JS string through simple-peer on the browser side) and file chunks
+		// with Send, so on this side a BINARY frame is file data, full stop.
+		// Probing its bytes was the bug: a whole small file whose content is a
+		// control-shaped JSON object, such as the 14 bytes {"type":"end"}, was
+		// consumed as control and never written. Desktop's StartSendText makes
+		// that a one-click send.
+		//
+		// This is a PROHIBITION as much as a decision: a future
+		// sender-to-receiver control frame MUST go out as text, or it lands in
+		// somebody's file. Receiver-to-sender frames are unaffected and stay
+		// binary, because no file data travels that way.
+		var msgType string
+		var isControl bool
+		if msg.IsString {
+			msgType, isControl = classifyControl(msg.Data)
+		}
 		if isControl {
 			switch msgType {
+
+			case "incompatible":
+				// The sender is stopping on purpose and said why. Until now this
+				// was classified as control purely so it was never written as
+				// file data, then dropped, so the reason it carries went
+				// nowhere and this side reported a bare close instead.
+				//
+				// The Reason is peer prose headed for a terminal or a status
+				// line, so it goes through the same display cap as every other
+				// peer string.
+				var incompat incompatibleMsg
+				if err := json.Unmarshal(msg.Data, &incompat); err != nil {
+					return fmt.Errorf("the sender stopped the transfer")
+				}
+				// Rebuilt locally, exactly as the sender does with the same frame.
+				// compatErrorFromIncompatible prints the peer reason when the pv
+				// ranges overlap, which is a deliberate abort, and rebuilds from
+				// pv/pvMin with THIS surface update hint when they do not, so a
+				// desktop receiver is never told to run a command it does not have.
+				return fmt.Errorf("%s", compatErrorFromIncompatible(localVer, opts.UpdateHint, incompat))
 
 			case "metadata":
 				// A new file is starting
@@ -303,15 +343,9 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 							MinProtocolVersion, ProtocolVersion, info.PvMin, info.Pv, opts.UpdateHint)
 						peerErrMsg := peerCompatErrorMessage(localTooOld, localVer, info.Ver,
 							MinProtocolVersion, ProtocolVersion, info.PvMin, info.Pv)
-						incompat := incompatibleMsg{
-							Type:   "incompatible",
-							Reason: peerErrMsg,
-							Pv:     ProtocolVersion,
-							PvMin:  MinProtocolVersion,
-							Ver:    localVer,
-						}
-						incompatJSON, _ := json.Marshal(incompat)
-						dc.Send([]byte(incompatJSON))
+						// Through abortReason for the flush. This is the path #284
+						// was filed about, where the frame was lost in 6 of 6 rounds.
+						abortReason(dc, localVer, peerErrMsg, false)
 						return fmt.Errorf("%s", errMsg)
 					}
 
@@ -362,7 +396,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				if err := os.MkdirAll(filepath.Dir(currentBase), 0755); err != nil {
 					return fmt.Errorf("cannot create directory: %w", err)
 				}
-				currentFile, currentDest, err = claimPart(currentBase)
+				currentFile, currentDest, err = claimPart(currentBase, hints)
 				if err != nil {
 					return fmt.Errorf("cannot create file %s: %w", currentBase, err)
 				}
@@ -452,8 +486,14 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					// staging file; delete it here.
 					if bytesReceived != currentInfo.FileSize {
 						_ = os.Remove(partPath)
-						return fmt.Errorf("incomplete file %q: received %d of %d bytes",
+						detail := fmt.Sprintf("incomplete file %q: received %d of %d bytes",
 							currentDisplayName, bytesReceived, currentInfo.FileSize)
+						// Without this the sender simply stops being acked. With
+						// more files to send it waits out the full 120 s ack
+						// deadline and then reports a timeout, which is the wrong
+						// cause two minutes late.
+						abortReason(dc, localVer, "receiver discarded a file: "+detail, false)
+						return fmt.Errorf("%s", detail)
 					}
 
 					// Mark the file as internet-sourced (Windows MOTW) so
@@ -538,7 +578,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 			continue
 		}
 
-		// A string that wasn't a recognized control message is never file data.
+		// A string that was not a recognized control message is never file data.
 		if msg.IsString {
 			continue
 		}
@@ -554,7 +594,9 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 		// cross the line bounds the damage to the announced size, and the
 		// deferred cleanup removes the .part.
 		if bytesReceived+int64(len(msg.Data)) > currentInfo.FileSize {
-			return fmt.Errorf("sender exceeded the announced size of %q", currentDisplayName)
+			detail := fmt.Sprintf("sender exceeded the announced size of %q", currentDisplayName)
+			abortReason(dc, localVer, "receiver stopped the transfer: "+detail, false)
+			return fmt.Errorf("%s", detail)
 		}
 		n, err := currentFile.Write(msg.Data)
 		if err != nil {

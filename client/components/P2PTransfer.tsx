@@ -11,11 +11,22 @@ if (typeof window !== 'undefined') {
 
 import {useEffect, useRef, useState} from 'react';
 import SimplePeer, { Instance as PeerInstance } from 'simple-peer';
+
+// simple-peer extends a readable-stream Duplex and forwards its whole
+// options object to super(opts), but @types/simple-peer stops at the peer
+// options and never declares the stream ones. Declare the single one Floe
+// sets rather than casting at each construction site, which would also
+// silence a genuine typo in the peer options next to it.
+declare module 'simple-peer' {
+    interface Options {
+        readableObjectMode?: boolean;
+    }
+}
 import {v4 as uuidv4} from 'uuid';
 import * as Sentry from '@sentry/nextjs';
 import {formatSpeed, formatETA} from '@/lib/transferUtils';
 import {createReceiver} from '@/lib/transfer/receiver';
-import {sendFiles as sendFilesEngine} from '@/lib/transfer/sender';
+import {sendFiles as sendFilesEngine, sendAbortReason} from '@/lib/transfer/sender';
 import {useWakeLock} from '@/hooks/useWakeLock';
 import {useFileManagement, type FileWithId} from '@/hooks/useFileManagement';
 import {useDownloadManager, type ReceivedFile} from '@/hooks/useDownloadManager';
@@ -26,6 +37,7 @@ import {useRelayConfiguration} from '@/hooks/useRelayConfiguration';
 import {RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, probeIsRelay} from '@/lib/relay';
 import {buildShareLink, getRoomFromUrl, isValidRoomId} from '@/lib/roomLink';
 import {classifyPeerError} from '@/lib/peerErrors';
+import {decideReceiverClose} from '@/lib/receiverClose';
 import {copyText} from '@/lib/clipboard';
 import {resolveSocketUrl} from '@/lib/socketUrl';
 
@@ -116,6 +128,17 @@ export function P2PTransfer() {
     const showRelayLimitNotice = isRelayOverLimit || relayBlocked;
 
     const peerRef = useRef<PeerInstance | null>(null);
+    // A reason that arrived on the wire wins over whatever the transport
+    // says next. peer.destroy() raises "User-Initiated Abort" on the far
+    // side a moment later, and without this latch its handler overwrites the
+    // real explanation with connection advice.
+    const wireReasonRef = useRef(false);
+    // The peer THIS side tore down on purpose, so its close handler stays
+    // quiet and a reconnect does not flash a failure on the way through.
+    // Holds the instance rather than a boolean: a boolean is cleared when the
+    // replacement peer is built, and the outgoing peer's close can still be in
+    // flight at that moment, which is exactly the reconnect path.
+    const closedByUsRef = useRef<PeerInstance | null>(null);
     const hasJoinedRef = useRef(false);
     // The room this page instance is handling as a receiver. Used to detect a
     // fragment-only navigation (scanning a second QR code into the same tab).
@@ -216,6 +239,8 @@ export function P2PTransfer() {
             } else {
                 setStatus('Peer disconnected. Waiting for reconnection');
             }
+            // Set before destroy, so the close handler this triggers sees it.
+            closedByUsRef.current = peerRef.current;
             if (peerRef.current) peerRef.current.destroy();
             releaseWakeLock();
         },
@@ -244,6 +269,7 @@ export function P2PTransfer() {
                 // the rejoin's user-connected with a brand-new initiator peer
                 // and a fresh offer, which the old half-negotiated peer cannot
                 // answer, so recreate the peer by re-running the join flow.
+                closedByUsRef.current = peerRef.current;
                 peerRef.current?.destroy();
                 hasJoinedRef.current = false;
                 joinRoomAsReceiver(joinedRoomRef.current);
@@ -344,9 +370,19 @@ export function P2PTransfer() {
 
         joinRoom(roomId);
 
+        wireReasonRef.current = false;
         const peer = new SimplePeer({
             initiator: false,
             trickle: true,
+            // readableObjectMode keeps the SCTP text/binary bit intact.
+            // simple-peer pushes frames into a readable-stream Duplex, and
+            // without it every text frame is Buffer.from()ed before Floe sees
+            // it, so the receiver could only guess a frame from its bytes and
+            // would eat a small file whose whole content was control-shaped
+            // JSON (#316). Binary frames still arrive as a Buffer; text frames
+            // now arrive as a string. simple-peer passes its options straight
+            // to super(opts) and never sets objectMode itself.
+            readableObjectMode: true,
             config: {
                 iceServers: iceServersRef.current,
             },
@@ -369,6 +405,28 @@ export function P2PTransfer() {
             releaseWakeLock();
             resetConnectionType();
             stopConnectionTypePolling();
+            // The branchy part lives in client/lib/receiverClose.ts, where it
+            // can be tested: nothing in the suite mounts this component, and
+            // two of these three branches were wrong on the first attempt.
+            const decision = decideReceiverClose({
+                closedByUs: closedByUsRef.current === peer,
+                replaced: peerRef.current !== peer,
+                wireReason: wireReasonRef.current,
+                receivedCount: receivedFilesRef.current.length,
+            });
+            if (decision.kind !== 'silent') {
+                // The connection is gone, so stop saying it is up. This
+                // handler used to write a breadcrumb and nothing else, which
+                // left the connected badge and the last status line on screen
+                // after the sender had walked away.
+                setIsConnected(false);
+                if (decision.kind === 'outcome') {
+                    setStatus(receiveOutcome());
+                } else {
+                    setError((prev) => prev || decision.error);
+                    setStatus('Transfer failed');
+                }
+            }
             Sentry.addBreadcrumb({
                 category: 'webrtc',
                 message: 'Receiver peer connection closed',
@@ -377,6 +435,11 @@ export function P2PTransfer() {
             });
         });
         peer.on('error', (err) => {
+            // The peer already told us why. peer.destroy() on either side
+            // surfaces here as "User-Initiated Abort" a moment later, and
+            // overwriting the reason with connection advice is exactly the
+            // wrong-cause problem this is fixing.
+            if (wireReasonRef.current) return;
             if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
                 setStatus('Connection interrupted');
                 return;
@@ -395,7 +458,15 @@ export function P2PTransfer() {
                     level: 'warning',
                     data: { errorMessage: err.message },
                 });
-                setError('Could not connect. Ask the sender to enable "Network Relay" and try again.');
+                // A deliberate abort is not a connection problem, and telling
+                // someone to enable a relay that may already be on is the
+                // wrong cause dressed up as advice. classifyPeerError already
+                // separated the two for analytics; use the same split here.
+                setError(
+                    reason === 'abort'
+                        ? 'The sender ended the transfer. Ask them to start it again.'
+                        : 'Could not connect. Ask the sender to enable "Network Relay" and try again.'
+                );
             } else {
                 // Unexpected error — capture for investigation.
                 Sentry.withScope((scope) => {
@@ -463,6 +534,13 @@ export function P2PTransfer() {
             },
             onWaiting: () => setStatus('File received. Waiting for next file'),
             onError: (msg) => {
+                // Latched: this is the protocol's own account of what went
+                // wrong, and the close that follows must not talk over it.
+                // That latch also silences the peer error handler, which is
+                // where a receiver's transfer-failed event normally comes
+                // from, so report it here instead of losing it.
+                wireReasonRef.current = true;
+                track('transfer-failed', { reason: 'peer-reason', role: 'receiver' });
                 setError(msg);
                 setStatus('Transfer failed');
             },
@@ -505,6 +583,7 @@ export function P2PTransfer() {
             cancelled = true;
             stopConnectionTypePolling();
             releaseWakeLock();
+            closedByUsRef.current = peerRef.current;
             peerRef.current?.destroy();
             receivedFilesRef.current.forEach((f) => URL.revokeObjectURL(f.downloadUrl));
             // Three timers that outlived the component: the link-ack fallback
@@ -592,6 +671,7 @@ export function P2PTransfer() {
 
         onUserConnected((userId: string) => {
             if (peerRef.current && !peerRef.current.destroyed) {
+                closedByUsRef.current = peerRef.current;
                 peerRef.current.destroy();
             }
             // The destroyed peer's ICE probe goes with it. simple-peer nulls
@@ -614,6 +694,15 @@ export function P2PTransfer() {
             const peer = new SimplePeer({
                 initiator: true,
                 trickle: true,
+                // readableObjectMode keeps the SCTP text/binary bit intact.
+                // simple-peer pushes frames into a readable-stream Duplex, and
+                // without it every text frame is Buffer.from()ed before Floe sees
+                // it, so the receiver could only guess a frame from its bytes and
+                // would eat a small file whose whole content was control-shaped
+                // JSON (#316). Binary frames still arrive as a Buffer; text frames
+                // now arrive as a string. simple-peer passes its options straight
+                // to super(opts) and never sets objectMode itself.
+                readableObjectMode: true,
                 config: {
                     iceServers: iceConfig,
                 },
@@ -675,6 +764,20 @@ export function P2PTransfer() {
                             level: 'warning',
                             data: { totalSize: verdict.totalSize, limitBytes: RELAY_SIZE_LIMIT },
                         });
+                        // Tell the receiver, or all it gets is the close, and
+                        // its own reading of that used to be "enable Network
+                        // Relay" even when relay was already on and the cap was
+                        // the whole problem. Sent as TEXT, because on the
+                        // sender-to-receiver path a binary frame is file data
+                        // by definition, and it waits for the wire so the
+                        // destroy below does not take it along.
+                        await sendAbortReason(
+                            (d) => peer.send(d),
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            (peer as any)._channel as RTCDataChannel | undefined,
+                            'Transfer blocked: relay connections are capped at 2 GB. ' +
+                                'Ask the sender to remove files, or to try a network that allows a direct connection.'
+                        );
                         // Without this the connection stayed open and the person
                         // on the other end waited forever with nothing on screen.
                         // The sibling branch above has always done this.

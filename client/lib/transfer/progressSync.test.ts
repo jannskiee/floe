@@ -151,10 +151,10 @@ describe('receiver: progress cadence', () => {
         });
 
         const SIZE = 5 * 1024 * 1024;
-        rx.handleMessage(enc.encode(metadataMessage('big', 'big.bin', SIZE, 1, 1, SIZE)));
+        rx.handleMessage(metadataMessage('big', 'big.bin', SIZE, 1, 1, SIZE));
         const chunk = new Uint8Array(256 * 1024); // > 1000 bytes, treated as file data
         for (let i = 0; i < 20; i++) rx.handleMessage(chunk);
-        rx.handleMessage(enc.encode(endMessage()));
+        rx.handleMessage(endMessage());
 
         // 1 MB steps plus completion, then the (0,0,0) reset on 'end'. The old
         // exact-modulo condition emitted nothing at all for this sequence.

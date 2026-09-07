@@ -2,6 +2,9 @@
 // Extracted from P2PTransfer.tsx peer.on('data') handler.
 import {
     classifyControl,
+    isControlFrame,
+    isAbortReason,
+    CONTROL_MSG_MAX,
     ackMessage,
     incompatibleMessage,
     checkCompat,
@@ -10,6 +13,7 @@ import {
     MIN_PROTOCOL_VERSION,
     normalizeFileSize,
     type Metadata,
+    type Incompatible,
 } from './protocol';
 import { sanitizeDisplayText } from '../download';
 
@@ -68,7 +72,7 @@ interface PartialDownload {
  *   });
  *   peer.on('data', rx.handleMessage);
  */
-export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: Uint8Array | ArrayBuffer) => void } {
+export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: string | Uint8Array | ArrayBuffer) => void } {
     const partialDownloads = new Map<string, PartialDownload>();
     let currentMetadata: Metadata | null = null;
     let hasCheckedCompat = false;
@@ -84,13 +88,38 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: U
     let receiveSpeedBytes = 0;
     let lastReceiveSpeedUpdate = 0;
 
-    function handleMessage(data: Uint8Array | ArrayBuffer): void {
+    function handleMessage(data: string | Uint8Array | ArrayBuffer): void {
         if (aborted) return;
 
-        const buf = data instanceof Uint8Array ? data : new Uint8Array(data);
-        const msg = classifyControl(buf);
+        // Framing decides, not content. See isControlFrame: a binary frame on
+        // this side is file data even when its bytes spell a control message,
+        // which is what a small .json file's whole content can do.
+        if (isControlFrame(data)) {
+            const text = data;
+            // Mirrors the Go receiver: a string past the control cap is not
+            // something to write and not something to parse, it is a peer
+            // sending prose where a control message belongs. The browser used
+            // to fall through and append it to the file instead, which quietly
+            // corrupted any transfer whose metadata ran long (a deep enough
+            // folder path does it).
+            if (new TextEncoder().encode(text).byteLength > CONTROL_MSG_MAX) {
+                aborted = true;
+                partialDownloads.clear();
+                currentMetadata = null;
+                expectedSize = null;
+                cb.onError?.(
+                    'The sender sent a control message larger than ' +
+                        `${CONTROL_MSG_MAX} bytes, so the transfer was stopped.`
+                );
+                return;
+            }
+            const msg = classifyControl(text);
+            // An unrecognized control type is dropped, not written. The Go
+            // receiver has always done this; the browser used to append it to
+            // whatever file was open, which is what made adding any new frame
+            // type unsafe.
+            if (!msg) return;
 
-        if (msg) {
             if (msg.type === 'metadata') {
                 // Protocol compatibility check on first file, before sending ack
                 // or accepting any file bytes.
@@ -141,6 +170,28 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: U
                 // Send ack with protocol version fields so the sender can verify
                 // compat from its side and show the optional peer-version note.
                 cb.send(ackMessage(msg.id, offset));
+            } else if (msg.type === 'incompatible') {
+                // The sender is stopping on purpose and said why. This used to
+                // be classified as control purely so it was never written as
+                // file data, and then dropped, so the reason went nowhere and
+                // the close that followed it was all this side had to go on.
+                //
+                // Latched, because peer.destroy() raises "User-Initiated Abort"
+                // on this side a moment later and its handler would otherwise
+                // overwrite the real reason with connection advice.
+                aborted = true;
+                // Nothing more is coming, so let the buffered chunks go.
+                partialDownloads.clear();
+                currentMetadata = null;
+                expectedSize = null;
+                const incompat = msg as Incompatible;
+                const reason = sanitizeDisplayText(incompat.reason ?? '', 300);
+                cb.onError?.(
+                    isAbortReason(incompat) && reason
+                        ? reason
+                        : 'The sender stopped the transfer.'
+                );
+                return;
             } else if (msg.type === 'end') {
                 if (!currentMetadata) return;
                 const fileData = partialDownloads.get(currentMetadata.id);
@@ -167,6 +218,7 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: U
                     const name = sanitizeDisplayText(currentMetadata.fileName);
                     const got = fileData.received;
                     const want = expectedSize;
+                    const detail = `Incomplete file "${name}": received ${got} of ${want} bytes`;
                     partialDownloads.delete(currentMetadata.id);
                     currentMetadata = null;
                     expectedSize = null;
@@ -176,11 +228,27 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: U
                     aborted = true;
                     cb.onProgress?.(0, 0, 0);
                     cb.onSpeedReset?.();
+                    // Tell the sender, or it just stops being acked: with more
+                    // files to send it waits out the full 120 s ack deadline and
+                    // then reports a timeout, which is the wrong cause two
+                    // minutes late. Binary, like the compatibility path above,
+                    // because nothing travelling receiver to sender is file data.
+                    // Best effort, and after nothing that matters locally: a
+                    // throw from a peer already torn down must not swallow the
+                    // only explanation this side ever shows.
+                    try {
+                        const enc = new TextEncoder().encode(
+                            incompatibleMessage(`receiver discarded a file: ${detail}`)
+                        );
+                        cb.send(new Uint8Array(enc));
+                    } catch {
+                        // The peer is gone; the close is all it will get.
+                    }
                     // Over-count is not truncation: it means a frame boundary
                     // was wrong, so say that rather than blaming the sender for
                     // stopping early.
                     cb.onError?.(
-                        `Incomplete file "${name}": received ${got} of ${want} bytes. ` +
+                        `${detail}. ` +
                         (got < want
                             ? 'The transfer was cut short, so the file was discarded.'
                             : 'More data arrived than the sender announced, so the file was discarded.') +
@@ -217,7 +285,8 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: U
             return;
         }
 
-        // Binary chunk — file data
+        // Binary frame: file data, unconditionally.
+        const buf = data instanceof Uint8Array ? data : new Uint8Array(data);
         if (!currentMetadata) return;
         const fileData = partialDownloads.get(currentMetadata.id);
         if (!fileData) return;

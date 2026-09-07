@@ -1,6 +1,7 @@
 // Floe sender engine — framework-agnostic, no React or simple-peer imports.
 // Extracted from P2PTransfer.tsx sendAllFiles/sendSingleFile.
 import {
+    incompatibleMessage,
     HIGH_WATER,
     LOW_WATER,
     READ_SLAB,
@@ -46,7 +47,7 @@ export interface SenderDeps {
     send: (data: string | Uint8Array) => void;
     // Registers a handler for incoming data (peer.on('data')).
     // Returns an unsubscribe function.
-    onData: (handler: (data: Uint8Array | ArrayBuffer) => void) => () => void;
+    onData: (handler: (data: string | Uint8Array | ArrayBuffer) => void) => () => void;
     channel: BufferChannel;
     sctpMaxMessageSize?: number | null;
 }
@@ -149,6 +150,54 @@ export async function sendFiles(
     } finally {
         clearInterval(ticker);
     }
+}
+
+// How long a control frame gets to reach the wire before teardown. Mirrors
+// controlFlushTimeout in cli/engine/transfer/control.go.
+export const CONTROL_FLUSH_MS = 2000;
+
+/**
+ * Sends a reason to the peer and waits for it to reach the wire.
+ *
+ * Without the wait the frame is routinely lost: destroy() tears the channel
+ * down and whatever was still queued goes with it, so the peer sees only the
+ * close and reports a lost connection instead of the reason (issue #284
+ * measured the same race on the Go side, lost in 6 of 6 rounds on one machine
+ * state). Bounded and best effort: a peer that never drains must not hold the
+ * teardown open, and a reason lost at the deadline is no worse than today.
+ *
+ * Sent as a STRING. On the sender-to-receiver path a binary frame is file data
+ * by definition, so a binary reason would land in somebody's file.
+ */
+export async function sendAbortReason(
+    send: (data: string | Uint8Array) => void,
+    channel: BufferChannel | undefined,
+    reason: string
+): Promise<void> {
+    try {
+        send(incompatibleMessage(reason));
+    } catch {
+        return; // already torn down; the close is all the peer will get
+    }
+    if (!channel) return;
+    // The loser of the race has to be told, or drainBelow keeps its 200 ms
+    // poll and its bufferedamountlow listener forever and leaves the
+    // channel threshold clamped at 0, which would then suppress the
+    // backpressure event a later transfer on the same channel depends on.
+
+    let over = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    await Promise.race([
+        drainBelow(channel, 0, () => over),
+        new Promise<void>((resolve) => {
+            timer = setTimeout(() => {
+                over = true;
+                resolve();
+            }, CONTROL_FLUSH_MS);
+        }),
+    ]);
+    over = true;
+    if (timer) clearTimeout(timer);
 }
 
 // Resolves once the channel buffer has drained to at most `threshold` bytes
@@ -376,7 +425,7 @@ async function sendSingleFile(
 }
 
 function waitForAck(
-    onData: (handler: (data: Uint8Array | ArrayBuffer) => void) => () => void,
+    onData: (handler: (data: string | Uint8Array | ArrayBuffer) => void) => () => void,
     fileId: string
 ): Promise<AckResult> {
     // Both arms of the race clean up after the other wins. The listener used
@@ -395,8 +444,11 @@ function waitForAck(
     return Promise.race([
         new Promise<AckResult>((resolve) => {
             off = onData((raw) => {
-                const buf = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
-                const msg = classifyControl(buf);
+                // The SENDER keeps classifying by content, and must: a Go
+                // receiver sends its ack, received and incompatible frames as
+                // BINARY. That is safe here in a way it is not on the receive
+                // path, because no file data ever travels receiver to sender.
+                const msg = classifyControl(raw);
                 if (!msg) return;
                 if (msg.type === 'ack' && (msg as Ack).id === fileId) {
                     const ack = msg as Ack;
