@@ -7,7 +7,7 @@ import { RouteFigure } from '@/components/how-it-works/RouteFigure';
 import { BADGE_DIRECT, BADGE_RELAY, RELAY_CAP } from '@/lib/howItWorksStrings';
 import { sharedOpenGraph, sharedTwitter } from '@/lib/socialMetadata';
 
-// The short version: one drawing, three beats, a pointer to the docs. This
+// The overview: one drawing, three beats, a pointer to the docs. This
 // page summarizes; docs/how-it-works/* carries the depth. Under 300 words of
 // visible copy on purpose, and every sentence is literally true of the current
 // release (checked against docs/how-it-works/*.mdx, docs/security-privacy.mdx,
@@ -79,7 +79,7 @@ export default function HowItWorks() {
                     half-leading; mt-3 offsets the headline's own leading. */}
                 <header className="pt-[calc(6rem_+_env(safe-area-inset-top))] sm:pt-[calc(7rem_+_env(safe-area-inset-top))]">
                     <p className="font-mono text-[11px] leading-none uppercase tracking-[0.2em] text-ice">
-                        The short version
+                        Overview
                     </p>
                     <h1 className="mt-3 text-4xl font-semibold tracking-tight text-zinc-100 sm:text-5xl lg:text-6xl">
                         How Floe works
