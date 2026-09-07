@@ -139,10 +139,12 @@ export function routeGeometry(width: number): RouteGeometry {
         labels: {
             you: { left: pct(you.x, width), top: pct(BASELINE_Y + 36, ROUTE_HEIGHT) },
             them: { left: pct(them.x, width), top: pct(BASELINE_Y + 36, ROUTE_HEIGHT) },
+            // 20 above and 20 below: the drawing mirrors about the baseline, so
+            // its two mirrored labels sit the same distance from their ticks.
             server: { left: 50, top: pct(SERVER_Y - 20, ROUTE_HEIGHT) },
             // Bottom-anchored 11px above the line.
             direct: { left: 50, top: pct(BASELINE_Y - 11, ROUTE_HEIGHT) },
-            relay: { left: 50, top: pct(RELAY_Y + 22, ROUTE_HEIGHT) },
+            relay: { left: 50, top: pct(RELAY_Y + 20, ROUTE_HEIGHT) },
         },
     };
 }

@@ -146,17 +146,13 @@
     stroke-width: 1;
     vector-effect: non-scaling-stroke;
 }
-/* The two dash-drawn paths opt out of non-scaling-stroke. Chromium lays a dash
-   out in unscaled user units while the path renders scaled, so above scale 1
-   the ink ran out before the end: at the narrow variant's 1.333 cap the ice
-   line stopped 98.8px short of THEM and the ring floated unattached, which
-   reads as a failed connection. Every earlier check missed it because they all
-   run with reduced motion, where no dash exists. The cost is that these two
-   strokes scale with the figure, 0.8px at the 320px viewport to 1.33px at the
-   cap; the ticks and the detour keep their exact hairline. */
-.hiw-fig path.hiw-direct,
-.hiw-fig path.hiw-spur {
-    vector-effect: none;
+/* Axis-aligned, so snapping them to the device grid costs no curve quality and
+   buys a real hairline: at the canonical desktop scale of exactly 1 the box top
+   is an integer, every 1px stroke straddled two device rows, and the line the
+   page is built around rendered at about half its intended brightness. */
+.hiw-tick,
+.hiw-direct {
+    shape-rendering: crispEdges;
 }
 .hiw-tick {
     stroke: #52525b;
@@ -176,37 +172,49 @@
     stroke: oklch(0.87 0.05 220);
     fill: #09090b;
 }
+/* 1600, not the 1000 that pathLength normalizes to. vector-effect:
+   non-scaling-stroke makes Chromium lay the dash out in unscaled user units
+   while the path renders scaled, so the ink covers dasharray/scale of the path:
+   at 1000 the ice line stopped 98.8px short of THEM at the narrow variant's
+   1.333 cap and the ring floated unattached, which reads as a failed
+   connection. 1600 covers any scale up to 1.6, well past that cap. The draw
+   therefore completes a little before its own window ends, which is invisible
+   inside a staggered sequence and is the price of one uniform hairline.
+   backwards, not both: `both` holds the animation in effect forever, which
+   pins a composited layer and drops the five 11px labels to grayscale
+   antialiasing. Every keyframe already ends on its base value, so releasing
+   them changes nothing but the text rendering. */
 @media (prefers-reduced-motion: no-preference) {
     .hiw-spur {
-        stroke-dasharray: 1000;
+        stroke-dasharray: 1600;
         animation:
-            hiw-draw 700ms cubic-bezier(0.16, 1, 0.3, 1) 150ms both,
-            hiw-thaw 700ms ease 1600ms both;
+            hiw-draw 700ms cubic-bezier(0.16, 1, 0.3, 1) 150ms backwards,
+            hiw-thaw 700ms ease 1600ms backwards;
     }
     .hiw-direct {
-        stroke-dasharray: 1000;
-        animation: hiw-draw 900ms cubic-bezier(0.16, 1, 0.3, 1) 900ms both;
+        stroke-dasharray: 1600;
+        animation: hiw-draw 900ms cubic-bezier(0.16, 1, 0.3, 1) 900ms backwards;
     }
     .hiw-ring {
-        animation: hiw-fade 400ms ease 1700ms both;
+        animation: hiw-fade 400ms ease 1700ms backwards;
     }
     .hiw-detour,
     .hiw-relay-tick {
-        animation: hiw-fade 600ms ease 2000ms both;
+        animation: hiw-fade 600ms ease 2000ms backwards;
     }
     .hiw-lbl-server {
-        animation: hiw-fade 500ms ease 300ms both;
+        animation: hiw-fade 500ms ease 300ms backwards;
     }
     .hiw-lbl-direct {
-        animation: hiw-fade 500ms ease 1600ms both;
+        animation: hiw-fade 500ms ease 1600ms backwards;
     }
     .hiw-lbl-relay {
-        animation: hiw-fade 500ms ease 2100ms both;
+        animation: hiw-fade 500ms ease 2100ms backwards;
     }
 }
 @keyframes hiw-draw {
     from {
-        stroke-dashoffset: 1000;
+        stroke-dashoffset: 1600;
     }
     to {
         stroke-dashoffset: 0;
@@ -226,5 +234,16 @@
     }
     to {
         opacity: 1;
+    }
+}
+@media (forced-colors: active) {
+    .hiw-direct,
+    .hiw-fig circle.hiw-ring {
+        stroke: CanvasText;
+    }
+    .hiw-spur,
+    .hiw-tick,
+    .hiw-detour {
+        stroke: GrayText;
     }
 }

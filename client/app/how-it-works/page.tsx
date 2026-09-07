@@ -100,11 +100,17 @@ export default function HowItWorks() {
                     not set 14px type across 105 characters; from md the grid
                     columns are 218px and the cap never binds. The badge tooltips in
                     the app deep-link to #direct and #relay and the over-limit
-                    notice to #size-limit; scroll-mt-28 clears the pill for all
-                    three. */}
+                    notice to #size-limit; each scroll margin clears the pill,
+                    inset included. */}
                 <div className="mt-12 grid gap-8 md:grid-cols-3">
                     <section className="max-w-lg scroll-mt-[calc(7rem_+_env(safe-area-inset-top))]">
-                        <p className={LABEL}>Signaling</p>
+                        {/* The spacer stands in for the dot the other two labels
+                            carry, so all three label texts share a left edge
+                            across the row. */}
+                        <p className={`flex items-center gap-2 ${LABEL}`}>
+                            <span className="h-1.5 w-1.5" aria-hidden="true" />
+                            Signaling
+                        </p>
                         <h2 className="mt-3 text-base font-medium text-zinc-100">
                             <span className="sr-only">Signaling. </span>The server introduces, then
                             leaves.
@@ -156,7 +162,7 @@ export default function HowItWorks() {
                     whitespace rather than a hairline separating it. */}
                 <div className="mt-14 max-w-lg">
                     <p className={LABEL}>On every route</p>
-                    <p className="mt-3 text-base leading-relaxed text-zinc-300">
+                    <p className="mt-3 text-base leading-relaxed text-pretty text-zinc-300">
                         Every transfer is encrypted end to end with WebRTC&apos;s DTLS. The keys exist only
                         on the two devices, and no file is stored on any server. The browser, Floe Desktop
                         for Windows, and the CLI all speak the same protocol.
@@ -186,14 +192,14 @@ export default function HowItWorks() {
                     </div>
                     {/* role="list": Tailwind's preflight strips list markers and Safari
                         drops list semantics with them. */}
-                    <ul role="list" className="mt-8 grid gap-y-3 sm:grid-cols-3 sm:gap-x-8">
+                    <ul role="list" className="mt-8 grid gap-y-3 md:grid-cols-3 md:gap-x-8">
                         {DOCS_PAGES.map((page, i) => (
                             <li key={page.href}>
                                 <a
                                     href={page.href}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="group inline-flex min-h-10 items-center gap-3 text-sm font-medium text-zinc-300 transition hover:text-ice focus-visible:outline-2 focus-visible:outline-ice sm:min-h-0"
+                                    className="group inline-flex min-h-10 items-center gap-3 text-sm font-medium text-zinc-300 transition hover:text-ice focus-visible:outline-2 focus-visible:outline-ice md:min-h-0"
                                 >
                                     <span className="font-mono text-xs text-zinc-600" aria-hidden="true">
                                         {String(i + 1).padStart(2, '0')}

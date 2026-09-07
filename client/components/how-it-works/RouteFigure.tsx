@@ -16,8 +16,9 @@ import { RELAY_CAP } from '@/lib/howItWorksStrings';
  * Motion is CSS only and plays once on paint: the .hiw-* rules in globals.css,
  * inside
  * prefers-reduced-motion: no-preference. The base rules are the finished
- * figure, so reduced motion, the e2e sweep, the screenshot matrix and a
- * JS-off reader all get the completed drawing at first paint. No client
+ * figure, so reduced motion, the e2e sweep and the screenshot matrix all get
+ * the completed drawing at first paint, and a reader with JavaScript off gets
+ * the sequence anyway, since CSS animations do not need it. No client
  * island: the route stays a Server Component. A plain load puts the figure
  * inside the first viewport at every width; a reader arriving at #direct,
  * #relay or #size-limit lands below it and sees that same finished drawing.
@@ -112,9 +113,9 @@ export function RouteFigure() {
             <figcaption className="sr-only">
                 A line runs from You to Them. Two thin spurs rise from each device to the signaling
                 server and end there: it introduces the devices and takes no further part. The
-                direct line runs straight across, labeled Direct, no size limit. A dotted second
-                path dips through a relay and rejoins at Them, labeled Relay, {RELAY_CAP} per
-                session.
+                direct line runs straight across, labeled Direct, and carries no size limit. A
+                dotted second path dips through a relay and rejoins at Them, labeled Relay, and is
+                capped at {RELAY_CAP} per session.
             </figcaption>
         </figure>
     );

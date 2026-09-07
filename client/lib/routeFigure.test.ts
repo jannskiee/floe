@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { ROUTE_HEIGHT, ROUTE_NARROW, ROUTE_WIDE, routeGeometry } from './routeFigure';
 
@@ -99,5 +100,31 @@ describe.each([ROUTE_WIDE, ROUTE_NARROW])('routeGeometry(%i)', (width) => {
     it('reports the width and height the component feeds to viewBox and aspect-ratio', () => {
         expect(g.width).toBe(width);
         expect(g.height).toBe(ROUTE_HEIGHT);
+    });
+});
+
+// The figure's draw-in is a stroke dash, and Chromium lays a dash out in
+// unscaled user units while the path renders scaled, so the ink only covers
+// dasharray/scale of the path. At the pathLength-normalized 1000 the ice line
+// stopped 98.8px short of THEM wherever the narrow variant rendered above
+// scale 1, and the arrival ring floated unattached. Nothing caught it: every
+// Playwright context that opens this page forces reduced motion, where no dash
+// exists at all. This is the guard for that.
+describe('the draw-in dash survives the figure being scaled up', () => {
+    const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+    // The narrow variant's box is capped by max-w-[30rem] in RouteFigure.tsx.
+    const NARROW_MAX_PX = 480;
+    const maxScale = NARROW_MAX_PX / ROUTE_NARROW;
+
+    it('sets a dasharray with headroom for the largest scale the figure reaches', () => {
+        const values = [...css.matchAll(/\.hiw-(?:spur|direct)\s*\{[^}]*?stroke-dasharray:\s*(\d+)/g)].map((m) => Number(m[1]));
+        expect(values.length, 'both dash-drawn paths declare a dasharray').toBe(2);
+        for (const v of values) expect(v).toBeGreaterThanOrEqual(1000 * maxScale);
+    });
+
+    it('starts the keyframe at the same value it dashes with', () => {
+        const dash = Number(css.match(/\.hiw-direct\s*\{[^}]*?stroke-dasharray:\s*(\d+)/)![1]);
+        const from = Number(css.match(/@keyframes hiw-draw\s*\{\s*from\s*\{\s*stroke-dashoffset:\s*(\d+)/)![1]);
+        expect(from).toBe(dash);
     });
 });
