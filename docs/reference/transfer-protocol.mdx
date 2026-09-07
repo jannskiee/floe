@@ -190,20 +190,23 @@ safely.
 overlap as "this is not about versions" and prints the `reason` verbatim instead of rebuilding a
 version remedy from `pv` and `pvMin`. That is what lets a side that is stopping on purpose name
 the cause without a new message type and without a `ProtocolVersion` bump. It carries the relay
-cap from a sender, and a discarded file or a refused file description from a receiver.
+cap and a source file that changed under the send from a sender, and a discarded file, a
+sender that overran its announced size, or a refused file description from a receiver.
 
 Framing depends on direction, and this is the one rule another client has to get right.
 Receiver to sender is binary, which is what every Floe receiver has always sent. **Sender to
 receiver has to be text**, because on that path a binary frame is file data by definition, and
-Go receivers from v1.5.0 to v1.5.5 will write a binary one into the file being received.
+Go receivers from v1.1.0 to v1.5.5 will write a binary one into the file being received.
 
-The whole encoded frame stays under 1000 bytes, reason included, or a browser receiver stops
-reading it as a control message. A sender caps the reason again for display, at 300 characters.
+The whole encoded frame stays within 1000 bytes, reason included, or a browser receiver stops
+reading it as a control message. Whichever side displays it caps the reason again, at 300
+characters.
 
-Whichever side sends it waits for the send buffer to drain, up to 2 seconds, before closing.
-Without that wait the frame is routinely lost: closing a pion connection aborts the SCTP
-association and discards whatever was still queued, so the peer would see the close and report a
-lost connection rather than the reason.
+Both Go peers wait for the send buffer to drain, up to 2 seconds, before closing, and so does a
+browser sender. Without that wait the frame is routinely lost: closing a pion connection aborts
+the SCTP association and discards whatever was still queued, so the peer would see the close and
+report a lost connection rather than the reason. A browser receiver sends without waiting,
+because it does not close the connection afterwards.
 
 ```json incompatible
 {
@@ -269,8 +272,8 @@ frame boundary was wrong, which corrupts the result just as thoroughly.
 The sender holds itself to the same number. It reads at most `fileSize` bytes, so a
 file that grows after its size is announced cannot overrun the announcement, and if
 the file changed on disk in that window the sender fails locally and sends no end
-marker. The person who owns the file is told the file changed, instead of the person
-receiving it being told the transfer was incomplete.
+marker, so the receiver is told the file changed rather than left to report a byte count that
+reads like a network fault.
 
 **Floe computes no hash of file contents at any point.** The check is a byte count. The transport
 already authenticates every packet, so corruption in flight is not the gap being covered here;
@@ -287,7 +290,8 @@ See [Known limitations](/how-it-works/known-limitations).
 
 ## Timeouts
 
-Every value the Go engine enforces. The browser shares only the 120-second ack deadline.
+Every value the Go engine enforces. The browser shares two of them: the 120-second ack deadline
+and the 2-second wait for an abort reason to reach the wire.
 
 | Phase | Limit | What happens |
 |---|---|---|
@@ -301,6 +305,7 @@ Every value the Go engine enforces. The browser shares only the 120-second ack d
 | Receiver mid-transfer with no progress | 60 s | Transfer fails |
 | Receiver grace before teardown | 5 s | Lets the final acknowledgement reach the sender |
 | The byte-count report | 5 s | Abandoned; never affects the files |
+| Flushing an abort reason before closing | 2 s | Best effort; the close goes out either way |
 | Fetching TURN credentials over HTTP | 30 s | Warns and falls back to STUN only |
 | Registering or resolving a room code over HTTP | 30 s | `could not register code` or `could not reach signaling server` |
 

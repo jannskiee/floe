@@ -160,6 +160,86 @@ func TestReceiverReadsTheRelayCapReason(t *testing.T) {
 	}
 }
 
+// TestSenderReadsAReasonForTheLastFile is the case the per-file ack loop
+// cannot cover, and it is the common one: a single-file transfer has no next
+// file, so a receiver that refuses it sends its reason into the sender drain
+// loop instead. Before abortFromPeer the drain loop matched only "received",
+// discarded the frame, and printed a success summary over a receiver that had
+// kept nothing.
+func TestSenderReadsAReasonForTheLastFile(t *testing.T) {
+	sender, recvCh, msgs, _, closeFn := newPumpedPair(t)
+	defer closeFn()
+
+	src := filepath.Join(t.TempDir(), "only.bin")
+	if err := os.WriteFile(src, make([]byte, 64), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	var rdc *webrtc.DataChannel
+	select {
+	case rdc = <-recvCh:
+	case <-time.After(20 * time.Second):
+		t.Fatal("receiver data channel never opened")
+	}
+
+	sendErr := make(chan error, 1)
+	go func() { sendErr <- SendFiles(sender, []string{src}, "") }()
+
+	// Ack the one file, let its bytes and the end marker through, then refuse
+	// it. A scripted receiver, because the real one cannot be made to discard a
+	// file that the real sender now bounds correctly.
+	var meta struct {
+		ID string `json:"id"`
+	}
+	select {
+	case m := <-msgs:
+		if err := json.Unmarshal(m.Data, &meta); err != nil || meta.ID == "" {
+			t.Fatalf("first message is not the metadata: %q", m.Data)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("metadata never arrived")
+	}
+	if err := rdc.Send([]byte(`{"type":"ack","id":"` + meta.ID + `","offset":0,"pv":1,"pvMin":1}`)); err != nil {
+		t.Fatalf("ack: %v", err)
+	}
+	for {
+		select {
+		case m := <-msgs:
+			if msgType, ok := classifyControl(m.Data); ok && msgType == "end" {
+				goto refuse
+			}
+		case <-time.After(20 * time.Second):
+			t.Fatal("the end marker never arrived")
+		}
+	}
+refuse:
+	// The same frame a real receiver sends: binary, pv range overlapping.
+	refusal, _ := json.Marshal(incompatibleMsg{
+		Type:   "incompatible",
+		Reason: "receiver discarded a file: incomplete file \"only.bin\": received 40 of 64 bytes",
+		Pv:     ProtocolVersion,
+		PvMin:  MinProtocolVersion,
+	})
+	if err := rdc.Send(refusal); err != nil {
+		t.Fatalf("refusal: %v", err)
+	}
+
+	select {
+	case err := <-sendErr:
+		if err == nil {
+			t.Fatal("sender reported success over a receiver that kept nothing")
+		}
+		if !strings.Contains(err.Error(), "incomplete file") {
+			t.Fatalf("sender error does not carry the reason: %v", err)
+		}
+		if strings.Contains(err.Error(), "floe update") {
+			t.Fatalf("sender turned an overlapping range into an update hint: %v", err)
+		}
+	case <-time.After(40 * time.Second):
+		t.Fatal("SendFiles did not return")
+	}
+}
+
 // TestSenderReadsTheReceiversIntegrityReason: a receiver that discards a file
 // now says so, so a sender with more files to send fails at once instead of
 // waiting out its 120 s ack deadline and blaming a timeout.

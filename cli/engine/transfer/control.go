@@ -33,7 +33,7 @@ const controlFlushTimeout = 2 * time.Second
 // sender carries no file data, so binary is safe and is what every shipped
 // receiver already sends. Sender to receiver MUST be text: on that path a
 // binary frame is file data by definition (see the ReceiveFiles message loop),
-// and shipped Go receivers from v1.5.0 to v1.5.5 would write a binary one
+// and shipped Go receivers from v1.1.0 to v1.5.5 would write a binary one
 // straight into somebody's file.
 //
 // Best effort. A failed send changes nothing, because the caller's deferred

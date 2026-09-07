@@ -249,8 +249,8 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 		// prose where a control message belongs. Fail loudly rather than skip
 		// it: skipping leaves the sender waiting on an ack that never comes and
 		// this side to the stall watchdog, whereas returning lets the caller's
-		// deferred Close reach the sender within a second. Over-cap BINARY is
-		// file data and falls through to classifyControl, which declines it.
+		// deferred Close reach the sender within a second. A BINARY frame of any
+		// size is file data and never reaches classifyControl at all.
 		if msg.IsString && len(msg.Data) > controlMsgMax {
 			rejectDescription(dc, localVer, fmt.Sprintf("control message is %d bytes, limit %d", len(msg.Data), controlMsgMax))
 			return fmt.Errorf("rejected the sender's control message: %d bytes, limit %d", len(msg.Data), controlMsgMax)
@@ -292,10 +292,12 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				if err := json.Unmarshal(msg.Data, &incompat); err != nil {
 					return fmt.Errorf("the sender stopped the transfer")
 				}
-				if reason := displayText(incompat.Reason, maxDisplayReason); reason != "" {
-					return fmt.Errorf("%s", reason)
-				}
-				return fmt.Errorf("the sender stopped the transfer")
+				// Rebuilt locally, exactly as the sender does with the same frame.
+				// compatErrorFromIncompatible prints the peer reason when the pv
+				// ranges overlap, which is a deliberate abort, and rebuilds from
+				// pv/pvMin with THIS surface update hint when they do not, so a
+				// desktop receiver is never told to run a command it does not have.
+				return fmt.Errorf("%s", compatErrorFromIncompatible(localVer, opts.UpdateHint, incompat))
 
 			case "metadata":
 				// A new file is starting
@@ -341,15 +343,9 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 							MinProtocolVersion, ProtocolVersion, info.PvMin, info.Pv, opts.UpdateHint)
 						peerErrMsg := peerCompatErrorMessage(localTooOld, localVer, info.Ver,
 							MinProtocolVersion, ProtocolVersion, info.PvMin, info.Pv)
-						incompat := incompatibleMsg{
-							Type:   "incompatible",
-							Reason: peerErrMsg,
-							Pv:     ProtocolVersion,
-							PvMin:  MinProtocolVersion,
-							Ver:    localVer,
-						}
-						incompatJSON, _ := json.Marshal(incompat)
-						dc.Send([]byte(incompatJSON))
+						// Through abortReason for the flush. This is the path #284
+						// was filed about, where the frame was lost in 6 of 6 rounds.
+						abortReason(dc, localVer, peerErrMsg, false)
 						return fmt.Errorf("%s", errMsg)
 					}
 
