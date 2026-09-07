@@ -129,7 +129,7 @@
    e2e sweep, the screenshot matrix and a JS-off reader all get the completed
    figure at first paint. Only stroke-dashoffset, stroke and opacity animate,
    and the box is reserved by aspect-ratio, so nothing shifts layout.
-   Sequence (about 2.8 s, once, no loop): the spurs draw from the devices to
+   Sequence (about 3.0 s, once, no loop): the spurs draw from the devices to
    the server tick in ice, the direct line draws across, the spurs thaw to
    zinc-700 (the server has left), the ring lands on THEM, then the relay
    detour fades in. */
@@ -195,28 +195,28 @@
     .hiw-spur {
         stroke-dasharray: 1600;
         animation:
-            hiw-draw 900ms cubic-bezier(0.16, 1, 0.3, 1) 150ms backwards,
-            hiw-thaw 700ms ease 1800ms backwards;
+            hiw-draw 1100ms cubic-bezier(0.16, 1, 0.3, 1) 150ms backwards,
+            hiw-thaw 700ms ease 2000ms backwards;
     }
     .hiw-direct {
         stroke-dasharray: 1600;
-        animation: hiw-draw 900ms cubic-bezier(0.16, 1, 0.3, 1) 1100ms backwards;
+        animation: hiw-draw 900ms cubic-bezier(0.16, 1, 0.3, 1) 1300ms backwards;
     }
     .hiw-ring {
-        animation: hiw-fade 400ms ease 1900ms backwards;
+        animation: hiw-fade 400ms ease 2100ms backwards;
     }
     .hiw-detour,
     .hiw-relay-tick {
-        animation: hiw-fade 600ms ease 2200ms backwards;
+        animation: hiw-fade 600ms ease 2400ms backwards;
     }
     .hiw-lbl-server {
         animation: hiw-fade 500ms ease 300ms backwards;
     }
     .hiw-lbl-direct {
-        animation: hiw-fade 500ms ease 1800ms backwards;
+        animation: hiw-fade 500ms ease 2000ms backwards;
     }
     .hiw-lbl-relay {
-        animation: hiw-fade 500ms ease 2300ms backwards;
+        animation: hiw-fade 500ms ease 2500ms backwards;
     }
 }
 @keyframes hiw-draw {
@@ -274,6 +274,6 @@
    no-preference and reduced motion must not gain an animation here. */
 @media (forced-colors: active) and (prefers-reduced-motion: no-preference) {
     .hiw-spur {
-        animation: hiw-draw 900ms cubic-bezier(0.16, 1, 0.3, 1) 150ms backwards;
+        animation: hiw-draw 1100ms cubic-bezier(0.16, 1, 0.3, 1) 150ms backwards;
     }
 }
