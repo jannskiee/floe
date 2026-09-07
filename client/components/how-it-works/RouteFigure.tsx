@@ -5,11 +5,13 @@ import { RELAY_CAP } from '@/lib/howItWorksStrings';
 /**
  * The one drawing on /how-it-works: a transfer as a single line.
  *
- * A baseline runs from YOU to THEM. Two spurs rise from the devices to the
- * signaling server's tick and end there (it introduces, then leaves). The
- * direct line is the ice stroke. A dotted second path dips through the relay
- * tick and back up to THEM. Labels are the product's own badge words with the
- * badge's green and amber dots; no boxes, no arrowheads, no icons.
+ * A baseline runs from YOU to THEM. Two spurs rise from the devices and meet
+ * the signaling server's mark at the top of the arch; the direct line is the
+ * ice stroke below it, and a dotted second path dips through the relay tick and
+ * back up to THEM. The arch is continuous ink, so the server is told apart from
+ * the relay by being a brighter mark on a solid line rather than by a break in
+ * it. Labels are the product's own badge words with the badge's green and amber
+ * dots; no boxes, no arrowheads, no icons.
  *
  * Two variants, wide from md and narrow below it, both drawn from
  * routeGeometry() so the two cannot drift; the CSS gate is the only switch.
@@ -24,7 +26,11 @@ import { RELAY_CAP } from '@/lib/howItWorksStrings';
  * #relay or #size-limit lands below it and sees that same finished drawing.
  */
 
-const LABEL = 'font-mono text-[11px] uppercase tracking-[0.2em]';
+// leading-none, as the page header does for its eyebrow: an 11px label
+// inherits preflight line-height 1.5, and the 5.5px of dead half-leading
+// that buys is 6.9 viewBox units at the narrow scale, more than the phone
+// rise has to spare between the device tick and the relay tick.
+const LABEL = 'font-mono text-[11px] leading-none uppercase tracking-[0.2em]';
 
 function Variant({ g, className }: { g: RouteGeometry; className: string }) {
     const [left, right] = g.deviceTicks;
@@ -59,7 +65,11 @@ function Variant({ g, className }: { g: RouteGeometry; className: string }) {
             </svg>
             {/* HTML labels over the SVG so they get Geist Mono, the page's color
                 tokens and normal text rendering. Centered labels carry pl-[0.2em]
-                to repay the letter-space that tracking adds after the last glyph. */}
+                to repay the letter-space that tracking adds after the last glyph.
+                The Direct and Relay tails drop at md, the breakpoint that swaps the
+                drawing, not at sm: between 640 and 767 the long labels were being set
+                across the narrow drawing, and once its rise flattened they ran their
+                ends to within 10px of the spurs. Label form follows the variant. */}
             <div className={`pointer-events-none absolute inset-0 ${LABEL}`} aria-hidden="true">
                 <span
                     className="absolute -translate-x-1/2 pl-[0.2em] text-zinc-400"
@@ -85,8 +95,8 @@ function Variant({ g, className }: { g: RouteGeometry; className: string }) {
                 >
                     <i className="h-1.5 w-1.5 rounded-full bg-green-500" />
                     Direct
-                    <span className="max-sm:hidden text-zinc-500">·</span>
-                    <span className="max-sm:hidden text-zinc-400">No size limit</span>
+                    <span className="max-md:hidden text-zinc-500">·</span>
+                    <span className="max-md:hidden text-zinc-400">No size limit</span>
                 </span>
                 <span
                     className="hiw-lbl-relay absolute flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 whitespace-nowrap pl-[0.2em] text-zinc-300"
@@ -94,8 +104,8 @@ function Variant({ g, className }: { g: RouteGeometry; className: string }) {
                 >
                     <i className="h-1.5 w-1.5 rounded-full bg-amber-500" />
                     Relay
-                    <span className="max-sm:hidden text-zinc-500">·</span>
-                    <span className="max-sm:hidden text-zinc-400">{RELAY_CAP} per session</span>
+                    <span className="max-md:hidden text-zinc-500">·</span>
+                    <span className="max-md:hidden text-zinc-400">{RELAY_CAP} per session</span>
                 </span>
             </div>
         </div>
@@ -107,13 +117,15 @@ export function RouteFigure() {
         <figure className="hiw-fig mt-14 sm:mt-16">
             <Variant g={routeGeometry(ROUTE_WIDE)} className="hidden md:block" />
             {/* max-w-[30rem]: between 640 and 767 the narrow drawing would otherwise
-                balloon to 480px tall in a 720px column. */}
+                reach 352px tall in a 720px column, taller than the wide variant is
+                at the width just above the breakpoint. */}
             <Variant g={routeGeometry(ROUTE_NARROW)} className="max-w-[30rem] md:hidden" />
             {/* The only description assistive tech gets; it claims exactly what is drawn. */}
             <figcaption className="sr-only">
-                A line runs from You to Them. Two thin spurs rise from each device to the signaling
-                server and end there: it introduces the devices and takes no further part. The
-                direct line runs straight across, labeled Direct, and carries no size limit. A
+                A line runs from You to Them. Two thin spurs rise from each device and meet at the
+                signaling server above them: it introduces the two devices and carries no file data
+                itself. The direct line runs straight across, labeled Direct, and carries no size
+                limit. A
                 dotted second path dips through a relay and rejoins at Them, labeled Relay, and is
                 capped at {RELAY_CAP} per session.
             </figcaption>
