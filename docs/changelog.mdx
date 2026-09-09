@@ -43,6 +43,27 @@ Floe ships on two version lines. `vX.Y.Z` releases floe.one, the `floe` CLI, and
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
+<Update label="desktop-v0.2.11" description="2026-09-09" tags={["Desktop", "Self-hosting"]}>
+  **Hide my IP now says when a server cannot do it, instead of failing half a minute later with connection advice**
+
+  - **Hide my IP address** needs the server to offer a relay, and against a self-hosted server without one the transfer used to run for about thirty seconds and then fail with "A connection could not be established. Check that both devices are online and try again." Both devices were online. The transfer now stops immediately and names the setting, before a share code is even created, so nobody is handed a code that could never have connected.
+  - The **Test** button in Settings reports it too. A server with no relay still passes, because it works for any transfer that finds a direct path, and the result now reads **Connected. This server has no TURN relay, so Hide my IP will not work.** Test previously answered a bare **Connected.** for that server, which is what let the problem surface much later somewhere else.
+  - The two causes are kept apart. If Floe cannot read the server's connection details at all, because the address is wrong, a reverse proxy is not forwarding `/api/`, or the request was rate-limited, it says that rather than claiming the server has no relay. It never saw the server's answer, so it does not guess at one.
+  - Test also no longer accepts a server that answers with connection details containing nothing to connect with.
+  - The wire protocol is unchanged, so 0.2.11 transfers with older CLI, desktop, and browser peers in both directions.
+</Update>
+
+<Update label="v1.10.9" description="2026-09-09" tags={["CLI", "Web", "Self-hosting"]}>
+  **`--relay-only` says when a server has no relay, instead of failing half a minute later with a generic timeout**
+
+  - `floe send --relay-only` and `floe receive --relay-only` against a server that offers no TURN relay used to wait about thirty seconds and end with `timed out establishing a connection`, the same line `--no-relay` produces for the opposite reason, naming neither the flag nor the server. Both now stop before the transfer starts with `--relay-only needs a TURN relay and <server> offers none`, and a sender stops before registering a code that could never have connected.
+  - A second wording covers the case where the connection details could not be read at all, from a wrong `--server`, a reverse proxy not forwarding `/api/`, or the endpoint's own rate limit. Floe falls back to public STUN there and cannot see what the server offers, so it says so rather than blaming the server's configuration.
+  - Web app: when two peers cannot agree on a protocol version, the explanation each side puts on the wire is now written for whoever reads it, so a CLI or desktop peer that displays it word for word names the correct side and is not told to refresh a page. A browser that is itself the older side now reads its own remedy rather than the neutral wording. No release can trigger this today, since every peer speaks the same protocol.
+  - Web app: the protocol numbers inside that message are treated as text chosen by the other side, like every other value that arrives from a peer, so a hostile one can no longer reorder the error on screen or run past the length limit the rest of the message respects.
+  - Self-hosting: the published images are rebuilt as `1.10.9`. If you pinned `FLOE_IMAGE_TAG=1.10.8`, move to `1.10.9`.
+  - The wire protocol is unchanged, so this still transfers with older CLI, desktop, and browser peers in both directions.
+</Update>
+
 <Update label="desktop-v0.2.10" description="2026-09-07" tags={["Desktop"]}>
   **A small JSON file arrives intact, a file that changes while it is being sent is caught before it is sent wrong, and a transfer that is stopped on purpose says why**
 
