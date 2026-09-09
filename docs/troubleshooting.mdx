@@ -137,12 +137,27 @@ If you passed `--no-relay`, this is what that looks like when no direct path exi
 removes the relay from the address list, so there is nothing else to try and the failure is this
 generic timeout rather than a message about the relay.
 
-`--relay-only` fails the same way when the server offers no TURN relay. With only STUN in the
-list, a relay-only connection has nowhere to go, and after thirty seconds the command ends with
-`WebRTC setup failed: timed out establishing a connection` and exit code 1. The other side ends
-with the same line at the same moment, since no pair of addresses could ever form. On Floe's own
-server there is always a relay, so this points at a self-hosted server without one: drop the
-flag, or add a relay to the instance. See [TURN relay](/self-hosting/turn-relay).
+`--relay-only` used to fail the same way against a server with no TURN relay. It no longer
+reaches this timeout: the flag is checked against the server's connection list before the
+transfer starts, and the command stops at once naming the flag. See
+[`--relay-only needs a TURN relay`](#relay-only-needs-a-turn-relay).
+
+### `--relay-only needs a TURN relay`
+
+The full line names the server it asked:
+`--relay-only needs a TURN relay and https://floe.example.com offers none; drop the flag, or
+configure a relay on the server`.
+
+`--relay-only` routes everything through the relay and never tries a direct path, so a server
+that offers no relay leaves it nowhere to go. The check runs before the transfer starts, so this
+arrives immediately instead of as a timeout half a minute later. Drop the flag (and unset
+`FLOE_RELAY_ONLY` if you set it), or add a relay to the instance. Floe's own server always has
+one, so this points at a self-hosted address. See [TURN relay](/self-hosting/turn-relay).
+
+A second wording, `the connection details from ... could not be read`, means the server was never
+heard from, so `floe` fell back to public STUN and cannot say what the server offers. Check
+`--server` for a typo, check that a reverse proxy forwards `/api/`, or try again in a minute:
+that endpoint rate-limits repeated requests from one address.
 
 ### `connected, but no data arrived from the sender within 30s`
 
@@ -265,6 +280,32 @@ requests without forwarding the upgrade. See
 it before relying on the server, because nothing else reports this failure: relay credentials fall
 back to public STUN and the room code silently fails to register, so you get a share link with no
 code and no error.
+
+### The Test button says the server has no TURN relay
+
+"Connected. This server has no TURN relay, so Hide my IP will not work." The address is a working
+Floe signaling server, and this is a pass rather than a failure, which is why it carries no
+`Error: ` prefix. [Hide my IP address](/desktop/settings#hide-my-ip-address) cannot work at all
+without a relay, and ordinary transfers succeed only where the two devices can reach each other
+directly. Turn the switch off, or add a relay to the instance. See
+[TURN relay](/self-hosting/turn-relay).
+
+### "Hide my IP needs a TURN relay and this server has none."
+
+The server answered, and its answer had no relay in it. The transfer stops before it starts
+rather than timing out about thirty seconds later with advice about both devices being online.
+Turn **Hide my IP** off, or add a relay to your instance. Floe's own server always has one, so
+this only appears on a self-hosted address. **Test** reports the same thing about an address
+before you rely on it. See [TURN relay](/self-hosting/turn-relay).
+
+### "Hide my IP needs a TURN relay, and this server's connection details could not be read."
+
+The difference from the message above is who is being blamed. Here the server was not heard from
+at all, so Floe fell back to public STUN and cannot say what the server offers. Check the
+**Server address** for a typo, run **Test** against it, and if it is behind a reverse proxy check
+that `/api/` is being forwarded. Trying again in a minute also helps, because the TURN endpoint
+rate-limits repeated requests from one address. Turning **Hide my IP** off lets the transfer
+proceed over whatever path is available.
 
 ### The Test button says it may be the web app rather than the signaling server
 

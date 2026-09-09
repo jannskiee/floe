@@ -3,6 +3,7 @@ export namespace main {
 	export class ProbeResult {
 	    ok: boolean;
 	    message: string;
+	    relayAvailable: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ProbeResult(source);
@@ -12,6 +13,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ok = source["ok"];
 	        this.message = source["message"];
+	        this.relayAvailable = source["relayAvailable"];
 	    }
 	}
 	export class UpdateInfo {

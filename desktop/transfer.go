@@ -29,6 +29,47 @@ func relayOpts(hideIP bool) []peer.Option {
 	return nil
 }
 
+// Two reasons a Hide my IP transfer cannot start, kept apart because they need
+// different things from the person reading them. With relay-only forced and no
+// TURN URL in the list, ICE gathers no usable candidate at all, so the attempt
+// used to die about thirty seconds later as "timed out establishing a
+// connection", which errors.ts maps to advice about both devices being online.
+// They are online.
+//
+// Both open with the same clause, which is what errors.ts PASSTHROUGH anchors
+// on to print them verbatim.
+var (
+	errNoRelay = errors.New("Hide my IP needs a TURN relay and this server has none. Turn off Hide my IP, or add a relay to the server.")
+	// The server answered with nothing usable, or did not answer at all, so
+	// this side fell back to public STUN and cannot say what the server offers.
+	// Blaming its configuration would be a confident guess: the common causes
+	// are a wrong address, a reverse proxy not forwarding /api/, and the TURN
+	// endpoint's own rate limiter.
+	errRelayUnknown = errors.New("Hide my IP needs a TURN relay, and this server's connection details could not be read. Check the server address, or turn off Hide my IP.")
+)
+
+// requireRelay is the transfer-time half of the Settings probe's relay check.
+//
+// It runs here as well as there because ice.Fetch falls back to public STUN
+// whenever it cannot read the server's list, so even a TURN-capable server can
+// hand this particular transfer a list with nothing to relay through. Only the
+// list actually in use can answer the question, and only `degraded` can say
+// whether "no relay" is the server's answer or this side's guess.
+//
+// Takes the already-computed answers rather than the server list: naming
+// webrtc.ICEServer in a desktop signature would promote pion from an indirect
+// to a direct requirement in desktop/go.mod, and that file's dependency graph
+// reaches the released floe binary through the workspace.
+func requireRelay(hideIP, hasRelay, degraded bool) error {
+	if !hideIP || hasRelay {
+		return nil
+	}
+	if degraded {
+		return errRelayUnknown
+	}
+	return errNoRelay
+}
+
 // StartSend validates the given paths and launches the send flow in the
 // background. Progress is reported to the UI via Wails events:
 //   - "send:code"   {code, link}  once the room code is registered
@@ -121,9 +162,15 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 	// not move the second half onto a different server.
 	server, web := a.endpoints()
 
-	iceServers, err := ice.Fetch(server)
+	iceServers, degraded, err := ice.FetchDetail(server)
 	if err != nil {
 		fail(fmt.Errorf("failed to fetch ICE credentials: %w", err))
+		return
+	}
+	// Before the room code is registered, so nobody is handed a share link that
+	// could never have worked.
+	if err := requireRelay(hideIP, ice.HasRelay(iceServers), degraded); err != nil {
+		fail(err)
 		return
 	}
 
@@ -304,9 +351,14 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 		return "", fmt.Errorf("could not resolve %q: %w", codeOrLink, err)
 	}
 
-	iceServers, err := ice.Fetch(server)
+	iceServers, degraded, err := ice.FetchDetail(server)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch ICE credentials: %w", err)
+	}
+	// Before JoinRoom, so a receiver that cannot connect does not take up the
+	// sender's second slot in a two-peer room.
+	if err := requireRelay(hideIP, ice.HasRelay(iceServers), degraded); err != nil {
+		return "", err
 	}
 
 	sc, err := signaling.Connect(server)

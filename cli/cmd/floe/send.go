@@ -45,9 +45,14 @@ func runSend(cmd *cobra.Command, args []string) error {
 	roomId := uuid.New().String()
 
 	// 2. Fetch ICE (STUN/TURN) server credentials
-	iceServers, err := ice.Fetch(flagServer)
+	iceServers, degraded, err := ice.FetchDetail(flagServer)
 	if err != nil {
 		return fmt.Errorf("failed to fetch ICE credentials: %w", err)
+	}
+	// Before the room code is registered, so nobody is handed a code that could
+	// never have connected.
+	if err := requireRelay(ice.HasRelay(iceServers), degraded); err != nil {
+		return err
 	}
 	if flagNoRelay {
 		// Keep only STUN servers, drop TURN

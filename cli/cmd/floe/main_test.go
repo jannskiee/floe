@@ -200,3 +200,65 @@ func TestRelayOnlyThroughTheCommandTree(t *testing.T) {
 		})
 	}
 }
+
+// TestRequireRelay pins the CLI half of issue #281. Against a server with no
+// TURN relay, --relay-only has nowhere to go: ICE gathers no usable candidate
+// and the run ends thirty seconds later on the same
+// "timed out establishing a connection" that --no-relay produces when no direct
+// path exists. Two opposite causes, one message, neither naming the flag.
+//
+// The first case is the one a careless implementation breaks: a STUN-only
+// server is a perfectly good server without the flag, and must not be refused.
+func TestRequireRelay(t *testing.T) {
+	origFlag, origServer := flagRelayOnly, flagServer
+	t.Cleanup(func() { flagRelayOnly, flagServer = origFlag, origServer })
+	flagServer = "https://floe.example.com"
+
+	cases := []struct {
+		name      string
+		relayOnly bool
+		hasRelay  bool
+		degraded  bool
+		wantError bool
+		// A fragment only the could-not-be-read wording carries, so the two
+		// causes cannot be confused for each other.
+		wantUnread bool
+	}{
+		{"a relay-less server is fine without the flag", false, false, false, false, false},
+		{"a relay-less server is refused with the flag", true, false, false, true, false},
+		{"a relay-capable server is fine with the flag", true, true, false, false, false},
+		{"a relay-capable server is fine without the flag", false, true, false, false, false},
+		// The STUN-only fallback, not the server's answer. Saying the server
+		// "offers none" would blame a configuration nobody has seen; the usual
+		// causes are a wrong --server, an un-proxied /api/, and the TURN
+		// endpoint's own rate limiter.
+		{"a list that could not be read does not blame the server", true, false, true, true, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			flagRelayOnly = tc.relayOnly
+			err := requireRelay(tc.hasRelay, tc.degraded)
+			if (err != nil) != tc.wantError {
+				t.Fatalf("requireRelay(%v, %v) with flagRelayOnly=%v = %v, wantError %v",
+					tc.hasRelay, tc.degraded, tc.relayOnly, err, tc.wantError)
+			}
+			if err != nil {
+				if got := strings.Contains(err.Error(), "could not be read"); got != tc.wantUnread {
+					t.Errorf("error %q: could-not-be-read wording = %v, want %v", err, got, tc.wantUnread)
+				}
+			}
+			if err == nil {
+				return
+			}
+			// Naming the flag is the point: the message it replaces did not,
+			// which is why the same timeout covered two opposite causes.
+			if !strings.Contains(err.Error(), "--relay-only") {
+				t.Errorf("error %q does not name the flag that caused it", err)
+			}
+			// And the server, so a wrong --server is visible in the message.
+			if !strings.Contains(err.Error(), flagServer) {
+				t.Errorf("error %q does not name the server it asked", err)
+			}
+		})
+	}
+}

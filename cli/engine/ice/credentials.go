@@ -4,6 +4,7 @@ package ice
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -16,6 +17,12 @@ import (
 // redundant URLs of the same class multiply connection-setup work for zero
 // connectivity gain.
 func iceURLClass(u string) string {
+	// A URI scheme is case-insensitive (RFC 3986), and pion lowercases it before
+	// parsing, so "TURN:host:3478" is a relay to the ICE agent. Matching it
+	// case-sensitively made this disagree with what pion actually gathers, which
+	// matters now that HasRelay decides whether a relay-only transfer may start.
+	// Only the classification is lowercased; callers keep the original URL.
+	u = strings.ToLower(u)
 	switch {
 	case strings.HasPrefix(u, "stun:"):
 		return "stun"
@@ -28,6 +35,29 @@ func iceURLClass(u string) string {
 		return "udp" // RFC 7065: a turn: URI without a transport param is UDP
 	}
 	return ""
+}
+
+// HasRelay reports whether a list offers a TURN relay.
+//
+// Relay-only mode (the desktop's "Hide my IP", the CLI's --relay-only) cannot
+// connect without one: ICE gathers no usable candidate at all and the attempt
+// dies about thirty seconds later as a generic timeout, which reads like a
+// network fault on a network that is fine. Both surfaces check this before they
+// start rather than after.
+//
+// The relay classes are enumerated positively rather than tested as "not stun",
+// so a class added to iceURLClass later has to be considered here instead of
+// silently counting as a relay.
+func HasRelay(servers []webrtc.ICEServer) bool {
+	for _, s := range servers {
+		for _, u := range s.URLs {
+			switch iceURLClass(u) {
+			case "udp", "tcp", "tls":
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // pick returns the first URL in urls that contains pref, else the first URL.
@@ -119,11 +149,30 @@ type iceServerJSON struct {
 var client = &http.Client{Timeout: 30 * time.Second}
 
 func Fetch(serverURL string) ([]webrtc.ICEServer, error) {
+	servers, _, err := FetchDetail(serverURL)
+	return servers, err
+}
+
+// FetchDetail is Fetch plus the one thing Fetch throws away: whether the list
+// came from the server at all, or is the STUN-only fallback.
+//
+// Fetch collapses four different outcomes into the same return value. An
+// unreachable server, a non-200 (the TURN endpoint's own rate limiter included),
+// an unreadable body and a genuinely relay-less server all produce
+// defaults() and a nil error, and the only thing telling them apart is a line
+// printed to stdout, which a GUI never shows. A caller that refuses to start
+// because there is no relay has to know which of those happened, or it blames
+// the server's configuration for what was really a failed fetch.
+//
+// degraded is true whenever the returned list is defaults() rather than the
+// server's own. A relay-less server is NOT degraded: it answered, and the answer
+// was "STUN only".
+func FetchDetail(serverURL string) (servers []webrtc.ICEServer, degraded bool, err error) {
 	resp, err := client.Get(serverURL + "/api/turn-credentials")
 	if err != nil {
 		// Server unreachable — use public Google STUN as fallback
 		fmt.Println("  Warning: could not reach signaling server for TURN credentials. Using STUN only.")
-		return defaults(), nil
+		return defaults(), true, nil
 	}
 	defer resp.Body.Close()
 
@@ -135,12 +184,30 @@ func Fetch(serverURL string) ([]webrtc.ICEServer, error) {
 	// documented degrade that today completes over direct STUN.
 	if resp.StatusCode != http.StatusOK {
 		fmt.Printf("  Warning: signaling server returned %d for TURN credentials. Using STUN only.\n", resp.StatusCode)
-		return defaults(), nil
+		return defaults(), true, nil
 	}
 
+	parsed, err := ParseServers(resp.Body)
+	if err != nil || len(parsed) == 0 {
+		return defaults(), true, nil
+	}
+	return trimICEServers(parsed), false, nil
+}
+
+// ParseServers decodes a /api/turn-credentials body into pion's ICE server
+// shape.
+//
+// Split out of Fetch so the desktop's server probe can read the list the same
+// way a transfer does. The "urls" field is a plain string for coturn and for
+// the STUN-only fallback, but an array of strings for Cloudflare, and a second
+// implementation of that rule is a second thing to get wrong.
+//
+// Entries carrying no usable "urls" are dropped, so an empty result means the
+// body parsed but held nothing to connect with.
+func ParseServers(r io.Reader) ([]webrtc.ICEServer, error) {
 	var raw []iceServerJSON
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil || len(raw) == 0 {
-		return defaults(), nil
+	if err := json.NewDecoder(r).Decode(&raw); err != nil {
+		return nil, err
 	}
 
 	var servers []webrtc.ICEServer
@@ -165,11 +232,7 @@ func Fetch(serverURL string) ([]webrtc.ICEServer, error) {
 		}
 		servers = append(servers, ice)
 	}
-
-	if len(servers) == 0 {
-		return defaults(), nil
-	}
-	return trimICEServers(servers), nil
+	return servers, nil
 }
 
 func defaults() []webrtc.ICEServer {

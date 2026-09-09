@@ -13,9 +13,31 @@ import (
 // HTTP stages.
 func okWS(string) error { return nil }
 
+// The ICE bodies /api/turn-credentials returns. Both shapes of "urls" are here
+// on purpose: coturn and the STUN-only fallback send a string, Cloudflare sends
+// an array, and the relay check has to read both.
+const (
+	iceWithTURN = `[{"urls":"stun:turn.example.com:3478"},` +
+		`{"urls":"turn:turn.example.com:3478","username":"u","credential":"c"}]`
+	iceSTUNOnly     = `[{"urls":"stun:stun.l.google.com:19302"}]`
+	iceSTUNOnlyList = `[{"urls":["stun:stun.l.google.com:19302"]}]`
+	iceCloudflare   = `[{"urls":["stun:stun.cloudflare.com:3478"]},` +
+		`{"urls":["turn:turn.cloudflare.com:3478?transport=udp","turns:turn.cloudflare.com:443?transport=tcp"],"username":"u","credential":"c"}]`
+	iceNoURLs = `[{}]`
+)
+
 // floeServer serves the endpoints a healthy signaling server exposes. Individual
 // tests drop one to simulate a reverse proxy that forgot to forward it.
+//
+// The default ICE body offers a relay. It used to be STUN-only, which made the
+// shared happy path assert OK against exactly the server issue #281 is about,
+// so the gap could not be seen from here. Tests that want that server ask for
+// it by name through floeServerICE.
 func floeServer(withHealth, withAPI bool) *httptest.Server {
+	return floeServerICE(withHealth, withAPI, iceWithTURN)
+}
+
+func floeServerICE(withHealth, withAPI bool, iceBody string) *httptest.Server {
 	mux := http.NewServeMux()
 	if withHealth {
 		mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -26,7 +48,7 @@ func floeServer(withHealth, withAPI bool) *httptest.Server {
 	if withAPI {
 		mux.HandleFunc("/api/turn-credentials", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`[{"urls":"stun:stun.l.google.com:19302"}]`))
+			_, _ = w.Write([]byte(iceBody))
 		})
 	}
 	return httptest.NewServer(mux)
@@ -168,6 +190,97 @@ func TestProbeServerAgainstLiveServer(t *testing.T) {
 	// untrimmed base requests //health, //ws and //api/, none of which route.
 	if got := probeServer(base+"/", dialSignaling); !got.OK {
 		t.Errorf("probeServer(%q) = %+v, want OK", base+"/", got)
+	}
+}
+
+// TestProbeServerReportsAnAvailableRelay: the happy path now also answers the
+// question Hide my IP depends on.
+func TestProbeServerReportsAnAvailableRelay(t *testing.T) {
+	srv := floeServer(true, true)
+	defer srv.Close()
+
+	got := probeServer(srv.URL, okWS)
+	if !got.OK || !got.RelayAvailable {
+		t.Fatalf("probeServer = %+v, want OK with a relay", got)
+	}
+	if got.Message != "Connected." {
+		t.Errorf("Message = %q, want the unchanged pass message", got.Message)
+	}
+}
+
+// TestProbeServerReportsAMissingRelay is issue #281. A server with no TURN
+// relay used to answer "Connected." and the failure surfaced thirty seconds
+// into the next Hide my IP transfer, as a generic connection timeout.
+//
+// OK stays TRUE on purpose. This is a working Floe signaling server and every
+// transfer that does not force the relay will run on it; calling it an error
+// would send a self-hoster looking for a broken reverse proxy that does not
+// exist. The message is what carries the limitation.
+func TestProbeServerReportsAMissingRelay(t *testing.T) {
+	srv := floeServerICE(true, true, iceSTUNOnly)
+	defer srv.Close()
+
+	got := probeServer(srv.URL, okWS)
+	if !got.OK {
+		t.Fatalf("probeServer = %+v, want OK: the server itself is fine", got)
+	}
+	if got.RelayAvailable {
+		t.Error("RelayAvailable = true for a STUN-only server")
+	}
+	if !strings.Contains(got.Message, "Hide my IP") {
+		t.Errorf("Message = %q, want it to name the setting that cannot work", got.Message)
+	}
+	if !strings.HasPrefix(got.Message, "Connected.") {
+		t.Errorf("Message = %q, want it to still read as a pass", got.Message)
+	}
+}
+
+// TestProbeServerReadsBothURLShapes is the regression detector for the trap the
+// issue singled out: "urls" is a plain string for coturn and the STUN fallback
+// but an array of strings for Cloudflare. Classifying only one shape would call
+// a Cloudflare server relay-less.
+func TestProbeServerReadsBothURLShapes(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"coturn, urls as a string, with a relay", iceWithTURN, true},
+		{"cloudflare, urls as an array, with a relay", iceCloudflare, true},
+		{"stun only, urls as a string", iceSTUNOnly, false},
+		{"stun only, urls as an array", iceSTUNOnlyList, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := floeServerICE(true, true, tc.body)
+			defer srv.Close()
+
+			got := probeServer(srv.URL, okWS)
+			if !got.OK {
+				t.Fatalf("probeServer = %+v, want OK", got)
+			}
+			if got.RelayAvailable != tc.want {
+				t.Errorf("RelayAvailable = %v, want %v", got.RelayAvailable, tc.want)
+			}
+		})
+	}
+}
+
+// TestProbeServerRejectsAnEmptyICEEntry: an entry with no "urls" is nothing to
+// connect with. The old check counted JSON array entries, so this passed as
+// "usable connection details" while ice.Fetch would have dropped it and fallen
+// back to public STUN. Reading the list through the engine's own decoder is
+// what closes that.
+func TestProbeServerRejectsAnEmptyICEEntry(t *testing.T) {
+	srv := floeServerICE(true, true, iceNoURLs)
+	defer srv.Close()
+
+	got := probeServer(srv.URL, okWS)
+	if got.OK {
+		t.Fatalf("probeServer = %+v, want a failure", got)
+	}
+	if !strings.Contains(got.Message, "usable connection details") {
+		t.Errorf("Message = %q, want the unusable-details message", got.Message)
 	}
 }
 

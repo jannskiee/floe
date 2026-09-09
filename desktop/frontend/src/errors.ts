@@ -14,6 +14,10 @@
 // actionable hint, like the relay cap's Hide my IP note) pass through as-is.
 const PASSTHROUGH = [
     'relay connections are capped',
+    // Anchored on the leading clause, so rewording the advice after it cannot
+    // break the match. Grouped with the relay cap: both are Hide my IP
+    // messages that already name what to turn off.
+    'needs a TURN relay',
     'this code is no longer active',
     'room is full',
 ];

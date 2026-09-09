@@ -112,6 +112,17 @@ describe('friendlyError', () => {
         expect(friendlyError(relay)).toBe('Error: ' + relay);
         const code = 'this code is no longer active; ask for a new one';
         expect(friendlyError(code)).toBe('Error: ' + code);
+        // Both Hide my IP relay guards (desktop/transfer.go errNoRelay and
+        // errRelayUnknown). They already name what to turn off, so a bucket
+        // would replace advice with worse advice. This is the test that
+        // catches a future RULES entry swallowing them, and it covers both
+        // because they open with the same clause the PASSTHROUGH anchors on.
+        const noRelay =
+            'Hide my IP needs a TURN relay and this server has none. Turn off Hide my IP, or add a relay to the server.';
+        expect(friendlyError(noRelay)).toBe('Error: ' + noRelay);
+        const unknownRelay =
+            "Hide my IP needs a TURN relay, and this server's connection details could not be read. Check the server address, or turn off Hide my IP.";
+        expect(friendlyError(unknownRelay)).toBe('Error: ' + unknownRelay);
     });
 
     it('passes unknown errors through unchanged for bug reports', () => {

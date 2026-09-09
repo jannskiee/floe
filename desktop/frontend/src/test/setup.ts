@@ -73,7 +73,7 @@ function installWails() {
         SetSettings: vi.fn(async () => {}),
         StartSend: vi.fn(async () => {}),
         StartSendText: vi.fn(async () => {}),
-        TestServer: vi.fn(async () => ({ok: true, message: 'Connected.'})),
+        TestServer: vi.fn(async () => ({ok: true, message: 'Connected.', relayAvailable: true})),
     };
 
     const probe: WailsProbe = {
