@@ -190,9 +190,32 @@ const MAX_VER = 64;
  * protocol.go:67-71.
  */
 function versionSummary(ver: string, min: number, max: number): string {
-    const range = min === max ? `protocol ${min}` : `protocol ${min}-${max}`;
+    const lo = protocolNumber(min);
+    const hi = protocolNumber(max);
+    const range = lo === hi ? `protocol ${lo}` : `protocol ${lo}-${hi}`;
     const clean = sanitizeDisplayText(ver, MAX_VER);
     return clean ? `${range} (${clean})` : range;
+}
+
+/**
+ * A protocol number on its way to a screen or to the wire.
+ *
+ * `classifyControl` casts parsed JSON straight to its interface, so `pv` and
+ * `pvMin` are whatever the peer typed, exactly like `fileSize` before
+ * `normalizeFileSize`. Interpolating them raw put peer-chosen text into an
+ * error banner with none of the cleaning `reason` and `ver` get: a string is
+ * not a number, so `checkCompat` yields NaN, the ranges "miss", and the rebuilt
+ * message printed the string. A bidi override in it reorders the rest of the
+ * line, and its length was bounded only by the 1000-byte frame rather than by
+ * the 300 characters every other peer string on this path respects.
+ *
+ * Anything that is not a positive integer becomes 1, which is what
+ * `checkCompat` already does with a missing or zero value, and matches the Go
+ * side by outcome: `incompatibleMsg.Pv` is an `int` there, so a non-numeric one
+ * fails to unmarshal and the frame is dropped before anything can display it.
+ */
+function protocolNumber(v: unknown): number {
+    return typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : 1;
 }
 
 /**

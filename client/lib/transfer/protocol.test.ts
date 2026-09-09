@@ -12,6 +12,7 @@ import {
     compatErrorMessage,
     peerCompatErrorMessage,
     compatErrorFromIncompatible,
+    type Incompatible,
     metadataMessage,
     ackMessage,
     endMessage,
@@ -191,6 +192,65 @@ describe('compatErrorFromIncompatible', () => {
         expect(compatErrorFromIncompatible({ type: 'incompatible', reason: '' })).toBe(
             'The other side rejected the transfer.'
         );
+    });
+});
+
+/**
+ * pv and pvMin arrive from the peer with no more type safety than fileSize had
+ * before normalizeFileSize. They reach an error banner and, through
+ * peerCompatErrorMessage, the wire, so they need the same treatment reason and
+ * ver already get.
+ */
+describe('peer-supplied protocol numbers are display-safe', () => {
+    // A string pv makes checkCompat compute NaN, so the ranges "miss" and the
+    // rebuild path runs. Before the coercion that path printed the string.
+    const hostile = {
+        type: 'incompatible' as const,
+        reason: '',
+        pvMin: 1,
+        pv: '‮' + 'A'.repeat(400),
+    };
+
+    it('never prints a peer-supplied protocol number verbatim', () => {
+        const msg = compatErrorFromIncompatible(hostile as unknown as Incompatible);
+        expect(msg).not.toContain('‮');
+        expect(msg).not.toContain('AAAA');
+    });
+
+    it('keeps the banner inside the cap every other peer string respects', () => {
+        const msg = compatErrorFromIncompatible(hostile as unknown as Incompatible);
+        expect(msg.length).toBeLessThanOrEqual(300);
+    });
+
+    it('does not reflect a hostile protocol number back onto the wire', () => {
+        // peerCompatErrorMessage builds the reason a browser receiver sends, and
+        // incompatibleMessage only trims when the frame passes 1000 bytes, so a
+        // short hostile value would ride out untouched.
+        const wire = peerCompatErrorMessage(
+            false, '', 'v2.0.0',
+            MIN_PROTOCOL_VERSION, PROTOCOL_VERSION,
+            'x‮' as unknown as number, 2
+        );
+        expect(wire).not.toContain('‮');
+        expect(wire).toContain('protocol');
+    });
+
+    it('falls back to 1, the same value a missing number already means', () => {
+        // checkCompat treats 0 and undefined as the legacy protocol 1, so the
+        // display agrees rather than inventing a second convention.
+        for (const bad of [0, -3, 1.5, NaN, Infinity, null, undefined, '2', {}]) {
+            const msg = compatErrorMessage(
+                false, '', '',
+                MIN_PROTOCOL_VERSION, PROTOCOL_VERSION,
+                bad as unknown as number, bad as unknown as number
+            );
+            expect(msg).toContain('Peer: protocol 1');
+        }
+    });
+
+    it('still prints a legitimate protocol number', () => {
+        const msg = compatErrorMessage(false, '', '', 1, 1, 2, 7);
+        expect(msg).toContain('Peer: protocol 2-7');
     });
 });
 
