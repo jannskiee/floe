@@ -225,11 +225,11 @@ receiver, which is deliberate (share a link and wait) and cancellable.
 
 ## Release history
 
-Current release: `desktop-v0.2.10` (Microsoft Store 9NBQ8ZQ1065L + GitHub
-pre-release), shipped 2026-09-07. Paired with CLI `v1.10.8`, because the fixes
-they both carry live in `cli/engine`, which reaches a desktop user only through
-a desktop tag, and the receiver-side ones only protect a transfer once the
-RECEIVING peer has them.
+Current release: `desktop-v0.2.11` (Microsoft Store 9NBQ8ZQ1065L + GitHub
+pre-release), shipped 2026-09-09. Paired with CLI `v1.10.9`, because the relay
+check they both carry lives in `cli/engine`, which reaches a desktop user only
+through a desktop tag, and the CLI half of the same fix only reaches a `floe`
+user through a CLI tag.
 
 The list below is the verified order the first public release (0.1.0 beta)
 actually followed. Steps 1-3 shipped the GitHub beta; the plan then pivoted
