@@ -152,11 +152,20 @@ func peerOptions() []peer.Option {
 // path exists. Two opposite causes, one message, and neither one names the
 // flag that caused it.
 //
-// Takes the answer rather than the list so the caller keeps the only reference
+// degraded says the list is ice.Fetch's STUN-only fallback rather than the
+// server's own answer, which is a different thing to tell the reader: the
+// server was never heard from, so blaming its configuration would be a guess.
+// The CLI prints a warning line for that case too, but it scrolls past above
+// the error, so the error says it as well.
+//
+// Takes the answers rather than the list so the caller keeps the only reference
 // to the ICE types, matching the desktop's requireRelay.
-func requireRelay(hasRelay bool) error {
+func requireRelay(hasRelay, degraded bool) error {
 	if !flagRelayOnly || hasRelay {
 		return nil
+	}
+	if degraded {
+		return fmt.Errorf("--relay-only needs a TURN relay, and the connection details from %s could not be read; check --server, or drop the flag", flagServer)
 	}
 	return fmt.Errorf("--relay-only needs a TURN relay and %s offers none; drop the flag, or configure a relay on the server", flagServer)
 }

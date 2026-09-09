@@ -161,22 +161,25 @@ drops `/api/` produces no visible error at all: relay credentials silently fall 
 STUN, and the room code quietly fails to register, so you get a share link with no code and no
 explanation.
 
-While the check runs, the line reads `Checking the server...`. Each of the three stages gets six
-seconds of its own, so an address that swallows connections rather than refusing them can take
-about eighteen seconds to come back. That is slow, not stuck.
+While the check runs, the line reads `Checking the server...`. The two HTTP stages get six
+seconds each, and the realtime stage is bounded by the WebSocket handshake timeout instead, which
+is longer. An address that swallows connections rather than refusing them can take the better part
+of a minute to come back. That is slow, not stuck.
 
 A pass starts with `Connected.` and carries no prefix. Every failure does, so the row below
 reading `That does not look like an address. Include https:// and the host name.` reaches the
 screen with `Error: ` in front of it.
 
-A pass also reports whether the server offers a **relay**. Only
-[Hide my IP](#hide-my-ip-address) needs one, so a server without a relay still passes; the
-message says so rather than reading as a failure.
+A pass also reports whether the server offers a **relay**. A server without one still passes,
+because it works for any transfer that finds a direct path, and the message names the
+limitation rather than reading as a failure. [Hide my IP](#hide-my-ip-address) cannot work at
+all without a relay, and ordinary transfers fall back to it whenever the two devices cannot
+reach each other directly.
 
 | Result | Meaning |
 |---|---|
 | Connected. | All three stages passed, and the server offers a TURN relay. |
-| Connected. This server has no TURN relay, so Hide my IP will not work. | All three stages passed. The server is fine for ordinary transfers, and only [Hide my IP](#hide-my-ip-address) cannot work on it. See [TURN relay](/self-hosting/turn-relay). |
+| Connected. This server has no TURN relay, so Hide my IP will not work. | All three stages passed. [Hide my IP](#hide-my-ip-address) cannot work at all, and ordinary transfers succeed only where a direct path exists. See [TURN relay](/self-hosting/turn-relay). |
 | Enter a server address. | The field is empty. |
 | That does not look like an address. Include https:// and the host name. | Missing scheme or host. |
 | The address must start with https:// or http://. | Some other scheme, such as `ftp://`. |

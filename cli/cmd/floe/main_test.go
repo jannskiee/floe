@@ -218,20 +218,34 @@ func TestRequireRelay(t *testing.T) {
 		name      string
 		relayOnly bool
 		hasRelay  bool
+		degraded  bool
 		wantError bool
+		// A fragment only the could-not-be-read wording carries, so the two
+		// causes cannot be confused for each other.
+		wantUnread bool
 	}{
-		{"a relay-less server is fine without the flag", false, false, false},
-		{"a relay-less server is refused with the flag", true, false, true},
-		{"a relay-capable server is fine with the flag", true, true, false},
-		{"a relay-capable server is fine without the flag", false, true, false},
+		{"a relay-less server is fine without the flag", false, false, false, false, false},
+		{"a relay-less server is refused with the flag", true, false, false, true, false},
+		{"a relay-capable server is fine with the flag", true, true, false, false, false},
+		{"a relay-capable server is fine without the flag", false, true, false, false, false},
+		// The STUN-only fallback, not the server's answer. Saying the server
+		// "offers none" would blame a configuration nobody has seen; the usual
+		// causes are a wrong --server, an un-proxied /api/, and the TURN
+		// endpoint's own rate limiter.
+		{"a list that could not be read does not blame the server", true, false, true, true, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			flagRelayOnly = tc.relayOnly
-			err := requireRelay(tc.hasRelay)
+			err := requireRelay(tc.hasRelay, tc.degraded)
 			if (err != nil) != tc.wantError {
-				t.Fatalf("requireRelay(%v) with flagRelayOnly=%v = %v, wantError %v",
-					tc.hasRelay, tc.relayOnly, err, tc.wantError)
+				t.Fatalf("requireRelay(%v, %v) with flagRelayOnly=%v = %v, wantError %v",
+					tc.hasRelay, tc.degraded, tc.relayOnly, err, tc.wantError)
+			}
+			if err != nil {
+				if got := strings.Contains(err.Error(), "could not be read"); got != tc.wantUnread {
+					t.Errorf("error %q: could-not-be-read wording = %v, want %v", err, got, tc.wantUnread)
+				}
 			}
 			if err == nil {
 				return

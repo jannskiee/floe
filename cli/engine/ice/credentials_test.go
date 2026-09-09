@@ -272,3 +272,110 @@ func TestFetchClientHasATimeout(t *testing.T) {
 		t.Fatal("ice.Fetch runs on a client with no timeout; a black-holing server hangs `floe send` at step 2 indefinitely")
 	}
 }
+
+// TestFetchDetailReportsTheFallback pins the distinction the relay guards need.
+// Fetch collapses four outcomes into the same STUN-only list and a nil error,
+// with only a stdout line telling them apart, and a GUI never shows stdout. A
+// caller that refuses to start because there is no relay has to know whether
+// that was the server's answer or its own fallback, or it blames a
+// configuration nobody has looked at.
+func TestFetchDetailReportsTheFallback(t *testing.T) {
+	cases := []struct {
+		name         string
+		handler      http.HandlerFunc
+		wantDegraded bool
+		wantRelay    bool
+	}{
+		{
+			"a relay-less server is an answer, not a degrade",
+			func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(`[{"urls":"stun:stun.l.google.com:19302"}]`))
+			},
+			false, false,
+		},
+		{
+			"a TURN-bearing server is neither",
+			func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(`[{"urls":"turn:a:3478","username":"u","credential":"c"}]`))
+			},
+			false, true,
+		},
+		{
+			// The endpoint's own limiter is 20 requests per IP per minute.
+			"a 429 degrades",
+			func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTooManyRequests) },
+			true, false,
+		},
+		{
+			// A reverse proxy that forwards /health and /ws but not /api/.
+			"a 404 degrades",
+			func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNotFound) },
+			true, false,
+		},
+		{
+			"a body that is not a list degrades",
+			func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`<html>nope</html>`)) },
+			true, false,
+		},
+		{
+			"a list with nothing usable in it degrades",
+			func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`[{}]`)) },
+			true, false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(tc.handler)
+			defer srv.Close()
+
+			servers, degraded, err := FetchDetail(srv.URL)
+			if err != nil {
+				t.Fatalf("FetchDetail returned an error: %v", err)
+			}
+			if degraded != tc.wantDegraded {
+				t.Errorf("degraded = %v, want %v", degraded, tc.wantDegraded)
+			}
+			if got := HasRelay(servers); got != tc.wantRelay {
+				t.Errorf("HasRelay = %v, want %v", got, tc.wantRelay)
+			}
+		})
+	}
+}
+
+// TestFetchDetailDegradesWhenUnreachable covers the transport failure, which
+// needs no server at all.
+func TestFetchDetailDegradesWhenUnreachable(t *testing.T) {
+	servers, degraded, err := FetchDetail("http://127.0.0.1:9")
+	if err != nil {
+		t.Fatalf("FetchDetail returned an error: %v", err)
+	}
+	if !degraded {
+		t.Error("an unreachable server did not report degraded")
+	}
+	if HasRelay(servers) {
+		t.Error("the fallback claims to offer a relay")
+	}
+}
+
+// TestIceURLClassIgnoresSchemeCase: a URI scheme is case-insensitive (RFC 3986)
+// and pion lowercases it before parsing, so "TURN:" gathers relay candidates.
+// Classifying it case-sensitively made HasRelay disagree with the ICE agent,
+// which would refuse a relay-only transfer that could actually have connected.
+func TestIceURLClassIgnoresSchemeCase(t *testing.T) {
+	cases := map[string]string{
+		"STUN:host:3478":               "stun",
+		"TURN:host:3478":               "udp",
+		"Turn:host:3478":               "udp",
+		"TURNS:host:5349":              "tls",
+		"TURN:host:80?TRANSPORT=TCP":   "tcp",
+		"turn:host:3478?transport=udp": "udp",
+	}
+	for u, want := range cases {
+		if got := iceURLClass(u); got != want {
+			t.Errorf("iceURLClass(%q) = %q, want %q", u, got, want)
+		}
+	}
+	if !HasRelay([]webrtc.ICEServer{{URLs: []string{"TURN:host:3478"}}}) {
+		t.Error("HasRelay missed an uppercase TURN url that pion would use")
+	}
+}

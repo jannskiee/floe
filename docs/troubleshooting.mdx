@@ -154,6 +154,11 @@ arrives immediately instead of as a timeout half a minute later. Drop the flag (
 `FLOE_RELAY_ONLY` if you set it), or add a relay to the instance. Floe's own server always has
 one, so this points at a self-hosted address. See [TURN relay](/self-hosting/turn-relay).
 
+A second wording, `the connection details from ... could not be read`, means the server was never
+heard from, so `floe` fell back to public STUN and cannot say what the server offers. Check
+`--server` for a typo, check that a reverse proxy forwards `/api/`, or try again in a minute:
+that endpoint rate-limits repeated requests from one address.
+
 ### `connected, but no data arrived from the sender within 30s`
 
 You reached the sender and they never started sending. Ask them to try again.
@@ -279,19 +284,28 @@ code and no error.
 ### The Test button says the server has no TURN relay
 
 "Connected. This server has no TURN relay, so Hide my IP will not work." The address is a working
-Floe signaling server, so ordinary transfers are fine. Only
-[Hide my IP address](/desktop/settings#hide-my-ip-address) needs a relay, and it is the one thing this
-server cannot do. This is a pass, not a failure, which is why it carries no `Error: ` prefix.
-Turn the switch off, or add a relay to the instance. See
+Floe signaling server, and this is a pass rather than a failure, which is why it carries no
+`Error: ` prefix. [Hide my IP address](/desktop/settings#hide-my-ip-address) cannot work at all
+without a relay, and ordinary transfers succeed only where the two devices can reach each other
+directly. Turn the switch off, or add a relay to the instance. See
 [TURN relay](/self-hosting/turn-relay).
 
 ### "Hide my IP needs a TURN relay and this server has none."
 
-The transfer stops before it starts rather than timing out about thirty seconds later with advice
-about both devices being online. Turn **Hide my IP** off, or add a relay to your instance. Floe's
-own server always has one, so this only appears on a self-hosted address. **Test** reports the
-same thing about an address before you rely on it. See
-[TURN relay](/self-hosting/turn-relay).
+The server answered, and its answer had no relay in it. The transfer stops before it starts
+rather than timing out about thirty seconds later with advice about both devices being online.
+Turn **Hide my IP** off, or add a relay to your instance. Floe's own server always has one, so
+this only appears on a self-hosted address. **Test** reports the same thing about an address
+before you rely on it. See [TURN relay](/self-hosting/turn-relay).
+
+### "Hide my IP needs a TURN relay, and this server's connection details could not be read."
+
+The difference from the message above is who is being blamed. Here the server was not heard from
+at all, so Floe fell back to public STUN and cannot say what the server offers. Check the
+**Server address** for a typo, run **Test** against it, and if it is behind a reverse proxy check
+that `/api/` is being forwarded. Trying again in a minute also helps, because the TURN endpoint
+rate-limits repeated requests from one address. Turning **Hide my IP** off lets the transfer
+proceed over whatever path is available.
 
 ### The Test button says it may be the web app rather than the signaling server
 

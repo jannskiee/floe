@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -417,18 +418,30 @@ func TestRequireRelay(t *testing.T) {
 		name      string
 		hideIP    bool
 		hasRelay  bool
-		wantError bool
+		degraded  bool
+		wantError error
 	}{
-		{"a relay-less server is fine with the switch off", false, false, false},
-		{"a relay-less server is refused with the switch on", true, false, true},
-		{"a relay-capable server is fine with the switch on", true, true, false},
-		{"a relay-capable server is fine with the switch off", false, true, false},
+		{"a relay-less server is fine with the switch off", false, false, false, nil},
+		{"a relay-less server is refused with the switch on", true, false, false, errNoRelay},
+		{"a relay-capable server is fine with the switch on", true, true, false, nil},
+		{"a relay-capable server is fine with the switch off", false, true, false, nil},
+		// The list this side is holding is the STUN-only fallback, so "no relay"
+		// is this side's guess rather than the server's answer. Blaming the
+		// server's configuration would be a confident guess at a wrong cause,
+		// and the usual causes (a wrong address, an un-proxied /api/, the TURN
+		// endpoint's rate limiter) are all things the reader can act on.
+		{"a list that could not be read does not blame the server", true, false, true, errRelayUnknown},
+		// Degraded but a relay somehow present cannot happen through
+		// ice.FetchDetail today, since the fallback is STUN only. Pinned so a
+		// future fallback with a relay in it does not silently start refusing.
+		{"degraded is irrelevant once a relay is in the list", true, true, true, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := requireRelay(tc.hideIP, tc.hasRelay)
-			if (err != nil) != tc.wantError {
-				t.Fatalf("requireRelay(%v, %v) = %v, wantError %v", tc.hideIP, tc.hasRelay, err, tc.wantError)
+			err := requireRelay(tc.hideIP, tc.hasRelay, tc.degraded)
+			if !errors.Is(err, tc.wantError) {
+				t.Fatalf("requireRelay(%v, %v, %v) = %v, want %v",
+					tc.hideIP, tc.hasRelay, tc.degraded, err, tc.wantError)
 			}
 			if err == nil {
 				return

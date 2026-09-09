@@ -66,13 +66,13 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	absOutput, _ := filepath.Abs(flagOutput)
 
 	// 3. Fetch ICE credentials
-	iceServers, err := ice.Fetch(flagServer)
+	iceServers, degraded, err := ice.FetchDetail(flagServer)
 	if err != nil {
 		return fmt.Errorf("failed to fetch ICE credentials: %w", err)
 	}
 	// Before the room is joined, so a receiver that cannot connect does not take
 	// up the sender's second slot in a two-peer room.
-	if err := requireRelay(ice.HasRelay(iceServers)); err != nil {
+	if err := requireRelay(ice.HasRelay(iceServers), degraded); err != nil {
 		return err
 	}
 	if flagNoRelay {
