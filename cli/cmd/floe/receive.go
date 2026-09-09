@@ -70,6 +70,11 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to fetch ICE credentials: %w", err)
 	}
+	// Before the room is joined, so a receiver that cannot connect does not take
+	// up the sender's second slot in a two-peer room.
+	if err := requireRelay(ice.HasRelay(iceServers)); err != nil {
+		return err
+	}
 	if flagNoRelay {
 		filtered := iceServers[:0]
 		for _, s := range iceServers {

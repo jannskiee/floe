@@ -29,6 +29,32 @@ func relayOpts(hideIP bool) []peer.Option {
 	return nil
 }
 
+// errNoRelay stops a Hide my IP transfer that could only ever time out. With
+// relay-only forced and no TURN URL in the list, ICE gathers no usable
+// candidate at all, so the attempt dies about thirty seconds later as
+// "timed out establishing a connection", which errors.ts maps to advice about
+// both devices being online. They are online; the server simply has no relay.
+var errNoRelay = errors.New("Hide my IP needs a TURN relay and this server has none. Turn off Hide my IP, or add a relay to the server.")
+
+// requireRelay is the transfer-time half of the Settings probe's relay check.
+//
+// It runs here as well as there because ice.Fetch degrades to Google STUN on
+// any non-200 from /api/turn-credentials, including that endpoint's own rate
+// limiter, so even a TURN-capable server can hand this particular transfer a
+// list with nothing to relay through. Only the list actually in use can answer
+// the question.
+//
+// Takes the already-computed answer rather than the server list: naming
+// webrtc.ICEServer in a desktop signature would promote pion from an indirect
+// to a direct requirement in desktop/go.mod, and that file's dependency graph
+// reaches the released floe binary through the workspace.
+func requireRelay(hideIP, hasRelay bool) error {
+	if hideIP && !hasRelay {
+		return errNoRelay
+	}
+	return nil
+}
+
 // StartSend validates the given paths and launches the send flow in the
 // background. Progress is reported to the UI via Wails events:
 //   - "send:code"   {code, link}  once the room code is registered
@@ -124,6 +150,12 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 	iceServers, err := ice.Fetch(server)
 	if err != nil {
 		fail(fmt.Errorf("failed to fetch ICE credentials: %w", err))
+		return
+	}
+	// Before the room code is registered, so nobody is handed a share link that
+	// could never have worked.
+	if err := requireRelay(hideIP, ice.HasRelay(iceServers)); err != nil {
+		fail(err)
 		return
 	}
 
@@ -307,6 +339,11 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 	iceServers, err := ice.Fetch(server)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch ICE credentials: %w", err)
+	}
+	// Before JoinRoom, so a receiver that cannot connect does not take up the
+	// sender's second slot in a two-peer room.
+	if err := requireRelay(hideIP, ice.HasRelay(iceServers)); err != nil {
+		return "", err
 	}
 
 	sc, err := signaling.Connect(server)

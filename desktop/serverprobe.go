@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jannskiee/floe/cli/engine/ice"
 	"github.com/jannskiee/floe/cli/engine/serverurl"
 	"github.com/jannskiee/floe/cli/engine/signaling"
 )
@@ -28,6 +29,11 @@ const probeTimeout = 6 * time.Second
 type ProbeResult struct {
 	OK      bool   `json:"ok"`
 	Message string `json:"message"`
+	// RelayAvailable reports whether the server's ICE list offers a TURN relay.
+	// Only meaningful when OK: a probe that failed before stage three never
+	// looked, and the zero value says so. Hide my IP is the only thing that
+	// needs a relay, so false here is information rather than a failure.
+	RelayAvailable bool `json:"relayAvailable"`
 }
 
 // TestServer checks that an address is a reachable Floe signaling server.
@@ -105,7 +111,8 @@ func probeHealth(base string) ProbeResult {
 	return ProbeResult{OK: true}
 }
 
-// probeAPI is stage three: the REST endpoints a transfer actually needs.
+// probeAPI is stage three: the REST endpoints a transfer actually needs, and
+// whether the ICE list they return has a relay in it.
 func probeAPI(base string) ProbeResult {
 	resp, err := probeClient().Get(base + "/api/turn-credentials")
 	if err != nil {
@@ -117,11 +124,25 @@ func probeAPI(base string) ProbeResult {
 		return ProbeResult{Message: fmt.Sprintf(
 			"The server is running, but its API answered with HTTP %d. If it is behind a reverse proxy, check that /api/ is being forwarded.", resp.StatusCode)}
 	}
-	var servers []map[string]any
-	if json.NewDecoder(resp.Body).Decode(&servers) != nil || len(servers) == 0 {
+	// Decoded by the engine rather than by hand. "urls" is a plain string for
+	// coturn and the STUN-only fallback but an array for Cloudflare, and one
+	// decoder is one place to get that right. It also makes "usable" here mean
+	// what a transfer means by it: an entry with no urls at all used to pass,
+	// because the old check only asked whether the JSON array was non-empty.
+	servers, err := ice.ParseServers(resp.Body)
+	if err != nil || len(servers) == 0 {
 		return ProbeResult{Message: "The server is running, but it did not return usable connection details."}
 	}
-	return ProbeResult{OK: true, Message: "Connected."}
+	if !ice.HasRelay(servers) {
+		// A pass, not a failure, and the OK matters: this is a working Floe
+		// signaling server, every transfer that does not force the relay will
+		// run on it, and marking it an error would send a self-hoster looking
+		// for a broken reverse proxy that does not exist. Saying so here is
+		// what replaces a thirty-second timeout later that reads like a
+		// network fault on a network that is fine.
+		return ProbeResult{OK: true, Message: "Connected. This server has no TURN relay, so Hide my IP will not work."}
+	}
+	return ProbeResult{OK: true, RelayAvailable: true, Message: "Connected."}
 }
 
 // probeClient refuses redirects rather than following them, so a captive portal

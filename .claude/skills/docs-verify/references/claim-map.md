@@ -10,6 +10,14 @@ The map names where a value is stated; grep the old literal repo-wide before fin
 - `RELAY_CAP` (client/lib/howItWorksStrings.ts) is `formatBytes(RELAY_SIZE_LIMIT)` and is what /how-it-works prints; its test pins it to "2 GB", so a change to client/lib/relay.ts fails the client suite. The Go constant is not read by the client, so only this map couples the two.
 - Docs: docs/how-it-works/2gb-limit.mdx (whole page, including the "exactly N is allowed" sentence), docs/troubleshooting.mdx (the relay-limit headings and the desktop "capped" heading), docs/self-hosting/turn-relay.mdx (end of "How credentials work"), docs/cli/send.mdx "Notes", docs/desktop/settings.mdx "Hide my IP address", CLAUDE.md "Relay Size Limit".
 
+## Desktop server probe and the relay guard
+
+- `probeServer`'s three stages and every string in `probeHealth`, `probeAPI` and `describeDialError` (desktop/serverprobe.go), plus `probeTimeout`, which is the "six seconds each" and "about eighteen seconds" claim. The probe-result table in the docs quotes all of them verbatim and nothing compares them automatically.
+- `ProbeResult.RelayAvailable` and the two pass messages: `Connected.` when a relay is offered, and the longer one naming Hide my IP when it is not. `OK` stays true either way, on purpose, so the docs must not describe the relay-less case as a failure.
+- `errNoRelay` and `requireRelay` (desktop/transfer.go), and `requireRelay` (cli/cmd/floe/main.go) for the CLI's `--relay-only` wording. Both are quoted in docs/troubleshooting.mdx. The desktop one is anchored in desktop/frontend/src/errors.ts `PASSTHROUGH` by the clause "needs a TURN relay" and asserted whole in errors.test.ts, so rewording that clause breaks the passthrough silently.
+- `HasRelay` and `ParseServers` (cli/engine/ice/credentials.go) are the one classifier and the one decoder the probe and both guards share; `HasRelay` delegates to `iceURLClass`, whose cases `TestIceURLClass` pins. `defaults()` has no relay, which is why a non-200 from `/api/turn-credentials` degrades into exactly the case the guards catch.
+- Docs: docs/desktop/settings.mdx (the stage table, the pass and prefix sentence, the whole probe-result table, and the Hide my IP `<Warning>`), docs/troubleshooting.mdx (the four "The Test button says ..." headings, the Hide my IP relay heading, the `--relay-only needs a TURN relay` heading, and the `timed out establishing a connection` heading, which no longer covers `--relay-only`), docs/cli/flags.mdx (the `--relay-only` row), docs/self-hosting/reverse-proxy.mdx "Using the CLI and the desktop app with a one-domain instance".
+
 ## Protocol version
 
 - `ProtocolVersion` / `MinProtocolVersion` (cli/engine/transfer/protocol.go) and `PROTOCOL_VERSION` / `MIN_PROTOCOL_VERSION` (client/lib/transfer/protocol.ts).

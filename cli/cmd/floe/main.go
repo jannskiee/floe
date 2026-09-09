@@ -143,6 +143,24 @@ func peerOptions() []peer.Option {
 	return opts
 }
 
+// requireRelay refuses a --relay-only transfer that has nowhere to relay
+// through, before it spends thirty seconds finding that out.
+//
+// With relay-only forced and no TURN URL in the list, ICE gathers no usable
+// candidate at all, so the run used to end on the same
+// "timed out establishing a connection" that --no-relay produces when no direct
+// path exists. Two opposite causes, one message, and neither one names the
+// flag that caused it.
+//
+// Takes the answer rather than the list so the caller keeps the only reference
+// to the ICE types, matching the desktop's requireRelay.
+func requireRelay(hasRelay bool) error {
+	if !flagRelayOnly || hasRelay {
+		return nil
+	}
+	return fmt.Errorf("--relay-only needs a TURN relay and %s offers none; drop the flag, or configure a relay on the server", flagServer)
+}
+
 // connectedLine is the status line printed once the data channel is open. It
 // names the route ICE settled on, "direct" or "relay", so a user can tell at a
 // glance whether the transfer is device to device or through the TURN relay.

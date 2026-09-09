@@ -55,10 +55,11 @@ See the [CLI flags reference](/cli/flags).
 <Warning>
   **Hide my IP needs a relay to exist.** On Floe's own server there is always one. If you point
   the app at [your own server](#server) that has no TURN relay configured, a relay-only
-  connection has nowhere to go, and the transfer fails with a generic connection error rather
-  than a message explaining why. If transfers stop working right after you switch servers, turn
-  Hide my IP off and try again. To keep using it, add a relay to your instance. See
-  [TURN relay](/self-hosting/turn-relay). The CLI's `--relay-only` fails the same way.
+  connection has nowhere to go. Floe checks before it starts: the transfer stops immediately and
+  says so, rather than timing out after about thirty seconds with a generic connection error, and
+  **Test** reports the same thing about an address before you rely on it. Turn Hide my IP off, or
+  add a relay to your instance. See [TURN relay](/self-hosting/turn-relay). The CLI's
+  `--relay-only` is checked the same way and names the flag instead.
 </Warning>
 
 ### Contribute to global stats
@@ -153,7 +154,7 @@ each one catches a failure the others cannot:
 |---|---|
 | `/health` | Something is there, and it is a Floe signaling server. |
 | `/ws` | The realtime connection gets through, which is what a transfer actually uses. |
-| `/api/` | Room codes and relay credentials get through. |
+| `/api/` | Room codes get through, and the server returns a usable connection list. The result also says whether that list includes a relay. |
 
 The third stage matters more than it looks. A reverse proxy that forwards the first two but
 drops `/api/` produces no visible error at all: relay credentials silently fall back to public
@@ -164,13 +165,18 @@ While the check runs, the line reads `Checking the server...`. Each of the three
 seconds of its own, so an address that swallows connections rather than refusing them can take
 about eighteen seconds to come back. That is slow, not stuck.
 
-A pass reports `Connected.` on its own; every failure carries an `Error: ` prefix, so the second
-row below reaches the screen as
-`Error: That does not look like an address. Include https:// and the host name.`
+A pass starts with `Connected.` and carries no prefix. Every failure does, so the row below
+reading `That does not look like an address. Include https:// and the host name.` reaches the
+screen with `Error: ` in front of it.
+
+A pass also reports whether the server offers a **relay**. Only
+[Hide my IP](#hide-my-ip-address) needs one, so a server without a relay still passes; the
+message says so rather than reading as a failure.
 
 | Result | Meaning |
 |---|---|
-| Connected. | All three stages passed. |
+| Connected. | All three stages passed, and the server offers a TURN relay. |
+| Connected. This server has no TURN relay, so Hide my IP will not work. | All three stages passed. The server is fine for ordinary transfers, and only [Hide my IP](#hide-my-ip-address) cannot work on it. See [TURN relay](/self-hosting/turn-relay). |
 | Enter a server address. | The field is empty. |
 | That does not look like an address. Include https:// and the host name. | Missing scheme or host. |
 | The address must start with https:// or http://. | Some other scheme, such as `ftp://`. |
@@ -182,7 +188,7 @@ row below reaches the screen as
 | Something answered at that address, but it is not a Floe signaling server. | Something else is on that address. |
 | The server answered, but the realtime connection was refused. If it is behind a reverse proxy, check that /ws is being forwarded. | Stage two failed. |
 | The server is running, but its API answered with HTTP ... If it is behind a reverse proxy, check that /api/ is being forwarded. | Stage three failed. |
-| The server is running, but it did not return usable connection details. | Stage three answered, but with no ICE servers in the list. |
+| The server is running, but it did not return usable connection details. | Stage three answered, but with nothing in the list to connect with. |
 
 See [Run behind one domain](/self-hosting/reverse-proxy) for a proxy configuration that
 forwards all three.

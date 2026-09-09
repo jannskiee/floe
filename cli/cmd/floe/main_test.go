@@ -200,3 +200,51 @@ func TestRelayOnlyThroughTheCommandTree(t *testing.T) {
 		})
 	}
 }
+
+// TestRequireRelay pins the CLI half of issue #281. Against a server with no
+// TURN relay, --relay-only has nowhere to go: ICE gathers no usable candidate
+// and the run ends thirty seconds later on the same
+// "timed out establishing a connection" that --no-relay produces when no direct
+// path exists. Two opposite causes, one message, neither naming the flag.
+//
+// The first case is the one a careless implementation breaks: a STUN-only
+// server is a perfectly good server without the flag, and must not be refused.
+func TestRequireRelay(t *testing.T) {
+	origFlag, origServer := flagRelayOnly, flagServer
+	t.Cleanup(func() { flagRelayOnly, flagServer = origFlag, origServer })
+	flagServer = "https://floe.example.com"
+
+	cases := []struct {
+		name      string
+		relayOnly bool
+		hasRelay  bool
+		wantError bool
+	}{
+		{"a relay-less server is fine without the flag", false, false, false},
+		{"a relay-less server is refused with the flag", true, false, true},
+		{"a relay-capable server is fine with the flag", true, true, false},
+		{"a relay-capable server is fine without the flag", false, true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			flagRelayOnly = tc.relayOnly
+			err := requireRelay(tc.hasRelay)
+			if (err != nil) != tc.wantError {
+				t.Fatalf("requireRelay(%v) with flagRelayOnly=%v = %v, wantError %v",
+					tc.hasRelay, tc.relayOnly, err, tc.wantError)
+			}
+			if err == nil {
+				return
+			}
+			// Naming the flag is the point: the message it replaces did not,
+			// which is why the same timeout covered two opposite causes.
+			if !strings.Contains(err.Error(), "--relay-only") {
+				t.Errorf("error %q does not name the flag that caused it", err)
+			}
+			// And the server, so a wrong --server is visible in the message.
+			if !strings.Contains(err.Error(), flagServer) {
+				t.Errorf("error %q does not name the server it asked", err)
+			}
+		})
+	}
+}

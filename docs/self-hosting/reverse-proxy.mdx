@@ -181,9 +181,10 @@ The desktop app takes the same single address. Open Settings, expand
 **Advanced**, put `https://floe.example.com` in **Server address**, and click
 **Test**. The test runs three checks in order: that `/health` answers as a Floe
 signaling server, that the realtime `/ws` connection is accepted, and that
-`GET /api/turn-credentials` returns usable connection details. A proxy that
+`GET /api/turn-credentials` returns a usable connection list. A proxy that
 forwards only some of those is named in the failure message instead of breaking
-silently later. Leave **Share link address** blank on a one-domain instance and
+silently later. The result also says whether that list includes a TURN relay,
+which only [Hide my IP address](/desktop/settings#hide-my-ip-address) needs. Leave **Share link address** blank on a one-domain instance and
 the app derives the link from the server address. See
 [Desktop app settings](/desktop/settings#server).
 

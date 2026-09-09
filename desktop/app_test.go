@@ -403,3 +403,46 @@ func TestGetPendingFilesDrains(t *testing.T) {
 		t.Fatalf("second pull = %v, want nil", got)
 	}
 }
+
+// TestRequireRelay pins the transfer-time half of issue #281. Hide my IP forces
+// the relay path, so without a TURN URL in the list the attempt gathers no
+// usable candidate and dies about thirty seconds later as a generic timeout,
+// which errors.ts turns into advice about both devices being online.
+//
+// The first case is the one a careless implementation breaks: a STUN-only
+// server is a perfectly good server when the switch is off, and must not be
+// refused.
+func TestRequireRelay(t *testing.T) {
+	cases := []struct {
+		name      string
+		hideIP    bool
+		hasRelay  bool
+		wantError bool
+	}{
+		{"a relay-less server is fine with the switch off", false, false, false},
+		{"a relay-less server is refused with the switch on", true, false, true},
+		{"a relay-capable server is fine with the switch on", true, true, false},
+		{"a relay-capable server is fine with the switch off", false, true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := requireRelay(tc.hideIP, tc.hasRelay)
+			if (err != nil) != tc.wantError {
+				t.Fatalf("requireRelay(%v, %v) = %v, wantError %v", tc.hideIP, tc.hasRelay, err, tc.wantError)
+			}
+			if err == nil {
+				return
+			}
+			// The message has to name the switch, or it is the same
+			// unactionable failure in different words.
+			if !strings.Contains(err.Error(), "Hide my IP") {
+				t.Errorf("error %q does not name the setting to turn off", err)
+			}
+			// errors.ts matches on this clause to pass the sentence through
+			// verbatim; see its PASSTHROUGH list.
+			if !strings.Contains(err.Error(), "needs a TURN relay") {
+				t.Errorf("error %q lost the clause errors.ts anchors on", err)
+			}
+		})
+	}
+}
