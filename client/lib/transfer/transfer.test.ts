@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { sendFiles, sendAbortReason, CONTROL_FLUSH_MS, type SenderDeps, type FileEntry } from './sender';
 import { createReceiver } from './receiver';
-import { metadataMessage, endMessage, ackMessage, incompatibleMessage, CONTROL_MSG_MAX, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION } from './protocol';
+import { metadataMessage, endMessage, ackMessage, incompatibleMessage, CONTROL_MSG_MAX, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, checkCompat } from './protocol';
 
 const enc = new TextEncoder();
 
@@ -352,6 +352,148 @@ describe('receiver: a peer that stops on purpose says why', () => {
         const parsed = JSON.parse(frame);
         expect(parsed.type).toBe('incompatible');
         expect(parsed.reason.length).toBeGreaterThan(0);
+    });
+});
+
+/**
+ * Issue #283. The reason a receiver puts on the wire is read by the OTHER
+ * side, so it has to name the sides from that side's point of view. The Go
+ * receiver has done this since PR #282; the browser sent the same sentence it
+ * showed itself, so a peer that displays the reason verbatim was told the
+ * wrong side was old.
+ *
+ * Unreachable between shipped peers, which all speak protocol 1, so the fixture
+ * drives a metadata frame claiming protocol 2.
+ */
+describe('receiver: the wire reason is written for the peer that reads it', () => {
+    function receiver() {
+        const sent: (string | Uint8Array)[] = [];
+        const errors: string[] = [];
+        const rx = createReceiver({
+            send: (d) => sent.push(d),
+            onError: (m) => errors.push(m),
+        });
+        return { rx, sent, errors };
+    }
+
+    function futureMetadata(): string {
+        return JSON.stringify({
+            type: 'metadata',
+            id: 'a',
+            fileName: 'a.bin',
+            fileSize: 1,
+            index: 1,
+            total: 1,
+            totalBytes: 1,
+            pv: 2,
+            pvMin: 2,
+            ver: '1.11.0',
+        });
+    }
+
+    it('sends the peer-perspective reason and shows itself the browser one', () => {
+        // The defect, stated as one assertion pair: two different strings out
+        // of one mismatch. Before the fix both of these were the same string.
+        const h = receiver();
+        h.rx.handleMessage(futureMetadata());
+
+        const frame = h.sent[0];
+        expect(frame).toBeInstanceOf(Uint8Array);
+        const parsed = JSON.parse(new TextDecoder().decode(frame as Uint8Array));
+        expect(parsed.type).toBe('incompatible');
+        expect(parsed.reason).toContain("peer's floe is too old");
+        expect(parsed.reason).toContain('You: protocol 2 (1.11.0)  Peer: protocol 1');
+        expect(parsed.reason).toContain('Ask the other side to update Floe.');
+        // The trap: a naive perspective flip reuses the browser's local
+        // wording, which means nothing to a CLI or desktop reader.
+        expect(parsed.reason).not.toContain('browser');
+        expect(parsed.reason).not.toContain('Refresh the page');
+
+        // What this browser shows itself is unchanged, and still browser-voiced.
+        expect(h.errors).toHaveLength(1);
+        expect(h.errors[0]).toContain('your browser is running an older version of Floe');
+        expect(h.errors[0]).toContain('Refresh the page to get the latest version.');
+    });
+
+    it('names the side a rebuilding peer would name', () => {
+        // The round trip, without hardcoding the answer: read the frame back
+        // as the protocol-2 peer that sent the metadata, and check the reason
+        // agrees with what that peer works out for itself from pv/pvMin.
+        const h = receiver();
+        h.rx.handleMessage(futureMetadata());
+        const parsed = JSON.parse(new TextDecoder().decode(h.sent[0] as Uint8Array));
+
+        const { ok, localTooOld } = checkCompat(2, 2, parsed.pvMin, parsed.pv);
+        expect(ok).toBe(false);
+        expect(localTooOld).toBe(false); // the reader is NEWER; we are the old one
+        expect(parsed.reason).toContain("peer's floe is too old");
+    });
+
+    it('still carries our own pv range, so the frame stays classifiable', () => {
+        const h = receiver();
+        h.rx.handleMessage(futureMetadata());
+        const parsed = JSON.parse(new TextDecoder().decode(h.sent[0] as Uint8Array));
+        expect(parsed.pv).toBe(PROTOCOL_VERSION);
+        expect(parsed.pvMin).toBe(MIN_PROTOCOL_VERSION);
+        // Browser peers omit ver by design; docs/reference/transfer-protocol.mdx
+        // states it as a wire fact, and a Go peer prints the range without a
+        // parenthetical rather than an empty "()".
+        expect(parsed.ver).toBeUndefined();
+    });
+});
+
+/**
+ * The other half of #283: a browser SENDER used to print whatever reason
+ * arrived, so a browser too old for its peer read the peer's neutral wording
+ * instead of "refresh the page". It now rebuilds from the frame's pv range,
+ * the way the Go sender has since PR #282.
+ */
+describe('sender: a version mismatch is rebuilt from the frame', () => {
+    it('shows the browser remedy instead of the neutral wire wording', async () => {
+        const wire =
+            "Cannot transfer: your floe is too old for this peer.\n  You: protocol 1  Peer: protocol 2 (1.11.0)\n  Update Floe to continue.";
+        const errors: string[] = [];
+        await sendFiles(
+            scriptedDeps(() =>
+                JSON.stringify({ type: 'incompatible', reason: wire, pv: 2, pvMin: 2, ver: '1.11.0' })
+            ),
+            [{ id: 'x', file: makeFile(16, 'a.bin') }],
+            { onError: (m) => errors.push(m) }
+        );
+        expect(errors).toHaveLength(1);
+        expect(errors[0]).toContain('your browser is running an older version of Floe');
+        expect(errors[0]).toContain('Refresh the page to get the latest version.');
+        expect(errors[0]).toContain('Peer: protocol 2 (1.11.0)');
+        expect(errors[0]).not.toContain('Update Floe to continue.');
+    });
+
+    it('still prints a deliberate abort verbatim, because its pv range overlaps ours', async () => {
+        // The PR #429 contract, pinned on the sender side for the first time.
+        // incompatibleMessage stamps the current range, so this is an abort
+        // reason and not a version mismatch.
+        const reason = 'Transfer blocked: relay connections are capped at 2 GB.';
+        const errors: string[] = [];
+        await sendFiles(
+            scriptedDeps(() => incompatibleMessage(reason)),
+            [{ id: 'x', file: makeFile(16, 'a.bin') }],
+            { onError: (m) => errors.push(m) }
+        );
+        expect(errors).toEqual([reason]);
+    });
+
+    it('cleans a hostile version string in a mismatch frame', async () => {
+        const ver = 'v\u202e' + 'x'.repeat(400);
+        const errors: string[] = [];
+        await sendFiles(
+            scriptedDeps(() =>
+                JSON.stringify({ type: 'incompatible', reason: 'x', pv: 2, pvMin: 2, ver })
+            ),
+            [{ id: 'x', file: makeFile(16, 'a.bin') }],
+            { onError: (m) => errors.push(m) }
+        );
+        expect(errors).toHaveLength(1);
+        expect(errors[0]).toContain('Cannot transfer');
+        expect(errors[0]).not.toContain('\u202e');
     });
 });
 

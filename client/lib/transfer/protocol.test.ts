@@ -10,10 +10,13 @@ import {
     chunkSize,
     classifyControl,
     compatErrorMessage,
+    peerCompatErrorMessage,
+    compatErrorFromIncompatible,
     metadataMessage,
     ackMessage,
     endMessage,
 } from './protocol';
+import { sanitizeDisplayText } from '../download';
 
 const enc = new TextEncoder();
 
@@ -87,6 +90,107 @@ describe('compatErrorMessage', () => {
         expect(msg).toContain('v2');
         expect(msg).not.toContain('\u202e');
         expect(msg).not.toContain('\u001b');
+    });
+    it('cleans the peer version wherever it lands in the arguments', () => {
+        // peerCompatErrorMessage swaps the two version strings, so the
+        // peer-supplied one arrives in the localVer slot. Sanitizing by
+        // argument position rather than by both would put an unmapped peer
+        // string on the wire. Go maps both for the same reason.
+        const msg = peerCompatErrorMessage(true, '', 'v2\u202e\u001b', 1, 1, 2, 2);
+        expect(msg).toContain('v2');
+        expect(msg).not.toContain('\u202e');
+        expect(msg).not.toContain('\u001b');
+    });
+});
+
+/**
+ * The wire half of the same mismatch. These mirror the two
+ * peerCompatErrorMessage assertions in TestCompatErrorMessage
+ * (cli/engine/transfer/transfer_test.go), so both implementations pin the same
+ * sentences and a drift in either shows up as a failing test rather than as a
+ * peer being told the wrong side is old.
+ */
+describe('peerCompatErrorMessage', () => {
+    it('tells an older peer that its own floe is the old one', () => {
+        const msg = peerCompatErrorMessage(false, 'v2.0.0', 'v1.5.5', 2, 2, 1, 1);
+        expect(msg).toContain('your floe is too old');
+        expect(msg).toContain('You: protocol 1 (v1.5.5)  Peer: protocol 2 (v2.0.0)');
+        expect(msg).toContain('Update Floe to continue.');
+    });
+
+    it('tells a newer peer that our side is the old one', () => {
+        const msg = peerCompatErrorMessage(true, 'v1.5.5', 'v2.0.0', 1, 1, 2, 2);
+        expect(msg).toContain("peer's floe is too old");
+        expect(msg).toContain('You: protocol 2 (v2.0.0)  Peer: protocol 1 (v1.5.5)');
+        expect(msg).toContain('Ask the other side to update Floe.');
+    });
+
+    it('never puts browser-specific prose on the wire', () => {
+        // The whole point of the function. The reader may be running the CLI
+        // or the desktop app, where "your browser" is wrong and refreshing a
+        // page is not a thing. A naive flip into compatErrorMessage fails
+        // exactly here.
+        for (const localTooOld of [true, false]) {
+            const msg = peerCompatErrorMessage(localTooOld, '', 'v2.0.0', 1, 1, 2, 2);
+            expect(msg).not.toContain('browser');
+            expect(msg).not.toContain('Refresh the page');
+            expect(msg).not.toContain('floe update');
+        }
+    });
+
+    it('keeps the two-space indent that survives a reader stripping newlines', () => {
+        // Not cosmetic. sanitizeDisplayText removes control characters, and a
+        // newline is one, so a browser peer displaying this verbatim loses
+        // every line break. The two spaces are what keep the sentences apart.
+        const msg = peerCompatErrorMessage(false, '', 'v2.0.0', 1, 1, 2, 2);
+        expect(msg).toContain('\n  You: ');
+        expect(msg).toContain('\n  Update Floe to continue.');
+        expect(sanitizeDisplayText(msg, 300)).toContain('.  You: ');
+    });
+
+    it('omits an empty version instead of printing empty parentheses', () => {
+        const msg = peerCompatErrorMessage(true, '', '', 1, 1, 2, 2);
+        expect(msg).not.toContain('()');
+    });
+});
+
+describe('compatErrorFromIncompatible', () => {
+    it('rebuilds a version mismatch instead of trusting the reason', () => {
+        // The reason was written by the other side, for the other side. Read
+        // back as sent it would tell this browser that the peer is too old,
+        // when in fact this browser is.
+        const msg = compatErrorFromIncompatible({
+            type: 'incompatible',
+            reason:
+                "Cannot transfer: peer's floe is too old.\n  You: protocol 2 (1.11.0)  Peer: protocol 1\n  Ask the other side to update Floe.",
+            pv: 2,
+            pvMin: 2,
+            ver: '1.11.0',
+        });
+        expect(msg).toContain('your browser is running an older version of Floe');
+        expect(msg).toContain('Refresh the page to get the latest version.');
+        expect(msg).toContain('Peer: protocol 2 (1.11.0)');
+        expect(msg).not.toContain('Ask the other side');
+    });
+
+    it('prints a deliberate abort verbatim, because its range overlaps ours', () => {
+        // The #429 contract: an overlapping range means the frame is not about
+        // versions at all, and the reason is the only account of what happened.
+        const reason = 'Transfer blocked: relay connections are capped at 2 GB.';
+        expect(
+            compatErrorFromIncompatible({
+                type: 'incompatible',
+                reason,
+                pv: PROTOCOL_VERSION,
+                pvMin: MIN_PROTOCOL_VERSION,
+            })
+        ).toBe(reason);
+    });
+
+    it('falls back when a legacy peer sent no reason at all', () => {
+        expect(compatErrorFromIncompatible({ type: 'incompatible', reason: '' })).toBe(
+            'The other side rejected the transfer.'
+        );
     });
 });
 
