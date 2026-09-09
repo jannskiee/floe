@@ -127,9 +127,8 @@
    motion-reduce:animate-none in the Tailwind v4 cascade (the desktop app hit
    this), while an unlayered media block can never lose. Reduced motion, the
    e2e sweep, the screenshot matrix and a JS-off reader all get the completed
-   figure at first paint. Only stroke-dashoffset, stroke, opacity,
-   stroke-opacity and pointer-events animate, and the box is reserved by
-   aspect-ratio, so nothing shifts layout.
+   figure at first paint. Only stroke-dashoffset, stroke and opacity animate,
+   and the box is reserved by aspect-ratio, so nothing shifts layout.
    The spurs draw on a plain ease-out rather than the expo-out the ice line
    keeps. Under expo-out 80% of a line is laid down in the first 23% of its
    duration, so lengthening the spurs only lengthened a tail nobody watches and
@@ -143,15 +142,10 @@
    a tail with nothing in it: the 1000ms window is about 450ms of visible
    drawing. The beats after it are therefore timed off that visible finish, not
    off the window, or the figure stalls with the arch just sitting there.
-   Sequence (about 4.7 s, once, no loop): the spurs draw from the devices to
-   the server tick in a lit zinc (#a1a1aa, never ice: see hiw-thaw), the direct
-   line draws across, the spurs thaw to zinc-700 (the server steps aside), the
-   ring lands on THEM, the relay detour fades in, and then, with the map
-   complete, a light crosses the direct line from YOU to THEM (2500 to 4300ms)
-   and the ring blooms as it lands (fading out by 4650ms). The draw-in tells
-   the order; the light tells the direction and which line carries the file.
-   Once that finale has played, hovering the drawing replays the crossing in a
-   slow loop (see .hiw-box:hover below). */
+   Sequence (about 2.45 s, once, no loop): the spurs draw from the devices to
+   the server tick in ice, the direct line draws across, the spurs thaw to
+   zinc-700 (the server has left), the ring lands on THEM, then the relay
+   detour fades in. */
 .hiw-fig svg {
     display: block;
     width: 100%;
@@ -190,105 +184,14 @@
 .hiw-direct {
     stroke: oklch(0.87 0.05 220);
 }
-/* zinc-500 and a 1 4 dot, up from zinc-600 and 1 5. This is the path that
-   carries the 2 GB rule, and at DPR 1 the old dotting left about a sixth of a
-   hairline's ink at 2.57:1, so on a desktop it all but vanished (the phone, at
-   DPR 3, was fine). #71717a is the ticks' own gray at 4.12:1; solid against
-   dotted still tells the relay tick from the path it sits on, and the dots stay
-   well under the ice line. */
 .hiw-detour {
-    stroke: #71717a;
-    stroke-dasharray: 1 4;
+    stroke: #52525b;
+    stroke-dasharray: 1 5;
     stroke-linecap: round;
 }
 .hiw-fig circle.hiw-ring {
     stroke: oklch(0.87 0.05 220);
     fill: #09090b;
-}
-/* The light that crosses the direct line: three dashed copies of that line,
-   swept by one stroke-dashoffset. Every dash ends at pattern position 160, so
-   the three heads travel as one: the core is the last 40 of those units, the
-   tail the last 120, the halo all 160, and a leading 0-length dash lets the
-   shorter two start their pattern with a gap. That zero-length dash is why
-   the caps stay butt: under a round cap a zero-length dash renders as a dot of
-   the stroke's width, and the core's dot rode along at the tail's start,
-   brighter than the head at the narrow variant's scale. The 1200 gap keeps
-   the next copy of the pattern off the path for the whole sweep (it needs at
-   least 1004). At rest the pattern sits 164 units before YOU (160 plus 4 of
-   slack), which is the finished drawing: no light on the line. The sweep runs
-   the offset from 164 to -1004, 1168 units, so the head enters at YOU, reaches
-   THEM 86% of the way through, and the tail drains into the ring's fill.
-   vector-effect: none, not the figure's non-scaling-stroke. Every engine lays
-   a non-scaling stroke's dashes out in screen space (Blink's DashScaleFactor is
-   pathLength-only, Gecko skips the transform for stroking, and the SVG WG's
-   2018 minutes on w3c/svgwg#323, still open, read the spec as host space), so
-   a MOVING dash would cover a fixed number of screen pixels whatever the
-   scale: at the narrow variant's 1.333 cap the head would stop at 87% of the
-   line with the next copy of the pattern already parked on THEM, the same
-   class of bug the 1600 headroom above exists for. In user units the dash
-   scales with the path and the head always arrives; the price is a stroke
-   that scales 0.7x to 1.33x with the figure, which a glow can afford and a
-   hairline cannot.
-   shape-rendering: auto, unlike the crispEdges line beneath, which is the
-   soft edge a light should have. At the wide variant's scale of exactly 1
-   that line snaps into the device row below its coordinate while the 1.75
-   core, centered on the coordinate, lights that row and most of the row
-   above it, with the halo two rows either side: the light sits half a pixel
-   high. A half-unit lift would center it there and miscenter it at the
-   phone's 1.333, so it stays; at DPR 2 the object is symmetric.
-   Written as .hiw-fig .hiw-comet because .hiw-fig path (0,1,1) outranks a bare
-   .hiw-comet (0,1,0). Nothing here is a fill: ice is never a fill on this site,
-   and a filter would re-rasterize a blur every frame and promote a layer that
-   drops the 11px labels to grayscale antialiasing (see the `both` note
-   below); the halo is a wider stroke at low opacity instead. */
-.hiw-fig .hiw-comet {
-    vector-effect: none;
-    shape-rendering: auto;
-    stroke-linecap: butt;
-    stroke: oklch(0.87 0.05 220);
-    stroke-dashoffset: 164;
-}
-/* 0.15, measured against the spur beside it: at 0.22 the halo rows read L54
-   over the background's 9, a flat gray sleeve brighter than the spur arch
-   (L63) it passes under; at 0.15 they read about L40, under the spur, and the
-   falloff from head to line to halo to background steps evenly. */
-.hiw-fig .hiw-comet-halo {
-    stroke-width: 4;
-    stroke-opacity: 0.15;
-    stroke-dasharray: 160 1200;
-}
-/* The tail is the head's color at 0.35, not ice: ice at any opacity over the
-   full-opacity ice line is a no-op, so an ice tail faded only in the fringe
-   rows and left the line itself unchanged behind the head. In the head's color
-   the line steps 245 (head) to about 224 (tail) to 213 (line), a real fade on
-   the line, and 0.35 keeps the tail under the 228 the spec uses to find the
-   head. */
-.hiw-fig .hiw-comet-tail {
-    stroke-width: 1.5;
-    stroke-opacity: 0.35;
-    stroke: oklch(0.97 0.03 220);
-    stroke-dasharray: 0 40 120 1200;
-}
-/* The head is whiter than the line it rides, not more saturated: the base line
-   is already full-opacity ice, so a brighter L is the only way up. */
-.hiw-fig .hiw-comet-core {
-    stroke-width: 1.75;
-    stroke: oklch(0.97 0.03 220);
-    stroke-dasharray: 0 120 40 1200;
-}
-/* The arrival: a 5-unit ring around the 3-unit one, invisible until the head
-   lands, then a bloom to 0.4 that fades over 600ms. stroke-opacity, not
-   opacity: Chromium composites an opacity animation even on an SVG child, and
-   that layer pulled the ring and the five 11px labels into an overlap layer
-   that dropped them to grayscale antialiasing for every hover and for the
-   last 2.2 s of every page load (measured with the LayerTree; the labels'
-   subpixel fringes vanished and came back). stroke-opacity is a paint
-   property and never leaves the main thread; the circle has no fill, so the
-   pixels are identical. Never stroke itself, which would override the user's
-   colors under forced-colors for as long as the bloom runs. */
-.hiw-fig circle.hiw-ring-halo {
-    stroke: oklch(0.87 0.05 220);
-    stroke-opacity: 0;
 }
 /* 1600, not the 1000 that pathLength normalizes to. vector-effect:
    non-scaling-stroke makes Chromium lay the dash out in unscaled user units
@@ -329,59 +232,6 @@
     .hiw-lbl-relay {
         animation: hiw-fade 500ms ease 1950ms backwards;
     }
-    /* The crossing, once, as the finale: 2500ms is after the relay has faded
-       in (1850 + 600), so the map is complete before the transfer is shown and
-       the detour reads as the other route rather than the next step. The
-       halo's window is longer than the sweep so the bloom that starts at the
-       head's arrival (86% of 1800ms) has 600ms to fade. */
-    .hiw-comet {
-        animation: hiw-comet-once 1800ms linear 2500ms backwards;
-    }
-    .hiw-fig circle.hiw-ring-halo {
-        animation: hiw-ring-halo-once 2200ms linear 2500ms backwards;
-    }
-}
-/* Hover replays the crossing in a slow loop: 1800ms of travel, then the line is
-   quiet for 1600ms, for as long as the pointer stays on the drawing, and it
-   stops the moment the pointer leaves. Linear, because constant motion reads as
-   a steady flow and an ease would whip out of YOU and crawl into THEM, which
-   misreports a transfer. The 80ms delay swallows a pointer merely crossing the
-   figure; a slower pass still starts a light and cuts it off on the way out,
-   which is the one abrupt beat here and has no CSS-only cure (a paused loop
-   would freeze the light mid-line, which is worse), so it stays. Three gates
-   in one query: reduced motion gets no loop, and neither does a touch screen,
-   where :hover would stick after a tap and start a light that never stops
-   (Tailwind wraps its own hover: variants in (hover: hover); this block is
-   hand-written, so the gate is too). The hover rule APPENDS the loop to the
-   once-only list rather than replacing it: css-animations matches animations
-   by name when the list changes, so the finished once-only entry is kept as
-   it is on hover-in and hover-out, and never replays with its 2.5s delay when
-   the pointer leaves.
-   The box ignores the pointer until the finale has played (hiw-arm: 4300ms,
-   the crossing's 2500 + 1800). Two animations of one property on one element
-   resolve to the later name in the list, so a loop started during the draw-in
-   would own the light's offset from then on: measured, a pointer arriving at
-   1s put the loop's head at 82% of the line the moment the group appeared and
-   the finale never showed, and leaving mid-finale popped the once light in at
-   wherever its clock had reached. With the pointer ignored until 4300ms the
-   loop cannot exist before the finale ends, and the first hover after that
-   starts it fresh from YOU on the next pointer move. pointer-events animates
-   as a discrete step, promotes no layer, and the box holds nothing
-   interactive (the label overlay is pointer-events: none already). */
-@media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
-    .hiw-box {
-        animation: hiw-arm 1ms linear 4300ms backwards;
-    }
-    .hiw-box:hover .hiw-comet {
-        animation:
-            hiw-comet-once 1800ms linear 2500ms backwards,
-            hiw-comet-loop 3400ms linear 80ms infinite;
-    }
-    .hiw-box:hover circle.hiw-ring-halo {
-        animation:
-            hiw-ring-halo-once 2200ms linear 2500ms backwards,
-            hiw-ring-halo-loop 3400ms linear 80ms infinite;
-    }
 }
 @keyframes hiw-draw {
     from {
@@ -414,67 +264,6 @@
         opacity: 1;
     }
 }
-/* pointer-events interpolates as a step: none for the whole backwards-filled
-   delay, auto from the first frame of the 1ms window, base (auto) after. */
-@keyframes hiw-arm {
-    from {
-        pointer-events: none;
-    }
-    to {
-        pointer-events: auto;
-    }
-}
-/* 164 to -1004: from the pattern parked 164 units before YOU to fully past
-   THEM, see the .hiw-comet note. The loop spends 1800 of its 3400ms travelling
-   (52.94%) and holds off the path for the rest. */
-@keyframes hiw-comet-once {
-    from {
-        stroke-dashoffset: 164;
-    }
-    to {
-        stroke-dashoffset: -1004;
-    }
-}
-@keyframes hiw-comet-loop {
-    0% {
-        stroke-dashoffset: 164;
-    }
-    52.94%,
-    100% {
-        stroke-dashoffset: -1004;
-    }
-}
-/* The head lands at 86% of the 1800ms sweep (1548ms). Once: on a 2200ms window
-   that is 70.4%, with the 600ms fade ending at 97.6%. Loop: on 3400ms it is
-   45.5%, fading out by 63.2%. Each ramps up over the 66ms before the landing
-   (3% of the once window, 2% of the loop's) so the bloom is a beat, not a
-   pop. */
-@keyframes hiw-ring-halo-once {
-    0%,
-    67.4% {
-        stroke-opacity: 0;
-    }
-    70.4% {
-        stroke-opacity: 0.4;
-    }
-    97.6%,
-    100% {
-        stroke-opacity: 0;
-    }
-}
-@keyframes hiw-ring-halo-loop {
-    0%,
-    43.5% {
-        stroke-opacity: 0;
-    }
-    45.5% {
-        stroke-opacity: 0.4;
-    }
-    63.2%,
-    100% {
-        stroke-opacity: 0;
-    }
-}
 @media (forced-colors: active) {
     .hiw-direct,
     .hiw-fig circle.hiw-ring {
@@ -489,20 +278,6 @@
     .hiw-spur,
     .hiw-detour {
         stroke: GrayText;
-    }
-    /* The light takes the user's highlight color and the bloom the text color;
-       both animate only stroke-dashoffset and stroke-opacity, so nothing
-       overrides these for the animation's duration. The ring's knockout fill
-       maps to Canvas, or on a light high-contrast theme THEM was a black disc
-       and the head landed in it rather than in a ring. */
-    .hiw-fig .hiw-comet {
-        stroke: Highlight;
-    }
-    .hiw-fig circle.hiw-ring-halo {
-        stroke: CanvasText;
-    }
-    .hiw-fig circle.hiw-ring {
-        fill: Canvas;
     }
 }
 /* Draw, but do not thaw. A keyframe that animates stroke names a literal color,
