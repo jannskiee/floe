@@ -153,7 +153,9 @@ export function routeGeometry(width: number): RouteGeometry {
     // read as a stroke that had failed to render. The arch is continuous now,
     // and the distinction is carried by weight, color and order instead. The
     // ice line is the only bright stroke on the page, the spurs are the
-    // dimmest, and they thaw from ice to zinc as the ice line draws across.
+    // dimmest, and they thaw from a lit zinc to zinc-700 as the ice line draws
+    // across (never from ice: an ice arch would put the file through the
+    // server, see the hiw-thaw note in globals.css).
     //
     // The second control point holds the tangent horizontal at the end, so a
     // spur arrives flat and flush against the tick it joins.
