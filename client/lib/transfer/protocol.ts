@@ -1,5 +1,5 @@
 // Floe wire-protocol constants and message helpers.
-// Mirrors cli/engine/transfer/sender.go + receiver.go - keep in sync.
+// Mirrors cli/engine/transfer/protocol.go + sender.go + receiver.go - keep in sync.
 import { sanitizeDisplayText } from '../download';
 
 export const CONTROL_MSG_MAX = 1000; // bytes; matches browser byteLength guard
@@ -176,9 +176,29 @@ export function checkCompat(
     return { ok: false, localTooOld: remoteMin > localMax };
 }
 
+/** Matches maxDisplayVer in cli/engine/transfer/format.go. */
+const MAX_VER = 64;
+
 /**
- * Returns a user-facing error string for an incompatible peer. localVer and
- * remoteVer are human release strings; either may be empty for legacy peers.
+ * One side of the "You: ...  Peer: ..." line: a protocol range, and the
+ * release string in parentheses when there is one.
+ *
+ * Shared by both message builders so the two cannot drift, and the single
+ * place a version is made display-safe. Every caller passes at least one
+ * peer-supplied string, and peerCompatErrorMessage swaps the arguments, so
+ * treating the argument position as trusted is what Go warns against at
+ * protocol.go:67-71.
+ */
+function versionSummary(ver: string, min: number, max: number): string {
+    const range = min === max ? `protocol ${min}` : `protocol ${min}-${max}`;
+    const clean = sanitizeDisplayText(ver, MAX_VER);
+    return clean ? `${range} (${clean})` : range;
+}
+
+/**
+ * Returns a user-facing error string for an incompatible peer, written for
+ * THIS browser to read. localVer and remoteVer are human release strings;
+ * either may be empty for legacy peers.
  */
 export function compatErrorMessage(
     localTooOld: boolean,
@@ -189,12 +209,8 @@ export function compatErrorMessage(
     remoteMin: number,
     remoteMax: number
 ): string {
-    // Peer-supplied, and this covers both callers (the ver in receiver.ts and sender.ts).
-    remoteVer = sanitizeDisplayText(remoteVer, 64);
-    const localRange = localMin === localMax ? `protocol ${localMin}` : `protocol ${localMin}-${localMax}`;
-    const remoteRange = remoteMin === remoteMax ? `protocol ${remoteMin}` : `protocol ${remoteMin}-${remoteMax}`;
-    const localStr = localVer ? `${localRange} (${localVer})` : localRange;
-    const remoteStr = remoteVer ? `${remoteRange} (${remoteVer})` : remoteRange;
+    const localStr = versionSummary(localVer, localMin, localMax);
+    const remoteStr = versionSummary(remoteVer, remoteMin, remoteMax);
     if (localTooOld) {
         return `Cannot transfer: your browser is running an older version of Floe.\nYou: ${localStr}  Peer: ${remoteStr}\nRefresh the page to get the latest version.`;
     }
@@ -203,6 +219,67 @@ export function compatErrorMessage(
     // this; the browser has no way to know which surface it is talking to, so
     // it says the thing that is true of all three.
     return `Cannot transfer: peer's floe is too old.\nYou: ${localStr}  Peer: ${remoteStr}\nAsk the other side to update Floe.`;
+}
+
+/**
+ * Describes the same mismatch from the REMOTE peer's point of view. This is
+ * the wording that goes on the wire, for peers that display `reason` verbatim.
+ *
+ * Mirrors peerCompatErrorMessage in cli/engine/transfer/protocol.go, which
+ * flips localTooOld and swaps both the versions and both the range pairs, so
+ * "You" names the reader and "Peer" names us. It is a separate function rather
+ * than compatErrorMessage with the arguments flipped because two of the three
+ * lines differ: the reader may be running the CLI or the desktop app, where
+ * "your browser" is wrong and "Refresh the page" is nonsense.
+ *
+ * The continuation lines are indented by two spaces, matching Go byte for
+ * byte, and that is load-bearing rather than cosmetic. A browser reader runs
+ * this string through sanitizeDisplayText, which strips control characters
+ * including the newlines, so without the spaces the sentences would be glued
+ * together as "too old.You: ...". A terminal honors the newline and reads the
+ * indent as the layout Go already prints.
+ */
+export function peerCompatErrorMessage(
+    localTooOld: boolean,
+    localVer: string,
+    remoteVer: string,
+    localMin: number,
+    localMax: number,
+    remoteMin: number,
+    remoteMax: number
+): string {
+    // The reader is the peer, so "You" is the remote side and "Peer" is us.
+    const youStr = versionSummary(remoteVer, remoteMin, remoteMax);
+    const peerStr = versionSummary(localVer, localMin, localMax);
+    if (localTooOld) {
+        return `Cannot transfer: peer's floe is too old.\n  You: ${youStr}  Peer: ${peerStr}\n  Ask the other side to update Floe.`;
+    }
+    return `Cannot transfer: your floe is too old for this peer.\n  You: ${youStr}  Peer: ${peerStr}\n  Update Floe to continue.`;
+}
+
+/**
+ * Turns a peer's `incompatible` frame into a message written for this side.
+ *
+ * Mirrors compatErrorFromIncompatible in cli/engine/transfer/protocol.go, and
+ * splits on isAbortReason so the two stay tied. A frame whose pv range MISSES
+ * ours really is about versions, so the message is rebuilt locally from
+ * pv/pvMin and the wire wording is dropped: a peer that predates
+ * peerCompatErrorMessage wrote it from its own point of view and would name
+ * the wrong side. A frame whose range OVERLAPS is a deliberate abort, and its
+ * reason is the only account of what happened, so it is shown as sent.
+ */
+export function compatErrorFromIncompatible(msg: Incompatible): string {
+    if (!isAbortReason(msg)) {
+        const { localTooOld } = checkCompat(
+            MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, msg.pvMin ?? 0, msg.pv ?? 0
+        );
+        return compatErrorMessage(
+            localTooOld, '', msg.ver ?? '',
+            MIN_PROTOCOL_VERSION, PROTOCOL_VERSION,
+            msg.pvMin || 1, msg.pv || 1
+        );
+    }
+    return sanitizeDisplayText(msg.reason ?? '', MAX_REASON) || 'The other side rejected the transfer.';
 }
 
 // --- Control message classifier ---

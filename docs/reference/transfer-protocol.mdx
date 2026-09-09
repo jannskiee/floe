@@ -235,12 +235,13 @@ change cleanly.
   own surface: `floe update` on the CLI, the Microsoft Store or the download page on the desktop,
   a page refresh in the browser.
 
-Which side is named depends on who is reading. Go peers do not trust the wire `reason`: they
-rebuild the message locally from the frame's `pv` and `pvMin`, so the side they name is always
-correct. A Go receiver also words the `reason` it puts on the wire from the recipient's point of
-view, for peers that display it verbatim. A browser receiver does not do that second step, so it
-sends the same sentence it shows itself. When a message names a remedy that makes no sense for
-your surface, compare the two version strings it prints and update the older one.
+Which side is named depends on who is reading. No current peer trusts the wire `reason` for a
+version mismatch: both implementations rebuild the message locally from the frame's `pv` and
+`pvMin`, so the side they name is always correct. Both receivers also word the `reason` they put
+on the wire from the recipient's point of view, in words that name no surface, for peers that
+display it verbatim. When a message names a remedy that makes no sense for your surface, the peer
+that sent it is older than this convention, so compare the two version strings it prints and
+update the older one.
 
 Constants live in `cli/engine/transfer/protocol.go` as `ProtocolVersion` and `MinProtocolVersion`,
 and in `client/lib/transfer/protocol.ts` as `PROTOCOL_VERSION` and `MIN_PROTOCOL_VERSION`. Bump

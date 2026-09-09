@@ -9,6 +9,7 @@ import {
     incompatibleMessage,
     checkCompat,
     compatErrorMessage,
+    peerCompatErrorMessage,
     PROTOCOL_VERSION,
     MIN_PROTOCOL_VERSION,
     normalizeFileSize,
@@ -138,9 +139,24 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: s
                             MIN_PROTOCOL_VERSION, PROTOCOL_VERSION,
                             remotePvMin || 1, remotePv || 1
                         );
+                        // Two strings, not one. errMsg names the sides from
+                        // this browser's point of view, which is right for the
+                        // banner below and wrong for the wire: a peer that
+                        // prints `reason` verbatim would read "You" as itself
+                        // and be told the wrong side is old. The Go receiver
+                        // has sent a peer-perspective reason since PR #282;
+                        // this is the browser half of that.
+                        const peerMsg = peerCompatErrorMessage(
+                            localTooOld, '', msg.ver ?? '',
+                            MIN_PROTOCOL_VERSION, PROTOCOL_VERSION,
+                            remotePvMin || 1, remotePv || 1
+                        );
                         // Send incompatible as binary so the CLI sender's ack loop
                         // can handle it; old senders drop unrecognized control types.
-                        const enc = new TextEncoder().encode(incompatibleMessage(errMsg));
+                        // No flush wait here, unlike the Go receiver: this side
+                        // does not close the connection afterwards, it only
+                        // sets UI state, so the frame has time to leave.
+                        const enc = new TextEncoder().encode(incompatibleMessage(peerMsg));
                         cb.send(new Uint8Array(enc));
                         cb.onError?.(errMsg);
                         return;

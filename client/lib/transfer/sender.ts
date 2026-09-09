@@ -11,13 +11,13 @@ import {
     endMessage,
     checkCompat,
     compatErrorMessage,
+    compatErrorFromIncompatible,
     PROTOCOL_VERSION,
     MIN_PROTOCOL_VERSION,
     ACK_TIMEOUT_MS,
     type Ack,
     type Incompatible,
 } from './protocol';
-import { sanitizeDisplayText } from '../download';
 
 export interface SenderCallbacks {
     onFileStart?: (index: number, total: number, fileName: string) => void;
@@ -235,7 +235,7 @@ function drainBelow(
 // Result of waiting for the receiver's ack.
 type AckResult =
     | { type: 'ack'; offset: number; pv?: number; pvMin?: number; ver?: string }
-    | { type: 'incompatible'; reason: string }
+    | { type: 'incompatible'; reason: string; pv?: number; pvMin?: number; ver?: string }
     | { type: 'timeout' };
 
 // Returns false when the transfer must stop (error already reported via cb).
@@ -279,9 +279,15 @@ async function sendSingleFile(
         return false;
     }
     if (ackResult.type === 'incompatible') {
-        // The reason is peer prose headed for the error banner: clean and cap
-        // it, and fall back to our own wording when nothing readable is left.
-        cb.onError?.(sanitizeDisplayText(ackResult.reason, 300) || 'The other side rejected the transfer.');
+        // Rebuilt from the frame's pv range rather than printed as sent, the
+        // way the Go sender has done since PR #282. On a genuine version
+        // mismatch the peer's sentence names the sides from ITS point of view
+        // and offers ITS remedy, so a browser too old for its peer used to be
+        // shown neutral wire wording instead of "refresh the page". A
+        // deliberate abort still comes through verbatim: that is the
+        // overlapping-range half of compatErrorFromIncompatible, and it is
+        // what carries the relay-cap reason from PR #429.
+        cb.onError?.(compatErrorFromIncompatible(ackResult));
         return false;
     }
 
@@ -454,7 +460,20 @@ function waitForAck(
                     const ack = msg as Ack;
                     resolve({ type: 'ack', offset: ack.offset, pv: ack.pv, pvMin: ack.pvMin, ver: ack.ver });
                 } else if (msg.type === 'incompatible') {
-                    resolve({ type: 'incompatible', reason: (msg as Incompatible).reason });
+                    // The pv range travels with the reason, and the caller
+                    // needs it: it is what separates a version mismatch, whose
+                    // wording has to be rebuilt from this side, from a
+                    // deliberate abort, whose reason is the only account there
+                    // is. Dropping it here is what forced the caller to print
+                    // whatever the peer wrote.
+                    const incompat = msg as Incompatible;
+                    resolve({
+                        type: 'incompatible',
+                        reason: incompat.reason,
+                        pv: incompat.pv,
+                        pvMin: incompat.pvMin,
+                        ver: incompat.ver,
+                    });
                 }
             });
         }),
