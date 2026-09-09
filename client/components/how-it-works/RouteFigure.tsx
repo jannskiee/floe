@@ -17,15 +17,21 @@ import { RELAY_CAP } from '@/lib/howItWorksStrings';
  * routeGeometry() so the two cannot drift; the CSS gate is the only switch.
  * That gate is a pixel rather than md, and so are the width caps: see the
  * comment beside the variants for why a rem there truncated the draw-in.
- * Motion is CSS only and plays once on paint: the .hiw-* rules in globals.css,
- * inside
- * prefers-reduced-motion: no-preference. The base rules are the finished
- * figure, so reduced motion, the e2e sweep and the screenshot matrix all get
- * the completed drawing at first paint, and a reader with JavaScript off gets
- * the sequence anyway, since CSS animations do not need it. No client
- * island: the route stays a Server Component. A plain load puts the figure
- * inside the first viewport at every width; a reader arriving at #direct,
- * #relay or #size-limit lands below it and sees that same finished drawing.
+ * Motion is CSS only: the .hiw-* rules in globals.css, inside
+ * prefers-reduced-motion: no-preference. On paint the drawing draws itself in
+ * once, then a light crosses the direct line from YOU to THEM, once, the only
+ * thing on the figure that ever moves along a stroke. On a device with a fine
+ * pointer, hovering the drawing once that finale has played replays the
+ * crossing in a slow loop (the box ignores the pointer until then); touch
+ * gets the once-on-paint crossing and nothing on tap. The base rules are the
+ * finished figure with the light off the path, so reduced motion, the e2e
+ * sweep and the screenshot matrix all get the completed drawing at first
+ * paint, and a reader with JavaScript off gets the sequence anyway, since CSS
+ * animations do not need it. No client island: the route stays a Server
+ * Component, and nothing in here carries an id, so the two variants that share
+ * the DOM cannot cross-reference. A plain load puts the figure inside the
+ * first viewport at every width; a reader arriving at #direct, #relay or
+ * #size-limit lands below it and sees that same finished drawing.
  */
 
 // leading-none, as the page header does for its eyebrow: an 11px label
@@ -37,8 +43,11 @@ const LABEL = 'font-mono text-[11px] leading-none uppercase tracking-[0.2em]';
 function Variant({ g, className }: { g: RouteGeometry; className: string }) {
     const [left, right] = g.deviceTicks;
     const L = g.labels;
+    // hiw-box is the hover target for the light: the drawing's own box, not
+    // the <figure>, which spans the whole column and would fire beside the
+    // phone drawing between 480 and 767px.
     return (
-        <div className={`relative ${className}`} style={{ aspectRatio: `${g.width} / ${g.height}` }}>
+        <div className={`hiw-box relative ${className}`} style={{ aspectRatio: `${g.width} / ${g.height}` }}>
             <svg viewBox={`0 0 ${g.width} ${g.height}`} aria-hidden="true" focusable="false">
                 <line className="hiw-tick" x1={left.x1} y1={left.y1} x2={left.x2} y2={left.y2} />
                 <line className="hiw-tick" x1={right.x1} y1={right.y1} x2={right.x2} y2={right.y2} />
@@ -62,6 +71,22 @@ function Variant({ g, className }: { g: RouteGeometry; className: string }) {
                     y2={g.relayTick.y2}
                 />
                 <path className="hiw-direct" pathLength={1000} d={g.direct} />
+                {/* The light: three dashed copies of the direct line whose dashes all
+                    end at the same pattern position, so one stroke-dashoffset sweep
+                    moves a bright head with a fading tail and a soft halo as one
+                    object (the .hiw-comet rules in globals.css). Halo under tail
+                    under core; all three sit under the ring, whose zinc-950 fill
+                    swallows the head at THEM. The halo circle is the arrival: it
+                    blooms and fades as the head lands. Only the direct line ever
+                    carries a moving light. Not the spurs, which would draw the file
+                    through the signaling server, and not the detour, because a
+                    transfer takes one route. */}
+                <g className="hiw-light">
+                    <path className="hiw-comet hiw-comet-halo" pathLength={1000} d={g.direct} />
+                    <path className="hiw-comet hiw-comet-tail" pathLength={1000} d={g.direct} />
+                    <path className="hiw-comet hiw-comet-core" pathLength={1000} d={g.direct} />
+                    <circle className="hiw-ring-halo" cx={g.them.x} cy={g.them.y} r={5} />
+                </g>
                 {/* A 1px ice ring marks the arrival; ice is never a fill on this site. */}
                 <circle className="hiw-ring" cx={g.them.x} cy={g.them.y} r={3} />
             </svg>
@@ -148,9 +173,9 @@ export function RouteFigure() {
             <Variant g={routeGeometry(ROUTE_NARROW)} className="max-w-[480px] min-[768px]:hidden" />
             {/* The only description assistive tech gets; it claims exactly what is drawn. */}
             <figcaption className="sr-only">
-                A line runs from You to Them. Two thin spurs rise from each device and meet at the
-                signaling server above them: it introduces the two devices and then takes no further
-                part, carrying no file data itself. The direct line runs straight across, labeled
+                A line runs from You to Them. Two thin spurs, one from each device, rise and meet at
+                the signaling server above both: it introduces the two devices and then steps aside,
+                carrying no file data itself. The direct line runs straight across, labeled
                 Direct, and carries no size limit. A
                 dotted second path dips through a relay and rejoins at Them, labeled Relay, and is
                 capped at {RELAY_CAP} per session.
