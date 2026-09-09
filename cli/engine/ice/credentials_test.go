@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/pion/webrtc/v4"
@@ -97,6 +98,127 @@ func TestTrimICEServers(t *testing.T) {
 			t.Fatalf("unclassifiable list must be left alone, got %+v", got)
 		}
 	})
+}
+
+// TestParseServersReadsBothURLShapes is the characterization test for the
+// decoder lifted out of Fetch. "urls" is a plain string for coturn and for the
+// STUN-only fallback but an array for Cloudflare, and the desktop's server
+// probe now reads the list through this same function rather than growing a
+// second implementation of that rule.
+func TestParseServersReadsBothURLShapes(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want []webrtc.ICEServer
+	}{
+		{
+			"coturn sends urls as a string",
+			`[{"urls":"stun:turn.example.com:3478"},{"urls":"turn:turn.example.com:3478","username":"u","credential":"c"}]`,
+			[]webrtc.ICEServer{
+				{URLs: []string{"stun:turn.example.com:3478"}},
+				{URLs: []string{"turn:turn.example.com:3478"}, Username: "u", Credential: "c", CredentialType: webrtc.ICECredentialTypePassword},
+			},
+		},
+		{
+			"cloudflare sends urls as an array",
+			`[{"urls":["stun:stun.cloudflare.com:3478"]},{"urls":["turn:turn.cloudflare.com:3478?transport=udp","turns:turn.cloudflare.com:443?transport=tcp"],"username":"u","credential":"c"}]`,
+			[]webrtc.ICEServer{
+				{URLs: []string{"stun:stun.cloudflare.com:3478"}},
+				{URLs: []string{"turn:turn.cloudflare.com:3478?transport=udp", "turns:turn.cloudflare.com:443?transport=tcp"}, Username: "u", Credential: "c", CredentialType: webrtc.ICECredentialTypePassword},
+			},
+		},
+		{
+			"the two shapes mixed in one list",
+			`[{"urls":"stun:a:3478"},{"urls":["turn:b:3478"]}]`,
+			[]webrtc.ICEServer{
+				{URLs: []string{"stun:a:3478"}},
+				{URLs: []string{"turn:b:3478"}},
+			},
+		},
+		{
+			// An entry with nothing to connect with is dropped rather than
+			// counted. The probe's old length check on []map[string]any
+			// accepted this as "usable connection details".
+			"an entry with no urls is dropped",
+			`[{},{"urls":"stun:a:3478"}]`,
+			[]webrtc.ICEServer{{URLs: []string{"stun:a:3478"}}},
+		},
+		{
+			"a list of empty entries parses to nothing",
+			`[{},{}]`,
+			nil,
+		},
+		{
+			"an empty list parses to nothing",
+			`[]`,
+			nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ParseServers(strings.NewReader(tc.body))
+			if err != nil {
+				t.Fatalf("ParseServers: %v", err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("ParseServers() = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestParseServersRejectsJunk: a body that is not a JSON array is an error, not
+// an empty list. Fetch turns both into the STUN-only fallback, but the probe
+// tells them apart in its message.
+func TestParseServersRejectsJunk(t *testing.T) {
+	if _, err := ParseServers(strings.NewReader(`<html>not json</html>`)); err == nil {
+		t.Fatal("ParseServers accepted a non-JSON body")
+	}
+}
+
+// TestHasRelay pins the question both relay-only surfaces ask before they
+// start: is there anything here to relay through?
+func TestHasRelay(t *testing.T) {
+	cases := []struct {
+		name    string
+		servers []webrtc.ICEServer
+		want    bool
+	}{
+		{"stun only", []webrtc.ICEServer{{URLs: []string{"stun:a:3478"}}}, false},
+		{"turn over udp", []webrtc.ICEServer{{URLs: []string{"turn:a:3478"}}}, true},
+		{"turn over tcp", []webrtc.ICEServer{{URLs: []string{"turn:a:80?transport=tcp"}}}, true},
+		{"turns over tls", []webrtc.ICEServer{{URLs: []string{"turns:a:443?transport=tcp"}}}, true},
+		{
+			"one entry carrying both",
+			[]webrtc.ICEServer{{URLs: []string{"stun:a:3478", "turn:a:3478"}}},
+			true,
+		},
+		{
+			"a relay in a later entry still counts",
+			[]webrtc.ICEServer{{URLs: []string{"stun:a:3478"}}, {URLs: []string{"turns:b:443"}}},
+			true,
+		},
+		{"a url of no known class", []webrtc.ICEServer{{URLs: []string{"http://not-ice"}}}, false},
+		{"nothing at all", nil, false},
+		{"an entry with no urls", []webrtc.ICEServer{{}}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := HasRelay(tc.servers); got != tc.want {
+				t.Errorf("HasRelay() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestDefaultsHaveNoRelay pins the fact the whole missing-relay problem turns
+// on. Fetch degrades to these on any non-200, including the TURN endpoint's own
+// rate limiter, so a relay-only transfer against a perfectly good server can
+// still be handed a list with nowhere to relay through.
+func TestDefaultsHaveNoRelay(t *testing.T) {
+	if HasRelay(defaults()) {
+		t.Fatal("the STUN-only fallback claims to offer a relay")
+	}
 }
 
 // TestIceURLClass pins the classification rules, including the RFC 7065

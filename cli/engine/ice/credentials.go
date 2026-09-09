@@ -4,6 +4,7 @@ package ice
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -28,6 +29,29 @@ func iceURLClass(u string) string {
 		return "udp" // RFC 7065: a turn: URI without a transport param is UDP
 	}
 	return ""
+}
+
+// HasRelay reports whether a list offers a TURN relay.
+//
+// Relay-only mode (the desktop's "Hide my IP", the CLI's --relay-only) cannot
+// connect without one: ICE gathers no usable candidate at all and the attempt
+// dies about thirty seconds later as a generic timeout, which reads like a
+// network fault on a network that is fine. Both surfaces check this before they
+// start rather than after.
+//
+// The relay classes are enumerated positively rather than tested as "not stun",
+// so a class added to iceURLClass later has to be considered here instead of
+// silently counting as a relay.
+func HasRelay(servers []webrtc.ICEServer) bool {
+	for _, s := range servers {
+		for _, u := range s.URLs {
+			switch iceURLClass(u) {
+			case "udp", "tcp", "tls":
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // pick returns the first URL in urls that contains pref, else the first URL.
@@ -138,9 +162,27 @@ func Fetch(serverURL string) ([]webrtc.ICEServer, error) {
 		return defaults(), nil
 	}
 
-	var raw []iceServerJSON
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil || len(raw) == 0 {
+	servers, err := ParseServers(resp.Body)
+	if err != nil || len(servers) == 0 {
 		return defaults(), nil
+	}
+	return trimICEServers(servers), nil
+}
+
+// ParseServers decodes a /api/turn-credentials body into pion's ICE server
+// shape.
+//
+// Split out of Fetch so the desktop's server probe can read the list the same
+// way a transfer does. The "urls" field is a plain string for coturn and for
+// the STUN-only fallback, but an array of strings for Cloudflare, and a second
+// implementation of that rule is a second thing to get wrong.
+//
+// Entries carrying no usable "urls" are dropped, so an empty result means the
+// body parsed but held nothing to connect with.
+func ParseServers(r io.Reader) ([]webrtc.ICEServer, error) {
+	var raw []iceServerJSON
+	if err := json.NewDecoder(r).Decode(&raw); err != nil {
+		return nil, err
 	}
 
 	var servers []webrtc.ICEServer
@@ -165,11 +207,7 @@ func Fetch(serverURL string) ([]webrtc.ICEServer, error) {
 		}
 		servers = append(servers, ice)
 	}
-
-	if len(servers) == 0 {
-		return defaults(), nil
-	}
-	return trimICEServers(servers), nil
+	return servers, nil
 }
 
 func defaults() []webrtc.ICEServer {
