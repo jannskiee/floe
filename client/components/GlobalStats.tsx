@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import NumberFlow, { continuous } from '@number-flow/react';
+import { AnimatedByteCount } from '@/components/AnimatedByteCount';
 import { splitBytes } from '@/lib/utils';
 import { resolveSocketUrl } from '@/lib/socketUrl';
 
@@ -46,14 +46,9 @@ export function GlobalStats() {
 
     return (
         <div className="mt-6 mb-2 flex items-center justify-center gap-2 text-sm select-none">
-            <NumberFlow
+            <AnimatedByteCount
                 value={value}
-                format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }}
-                suffix={' ' + unit}
-                plugins={[continuous]}
-                spinTiming={{ duration: 900, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }}
-                transformTiming={{ duration: 750, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }}
-                opacityTiming={{ duration: 350, easing: 'ease-out' }}
+                unit={unit}
                 className="font-mono font-medium text-zinc-300 tabular-nums"
             />
             <span className="text-zinc-600">transferred globally</span>

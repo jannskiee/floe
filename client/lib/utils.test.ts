@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatBytes, splitBytes } from './utils';
+import { BYTE_COUNT_FORMAT, formatBytes, formatSplitBytes, splitBytes } from './utils';
 import { RELAY_SIZE_LIMIT } from './relay';
 
 describe('formatBytes', () => {
@@ -38,5 +38,33 @@ describe('byte formatter guards', () => {
 
     it('renders the relay cap the way every other copy of the string spells it', () => {
         expect(formatBytes(RELAY_SIZE_LIMIT)).toBe('2 GB');
+    });
+});
+
+// The static fallback in components/AnimatedByteCount.tsx has to be
+// indistinguishable from the animated counter it replaces, and components are
+// not reachable from this suite, so the string itself is pinned here.
+describe('formatSplitBytes', () => {
+    // Built locally rather than hardcoded, because the runtime locale decides
+    // the group and decimal separators and a contributor's default is not
+    // necessarily en-US.
+    const asNumberFlowWouldPaint = (value: number, unit: string) =>
+        `${new Intl.NumberFormat(undefined, BYTE_COUNT_FORMAT).format(value)} ${unit}`;
+
+    it('pads to two fraction digits the way NumberFlow does', () => {
+        // 1181116006 bytes is 1.10 GB. splitBytes returns 1.1, so a bare
+        // template literal would render "1.1 GB" and drift from the animation.
+        expect(formatSplitBytes(splitBytes(1181116006))).toBe(asNumberFlowWouldPaint(1.1, 'GB'));
+        expect(formatSplitBytes(splitBytes(1181116006))).toMatch(/^1\D10 GB$/);
+    });
+
+    it('renders the pre-load zero the same way', () => {
+        expect(formatSplitBytes(splitBytes(0))).toBe(asNumberFlowWouldPaint(0, 'Bytes'));
+    });
+
+    it('groups large values, as Intl.NumberFormat does', () => {
+        expect(formatSplitBytes({ value: 1234.5, unit: 'TB' })).toBe(
+            asNumberFlowWouldPaint(1234.5, 'TB')
+        );
     });
 });
