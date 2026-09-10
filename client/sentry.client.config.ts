@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/nextjs';
 import { BROWSER_EXTENSION_URL_PATTERNS } from './lib/browserExtensions';
 import { IGNORED_ERROR_PATTERNS } from './lib/ignoredErrors';
+import { isInjectedScriptError } from './lib/injectedScripts';
 import { isStaleBundleError } from './lib/staleBundle';
 import { scrubSpanJson, scrubTransactionEvent, scrubUrl } from './lib/scrubUrl';
 
@@ -39,6 +40,13 @@ Sentry.init({
     // current bundle (see lib/staleBundle.ts). Collapse every wording variant into
     // one warning-level issue instead of a flood of distinct, non-actionable errors.
     beforeSend(event, hint) {
+        // An extension's injected script throwing on our page is reported as
+        // ours, because Sentry's own setTimeout/addEventListener wrapper sits in
+        // our bundle and supplies the only app:/// frame. Neither ignoreErrors
+        // (the messages are generic) nor denyUrls (it skips <anonymous> frames
+        // by design) can see it. Fixes FLOE-F. See lib/injectedScripts.ts.
+        if (isInjectedScriptError(event)) return null;
+
         const message =
             (hint?.originalException as Error | undefined)?.message ??
             event.exception?.values?.[0]?.value;

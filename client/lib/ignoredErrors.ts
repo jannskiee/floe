@@ -41,4 +41,22 @@ export const IGNORED_ERROR_PATTERNS: (string | RegExp)[] = [
     'Write permission denied',
     // Safari/iOS ResizeObserver noise
     'ResizeObserver loop',
+    // The Facebook in-app browser on Android runs the page inside a WebView
+    // whose JS-to-Java bridge is torn down before the page is. Its own injected
+    // navigation_performance_logger_android script then posts an INP report
+    // from a beforeunload listener, and the bridge answers "Error invoking
+    // postMessage: Java object is gone" (FLOE-H). Not our listener and not our
+    // code: nothing in this repo calls postMessage at all.
+    //
+    // denyUrls cannot reach it. @sentry/nextjs had already rewritten every
+    // frame, the injected script's included, to app://, and
+    // browserExtensions.test.ts deliberately asserts that no denyUrls pattern
+    // may match an app:// prefix. A message entry is the only lever left.
+    //
+    // Sentry ships the sibling wording /^Java exception was raised during
+    // method invocation$/ in DEFAULT_IGNORE_ERRORS, credited to the same
+    // Facebook mobile browser (sentry-javascript#15065); this one is simply not
+    // on that list yet. Matched on the bridge's own words rather than on
+    // "Error invoking postMessage", so it also covers the other bridge methods.
+    'Java object is gone',
 ];
