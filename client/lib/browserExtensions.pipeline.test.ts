@@ -5,10 +5,11 @@ import { BROWSER_EXTENSION_URL_PATTERNS } from './browserExtensions';
 
 // Proves the FLOE-E fix against the REAL @sentry/core filter rather than a
 // reimplementation of it. sentry.client.config.ts cannot be imported here: it
-// calls Sentry.replayIntegration() at module scope, and in a node test
-// '@sentry/nextjs' resolves to build/cjs/index.server.js where that export does
-// not exist. So we drive the same integration the SDK installs, with the same
-// denyUrls value the config passes it.
+// calls Sentry.init() at module scope, so importing it would configure the SDK
+// as a side effect of running the suite. So we drive the same integration the
+// SDK installs, with the same denyUrls value the config passes it.
+// (This comment used to blame Sentry.replayIntegration(). Replay was removed in
+// #242 and is now banned outright, see sentry.client.config.ts.)
 
 // --- Types -----------------------------------------------------------------
 // '@sentry/nextjs' re-exports Event/EventHint/ErrorEvent/Exception/StackFrame

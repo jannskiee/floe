@@ -1,5 +1,7 @@
 import * as Sentry from '@sentry/nextjs';
 import { BROWSER_EXTENSION_URL_PATTERNS } from './lib/browserExtensions';
+import { IGNORED_ERROR_PATTERNS } from './lib/ignoredErrors';
+import { isInjectedScriptError } from './lib/injectedScripts';
 import { isStaleBundleError } from './lib/staleBundle';
 import { scrubSpanJson, scrubTransactionEvent, scrubUrl } from './lib/scrubUrl';
 
@@ -12,22 +14,11 @@ Sentry.init({
     // in the URL, which we additionally scrub below.
     sendDefaultPii: false,
 
-    // Filter out non-actionable errors caused by browser extensions and restricted environments
-    ignoreErrors: [
-        // Browser extensions (Google Translate, Grammarly, ad blockers) modify the DOM
-        // directly, causing React's virtual DOM to desync. Not actionable.
-        "Failed to execute 'removeChild' on 'Node'",
-        "Failed to execute 'insertBefore' on 'Node'",
-        "The node to be removed is not a child of this node",
-        // Privacy/anti-fingerprint extensions bridge to native desktop software and
-        // reject a promise with a plain object when that bridge is not ready. Surfaces
-        // as "Object Not Found Matching Id:N, MethodName:..., ParamCount:N". Not our code.
-        'Object Not Found Matching Id',
-        // Clipboard blocked in restricted browsers (already handled with fallback)
-        'Write permission denied',
-        // Safari/iOS ResizeObserver noise
-        'ResizeObserver loop',
-    ],
+    // Filter out non-actionable errors caused by browser extensions and
+    // restricted environments. The list lives in lib/ignoredErrors.ts, which
+    // also records how EventFilters matches it: this file cannot be imported by
+    // vitest, so an inline array is untestable.
+    ignoreErrors: IGNORED_ERROR_PATTERNS,
 
     // Drop errors thrown by browser extensions' injected content scripts: not
     // Floe code, never actionable. Matched on the frame's URL scheme rather
@@ -49,6 +40,13 @@ Sentry.init({
     // current bundle (see lib/staleBundle.ts). Collapse every wording variant into
     // one warning-level issue instead of a flood of distinct, non-actionable errors.
     beforeSend(event, hint) {
+        // An extension's injected script throwing on our page is reported as
+        // ours, because Sentry's own setTimeout/addEventListener wrapper sits in
+        // our bundle and supplies the only app:/// frame. Neither ignoreErrors
+        // (the messages are generic) nor denyUrls (it skips <anonymous> frames
+        // by design) can see it. Fixes FLOE-F. See lib/injectedScripts.ts.
+        if (isInjectedScriptError(event)) return null;
+
         const message =
             (hint?.originalException as Error | undefined)?.message ??
             event.exception?.values?.[0]?.value;
