@@ -33,3 +33,26 @@ export const splitBytes = (bytes: number): { value: number; unit: string } => {
         unit: BYTE_UNITS[i],
     };
 };
+
+// The NumberFlow options GlobalStats animates the global counter with. Shared
+// so components/AnimatedByteCount.tsx can format its static fallback with the
+// same settings instead of a second copy that could drift.
+//
+// Left to inference rather than annotated Intl.NumberFormatOptions, because
+// @number-flow/react's own `Format` type is a NARROWER subset of it (its
+// `notation` admits only 'standard' and 'compact'), and the wider annotation is
+// not assignable to the prop. The literal type satisfies both.
+export const BYTE_COUNT_FORMAT = {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+} as const;
+
+// The exact string NumberFlow paints for a splitBytes() pair.
+//
+// `undefined` locales rather than 'en-US': GlobalStats passes NumberFlow no
+// `locales` prop, so it builds Intl.NumberFormat(undefined, format) and
+// resolves the runtime default. The fallback has to resolve the same one.
+// toFixed() would not do: splitBytes(1181116006).value is 1.1, and only
+// minimumFractionDigits pads that back to the "1.10" NumberFlow shows.
+export const formatSplitBytes = ({ value, unit }: { value: number; unit: string }): string =>
+    `${value.toLocaleString(undefined, BYTE_COUNT_FORMAT)} ${unit}`;
