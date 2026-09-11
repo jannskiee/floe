@@ -44,7 +44,7 @@ go build ./cmd/floe    # local binary
 go test ./...          # run all tests
 ```
 
-The CLI uses GoReleaser for cross-platform distribution; version is injected via `-ldflags "-X main.version={{ .Version }}"`, which carries NO leading `v` (a v1.10.9 tag produces a binary that prints `floe 1.10.9`). The desktop app differs: desktop-release.yml injects the tag verbatim (`desktop-v0.2.11`).
+The CLI uses GoReleaser for cross-platform distribution; version is injected via `-ldflags "-X main.version={{ .Version }}"`, which carries NO leading `v` (a v1.10.10 tag produces a binary that prints `floe 1.10.10`). The desktop app differs: desktop-release.yml injects the tag verbatim (`desktop-v0.2.11`).
 
 ### Desktop (Wails)
 ```bash
