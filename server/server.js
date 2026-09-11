@@ -413,7 +413,17 @@ function handleSignal(senderPeer, signal, targetId) {
     if (!targetPeer) return;
     if (targetId && targetPeer.id !== targetId) return;
 
-    targetPeer.send('signal', { signal, sender: senderPeer.id });
+    // signal is the only peer-supplied value this server serializes: roomId is
+    // UUID-checked and target is only compared. JSON.stringify recurses, so a
+    // nested-array signal overflows the stack (measured: 2235 levels, a 4.4 KB
+    // frame) inside createWSPeer.send for a CLI target or socket.io's encoder
+    // for a browser one, and throws where nothing catches it. Silent on purpose:
+    // logging per attempt is a flood lever at a rate the caller picks.
+    try {
+        targetPeer.send('signal', { signal, sender: senderPeer.id });
+    } catch {
+        // Undeliverable. The peers time out on their own.
+    }
 }
 
 function handleDisconnect(peer) {
@@ -491,21 +501,84 @@ io.on('connection', (socket) => {
 // Signaling carries only SDP/ICE (< 10 KB); larger frames are rejected (close 1009).
 const wss = new WebSocketServer({ noServer: true, maxPayload: 1e6 });
 
+// Answer an upgrade we will not complete, then close. Same shape as ws's own
+// abortHandshake. A bare destroy would also work; a reason on the wire is what
+// makes a misconfigured proxy diagnosable.
+function refuseUpgrade(socket, code) {
+    if (!socket.writable) {
+        socket.destroy();
+        return;
+    }
+    const body = http.STATUS_CODES[code] || 'Bad Request';
+    socket.once('finish', () => socket.destroy());
+    socket.end(
+        `HTTP/1.1 ${code} ${body}\r\n` +
+        'Connection: close\r\n' +
+        'Content-Type: text/plain\r\n' +
+        `Content-Length: ${Buffer.byteLength(body)}\r\n` +
+        '\r\n' +
+        body
+    );
+}
+
 // Manually route WebSocket upgrades so the ws library does NOT interfere
 // with Socket.IO's own WebSocket upgrade on /socket.io/.
 // Without this, ws calls socket.destroy() for paths that don't match '/ws',
 // which kills Socket.IO's transport upgrade and forces unreliable long-polling.
-server.on('upgrade', (req, socket, head) => {
-    const pathname = new URL(req.url, 'http://x').pathname;
-    if (pathname === '/ws') {
+function handleUpgradeRequest(req, socket, head) {
+    // First, before anything below can throw. Node removes its own socket
+    // 'error' listener before emitting 'upgrade', and for a target neither we
+    // nor engine.io claims nothing attaches another, so a client reset in that
+    // window is an unhandled 'error' event. ws attaches its own in setSocket, so
+    // a completed /ws connection is unaffected.
+    socket.on('error', () => {});
+
+    // req.url is a raw request target, not a URL. Node's parser accepts several
+    // that WHATWG URL rejects ("//", "///", "//?", "//[", "//@", "//%"), and a
+    // throw here runs synchronously inside the listener. new URL rather than a
+    // split on '?' because it also matches the absolute-form target
+    // (GET http://api.floe.one/ws HTTP/1.1) some proxies send.
+    let pathname;
+    try {
+        pathname = new URL(req.url, 'http://x').pathname;
+    } catch {
+        refuseUpgrade(socket, 400);
+        return;
+    }
+
+    if (pathname !== '/ws') return;
+
+    // engine.io claims a socket by a literal prefix compare on the UNPARSED
+    // target (`path === req.url.slice(0, path.length)`) while the line above
+    // compares a normalized pathname, so "/socket.io/../ws?EIO=4" satisfies
+    // both. engine.io runs first and has already upgraded the socket, and
+    // completing it twice throws. Reusing engine.io's own predicate, rather than
+    // matching dot segments, covers the %2e%2e and backslash spellings too.
+    if (req.url.startsWith(io.path() + '/')) return;
+
+    // Any future drift between the two routers lands on that same throw.
+    // Destroy rather than refuse: reaching here means someone else may own this
+    // socket, and writing a 400 into one engine.io has upgraded puts
+    // "HTTP/1.1 400 Bad Request" mid-stream in a live WebSocket (measured).
+    try {
         wss.handleUpgrade(req, socket, head, (ws) => {
             wss.emit('connection', ws, req);
         });
+    } catch {
+        socket.destroy();
     }
-    // All other paths (e.g. /socket.io/) are left untouched for Socket.IO
-});
+}
+
+server.on('upgrade', handleUpgradeRequest);
 
 wss.on('connection', (ws, req) => {
+    // Before the rate-limit return below, which never reaches the real handler
+    // at the foot of this function. ws emits 'error' on the WebSocket for any
+    // framing fault (an unmasked frame is 4 bytes), close() only starts the
+    // handshake and leaves the Receiver reading for 30s, and an 'error' with no
+    // listener throws. Both listeners run; handleDisconnect is idempotent.
+    ws.on('error', () => {});
+
     const ip = getClientIp(req.headers['x-forwarded-for'], req.socket.remoteAddress);
     if (!checkRateLimit(ip)) {
         ws.close(1008, 'Rate limit exceeded');
@@ -522,6 +595,12 @@ wss.on('connection', (ws, req) => {
     ws.on('message', (raw) => {
         let msg;
         try { msg = JSON.parse(raw); } catch { return; }
+
+        // JSON.parse('null') returns null without throwing, so the catch above
+        // does not cover it and reading .type raises a TypeError inside a ws
+        // 'message' listener, where nothing catches it: a 4-byte frame ends the
+        // process. Same guard the Socket.IO signal handler already applies.
+        if (!msg || typeof msg !== 'object') return;
 
         switch (msg.type) {
             case 'join-room':
@@ -576,7 +655,40 @@ function shutdown() {
 // ---------------------------------------------------------------------------
 
 if (require.main === module) {
-    server.listen(PORT);
+    // Mandatory once uncaughtException is handled below, or a bind failure
+    // (EADDRINUSE, EACCES) is absorbed by it and the process stays alive
+    // listening to nothing. Removed once bound: left attached it also fires for
+    // post-listen accept errors (EMFILE, ENFILE), which would make exhausting
+    // the descriptor table another way to end the process.
+    const failFastOnBindError = (err) => {
+        console.error('HTTP server error:', err);
+        process.exit(1);
+    };
+    server.on('error', failFastOnBindError);
+
+    // Log and keep serving. Rooms, codes and the stats total are in memory, so
+    // exiting drops every transfer in progress, and a caller who can reach a
+    // throw on demand would burn PM2's max_restarts and take the server down for
+    // good: the exit IS the attack. No crash budget, for the same reason.
+    //
+    // A backstop, not a repair. Measured: a throw out of a ws 'message' listener
+    // leaves that Receiver stuck mid-write, so ws never emits 'close',
+    // handleDisconnect never runs, and the peer leaks from `rooms` and
+    // `wss.clients` for the life of the process, poisoning that room id. The
+    // heartbeat reaps the descriptor, not the seat. Hence every throw we know of
+    // is fixed at its source above rather than left to this, and
+    // crashguard.test.js fails on an "Unhandled error" line reaching here.
+    //
+    // Also catches unhandled rejections, which arrive with origin
+    // 'unhandledRejection' (verified on Node 20, 22 and 24, the CI, dev and
+    // image versions), so a separate handler for them would be dead code.
+    //
+    // Inside require.main so `node --test` keeps Node's default behavior.
+    process.on('uncaughtException', (err, origin) => {
+        console.error(`Unhandled error (${origin}), server still serving:`, err);
+    });
+
+    server.listen(PORT, () => server.off('error', failFastOnBindError));
     initStats().catch(() => {}); // seed cachedTotal from Redis on startup
     process.on('SIGTERM', shutdown);
     process.on('SIGINT', shutdown);

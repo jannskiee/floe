@@ -48,9 +48,12 @@ Worth knowing before you go looking. The signaling server has no access log, no 
 no startup banner, not even a line saying which port it bound. `docker compose logs server` on a
 perfectly healthy instance is empty, and that is expected rather than a symptom.
 
-The only thing it ever writes is a stack trace when an unhandled error reaches its error handler.
-To confirm the server is alive, or that a restart actually landed, use the health endpoint below
-rather than the logs.
+It writes a stack trace in exactly two cases: when an unhandled error reaches its error handler,
+and when an unexpected exception reaches the process-level backstop. The second kind is prefixed
+`Unhandled error` and means the server caught something it did not anticipate and kept serving
+rather than exiting, so the transfers in progress survived. It is worth reporting. To confirm the
+server is alive, or that a restart actually landed, use the health endpoint below rather than the
+logs.
 
 `docker compose ps` is a similar case: **the client image ships no healthcheck**, so it never
 reports a health state. Only the server does.

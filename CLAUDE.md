@@ -34,7 +34,7 @@ cd server
 npm install
 npm run dev      # nodemon auto-restart on :3001
 npm start        # production
-npm test         # node --test server.test.js
+npm test         # node --test (discovers every server/*.test.js)
 ```
 
 ### CLI (Go)
@@ -181,7 +181,10 @@ disk, and what must be undone, is visible in a single pass. `App.tsx`'s mount
 effect is eleven listeners with a matching teardown and a first-render closure
 contract. Its keyboard effects reference action refs declared below them, so
 hoisting them into a hook is a temporal-dead-zone crash. The ws upgrade
-handler's ordering is load-bearing for transport quality. Leave these alone.
+handler's ordering is load-bearing twice over: the no-op socket error listener
+has to precede anything that can throw, and the Socket.IO pass-through has to
+precede anything that can refuse, or every browser silently drops to
+long-polling. Leave these alone.
 
 Separate a move from a behavior change. Never put both in one commit: git
 cannot merge "this hunk moved to a new file" with "this hunk changed in
