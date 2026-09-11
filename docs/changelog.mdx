@@ -43,6 +43,17 @@ Floe ships on two version lines. `vX.Y.Z` releases floe.one, the `floe` CLI, and
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
+<Update label="v1.10.10" description="2026-09-11" tags={["Self-hosting"]}>
+  **Six ways to stop a signaling server with one unauthenticated request are closed**
+
+  - Six different requests could end the signaling server process. Rooms are held in memory, so each one also dropped every transfer that was in progress at the time. None of them needed a room, a share code, or any credential, and the smallest was four bytes.
+  - Three arrived during the WebSocket handshake: a request path that Node accepts but the URL parser rejects, a client disconnecting at one precise moment, and a path spelled so that both the browser route and the command-line route claimed it at once.
+  - Three arrived over an established connection: a message consisting of the single word `null`, a deeply nested signal, and a malformed frame on a connection that had just been rate-limited.
+  - The server now survives an unexpected error rather than exiting, so a fault nobody anticipated costs one connection instead of every transfer on the server. All six are fixed where they happen, and the test suite fails if any of them reaches that safety net instead.
+  - Self-hosting: the published images are rebuilt as `1.10.10`. **This is a security fix.** If you run your own server, update; if you pinned `FLOE_IMAGE_TAG=1.10.9`, move to `1.10.10`. floe.one was updated separately and is already running it.
+  - The `floe` command-line tool is unchanged in this release, and so is the wire protocol, so this still transfers with older CLI, desktop, and browser peers in both directions.
+</Update>
+
 <Update label="desktop-v0.2.11" description="2026-09-09" tags={["Desktop", "Self-hosting"]}>
   **Hide my IP now says when a server cannot do it, instead of failing half a minute later with connection advice**
 
