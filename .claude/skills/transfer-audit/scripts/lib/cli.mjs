@@ -5,7 +5,7 @@
  * 1.10.5 prints the same lines; the parser fixtures under tests/fixtures/
  * are captured from that binary).
  *
- * Command lines (main.go applyEnv and runSend):
+ * Command lines (main.go applyEnv, send.go runSend, receive.go runReceive):
  *   <bin> send <paths...> --server <s> --web <w> [--no-relay] [--relay-only]
  *   <bin> receive <code|link> --server <s> --output <dir> --yes --no-report
  * --no-relay only when the cell asks for it (the judge's C3: C2C and L2C
@@ -18,9 +18,10 @@
  * are stripped from the inherited environment (main.go rootCmd reads
  * FLOE_SERVER when --server is not passed, and a stray one in the auditor's
  * shell must not retarget a child), FLOE_NO_UPDATE_CHECK=1 always
- * (selfupdate.go returns before any cache read or write), FLOE_NO_STATS=1 on
- * every receiver (main.go runReceive: either it or --no-report blanks the stats
- * URL; the adapter sends both), PION_LOG_TRACE=ice only under --pion-trace.
+ * (selfupdate/version.go CheckAvailable returns before any cache read or
+ * write), FLOE_NO_STATS=1 on every receiver (receive.go runReceive: either
+ * it or --no-report blanks the stats URL; the adapter sends both),
+ * PION_LOG_TRACE=ice only under --pion-trace.
  *
  * Stats proof for a receiver is argv plus env, recorded verbatim; the CLI
  * prints nothing about the report path, so the proof is what it was started
@@ -50,7 +51,7 @@ export const STOP_GRACE_MS = 5_000;
 
 // main.go init version template "floe {{.Version}}"; GoReleaser strips the v.
 export const VERSION_RE = /^floe (\S+)\s*$/m;
-// main.go runSend box row via format.go PrintBox "  %s%s   %s": three lowercase
+// send.go runSend box row via format.go PrintBox "  %s%s   %s": three lowercase
 // words, four after ten collisions (server/server.js generateCode).
 export const CODE_RE = /^\s*Code\s+([a-z]+(?:-[a-z]+){2,3})\s*$/m;
 // client/e2e/helpers.ts spawnSend
@@ -65,22 +66,22 @@ export const PION_PAIR_RE = /Set selected candidate pair: (.*)$/;
 export const REFUSAL_PREFIX =
     'Error: transfer blocked: relay connections are capped at 2 GB (selected ';
 
-// Stdout markers, main.go unless noted. "Connected" accepts the optional
+// Stdout markers, cli/cmd/floe unless noted. "Connected" accepts the optional
 // route suffix a later CLI may print.
 export const MARKERS = Object.freeze({
     turnWarning:
         /^ {2}Warning: could not reach signaling server for TURN credentials\. Using STUN only\.$/, // ice/credentials.go Fetch
-    codeWarning: /^ {2}Warning: could not generate short code/, // :184
-    sending: /^ {2}Sending {3}(.+)$/, // :200
-    waiting: /^ {2}Waiting for peer\.\.\.$/, // :208
-    connecting: /^ {2}Connecting\.\.\.$/, // :228
-    connectingToSender: /^ {2}Connecting to sender\.\.\.$/, // :339
+    codeWarning: /^ {2}Warning: could not generate short code/, // send.go runSend
+    sending: /^ {2}Sending {3}(.+)$/, // send.go runSend
+    waiting: /^ {2}Waiting for peer\.\.\.$/, // send.go runSend
+    connecting: /^ {2}Connecting\.\.\.$/, // send.go runSend
+    connectingToSender: /^ {2}Connecting to sender\.\.\.$/, // receive.go runReceive
     connected: /^ {2}Connected(?: \((direct|relay)\))?$/, // runSend and runReceive
     peerVersion: /^ {2}Peer version: (.+)$/, // sender.go sendFile, receiver.go ReceiveFilesWithOptions
     incoming: /^ {2}Incoming {3}(.+)$/, // receiver.go ReceiveFilesWithOptions
     progress: /^ {2}\[(\d+)\/(\d+)\] /, // format.go newProgressBar
     savedAs: /^ {2}Saved as (.+)$/, // receiver.go ReceiveFilesWithOptions
-    canceled: /^ {2}Canceled\.$/, // main.go runUpdate (stderr)
+    canceled: /^ {2}Canceled\.$/, // main.go main, the Ctrl+C handler (stderr)
 });
 
 export function parseVersion(stdout = '') {
@@ -375,8 +376,9 @@ export class CliLeg extends Leg {
     async start() {
         const { opts } = this;
         const timeout = this.budget(opts.startTimeoutMs ?? START_TIMEOUT_MS);
-        // main.go runSend and runReceive fetch TURN, open /ws, and register a
-        // code (sender) and code.Resolve GETs one (receiver by code).
+        // send.go runSend and receive.go runReceive fetch TURN, open /ws,
+        // and register a code (sender) and code.Resolve GETs one (receiver
+        // by code).
         spend(opts.ledger, 'turn');
         spend(opts.ledger, 'conn');
         if (opts.role === 'sender' || opts.input === 'code')
@@ -393,7 +395,7 @@ export class CliLeg extends Leg {
         });
         try {
             if (opts.role === 'sender') {
-                // The Code row prints before the Link row (main.go runSend),
+                // The Code row prints before the Link row (send.go runSend),
                 // so once the link is out the code is final or absent.
                 const hit = await this.h.waitLine(LINK_RE, timeout);
                 this.marks.link = hit.t;

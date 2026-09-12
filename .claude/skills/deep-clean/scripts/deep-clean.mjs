@@ -45,15 +45,14 @@
  *      it ever hits the ceiling the item cannot be safe, because a
  *      truncated walk reads a stale timestamp and that is exactly how a
  *      live session's scratchpad would get swept out from under it.
- *   5. A git boundary hides files the same way a link does. git ls-files
- *      stops at a submodule gitlink, so a submodule, linked worktree or
- *      nested clone between the root and a candidate made committed files
- *      look untracked. ancestorGitDir refuses those, mirroring invariant 1.
- *
  *   4. --root cannot move the fence. Deny entries are anchored at both
  *      the given root and this script's own checkout, and a root with no
  *      CLAUDE.md is refused, so pointing --root one level up cannot
  *      unfence server/.env.
+ *   5. A git boundary hides files the same way a link does. git ls-files
+ *      stops at a submodule gitlink, so a submodule, linked worktree or
+ *      nested clone between the root and a candidate made committed files
+ *      look untracked. ancestorGitDir refuses those, mirroring invariant 1.
  *
  * Why it kills no processes
  *   floe-run stop and transfer-audit cleanup already verify a pid's

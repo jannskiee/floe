@@ -27,8 +27,10 @@ only. Ship = every step. Never skip step 4's signing recipe for either.
 
 `git diff --name-only --cached` plus `git diff --name-only origin/main...HEAD` (staged
 first, per step 1; an unstaged edit is invisible to both). Same rule as ci.yml's
-`Detect changed paths` job: any path not under docs/ is code (full matrix, about
-10 min); anything under .github/workflows/ or .github/scripts/ also runs `Lint
+`Detect changed paths` job: any path not under docs/ or .claude/skills/ is code (full
+matrix, about 10 min); a docs-only PR skips the heavy jobs, and a skills-only PR skips
+them too and runs `Skill test suites` instead (outside the gate); `Repo guardrails`
+runs on every PR; anything under .github/workflows/ or .github/scripts/ also runs `Lint
 workflows` (actionlint and shellcheck). references/lanes.md maps touched areas to local
 commands.
 
@@ -66,8 +68,9 @@ rule does not apply to it).
 ## 6. Wait
 
 `node .claude/skills/ship-it/scripts/wait-ci.mjs <pr-number>` (either tool). Docs
-lanes finish within a minute; for code lanes run it with run_in_background (the tool
-call cap is 600 s, the script's default timeout is 9 min, rerun to keep waiting). Exit 0
+and skills lanes finish within a minute or two; for code lanes run it with
+run_in_background (the tool call cap is 600 s, the script's default timeout is 9 min,
+rerun to keep waiting). Exit 0
 green. 1 red: the failed job names and a `gh run view <id> --log-failed` command are
 printed (a gate that completed as skipped or neutral counts as red). 2 dropped event:
 run the printed `gh workflow run ci.yml --ref <branch>` once, then wait again (gh pr

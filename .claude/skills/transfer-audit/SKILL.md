@@ -18,9 +18,11 @@ Everything lives under `.claude/skills/transfer-audit/`: `scripts/audit.mjs`
 Automation), `references/matrix.md` (every cell, its forcer, oracles and
 timeouts), `references/triage.md` (failure signature to cause to next
 action). Symbols, not lines: the browser selectors come from
-`client/e2e/helpers.ts` and `client/components/P2PTransfer.tsx`, the desktop
-strings from `desktop/frontend/src/App.tsx`, the CLI lines from
-`cli/cmd/floe/main.go` and `cli/engine/transfer/{sender,receiver}.go`.
+`client/e2e/helpers.ts`, `client/components/P2PTransfer.tsx` and
+`client/components/ReceiverPanel.tsx`, the desktop strings from
+`desktop/frontend/src/App.tsx` and `desktop/transfer.go`, the CLI lines from
+`cli/cmd/floe/{main,send,receive}.go` and
+`cli/engine/transfer/{sender,receiver,format}.go`.
 
 Lines that bind every run, in this order: never POST to
 `api.floe.one/api/stats/report`, and every receiver is opted out of the
@@ -423,9 +425,11 @@ receiver's opt-out, and the versions that did it.
 - `client/e2e/helpers.ts`, `client/e2e/docs-screenshots.mjs` (the stats
   route guard), `client/hooks/useConnectionType.ts`,
   `client/hooks/useTransferAnalytics.ts`, `desktop/frontend/src/App.tsx`,
-  `desktop/app.go`, `desktop/config.go`, `cli/cmd/floe/main.go`,
+  `desktop/app.go`, `desktop/transfer.go`, `desktop/config.go`,
+  `cli/cmd/floe/main.go`, `cli/cmd/floe/send.go`, `cli/cmd/floe/receive.go`,
   `cli/engine/transfer/receiver.go`, `cli/engine/peer/connection.go`,
-  `server/server.js` (limiters, `/api/turn-credentials` precedence).
+  `server/server.js` (the connection, code and stats limiters),
+  `server/turn.js` (the TURN limiter and `/api/turn-credentials` precedence).
 - Memory: `reference_transfer_audit_harness`,
   `reference_datachannel_early_message_race`,
   `project_floe_local_install_hygiene`, `project_deployment_topology`,

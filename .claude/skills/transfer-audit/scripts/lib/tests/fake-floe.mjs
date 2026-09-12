@@ -2,10 +2,11 @@
 /**
  * A scripted stand-in for floe.exe so proc.test.mjs and cli.test.mjs run
  * without the real binary. It prints the shipped 1.10.5 shapes: the share
- * box with Code and Link rows (cli/cmd/floe/main.go:200-208), the
+ * box with Code and Link rows (cli/cmd/floe/send.go runSend), the
  * "  Waiting for peer..." / "  Connecting..." / "  Connected" markers, a
  * progress bar that redraws with a bare \r (format.go newProgressBar), the
- * summary box (sender.go:319-323, receiver.go:548-552) and the cobra
+ * summary box (format.go printSummary, called from sender.go
+ * SendFilesWithOptions and receiver.go ReceiveFilesWithOptions) and the cobra
  * "Error: " line on stderr with exit 1, or "  Canceled." with exit 130.
  *
  * Driven by the environment:

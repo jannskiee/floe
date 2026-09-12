@@ -31,11 +31,11 @@
  *
  * Stats safety on a receiver is enforced and proven in one place: the
  * context aborts every request to /api/stats/report and counts the
- * attempts (docs-screenshots.mjs:52-57), localStorage['floe:report-stats']
+ * attempts (docs-screenshots.mjs guardStats), localStorage['floe:report-stats']
  * is seeded to the literal 'false' before the page loads
- * (useTransferAnalytics.ts:16 reads `!== 'false'`), and the
- * floe:bytes-reported window event (dispatched only when reporting is on,
- * useTransferAnalytics.ts:40,60-62) is collected as the third proof.
+ * (useTransferAnalytics.ts readInitialReportStats reads `!== 'false'`), and
+ * the floe:bytes-reported window event (dispatched only when reporting is
+ * on, useTransferAnalytics.ts reportBytes) is collected as the third proof.
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -54,25 +54,26 @@ export const JOIN_TIMEOUT_MS = 30_000;
 export const HASH_TIMEOUT_MS = 120_000;
 
 // Strings the adapter waits for, client/components/P2PTransfer.tsx unless
-// noted. The pill regex is textContent (title case; CSS uppercases it).
+// noted (ReceiverPanel.tsx is its sibling in client/components/). The pill
+// regex is textContent (title case; CSS uppercases it).
 export const TEXT = Object.freeze({
-    createLink: /create secure link/i, // :980
-    downloadZip: /^Download ZIP$/, // :1059 (accessible name of the button)
-    roomJoined: 'Secure room joined', // :1009
-    allSent: 'All Files Sent!', // :755
+    createLink: /create secure link/i, // the handleCreateLink button
+    downloadZip: /^Download ZIP$/, // ReceiverPanel.tsx (accessible name of the button)
+    roomJoined: 'Secure room joined', // ReceiverPanel.tsx
+    allSent: 'All Files Sent!', // onAllSent
     // onPeerDisconnected and onDisconnect: replaces allSent with this as soon as
     // the peer leaves, and on the sender it is only reachable after
     // onAllSent set transferCompleteRef; a CLI receiver exits within the
     // 500 ms poll, so the sender must accept both.
     transferComplete: 'Transfer complete',
-    relayBlocked: 'Transfer blocked. Relay limit exceeded.', // :636
+    relayBlocked: 'Transfer blocked. Relay limit exceeded.', // the block-over-limit verdict
     relayBanner:
-        'Transfer limit exceeded. Relay connections are capped at 2 GB.', // :843
+        'Transfer limit exceeded. Relay connections are capped at 2 GB.', // the showRelayLimitNotice banner
     connectionFailed: 'Connection failed', // the three setStatus('Connection failed') sites
-    linkInvalid: 'Link Invalid', // :810
-    tooManyRefreshes: 'Too many refreshes. Reconnecting', // :217
-    received: /^(\d+) files? received$/, // :1110
-    pill: /^(Direct|Relay|Ready|Offline)$/, // ConnectionStatusBadge.tsx:59-66
+    linkInvalid: 'Link Invalid', // the Link Invalid card
+    tooManyRefreshes: 'Too many refreshes. Reconnecting', // onConnectError
+    received: /^(\d+) files? received$/, // ReceiverPanel.tsx (the completion line)
+    pill: /^(Direct|Relay|Ready|Offline)$/, // ConnectionStatusBadge.tsx (the label ternary)
 });
 
 export class PlaywrightMissingError extends Error {
@@ -267,11 +268,11 @@ export function AUDIT_INIT({ relayOnly = false } = {}) {
         '    }',
         '    window.RTCPeerConnection = AuditPC;',
         '    window.webkitRTCPeerConnection = AuditPC;',
-        // P2PTransfer.tsx:517-524: 'direct' | 'relay' | 'connected' | 'offline'
+        // P2PTransfer.tsx, the floe-connection-status effect: 'direct' | 'relay' | 'connected' | 'offline'
         "    window.addEventListener('floe-connection-status', (e) =>",
         '        audit.status.push({ t: Date.now(), detail: e.detail })',
         '    );',
-        // useTransferAnalytics.ts:60-62: receiver only, reporting on only
+        // useTransferAnalytics.ts reportBytes: receiver only, reporting on only
         "    window.addEventListener('floe:bytes-reported', (e) =>",
         '        audit.bytesReported.push({',
         '            t: Date.now(),',
@@ -662,8 +663,8 @@ export class WebLeg extends Leg {
             }
         });
         const ledger = opts.ledger;
-        // P2PTransfer.tsx:471-473 fetches TURN once per page load and opens
-        // one Socket.IO connection.
+        // P2PTransfer.tsx's mount effect calls fetchIceServers once per page
+        // load (either role) and opens one Socket.IO connection.
         if (ledger && typeof ledger.spend === 'function') {
             ledger.spend('turn');
             ledger.spend('conn');
@@ -681,8 +682,9 @@ export class WebLeg extends Leg {
                     waitUntil: 'domcontentloaded',
                     timeout: this.budget(GOTO_TIMEOUT_MS),
                 });
-                // helpers.ts:96-104: the input is opacity:0 over the drop
-                // zone and has `multiple` (P2PTransfer.tsx:897-905).
+                // helpers.ts browserSenderSetup: the input is opacity:0 over
+                // the drop zone and has `multiple` (P2PTransfer.tsx, the
+                // "Choose files to send" input; "Add more files" is the second).
                 await page
                     .locator('input[type="file"]')
                     .first()
@@ -917,7 +919,7 @@ export class WebLeg extends Leg {
     }
 
     /**
-     * Receiver, zip cells: click "Download ZIP" (P2PTransfer.tsx:1059) and
+     * Receiver, zip cells: click "Download ZIP" (ReceiverPanel.tsx) and
      * save the browser download to destPath. Returns destPath.
      */
     async downloadZip(destPath) {

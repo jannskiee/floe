@@ -54,17 +54,19 @@ The map names where a value is stated; grep the old literal repo-wide before fin
 
 ## CLI flags and environment
 
-- cli/cmd/floe/main.go: `flagServer` (`--server`, with its compiled default), `flagNoRelay`, `flagRelayOnly` (`--relay-only`, mutually exclusive with `--no-relay` via `MarkFlagsMutuallyExclusive`), `flagWebURL` (`--web`), `flagIface` (`--iface`, repeatable), `flagOutput` (`-o`, with its default), `flagAutoAccept` (`-y`), `flagNoReport`, `flagUpdateCheck` (`--check`); `FLOE_SERVER`, `FLOE_WEB` and `FLOE_RELAY_ONLY` in `applyEnv` (called from the root `PersistentPreRunE`; a typed `--no-relay` beats `FLOE_RELAY_ONLY`), `FLOE_NO_STATS` in the receive command.
+- cli/cmd/floe/main.go: `flagServer` (`--server`, with its compiled default), `flagNoRelay`, `flagRelayOnly` (`--relay-only`, mutually exclusive with `--no-relay` via `MarkFlagsMutuallyExclusive`), `flagWebURL` (`--web`), `flagIface` (`--iface`, repeatable); `FLOE_SERVER`, `FLOE_WEB` and `FLOE_RELAY_ONLY` in `applyEnv` (called from the root `PersistentPreRunE`; a typed `--no-relay` beats `FLOE_RELAY_ONLY`).
+- cli/cmd/floe/receive.go: `flagOutput` (`-o`, with its default), `flagAutoAccept` (`-y`), `flagNoReport` (`--no-report`); `FLOE_NO_STATS` in `runReceive` (either it or the flag blanks the stats URL).
+- cli/cmd/floe/update.go: `flagUpdateCheck` (`--check`); its help text is where `FLOE_NO_UPDATE_CHECK` is described to the user.
 - cli/cmd/floe/main.go `connectedLine`: the `Connected (direct)` / `Connected (relay)` / bare `Connected` status line, read once from `Connection.ConnectionType()` after setup.
 - client/lib/howItWorksStrings.ts mirrors the badge words `Direct` and `Relay` (client/components/ConnectionStatusBadge.tsx, desktop/frontend/src/App.tsx) for /how-it-works. Its test asserts the literals, so it catches an edit to the module but NOT a rename in the badge itself; that pairing is hand-read.
-- cli/internal/selfupdate/selfupdate.go: `FLOE_NO_UPDATE_CHECK`.
+- cli/internal/selfupdate/version.go `CheckAvailable`: `FLOE_NO_UPDATE_CHECK` (read before any cache access).
 - Docs: docs/cli/flags.mdx (every table), docs/cli/send.mdx and docs/cli/receive.mdx ("Output" quotes the `Connected` line), docs/cli/update.mdx, docs/cli/self-hosted-server.mdx, docs/snippets/stats-optout.mdx, README.md CLI section. `--relay-only` is also described as the twin of Hide my IP in docs/how-it-works/relay-connection.mdx (the badge row, "Turning it off, and the opposite", and the accordion), docs/desktop/settings.mdx "Hide my IP address", docs/choosing-floe.mdx (the "Force the relay" row), docs/how-it-works/known-limitations.mdx, docs/security-privacy.mdx, docs/how-it-works/2gb-limit.mdx "One case that catches people out", and docs/troubleshooting.mdx `timed out establishing a connection`.
 
 ## Versions
 
 - `DESKTOP_VERSION` / `DESKTOP_RELEASE_DATE` (client/lib/desktopRelease.ts) must equal desktop/wails.json `productVersion` and the newest `desktop-v*` tag.
 - The newest `v*` tag is the example string in docs/cli/flags.mdx (the `--version` row and the `--check` row), docs/self-hosting/images.mdx (the exact-tag row and `FLOE_IMAGE_TAG=`), docs/reference/transfer-protocol.mdx (`"ver"`: two JSON examples plus one prose mention), and the top `<Update>` entries in docs/changelog.mdx.
-- The floe-release skill's `check-version-pins.mjs` (separate PR) settles these mechanically; until it lands, `git tag --sort=-v:refname` plus grep.
+- The floe-release skill's `scripts/check-version-pins.mjs` settles these mechanically (prep before the tag, follow-up after it); `git tag --sort=-v:refname` plus grep is only the fallback when it cannot run.
 
 ## Environment variable fan-out
 
@@ -72,7 +74,7 @@ Script (`env`). Canonical: docs/self-hosting/configuration.mdx. Mirrors: CONTRIB
 
 ## Docs URLs inside shipped binaries and workflows
 
-Script (`links`). cli/cmd/floe/main.go (two `https://www.floe.one/docs` strings), desktop/frontend/src/App.tsx (`BrowserOpenURL`), client/lib/desktopRelease.ts and .github/workflows/desktop-release.yml (changelog URL), client/components/layout/Footer.tsx (mirror of docs.json `footer.links`). client/app/how-it-works/page.tsx `DOCS_PAGES` keeps each label beside its own href so the script sees all six; the labels are the docs sidebarTitles.
+Script (`links`). cli/cmd/floe/main.go and cli/cmd/floe/update.go (one `https://www.floe.one/docs` string each), desktop/frontend/src/App.tsx (`BrowserOpenURL`), client/lib/desktopRelease.ts and .github/workflows/desktop-release.yml (changelog URL), client/components/layout/Footer.tsx (mirror of docs.json `footer.links`). client/app/how-it-works/page.tsx `DOCS_PAGES` keeps each label beside its own href so the script sees all six; the labels are the docs sidebarTitles.
 
 ## Frozen zones (never edit)
 
@@ -80,10 +82,3 @@ Script (`links`). cli/cmd/floe/main.go (two `https://www.floe.one/docs` strings)
 - The authoring-contract comment at the top of docs/changelog.mdx (changing it is a restructure).
 - docs/docs.json `name` ("Floe" feeds the " - Floe" tab suffix and the schema.org Organization).
 - The `CI green` job name in .github/workflows/ci.yml (the ruleset's required check).
-
-## Known drift as of 2026-08-28 (fixed in a separate PR)
-
-- server/.env.example NODE_ENV comment describes the Express stack-trace behavior that #239 made irrelevant, and the file has two em dashes (not a `dashes` surface, so the script cannot see them).
-- CONTRIBUTING.md "Corepack ships with Node 22": true only below Node 25.
-- client/components/layout/Footer.tsx and docs/docs.json footer say "Self-Hosting"; the docs settled on "Self-hosting" (#337). Change both together.
-- Two links target the unstable heading in docs/web-app/receiving.mdx (the `links` NOTEs at docs/faq.mdx:62 and docs/troubleshooting.mdx:24); the heading needs an explicit `{#id}`.
