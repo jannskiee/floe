@@ -61,7 +61,9 @@ Rules that keep biting (each cost a real PR):
   subdirectory, #332 finished it, #338 still found 14 labels across 11 files.
 - Mintlify's PR preview serves at the root with no /docs prefix; production has it.
   Take the URL from the bot comment, never construct it.
-- docs/-only PRs go CI green in about a minute; any other path is the full matrix (CLAUDE.md "CI").
+- docs/-only PRs go CI green in about a minute, and .claude/skills/-only PRs in a minute or
+  two (`Repo guardrails` plus `Skill test suites`); any other path is the full matrix
+  (CLAUDE.md "CI").
 - configuration.mdx is canonical for env vars. A key or default change touches every
   surface that states it: CONTRIBUTING.md (two tables), server/.env.example,
   .env.docker.example, docker-compose.yml, unraid/\*.xml, and the prose in CLAUDE.md and
