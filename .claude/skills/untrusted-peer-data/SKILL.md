@@ -70,6 +70,6 @@ above. The row's Treatment column says what, if anything, happens there.
    already mapped file.
 
 Regression test homes: TestSanitizeComponent, TestDisplayText, hostile_test.go (Go);
-download.test.ts, transfer.test.ts, protocol.test.ts (classifyControl and the message
-builders) (browser); incoming.test.ts / errors.test.ts (desktop). normalizeFileSize has
-no unit test today: a gap, not a home.
+download.test.ts, receiver.test.ts, sender.test.ts, protocol.test.ts (classifyControl
+and the message builders) (browser); incoming.test.ts / errors.test.ts (desktop).
+normalizeFileSize has no unit test today: a gap, not a home.
