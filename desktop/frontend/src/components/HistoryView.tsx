@@ -13,7 +13,7 @@ import {fmtBytes} from '../incoming';
  *  confirmation, and Start over resets both confirmClear and expandedRow, so
  *  both writers live outside this view. The names in each row came from the
  *  other machine (see the floe:history row of the consumer map); they reach
- *  React as text nodes only, and RevealFile is gated by safeLeaf in app.go. */
+ *  React as text nodes only, and RevealFile is gated by safeLeaf in reveal.go. */
 export default function HistoryView({history, setHistory, confirmClear, setConfirmClear, expandedRow, setExpandedRow}: {
     history: HistEntry[];
     setHistory: Dispatch<SetStateAction<HistEntry[]>>;
