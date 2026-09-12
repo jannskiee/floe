@@ -68,7 +68,7 @@ import {
     tryAdapter as realTryAdapter,
 } from './lib/adapters.mjs';
 import { USAGE, UsageError, parseArgs } from './lib/args.mjs';
-import { RETRY_CAP, runCell } from './lib/cell.mjs';
+import { RETRY_CAP, baseResult, runCell } from './lib/cell.mjs';
 import { createFence, isUnder, normalizePath } from './lib/fence.mjs';
 import { formatBytes } from './lib/fixtures.mjs';
 import { get, getJson, head } from './lib/http.mjs';
@@ -1930,37 +1930,14 @@ export async function runCmd(opts, io = {}) {
                 if (e instanceof SafetyError || e.fence) {
                     safetyTripped = true;
                     log(`SAFETY ${cell.id}: ${e.message}`);
+                    // Spread first: baseResult carries both builds (the
+                    // report's Rcv build column) with verdict null, so the
+                    // overrides must follow it or exit 4 is lost.
                     result = {
-                        id: cell.id,
-                        profile: cell.profile === 'H' ? 'head' : 'shipped',
-                        path: cell.path,
-                        variant: cell.variant,
-                        sender: { surface: cell.sender.letter },
-                        receiver: {
-                            surface: cell.receiver.letter,
-                            input: cell.receiver.input,
-                        },
-                        fixture: {
-                            kind: cell.fixture.kind,
-                            files: [],
-                            totalBytes: cell.fixture.totalBytes,
-                        },
+                        ...baseResult(cell, ctx),
                         verdict: 'ERROR',
                         reason: 'safety',
-                        triage: null,
                         note: e.message,
-                        attempts: [],
-                        route: {
-                            expected: cell.path === 'REL' ? 'relay' : 'direct',
-                            observed: 'unobserved',
-                            label: '-',
-                            sources: [],
-                        },
-                        integrity: { ok: null, files: [] },
-                        completion: {},
-                        stats: {},
-                        metrics: {},
-                        durationS: 0,
                         countsForExit: true,
                     };
                     run.cells.push(result);

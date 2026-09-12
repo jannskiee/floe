@@ -89,7 +89,6 @@ export const LAUNCH_MODES = Object.freeze([
     'head',
     'wailsdev',
 ]);
-export const DESKTOP_TAG = /^desktop-v(\d+)\.(\d+)\.(\d+)$/;
 
 /**
  * Exact UI strings the driver keys on (App.tsx unless noted). Source case;
@@ -200,18 +199,12 @@ export class PreconditionError extends Error {
 
 // ------------------------------------------------------- pure functions
 
-export function parseTag(tag) {
-    const m = DESKTOP_TAG.exec(tag || '');
-    if (!m) return null;
-    const [major, minor, patch] = m.slice(1).map(Number);
-    return { tag, version: `${major}.${minor}.${patch}`, major, minor, patch };
-}
-
-/** desktop-v0.2.8 -> 1.2.8.0 (pack.ps1: the Store refuses a 0 first octet). */
-export function identityVersion(tag) {
-    const t = parseTag(tag);
-    return t ? `${t.major + 1}.${t.minor}.${t.patch}.0` : null;
-}
+// The tag parser and the pack.ps1 identity rule (desktop-v0.2.8 -> 1.2.8.0:
+// the Store refuses a 0 first octet) are versions.mjs's; this module used to
+// carry byte-identical copies. Re-exported so the module's surface is
+// unchanged (desktop.test.mjs imports them from here). The inverse mapping
+// below stays local: storePackage depends on its strict shape rule.
+export { parseTag, identityVersion } from './versions.mjs';
 
 /** 1.2.8.0 -> desktop-v0.2.8; null for a shape pack.ps1 never produces. */
 export function tagForIdentity(identity) {

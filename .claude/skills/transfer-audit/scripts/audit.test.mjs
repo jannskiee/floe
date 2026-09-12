@@ -788,6 +788,40 @@ test('a safety breach aborts the run with exit 4, above a FAIL', async () => {
         !i.lines.some((l) => l.startsWith('PROGRESS S-DIR-W2C')),
         'the run stops at the breach'
     );
+    // The safety row is built from baseResult like every other row, so the
+    // run's most serious row carries the receiver build (run.json's
+    // receiver.build and the report's Rcv build column) instead of the
+    // build-less stub and the '-' it printed while the row was assembled
+    // by hand. rcvBuild itself never reaches run.json (buildRunJsonRaw
+    // whitelists the row's fields), so the table is where it is checked.
+    const outDir = out('safety');
+    const runs = readdirSync(outDir).filter((d) => /-shipped-quick$/.test(d));
+    assert.equal(runs.length, 1);
+    const runDir = path.join(outDir, runs[0]);
+    const json = JSON.parse(
+        readFileSync(path.join(runDir, 'run.json'), 'utf8')
+    );
+    const row = json.cells.find((c) => c.id === 'S-DIR-C2W');
+    const sibling = json.cells.find((c) => c.id === 'S-DIR-W2W');
+    assert.equal(row.verdict, 'ERROR');
+    assert.equal(row.reason, 'safety');
+    assert.equal(row.countsForExit, true);
+    assert.equal(typeof row.receiver.build, 'string');
+    assert.equal(row.receiver.build, sibling.receiver.build, 'same web receiver');
+    assert.equal(row.receiver.version, sibling.receiver.version);
+    const md = readFileSync(path.join(runDir, 'audit.md'), 'utf8');
+    // Table columns: Cell, Verdict, Route, Size, t(s), Rcv build, Note.
+    const rcvBuildColumn = (id) => {
+        const line = md.split('\n').find((l) => l.startsWith(`| ${id} `));
+        assert.ok(line, `${id} is in the report table`);
+        return line.split('|')[6].trim();
+    };
+    assert.equal(
+        rcvBuildColumn('S-DIR-C2W'),
+        rcvBuildColumn('S-DIR-W2W'),
+        'Rcv build column on the safety row'
+    );
+    assert.notEqual(rcvBuildColumn('S-DIR-C2W'), '-');
 });
 
 test('two consecutive infra symptoms skip the rest and exit 3', async () => {
