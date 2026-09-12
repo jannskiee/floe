@@ -91,6 +91,7 @@ export const FIELDS = {
 export const TOKEN_FREE = new Set([
     'desktop/frontend/src/errors.ts',
     'desktop/frontend/src/history.ts',
+    'desktop/frontend/src/components/HistoryView.tsx',
     'cli/engine/peer/connection.go',
     'desktop/app.go',
 ]);
