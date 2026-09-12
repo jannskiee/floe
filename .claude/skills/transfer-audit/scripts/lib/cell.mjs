@@ -1458,7 +1458,14 @@ export async function runAttempt(
     return rec;
 }
 
-function baseResult(cell, ctx) {
+/**
+ * The skeleton every cell row starts from: identity, both builds from
+ * ctx.buildFor (the report's Rcv build column), a null verdict and
+ * countsForExit. audit.mjs builds the safety ERROR row from it too: spread
+ * it FIRST and override verdict, reason, note and countsForExit after, or
+ * the verdict resets to null and exit 4 is lost.
+ */
+export function baseResult(cell, ctx) {
     const build = (surface, role) =>
         ctx.buildFor ? ctx.buildFor(surface, role) : null;
     const sb = build(cell.sender.surface, 'sender');
