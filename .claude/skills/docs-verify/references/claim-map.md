@@ -39,7 +39,7 @@ The map names where a value is stated; grep the old literal repo-wide before fin
 
 ## Rate limits and caps
 
-- server/server.js: `MAX_CONNECTIONS_PER_IP`, `CODE_MAX_REQUESTS`, `STATS_MAX_REPORTS` (fixed, no env var), `MAX_ACTIVE_CODES`, `MAX_REPORT_BYTES`; windows `RATE_LIMIT_WINDOW`, `CODE_RATE_WINDOW`, `STATS_RATE_WINDOW`. server/turn.js: `TURN_MAX_REQUESTS`, `TURN_RATE_WINDOW`.
+- server/server.js: `MAX_CONNECTIONS_PER_IP`, `CODE_MAX_REQUESTS`, `MAX_ACTIVE_CODES`; windows `RATE_LIMIT_WINDOW`, `CODE_RATE_WINDOW`. server/stats.js: `STATS_MAX_REPORTS` (fixed, no env var), `MAX_REPORT_BYTES`; window `STATS_RATE_WINDOW`. server/turn.js: `TURN_MAX_REQUESTS`, `TURN_RATE_WINDOW`.
 - Docs: docs/self-hosting/configuration.mdx table and "Two things about the limits" (script: server rows), CONTRIBUTING.md server table (script), docs/reference/architecture.mdx "Rate limiting" table, docs/reference/http-api.mdx "Rate limit" line under each endpoint, docs/troubleshooting.mdx "429" and "503" sections, CLAUDE.md "Rate Limiting", server/.env.example comments (script, NOTE).
 
 ## Room code TTL

@@ -41,6 +41,10 @@ function getClientIp(xffHeader, socketAddr) {
     return hops[idx] || socketAddr || 'unknown';
 }
 
+// A room id must be a UUID. handleJoinRoom and POST /api/code both check it,
+// and client/lib/roomLink.ts mirrors the pattern, so keep the two in step.
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const allowedOrigins = [
     process.env.CLIENT_URL,
     'https://www.floe.one',
@@ -82,10 +86,31 @@ const {
     turnCredentialsHandler,
 } = require('./turn');
 
-const statsRateLimits = new Map();
-const STATS_RATE_WINDOW = 60000;
-const STATS_MAX_REPORTS = 60; // per IP per minute
-const MAX_REPORT_BYTES = parseInt(process.env.MAX_REPORT_BYTES || '', 10) || (5 * 1024 * 1024 * 1024 * 1024); // 5 TiB
+app.get('/api/turn-credentials', turnCredentialsHandler);
+
+// ---------------------------------------------------------------------------
+// Global stats counter (server/stats.js)
+//
+// Required after dotenv.config() above for the same reason as turn.js:
+// stats.js reads the two Upstash keys and MAX_REPORT_BYTES at require time.
+// ---------------------------------------------------------------------------
+
+const {
+    statsRateLimits,
+    STATS_RATE_WINDOW,
+    initStats,
+    validateReportBytes,
+    statsHandler,
+    statsReportHandler,
+} = require('./stats');
+
+app.get('/api/stats', statsHandler);
+app.post('/api/stats/report', statsReportHandler);
+
+// ---------------------------------------------------------------------------
+// Code phrase API  (/api/code)
+// CLI callers use this to generate and resolve short human-readable codes.
+// ---------------------------------------------------------------------------
 
 // Per-IP limiter for the code endpoints (register + resolve). These were the
 // only unauthenticated HTTP routes without a limiter: unbounded POSTs grow
@@ -114,13 +139,6 @@ function makeRateLimiter(map, windowMs, max) {
     };
 }
 const codeRateLimiter = makeRateLimiter(codeRateLimits, CODE_RATE_WINDOW, CODE_MAX_REQUESTS);
-
-app.get('/api/turn-credentials', turnCredentialsHandler);
-
-// ---------------------------------------------------------------------------
-// Code phrase API  (/api/code)
-// CLI callers use this to generate and resolve short human-readable codes.
-// ---------------------------------------------------------------------------
 
 const words = require('./words.json');
 const codeToRoom = new Map(); // code → { roomId, expires }
@@ -163,76 +181,6 @@ app.get('/api/code/:code', codeRateLimiter, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Global stats — Upstash Redis (durable) + fast in-memory read cache
-//
-// GET /api/stats  — served from cachedTotal; zero Redis reads per poll request.
-// POST /api/stats/report — receiver peers report bytes after a completed transfer.
-//   Validates, increments cachedTotal, then fires INCRBY to Upstash (no-await).
-//   Gracefully degrades to in-memory-only when UPSTASH_* env vars are absent.
-// ---------------------------------------------------------------------------
-
-const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
-const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
-const STATS_KEY = 'floe:bytes_total';
-
-let cachedTotal = 0;
-
-async function upstashPost(command) {
-    if (!UPSTASH_URL || !UPSTASH_TOKEN) return null;
-    try {
-        const resp = await fetch(UPSTASH_URL, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${UPSTASH_TOKEN}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(command),
-        });
-        if (!resp.ok) return null;
-        const { result } = await resp.json();
-        return result;
-    } catch {
-        return null;
-    }
-}
-
-async function initStats() {
-    const val = await upstashPost(['GET', STATS_KEY]);
-    if (val !== null) cachedTotal = Number(val) || 0;
-}
-
-function validateReportBytes(bytes, maxBytes) {
-    return Number.isInteger(bytes) && bytes > 0 && bytes <= maxBytes;
-}
-
-app.get('/api/stats', (_req, res) => {
-    res.json({ totalBytes: cachedTotal });
-});
-
-app.post('/api/stats/report', (req, res) => {
-    const ip = req.ip;
-    const now = Date.now();
-
-    if (!statsRateLimits.has(ip)) statsRateLimits.set(ip, []);
-    const timestamps = statsRateLimits.get(ip).filter(t => now - t < STATS_RATE_WINDOW);
-    if (timestamps.length >= STATS_MAX_REPORTS) {
-        return res.status(429).json({ error: 'Too many reports' });
-    }
-    timestamps.push(now);
-    statsRateLimits.set(ip, timestamps);
-
-    const { bytes } = req.body || {};
-    if (!validateReportBytes(bytes, MAX_REPORT_BYTES)) {
-        return res.status(400).json({ error: 'Invalid byte count' });
-    }
-
-    cachedTotal += bytes;
-    upstashPost(['INCRBY', STATS_KEY, bytes]);
-
-    res.json({ totalBytes: cachedTotal });
-});
-
-// ---------------------------------------------------------------------------
 // Error handling
 // ---------------------------------------------------------------------------
 
@@ -270,8 +218,6 @@ app.use(errorHandler);
 // ---------------------------------------------------------------------------
 // Rate limiting (Socket.IO connections + WebSocket connections share this map)
 // ---------------------------------------------------------------------------
-
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const connectionCounts = new Map();
 const RATE_LIMIT_WINDOW = 60000;
@@ -488,8 +434,6 @@ io.on('connection', (socket) => {
     socket.on('disconnecting', () => {
         handleDisconnect(peer);
     });
-
-    socket.on('disconnect', () => {});
 });
 
 // ---------------------------------------------------------------------------
@@ -631,12 +575,6 @@ const heartbeat = setInterval(() => {
 wss.on('close', () => clearInterval(heartbeat));
 
 // ---------------------------------------------------------------------------
-// Start
-// ---------------------------------------------------------------------------
-
-const PORT = process.env.PORT || 3001;
-
-// ---------------------------------------------------------------------------
 // Graceful shutdown (SIGTERM from platform, SIGINT from Ctrl-C)
 // ---------------------------------------------------------------------------
 
@@ -653,6 +591,8 @@ function shutdown() {
 // ---------------------------------------------------------------------------
 // Entry point — only bind / register OS signals when run directly (not in tests)
 // ---------------------------------------------------------------------------
+
+const PORT = process.env.PORT || 3001;
 
 if (require.main === module) {
     // Mandatory once uncaughtException is handled below, or a bind failure

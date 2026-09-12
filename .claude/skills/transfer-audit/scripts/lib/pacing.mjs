@@ -1,7 +1,8 @@
 // Pacing ledger against the production limiters (server/turn.js: TURN 20;
-// server/server.js: connections 30, code 60, stats 60; each per IP per
-// rolling 60 s). Pure apart from the injected clock, persisted as JSON at
-// --out/ledger.json so two runs inside one minute share the same window.
+// server/server.js: connections 30, code 60; server/stats.js: stats 60;
+// each per IP per rolling 60 s). Pure apart from the injected clock,
+// persisted as JSON at --out/ledger.json so two runs inside one minute share
+// the same window.
 // Headroom is 50 percent (10 TURN, 15 conn, 30 code) and there is an 8 s
 // floor between leg starts, so the user's own floe.one traffic on the same
 // IP still has room.
