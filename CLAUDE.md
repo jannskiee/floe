@@ -123,8 +123,8 @@ The global total is viewable only in the browser (the `GlobalStats` component on
 
 **Opt-out:** All three receivers (browser, CLI, desktop) support opting out of reporting.
 - Browser: a "Contribute to global stats" toggle on the receiver view (`client/components/StatsContributionToggle.tsx`, persisted in `localStorage['floe:report-stats']` by `client/hooks/useTransferAnalytics.ts`). When unchecked, neither the `POST /api/stats/report` call nor the optimistic `floe:bytes-reported` event fires.
-- CLI: pass `--no-report` to `floe receive`, or set `FLOE_NO_STATS=1` in the environment. Both gate the report by passing an empty `statsURL` to `ReceiveFiles`, which hits the empty-URL guard at the top of `reportBytesToServer` in `cli/engine/transfer/receiver.go`. No change to `ReceiveFiles` signature or receiver logic.
-- Desktop: a "Contribute to global stats" switch in Settings (`desktop/frontend/src/App.tsx`), persisted as `reportStats` in `%APPDATA%\floe\desktop.json` by `desktop/config.go` (under `os.UserConfigDir()`, so the folder differs on macOS and Linux; the file, not localStorage, is the truth). When off, `desktop/app.go` passes an empty `statsURL` to `ReceiveFilesWithOptions`, the same guard the CLI uses. There is no environment override: `FLOE_NO_STATS` is CLI-only.
+- CLI: pass `--no-report` to `floe receive`, or set `FLOE_NO_STATS=1` in the environment. Both gate the report by passing an empty `statsURL` to `ReceiveFilesWithOptions` (the call in `cli/cmd/floe/receive.go`), which hits the empty-URL guard at the top of `reportBytesToServer` in `cli/engine/transfer/receiver.go`. The receiver itself carries no opt-out logic.
+- Desktop: a "Contribute to global stats" switch in Settings (`desktop/frontend/src/App.tsx`), persisted as `reportStats` in `%APPDATA%\floe\desktop.json` by `desktop/config.go` (under `os.UserConfigDir()`, so the folder differs on macOS and Linux; the file, not localStorage, is the truth). When off, `desktop/transfer.go` passes an empty `statsURL` to `ReceiveFilesWithOptions`, the same guard the CLI uses. There is no environment override: `FLOE_NO_STATS` is CLI-only.
 
 ### Rate Limiting
 Four independent per-IP limiters, each over a 60s window, tracked in plain `Map`s and cleaned every 60s. Connection limiter: 30 per IP (configurable via `MAX_CONNECTIONS_PER_IP`), shared across Socket.IO and WebSocket connections (`checkRateLimit`). TURN endpoint: a separate 20 requests per IP (configurable via `MAX_TURN_REQUESTS_PER_IP`) for `GET /api/turn-credentials` (`turnRateLimits`). Stats endpoint: a separate 60 reports per IP for `POST /api/stats/report` (`statsRateLimits`). Code endpoint: a separate 60 requests per IP (configurable via `MAX_CODE_REQUESTS_PER_IP`), shared across `POST /api/code` and `GET /api/code/:code` (`codeRateLimits`), applied via the shared `makeRateLimiter` middleware factory. As a second guard, `POST /api/code` returns 503 once `codeToRoom` holds `MAX_ACTIVE_CODES` (default 10000) live codes, bounding memory regardless of source IP.
@@ -133,8 +133,8 @@ Four independent per-IP limiters, each over a 60s window, tracked in plain `Map`
 `next.config.mjs` sets `reactStrictMode: false`. Strict Mode's double-mount breaks Socket.IO connections and `simple-peer` instances. All socket/peer logic uses refs and cleanup functions to handle component lifecycle correctly.
 
 ### Key Client Modules
-- `client/components/P2PTransfer.tsx` - transfer UI orchestrator; the extracted logic lives in `client/hooks/` (useSignaling, useFileManagement, useDownloadManager, useConnectionType, useTransferAnalytics, useRelayConfiguration, useWakeLock)
-- `client/lib/transfer/` - browser side of the wire protocol (protocol.ts, sender.ts, receiver.ts, verify.ts)
+- `client/components/P2PTransfer.tsx` - transfer UI orchestrator; the extracted logic lives in `client/hooks/` (useSignaling, useFileManagement, useDownloadManager, useConnectionType, useTransferAnalytics, useRelayConfiguration, useWakeLock) and in pure modules under `client/lib/` (`roomLink.ts`, `relay.ts`, `peerErrors.ts`, `receiverClose.ts`, `clipboard.ts`, each with a `.test.ts` sibling); the presentational pieces are siblings in `client/components/` (ConnectionStatusBadge, RelayFallbackToggle, ShareLinkPanel, TransferProgressBar, SelectedFilesList, ReceiverPanel)
+- `client/lib/transfer/` - browser side of the wire protocol (protocol.ts, sender.ts, receiver.ts); `verify.ts` sits beside them but is retained and unwired, the same status as `engine/verify` below
 - `client/lib/transferUtils.ts` - `formatSpeed()` and `formatETA()` used by the progress display
 
 ### Shared Go Engine
@@ -145,7 +145,7 @@ All under `cli/engine/`, imported by both the CLI (`cli/cmd/floe`) and the deskt
 - `ice/` - fetches STUN/TURN credentials from server
 - `code/` - registers and resolves short room codes
 - `serverurl/` - normalizes user-supplied server URLs (whitespace, trailing slashes)
-- `verify/` - short authentication string for out-of-band MITM verification
+- `verify/` - short authentication string for out-of-band MITM verification; retained and tested but unwired, since the user-facing code left every surface (CLI, browser, desktop) and its last callers went with it. Nothing imports it today. PAKE is the intended replacement; see DESKTOP.md, Phase 3a
 
 `cli/internal/` still exists but holds only `selfupdate/`, which stays private to the CLI on purpose (`floe update` has no meaning for the desktop app).
 
@@ -155,7 +155,7 @@ The docs live in `docs/` (Mintlify), git-synced to `main`, and are served at `fl
 
 - `docs/changelog.mdx` is written by hand and is never auto-generated. Its shape is fixed by the authoring contract in the MDX comment at the top of the file: one timeline for both version lines, `label` is the git tag verbatim (and therefore the anchor, so never edit a shipped one), `description` is the release date, and `tags` come from the fixed set `Web`, `Desktop`, `CLI`, `Self-hosting`, primary surface first. Follow that contract when adding an entry. Changing the contract itself is a restructure and needs its own discussion.
 - `docs/style.css` is auto-loaded by Mintlify on every docs page (no `docs.json` entry, that is how Mintlify works). Since the docs redesign (#269) it carries the full docs CSS (sidebar, theme, landing, code blocks). The changelog tag-separator rule near the top is still the only thing keeping the tags in an entry's left gutter legible (Mintlify renders them as bare space-separated text with no delimiter of its own), and its selector is undocumented by Mintlify, so if the tag row ever loses its separators that is the first thing to check.
-- Docs-only PRs stay fast without dodging branch protection: the `changes` job in `.github/workflows/ci.yml` diffs the PR and, when every changed file is under `docs/`, the heavy jobs skip and the `CI green` check reports success in under a minute, so docs and Mintlify PRs merge quickly without running the client/server/CLI/e2e suite.
+- Docs-only PRs stay fast without dodging branch protection: the `changes` job in `.github/workflows/ci.yml` diffs the PR and, when every changed file is under `docs/`, the heavy jobs skip and the `CI green` check reports success in under a minute, so docs and Mintlify PRs merge quickly without running the client/server/CLI/e2e suite. A skills-only PR (every non-docs file under `.claude/skills/`) skips the heavy jobs the same way and runs `Skill test suites` instead, which sits outside the gate's `needs` for now (visible, non-blocking). `Repo guardrails` (the peer-data consumer map) has no path filter and runs on every PR, docs-only and skills-only included.
 
 Automated doc-maintenance PRs (style, links, SEO) are managed in the Mintlify dashboard. They open PRs against `main`, only edit `docs/**`, and never auto-merge.
 
