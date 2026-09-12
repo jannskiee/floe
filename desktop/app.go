@@ -15,10 +15,6 @@ import (
 
 const desktopUpdateHint = "Update Floe from the Microsoft Store or floe.one/download."
 
-// The share-link origin is no longer a constant here. It is derived from the
-// signaling origin by engine/serverurl, which the CLI uses too, so both surfaces
-// emit identical links. See App.endpoints.
-
 // contextMenuBase is the per-user Explorer context-menu key for all file types.
 const contextMenuBase = `Software\Classes\*\shell\Floe`
 
