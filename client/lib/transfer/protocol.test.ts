@@ -107,7 +107,7 @@ describe('compatErrorMessage', () => {
 /**
  * The wire half of the same mismatch. These mirror the two
  * peerCompatErrorMessage assertions in TestCompatErrorMessage
- * (cli/engine/transfer/transfer_test.go), so both implementations pin the same
+ * (cli/engine/transfer/protocol_test.go), so both implementations pin the same
  * sentences and a drift in either shows up as a failing test rather than as a
  * peer being told the wrong side is old.
  */

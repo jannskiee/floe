@@ -121,6 +121,27 @@ func runTransfer(t *testing.T, srcPaths []string) string {
 	return outDir
 }
 
+// listDir returns the recursive file names under dir, for "nothing left
+// behind" assertions that also catch de-collided names and stray subfiles.
+func listDir(t *testing.T, dir string) []string {
+	t.Helper()
+	var names []string
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			rel, _ := filepath.Rel(dir, path)
+			names = append(names, filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", dir, err)
+	}
+	return names
+}
+
 // TestLoopbackLargeFile is the end-to-end regression guard for the backpressure
 // and flush fixes: a 20 MB file exceeds the 8 MB high-water mark, so it exercises
 // multiple drain cycles. The received bytes must match the source exactly.
