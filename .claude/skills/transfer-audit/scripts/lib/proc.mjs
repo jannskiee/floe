@@ -29,9 +29,10 @@
  * CLI adapter reports that through outputs(), which is the point of the
  * killrcv cell.
  *
- * EXIT_MAP and STDERR_CLASSES quote cli/cmd/floe/main.go and the engine's
- * error strings at f14a8d7; each regex names its source line. The shipped
- * 1.10.5 carries the same strings (verified against the binary on PATH).
+ * EXIT_MAP and STDERR_CLASSES quote cli/cmd/floe (send.go, receive.go and
+ * main.go) and the engine's error strings at f14a8d7; each regex names its
+ * source file and function. The shipped 1.10.5 carries the same strings
+ * (verified against the binary on PATH).
  */
 import { execFile, execFileSync, spawn } from 'node:child_process';
 import { createWriteStream, mkdirSync } from 'node:fs';
@@ -137,7 +138,7 @@ function fillCreation(pid, entry) {
     );
 }
 
-// main.go runUpdate: a cobra error exits 1; main.go runUpdate: Ctrl+C prints
+// main.go main: a cobra error exits 1, and the Ctrl+C handler prints
 // "  Canceled." on stderr and exits 130.
 export const EXIT_MAP = Object.freeze({ 0: 'ok', 1: 'error', 130: 'canceled' });
 
@@ -145,7 +146,7 @@ export const EXIT_MAP = Object.freeze({ 0: 'ok', 1: 'error', 130: 'canceled' });
 // architecture design's list with each string checked against the source;
 // the design's "expected receiver role, got sender" does not exist (the
 // receiver's wrong-role message is "this code is no longer active",
-// main.go runReceive), so role-race matches the sender's message at main.go runSend.
+// receive.go runReceive), so role-race matches the sender's message at send.go runSend.
 // The last four are the retry-eligible infra signatures the report design
 // names (section 10), added so a cell runner can key on them.
 export const STDERR_CLASSES = Object.freeze([
@@ -161,13 +162,13 @@ export const STDERR_CLASSES = Object.freeze([
     ],
     // receiver.go ReceiveFilesWithOptions
     ['stall-mid-file', /transfer stalled: no data for/],
-    // main.go runSend
+    // send.go runSend
     ['role-race', /expected sender role, got "receiver"/],
     // cli/engine/code/client.go Resolve
     ['code-expired', /not found or expired/],
-    // main.go runReceive
+    // receive.go runReceive
     ['code-spent', /this code is no longer active/],
-    // main.go runSend and runReceive
+    // send.go runSend and receive.go runReceive
     ['room-full', /room is full/],
     // receiver.go ReceiveFilesWithOptions
     ['peer-refused', /connection closed before any file arrived/],
@@ -180,13 +181,13 @@ export const STDERR_CLASSES = Object.freeze([
     ],
     // cli/engine/transfer/protocol.go compatErrorMessage
     ['incompatible', /Cannot transfer: /],
-    // main.go runSend and runReceive
+    // send.go runSend and receive.go runReceive
     ['ice-fetch-failed', /failed to fetch ICE credentials/],
-    // main.go runSend and runReceive
+    // send.go runSend and receive.go runReceive
     ['signaling-connect-failed', /failed to connect to signaling server/],
     // cli/engine/code/client.go Resolve
     ['code-unreachable', /could not reach signaling server/],
-    // main.go runSend
+    // send.go runSend
     ['peer-left-early', /peer disconnected before connecting/],
 ]);
 

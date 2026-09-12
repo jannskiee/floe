@@ -54,7 +54,7 @@
 // sees it.
 //
 // Every expected string is quoted from desktop/frontend/src/App.tsx,
-// TitleBar.tsx, incoming.ts and desktop/app.go; see STRINGS and RE below.
+// TitleBar.tsx, incoming.ts and desktop/transfer.go; see STRINGS and RE below.
 import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
@@ -80,8 +80,8 @@ export const PACKAGE_FAMILY = 'JanCarloParedes.FloeDesktop_r1y5w9chaxnzc';
 export const WINDOWS_APPS = 'C:\\Program Files\\WindowsApps\\';
 export const EXE_NAME = 'floe-desktop.exe';
 export const WINDOW_CLASS = 'wailsWindow'; // wails v2.12.0 window.go:81
-export const WINDOW_TITLE = 'Floe'; // desktop/main.go applyEnv
-export const SINGLE_INSTANCE_ID = 'one.floe.desktop'; // desktop/main.go applyEnv
+export const WINDOW_TITLE = 'Floe'; // desktop/main.go, the wails.Run Title option
+export const SINGLE_INSTANCE_ID = 'one.floe.desktop'; // desktop/main.go, the wails.Run SingleInstanceLock.UniqueId option
 export const WAILSDEV_URL = 'http://localhost:34115';
 export const LAUNCH_MODES = Object.freeze([
     'store',
@@ -112,7 +112,7 @@ export const STRINGS = Object.freeze({
     closeAnyway: 'Close anyway',
     checkForUpdates: 'Check for updates', // Settings row, hidden when packaged
     waitingForReceiver: 'Waiting for the receiver...',
-    peerConnected: 'Peer connected. Sending...', // desktop/app.go
+    peerConnected: 'Peer connected. Sending...', // desktop/transfer.go runSend
     connecting: 'Connecting... keep this window open.',
     enterCode: 'Please enter a code or link.',
     canceled: 'Canceled.',
@@ -1258,9 +1258,10 @@ export class DesktopLeg extends Leg {
     /**
      * The wailsdev lane cannot seed or guard the config the dev server's
      * app reads (App.tsx ignores the localStorage seed once migrated is
-     * true, and app.go posts to the configured server when reportStats is
-     * true), so a receiver is driven only when GetSettings already shows
-     * the audit values; a sender only needs the server under test.
+     * true, and transfer.go receiveByCode posts to the configured server
+     * when reportStats is true), so a receiver is driven only when
+     * GetSettings already shows the audit values; a sender only needs the
+     * server under test.
      */
     assertWailsdevConfig(settings) {
         const s = settings || {};
@@ -1347,7 +1348,7 @@ export class DesktopLeg extends Leg {
                 'start',
                 `desktop sender: no button named "${want}" appeared`
             );
-        // desktop/app.go runSend: TURN credentials, /ws, code registration.
+        // desktop/transfer.go runSend: TURN credentials, /ws, code registration.
         this.spend('turn');
         this.spend('conn');
         this.spend('code');
@@ -1445,7 +1446,7 @@ export class DesktopLeg extends Leg {
                 }
             );
         }
-        // desktop/app.go receiveByCode: code.Resolve (code only), ice.Fetch, /ws.
+        // desktop/transfer.go receiveByCode: code.Resolve (code only), ice.Fetch, /ws.
         this.spend('turn');
         this.spend('conn');
         if (opts.input === 'code') this.spend('code');

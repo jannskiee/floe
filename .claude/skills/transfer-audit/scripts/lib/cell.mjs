@@ -65,7 +65,7 @@ export const SIGNATURES = Object.freeze([
     // harness fault.
     ['stale-part', /stale-part|stale \.part file/, false, 'stale-part'],
     // A CLI or desktop sender whose POST /api/code failed prints only the
-    // Link row (main.go: "Warning: could not generate short code"); the
+    // Link row (send.go runSend: "Warning: could not generate short code"); the
     // cause is the code limiter, so the retry is allowed and paced.
     [
         'code-registration-failed',
@@ -1151,8 +1151,8 @@ export async function runAttempt(
             const input = cell.receiver.input;
             const target = input === 'code' ? rec.room.code : rec.room.link;
             if (!target) {
-                // A sender that printed no code registered none: main.go
-                // warns "could not generate short code" on a 429 or 503
+                // A sender that printed no code registered none: send.go
+                // runSend warns "could not generate short code" on a 429 or 503
                 // from POST /api/code and prints the Link row alone. That
                 // is the code limiter, a product symptom with a retry,
                 // not a harness fault.

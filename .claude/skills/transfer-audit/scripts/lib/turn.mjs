@@ -1,5 +1,5 @@
 // Shape probe for GET /api/turn-credentials. The response carries live TURN
-// credentials (server/server.js serves Cloudflare-minted or coturn HMAC
+// credentials (server/turn.js serves Cloudflare-minted or coturn HMAC
 // pairs), so the body is parsed in memory by http.getDerived and only the
 // scheme summary leaves this module: { entries, schemes, servesTurn,
 // contentLength }. Nothing here logs, stores or returns urls, username or
