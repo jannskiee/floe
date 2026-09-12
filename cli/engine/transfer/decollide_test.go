@@ -178,3 +178,57 @@ func TestClaimPartCapIsNamed(t *testing.T) {
 		t.Fatalf("error does not name the exhaustion: %v", err)
 	}
 }
+
+// TestClaimPart pins the de-collision sequence across repeated claims. Each
+// claim leaves its .part in place, which is what blocks the candidate for the
+// next claim (the final names do not exist yet), so the pinned sequence proves
+// a live .part reserves its final name.
+func TestClaimPart(t *testing.T) {
+	dir := t.TempDir()
+
+	base := filepath.Join(dir, "shot.png")
+	for _, want := range []string{"shot.png", "shot (1).png", "shot (2).png"} {
+		f, dest, err := claimPart(base, nil)
+		if err != nil {
+			t.Fatalf("claimPart(%q): %v", base, err)
+		}
+		if got := filepath.Base(dest); got != want {
+			t.Errorf("claimPart dest = %q, want %q", got, want)
+		}
+		if f.Name() != dest+partSuffix {
+			t.Errorf("staging file = %q, want %q", f.Name(), dest+partSuffix)
+		}
+		f.Close()
+	}
+
+	// No extension: the suffix goes at the end.
+	noExt := filepath.Join(dir, "NOTES")
+	f1, _, err := claimPart(noExt, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f1.Close()
+	f2, dest2, err := claimPart(noExt, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f2.Close()
+	if got := filepath.Base(dest2); got != "NOTES (1)" {
+		t.Errorf("no-ext de-collision = %q, want %q", got, "NOTES (1)")
+	}
+
+	// A completed file (final name on disk, no .part) blocks its candidate
+	// the same way a live claim does.
+	done := filepath.Join(dir, "done.txt")
+	if err := os.WriteFile(done, []byte("x"), 0666); err != nil {
+		t.Fatal(err)
+	}
+	f3, dest3, err := claimPart(done, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f3.Close()
+	if got := filepath.Base(dest3); got != "done (1).txt" {
+		t.Errorf("existing-file de-collision = %q, want %q", got, "done (1).txt")
+	}
+}

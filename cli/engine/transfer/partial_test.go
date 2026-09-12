@@ -321,3 +321,64 @@ func TestCommitAbandonTorture(t *testing.T) {
 		t.Logf("%d successful commits audited", len(committed))
 	}
 }
+
+// TestCommitPart pins the publish step: the verified bytes land at the claimed
+// name with no .part left behind, and a name taken between claim and commit
+// advances through the BASE candidate sequence (never "shot (1) (1).png"),
+// without ever overwriting the intruder.
+func TestCommitPart(t *testing.T) {
+	dir := t.TempDir()
+
+	// Plain path: claim, write, commit.
+	base := filepath.Join(dir, "doc.pdf")
+	f, dest, err := claimPart(base, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte("payload")); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	final, err := commitPart(f.Name(), dest, base)
+	if err != nil {
+		t.Fatalf("commitPart: %v", err)
+	}
+	if final != dest {
+		t.Errorf("commit landed at %q, want the claimed %q", final, dest)
+	}
+	if b, err := os.ReadFile(final); err != nil || string(b) != "payload" {
+		t.Fatalf("final content = %q, %v", b, err)
+	}
+	if _, err := os.Lstat(f.Name()); !os.IsNotExist(err) {
+		t.Errorf("staging file %q survived the commit", f.Name())
+	}
+
+	// Interference path: something claims the final name mid-transfer. The
+	// intruder must survive byte-identical and the payload must land at the
+	// next BASE candidate.
+	base2 := filepath.Join(dir, "clash.bin")
+	f2, dest2, err := claimPart(base2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f2.Write([]byte("mine")); err != nil {
+		t.Fatal(err)
+	}
+	f2.Close()
+	if err := os.WriteFile(dest2, []byte("INTRUDER"), 0666); err != nil {
+		t.Fatal(err)
+	}
+	final2, err := commitPart(f2.Name(), dest2, base2)
+	if err != nil {
+		t.Fatalf("commitPart with occupied dest: %v", err)
+	}
+	if got := filepath.Base(final2); got != "clash (1).bin" {
+		t.Errorf("re-collision landed at %q, want %q", got, "clash (1).bin")
+	}
+	if b, _ := os.ReadFile(dest2); string(b) != "INTRUDER" {
+		t.Errorf("intruder was overwritten: %q", b)
+	}
+	if b, _ := os.ReadFile(final2); string(b) != "mine" {
+		t.Errorf("payload content = %q, want %q", b, "mine")
+	}
+}
