@@ -46,3 +46,13 @@ export function advancedSummary(server: string, web: string): string {
     }
     return "This app uses Floe's server. You can point it at your own instead.";
 }
+
+/** webPlaceholder shows what the Web address field falls back to when left blank,
+ *  so the derivation is visible instead of implied. Mirrors engine/serverurl.Web,
+ *  which is what actually builds the link; keep the two in step. */
+export function webPlaceholder(server: string): string {
+    const s = server.trim().replace(/\/+$/, '');
+    if (s === '' || s === 'https://api.floe.one') return 'https://floe.one';
+    if (s === 'http://localhost:3001') return 'http://localhost:3000';
+    return s;
+}
