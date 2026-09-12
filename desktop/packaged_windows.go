@@ -14,7 +14,7 @@ import (
 // the "Send with Floe" verb cannot work), and a Store uninstall runs no
 // cleanup code that could remove a verb pointing at the versioned WindowsApps
 // exe path. The context-menu feature is therefore hidden when packaged; see
-// the guards in app.go.
+// the guards in contextmenu.go.
 //
 // Verified empirically against a loose-layout package of this app (2026-08):
 // the app's registry writes were virtualized into the package's private hive

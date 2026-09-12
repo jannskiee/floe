@@ -60,6 +60,7 @@ desktop/               Wails app: imports cli/engine/...
   serverprobe.go       the Settings Test button: probes a server URL in stages
   updatecheck.go       once-a-day check for a newer desktop release, notice only
   config.go            desktop.json: persisted settings kept outside the WebView
+  contextmenu.go       the Explorer "Send with Floe" toggle: its registry key and the bound methods
 go.work                ties cli + desktop for local dev
 ```
 
