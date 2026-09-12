@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {advancedSummary, hostOf} from './settings';
+import {advancedSummary, hostOf, webPlaceholder} from './settings';
 
 describe('hostOf', () => {
     it('reduces a full address to its host', () => {
@@ -66,5 +66,33 @@ describe('advancedSummary', () => {
         ]) {
             expect(s).not.toContain('—');
         }
+    });
+});
+
+describe('webPlaceholder', () => {
+    // The cases mirror TestWeb in cli/engine/serverurl/serverurl_test.go, which
+    // pins engine/serverurl.Web, the function that actually builds the link.
+    // Nothing runs both tables: this one guards only the TypeScript side, so a
+    // case added to the Go table has to be carried over here by hand.
+    it.each([
+        ['production', 'https://api.floe.one', 'https://floe.one'],
+        ['production with trailing slash', 'https://api.floe.one/', 'https://floe.one'],
+        ['local dev', 'http://localhost:3001', 'http://localhost:3000'],
+        ['local dev with trailing slash', 'http://localhost:3001/', 'http://localhost:3000'],
+        // One-domain self-hosting: the web app and the API share an origin, so
+        // the server address is already the right link base.
+        ['self-hosted one domain', 'https://floe.example.com', 'https://floe.example.com'],
+        ['self-hosted with trailing slash', 'https://floe.example.com/', 'https://floe.example.com'],
+    ])('%s', (_name, server, want) => {
+        expect(webPlaceholder(server)).toBe(want);
+    });
+
+    // The one deliberate divergence from the Go table, where Web('') is ''.
+    // Go's callers pass an already-resolved server; this placeholder is shown
+    // while the Server address field is still blank, and blank means Floe's
+    // own server, so the field shows what that resolves to rather than nothing.
+    it('shows the production link while the server field is blank', () => {
+        expect(webPlaceholder('')).toBe('https://floe.one');
+        expect(webPlaceholder('   ')).toBe('https://floe.one');
     });
 });

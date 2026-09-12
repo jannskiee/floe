@@ -40,7 +40,7 @@ import {
     X,
 } from 'lucide-react';
 import {BoltMark, Button, cn, Eyebrow, Input, rowDescClass, rowLabelClass, StatusDot} from './components/ui';
-import {advancedSummary, hostOf} from './settings';
+import {advancedSummary, hostOf, webPlaceholder} from './settings';
 import {UNDO_WINDOW_MS, clearLabel, clearedAnnouncement, clearedLabel, restorable, restoredAnnouncement, stagedSnapshot, supersededBy, undoLabel, type Cleared} from './clear';
 import {resetWarning} from './reset';
 import {friendlyError} from './errors';
@@ -62,16 +62,6 @@ type Mode = 'send' | 'receive' | 'history';
 // a reset lands on the exact same copy a fresh launch shows.
 const INITIAL_SEND_STATUS = 'Select or drag files, then click Send.';
 const INITIAL_RECV_STATUS = 'Enter a code or link, then click Receive.';
-
-/** webPlaceholder shows what the Web address field falls back to when left blank,
- *  so the derivation is visible instead of implied. Mirrors engine/serverurl.Web,
- *  which is what actually builds the link; keep the two in step. */
-function webPlaceholder(server: string): string {
-    const s = server.trim().replace(/\/+$/, '');
-    if (s === '' || s === 'https://api.floe.one') return 'https://floe.one';
-    if (s === 'http://localhost:3001') return 'http://localhost:3000';
-    return s;
-}
 
 // Windows paths compare case-insensitively; normalize for dedupe and removal but
 // keep the original strings for display and for the Go side.
