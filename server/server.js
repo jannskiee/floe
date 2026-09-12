@@ -434,8 +434,6 @@ io.on('connection', (socket) => {
     socket.on('disconnecting', () => {
         handleDisconnect(peer);
     });
-
-    socket.on('disconnect', () => {});
 });
 
 // ---------------------------------------------------------------------------
