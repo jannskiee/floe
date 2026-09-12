@@ -1,5 +1,4 @@
 import {useEffect, useRef, useState} from 'react';
-import type {MutableRefObject} from 'react';
 import {
     CancelTransfer,
     ConfirmClose,
@@ -32,9 +31,7 @@ import {
     ArrowUpRight,
     Check,
     ChevronDown,
-    Copy,
     Download,
-    Files,
     Folder,
     FolderOpen,
     History,
@@ -44,14 +41,13 @@ import {
 } from 'lucide-react';
 import {BoltMark, Button, cn, Eyebrow, Input, rowDescClass, rowLabelClass, StatusDot} from './components/ui';
 import {advancedSummary, hostOf} from './settings';
-import {histKey} from './history';
 import {UNDO_WINDOW_MS, clearLabel, clearedAnnouncement, clearedLabel, restorable, restoredAnnouncement, stagedSnapshot, supersededBy, undoLabel, type Cleared} from './clear';
 import {resetWarning} from './reset';
 import {friendlyError} from './errors';
 import {fmtBytes, formatIncoming, type IncomingPreview} from './incoming';
 import {track, type Marker, type Prog} from './progress';
 import {baseName, mergePaths, normPath} from './paths';
-import {HISTORY_CAP, fmtWhen, loadHistory, type HistEntry} from './history';
+import {HISTORY_CAP, fmtWhen, histKey, loadHistory, type HistEntry} from './history';
 import {DOWNLOAD_URL, bareVersion, isNewerDesktopVersion} from './update';
 import TitleBar from './components/TitleBar';
 import {Tooltip} from './components/Tooltip';
@@ -196,7 +192,7 @@ function App() {
     const [offerUp, setOfferUp] = useState(false);
     const clearedTimer = useRef<number | null>(null);
     // Readable from the once-registered file-drop and paste closures, which see
-    // only the first render's state. Same idiom as busyRef above.
+    // only the first render's state. Same idiom as busyRef below.
     const clearedRef = useRef<Cleared | null>(null);
     clearedRef.current = cleared;
     // What the live region says. A piece of state rather than a render of
@@ -1529,7 +1525,7 @@ function App() {
                                     <Eyebrow as="h3">Transfers</Eyebrow>
                                     <div className={cardClass}>
                                         {/* The placeholder must stay in step with defaultReceiveDir
-                                            (app.go:406) and with the receive screen's own field: a
+                                            in reveal.go and with the receive screen's own field: a
                                             blank value saves to ~/Downloads, it does NOT prompt.
                                             An earlier "Ask every time" here was simply false. */}
                                         <SettingField

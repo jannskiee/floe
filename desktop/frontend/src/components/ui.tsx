@@ -132,20 +132,6 @@ export function Input({className, ...props}: InputHTMLAttributes<HTMLInputElemen
     );
 }
 
-export function Card({className, children}: {className?: string; children: ReactNode}) {
-    return (
-        <div
-            className={cn(
-                'w-full rounded-xl border border-white/10 bg-zinc-900/60 shadow-2xl ring-1 ring-white/5 backdrop-blur-xl',
-                className,
-            )}
-        >
-            {children}
-        </div>
-    );
-}
-
-
 // One geometry, three call sites: SettingRow, SettingField, and the Advanced
 // disclosure button. Kept as consts so the three cannot drift apart.
 //
