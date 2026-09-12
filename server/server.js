@@ -82,10 +82,14 @@ const {
     turnCredentialsHandler,
 } = require('./turn');
 
-const statsRateLimits = new Map();
-const STATS_RATE_WINDOW = 60000;
-const STATS_MAX_REPORTS = 60; // per IP per minute
-const MAX_REPORT_BYTES = parseInt(process.env.MAX_REPORT_BYTES || '', 10) || (5 * 1024 * 1024 * 1024 * 1024); // 5 TiB
+const {
+    statsRateLimits,
+    STATS_RATE_WINDOW,
+    initStats,
+    validateReportBytes,
+    statsHandler,
+    statsReportHandler,
+} = require('./stats');
 
 // Per-IP limiter for the code endpoints (register + resolve). These were the
 // only unauthenticated HTTP routes without a limiter: unbounded POSTs grow
@@ -162,75 +166,8 @@ app.get('/api/code/:code', codeRateLimiter, (req, res) => {
     res.json({ roomId: entry.roomId });
 });
 
-// ---------------------------------------------------------------------------
-// Global stats — Upstash Redis (durable) + fast in-memory read cache
-//
-// GET /api/stats  — served from cachedTotal; zero Redis reads per poll request.
-// POST /api/stats/report — receiver peers report bytes after a completed transfer.
-//   Validates, increments cachedTotal, then fires INCRBY to Upstash (no-await).
-//   Gracefully degrades to in-memory-only when UPSTASH_* env vars are absent.
-// ---------------------------------------------------------------------------
-
-const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
-const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
-const STATS_KEY = 'floe:bytes_total';
-
-let cachedTotal = 0;
-
-async function upstashPost(command) {
-    if (!UPSTASH_URL || !UPSTASH_TOKEN) return null;
-    try {
-        const resp = await fetch(UPSTASH_URL, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${UPSTASH_TOKEN}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(command),
-        });
-        if (!resp.ok) return null;
-        const { result } = await resp.json();
-        return result;
-    } catch {
-        return null;
-    }
-}
-
-async function initStats() {
-    const val = await upstashPost(['GET', STATS_KEY]);
-    if (val !== null) cachedTotal = Number(val) || 0;
-}
-
-function validateReportBytes(bytes, maxBytes) {
-    return Number.isInteger(bytes) && bytes > 0 && bytes <= maxBytes;
-}
-
-app.get('/api/stats', (_req, res) => {
-    res.json({ totalBytes: cachedTotal });
-});
-
-app.post('/api/stats/report', (req, res) => {
-    const ip = req.ip;
-    const now = Date.now();
-
-    if (!statsRateLimits.has(ip)) statsRateLimits.set(ip, []);
-    const timestamps = statsRateLimits.get(ip).filter(t => now - t < STATS_RATE_WINDOW);
-    if (timestamps.length >= STATS_MAX_REPORTS) {
-        return res.status(429).json({ error: 'Too many reports' });
-    }
-    timestamps.push(now);
-    statsRateLimits.set(ip, timestamps);
-
-    const { bytes } = req.body || {};
-    if (!validateReportBytes(bytes, MAX_REPORT_BYTES)) {
-        return res.status(400).json({ error: 'Invalid byte count' });
-    }
-
-    cachedTotal += bytes;
-    upstashPost(['INCRBY', STATS_KEY, bytes]);
-
-    res.json({ totalBytes: cachedTotal });
-});
+app.get('/api/stats', statsHandler);
+app.post('/api/stats/report', statsReportHandler);
 
 // ---------------------------------------------------------------------------
 // Error handling

@@ -79,6 +79,7 @@ export const SURFACES = [
     'desktop',
     'server/server.js',
     'server/turn.js',
+    'server/stats.js',
     'server/.env.example',
     '.env.docker.example',
     'docker-compose.yml',

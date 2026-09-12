@@ -428,8 +428,9 @@ receiver's opt-out, and the versions that did it.
   `desktop/app.go`, `desktop/transfer.go`, `desktop/config.go`,
   `cli/cmd/floe/main.go`, `cli/cmd/floe/send.go`, `cli/cmd/floe/receive.go`,
   `cli/engine/transfer/receiver.go`, `cli/engine/peer/connection.go`,
-  `server/server.js` (the connection, code and stats limiters),
-  `server/turn.js` (the TURN limiter and `/api/turn-credentials` precedence).
+  `server/server.js` (the connection and code limiters), `server/stats.js`
+  (the stats limiter), `server/turn.js` (the TURN limiter and
+  `/api/turn-credentials` precedence).
 - Memory: `reference_transfer_audit_harness`,
   `reference_datachannel_early_message_race`,
   `project_floe_local_install_hygiene`, `project_deployment_topology`,
