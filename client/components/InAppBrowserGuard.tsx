@@ -3,39 +3,12 @@
 import React, { useEffect, useState } from 'react';
 import { ExternalLink, Copy, Check, SquareArrowOutUpRight } from 'lucide-react';
 import { copyText } from '@/lib/clipboard';
+import { detectInAppBrowser, isAndroid, type DetectedApp } from '@/lib/inAppBrowser';
 
 interface UmamiWindow extends Window {
     umami?: {
         track: (event: string, data?: Record<string, unknown>) => void;
     };
-}
-
-type DetectedApp =
-    | 'Facebook'
-    | 'Messenger'
-    | 'Instagram'
-    | 'TikTok'
-    | 'Snapchat'
-    | 'LINE'
-    | 'Twitter'
-    | 'WeChat'
-    | 'InAppBrowser';
-
-function detectInAppBrowser(ua: string): DetectedApp | null {
-    if (/FBAN|FBAV/i.test(ua)) return 'Facebook';
-    if (/FB_IAB.*FBAV/i.test(ua) || /\bMessenger\b/i.test(ua)) return 'Messenger';
-    if (/Instagram/i.test(ua)) return 'Instagram';
-    if (/musical_ly|TikTok/i.test(ua)) return 'TikTok';
-    if (/Snapchat/i.test(ua)) return 'Snapchat';
-    if (/\bLine\/\d/i.test(ua)) return 'LINE';
-    if (/Twitter/i.test(ua)) return 'Twitter';
-    if (/MicroMessenger|WeChat/i.test(ua)) return 'WeChat';
-    if (/Android/.test(ua) && /wv\)/.test(ua) && !/Chrome\/\d/.test(ua)) return 'InAppBrowser';
-    return null;
-}
-
-function isAndroid(ua: string): boolean {
-    return /Android/i.test(ua);
 }
 
 interface Props {
