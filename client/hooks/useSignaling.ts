@@ -52,8 +52,7 @@ export interface UseSignalingCallbacks {
  * Owns the Socket.IO transport only: online status, round-trip ping, joining a
  * room, and relaying WebRTC signals. It is peer- and transfer-agnostic — every
  * event whose handling depends on peer/transfer state is delegated to a callback
- * supplied by the component. (Peer/WebRTC creation lives in the component until
- * the usePeerConnection extraction.)
+ * supplied by the component. Peer/WebRTC creation stays in the component.
  */
 export function useSignaling(callbacks: UseSignalingCallbacks) {
     const [isConnected, setIsConnected] = useState(false);

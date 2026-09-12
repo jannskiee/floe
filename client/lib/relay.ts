@@ -2,6 +2,10 @@
 // useRelayConfiguration hook. Kept side-effect free so the relay gate (which the
 // e2e suite does not exercise) can be unit-tested directly.
 
+// Mirrors RelaySizeLimit in cli/engine/transfer/relay.go; keep the two in
+// sync. What has to agree is the comparison, not the arithmetic: both sides
+// block only a payload strictly OVER the limit (evaluateRelayGate here,
+// checkRelayGate there), so a payload of exactly 2 GB is allowed.
 export const RELAY_SIZE_LIMIT = 2 * 1024 * 1024 * 1024; // 2 GB
 
 /**
