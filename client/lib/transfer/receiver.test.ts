@@ -279,8 +279,8 @@ describe('receiver: the wire reason is written for the peer that reads it', () =
  * file chunks as BINARY, so the wire already carried the answer. The browser
  * could not see it until the peer was given readableObjectMode, because
  * simple-peer Buffer.from()s text frames on the way through readable-stream.
- * These tests model the wire, which is what the loopback harness above now
- * does too.
+ * These tests model the wire, which is what the loopback harness in
+ * transfer.test.ts now does too.
  */
 describe('receiver: framing decides, not content', () => {
     function receiver() {

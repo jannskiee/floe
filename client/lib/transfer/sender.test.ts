@@ -140,7 +140,7 @@ describe('sender: an abort reason reaches the wire before teardown', () => {
  */
 // Loopback deps whose receiver side is scripted: `reply` builds the frame that
 // answers the sender's metadata, delivered on a microtask like the loopback
-// harness above so waitForAck is registered before it fires. `sent` collects
+// harness in transfer.test.ts so waitForAck is registered before it fires. `sent` collects
 // every string frame the sender emits, for "never announced the file as done"
 // assertions.
 function scriptedDeps(reply: (metadataId: string) => string, sent: string[] = []): SenderDeps {
