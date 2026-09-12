@@ -41,6 +41,10 @@ function getClientIp(xffHeader, socketAddr) {
     return hops[idx] || socketAddr || 'unknown';
 }
 
+// A room id must be a UUID. handleJoinRoom and POST /api/code both check it,
+// and client/lib/roomLink.ts mirrors the pattern, so keep the two in step.
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const allowedOrigins = [
     process.env.CLIENT_URL,
     'https://www.floe.one',
@@ -82,6 +86,15 @@ const {
     turnCredentialsHandler,
 } = require('./turn');
 
+app.get('/api/turn-credentials', turnCredentialsHandler);
+
+// ---------------------------------------------------------------------------
+// Global stats counter (server/stats.js)
+//
+// Required after dotenv.config() above for the same reason as turn.js:
+// stats.js reads the two Upstash keys and MAX_REPORT_BYTES at require time.
+// ---------------------------------------------------------------------------
+
 const {
     statsRateLimits,
     STATS_RATE_WINDOW,
@@ -90,6 +103,14 @@ const {
     statsHandler,
     statsReportHandler,
 } = require('./stats');
+
+app.get('/api/stats', statsHandler);
+app.post('/api/stats/report', statsReportHandler);
+
+// ---------------------------------------------------------------------------
+// Code phrase API  (/api/code)
+// CLI callers use this to generate and resolve short human-readable codes.
+// ---------------------------------------------------------------------------
 
 // Per-IP limiter for the code endpoints (register + resolve). These were the
 // only unauthenticated HTTP routes without a limiter: unbounded POSTs grow
@@ -118,13 +139,6 @@ function makeRateLimiter(map, windowMs, max) {
     };
 }
 const codeRateLimiter = makeRateLimiter(codeRateLimits, CODE_RATE_WINDOW, CODE_MAX_REQUESTS);
-
-app.get('/api/turn-credentials', turnCredentialsHandler);
-
-// ---------------------------------------------------------------------------
-// Code phrase API  (/api/code)
-// CLI callers use this to generate and resolve short human-readable codes.
-// ---------------------------------------------------------------------------
 
 const words = require('./words.json');
 const codeToRoom = new Map(); // code → { roomId, expires }
@@ -166,9 +180,6 @@ app.get('/api/code/:code', codeRateLimiter, (req, res) => {
     res.json({ roomId: entry.roomId });
 });
 
-app.get('/api/stats', statsHandler);
-app.post('/api/stats/report', statsReportHandler);
-
 // ---------------------------------------------------------------------------
 // Error handling
 // ---------------------------------------------------------------------------
@@ -207,8 +218,6 @@ app.use(errorHandler);
 // ---------------------------------------------------------------------------
 // Rate limiting (Socket.IO connections + WebSocket connections share this map)
 // ---------------------------------------------------------------------------
-
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const connectionCounts = new Map();
 const RATE_LIMIT_WINDOW = 60000;
@@ -568,12 +577,6 @@ const heartbeat = setInterval(() => {
 wss.on('close', () => clearInterval(heartbeat));
 
 // ---------------------------------------------------------------------------
-// Start
-// ---------------------------------------------------------------------------
-
-const PORT = process.env.PORT || 3001;
-
-// ---------------------------------------------------------------------------
 // Graceful shutdown (SIGTERM from platform, SIGINT from Ctrl-C)
 // ---------------------------------------------------------------------------
 
@@ -590,6 +593,8 @@ function shutdown() {
 // ---------------------------------------------------------------------------
 // Entry point — only bind / register OS signals when run directly (not in tests)
 // ---------------------------------------------------------------------------
+
+const PORT = process.env.PORT || 3001;
 
 if (require.main === module) {
     // Mandatory once uncaughtException is handled below, or a bind failure
