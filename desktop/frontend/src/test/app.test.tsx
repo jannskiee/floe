@@ -316,3 +316,52 @@ describe('the views no other test mounts', () => {
         expect(await screen.findByText('No transfers yet.')).toBeTruthy();
     });
 });
+
+/**
+ * Written before the history view left App.tsx, and kept because it is the
+ * only detector of the one trap that move can fall into. A component DECLARED
+ * INSIDE App() is a new type on every render, so React unmounts and remounts
+ * the whole list on every unrelated state change, recv:progress included, and
+ * the expanded row and any focus collapse with it. A standalone HistoryView
+ * test cannot see that: it mounts the component once and never re-renders
+ * App. Only App can, by holding a row across a tick that re-renders it.
+ */
+describe('the history view', () => {
+    it('keeps its rows mounted across a recv:progress tick', async () => {
+        localStorage.setItem(
+            'floe:history',
+            JSON.stringify([
+                {kind: 'recv', names: ['report.pdf'], count: 1, at: Date.now(), bytes: 1024},
+            ])
+        );
+        mount();
+        await settled();
+
+        await userEvent.click(screen.getByRole('button', {name: 'History'}));
+        const row = await screen.findByText('report.pdf');
+        const list = row.closest('ul');
+        expect(list).not.toBeNull();
+
+        // recv:progress sets recvProg, which re-renders App and with it the
+        // history branch. It is the event that fires most often while this
+        // view is on screen, so it is the one a remount would show up under.
+        act(() => {
+            wails.emit('recv:progress', {
+                fileName: 'big.bin',
+                fileIndex: 1,
+                fileCount: 1,
+                fileBytes: 0,
+                fileSize: 20_000_000,
+                totalBytes: 0,
+                grandTotal: 20_000_000,
+                savedName: '',
+            });
+        });
+
+        // The same DOM nodes, not merely the same text: a remount renders
+        // identical markup, and identity is the only thing that tells the two
+        // apart.
+        expect(screen.getByText('report.pdf')).toBe(row);
+        expect(row.closest('ul')).toBe(list);
+    });
+});
