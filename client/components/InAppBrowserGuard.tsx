@@ -4,12 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { ExternalLink, Copy, Check, SquareArrowOutUpRight } from 'lucide-react';
 import { copyText } from '@/lib/clipboard';
 import { detectInAppBrowser, isAndroid, type DetectedApp } from '@/lib/inAppBrowser';
-
-interface UmamiWindow extends Window {
-    umami?: {
-        track: (event: string, data?: Record<string, unknown>) => void;
-    };
-}
+import type { UmamiWindow } from '@/hooks/useTransferAnalytics';
 
 interface Props {
     children: React.ReactNode;
