@@ -572,10 +572,11 @@ ackLoop:
 	// The file changed under the send. Say so here, where the cause is still
 	// visible, instead of sending an end marker and leaving the receiver to report
 	// a byte count that reads like a network fault.
+	changed := fmt.Sprintf("the sender's copy of %q changed while it was being sent, so nothing further was sent", entry.displayName)
 	if sentFile != fileSize {
 		// The receiver is mid-file with an unfinished .part and no idea why the
 		// bytes stopped. Name it, or its own diagnosis is a stalled connection.
-		abortReason(dc, localVer, fmt.Sprintf("the sender's copy of %q changed while it was being sent, so nothing further was sent", entry.displayName), true)
+		abortReason(dc, localVer, changed, true)
 		return fmt.Errorf("the file shrank while it was being sent (announced %d bytes, read %d); send it again once it stops changing",
 			fileSize, sentFile)
 	}
@@ -590,7 +591,7 @@ ackLoop:
 	if info.Mode().IsRegular() {
 		var probe [1]byte
 		if n, _ := f.Read(probe[:]); n > 0 {
-			abortReason(dc, localVer, fmt.Sprintf("the sender's copy of %q changed while it was being sent, so nothing further was sent", entry.displayName), true)
+			abortReason(dc, localVer, changed, true)
 			return fmt.Errorf("the file grew while it was being sent (announced %d bytes); send it again once it stops changing",
 				fileSize)
 		}
