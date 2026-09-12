@@ -16,6 +16,8 @@ const ANDROID_FACEBOOK =
 // on its own.
 const IOS_MESSENGER_BARE =
     'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Messenger/440.0.0.30.108';
+const ANDROID_MESSENGER =
+    'Mozilla/5.0 (Linux; Android 13; Pixel 7 Build/TQ3A.230805.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/116.0.0.0 Mobile Safari/537.36 [FB_IAB/Orca-Android;FBAV/435.0.0.19.116;]';
 const IOS_INSTAGRAM =
     'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 309.0.0.15.108 (iPhone14,2; iOS 17_1_1; en_US; en; scale=3.00; 1170x2532; 541096306)';
 const ANDROID_TIKTOK =
@@ -50,6 +52,13 @@ describe('detectInAppBrowser', () => {
 
     it('names Messenger from a bare Messenger product token', () => {
         expect(detectInAppBrowser(IOS_MESSENGER_BARE)).toBe('Messenger');
+    });
+
+    it('reads the Android Messenger webview as Facebook, because FBAV is tested first', () => {
+        // Messenger for Android carries the same FB_IAB/FBAV block as Facebook
+        // proper, and the Facebook branch matches FBAV before anything asks
+        // about Messenger. Pinned so the ordering is a decision on record.
+        expect(detectInAppBrowser(ANDROID_MESSENGER)).toBe('Facebook');
     });
 
     it('names Instagram', () => {

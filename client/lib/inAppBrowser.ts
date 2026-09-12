@@ -20,7 +20,7 @@ export type DetectedApp =
 
 export function detectInAppBrowser(ua: string): DetectedApp | null {
     if (/FBAN|FBAV/i.test(ua)) return 'Facebook';
-    if (/FB_IAB.*FBAV/i.test(ua) || /\bMessenger\b/i.test(ua)) return 'Messenger';
+    if (/\bMessenger\b/i.test(ua)) return 'Messenger';
     if (/Instagram/i.test(ua)) return 'Instagram';
     if (/musical_ly|TikTok/i.test(ua)) return 'TikTok';
     if (/Snapchat/i.test(ua)) return 'Snapchat';
