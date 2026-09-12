@@ -55,17 +55,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if flagNoRelay {
-		// Keep only STUN servers, drop TURN
-		filtered := iceServers[:0]
-		for _, s := range iceServers {
-			for _, u := range s.URLs {
-				if len(u) >= 4 && u[:4] == "stun" {
-					filtered = append(filtered, s)
-					break
-				}
-			}
-		}
-		iceServers = filtered
+		iceServers = ice.StunOnly(iceServers)
 	}
 
 	// 3. Connect to the signaling server via WebSocket
