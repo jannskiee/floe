@@ -60,6 +60,32 @@ func HasRelay(servers []webrtc.ICEServer) bool {
 	return false
 }
 
+// StunOnly keeps the entries that offer a STUN URL and drops the rest, which
+// is what --no-relay means on both CLI commands: gather host and
+// server-reflexive candidates, never a relay. Both call it after requireRelay,
+// which has to see the server's full list.
+//
+// The body is the loop the two commands each carried, kept as it was. The
+// filter is in place: the result aliases the input's backing array, so the
+// caller reassigns and never reads the input again. An entry is kept or
+// dropped whole, so one carrying both a stun and a turn URL survives with
+// both. The prefix test is case-sensitive; iceURLClass is the
+// case-insensitive classifier HasRelay uses, and this deliberately does not
+// go through it, so a change in what --no-relay keeps is a decision rather
+// than a side effect.
+func StunOnly(servers []webrtc.ICEServer) []webrtc.ICEServer {
+	filtered := servers[:0]
+	for _, s := range servers {
+		for _, u := range s.URLs {
+			if len(u) >= 4 && u[:4] == "stun" {
+				filtered = append(filtered, s)
+				break
+			}
+		}
+	}
+	return filtered
+}
+
 // pick returns the first URL in urls that contains pref, else the first URL.
 func pick(urls []string, pref string) string {
 	for _, u := range urls {

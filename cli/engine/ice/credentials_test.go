@@ -211,6 +211,69 @@ func TestHasRelay(t *testing.T) {
 	}
 }
 
+// TestStunOnly pins the --no-relay filter as the two CLI loops had it before
+// they were folded here: whole entries survive on any stun URL, everything
+// else goes, the prefix test is case-sensitive, and the result is built in
+// place over the input.
+func TestStunOnly(t *testing.T) {
+	cases := []struct {
+		name    string
+		servers []webrtc.ICEServer
+		want    []webrtc.ICEServer
+	}{
+		{
+			"mixed list keeps the stun entries, in order, and drops the turn entries",
+			[]webrtc.ICEServer{
+				{URLs: []string{"stun:a:3478"}},
+				{URLs: []string{"turn:a:3478?transport=udp", "turns:a:443?transport=tcp"}, Username: "u", Credential: "c"},
+				{URLs: []string{"stun:b:3478"}},
+			},
+			[]webrtc.ICEServer{{URLs: []string{"stun:a:3478"}}, {URLs: []string{"stun:b:3478"}}},
+		},
+		{
+			"an entry carrying both survives whole, turn url and credentials included",
+			[]webrtc.ICEServer{{URLs: []string{"turn:a:3478", "stun:a:3478"}, Username: "u", Credential: "c"}},
+			[]webrtc.ICEServer{{URLs: []string{"turn:a:3478", "stun:a:3478"}, Username: "u", Credential: "c"}},
+		},
+		{
+			"turn only leaves nothing",
+			[]webrtc.ICEServer{{URLs: []string{"turn:a:3478"}}, {URLs: []string{"turns:a:443?transport=tcp"}}},
+			[]webrtc.ICEServer{},
+		},
+		{
+			"the prefix test is case-sensitive, as the loops were",
+			[]webrtc.ICEServer{{URLs: []string{"STUN:a:3478"}}},
+			[]webrtc.ICEServer{},
+		},
+		{"empty list", []webrtc.ICEServer{}, []webrtc.ICEServer{}},
+		{"nil list", nil, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := StunOnly(tc.servers); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("StunOnly() = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+
+	t.Run("filters in place", func(t *testing.T) {
+		in := []webrtc.ICEServer{
+			{URLs: []string{"turn:a:3478"}},
+			{URLs: []string{"stun:a:3478"}},
+		}
+		got := StunOnly(in)
+		if len(got) != 1 || got[0].URLs[0] != "stun:a:3478" {
+			t.Fatalf("StunOnly() = %#v", got)
+		}
+		if &got[0] != &in[0] {
+			t.Fatal("the result does not alias the input's backing array")
+		}
+		if in[0].URLs[0] != "stun:a:3478" {
+			t.Fatalf("the input was left as it was, so the aliasing contract changed: in[0] = %#v", in[0])
+		}
+	})
+}
+
 // TestDefaultsHaveNoRelay pins the fact the whole missing-relay problem turns
 // on. Fetch degrades to these on any non-200, including the TURN endpoint's own
 // rate limiter, so a relay-only transfer against a perfectly good server can
