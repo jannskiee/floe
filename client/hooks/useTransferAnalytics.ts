@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { peekSocketUrl, resolveSocketUrl } from '@/lib/socketUrl';
 
-interface UmamiWindow extends Window {
+export interface UmamiWindow extends Window {
     umami?: {
         track: (event: string, data?: Record<string, unknown>) => void;
     };
