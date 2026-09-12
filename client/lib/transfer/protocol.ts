@@ -2,7 +2,7 @@
 // Mirrors cli/engine/transfer/protocol.go + sender.go + receiver.go - keep in sync.
 import { sanitizeDisplayText } from '../download';
 
-export const CONTROL_MSG_MAX = 1000; // bytes; matches browser byteLength guard
+export const CONTROL_MSG_MAX = 1000; // bytes; mirrors controlMsgMax in cli/engine/transfer/control.go
 export const HIGH_WATER = 8 * 1024 * 1024; // 8 MB — pause sending at/above
 export const LOW_WATER = 4 * 1024 * 1024;  // 4 MB — resume sending below
 export const READ_SLAB = 4 * 1024 * 1024;  // 4 MB — disk read slab size

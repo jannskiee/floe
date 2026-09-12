@@ -60,7 +60,7 @@ function messageOf(value: unknown): string | undefined {
  * reload loops via a sessionStorage debounce. Returns true if a reload was
  * triggered.
  */
-export function reloadIfStaleBundle(message: string | undefined): boolean {
+function reloadIfStaleBundle(message: string | undefined): boolean {
     if (typeof window === 'undefined') return false;
     if (!isStaleBundleError(message)) return false;
 

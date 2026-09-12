@@ -59,7 +59,6 @@ export function useFileManagement() {
 
     return {
         files,
-        setFiles,
         isDragging,
         totalBytes,
         handleFileSelection,
