@@ -140,14 +140,14 @@ type iceServerJSON struct {
 	Credential string          `json:"credential,omitempty"`
 }
 
-// Fetch fetches ICE server credentials from serverURL/api/turn-credentials.
-// Falls back to Google STUN if the endpoint is unreachable or misconfigured.
 // client bounds the fetch. http.DefaultClient has no timeout at all, so a
 // server that accepts the TCP connection and then never answers used to hang
 // `floe send` at step 2 forever. Generous on purpose: falling back to STUN
 // costs a relay, so a slow-but-working server should still win.
 var client = &http.Client{Timeout: 30 * time.Second}
 
+// Fetch fetches ICE server credentials from serverURL/api/turn-credentials.
+// Falls back to Google STUN if the endpoint is unreachable or misconfigured.
 func Fetch(serverURL string) ([]webrtc.ICEServer, error) {
 	servers, _, err := FetchDetail(serverURL)
 	return servers, err

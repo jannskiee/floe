@@ -358,11 +358,12 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 		return nil, fmt.Errorf("failed to set local description: %w", err)
 	}
 
-	// pion v3.3.6 OMITS a=max-message-size from SDP entirely.
-	// RFC 8841 says absent = default 65536 (64 KB). Chrome enforces this,
-	// causing "Failure to send data" for chunks > 64 KB (browser uses 160 KB).
-	// Inject a large value into the SDP we SEND to the browser (not what pion
-	// uses internally — SetLocalDescription already consumed the original).
+	// The answer goes out with a=max-message-size pinned to 1 GB. Chrome caps
+	// RTCDataChannel.send() at whatever this SDP advertises, and at 64 KB when
+	// the attribute is absent, which is where pion v3 left it; pion v4 emits it
+	// with its own ceiling just under 1 GB, so today the rewrite is a pin, not a
+	// rescue. It changes only what is sent: SetLocalDescription already consumed
+	// the original. See patchMaxMessageSize.
 	patchedSDP := patchMaxMessageSize(answer.SDP)
 
 	// Send the answer to the sender
@@ -388,11 +389,6 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 	case <-time.After(connectTimeout):
 		return nil, fmt.Errorf("timed out establishing a connection")
 	}
-}
-
-// WaitConnected blocks until the peer connection reaches "connected" state or fails.
-func (conn *Connection) WaitConnected() error {
-	return <-conn.connected
 }
 
 // Close tears down the peer connection and releases the two goroutines New
@@ -427,6 +423,9 @@ func (conn *Connection) Fingerprints() (local, remote string, err error) {
 // selected candidate pair is a TURN relay, "direct" otherwise. Only meaningful
 // once the connection is established (call after SetupAsSender/SetupAsReceiver
 // returns); before that it returns an error.
+//
+// pathTypeOf in engine/transfer is the same walk started from the data channel
+// rather than the PeerConnection; a change here is a change there too.
 func (conn *Connection) ConnectionType() (string, error) {
 	sctp := conn.pc.SCTP()
 	if sctp == nil {

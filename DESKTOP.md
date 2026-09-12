@@ -53,6 +53,13 @@ desktop/               Wails app: imports cli/engine/...
   frontend/            web UI (shared design with client/)
   app.go               Go methods bound to the UI
   main.go              Wails bootstrap
+  transfer.go          drives a send or a receive end to end and emits the UI events
+  transferstate.go     one-transfer-at-a-time state machine, CancelTransfer, close guard
+  endpoints.go         which server and web app this build talks to
+  reveal.go            Show in folder: the platform commands and the path checks before them
+  serverprobe.go       the Settings Test button: probes a server URL in stages
+  updatecheck.go       once-a-day check for a newer desktop release, notice only
+  config.go            desktop.json: persisted settings kept outside the WebView
 go.work                ties cli + desktop for local dev
 ```
 
@@ -76,7 +83,7 @@ go.work                ties cli + desktop for local dev
 ### Phase 2 - Real app  [IN PROGRESS]
 - [x] Send from desktop: native file picker (`SelectFiles`) + code/link via the engine sender, reported through Wails events (`send:code/status/done/error`)
 - [x] Basic Send / Receive two-mode UI
-- [x] Live progress bar (percent + bytes) via an engine progress callback (`SendFilesWithProgress`/`ReceiveFilesWithProgress`) plus throttled `send:progress`/`recv:progress` Wails events
+- [x] Live progress bar (percent + bytes) via an engine progress callback (`SendOptions.OnProgress`/`ReceiveOptions.OnProgress`) plus throttled `send:progress`/`recv:progress` Wails events
 - [x] Speed and ETA readout on the progress bar
 - [x] Drag and drop files onto the window to send
 - [x] Polished UI matching the web app's design: Tailwind v4 (`@tailwindcss/vite`, Vite 3->6 bump)
@@ -196,7 +203,7 @@ verify the connection independently of the server.
 
 **Robustness gap (found 2026-07-04)  [RESOLVED 2026-07]:** desktop `runSend` /
 `ReceiveByCode` used to block indefinitely on peer-connect and WebRTC setup with no
-timeout and no cancel. Fixed since: `CancelTransfer` (app.go) closes the signaling and
+timeout and no cancel. Fixed since: `CancelTransfer` (transferstate.go) closes the signaling and
 peer connections to unblock both flows, and role selection carries a 20s timeout on the
 send and receive paths. The only remaining unbounded wait is the sender waiting for a
 receiver, which is deliberate (share a link and wait) and cancellable.

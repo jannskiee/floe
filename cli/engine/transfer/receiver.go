@@ -1,6 +1,7 @@
-// Package transfer implements the Floe data channel protocol for receiving files.
-// See sender.go for the full protocol description.
 package transfer
+
+// The receive side of the data channel protocol. See sender.go for the full
+// protocol description, which is also the package doc.
 
 import (
 	"bytes"
