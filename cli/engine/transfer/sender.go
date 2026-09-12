@@ -170,13 +170,6 @@ func SendFiles(dc *webrtc.DataChannel, paths []string, localVer string) error {
 	return SendFilesWithOptions(dc, paths, localVer, SendOptions{})
 }
 
-// SendFilesWithProgress is SendFiles with a progress callback for GUI clients.
-// When onProgress is non-nil, per-chunk progress is reported through it and the
-// terminal progress bar is suppressed.
-func SendFilesWithProgress(dc *webrtc.DataChannel, paths []string, localVer string, onProgress ProgressFunc) error {
-	return SendFilesWithOptions(dc, paths, localVer, SendOptions{OnProgress: onProgress})
-}
-
 // SendFilesWithOptions is the full-featured send entry point; the other two
 // delegate here.
 func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer string, opts SendOptions) error {

@@ -390,11 +390,6 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 	}
 }
 
-// WaitConnected blocks until the peer connection reaches "connected" state or fails.
-func (conn *Connection) WaitConnected() error {
-	return <-conn.connected
-}
-
 // Close tears down the peer connection and releases the two goroutines New
 // started. Idempotent: the CLI defers this once, but the desktop builds a
 // fresh Connection per transfer, so a leak here is unbounded over a session.
