@@ -32,6 +32,10 @@ var ErrRelayOverLimit = errors.New("relay connections are capped at 2 GB")
 // "relay" when either side of the selected candidate pair is a TURN relay,
 // "direct" otherwise. Only meaningful once the connection is established;
 // before that it returns an error.
+//
+// ConnectionType in engine/peer is the same walk started from the
+// PeerConnection rather than the data channel; a change here is a change there
+// too.
 func pathTypeOf(dc *webrtc.DataChannel) (string, error) {
 	if dc == nil {
 		return "", fmt.Errorf("no data channel")

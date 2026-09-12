@@ -59,12 +59,12 @@ func chunkSizeFor(sctpMax uint32) int {
 	return maxChunkSize
 }
 
-// Backpressure watermarks mirror the browser sender (P2PTransfer.tsx): pause
-// sending once pion's SCTP send buffer reaches the high-water mark, resume once
-// it drains back below the low-water mark. Without this the sender enqueues the
-// whole file as fast as the disk reads it — the progress bar races to 100% while
-// the receiver is still mid-transfer, and large files overflow pion's buffer and
-// stall the connection.
+// Backpressure watermarks mirror HIGH_WATER and LOW_WATER in the browser sender
+// (client/lib/transfer/protocol.ts): pause sending once pion's SCTP send buffer
+// reaches the high-water mark, resume once it drains back below the low-water
+// mark. Without this the sender enqueues the whole file as fast as the disk
+// reads it: the progress bar races to 100% while the receiver is still
+// mid-transfer, and large files overflow pion's buffer and stall the connection.
 const (
 	bufferedAmountHighWater = 8 * 1024 * 1024 // pause sending at/above 8 MB buffered
 	bufferedAmountLowWater  = 4 * 1024 * 1024 // resume sending below 4 MB buffered
@@ -170,8 +170,8 @@ func SendFiles(dc *webrtc.DataChannel, paths []string, localVer string) error {
 	return SendFilesWithOptions(dc, paths, localVer, SendOptions{})
 }
 
-// SendFilesWithOptions is the full-featured send entry point; the other two
-// delegate here.
+// SendFilesWithOptions is the full-featured send entry point; SendFiles
+// delegates here.
 func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer string, opts SendOptions) error {
 	onProgress := opts.OnProgress
 	// Expand paths: collect all files (walk directories)

@@ -124,10 +124,12 @@ const controlMsgMax = 1000
 // else was already safe. What was not safe, and is what the framing gate on
 // the receive path fixes, is a JSON file whose "type" IS one of these.
 //
-// The receiver only acts on "metadata" and "end". The other recognized types
-// ("ack", "received", "incompatible") flow in the opposite direction and are
-// recognized here for the sender-side loops, which read this direction and
-// carry no file data.
+// The receive loop is the only caller, and it acts on "metadata", "end" and
+// "incompatible" (a sender's abort). "ack" and "received" flow the other way
+// and never come through here: the sender decodes the receiver's frames on its
+// own (the ack wait in sendFile, abortFromPeer and isReceived) under the same
+// controlMsgMax bound. A stray "ack" or "received" that does reach the receive
+// loop matches no arm of its switch and is dropped.
 func classifyControl(data []byte) (msgType string, isControl bool) {
 	if len(data) > controlMsgMax {
 		return "", false

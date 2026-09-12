@@ -1,9 +1,9 @@
 package transfer
 
 // Progress describes the state of an in-flight transfer for one file. It is
-// reported by SendFilesWithProgress and ReceiveFilesWithProgress so a GUI can
-// render a live progress bar. The CLI does not use it; it renders a terminal
-// progress bar instead.
+// reported through SendOptions.OnProgress and ReceiveOptions.OnProgress so a
+// GUI can render a live progress bar. The CLI does not use it; it renders a
+// terminal progress bar instead.
 type Progress struct {
 	FileName   string `json:"fileName"`   // sender-supplied name of the current file, display-safe (see displayText); on the receive side never the on-disk name, see SavedName
 	FileIndex  int    `json:"fileIndex"`  // 1-based index of the current file

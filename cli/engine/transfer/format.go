@@ -39,6 +39,10 @@ func formatBytes(n int64) string {
 	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.2f", val), "0"), ".") + " " + units[i]
 }
 
+// formatSpeed renders a byte rate for the progress line: one decimal, MB/s at
+// a megabyte and above, KB/s below, "" when the rate is not a positive finite
+// number. formatSpeed in client/lib/transferUtils.ts and fmtSpeed in
+// desktop/frontend/src/progress.ts print the same shape; keep the three in step.
 func formatSpeed(bytesPerSec float64) string {
 	if !isFinitePositive(bytesPerSec) {
 		return ""
@@ -49,6 +53,11 @@ func formatSpeed(bytesPerSec float64) string {
 	return fmt.Sprintf("%.1f KB/s", bytesPerSec/1024)
 }
 
+// formatDuration renders an ETA for the progress line: "Ns" under a minute,
+// "Nm Ns" under an hour, "Nh Nm" beyond. formatETA in
+// client/lib/transferUtils.ts and fmtEta in desktop/frontend/src/progress.ts
+// print the same shape, but they round up to whole seconds where this
+// truncates; keep the three in step.
 func formatDuration(d time.Duration) string {
 	secs := int(d.Seconds())
 	if secs < 0 {
