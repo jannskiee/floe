@@ -247,9 +247,10 @@ after (sha256 compared, exit 4 on mismatch); the portable and head exes
 launch with `APPDATA` redirected; the per-user Explorer entry
 `HKCU\Software\Classes\*\shell\Floe`, which an unpackaged exe points at
 itself on startup, is snapshotted at the first such launch in the process
-(an absent key is left alone and never created) and put back by every stop
-and the exit hook, then re-read (exit 4 on mismatch); files for a send are staged on the first
-launch through argv (a second launch activates the window); the remembered
+(an absent key is left alone and never created), put back by every stop and
+re-read (a mismatch there is a SafetyError, exit 4 in a run; `probe` only
+notes it), and put back once more, best effort, by the exit hook; files for
+a send are staged on the first launch through argv (a second launch activates the window); the remembered
 save dir is read before the first edit and set back after every receiver
 cell; desktop direct cells move 64 MiB so the pill shows the route for more
 than one 100 ms sample (a 12 MiB loopback transfer ends 0.4 s after
@@ -350,7 +351,10 @@ best-effort on Ctrl+C.
 
 A hard kill (the node process ended before its `exit` hook ran) can still
 leave `HKCU\Software\Classes\*\shell\Floe` pointing at a deleted scratch
-exe, and `cleanup` does not replay it; the Wails toast activator keys
+exe, and `cleanup` does not replay it. The `wailsdev` lane is not covered
+either: the operator starts `wails dev`, and its unpackaged app runs the
+same startup rewrite before the driver could take a snapshot. The Wails
+toast activator keys
 (`HKCU\Software\Classes\AppUserModelId\floe-desktop.exe` and its CLSID
 `LocalServer32`) are rewritten by every unpackaged launch too and are
 deliberately not restored, because the next launch of a real unpackaged
