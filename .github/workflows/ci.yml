@@ -369,6 +369,45 @@ jobs:
         run: go build ./cmd/floe
         working-directory: cli
 
+  gofmt:
+    name: Go formatting
+    # Its own job rather than a step in `cli`: `e2e` and `back-compat` need
+    # `cli`, so a formatting slip inside `cli` would skip them.
+    # Linux only: with core.autocrlf=true (the Git for Windows default),
+    # `gofmt -l` lists every CRLF file.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25'
+          cache: false
+
+      - name: Check gofmt
+        shell: bash
+        run: |
+          count="$(git ls-files '*.go' | wc -l)"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::git ls-files found no .go files, so gofmt would check nothing and pass."
+            exit 1
+          fi
+          unformatted="$(git ls-files -z '*.go' | xargs -0 gofmt -l)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::These Go files are not gofmt-formatted. Run gofmt -w on each one and commit the result."
+            printf '%s\n' "$unformatted"
+            exit 1
+          fi
+          echo "gofmt: all $count tracked Go files are formatted"
+
   desktop:
     name: Desktop (Wails, windows-latest)
     # Windows-only on purpose: the desktop app ships Windows-only for the beta,
@@ -850,14 +889,15 @@ jobs:
     # invisible to branch protection. One job is soaking outside the gate right
     # now: `skills`, which runs the 26 skill test suites. It is deliberately
     # absent from this list until a few runs have shown it hermetic, because
-    # most of those suites write files or spawn processes. `guardrails` went
-    # straight in, as CLAUDE.md's exception for deterministic linters allows.
+    # most of those suites write files or spawn processes. `guardrails` and
+    # `gofmt` went straight in, as CLAUDE.md's exception for deterministic
+    # linters allows.
     # See CLAUDE.md for the promotion policy.
     #
     # if: always() is load-bearing and must never become !cancelled():
     # without always() a failed or cancelled dependency would skip this job,
     # and GitHub counts a skipped required check as passing.
-    needs: [changes, actionlint, guardrails, build-and-lint, server, cli, desktop, e2e, back-compat, docker-smoke]
+    needs: [changes, actionlint, guardrails, build-and-lint, server, cli, gofmt, desktop, e2e, back-compat, docker-smoke]
     if: always()
     steps:
       - name: Report dependency results
