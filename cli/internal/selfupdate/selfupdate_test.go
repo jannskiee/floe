@@ -20,7 +20,7 @@ func TestCompareVersions(t *testing.T) {
 		{"v2.0.0", "v1.9.9", 1},
 		{"v1.0.1", "v1.0.0", 1},
 		{"v0.9.0", "v1.0.0", -1},
-		{"1.2.0", "v1.2.0", 0},  // no "v" prefix
+		{"1.2.0", "v1.2.0", 0},   // no "v" prefix
 		{"v10.0.0", "v9.9.9", 1}, // double-digit major
 	}
 	for _, tt := range tests {

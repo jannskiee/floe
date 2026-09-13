@@ -25,12 +25,12 @@ func TestMakeInterfaceAllowFilter(t *testing.T) {
 		keep   bool
 	}{
 		{"Ethernet", true},
-		{"Ethernet 2", true},       // substring match
-		{"ethernet", true},         // case-insensitive
-		{"Wi-Fi", true},            // case-insensitive match of "wi-fi"
-		{"Tailscale", false},       // not in the allowlist
+		{"Ethernet 2", true}, // substring match
+		{"ethernet", true},   // case-insensitive
+		{"Wi-Fi", true},      // case-insensitive match of "wi-fi"
+		{"Tailscale", false}, // not in the allowlist
 		{"VMware Network Adapter VMnet1", false},
-		{"vEthernet (WSL)", true},  // contains "ethernet" -> matched by "Ethernet" entry
+		{"vEthernet (WSL)", true}, // contains "ethernet" -> matched by "Ethernet" entry
 	}
 	for _, c := range cases {
 		if got := f(c.ifName); got != c.keep {

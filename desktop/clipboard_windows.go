@@ -28,10 +28,10 @@ var (
 	procGetClipboardData           = user32.NewProc("GetClipboardData")
 	procRegisterClipboardFormatW   = user32.NewProc("RegisterClipboardFormatW")
 
-	procGlobalLock     = kernel32.NewProc("GlobalLock")
-	procGlobalUnlock   = kernel32.NewProc("GlobalUnlock")
-	procGlobalSize     = kernel32.NewProc("GlobalSize")
-	procRtlMoveMemory  = kernel32.NewProc("RtlMoveMemory")
+	procGlobalLock    = kernel32.NewProc("GlobalLock")
+	procGlobalUnlock  = kernel32.NewProc("GlobalUnlock")
+	procGlobalSize    = kernel32.NewProc("GlobalSize")
+	procRtlMoveMemory = kernel32.NewProc("RtlMoveMemory")
 )
 
 // openClipboardRetry opens the clipboard, retrying briefly since another process
