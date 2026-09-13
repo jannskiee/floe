@@ -51,7 +51,9 @@
 // sha256, restored } from the moment the guard applies, so `cleanup` can
 // replay the backup through restoreConfig if the process died anyway. The
 // app pid is registered with lib/proc.mjs, so finalize's killAllStarted
-// sees it.
+// sees it. The per-user Explorer verb an unpackaged launch rewrites is
+// snapshotted once per process and put back by stop() and the same exit hook
+// (ShellMenuGuard).
 //
 // Every expected string is quoted from desktop/frontend/src/App.tsx,
 // TitleBar.tsx, incoming.ts and desktop/transfer.go; see STRINGS and RE below.
@@ -71,6 +73,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { registerPid } from './proc.mjs';
 import { Leg, PhaseError, SafetyError, sleep } from './surfaces.mjs';
+import { defaultExec } from './versions.mjs';
 
 // ------------------------------------------------------------- constants
 
@@ -600,6 +603,240 @@ export class DesktopConfigGuard {
     }
 }
 
+// ------------------------------------------- Explorer right-click entry
+
+/**
+ * The per-user "Send with Floe" Explorer verb, as
+ * desktop/contextmenu_windows.go registerContextMenu writes it: the base
+ * key's Default ("Send with Floe"), its Icon (the exe) and the command
+ * subkey's Default ("<exe>" "%1"), all REG_SZ. At startup an unpackaged
+ * build (desktop/app.go) rewrites all three to its own exe whenever the
+ * command subkey exists and names another one, so a portable or head launch
+ * points the user's entry at a scratch exe the run later deletes. The app
+ * never creates the key, and neither does anything here.
+ */
+export const SHELL_MENU_KEY = 'Software\\Classes\\*\\shell\\Floe';
+
+// The .NET Registry API, not reg.exe or the PowerShell registry provider:
+// the `*` in the path is a wildcard to Get-Item and Set-ItemProperty, reg.exe
+// prints a localized "(Default)" label, and OpenSubKey never creates a key,
+// so a write to an absent key is refused instead of recreating it. The
+// request goes in and the answer comes out as base64 of UTF-8 JSON, and the
+// script travels as -EncodedCommand, because PowerShell 5.1 mangles embedded
+// double quotes in arguments (the command value carries four) and its
+// console output is not UTF-8.
+const SHELL_MENU_PS = `$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+function Send-Answer($answer) {
+    $json = ConvertTo-Json -InputObject $answer -Compress -Depth 5
+    [Console]::Out.Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json)))
+}
+function Read-Entry($key, $name) {
+    if ($null -eq $key -or $key.GetValueNames() -notcontains $name) { return $null }
+    $kind = $key.GetValueKind($name).ToString()
+    if ($kind -ne 'String' -and $kind -ne 'ExpandString') { throw ('value [' + $name + '] is ' + $kind + ', not a string') }
+    return @{ kind = $kind; value = [string]$key.GetValue($name, $null, 'DoNotExpandEnvironmentNames') }
+}
+function Write-Entry($key, $name, $entry) {
+    if ($null -eq $entry) { $key.DeleteValue($name, $false) }
+    else { $key.SetValue($name, [string]$entry.value, [Microsoft.Win32.RegistryValueKind]$entry.kind) }
+}
+$base = $null
+$cmd = $null
+try {
+    $req = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('@REQUEST@')) | ConvertFrom-Json
+    $write = $req.op -eq 'write'
+    $base = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($req.key, $write)
+    if ($null -ne $base) { $cmd = $base.OpenSubKey('command', $write) }
+    if ($write) {
+        if ($null -eq $cmd) { throw 'the key or its command subkey is absent; never created' }
+        Write-Entry $base '' $req.values.name
+        Write-Entry $base 'Icon' $req.values.icon
+        Write-Entry $cmd '' $req.values.command
+        Send-Answer @{ ok = $true }
+    } else {
+        $command = Read-Entry $cmd ''
+        Send-Answer @{ ok = $true; present = ($null -ne $command); values = @{ name = (Read-Entry $base ''); icon = (Read-Entry $base 'Icon'); command = $command } }
+    }
+} catch {
+    Send-Answer @{ ok = $false; error = $_.Exception.Message }
+} finally {
+    if ($null -ne $cmd) { $cmd.Close() }
+    if ($null -ne $base) { $base.Close() }
+}
+`;
+
+function shellMenuCall(request, exec) {
+    const script = SHELL_MENU_PS.replace('@REQUEST@', () =>
+        Buffer.from(JSON.stringify(request), 'utf8').toString('base64')
+    );
+    const out = exec(
+        'powershell.exe',
+        [
+            '-NoProfile',
+            '-NonInteractive',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-EncodedCommand',
+            Buffer.from(script, 'utf16le').toString('base64'),
+        ],
+        { timeout: 30_000 }
+    );
+    let answer = null;
+    try {
+        answer = JSON.parse(
+            Buffer.from(String(out).trim(), 'base64').toString('utf8')
+        );
+    } catch {
+        // Reported below as an unreadable answer.
+    }
+    if (!answer || answer.ok !== true)
+        throw new Error(
+            `registry ${request.op} HKCU\\${request.key}: ${answer ? answer.error : 'unreadable answer'}`
+        );
+    return answer;
+}
+
+// PowerShell hashtables are unordered; this fixes the shape and key order so
+// two readings compare as JSON.
+const menuEntry = (e) =>
+    e && typeof e.value === 'string'
+        ? { kind: String(e.kind), value: e.value }
+        : null;
+const menuValues = (v = {}) => ({
+    name: menuEntry(v.name),
+    icon: menuEntry(v.icon),
+    command: menuEntry(v.command),
+});
+const sameMenu = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * { present, values: { name, icon, command } }, each value { kind, value }
+ * or null when unset. present is what the startup self-heal checks: a string
+ * Default on the command subkey. Throws when the read fails.
+ */
+export function readShellMenu({
+    key = SHELL_MENU_KEY,
+    exec = defaultExec,
+} = {}) {
+    const answer = shellMenuCall({ op: 'read', key }, exec);
+    return { present: answer.present === true, values: menuValues(answer.values) };
+}
+
+/** Write readShellMenu().values onto the EXISTING key (a null value is removed); throws on refusal. */
+export function writeShellMenu(
+    values,
+    { key = SHELL_MENU_KEY, exec = defaultExec } = {}
+) {
+    shellMenuCall({ op: 'write', key, values: menuValues(values) }, exec);
+}
+
+/**
+ * The Explorer verb across a run. take() snapshots it ONCE per process, at
+ * the first unpackaged launch: a later snapshot would capture an earlier
+ * leg's rewrite (P9 launches twice). restore() puts the snapshot back and
+ * reads it again. Only an 'armed' guard ever writes; 'absent' (the app never
+ * creates the key, so there is nothing to guard), 'unreadable' and 'off'
+ * (not Windows) leave the registry alone for the rest of the process. A
+ * failed read is a note, never a failed cell; a write the re-read
+ * contradicts is a SafetyError (exit 4).
+ */
+export class ShellMenuGuard {
+    constructor({
+        key = SHELL_MENU_KEY,
+        exec = defaultExec,
+        platform = process.platform,
+    } = {}) {
+        this.key = key;
+        this.exec = exec;
+        this.platform = platform;
+        this.state = 'unread';
+        this.snapshot = null;
+    }
+
+    read() {
+        return readShellMenu({ key: this.key, exec: this.exec });
+    }
+
+    take(note = () => {}) {
+        if (this.state !== 'unread') return this.state;
+        if (this.platform !== 'win32') {
+            this.state = 'off';
+            return this.state;
+        }
+        try {
+            const now = this.read();
+            if (now.present) {
+                this.snapshot = now.values;
+                this.state = 'armed';
+                note(
+                    `explorer verb: snapshot of HKCU\\${this.key} (command ${now.values.command.value})`
+                );
+            } else {
+                this.state = 'absent';
+                note(
+                    `explorer verb: HKCU\\${this.key} absent; the app never creates it, left alone`
+                );
+            }
+        } catch (err) {
+            this.state = 'unreadable';
+            note(
+                `explorer verb: snapshot read failed, left alone this run: ${err.message}`
+            );
+        }
+        return this.state;
+    }
+
+    /** Synchronous, so the process 'exit' hook can call it: { wrote, match }. */
+    restore(note = () => {}) {
+        if (this.state !== 'armed') return { wrote: false, match: null };
+        let now;
+        try {
+            now = this.read();
+        } catch (err) {
+            note(`explorer verb: restore read failed, left as is: ${err.message}`);
+            return { wrote: false, match: null };
+        }
+        if (!now.present) {
+            note(`explorer verb: HKCU\\${this.key} is gone; not recreated`);
+            return { wrote: false, match: null };
+        }
+        if (sameMenu(now.values, this.snapshot)) {
+            note('explorer verb: unchanged');
+            return { wrote: false, match: true };
+        }
+        try {
+            writeShellMenu(this.snapshot, { key: this.key, exec: this.exec });
+        } catch (err) {
+            note(`explorer verb: write failed: ${err.message}`);
+        }
+        let after;
+        try {
+            after = this.read();
+        } catch (err) {
+            note(
+                `explorer verb: re-read after the write failed: ${err.message}`
+            );
+            return { wrote: true, match: null };
+        }
+        const want = this.snapshot.command.value;
+        if (after.present && sameMenu(after.values, this.snapshot)) {
+            note(
+                `explorer verb: put back command ${want} (the launch had rewritten it to ${now.values.command.value})`
+            );
+            return { wrote: true, match: true };
+        }
+        const got = after.values.command ? after.values.command.value : null;
+        throw new SafetyError(
+            `explorer verb restore mismatch at HKCU\\${this.key}: want command ${want}, got ${got}`,
+            { key: this.key, want: this.snapshot, got: after.values }
+        );
+    }
+}
+
+/** The one guard every unpackaged DesktopLeg shares, unless a test hands in its own. */
+export const shellMenuGuard = new ShellMenuGuard();
+
 /**
  * Every applied guard and every launched leg, so an interrupt can put the
  * user's desktop.json back and close the app whatever the cell was doing:
@@ -617,6 +854,11 @@ process.on('exit', () => {
         } catch {
             // The backup path is in the run manifest; `cleanup` replays it.
         }
+    }
+    try {
+        shellMenuGuard.restore();
+    } catch {
+        // Best effort; SKILL.md section 6 covers what is left behind.
     }
 });
 
@@ -1022,9 +1264,12 @@ export class DesktopLeg extends Leg {
         this.texts = [];
         this.marks = {};
         this.settingsRead = null;
-        // Test seams: the process launcher and the wailsdev page opener.
+        // Test seams: the process launcher, the wailsdev page opener and the
+        // Explorer verb guard (process-wide unless one is handed in).
         this.launcher = opts.launcher ?? launchProcess;
         this.openDriver = opts.openDriver ?? PlaywrightDriver.open;
+        this.shellMenu = opts.shellMenu ?? shellMenuGuard;
+        this.shellMenuArmed = false;
         this._code = null;
         this._link = null;
         this._sampler = null;
@@ -1160,6 +1405,10 @@ export class DesktopLeg extends Leg {
             this.recordGuard();
         } else {
             seedRedirectedConfig(this.plan.appData, this.edit());
+            // An unpackaged exe points the user's Explorer verb at itself on
+            // startup; the first such launch in this process snapshots it.
+            this.shellMenuArmed =
+                this.shellMenu.take((l) => this.note(l)) === 'armed';
         }
         // Read the proof now, before any restore, so evidence() reports the
         // config the app actually launched with.
@@ -1945,6 +2194,19 @@ export class DesktopLeg extends Leg {
                     this.note(`config restore: ${err.message}`);
                 }
                 this.recordGuard();
+            }
+            // Only an app's startup rewrites the Explorer verb, so putting it
+            // back after the close is final; a second leg's restore finds it
+            // already back and writes nothing.
+            if (this.shellMenuArmed) {
+                this.shellMenuArmed = false;
+                try {
+                    this.shellMenu.restore((l) => this.note(l));
+                } catch (err) {
+                    this.note(`explorer verb restore: ${err.message}`);
+                    // A config restore error came first and stays the one thrown.
+                    if (!restoreError) restoreError = err;
+                }
             }
             activeLegs.delete(this);
             if (this.ownClient && this.client) {

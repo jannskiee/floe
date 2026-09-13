@@ -244,8 +244,13 @@ shell:AppsFolder` drops the argument), with `desktop.json` backed up, edited
 (`server`, `web`, `hideIP`, `reportStats:false`, `noUpdateCheck:true`,
 `migrated:true`) while no Floe process exists, and restored byte-identical
 after (sha256 compared, exit 4 on mismatch); the portable and head exes
-launch with `APPDATA` redirected; files for a send are staged on the first
-launch through argv (a second launch activates the window); the remembered
+launch with `APPDATA` redirected; the per-user Explorer entry
+`HKCU\Software\Classes\*\shell\Floe`, which an unpackaged exe points at
+itself on startup, is snapshotted at the first such launch in the process
+(an absent key is left alone and never created), put back by every stop and
+re-read (a mismatch there is a SafetyError, exit 4 in a run; `probe` only
+notes it), and put back once more, best effort, by the exit hook; files for
+a send are staged on the first launch through argv (a second launch activates the window); the remembered
 save dir is read before the first edit and set back after every receiver
 cell; desktop direct cells move 64 MiB so the pill shows the route for more
 than one 100 ms sample (a 12 MiB loopback transfer ends 0.4 s after
@@ -343,6 +348,18 @@ a recorded pid whose creation time changed (a recycled pid), and replays the
 `desktop.json` backup only into the path the fence allows. The same two
 steps that alter the machine (desktop close and config restore) also run
 best-effort on Ctrl+C.
+
+A hard kill (the node process ended before its `exit` hook ran) can still
+leave `HKCU\Software\Classes\*\shell\Floe` pointing at a deleted scratch
+exe, and `cleanup` does not replay it. The `wailsdev` lane is not covered
+either: the operator starts `wails dev`, and its unpackaged app runs the
+same startup rewrite before the driver could take a snapshot. The Wails
+toast activator keys
+(`HKCU\Software\Classes\AppUserModelId\floe-desktop.exe` and its CLSID
+`LocalServer32`) are rewritten by every unpackaged launch too and are
+deliberately not restored, because the next launch of a real unpackaged
+Floe corrects them, packaged builds never read them, and go-toast shares
+one CLSID across apps.
 
 ## 7. Head profile (what the next release will do)
 

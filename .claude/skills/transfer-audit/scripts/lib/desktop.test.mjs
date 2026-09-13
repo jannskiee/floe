@@ -37,7 +37,9 @@ import {
     RE,
     READY_AFTER_DECISIVE_MS,
     SAMPLE_MS,
+    SHELL_MENU_KEY,
     STRINGS,
+    ShellMenuGuard,
     USER_AWAY_IDLE_S,
     WINDOWS_APPS,
     activeGuards,
@@ -45,6 +47,7 @@ import {
     aggregateProbes,
     classifyStatus,
     createLeg,
+    defaultConfigPath,
     editDesktopJson,
     identityVersion,
     listDesktopProcesses,
@@ -53,6 +56,7 @@ import {
     pillVerdict,
     planLaunch,
     probe,
+    readShellMenu,
     receiverTarget,
     redirectedAppData,
     resolveMode,
@@ -66,6 +70,7 @@ import {
     tagForIdentity,
     versionForIdentity,
     withDesktopConfig,
+    writeShellMenu,
 } from './desktop.mjs';
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), 'desktop-test-'));
@@ -953,6 +958,8 @@ test('launch registers the app pid with lib/proc.mjs (spawned and window-found a
             scratch: dir,
             uia: client,
             launcher: async () => ({ child: null, pid }),
+            // Keeps this pid test off the real registry.
+            shellMenu: new ShellMenuGuard({ platform: 'linux' }),
             infra: { server: 'http://127.0.0.1:9', web: 'http://127.0.0.1:9' },
         });
         started.delete(pid);
@@ -1152,6 +1159,392 @@ test('an interrupted or crashed run puts desktop.json back (child process: sigin
         } finally {
             rmSync(scratch, { recursive: true, force: true, maxRetries: 3 });
         }
+    }
+});
+
+// ------------------------------------------- Explorer right-click entry
+
+const SELF_HEAL = (exe) => ({
+    name: { kind: 'String', value: 'Send with Floe' },
+    icon: { kind: 'String', value: exe },
+    command: { kind: 'String', value: `"${exe}" "%1"` },
+});
+const ORIGINAL_MENU = SELF_HEAL('C:\\Program Files\\Floe\\floe-desktop.exe');
+const INFRA_NOWHERE = { server: 'http://127.0.0.1:9', web: 'http://127.0.0.1:9' };
+
+/**
+ * An in-memory HKCU behind the injected exec. It decodes the request out of
+ * the -EncodedCommand script the way PowerShell does and answers in the same
+ * base64 JSON, under the script's rules: a write never creates a key, and
+ * present means a string Default on the command subkey. brokenWrites answers
+ * ok and changes nothing; failReads makes every read exit non-zero.
+ */
+function fakeRegistry(menu = null) {
+    const keys = new Map();
+    const reg = {
+        keys,
+        calls: [],
+        reads: 0,
+        writes: 0,
+        brokenWrites: false,
+        failReads: false,
+    };
+    const put = (m, name, e) => (e ? m.set(name, { ...e }) : m.delete(name));
+    reg.set = (values, key = SHELL_MENU_KEY) => {
+        for (const k of [key, `${key}\\command`])
+            if (!keys.has(k)) keys.set(k, new Map());
+        put(keys.get(key), '', values.name);
+        put(keys.get(key), 'Icon', values.icon);
+        put(keys.get(`${key}\\command`), '', values.command);
+    };
+    const get = (m, name) => (m && m.has(name) ? { ...m.get(name) } : null);
+    reg.menu = (key = SHELL_MENU_KEY) => ({
+        name: get(keys.get(key), ''),
+        icon: get(keys.get(key), 'Icon'),
+        command: get(keys.get(`${key}\\command`), ''),
+    });
+    if (menu) reg.set(menu);
+    const answer = (a) =>
+        Buffer.from(JSON.stringify(a), 'utf8').toString('base64');
+    reg.exec = (cmd, args) => {
+        reg.calls.push([cmd, args]);
+        assert.equal(cmd, 'powershell.exe');
+        const i = args.indexOf('-EncodedCommand');
+        assert.ok(i > 0, 'the script travels as -EncodedCommand');
+        const script = Buffer.from(args[i + 1], 'base64').toString('utf16le');
+        const m = /FromBase64String\('([A-Za-z0-9+/=]+)'\)/.exec(script);
+        const req = JSON.parse(Buffer.from(m[1], 'base64').toString('utf8'));
+        if (req.op === 'write') {
+            reg.writes += 1;
+            if (!keys.has(req.key) || !keys.has(`${req.key}\\command`))
+                return answer({
+                    ok: false,
+                    error: 'the key or its command subkey is absent; never created',
+                });
+            if (!reg.brokenWrites) reg.set(req.values, req.key);
+            return answer({ ok: true });
+        }
+        reg.reads += 1;
+        if (reg.failReads) throw new Error('powershell.exe exited 1');
+        // Hashtable order, not the reader's: the reader normalizes it.
+        const now = reg.menu(req.key);
+        return answer({
+            ok: true,
+            present: now.command !== null,
+            values: { command: now.command, icon: now.icon, name: now.name },
+        });
+    };
+    return reg;
+}
+
+/** The fake UIA client from tests/fake-desktop-interrupt.mjs, plus the helper close. */
+function fakeUiaClient(exe) {
+    const client = { windowClosed: false, helperClosed: false };
+    const notAWindow = () =>
+        Object.assign(new Error('not-a-window'), { reason: 'not-a-window' });
+    return Object.assign(client, {
+        log() {},
+        async findWindow() {
+            return { hwnd: 4242, pid: 0, exe, minimized: false, visible: true };
+        },
+        async waitTree() {
+            return { ready: true };
+        },
+        async readText() {
+            return { texts: [], count: 0 };
+        },
+        async request(cmd) {
+            if (client.windowClosed) throw notAWindow();
+            if (cmd === 'foreground-check')
+                return { foreground: false, idleSeconds: 999 };
+            return {};
+        },
+        async closeWindow() {
+            client.windowClosed = true;
+            return { posted: true };
+        },
+        async show() {
+            return { wasIconic: false, iconic: false };
+        },
+        async close() {
+            client.helperClosed = true;
+            return null;
+        },
+    });
+}
+
+/** An unpackaged leg whose launcher plays the desktop/app.go startup self-heal. */
+function unpackagedLeg(dir, reg, guard, { id, exe, mode = 'portable' }) {
+    return new DesktopLeg({
+        role: 'receiver',
+        cellId: id,
+        input: 'code',
+        code: 'a-b-c',
+        outDir: path.join(dir, 'out'),
+        build: { launch: mode, path: exe },
+        scratch: path.join(dir, id),
+        uia: fakeUiaClient(exe),
+        lister: NO_PROCS,
+        shellMenu: guard,
+        launcher: async () => {
+            const now = reg.menu();
+            if (now.command && now.command.value !== SELF_HEAL(exe).command.value)
+                reg.set(SELF_HEAL(exe));
+            return { child: null, pid: null };
+        },
+        infra: INFRA_NOWHERE,
+    });
+}
+
+const dropLegs = (re) => {
+    for (const l of activeLegs) if (re.test(l.opts.cellId ?? '')) activeLegs.delete(l);
+};
+
+test('readShellMenu and writeShellMenu: base64 JSON through -EncodedCommand, byte-exact, and a write never creates the key', () => {
+    const reg = fakeRegistry();
+    const opts = { exec: reg.exec };
+    assert.deepEqual(readShellMenu(opts), {
+        present: false,
+        values: { name: null, icon: null, command: null },
+    });
+    assert.throws(
+        () => writeShellMenu(ORIGINAL_MENU, opts),
+        /absent; never created/
+    );
+    assert.equal(reg.keys.size, 0, 'the refused write created nothing');
+    const exe = 'C:\\Users\\Zo\u00eb\\Floe Test\\floe-desktop.exe';
+    reg.set({ name: null, icon: null, command: null });
+    assert.equal(readShellMenu(opts).present, false, 'empty keys are not present');
+    writeShellMenu(SELF_HEAL(exe), opts);
+    const back = readShellMenu(opts);
+    assert.equal(back.present, true);
+    assert.deepEqual(back.values, SELF_HEAL(exe));
+    assert.equal(back.values.command.value, `"${exe}" "%1"`);
+    for (const [, args] of reg.calls)
+        assert.ok(
+            !args.some((a) => a.includes('"') || a.includes('%1')),
+            'no quote and no %1 ever reaches the command line'
+        );
+    writeShellMenu({ ...SELF_HEAL(exe), icon: null }, opts);
+    assert.equal(readShellMenu(opts).values.icon, null, 'a null value is removed');
+    assert.throws(
+        () => readShellMenu({ exec: () => 'not an answer' }),
+        /unreadable answer/
+    );
+    const refused = Buffer.from(
+        JSON.stringify({ ok: false, error: 'access denied' })
+    ).toString('base64');
+    assert.throws(() => readShellMenu({ exec: () => refused }), /access denied/);
+});
+
+test('ShellMenuGuard: an absent key, another platform or a failed read never writes, for the rest of the process', () => {
+    const absent = fakeRegistry();
+    const guard = new ShellMenuGuard({ exec: absent.exec, platform: 'win32' });
+    const notes = [];
+    assert.equal(guard.take((l) => notes.push(l)), 'absent');
+    assert.match(notes[0], /absent; the app never creates it/);
+    absent.set(ORIGINAL_MENU);
+    assert.equal(guard.take(), 'absent', 'one snapshot per process');
+    assert.deepEqual(guard.restore(), { wrote: false, match: null });
+    assert.equal(absent.reads, 1, 'nothing read after the absent snapshot');
+    assert.equal(absent.writes, 0);
+
+    const other = fakeRegistry(ORIGINAL_MENU);
+    const linux = new ShellMenuGuard({ exec: other.exec, platform: 'linux' });
+    assert.equal(linux.take(), 'off');
+    assert.deepEqual(linux.restore(), { wrote: false, match: null });
+    assert.equal(other.calls.length, 0, 'not Windows: no PowerShell at all');
+
+    const flaky = fakeRegistry(ORIGINAL_MENU);
+    flaky.failReads = true;
+    const unreadable = new ShellMenuGuard({ exec: flaky.exec, platform: 'win32' });
+    const n2 = [];
+    assert.equal(unreadable.take((l) => n2.push(l)), 'unreadable');
+    assert.match(n2[0], /snapshot read failed/);
+    flaky.failReads = false;
+    assert.deepEqual(unreadable.restore(), { wrote: false, match: null });
+    assert.equal(flaky.writes, 0);
+
+    const late = fakeRegistry(ORIGINAL_MENU);
+    const armed = new ShellMenuGuard({ exec: late.exec, platform: 'win32' });
+    assert.equal(armed.take(), 'armed');
+    late.set(SELF_HEAL('C:\\scratch\\floe-desktop.exe'));
+    late.failReads = true;
+    const n3 = [];
+    assert.deepEqual(armed.restore((l) => n3.push(l)), {
+        wrote: false,
+        match: null,
+    });
+    assert.match(n3[0], /restore read failed/);
+    assert.equal(late.writes, 0, 'a failed read is a note, never a write');
+    late.failReads = false;
+    late.keys.clear();
+    assert.deepEqual(armed.restore(), { wrote: false, match: null });
+    assert.equal(late.keys.size, 0, 'a key deleted mid-run is not recreated');
+});
+
+test('the first unpackaged launch snapshots the Explorer verb and stop() puts a self-heal rewrite back byte-exact, across two overlapping legs', async () => {
+    const dir = tmp();
+    try {
+        const reg = fakeRegistry(ORIGINAL_MENU);
+        const guard = new ShellMenuGuard({ exec: reg.exec, platform: 'win32' });
+        const exeA = 'C:\\scratch\\a\\floe-desktop.exe';
+        const exeB = 'C:\\scratch\\b\\floe-desktop.exe';
+        const a = unpackagedLeg(dir, reg, guard, { id: 'T-MENU-A', exe: exeA });
+        const b = unpackagedLeg(dir, reg, guard, {
+            id: 'T-MENU-B',
+            exe: exeB,
+            mode: 'head',
+        });
+        await a.launch([]);
+        assert.equal(guard.state, 'armed');
+        assert.deepEqual(reg.menu(), SELF_HEAL(exeA), 'the launch rewrote it');
+        await b.launch([]);
+        assert.deepEqual(reg.menu(), SELF_HEAL(exeB));
+        assert.deepEqual(
+            guard.snapshot,
+            ORIGINAL_MENU,
+            "the second launch never snapshots the first one's rewrite"
+        );
+        assert.equal(reg.reads, 1, 'one snapshot per process');
+        assert.ok(a.shellMenuArmed && b.shellMenuArmed);
+        await a.stop('test');
+        assert.deepEqual(reg.menu(), ORIGINAL_MENU, 'put back byte-exact');
+        assert.ok(
+            a.notes.some((n) =>
+                n.includes(
+                    `put back command ${ORIGINAL_MENU.command.value} (the launch had rewritten it to ${SELF_HEAL(exeB).command.value})`
+                )
+            ),
+            a.notes.join('\n')
+        );
+        await b.stop('test');
+        assert.deepEqual(reg.menu(), ORIGINAL_MENU);
+        assert.equal(reg.writes, 1, 'the second stop found it already back');
+        assert.ok(b.notes.includes('explorer verb: unchanged'));
+        assert.ok(!activeLegs.has(a) && !activeLegs.has(b));
+    } finally {
+        dropLegs(/^T-MENU-/);
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('a restore the re-read contradicts is a SafetyError thrown after the helper closes, and never masks a config restore error', async () => {
+    const dir = tmp();
+    try {
+        const reg = fakeRegistry(ORIGINAL_MENU);
+        const guard = new ShellMenuGuard({ exec: reg.exec, platform: 'win32' });
+        const leg = unpackagedLeg(dir, reg, guard, {
+            id: 'T-MENU-BAD',
+            exe: 'C:\\scratch\\bad\\floe-desktop.exe',
+        });
+        await leg.launch([]);
+        const client = leg.client;
+        leg.ownClient = true;
+        reg.brokenWrites = true;
+        await assert.rejects(leg.stop('test'), (err) => {
+            assert.ok(err instanceof SafetyError, err.stack);
+            assert.match(err.message, /explorer verb restore mismatch/);
+            assert.deepEqual(err.want, ORIGINAL_MENU);
+            assert.ok(client.helperClosed, 'thrown after the helper is closed');
+            return true;
+        });
+        assert.equal(reg.writes, 1);
+        assert.ok(!activeLegs.has(leg));
+
+        const reg2 = fakeRegistry(ORIGINAL_MENU);
+        reg2.brokenWrites = true;
+        const both = unpackagedLeg(
+            dir,
+            reg2,
+            new ShellMenuGuard({ exec: reg2.exec, platform: 'win32' }),
+            { id: 'T-MENU-BOTH', exe: 'C:\\scratch\\both\\floe-desktop.exe' }
+        );
+        await both.launch([]);
+        both.guard = {
+            restore() {
+                throw new SafetyError('desktop.json restore mismatch: first');
+            },
+        };
+        await assert.rejects(
+            both.stop('test'),
+            /desktop\.json restore mismatch: first/
+        );
+        assert.ok(
+            both.notes.some((n) =>
+                n.startsWith('explorer verb restore: explorer verb restore mismatch')
+            ),
+            'the second error is a note'
+        );
+    } finally {
+        dropLegs(/^T-MENU-/);
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('Store and wailsdev legs never touch the Explorer verb', async () => {
+    const dir = tmp();
+    const savedAppData = process.env.APPDATA;
+    const reg = fakeRegistry(ORIGINAL_MENU);
+    const guard = new ShellMenuGuard({ exec: reg.exec, platform: 'win32' });
+    try {
+        // The Store lane edits %APPDATA%\floe\desktop.json: APPDATA points at
+        // the temp dir first, and the test stops if the path says otherwise.
+        process.env.APPDATA = dir;
+        const cfg = path.join(dir, 'floe', 'desktop.json');
+        assert.equal(defaultConfigPath(), cfg);
+        mkdirSync(path.dirname(cfg), { recursive: true });
+        const original = Buffer.from('{"reportStats":true,"migrated":true}\n');
+        writeFileSync(cfg, original);
+        const store = new DesktopLeg({
+            role: 'receiver',
+            cellId: 'T-MENU-STORE',
+            input: 'code',
+            code: 'a-b-c',
+            outDir: path.join(dir, 'out'),
+            build: { launch: 'store' },
+            uia: fakeUiaClient(`${WINDOWS_APPS}x\\floe-desktop.exe`),
+            lister: NO_PROCS,
+            shellMenu: guard,
+            launcher: async () => ({ child: null, pid: null }),
+            infra: INFRA_NOWHERE,
+        });
+        await store.launch([]);
+        assert.equal(store.guard.state().applied, true);
+        await store.stop('test');
+        assert.ok(readFileSync(cfg).equals(original));
+        const wailsdev = new DesktopLeg({
+            role: 'sender',
+            cellId: 'T-MENU-WAILSDEV',
+            files: ['a'],
+            build: { launch: 'wailsdev' },
+            infra: {
+                server: 'http://localhost:3001',
+                web: 'http://localhost:3000',
+            },
+            shellMenu: guard,
+            openDriver: async () => ({
+                async waitTree() {
+                    return { ready: true };
+                },
+                async settings() {
+                    return {
+                        reportStats: true,
+                        migrated: true,
+                        server: 'http://localhost:3001',
+                    };
+                },
+            }),
+        });
+        await wailsdev.launch();
+        assert.equal(store.shellMenuArmed || wailsdev.shellMenuArmed, false);
+        assert.equal(guard.state, 'unread');
+        assert.equal(reg.calls.length, 0, 'no registry call at all');
+    } finally {
+        if (savedAppData === undefined) delete process.env.APPDATA;
+        else process.env.APPDATA = savedAppData;
+        dropLegs(/^T-MENU-/);
+        rmSync(dir, { recursive: true, force: true });
     }
 });
 
