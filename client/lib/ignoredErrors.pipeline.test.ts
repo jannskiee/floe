@@ -80,8 +80,11 @@ function makeFloeHEvent(value: string = FLOE_H_VALUE): ErrorEvent {
     return { type: undefined, level: 'error', platform: 'javascript', exception: { values } };
 }
 
-// FLOE-G, the NumberFlow commit-phase crash. The regression guard.
-function makeFloeGEvent(): ErrorEvent {
+// The NumberFlow commit-phase error as a real browser would report it, its one
+// frame already rewritten to app://. The regression guard: ignoreErrors must
+// never match these words. This is not FLOE-G's stored stack, which came from a
+// deno_core scraper (ext: frames) and is dropped by lib/nonBrowserRuntimes.ts.
+function makeNumberFlowEvent(): ErrorEvent {
     const values: Exception[] = [
         {
             type: 'TypeError',
@@ -114,6 +117,30 @@ function makeChunkLoadEvent(): ErrorEvent {
         },
     ];
     return { type: undefined, level: 'error', platform: 'javascript', exception: { values } };
+}
+
+// FLOE-K as Sentry stored it. A DOMException with no stack takes the
+// eventFromString branch of the browser SDK's eventFromUnknownInput: the
+// "<name>: <message>" text becomes event.message AND an exception value of
+// type Error, with no stacktrace and a DOMException.code tag.
+const FLOE_K_VALUE = 'NetworkError: A network error occurred.';
+
+function makeFloeKEvent(value: string = FLOE_K_VALUE): ErrorEvent {
+    const values: Exception[] = [
+        {
+            type: 'Error',
+            value,
+            mechanism: { type: 'auto.browser.global_handlers.onunhandledrejection', handled: false },
+        },
+    ];
+    return {
+        type: undefined,
+        level: 'error',
+        platform: 'javascript',
+        message: value,
+        tags: { 'DOMException.code': '19' },
+        exception: { values },
+    };
 }
 
 describe('ignoreErrors in the Sentry event pipeline', () => {
@@ -162,8 +189,53 @@ describe('ignoreErrors in the Sentry event pipeline', () => {
         expect(runEventFilters(event, { ignoreErrors: IGNORED_ERROR_PATTERNS })).not.toBeNull();
     });
 
-    it('keeps a genuine Floe application error (FLOE-G)', () => {
-        expect(runEventFilters(makeFloeGEvent(), { ignoreErrors: IGNORED_ERROR_PATTERNS })).not.toBeNull();
+    it('drops the bare FontFace NetworkError (FLOE-K)', () => {
+        expect(runEventFilters(makeFloeKEvent(), { ignoreErrors: IGNORED_ERROR_PATTERNS })).toBeNull();
+    });
+
+    it('keeps FLOE-K when ignoreErrors is absent (guards a false pass)', () => {
+        // Nothing in DEFAULT_IGNORE_ERRORS matches, and _isUselessError keeps an
+        // event that has a message. It must be OUR entry that drops FLOE-K.
+        expect(runEventFilters(makeFloeKEvent())).not.toBeNull();
+    });
+
+    it('drops FLOE-K on the exception value alone, with no message', () => {
+        const event = makeFloeKEvent();
+        delete event.message;
+        expect(runEventFilters(event, { ignoreErrors: IGNORED_ERROR_PATTERNS })).toBeNull();
+    });
+
+    it('drops the same rejection when the DOMException carries a stack', () => {
+        // eventFromError's shape: no event.message, the DOMException's name as
+        // the type and its bare text as the value. Only the "<type>: <value>"
+        // candidate can match the anchored entry, and it does.
+        const values: Exception[] = [
+            {
+                type: 'NetworkError',
+                value: 'A network error occurred.',
+                mechanism: { type: 'auto.browser.global_handlers.onunhandledrejection', handled: false },
+                stacktrace: { frames: [{ filename: FLOE_CHUNK, function: 'load', lineno: 1, colno: 1 }] },
+            },
+        ];
+        const event: ErrorEvent = { type: undefined, level: 'error', platform: 'javascript', exception: { values } };
+        expect(runEventFilters(event, { ignoreErrors: IGNORED_ERROR_PATTERNS })).toBeNull();
+    });
+
+    it('keeps a longer or differently spaced NetworkError', () => {
+        for (const value of [
+            'NetworkError when attempting to fetch resource.',
+            "NetworkError: Failed to execute 'load' on 'FontFaceSet': A network error occurred.",
+            'NetworkError:  A network error occurred.',
+        ]) {
+            expect(
+                runEventFilters(makeFloeKEvent(value), { ignoreErrors: IGNORED_ERROR_PATTERNS }),
+                value
+            ).not.toBeNull();
+        }
+    });
+
+    it('keeps the NumberFlow commit-phase error a real browser reports', () => {
+        expect(runEventFilters(makeNumberFlowEvent(), { ignoreErrors: IGNORED_ERROR_PATTERNS })).not.toBeNull();
     });
 
     it('keeps a stale-bundle error so beforeSend can still fingerprint it', () => {

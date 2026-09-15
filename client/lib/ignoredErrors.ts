@@ -59,4 +59,28 @@ export const IGNORED_ERROR_PATTERNS: (string | RegExp)[] = [
     // on that list yet. Matched on the bridge's own words rather than on
     // "Error invoking postMessage", so it also covers the other bridge methods.
     'Java object is gone',
+    // A FontFace that failed to load (FLOE-K). Chromium rejects load() with a
+    // DOMException carrying the bare NetworkError default text, and a search of
+    // Blink finds FontFace to be the only API that rejects with that default and
+    // no message of its own. The rejection has no stack, so there is no frame
+    // for denyUrls or beforeSend to judge: the words are all there is.
+    //
+    // Nothing we ship calls FontFace.load() or document.fonts.load(). next/font
+    // is build-time CSS, and a CSS @font-face that fails never creates a promise
+    // at all. FLOE-K's page logged three FontFace objects to the console just
+    // before the rejection, which no code of ours does either.
+    //
+    // Anchored to the whole message, unlike the fragments above, so text that
+    // merely contains it keeps reaching us, such as our own Error wrapping a
+    // stringified DOMException. Both shapes Sentry builds from such a rejection
+    // still offer this exact string: as the message and value when the
+    // DOMException has no stack, as FLOE-K's did, or as "<type>: <value>" when
+    // it has one. No g or y flag: Sentry calls .test() on this same instance
+    // for every event.
+    //
+    // This entry is tied to fonts. If we ever call FontFace.load() ourselves, its
+    // failures will vanish here too. Safari is deliberately not covered: WebKit's
+    // default text starts with a space, so its version reads
+    // "NetworkError:  A network error occurred." with two, and none has arrived.
+    /^NetworkError: A network error occurred\.$/,
 ];
