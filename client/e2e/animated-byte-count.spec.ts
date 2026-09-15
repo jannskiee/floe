@@ -12,12 +12,13 @@
  * reached app/global-error.tsx and the whole page became the default Next.js
  * error page. FLOE-G is exactly that, reported with handled:yes and
  * mechanism:generic, i.e. through global-error's own captureException, from a
- * runtime whose custom elements never upgrade.
+ * runtime whose custom elements did not upgrade: Obscura, a headless scraper.
+ * FLOE-J is the same client after the fix, recovered by the component.
  *
  * number-flow's define() fails SILENTLY in several different ways
  * (number-flow/dist/lite.mjs), so each is driven here rather than letting one
- * stand in for the others, and the last case bypasses the pre-check entirely so
- * the error boundary itself is exercised.
+ * stand in for the others, and the last two cases get past the pre-check so the
+ * error boundary itself is exercised.
  *
  * These specs start no transfer and need nothing from the signaling server, so
  * they cannot reach the public byte counter. The report guard below is belt and
@@ -108,8 +109,9 @@ test('leaves the animated counter alone when number-flow is healthy', async ({ p
 });
 
 test('survives number-flow-react never being defined', async ({ page }) => {
-    // The exact production shape: React creates the element, nothing upgrades
-    // it, and the first value change calls a method that is not there.
+    // Registration bails out for this one tag, so React creates an element
+    // nothing will upgrade. The pre-check notices before the first value change
+    // can call a method that is not there.
     const errors = collectPageErrors(page);
     const reports = { n: 0 };
     await guardStatsReport(page, reports);
@@ -150,7 +152,7 @@ test('survives an environment with no custom element registry', async ({ page })
 });
 
 test('survives number-flow-react upgrading to a foreign element', async ({ page }) => {
-    // The one case the pre-check cannot see: the tag IS registered, so
+    // One of two cases the pre-check cannot see: the tag IS registered, so
     // customElements.get() answers truthfully, but it upgrades to a class with
     // no willUpdate. Only getDerivedStateFromError can save the page here.
     const errors = collectPageErrors(page);
@@ -169,6 +171,34 @@ test('survives number-flow-react upgrading to a foreign element', async ({ page 
             }
             return define(name, ctor, options);
         };
+    });
+
+    await page.goto('/');
+    await expectDegradedButAlive(page, errors, reports);
+});
+
+test('survives number-flow-react registered but never upgraded (FLOE-J)', async ({ page }) => {
+    // The other case, and the one production actually saw. customElements.get()
+    // returns the class, so the pre-check passes, but the element React renders
+    // is never upgraded, which is how Obscura's registry behaved. Only
+    // getDerivedStateFromError can save the page here.
+    const errors = collectPageErrors(page);
+    const reports = { n: 0 };
+    await guardStatsReport(page, reports);
+    await stubStats(page);
+    await page.addInitScript(() => {
+        const registry = window.customElements;
+        const define = registry.define.bind(registry);
+        const get = registry.get.bind(registry);
+        const recorded = new Map<string, CustomElementConstructor>();
+        registry.define = (name: string, ctor: CustomElementConstructor, options?: ElementDefinitionOptions) => {
+            if (name === 'number-flow-react') {
+                recorded.set(name, ctor);
+                return;
+            }
+            return define(name, ctor, options);
+        };
+        registry.get = (name: string) => recorded.get(name) ?? get(name);
     });
 
     await page.goto('/');

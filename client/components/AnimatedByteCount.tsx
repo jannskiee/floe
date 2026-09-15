@@ -29,15 +29,19 @@ import { BYTE_COUNT_FORMAT, formatSplitBytes } from '@/lib/utils';
  * app/global-error.tsx and the whole homepage became the default Next.js error
  * page, with a "Try again" button that remounts straight back into the same
  * crash. FLOE-G is one of those, reported through global-error's own
- * captureException.
+ * captureException. FLOE-J is the same client after this component shipped,
+ * recovered and reported below. Both came from Obscura, a headless scraper on
+ * deno_core, not from a visitor's browser (see lib/nonBrowserRuntimes.ts).
  *
  * Two independent mechanisms, because neither covers the other:
  *
- *   - componentDidMount checks whether the element is going to upgrade at all.
- *     That is the common case and it avoids the throw entirely.
+ *   - componentDidMount checks whether the element is going to upgrade at all,
+ *     and avoids the throw entirely when registration bailed out without the
+ *     tag being registered (no BROWSER, no HTMLElement, no usable registry).
  *   - getDerivedStateFromError catches what the check cannot see, such as the
  *     tag being registered to some other class, or a host node that never
- *     upgrades despite a valid registration.
+ *     upgrades despite a valid registration. The second is what Obscura did,
+ *     which makes it the only case observed so far.
  *
  * Deliberately NOT Sentry.ErrorBoundary: it implements only componentDidCatch,
  * so React renders null for one commit (a visible blank) before the fallback
@@ -87,10 +91,11 @@ export class AnimatedByteCount extends React.Component<Props, State> {
     }
 
     componentDidMount() {
-        // The exact negation of the library's own registration guard, so it
-        // covers all four of its silent bail-outs at once: esm-env's BROWSER
-        // resolving false, a missing HTMLElement, a missing or stubbed
-        // customElements, and the tag already belonging to something else.
+        // Covers three of the library's four silent bail-outs at once, the ones
+        // that leave the tag unregistered: esm-env's BROWSER resolving false, a
+        // missing HTMLElement, and a missing or stubbed customElements. The
+        // fourth, the tag already belonging to something else, answers get()
+        // truthfully and is left to getDerivedStateFromError.
         //
         // In componentDidMount rather than in render(): the first client render
         // has to emit what the server emitted or hydration mismatches. This runs

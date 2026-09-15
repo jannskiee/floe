@@ -16,8 +16,9 @@
  * These patterns feed `denyUrls`, which the EventFilters integration evaluates
  * FIRST in the event pipeline. That ordering is the whole point, and it is why
  * this check cannot live in `beforeSend`: @sentry/nextjs's
- * NextjsClientStackFrameNormalization integration runs later and rewrites every
- * frame's origin to "app://", so by the time `beforeSend` sees the event the
+ * NextjsClientStackFrameNormalization integration runs later and rewrites the
+ * origin of every http(s) or extension frame to "app://", so by the time
+ * `beforeSend` sees the event the
  * scheme is gone and the extension frame reads `app:///scripts/inpage.js` -
  * indistinguishable from our own code. Verified in a real browser: the same
  * event carries the chrome-extension:// filename before the processors run and

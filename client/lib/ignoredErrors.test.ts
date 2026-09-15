@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { IGNORED_ERROR_PATTERNS } from './ignoredErrors';
 
-// Replicates stringMatchesSomePattern/isMatchingPattern from @sentry/core for a
-// plain-string pattern: a case-sensitive substring test. The pipeline sibling
-// proves this replica against the real integration; this file is the cheap
-// per-entry sweep.
+// Replicates stringMatchesSomePattern/isMatchingPattern from @sentry/core: a
+// case-sensitive substring test for a string entry, RegExp#test for a regex.
+// The pipeline sibling proves this replica against the real integration; this
+// file is the cheap per-entry sweep.
 const isIgnored = (message: string): boolean =>
     IGNORED_ERROR_PATTERNS.some((pattern) =>
         typeof pattern === 'string' ? message.includes(pattern) : pattern.test(message)
@@ -12,6 +12,9 @@ const isIgnored = (message: string): boolean =>
 
 // FLOE-H exactly as Sentry stored the exception value.
 const FLOE_H = 'Error invoking postMessage: Java object is gone';
+
+// FLOE-K exactly as Sentry stored both event.message and the exception value.
+const FLOE_K = 'NetworkError: A network error occurred.';
 
 describe('IGNORED_ERROR_PATTERNS', () => {
     it('matches the Facebook Android WebView bridge error (FLOE-H)', () => {
@@ -58,9 +61,12 @@ describe('IGNORED_ERROR_PATTERNS', () => {
     it('never swallows a genuine Floe application error', () => {
         expect(isIgnored("Cannot read properties of undefined (reading 'send')")).toBe(false);
         expect(isIgnored('Failed to connect to MetaMask')).toBe(false);
-        // FLOE-G, the NumberFlow commit-phase crash that components/
-        // AnimatedByteCount.tsx contains. It must keep reaching Sentry: a
-        // filter that hides it from us is worse than the crash itself.
+        // The NumberFlow commit-phase crash that components/
+        // AnimatedByteCount.tsx contains. From a real browser it must keep
+        // reaching Sentry: a filter that hides it from us is worse than the
+        // crash itself. FLOE-G and FLOE-J, the only two so far, came from a
+        // deno_core scraper, and lib/nonBrowserRuntimes.ts drops those on
+        // their stack rather than on these words.
         expect(isIgnored('this.el?.willUpdate is not a function')).toBe(false);
     });
 
@@ -78,13 +84,54 @@ describe('IGNORED_ERROR_PATTERNS', () => {
         }
     });
 
-    it('carries only plain-string patterns today', () => {
-        // A future RegExp entry has to carry the no-g/no-y guard that
-        // browserExtensions.test.ts pins, because Sentry calls .test() on these
-        // same instances for every event and a sticky flag would advance
-        // lastIndex. This assertion is the reminder.
-        for (const pattern of IGNORED_ERROR_PATTERNS) {
-            expect(typeof pattern).toBe('string');
+    it('matches the bare FontFace NetworkError (FLOE-K)', () => {
+        expect(isIgnored(FLOE_K)).toBe(true);
+    });
+
+    it('matches FLOE-K only as a whole message', () => {
+        // Anchored, unlike every string entry, so text that merely contains the
+        // words is kept. That includes the "<type>: <value>" candidate of
+        // FLOE-K's stackless shape; the pipeline tests prove the event still
+        // drops through its message and through its bare value.
+        for (const message of [
+            `Error: ${FLOE_K}`,
+            `Uncaught (in promise) ${FLOE_K}`,
+            `${FLOE_K} (api.floe.one)`,
+            `${FLOE_K} `,
+            `${FLOE_K}\n`,
+        ]) {
+            expect(isIgnored(message), JSON.stringify(message)).toBe(false);
         }
+    });
+
+    it('never matches a different NetworkError wording', () => {
+        for (const message of [
+            // Firefox's fetch failure, as the value and in its type-prefixed form.
+            'NetworkError when attempting to fetch resource.',
+            'TypeError: NetworkError when attempting to fetch resource.',
+            'TypeError: Failed to fetch',
+            'NetworkError',
+            // A Blink NetworkError with context of its own.
+            "NetworkError: Failed to execute 'load' on 'FontFaceSet': A network error occurred.",
+            // WebKit's default text starts with a space. Deliberately not covered.
+            'NetworkError:  A network error occurred.',
+            'networkerror: a network error occurred.',
+        ]) {
+            expect(isIgnored(message), JSON.stringify(message)).toBe(false);
+        }
+    });
+
+    it('carries no stateful regex flags (Sentry reuses these instances)', () => {
+        // Sentry calls .test() on these same instances for every event, and a
+        // g or y flag would carry lastIndex from one event into the next.
+        const regexes = IGNORED_ERROR_PATTERNS.filter((pattern) => pattern instanceof RegExp);
+        expect(regexes.length).toBeGreaterThan(0);
+        for (const pattern of regexes) {
+            expect(pattern.global).toBe(false);
+            expect(pattern.sticky).toBe(false);
+        }
+        // Same instances, tested twice, must agree.
+        expect(isIgnored(FLOE_K)).toBe(true);
+        expect(isIgnored(FLOE_K)).toBe(true);
     });
 });
