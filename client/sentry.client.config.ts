@@ -2,6 +2,7 @@ import * as Sentry from '@sentry/nextjs';
 import { BROWSER_EXTENSION_URL_PATTERNS } from './lib/browserExtensions';
 import { IGNORED_ERROR_PATTERNS } from './lib/ignoredErrors';
 import { isInjectedScriptError } from './lib/injectedScripts';
+import { isNonBrowserRuntimeError } from './lib/nonBrowserRuntimes';
 import { isStaleBundleError } from './lib/staleBundle';
 import { scrubSpanJson, scrubTransactionEvent, scrubUrl } from './lib/scrubUrl';
 
@@ -24,9 +25,10 @@ Sentry.init({
     // Floe code, never actionable. Matched on the frame's URL scheme rather
     // than its message, so this covers every extension without needing a
     // per-wording entry above. It has to be denyUrls and not beforeSend:
-    // EventFilters runs first, before @sentry/nextjs rewrites every frame
-    // origin to "app://" (see lib/browserExtensions.ts). Fixes FLOE-E,
-    // MetaMask's inpage.js rejecting with "Failed to connect to MetaMask".
+    // EventFilters runs first, before @sentry/nextjs rewrites every http(s) or
+    // extension frame origin to "app://" (see lib/browserExtensions.ts).
+    // Fixes FLOE-E, MetaMask's inpage.js rejecting with "Failed to connect to
+    // MetaMask".
     denyUrls: BROWSER_EXTENSION_URL_PATTERNS,
 
     // Sample 10% of transactions. Tracing every page load (1.0) flooded the
@@ -46,6 +48,13 @@ Sentry.init({
         // (the messages are generic) nor denyUrls (it skips <anonymous> frames
         // by design) can see it. Fixes FLOE-F. See lib/injectedScripts.ts.
         if (isInjectedScriptError(event)) return null;
+
+        // A runtime built on deno_core rather than a browser. FLOE-G and FLOE-J
+        // were Obscura, a headless scraper whose custom elements did not
+        // upgrade, so the stats odometer threw: nothing a visitor can hit. Only
+        // its oldest frames give it away, so the check reads every frame rather
+        // than the one that threw. Fixes FLOE-J. See lib/nonBrowserRuntimes.ts.
+        if (isNonBrowserRuntimeError(event)) return null;
 
         const message =
             (hint?.originalException as Error | undefined)?.message ??
