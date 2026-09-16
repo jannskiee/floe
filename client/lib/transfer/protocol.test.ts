@@ -12,6 +12,8 @@ import {
     compatErrorMessage,
     peerCompatErrorMessage,
     compatErrorFromIncompatible,
+    refusalCodeOf,
+    REFUSAL_CODES,
     type Incompatible,
     metadataMessage,
     ackMessage,
@@ -192,6 +194,60 @@ describe('compatErrorFromIncompatible', () => {
         expect(compatErrorFromIncompatible({ type: 'incompatible', reason: '' })).toBe(
             'The other side rejected the transfer.'
         );
+    });
+});
+
+/**
+ * `code` is whatever the peer typed: classifyControl casts, it does not check.
+ * refusalCodeOf is the one reader, so it alone decides what counts as a code.
+ */
+describe('refusalCodeOf', () => {
+    // Built the way a real frame arrives, through classifyControl, so the cast
+    // under test is the one production code sees.
+    function frame(code: unknown): Incompatible {
+        const text = JSON.stringify({
+            type: 'incompatible',
+            reason: 'receiver could not finish writing a file',
+            pv: PROTOCOL_VERSION,
+            pvMin: MIN_PROTOCOL_VERSION,
+            code,
+            saved: 1,
+        });
+        return classifyControl(toUint8(text)) as Incompatible;
+    }
+
+    it('refusalCodeOf accepts only allowlisted codes', () => {
+        // The Phase 0 set, pinned to RefusalCode in cli/engine/transfer/control.go.
+        expect([...REFUSAL_CODES].sort()).toEqual(['hash-mismatch', 'write-failed']);
+        expect(refusalCodeOf(frame('write-failed'))).toBe('write-failed');
+        expect(refusalCodeOf(frame('hash-mismatch'))).toBe('hash-mismatch');
+
+        const hostile: unknown[] = [
+            'too-slow', // a real Stage 1 code, still unknown to this build
+            'WRITE-FAILED',
+            'write-failed ',
+            '',
+            7,
+            true,
+            null,
+            {},
+            { code: 'write-failed' },
+            ['write-failed'],
+            '__proto__',
+            'constructor',
+            'toString',
+            'hasOwnProperty',
+        ];
+        for (const code of hostile) {
+            expect(refusalCodeOf(frame(code))).toBeNull();
+        }
+        // Absent: the shape every peer that predates the field sends.
+        expect(refusalCodeOf({ type: 'incompatible', reason: 'x', pv: 1, pvMin: 1 })).toBeNull();
+        // A parsed "__proto__" KEY must not smuggle a code in through the prototype.
+        const protoKey = classifyControl(
+            toUint8('{"type":"incompatible","reason":"x","pv":1,"pvMin":1,"__proto__":{"code":"write-failed"}}')
+        ) as Incompatible;
+        expect(refusalCodeOf(protoKey)).toBeNull();
     });
 });
 

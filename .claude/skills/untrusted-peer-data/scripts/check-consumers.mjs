@@ -58,8 +58,11 @@ export const FIELDS = {
             'endMsg',
             'IncomingInfo',
             'FileInfo',
+            'RefusalCode',
         ],
-        member: ['Ver', 'Reason'],
+        // Code and Saved are the optional incompatible fields; both words are
+        // too common to search for bare ("Saved to" is a receiver print).
+        member: ['Ver', 'Reason', 'Code', 'Saved'],
     },
     ts: {
         word: [
@@ -72,8 +75,10 @@ export const FIELDS = {
             'Ack',
             'End',
             'Incompatible',
+            'refusalCodeOf',
+            'RefusalCode',
         ],
-        member: ['ver', 'reason'],
+        member: ['ver', 'reason', 'code', 'saved'],
     },
 };
 // Files the map keeps although no token appears in them, for either of two

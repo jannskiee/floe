@@ -18,12 +18,21 @@ const (
 // incompatibleMsg is sent by the receiver to the sender when their protocol
 // version ranges do not overlap. Sent as binary so old senders that do not
 // recognize the type treat it as a small JSON blob and drop it safely.
+//
+// Code and Saved are optional and ride only this frame (never ack). A receiver
+// sets them on a deliberate abort, whose pv range overlaps (AbortWithCode);
+// peers that predate them ignore both and show Reason. On the reading side
+// both are peer-chosen: allowlist Code to a RefusalCode and clamp Saved to
+// [0, total] before any use, and never render either raw. Code is a plain
+// string rather than a RefusalCode so a decoded frame never looks validated.
 type incompatibleMsg struct {
 	Type   string `json:"type"`
 	Reason string `json:"reason"`
 	Pv     int    `json:"pv"`
 	PvMin  int    `json:"pvMin"`
 	Ver    string `json:"ver,omitempty"`
+	Code   string `json:"code,omitempty"`  // why the side that sent this frame stopped; see RefusalCode
+	Saved  *int   `json:"saved,omitempty"` // files that side committed before this frame; a pointer so 0 is sent when set
 }
 
 // CheckCompat reports whether two peers can transfer files given their

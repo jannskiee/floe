@@ -15,6 +15,7 @@ package transfer
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -323,5 +324,220 @@ func TestSenderReadsTheReceiversIntegrityReason(t *testing.T) {
 		}
 	case <-time.After(20 * time.Second):
 		t.Fatal("the receiver never told the sender why")
+	}
+}
+
+// TestAbortWithCodeKeepsCodeWhenReasonShrinks pins the one rule a coded frame
+// adds to the cap: only the reason shrinks. A current reader acts on code and
+// saved, so trimming the frame to fit must never cost either of them, and the
+// frame must still fit, or a browser sender reads it as nothing at all.
+func TestAbortWithCodeKeepsCodeWhenReasonShrinks(t *testing.T) {
+	// abortReason's frame is unchanged by the generalization: no code key and
+	// no saved key, byte for byte what shipped peers already read.
+	if got, want := string(incompatibleFrame("v1.10.10", "", "stop", -1)),
+		`{"type":"incompatible","reason":"stop","pv":1,"pvMin":1,"ver":"v1.10.10"}`; got != want {
+		t.Fatalf("uncoded frame = %s, want %s", got, want)
+	}
+
+	sender, recvCh, msgs, _, closeFn := newPumpedPair(t)
+	defer closeFn()
+	select {
+	case <-recvCh:
+	case <-time.After(20 * time.Second):
+		t.Fatal("receiver data channel never opened")
+	}
+
+	cases := []struct {
+		name   string
+		code   RefusalCode
+		reason string
+		saved  int
+	}{
+		// 2,000 bytes of plain text: a budget halving or two.
+		{"ascii", CodeWriteFailed, strings.Repeat("x", 2000), 3},
+		// Go's encoder writes each '<' as the 6-byte escape \u003c, so
+		// 2,000 bytes of reason cost 12,000 on the wire. Saved 0 must still be sent.
+		{"escaped", CodeHashMismatch, strings.Repeat("<", 2000), 0},
+		// Three bytes per rune; a negative saved omits the field.
+		{"multibyte", CodeWriteFailed, strings.Repeat("\u6587", 667), -1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// The pumped side stands in for a sender reading a receiver's frame.
+			AbortWithCode(sender, "desktop-v0.3.0", tc.code, tc.reason, tc.saved)
+
+			var got webrtc.DataChannelMessage
+			select {
+			case got = <-msgs:
+			case <-time.After(20 * time.Second):
+				t.Fatal("the coded frame never arrived")
+			}
+			if got.IsString {
+				t.Fatal("a receiver-to-sender frame must be BINARY")
+			}
+			if len(got.Data) > controlMsgMax {
+				t.Fatalf("encoded frame is %d bytes, over the %d cap", len(got.Data), controlMsgMax)
+			}
+			if msgType, ok := classifyControl(got.Data); !ok || msgType != "incompatible" {
+				t.Fatalf("frame did not classify as incompatible: type=%q control=%v", msgType, ok)
+			}
+			var incompat incompatibleMsg
+			if err := json.Unmarshal(got.Data, &incompat); err != nil {
+				t.Fatalf("frame is not valid JSON: %v", err)
+			}
+			if incompat.Code != string(tc.code) {
+				t.Fatalf("code = %q, want %q (dropped to make room?)", incompat.Code, tc.code)
+			}
+			switch {
+			case tc.saved < 0 && incompat.Saved != nil:
+				t.Fatalf("saved = %d, want the field omitted for a negative count", *incompat.Saved)
+			case tc.saved >= 0 && incompat.Saved == nil:
+				t.Fatalf("saved was dropped, want %d", tc.saved)
+			case tc.saved >= 0 && *incompat.Saved != tc.saved:
+				t.Fatalf("saved = %d, want %d", *incompat.Saved, tc.saved)
+			}
+			// Shrunk, not emptied: 1,000 bytes leave room for a real reason.
+			if incompat.Reason == "" || len(incompat.Reason) >= len(tc.reason) {
+				t.Fatalf("reason was not shrunk to fit (%d bytes of %d)", len(incompat.Reason), len(tc.reason))
+			}
+			if !strings.HasPrefix(tc.reason, strings.TrimSuffix(incompat.Reason, "\u2026")) {
+				t.Fatalf("shrunk reason is not a prefix of the original: %q", incompat.Reason)
+			}
+			if ok, _ := CheckCompat(MinProtocolVersion, ProtocolVersion, incompat.PvMin, incompat.Pv); !ok {
+				t.Fatalf("pv range %d-%d does not overlap ours", incompat.PvMin, incompat.Pv)
+			}
+		})
+	}
+}
+
+// TestReceiverSyncErrorSendsWriteFailed is the Phase 0 exit criterion for the
+// end arm: a flush that fails on our OWN handle (a network share, a USB bridge,
+// a delayed write error) used to share the abandon branch, so the .part stayed
+// on disk forever and the sender heard nothing but a close. Now the .part goes,
+// the sender is told write-failed within 2 s, and the caller gets a typed error.
+//
+// Two files, and only the second fails, so saved is proved to count the file
+// that was committed before the failure and not a constant.
+func TestReceiverSyncErrorSendsWriteFailed(t *testing.T) {
+	simulated := errors.New("simulated delayed write failure")
+	orig := syncPart
+	t.Cleanup(func() { syncPart = orig })
+	syncPart = func(f *os.File) error {
+		if filepath.Base(f.Name()) == "second.bin"+partSuffix {
+			return simulated
+		}
+		return f.Sync()
+	}
+
+	sender, recvCh, msgs, closed, closeFn := newPumpedPair(t)
+	defer closeFn()
+
+	var rdc *webrtc.DataChannel
+	select {
+	case rdc = <-recvCh:
+	case <-time.After(20 * time.Second):
+		t.Fatal("receiver data channel never opened")
+	}
+
+	back := make(chan webrtc.DataChannelMessage, 8)
+	sender.OnMessage(func(m webrtc.DataChannelMessage) {
+		select {
+		case back <- m:
+		default:
+		}
+	})
+
+	outDir := t.TempDir()
+	recvErr := make(chan error, 1)
+	go func() {
+		recvErr <- ReceiveFilesWithOptions(rdc, outDir, true, "test-ver", "", ReceiveOptions{
+			Messages: msgs,
+			Closed:   closed,
+		})
+	}()
+
+	// A hand-written sender: metadata, wait for the ack, the bytes, end. The
+	// second ack also proves the first file was committed, because the receive
+	// loop handles the first end before it reads the second metadata.
+	var endSent time.Time
+	for _, name := range []string{"first", "second"} {
+		index := 1
+		if name == "second" {
+			index = 2
+		}
+		meta := fmt.Sprintf(`{"type":"metadata","id":"wf-%d","fileName":"%s.bin","fileSize":4,"index":%d,"total":2,"totalBytes":8,"pv":1,"pvMin":1}`,
+			index, name, index)
+		if err := sender.SendText(meta); err != nil {
+			t.Fatalf("SendText metadata %s: %v", name, err)
+		}
+		select {
+		case <-back:
+		case <-time.After(20 * time.Second):
+			t.Fatalf("receiver never acked %s.bin", name)
+		}
+		if err := sender.Send([]byte("data")); err != nil {
+			t.Fatalf("Send chunk %s: %v", name, err)
+		}
+		if err := sender.SendText(`{"type":"end"}`); err != nil {
+			t.Fatalf("SendText end %s: %v", name, err)
+		}
+		endSent = time.Now()
+	}
+
+	// The sender is told within 2 s of its end marker, not at a close.
+	var got webrtc.DataChannelMessage
+	select {
+	case got = <-back:
+	case <-time.After(2*time.Second - time.Since(endSent)):
+		t.Fatal("the sender was not told within 2 s of the end marker")
+	}
+	if got.IsString {
+		t.Fatal("the refusal must be BINARY toward a sender")
+	}
+	if len(got.Data) > controlMsgMax {
+		t.Fatalf("refusal frame is %d bytes, over the %d cap", len(got.Data), controlMsgMax)
+	}
+	var incompat incompatibleMsg
+	if err := json.Unmarshal(got.Data, &incompat); err != nil || incompat.Type != "incompatible" {
+		t.Fatalf("frame back to the sender is not an incompatible: %q (%v)", got.Data, err)
+	}
+	if incompat.Code != string(CodeWriteFailed) {
+		t.Fatalf("code = %q, want %q", incompat.Code, CodeWriteFailed)
+	}
+	if incompat.Saved == nil || *incompat.Saved != 1 {
+		t.Fatalf("saved = %v, want 1 (first.bin was committed)", incompat.Saved)
+	}
+	if ok, _ := CheckCompat(MinProtocolVersion, ProtocolVersion, incompat.PvMin, incompat.Pv); !ok {
+		t.Fatalf("pv range %d-%d does not overlap ours; a shipped sender would print an update hint", incompat.PvMin, incompat.Pv)
+	}
+	// Shown verbatim by every sender that predates code, so it names no file,
+	// no folder and no surface.
+	if incompat.Reason != "receiver could not finish writing a file" {
+		t.Fatalf("reason = %q", incompat.Reason)
+	}
+
+	select {
+	case err := <-recvErr:
+		var refused *RefusedError
+		if !errors.As(err, &refused) {
+			t.Fatalf("receiver error = %v (%T), want *RefusedError", err, err)
+		}
+		if refused.Code != CodeWriteFailed || refused.Saved != 1 {
+			t.Fatalf("RefusedError{Code: %q, Saved: %d}, want write-failed and 1", refused.Code, refused.Saved)
+		}
+		if !errors.Is(err, simulated) {
+			t.Fatalf("the local cause is not reachable with errors.Is: %v", err)
+		}
+		if msg := err.Error(); strings.Contains(msg, "second") || strings.Contains(msg, "simulated") {
+			t.Fatalf("Error() must be fixed wording, got %q", msg)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("ReceiveFiles did not return")
+	}
+
+	// The failed file left nothing: no .part and no final name. The file that
+	// completed before it is kept.
+	if left := listDir(t, outDir); len(left) != 1 || left[0] != "first.bin" {
+		t.Fatalf("expected only first.bin to remain, found %v", left)
 	}
 }

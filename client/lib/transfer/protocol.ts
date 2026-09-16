@@ -76,12 +76,19 @@ export interface Received {
 // Framing depends on direction. Receiver to sender is binary, which old senders
 // drop safely rather than treating as file data. Sender to receiver MUST be
 // text: on that path a binary frame is file data by definition.
+//
+// `code` and `saved` are optional, ride only this frame (never ack), and mirror
+// incompatibleMsg in cli/engine/transfer/protocol.go. classifyControl casts, so
+// both are whatever the peer typed: read `code` only through refusalCodeOf, and
+// clamp `saved` to [0, total] before any use. Neither is ever rendered raw.
 export interface Incompatible {
     type: 'incompatible';
     reason: string;
     pv?: number;
     pvMin?: number;
     ver?: string;
+    code?: string;  // why the peer stopped; see RefusalCode
+    saved?: number; // files the peer committed before this frame
 }
 
 export type ControlMessage = Metadata | Ack | End | Received | Incompatible;
@@ -371,6 +378,27 @@ export function classifyControl(data: string | ArrayBuffer | Uint8Array): Contro
 export function isAbortReason(msg: Incompatible): boolean {
     const { ok } = checkCompat(MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, msg.pvMin ?? 1, msg.pv ?? 1);
     return ok;
+}
+
+/**
+ * Why a receiver stopped a transfer on purpose, as named by the optional `code`
+ * on its `incompatible` frame. Mirrors RefusalCode in
+ * cli/engine/transfer/control.go; the two lists must stay in sync. Phase 0
+ * carries these two, and Stage 1 adds the rest of the table.
+ */
+export type RefusalCode = 'write-failed' | 'hash-mismatch';
+
+export const REFUSAL_CODES: ReadonlySet<string> = new Set<RefusalCode>(['write-failed', 'hash-mismatch']);
+
+/**
+ * The one reader of a peer's refusal code: the code when it is a string in
+ * REFUSAL_CODES, and null for anything else (absent, unknown, not a string).
+ * A caller maps null to its generic stopped copy. A Set lookup, not an object
+ * key, so a hostile `__proto__` or `constructor` can never match.
+ */
+export function refusalCodeOf(msg: Incompatible): RefusalCode | null {
+    const value: unknown = msg.code;
+    return typeof value === 'string' && REFUSAL_CODES.has(value) ? (value as RefusalCode) : null;
 }
 
 /**
