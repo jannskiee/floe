@@ -4,9 +4,30 @@ package transfer
 // what is file data, and the validation at the one place peer numbers enter.
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
+
+// metadataInvariant reports what is wrong with a FileInfo that parseMetadata
+// accepted, or "" when nothing is. FuzzParseMetadata (fuzz_test.go) calls it,
+// and it lives here, beside parseMetadata's other tests, so the field names a
+// peer chooses are read in one test file rather than two.
+func metadataInvariant(info FileInfo) string {
+	switch {
+	case info.FileSize < 0 || info.FileSize > maxAnnouncedSize:
+		return fmt.Sprintf("FileSize %d is outside [0, 2^53-1]", info.FileSize)
+	case info.TotalBytes < 0 || info.TotalBytes > maxAnnouncedSize:
+		return fmt.Sprintf("TotalBytes %d is outside [0, 2^53-1]", info.TotalBytes)
+	case info.Index < 1:
+		return fmt.Sprintf("Index %d is below 1", info.Index)
+	case info.Total < 1:
+		return fmt.Sprintf("Total %d is below 1", info.Total)
+	case info.TotalBytes != 0 && info.TotalBytes < info.FileSize:
+		return fmt.Sprintf("TotalBytes %d is below FileSize %d", info.TotalBytes, info.FileSize)
+	}
+	return ""
+}
 
 // TestParseMetadata covers valid and invalid metadata payloads.
 func TestParseMetadata(t *testing.T) {
