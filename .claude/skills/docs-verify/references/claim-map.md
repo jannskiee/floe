@@ -32,7 +32,7 @@ The map names where a value is stated; grep the old literal repo-wide before fin
 ## Timeouts
 
 - cli/engine/peer/connection.go: `signalWaitTimeout`, `connectTimeout`, `connectGrace`.
-- cli/engine/transfer/sender.go: `ackDeadline`, `drainDeadline` (delivery confirmation), the `time.After` in the backpressure loop (buffer not draining).
+- cli/engine/transfer/sender.go: `ackDeadline`, `deliveryStallWindow` (delivery confirmation: aborts only after a full window with no shrink), the `time.After` in the backpressure loop (buffer not draining).
 - cli/engine/transfer/receiver.go: `receiveIdleTimeout`, `receiveStallTimeout`, the `time.After` teardown grace before returning, the `http.Client` timeout in `reportBytesToServer`.
 - client/lib/transfer/protocol.ts: `ACK_TIMEOUT_MS` (the only one the browser shares).
 - Docs: docs/reference/transfer-protocol.mdx "Timeouts" table (every row), docs/cli/flags.mdx "Timeouts", docs/troubleshooting.mdx CLI headings that quote the error strings (the strings themselves are in receiver.go and sender.go).

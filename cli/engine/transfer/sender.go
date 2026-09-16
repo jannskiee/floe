@@ -78,6 +78,19 @@ func backpressureStalled(prev, cur uint64) bool {
 	return cur >= prev
 }
 
+// deliveryStallWindow is how long the delivery wait after the last file lets
+// the send buffer go without shrinking before it gives up. It is the
+// backpressure wait's window and the receiver's mid-transfer stall watchdog,
+// so one rule governs "the transfer stopped making progress" on both ends.
+// A var only so tests can shrink it; a test window must be at least four
+// drain ticks (200 ms), or the tick arm and the stall arm race.
+var deliveryStallWindow = 60 * time.Second
+
+// deliveryBuffered reads the send buffer during the delivery wait. A seam for
+// tests, which replace it with a fake that drains, freezes or stays full; the
+// package has no t.Parallel, so a process-wide swap is safe.
+var deliveryBuffered = func(dc *webrtc.DataChannel) uint64 { return dc.BufferedAmount() }
+
 // metadataMsg is sent before each file to describe it.
 type metadataMsg struct {
 	Type       string `json:"type"`
@@ -242,10 +255,12 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 	// done is closed when the data channel closes, letting every wait below
 	// fail fast instead of burning its full deadline. pion fires OnClose on
 	// GRACEFUL closes only (remote dc.Close/pc.Close/browser tab close send a
-	// close notification): a kill -9 or dead network never errors the read
-	// chain (sctp retransmits forever by design and an ICE failure does not
-	// unblock reads), so the 120 s ack and 60 s backpressure deadlines remain
-	// the backstop for ungraceful death.
+	// close notification): a kill -9 or dead network does not error the read
+	// chain promptly (sctp retransmits by design; an ICE failure closes the
+	// association only indirectly, when a pending retransmission finds no
+	// candidate pair), so the 120 s ack wait and the 60 s no-progress windows
+	// of the backpressure and delivery waits remain the backstop for ungraceful
+	// death.
 	//
 	// Taken from the pump when there is one. Registering our own OnClose would
 	// REPLACE the pump's, since pion keeps a single handler per event, and the
@@ -296,13 +311,30 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 	// CLI receivers send {"type":"received"} after writing and verifying every
 	// byte, which is the authoritative signal. Browser receivers don't send it,
 	// but they keep their connection alive so the SCTP buffer naturally drains
-	// to zero — that's the fallback. A 30s deadline guards against a dead peer.
+	// to zero, which is the fallback.
 	//
 	// We cannot rely solely on dc.BufferedAmount()==0: when the receiver closes
 	// its connection immediately after the last write (which the CLI does), the
 	// final SACKs may never arrive and the buffer stalls at a non-zero value
 	// even though all bytes were delivered successfully.
-	drainDeadline := time.After(30 * time.Second)
+	//
+	// Up to bufferedAmountHighWater (8 MB) can still be queued when this wait
+	// starts, so it must not have a fixed deadline: a fixed 30 s one aborted,
+	// at 94 to 99 percent, every transfer that still had more than it could
+	// drain in 30 s (about 4 MB at 1.1 Mbps, so every file above the low-water
+	// mark on a slow end), and the receiver then deleted the file (reproduced at
+	// 250 ms RTT with 1 percent loss). Instead it gives up only after a full
+	// deliveryStallWindow in which the buffer did not shrink at all, the rule
+	// the backpressure wait uses. Whichever comes first, done or a frozen
+	// buffer, ends the wait within about one window. The one unbounded case is
+	// a receiver that trickles SACKs (one chunk per window drains 8 MB over
+	// days); a user cancel, which closes the connection and fires done, ends
+	// it, and a host that must bound a session cancels in its own layer.
+	// Only the stall arm updates lastBuffered: a sample from the 50 ms tick arm
+	// would compare two reads 50 ms apart and abort a slow but live drain.
+	lastBuffered := deliveryBuffered(dc)
+	stall := time.NewTimer(deliveryStallWindow)
+	defer stall.Stop()
 	drainTick := time.NewTicker(50 * time.Millisecond)
 	defer drainTick.Stop()
 drainLoop:
@@ -319,7 +351,7 @@ drainLoop:
 				break drainLoop
 			}
 		case <-drainTick.C:
-			if dc.BufferedAmount() == 0 {
+			if deliveryBuffered(dc) == 0 {
 				break drainLoop
 			}
 		case <-done:
@@ -346,12 +378,20 @@ drainLoop:
 					break drainAcks
 				}
 			}
-			if dc.BufferedAmount() == 0 {
-				break drainLoop
+			if left := deliveryBuffered(dc); left != 0 {
+				return fmt.Errorf("connection closed before delivery was confirmed (%d bytes unacknowledged)", left)
 			}
-			return fmt.Errorf("connection closed before delivery was confirmed (%d bytes unacknowledged)", dc.BufferedAmount())
-		case <-drainDeadline:
-			return fmt.Errorf("timed out waiting for delivery confirmation from peer")
+			break drainLoop
+		case <-stall.C:
+			cur := deliveryBuffered(dc)
+			if cur == 0 {
+				break drainLoop // drained; the tick arm usually sees this first
+			}
+			if backpressureStalled(lastBuffered, cur) {
+				return fmt.Errorf("timed out waiting for delivery confirmation from peer")
+			}
+			lastBuffered = cur
+			stall.Reset(deliveryStallWindow)
 		}
 	}
 
