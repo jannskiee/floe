@@ -121,8 +121,15 @@ self.addEventListener('fetch', (event) => {
     // its full URL. A link is no use offline, so these navigations go to the
     // network as if no worker were registered. includes('#') rather than
     // url.hash, which reads '' for a bare trailing '#'; a serialized URL holds
-    // '#' only at the fragment delimiter and after it.
-    if (request.mode === 'navigate' && (url.searchParams.has('s') || request.url.includes('#'))) return;
+    // '#' only at the fragment delimiter and after it. Older links carried the
+    // room id in ?room=<id>, which getRoomFromUrl and the CLI's code.Resolve still
+    // accept; that shape has neither a fragment nor a nonce, so it is named too.
+    if (
+        request.mode === 'navigate' &&
+        (url.searchParams.has('s') || url.searchParams.has('room') || request.url.includes('#'))
+    ) {
+        return;
+    }
 
     if (request.mode === 'navigate') {
         event.respondWith(

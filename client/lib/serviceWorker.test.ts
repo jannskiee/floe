@@ -408,6 +408,13 @@ describe('share links and request links', () => {
         expect(dispatchFetch(sw, `${ORIGIN}/?s=abcd1234`, 'navigate')).toHaveLength(0);
     });
 
+    it('does not cache a navigation that carries a legacy room query', () => {
+        // Older links put the room id in ?room=<id>, which getRoomFromUrl and
+        // the CLI's code.Resolve still accept. No fragment and no nonce, so only
+        // the room predicate can stop it.
+        expect(dispatchFetch(sw, `${ORIGIN}/?room=${ROOM_ID}`, 'navigate')).toHaveLength(0);
+    });
+
     it('does not cache /?s=x#room=y', () => {
         expect(dispatchFetch(sw, `${ORIGIN}/?s=x#room=y`, 'navigate')).toHaveLength(0);
     });
