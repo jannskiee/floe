@@ -38,6 +38,7 @@ import {RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, probeIsRelay} fro
 import {buildShareLink, getRoomFromUrl, isValidRoomId} from '@/lib/roomLink';
 import {classifyPeerError} from '@/lib/peerErrors';
 import {decideReceiverClose} from '@/lib/receiverClose';
+import {peerDisconnectAction} from '@/lib/peerDisconnect';
 import {copyText} from '@/lib/clipboard';
 import {resolveSocketUrl} from '@/lib/socketUrl';
 
@@ -234,6 +235,22 @@ export function P2PTransfer() {
             }
         },
         onPeerDisconnected: () => {
+            // The notice means the other side's signaling socket went away,
+            // not its WebRTC connection. Once the data channel is open, WebRTC
+            // reports a dead peer itself (close or error), so leave it be.
+            const current = peerRef.current;
+            const action = peerDisconnectAction({
+                hasPeer: current !== null,
+                peerConnected: current?.connected === true,
+            });
+            if (action === 'ignore') {
+                Sentry.addBreadcrumb({
+                    category: 'webrtc',
+                    message: 'peer-disconnected ignored: data channel open',
+                    level: 'info',
+                });
+                return;
+            }
             if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
                 setStatus(receiveOutcome());
             } else {
