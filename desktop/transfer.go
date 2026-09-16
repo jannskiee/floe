@@ -132,7 +132,7 @@ func (a *App) StartSendText(text string, hideIP bool) error {
 func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 	// Release any sleep inhibitor on every exit (success, error, cancel, panic).
 	// Owner-tagged: a no-op if we never acquired it or a newer transfer holds it.
-	defer a.wake.release(g)
+	defer a.wake.release(laneTransfer, g)
 	defer a.clearTransfer(g)
 
 	// emit forwards an event to the UI unless this attempt was cancelled or
@@ -233,7 +233,7 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 	// A peer is connected: keep the machine awake through WebRTC setup and the
 	// data transfer. Placed here, not at the top, so the unbounded wait for a
 	// receiver above never holds a laptop awake on an unanswered share link.
-	a.wake.acquire(g)
+	a.wake.acquire(laneTransfer, g)
 
 	// Set up WebRTC as the initiator and send.
 	conn, err := peer.New(iceServers, sc, relayOpts(hideIP)...)
@@ -320,7 +320,7 @@ func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool, re
 func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideIP bool, reportStats bool) (string, error) {
 	// Release any sleep inhibitor on every exit (success, error, cancel, panic).
 	// Owner-tagged: a no-op if we never acquired it or a newer transfer holds it.
-	defer a.wake.release(g)
+	defer a.wake.release(laneTransfer, g)
 	defer a.clearTransfer(g)
 
 	// emit forwards an event to the UI unless this attempt was cancelled or
@@ -395,7 +395,7 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 
 	// A receiver role means a sender is already present: keep the machine awake
 	// through WebRTC setup and the data transfer.
-	a.wake.acquire(g)
+	a.wake.acquire(laneTransfer, g)
 
 	conn, err := peer.New(iceServers, sc, relayOpts(hideIP)...)
 	if err != nil {

@@ -18,10 +18,14 @@ const (
 var procSetThreadExecutionState = kernel32.NewProc("SetThreadExecutionState")
 
 // wakeStop signals the parked inhibitor goroutine to release its wake request.
-// It is written only during wakeGuard's mu-protected state transition and, since
-// Floe runs one transfer at a time, never concurrently. If concurrent transfers
-// are ever added, replace this parked-goroutine model with a ticker + refcount:
-// N parked threads each holding ES_CONTINUOUS do not compose.
+// It is written only during wakeGuard's mu-protected state transition, and the
+// guard serializes those transitions across lanes: however many lanes hold a
+// share, blockSleep runs only when the first share is taken and allowSleep
+// only when the last one is dropped, so it is never written concurrently and
+// at most one inhibitor thread is parked. Keep every lane on the one guard. If
+// blockSleep ever runs outside that guard (a second guard, or a call per
+// lane), replace this parked-goroutine model with a ticker + refcount: N parked
+// threads each holding ES_CONTINUOUS do not compose.
 var wakeStop chan struct{}
 
 // blockSleep asks Windows to keep the system awake until allowSleep is called.
