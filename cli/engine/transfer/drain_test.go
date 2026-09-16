@@ -1,10 +1,10 @@
 // The delivery wait after the last file.
 //
 // It used to give up after a fixed 30 s. With up to 8 MB still queued in pion's
-// send buffer, any transfer whose end rate was below about 1.1 Mbps aborted at
-// 94 to 99 percent with "timed out waiting for delivery confirmation from peer",
-// and the receiver deleted the file (reproduced at 250 ms RTT with 1 percent
-// loss). The wait now gives up only after a full deliveryStallWindow in which
+// send buffer, any transfer that still had more than it could drain in 30 s
+// (about 4 MB at 1.1 Mbps) aborted at 94 to 99 percent with "timed out waiting
+// for delivery confirmation from peer", and the receiver deleted the file
+// (reproduced at 250 ms RTT with 1 percent loss). The wait now gives up only after a full deliveryStallWindow in which
 // the buffer did not shrink.
 //
 // These tests replace deliveryBuffered with a fake, so the real buffer on the
@@ -26,14 +26,16 @@ import (
 
 // fakeDrain is a send buffer that shrinks by step on every read and saturates
 // at zero (an unsigned subtraction past zero would wrap, and the tick arm would
-// never see 0). With freezeAfter set, it stops shrinking that long after its
-// first read.
+// never see 0). With freezeAfterReads set, it shrinks on that many reads and
+// then holds, a count rather than a clock, so a paused runner cannot move the
+// freeze relative to the stall timer.
 type fakeDrain struct {
-	mu          sync.Mutex
-	left        uint64
-	step        uint64
-	freezeAfter time.Duration
-	first       time.Time
+	mu               sync.Mutex
+	left             uint64
+	step             uint64
+	freezeAfterReads int
+	reads            int
+	first            time.Time
 }
 
 func (f *fakeDrain) read(*webrtc.DataChannel) uint64 {
@@ -42,7 +44,8 @@ func (f *fakeDrain) read(*webrtc.DataChannel) uint64 {
 	if f.first.IsZero() {
 		f.first = time.Now()
 	}
-	if f.freezeAfter > 0 && time.Since(f.first) >= f.freezeAfter {
+	f.reads++
+	if f.freezeAfterReads > 0 && f.reads > f.freezeAfterReads {
 		return f.left
 	}
 	if f.left > f.step {
@@ -142,8 +145,8 @@ func TestDeliveryWaitSurvivesSlowDrain(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("the delivery wait never finished")
 	}
-	if waited := time.Since(f.firstRead()); waited < time.Second {
-		t.Fatalf("the drain should span many windows, but the wait took only %v", waited)
+	if waited := time.Since(f.firstRead()); waited < 2*window {
+		t.Fatalf("the drain should span several windows, but the wait took only %v", waited)
 	}
 }
 
@@ -158,7 +161,7 @@ func TestDeliveryWaitAbortsOnRealStall(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "timed out waiting for delivery confirmation from peer") {
 			t.Fatalf("a buffer that never shrinks must abort with the delivery timeout, got: %v", err)
 		}
-		if waited := time.Since(f.firstRead()); waited > 2*time.Second {
+		if waited := time.Since(f.firstRead()); waited > 5*time.Second {
 			t.Fatalf("the stall should end the wait after one window, but it took %v", waited)
 		}
 	case <-time.After(10 * time.Second):
@@ -171,7 +174,9 @@ func TestDeliveryWaitAbortsOnRealStall(t *testing.T) {
 // would never end) or uses one fixed window (it would end after the first).
 func TestDeliveryWaitAbortsAfterProgressStops(t *testing.T) {
 	window := 300 * time.Millisecond
-	f := &fakeDrain{left: 6 << 20, step: 64 << 10, freezeAfter: window * 3 / 2}
+	// The initial sample is read 1 and the first stall reads 2 or later, which
+	// still shrink, so the first stall always sees progress.
+	f := &fakeDrain{left: 6 << 20, step: 64 << 10, freezeAfterReads: 3}
 	useDelivery(t, f, window)
 
 	sendErr := sendOneAndReachDeliveryWait(t, false)

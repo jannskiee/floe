@@ -319,10 +319,11 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 	// even though all bytes were delivered successfully.
 	//
 	// Up to bufferedAmountHighWater (8 MB) can still be queued when this wait
-	// starts, so it must not have a fixed deadline: a fixed 30 s one aborted
-	// every transfer whose end rate was below about 1.1 Mbps at 94 to 99
-	// percent, and the receiver then deleted the file (reproduced at 250 ms RTT
-	// with 1 percent loss). Instead it gives up only after a full
+	// starts, so it must not have a fixed deadline: a fixed 30 s one aborted,
+	// at 94 to 99 percent, every transfer that still had more than it could
+	// drain in 30 s (about 4 MB at 1.1 Mbps, so every file above the low-water
+	// mark on a slow end), and the receiver then deleted the file (reproduced at
+	// 250 ms RTT with 1 percent loss). Instead it gives up only after a full
 	// deliveryStallWindow in which the buffer did not shrink at all, the rule
 	// the backpressure wait uses. Whichever comes first, done or a frozen
 	// buffer, ends the wait within about one window. The one unbounded case is
@@ -383,6 +384,9 @@ drainLoop:
 			break drainLoop
 		case <-stall.C:
 			cur := deliveryBuffered(dc)
+			if cur == 0 {
+				break drainLoop // drained; the tick arm usually sees this first
+			}
 			if backpressureStalled(lastBuffered, cur) {
 				return fmt.Errorf("timed out waiting for delivery confirmation from peer")
 			}
