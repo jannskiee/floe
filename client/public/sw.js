@@ -23,7 +23,11 @@
 //                reload cannot clear the Cache API. The worker was manufacturing
 //                the failure that module exists to recover from, then disabling
 //                its remedy.
-const CACHE_NAME = 'floe-cache-v5';
+//
+// v6 keeps share links out of Cache Storage, and request links (/r) out from
+// the start; see the guards above the navigate branch. The rename purges the
+// share links v5 already stored.
+const CACHE_NAME = 'floe-cache-v6';
 
 // Navigations only. These are the documents that must still render with no
 // network, served by the fallback in the navigate branch below. /github-mark-white.png
@@ -101,6 +105,24 @@ self.addEventListener('fetch', (event) => {
     // exactly, rather than a bare prefix test that would also swallow a future
     // route like /docsomething.
     if (path === '/docs' || path.startsWith('/docs/')) return;
+
+    // A request link (/r/<linkId>) is a capability: whoever holds the URL can
+    // use it. Nothing under /r is ever written to Cache Storage or served from
+    // it, whatever the request mode, so this guard sits beside /docs rather than
+    // inside the navigate branch.
+    if (path === '/r' || path.startsWith('/r/')) return;
+
+    // A share link carries its room id in the fragment (/?s=<nonce>#room=<id>
+    // from the web, /#room=<id> from the CLI), and a navigation's request.url
+    // keeps the fragment. Measured on Chrome 151 against a production build of
+    // v5: an opened web link sat in Cache Storage under its full URL, room id
+    // included, one entry per link because the nonce makes each one distinct,
+    // and an opened CLI link replaced the precached / entry with one keyed by
+    // its full URL. A link is no use offline, so these navigations go to the
+    // network as if no worker were registered. includes('#') rather than
+    // url.hash, which reads '' for a bare trailing '#'; a serialized URL holds
+    // '#' only at the fragment delimiter and after it.
+    if (request.mode === 'navigate' && (url.searchParams.has('s') || request.url.includes('#'))) return;
 
     if (request.mode === 'navigate') {
         event.respondWith(

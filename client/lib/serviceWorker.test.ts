@@ -29,12 +29,12 @@ const SW_SOURCE = readFileSync(
 const ORIGIN = 'https://www.floe.one';
 const NETWORK_BODY = 'from the network';
 
-// The name v4 shipped. The rename is NOT what makes the routing fix take effect:
-// the guards return before any cache read, so a v4 visitor stops being served
-// stale entries the moment v5 activates, whatever the cache is called. The
-// rename is what reclaims those entries from disk, because activate purges by
-// name and nothing else ever evicts.
-const PREVIOUS_CACHE_NAME = 'floe-cache-v4';
+// The name v5 shipped. The rename is NOT what makes the link guards take effect:
+// they return before respondWith, so a v5 visitor stops writing share links the
+// moment v6 activates, whatever the cache is called. The rename is what deletes
+// the links v5 already wrote, because activate purges by name and nothing else
+// ever evicts.
+const PREVIOUS_CACHE_NAME = 'floe-cache-v5';
 
 interface FakeRequest {
     url: string;
@@ -236,6 +236,19 @@ describe('activate', () => {
 
         expect([...sw.stores.keys()]).toEqual([current]);
     });
+
+    it('purges the v5 cache on activate', async () => {
+        // v5 stored every opened share link under its full URL. The literal name
+        // is deliberate: whatever later releases are called, v5 must stay purged.
+        await dispatchLifecycle(sw, 'install');
+        const current = sw.opened[0];
+        sw.entriesFor('floe-cache-v5').set(`${ORIGIN}/?s=x#room=y`, makeResponse('a share link v5 kept'));
+
+        await dispatchLifecycle(sw, 'activate');
+
+        expect(sw.stores.has('floe-cache-v5')).toBe(false);
+        expect([...sw.stores.keys()]).toEqual([current]);
+    });
 });
 
 describe('URLs the worker must leave alone', () => {
@@ -376,5 +389,61 @@ describe('navigations', () => {
         // A bare startsWith('/docs') would swallow both of these, which are ours.
         expect(dispatchFetch(sw, `${ORIGIN}/docsomething`, 'navigate')).toHaveLength(1);
         expect(dispatchFetch(sw, `${ORIGIN}/docs-archive`, 'navigate')).toHaveLength(1);
+    });
+});
+
+describe('share links and request links', () => {
+    // A room id or a request link id in Cache Storage is a copy of a capability
+    // on the visitor's disk. An empty dispatch means the worker never took the
+    // request over, which is the only path to the Cache API (see the top of
+    // this file).
+    const ROOM_ID = '7f3a9c2e-1b4d-4e8f-9a6b-2c5d8e1f0a3b';
+
+    it('does not cache a navigation that carries a room fragment', () => {
+        // The CLI's link shape: a fragment and no nonce.
+        expect(dispatchFetch(sw, `${ORIGIN}/#room=${ROOM_ID}`, 'navigate')).toHaveLength(0);
+    });
+
+    it('does not cache a navigation that carries an s nonce without a fragment', () => {
+        expect(dispatchFetch(sw, `${ORIGIN}/?s=abcd1234`, 'navigate')).toHaveLength(0);
+    });
+
+    it('does not cache /?s=x#room=y', () => {
+        expect(dispatchFetch(sw, `${ORIGIN}/?s=x#room=y`, 'navigate')).toHaveLength(0);
+    });
+
+    it('does not cache /r/abc#uuid', () => {
+        expect(dispatchFetch(sw, `${ORIGIN}/r/abc#uuid`, 'navigate')).toHaveLength(0);
+    });
+
+    it('does not cache /R/abc', () => {
+        // No fragment and no nonce, so only the lowercased /r guard can stop it.
+        expect(dispatchFetch(sw, `${ORIGIN}/R/abc`, 'navigate')).toHaveLength(0);
+    });
+
+    it('does not cache the bare /r path', () => {
+        expect(dispatchFetch(sw, `${ORIGIN}/r`, 'navigate')).toHaveLength(0);
+    });
+
+    it('does not mistake a route that merely starts with the letter r', () => {
+        expect(dispatchFetch(sw, `${ORIGIN}/relay`, 'navigate')).toHaveLength(1);
+        expect(dispatchFetch(sw, `${ORIGIN}/r-archive`, 'navigate')).toHaveLength(1);
+    });
+
+    it('still caches /', async () => {
+        await dispatchLifecycle(sw, 'install');
+        const current = sw.opened[0];
+
+        const handled = dispatchFetch(sw, `${ORIGIN}/`, 'navigate');
+        expect(handled).toHaveLength(1);
+        await handled[0];
+        await flush();
+
+        expect(sw.stores.get(current)?.get(`${ORIGIN}/`)).toMatchObject({ body: NETWORK_BODY });
+    });
+
+    it('still leaves /docs alone', () => {
+        expect(dispatchFetch(sw, `${ORIGIN}/docs`, 'navigate')).toHaveLength(0);
+        expect(dispatchFetch(sw, `${ORIGIN}/docs/changelog`, 'navigate')).toHaveLength(0);
     });
 });
