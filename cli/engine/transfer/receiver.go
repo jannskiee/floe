@@ -6,6 +6,7 @@ package transfer
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -31,6 +32,11 @@ var (
 	receiveIdleTimeout  = 30 * time.Second
 	receiveStallTimeout = 60 * time.Second
 )
+
+// syncPart flushes a finished .part before its ownership check. A seam, like
+// the timeouts above: a real delayed write failure (a network share, a USB
+// bridge) cannot be produced on demand, so tests swap in one that fails.
+var syncPart = func(f *os.File) error { return f.Sync() }
 
 // FileInfo describes an incoming file (parsed from metadata message).
 type FileInfo struct {
@@ -467,16 +473,36 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					// rename below cannot steal a path that a newer transfer
 					// re-claimed after an abandon freed it (a torture test
 					// proved exactly that theft when the commit trusted the
-					// path string alone). If either call fails, the transfer
-					// was abandoned mid-flight: the path is not ours, so leave
-					// it alone entirely and report the abort.
+					// path string alone).
 					unregisterPartial(staged)
-					syncErr := staged.Sync()
+					syncErr := syncPart(staged)
 					closeErr := staged.Close()
 					currentFile = nil
 					fmt.Println()
-					if syncErr != nil || closeErr != nil {
+					// os.ErrClosed is the abandon's fingerprint: AbandonPartials
+					// closed the shared handle before we unregistered, so our
+					// Sync and Close find it already closed. The transfer was
+					// abandoned mid-flight and the path may already belong to a
+					// newer transfer, so leave it alone entirely and report the
+					// abort, exactly as before.
+					if errors.Is(syncErr, os.ErrClosed) || errors.Is(closeErr, os.ErrClosed) {
 						return fmt.Errorf("transfer abandoned while completing %q", currentSavedName)
+					}
+					// Any other error is our own handle failing to flush or
+					// close: a real I/O failure (a network share, a USB bridge,
+					// a delayed write error), and the path is still ours. This
+					// used to share the abandon branch, which left the .part on
+					// disk forever and told the sender nothing. Remove it (best
+					// effort: a sharing lock leaves a .part, never a final name)
+					// and say why. The reason names no surface and no path.
+					if syncErr != nil || closeErr != nil {
+						_ = os.Remove(partPath)
+						AbortWithCode(dc, localVer, CodeWriteFailed, "receiver could not finish writing a file", filesReceived)
+						cause := syncErr
+						if cause == nil {
+							cause = closeErr
+						}
+						return &RefusedError{Code: CodeWriteFailed, Saved: filesReceived, Err: cause}
 					}
 
 					// Integrity guard: a short byte count means the transfer was
