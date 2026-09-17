@@ -1,0 +1,2 @@
+go test fuzz v1
+string("{\"type\":\"metadata\",\"id\":\"fz\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":10001,\"totalBytes\":4,\"pv\":1,\"pvMin\":1,\"ver\":\"spike-raw\"}")
