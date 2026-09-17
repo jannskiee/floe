@@ -57,6 +57,14 @@ test('Direction 1: CLI send → browser receive (SHA-256 integrity)', async ({ b
         const blobUrl = (await downloadLink.getAttribute('href'))!;
         const receivedHash = await sha256OfBlobUrl(page, blobUrl);
         expect(receivedHash).toBe(expectedHash);
+
+        // The CLI sender now puts the file's SHA-256 on its end frame, so the
+        // browser receiver checked it before offering the download. A mismatch
+        // discards the file and shows one of the fixed sentences, so the absence
+        // of any of them is the assertion that the check passed rather than
+        // never ran (the download link above proves it ran to completion).
+        const body = await page.locator('body').innerText();
+        expect(body).not.toMatch(/did not match what was sent|could not be read/i);
     } finally {
         await ctx.close();
         proc.kill();
