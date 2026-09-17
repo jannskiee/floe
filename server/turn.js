@@ -95,7 +95,6 @@ const CF_FETCH_TIMEOUT_MS = 10_000;
 let cfIceCache = { servers: null, expires: 0, mintedAt: 0 };
 let cfInflight = null;           // the one mint in flight, or null
 let cfNextMintAt = 0;            // no mint starts before this, after a success or a failure
-let cfLastFailLogAt = -Infinity; // one failure line per cache window at most
 
 // selectMinimalIceUrls reduces Cloudflare's full URL list (8 entries: STUN on two
 // ports plus TURN duplicated across udp/tcp/tls on :53/:80/:443/:3478/:5349) to
@@ -129,10 +128,9 @@ function usableCloudflareCopy(now) {
 }
 
 // A reason word only: never the response body, a username or a credential.
+// Needs no throttle of its own: every failure path logs once per mint, and
+// cfNextMintAt already allows one mint per window.
 function logMintFailure(reason) {
-    const now = Date.now();
-    if (now - cfLastFailLogAt < CF_CACHE_MS) return;
-    cfLastFailLogAt = now;
     console.error(`Cloudflare TURN mint failed (${reason})`);
 }
 
@@ -236,7 +234,6 @@ function __resetCfCacheForTests() {
     cfIceCache = { servers: null, expires: 0, mintedAt: 0 };
     cfInflight = null;
     cfNextMintAt = 0;
-    cfLastFailLogAt = -Infinity;
 }
 
 /** GET /api/turn-credentials. Registered by server.js, before the error handler. */

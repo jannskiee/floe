@@ -128,7 +128,7 @@ When TURN is configured, the response contains `turn:` and `turns:` entries, plu
 
 With Cloudflare configured the response is two entries rather than three, and `urls` is an array rather than a string: one `stun:stun.cloudflare.com:3478` with **no** username or credential, and one carrying both a `turn:` and a `turns:` URL with the credentials. See [the API reference](/reference/http-api#relay-credentials) for the exact shape. When neither the Cloudflare variables nor `TURN_SECRET` / `TURN_DOMAIN` are set, the endpoint returns the Google public STUN servers only.
 
-Credentials are minted from Cloudflare and then **cached in memory for 5 minutes**. Two consequences worth planning around: a rotated Cloudflare key takes effect within about 5 minutes without a restart, and if the Cloudflare API starts failing the server keeps serving the last good copy for up to about 23 hours after it was minted (logging `Cloudflare TURN mint failed` at most once every 5 minutes) before it falls back, so a broken key can look healthy for a while.
+Credentials are minted from Cloudflare and then **cached in memory for 5 minutes**. Two consequences worth planning around: both keys are read once at startup, so a rotated key needs a restart to take effect (the restart starts with an empty cache, so the new key is used at once); and if the Cloudflare API starts failing, including after the old key is deleted, the server keeps serving the last good copy for up to about 23 hours after it was minted (logging `Cloudflare TURN mint failed` at most once every 5 minutes) before it falls back, so a broken key can look healthy for a while.
 
 ## How credentials work
 

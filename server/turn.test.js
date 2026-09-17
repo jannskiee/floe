@@ -175,6 +175,27 @@ describe('Cloudflare TURN mint and cache', () => {
         assert.doesNotMatch(lines[0], /test-api-token|cred-|test-key-id/);
     });
 
+    it('a failure in the next window logs again with its own reason', async () => {
+        const lines = [];
+        console.error = (...args) => lines.push(args.join(' '));
+        const mintedAt = clock;
+        globalThis.fetch = async () => {
+            clock += 10_000; // a slow failure: the first line is logged 10 s into the window
+            throw new DOMException('timed out', 'TimeoutError');
+        };
+        assert.equal(await turn.generateCloudflareIceServers(), null);
+        await drain();
+
+        clock = mintedAt + turn.CF_CACHE_MS;
+        globalThis.fetch = async () => ({ ok: false, status: 502, json: async () => ({}) });
+        assert.equal(await turn.generateCloudflareIceServers(), null);
+        await drain();
+
+        assert.equal(lines.length, 2, lines.join('\n'));
+        assert.match(lines[0], /TimeoutError/);
+        assert.match(lines[1], /status 502/);
+    });
+
     it('the mint never rejects', async () => {
         globalThis.fetch = () => { throw new TypeError('synchronous throw'); };
         assert.equal(await turn.generateCloudflareIceServers(), null);
