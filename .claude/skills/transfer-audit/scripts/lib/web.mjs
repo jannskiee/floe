@@ -74,6 +74,16 @@ export const TEXT = Object.freeze({
     tooManyRefreshes: 'Too many refreshes. Reconnecting', // onConnectError
     received: /^(\d+) files? received$/, // ReceiverPanel.tsx (the completion line)
     pill: /^(Direct|Relay|Ready|Offline)$/, // ConnectionStatusBadge.tsx (the label ternary)
+    // What a sender shows when its peer refused a file it sent. The page prints
+    // the peer's own sanitized reason (compatErrorFromIncompatible in
+    // client/lib/transfer/protocol.ts), and a Go receiver's two hash reasons are
+    // RefusedError.Error() in cli/engine/transfer/control.go. The generic
+    // fallback is the page's own when a reason is missing.
+    peerRefusedHash: [
+        'did not match the SHA-256',
+        "SHA-256 for a file could not be read",
+        'The other side rejected the transfer.',
+    ],
 });
 
 export class PlaywrightMissingError extends Error {
@@ -882,6 +892,15 @@ export class WebLeg extends Leg {
                             text.includes(want.relayBanner)
                         )
                             return 'refusal';
+                        // A hashbad cell's sender never reaches allSent: its
+                        // peer refused a file, so the page shows the peer's
+                        // reason. Only this cell looks for it, so an ordinary
+                        // cell cannot pass on an error.
+                        if (
+                            want.peerRefusedHash &&
+                            want.peerRefusedHash.some((s) => text.includes(s))
+                        )
+                            return 'refusal';
                         if (text.includes(want.connectionFailed))
                             return 'failed';
                         return null;
@@ -892,6 +911,9 @@ export class WebLeg extends Leg {
                         relayBlocked: TEXT.relayBlocked,
                         relayBanner: TEXT.relayBanner,
                         connectionFailed: TEXT.connectionFailed,
+                        peerRefusedHash: this.opts.hashLie
+                            ? TEXT.peerRefusedHash
+                            : null,
                     },
                     { timeout: budget, polling: 500 }
                 );

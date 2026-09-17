@@ -828,6 +828,37 @@ async function verifyAttempt(cell, ctx, rec, legs, done, fixture, outDir) {
 
     const s = done?.s;
     const r = done?.r;
+    if (cell.expect === 'refusal' && cell.hashLie) {
+        // A forced mismatch: the receiver must refuse the file and keep
+        // nothing. Bytes moving first is the point, not a failure, so the
+        // relay-cap guard below must not run on this cell.
+        const receiverRefused =
+            r &&
+            (r.kind === 'refusal' ||
+                /did not match the SHA-256|SHA-256 for a file could not be read|hash-mismatch/.test(
+                    String(r.detail?.error || r.detail?.tail || '')
+                ));
+        if (!receiverRefused)
+            throw new PhaseError(
+                'verify',
+                `hash-not-refused: the receiver ended ${r ? `${r.kind} (${r.detail?.error || r.exitCode})` : 'without a result'} instead of refusing the digest`,
+                { signatureKey: 'hash-not-refused' }
+            );
+        const outs = await receiverOutputs(cell, legs, rec, outDir, {
+            allowPart: true,
+        });
+        const kept = outs.filter((o) => o.bytes > 0);
+        if (kept.length)
+            throw new PhaseError(
+                'verify',
+                `hash-not-refused: the receiver kept ${kept.length} file(s) whose digest did not match`,
+                { signatureKey: 'hash-not-refused' }
+            );
+        rec.outputs = outs;
+        rec.integrity = { ok: true, files: [] };
+        rec.route.evidence = 'refusal';
+        return;
+    }
     if (cell.expect === 'refusal') {
         // Both ways bytes can show up: a staging file for a CLI or desktop
         // receiver, and the browser receiver's own data-channel counter,
