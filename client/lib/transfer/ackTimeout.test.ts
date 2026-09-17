@@ -77,4 +77,44 @@ describe('sender ack timeout', () => {
             expect.stringContaining('timed out waiting for receiver')
         );
     });
+
+    it('honors a custom ackTimeoutMs', async () => {
+        vi.useFakeTimers();
+        const { deps } = makeDeps();
+        const onError = vi.fn();
+
+        const file = new File([new Uint8Array(8)], 'x.bin');
+        const p = sendFiles(deps, [{ id: 'id-custom', file }], { onError }, { ackTimeoutMs: 5_000 });
+        // Flush the setup so metadata is sent and the ack timer is armed at t=0.
+        await vi.advanceTimersByTimeAsync(0);
+
+        await vi.advanceTimersByTimeAsync(4_999);
+        expect(onError).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1);
+        await p;
+        expect(onError).toHaveBeenCalledWith(
+            expect.stringContaining('timed out waiting for receiver')
+        );
+    });
+
+    it('keeps the 120 s default without options', async () => {
+        expect(ACK_TIMEOUT_MS).toBe(120_000);
+        vi.useFakeTimers();
+        const { deps } = makeDeps();
+        const onError = vi.fn();
+
+        const file = new File([new Uint8Array(8)], 'x.bin');
+        const p = sendFiles(deps, [{ id: 'id-default', file }], { onError });
+        await vi.advanceTimersByTimeAsync(0);
+
+        await vi.advanceTimersByTimeAsync(ACK_TIMEOUT_MS - 1);
+        expect(onError).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1);
+        await p;
+        expect(onError).toHaveBeenCalledWith(
+            expect.stringContaining('timed out waiting for receiver')
+        );
+    });
 });
