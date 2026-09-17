@@ -422,84 +422,94 @@ export function P2PTransfer() {
             releaseWakeLock();
             resetConnectionType();
             stopConnectionTypePolling();
-            // The branchy part lives in client/lib/receiverClose.ts, where it
-            // can be tested: nothing in the suite mounts this component, and
-            // two of these three branches were wrong on the first attempt.
-            const decision = decideReceiverClose({
-                closedByUs: closedByUsRef.current === peer,
-                replaced: peerRef.current !== peer,
-                wireReason: wireReasonRef.current,
-                receivedCount: receivedFilesRef.current.length,
-            });
-            if (decision.kind !== 'silent') {
-                // The connection is gone, so stop saying it is up. This
-                // handler used to write a breadcrumb and nothing else, which
-                // left the connected badge and the last status line on screen
-                // after the sender had walked away.
-                setIsConnected(false);
-                if (decision.kind === 'outcome') {
-                    setStatus(receiveOutcome());
-                } else {
-                    setError((prev) => prev || decision.error);
-                    setStatus('Transfer failed');
+            // A Go sender closes about 50 ms after its last end marker, while
+            // this side may still be checking that file's SHA-256, so the
+            // decision waits for the check and counts the file it produces.
+            void rx.settled().then(() => {
+                // The branchy part lives in client/lib/receiverClose.ts, where it
+                // can be tested: nothing in the suite mounts this component, and
+                // two of these three branches were wrong on the first attempt.
+                const decision = decideReceiverClose({
+                    closedByUs: closedByUsRef.current === peer,
+                    replaced: peerRef.current !== peer,
+                    wireReason: wireReasonRef.current,
+                    receivedCount: receivedFilesRef.current.length,
+                });
+                if (decision.kind !== 'silent') {
+                    // The connection is gone, so stop saying it is up. This
+                    // handler used to write a breadcrumb and nothing else, which
+                    // left the connected badge and the last status line on screen
+                    // after the sender had walked away.
+                    setIsConnected(false);
+                    if (decision.kind === 'outcome') {
+                        setStatus(receiveOutcome());
+                    } else {
+                        setError((prev) => prev || decision.error);
+                        setStatus('Transfer failed');
+                    }
                 }
-            }
-            Sentry.addBreadcrumb({
-                category: 'webrtc',
-                message: 'Receiver peer connection closed',
-                level: 'info',
-                data: { filesReceived: receivedFilesRef.current.length, transferComplete: transferCompleteRef.current },
+                Sentry.addBreadcrumb({
+                    category: 'webrtc',
+                    message: 'Receiver peer connection closed',
+                    level: 'info',
+                    data: { filesReceived: receivedFilesRef.current.length, transferComplete: transferCompleteRef.current },
+                });
             });
         });
         peer.on('error', (err) => {
-            // The peer already told us why. peer.destroy() on either side
-            // surfaces here as "User-Initiated Abort" a moment later, and
-            // overwriting the reason with connection advice is exactly the
-            // wrong-cause problem this is fixing.
-            if (wireReasonRef.current) return;
-            if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
-                setStatus('Connection interrupted');
-                return;
-            }
+            // Waits for a SHA-256 check in progress, like the close handler, so
+            // a file that is about to be handed over is counted before this
+            // decides whether anything arrived.
+            void rx.settled().then(() => {
+                // The peer already told us why. peer.destroy() on either side
+                // surfaces here as "User-Initiated Abort" a moment later, and
+                // overwriting the reason with connection advice is exactly the
+                // wrong-cause problem this is fixing.
+                if (wireReasonRef.current) return;
+                if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
+                    setStatus('Connection interrupted');
+                    return;
+                }
 
-            // Known expected outcomes — not application bugs:
-            // "Ice connection failed." / "Connection failed." — relay likely disabled on sender
-            // "User-Initiated Abort" — sender closed the tab or peer was destroyed
-            // Log a breadcrumb but do NOT send to Sentry.
-            const { isExpected, reason } = classifyPeerError(err.message);
+                // Known expected outcomes — not application bugs:
+                // "Ice connection failed." / "Connection failed." — relay likely disabled on sender
+                // "User-Initiated Abort" — sender closed the tab or peer was destroyed
+                // Log a breadcrumb but do NOT send to Sentry.
+                const { isExpected, reason } = classifyPeerError(err.message);
 
-            if (isExpected) {
-                Sentry.addBreadcrumb({
-                    category: 'webrtc',
-                    message: `Receiver: expected connection error — ${err.message}`,
-                    level: 'warning',
-                    data: { errorMessage: err.message },
-                });
-                // A deliberate abort is not a connection problem, and telling
-                // someone to enable a relay that may already be on is the
-                // wrong cause dressed up as advice. classifyPeerError already
-                // separated the two for analytics; use the same split here.
-                setError(
-                    reason === 'abort'
-                        ? 'The sender ended the transfer. Ask them to start it again.'
-                        : 'Could not connect. Ask the sender to enable "Network Relay" and try again.'
-                );
-            } else {
-                // Unexpected error — capture for investigation.
-                Sentry.withScope((scope) => {
-                    scope.setContext('webrtc', {
-                        role: 'receiver',
-                        connectionType,
-                        filesReceived: receivedFilesRef.current.length,
-                        progressPercent: progressRef.current,
+                if (isExpected) {
+                    Sentry.addBreadcrumb({
+                        category: 'webrtc',
+                        message: `Receiver: expected connection error — ${err.message}`,
+                        level: 'warning',
+                        data: { errorMessage: err.message },
                     });
-                    Sentry.captureException(err);
-                });
-                setError(`Connection error: ${err.message}`);
-            }
-            // Track failed connection attempt
-            track('transfer-failed', { reason, role: 'receiver' });
-            setStatus('Connection failed');
+                    // A deliberate abort is not a connection problem, and telling
+                    // someone to enable a relay that may already be on is the
+                    // wrong cause dressed up as advice. classifyPeerError already
+                    // separated the two for analytics; use the same split here.
+                    setError(
+                        reason === 'abort'
+                            ? 'The sender ended the transfer. Ask them to start it again.'
+                            : 'Could not connect. Ask the sender to enable "Network Relay" and try again.'
+                    );
+                } else {
+                    // Unexpected error — capture for investigation.
+                    Sentry.withScope((scope) => {
+                        scope.setContext('webrtc', {
+                            role: 'receiver',
+                            connectionType,
+                            filesReceived: receivedFilesRef.current.length,
+                            progressPercent: progressRef.current,
+                        });
+                        Sentry.captureException(err);
+                    });
+                    setError(`Connection error: ${err.message}`);
+                }
+                // Track failed connection attempt
+                track('transfer-failed', { reason, role: 'receiver' });
+                setStatus('Connection failed');
+            });
         });
 
         const rx = createReceiver({

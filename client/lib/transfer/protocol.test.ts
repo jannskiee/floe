@@ -403,3 +403,15 @@ describe('per-file SHA-256 fields', () => {
         }
     });
 });
+
+describe('classifyControl and JSON whitespace', () => {
+    it('classifyControl accepts leading JSON whitespace', () => {
+        for (const lead of [' ', '\t', '\r\n', '\n  ']) {
+            expect(classifyControl(lead + '{"type":"end"}')?.type, JSON.stringify(lead)).toBe('end');
+        }
+        // Only the four JSON whitespace characters count, as in the Go engine.
+        expect(classifyControl(' {"type":"end"}')).toBeNull();
+        expect(classifyControl('x{"type":"end"}')).toBeNull();
+        expect(classifyControl('   ')).toBeNull();
+    });
+});

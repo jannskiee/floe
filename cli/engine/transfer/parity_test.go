@@ -40,8 +40,8 @@ const parityTable = `
 {"decoder":"classifyControl","name":"incompatible","frame":"{\"type\":\"incompatible\"}","go":"incompatible","ts":"incompatible"}
 {"decoder":"classifyControl","name":"unknown-type","frame":"{\"type\":\"hello\"}","go":"none","ts":"none"}
 {"decoder":"classifyControl","name":"type-number","frame":"{\"type\":7}","go":"none","ts":"none"}
-{"decoder":"classifyControl","name":"leading-space","frame":" {\"type\":\"end\"}","go":"end","ts":"none","finding":"FND-1"}
-{"decoder":"classifyControl","name":"leading-newline","frame":"\n{\"type\":\"end\"}","go":"end","ts":"none","finding":"FND-1"}
+{"decoder":"classifyControl","name":"leading-space","frame":" {\"type\":\"end\"}","go":"end","ts":"end"}
+{"decoder":"classifyControl","name":"leading-newline","frame":"\n{\"type\":\"end\"}","go":"end","ts":"end"}
 {"decoder":"classifyControl","name":"number-overflow","frame":"{\"type\":\"end\",\"x\":1e999}","go":"none","ts":"end","finding":"FND-2"}
 {"decoder":"classifyControl","name":"array","frame":"[{\"type\":\"end\"}]","go":"none","ts":"none"}
 {"decoder":"classifyControl","name":"json-null","frame":"null","go":"none","ts":"none"}
@@ -51,23 +51,23 @@ const parityTable = `
 {"decoder":"classifyControl","name":"cap-plus-1","frame":"{\"type\":\"end\",\"pad\":\"\"}","padTo":1001,"padChar":"x","go":"none","ts":"none"}
 {"decoder":"classifyControl","name":"cap-plus-1-two-byte","frame":"{\"type\":\"end\",\"pad\":\"\"}","padTo":1001,"padChar":"\u00e9","go":"none","ts":"none"}
 {"decoder":"metadataGuard","name":"valid","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"accept","ts":"accept"}
-{"decoder":"metadataGuard","name":"F1-fileSize-2pow53","frame":"{\"type\":\"metadata\",\"id\":\"f-1\",\"fileName\":\"big.bin\",\"fileSize\":9007199254740992,\"index\":1,\"total\":1,\"totalBytes\":9007199254740992,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"accept","finding":"FND-3"}
+{"decoder":"metadataGuard","name":"F1-fileSize-2pow53","frame":"{\"type\":\"metadata\",\"id\":\"f-1\",\"fileName\":\"big.bin\",\"fileSize\":9007199254740992,\"index\":1,\"total\":1,\"totalBytes\":9007199254740992,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"reject"}
 {"decoder":"metadataGuard","name":"F5-fileSize-2pow53-minus-1","frame":"{\"type\":\"metadata\",\"id\":\"f-5\",\"fileName\":\"big.bin\",\"fileSize\":9007199254740991,\"index\":1,\"total\":1,\"totalBytes\":9007199254740991,\"pv\":1,\"pvMin\":1}","go":"accept","ts":"accept"}
-{"decoder":"metadataGuard","name":"fileSize-minus-1","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":-1,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"accept","finding":"FND-3"}
-{"decoder":"metadataGuard","name":"fileSize-fraction","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":1.5,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"accept","finding":"FND-3"}
-{"decoder":"metadataGuard","name":"fileSize-string","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":\"4\",\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"accept","finding":"FND-3"}
-{"decoder":"metadataGuard","name":"fileSize-1e300","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":1e300,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"accept","finding":"FND-3"}
-{"decoder":"metadataGuard","name":"index-0","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":0,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"accept","finding":"FND-3"}
-{"decoder":"metadataGuard","name":"total-0","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":0,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"accept","finding":"FND-3"}
-{"decoder":"metadataGuard","name":"totalBytes-below-fileSize","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":2,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"accept","finding":"FND-3"}
+{"decoder":"metadataGuard","name":"fileSize-minus-1","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":-1,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"reject"}
+{"decoder":"metadataGuard","name":"fileSize-fraction","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":1.5,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"reject"}
+{"decoder":"metadataGuard","name":"fileSize-string","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":\"4\",\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"reject"}
+{"decoder":"metadataGuard","name":"fileSize-1e300","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":1e300,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"reject"}
+{"decoder":"metadataGuard","name":"index-0","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":0,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"reject"}
+{"decoder":"metadataGuard","name":"total-0","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":0,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"reject"}
+{"decoder":"metadataGuard","name":"totalBytes-below-fileSize","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":2,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"reject"}
 {"decoder":"metadataGuard","name":"totalBytes-absent","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"pv\":1,\"pvMin\":1}","go":"accept","ts":"accept"}
 {"decoder":"metadataGuard","name":"pv-disjoint","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":2,\"pvMin\":2}","go":"reject","ts":"reject"}
 {"decoder":"metadataGuard","name":"pv-absent-legacy","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4}","go":"accept","ts":"accept"}
-{"decoder":"metadataGuard","name":"pv-string","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":\"1\",\"pvMin\":1}","go":"reject","ts":"accept","finding":"FND-3"}
-{"decoder":"metadataGuard","name":"name-number","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":7,\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"accept","finding":"FND-3"}
+{"decoder":"metadataGuard","name":"pv-string","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":\"1\",\"pvMin\":1}","go":"reject","ts":"reject"}
+{"decoder":"metadataGuard","name":"name-number","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":7,\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"reject"}
 {"decoder":"metadataGuard","name":"F4a-traversal-dotdot","frame":"{\"type\":\"metadata\",\"id\":\"f-4a\",\"fileName\":\"../../escape.txt\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"accept","ts":"accept"}
 {"decoder":"metadataGuard","name":"F3-bidi-override-name","frame":"{\"type\":\"metadata\",\"id\":\"f-3\",\"fileName\":\"photo\u202egnp.exe\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"accept","ts":"accept"}
-{"decoder":"metadataGuard","name":"leading-space","frame":" {\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"accept","ts":"ignore","finding":"FND-1"}
+{"decoder":"metadataGuard","name":"leading-space","frame":" {\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"accept","ts":"accept"}
 {"decoder":"metadataGuard","name":"over-cap","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1,\"pad\":\"\"}","padTo":1001,"padChar":"x","go":"reject","ts":"reject"}
 {"decoder":"endSha256","name":"valid","frame":"{\"type\":\"end\",\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}","go":"accept","ts":"accept"}
 {"decoder":"endSha256","name":"absent","frame":"{\"type\":\"end\"}","go":"absent","ts":"absent"}

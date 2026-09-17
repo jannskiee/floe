@@ -144,7 +144,7 @@ export function endMessage(sha256?: string | null): string {
     return JSON.stringify(msg);
 }
 
-export function incompatibleMessage(reason: string): string {
+export function incompatibleMessage(reason: string, code?: RefusalCode, saved?: number): string {
     // The cap is on the ENCODED FRAME, not on the reason. A receiver stops
     // classifying a control message past CONTROL_MSG_MAX and would read the
     // frame as file data, so a long reason has to shrink until the whole thing
@@ -153,14 +153,16 @@ export function incompatibleMessage(reason: string): string {
     // sanitizeDisplayText, which caps in UTF-16 units and
     // never leaves a lone surrogate at the end. Go trims the same frame by rune,
     // so the two can land a character apart on astral text; the cap is a byte
-    // budget on the frame either way, which is what has to hold.
+    // budget on the frame either way, which is what has to hold. `code` and
+    // `saved` are what a current reader acts on, so they are never dropped to
+    // make room; only the reason shrinks, as in incompatibleFrame in Go.
     let text = reason;
-    let frame = buildIncompatible(text);
+    let frame = buildIncompatible(text, code, saved);
     for (let budget = MAX_REASON; frameBytes(frame) > CONTROL_MSG_MAX && budget > 0; budget = Math.floor(budget / 2)) {
         text = sanitizeDisplayText(reason, budget);
-        frame = buildIncompatible(text);
+        frame = buildIncompatible(text, code, saved);
     }
-    if (frameBytes(frame) > CONTROL_MSG_MAX) frame = buildIncompatible('');
+    if (frameBytes(frame) > CONTROL_MSG_MAX) frame = buildIncompatible('', code, saved);
     return frame;
 }
 
@@ -172,13 +174,19 @@ function frameBytes(frame: string): number {
     return encoder.encode(frame).byteLength;
 }
 
-function buildIncompatible(reason: string): string {
-    return JSON.stringify({
+// A code is sent only when the caller names one, and saved only as a safe
+// integer from 0 up (0 is sent, like Go's *int), which is exactly the frame
+// every shipped peer already reads when neither is given.
+function buildIncompatible(reason: string, code?: RefusalCode, saved?: number): string {
+    const msg: Incompatible = {
         type: 'incompatible',
         reason,
         pv: PROTOCOL_VERSION,
         pvMin: MIN_PROTOCOL_VERSION,
-    } satisfies Incompatible);
+    };
+    if (code) msg.code = code;
+    if (saved !== undefined && Number.isSafeInteger(saved) && saved >= 0) msg.saved = saved;
+    return JSON.stringify(msg);
 }
 
 // --- Protocol compatibility ---
@@ -365,7 +373,10 @@ export function classifyControl(data: string | ArrayBuffer | Uint8Array): Contro
         }
     }
 
-    if (!text.startsWith('{')) return null;
+    // JSON whitespace may lead, as looksLikeJSONObject allows in the Go engine; a
+    // text frame is never file data, so a whitespace-led object is still control.
+    const first = text.search(/[^ \t\r\n]/);
+    if (first < 0 || text[first] !== '{') return null;
 
     let msg: Record<string, unknown>;
     try {
@@ -464,6 +475,34 @@ export function isControlFrame(data: string | ArrayBuffer | Uint8Array): data is
  * Zero is a valid size and must survive as `0`, not collapse to `null`, or every
  * empty file would lose its (trivially satisfiable) integrity check.
  */
+/**
+ * The first reason a peer's file description cannot be right, as a fixed phrase,
+ * or null when nothing is wrong. The twin of parseMetadata in
+ * cli/engine/transfer/control.go: both sides refuse the same literals, which the
+ * metadataGuard parity rows pin. classifyControl casts, so every field is
+ * whatever the peer typed. A null field reads the way Go's decoder reads it, as
+ * a zero value; an absent or null fileSize stays "unknown" here, as it always has.
+ */
+export function metadataProblem(msg: Metadata): string | null {
+    const m = msg as unknown as Record<string, unknown>;
+    const given = (key: string) => m[key] !== undefined && m[key] !== null;
+    const byteCount = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+    const position = (v: unknown) => typeof v === 'number' && Number.isSafeInteger(v) && v >= 1;
+    if (given('id') && typeof m.id !== 'string') return 'the file id is not a string';
+    if (given('fileName') && typeof m.fileName !== 'string') return 'the file name is not a string';
+    if (given('fileSize') && !byteCount(m.fileSize)) return 'the file size is not a byte count';
+    if (given('totalBytes') && !byteCount(m.totalBytes)) return 'the batch size is not a byte count';
+    if (!position(m.index) || !position(m.total)) return 'the file index is not a position in a batch';
+    if (byteCount(m.totalBytes) && m.totalBytes > 0 && byteCount(m.fileSize) && m.totalBytes < m.fileSize) {
+        return 'the batch size is smaller than the file size';
+    }
+    // Go decodes pv and pvMin as integers, so 0 (legacy) passes and a string does not.
+    for (const key of ['pv', 'pvMin']) {
+        if (given(key) && !(typeof m[key] === 'number' && Number.isSafeInteger(m[key]))) return 'the protocol version is not a number';
+    }
+    return null;
+}
+
 export function normalizeFileSize(value: unknown): number | null {
     if (typeof value !== 'number') return null;
     if (!Number.isInteger(value)) return null; // also rejects NaN and Infinity
