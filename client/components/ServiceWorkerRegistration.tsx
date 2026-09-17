@@ -9,7 +9,7 @@ export function ServiceWorkerRegistration() {
             isProduction: process.env.NODE_ENV === 'production',
             hasServiceWorker: 'serviceWorker' in navigator,
             readyState: () => document.readyState,
-            addLoadListener: (listener) => window.addEventListener('load', listener),
+            addLoadListener: (listener) => window.addEventListener('load', listener, { once: true }),
             register: () => navigator.serviceWorker.register('/sw.js'),
         });
     }, []);

@@ -29,6 +29,15 @@ describe('registerServiceWorker', () => {
         expect(f.registrations()).toBe(1);
     });
 
+    it('registers at once when the document already loaded', () => {
+        // The component's effect runs after hydration, so on most page loads
+        // load has already fired and a listener added now would never run.
+        const f = fakeDeps({ readyState: () => 'complete' });
+        registerServiceWorker(f.deps);
+        expect(f.registrations()).toBe(1);
+        expect(f.listenerCount()).toBe(0);
+    });
+
     it('waits for load while the document is interactive', () => {
         const f = fakeDeps({ readyState: () => 'interactive' });
         registerServiceWorker(f.deps);

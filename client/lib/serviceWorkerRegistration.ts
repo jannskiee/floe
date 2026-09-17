@@ -13,7 +13,14 @@ export interface ServiceWorkerRegistrationDeps {
 
 export function registerServiceWorker(deps: ServiceWorkerRegistrationDeps): void {
     if (!deps.hasServiceWorker || !deps.isProduction) return;
-    deps.addLoadListener(() => {
+    const register = () => {
         deps.register().catch(() => { });
-    });
+    };
+    // The component's effect runs after hydration, so load has usually fired
+    // already and a listener added now would never run: the worker then never
+    // registered on its own, and floe-cache-v6 never replaced a v5 cache that
+    // held share links. Waiting for load still keeps registration off the
+    // initial render when the page is slow.
+    if (deps.readyState() === 'complete') register();
+    else deps.addLoadListener(register);
 }
