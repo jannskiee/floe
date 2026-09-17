@@ -25,8 +25,10 @@ function makeDrainableDeps() {
     const channel = {
         bufferedAmount: 0,
         bufferedAmountLowThreshold: 0,
-        addEventListener: (_: 'bufferedamountlow', h: () => void) => { listeners.add(h); },
-        removeEventListener: (_: 'bufferedamountlow', h: () => void) => { listeners.delete(h); },
+        // Keyed by type like a real RTCDataChannel: the sender also listens for
+        // 'close', which drainTo must never fire.
+        addEventListener: (type: string, h: () => void) => { if (type === 'bufferedamountlow') listeners.add(h); },
+        removeEventListener: (type: string, h: () => void) => { if (type === 'bufferedamountlow') listeners.delete(h); },
     };
     let handler: ((d: Uint8Array | ArrayBuffer) => void) | null = null;
     const controls: string[] = [];

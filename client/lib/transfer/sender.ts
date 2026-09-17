@@ -12,11 +12,13 @@ import {
     checkCompat,
     compatErrorMessage,
     compatErrorFromIncompatible,
+    refusalCodeOf,
     PROTOCOL_VERSION,
     MIN_PROTOCOL_VERSION,
     ACK_TIMEOUT_MS,
     type Ack,
     type Incompatible,
+    type RefusalCode,
 } from './protocol';
 
 export interface SenderCallbacks {
@@ -27,6 +29,12 @@ export interface SenderCallbacks {
     onError?: (msg: string) => void;
     onAllSent?: () => void;
     isDestroyed?: () => boolean;
+    // The receiver stopped the session with an incompatible frame. `code` is
+    // an allowlisted RefusalCode or null; `saved` is the peer's count clamped
+    // to [0, files]. onError still carries today's wording.
+    onStopped?: (stop: { code: RefusalCode | null; saved: number }) => void;
+    // The receiver sent `received`. No field of the frame is read here.
+    onReceived?: () => void;
 }
 
 export interface FileEntry {
@@ -39,8 +47,10 @@ export interface FileEntry {
 export interface BufferChannel {
     readonly bufferedAmount: number;
     bufferedAmountLowThreshold: number;
-    addEventListener(type: 'bufferedamountlow', handler: () => void): void;
-    removeEventListener(type: 'bufferedamountlow', handler: () => void): void;
+    // 'close' is what ends a pending ack wait at once when the peer goes away
+    // (the real RTCDataChannel fires it; a test double may ignore it).
+    addEventListener(type: 'bufferedamountlow' | 'close', handler: () => void): void;
+    removeEventListener(type: 'bufferedamountlow' | 'close', handler: () => void): void;
 }
 
 export interface SenderDeps {
@@ -133,6 +143,10 @@ export async function sendFiles(
         }
     };
 
+    // One control listener for the whole session, registered before the first
+    // metadata. The per-file ack wait used to be the only listener, so a refusal
+    // that arrived after `end` or between chunks was never seen.
+    const session = openSession(deps, cb, files.length);
     const ticker = setInterval(emitView, PROGRESS_TICK_MS);
 
     try {
@@ -141,23 +155,24 @@ export async function sendFiles(
             const entry = files[i];
             const ok = await sendSingleFile(
                 deps, entry, i + 1, files.length, totalBytes, cb, view, emitView,
-                opts.ackTimeoutMs ?? ACK_TIMEOUT_MS
+                opts.ackTimeoutMs ?? ACK_TIMEOUT_MS, session
             );
             if (!ok) return;
         }
 
-        if (destroyed()) return;
+        if (destroyed() || session.reportStop()) return;
 
         // "All Files Sent!" must mean delivered, not queued: the last file's
         // tail (up to HIGH_WATER bytes) can still be in the buffer here.
         await drainBelow(deps.channel, 0, destroyed);
-        if (destroyed()) return;
+        if (destroyed() || session.reportStop()) return;
 
         emitView();
         cb.onSpeedReset?.();
         cb.onAllSent?.();
     } finally {
         clearInterval(ticker);
+        session.close();
     }
 }
 
@@ -241,10 +256,12 @@ function drainBelow(
     });
 }
 
-// Result of waiting for the receiver's ack.
+// Result of waiting for the receiver's ack. `stopped` means the session latch
+// holds an incompatible frame; `closed` means the channel closed first.
 type AckResult =
     | { type: 'ack'; offset: number; pv?: number; pvMin?: number; ver?: string }
-    | { type: 'incompatible'; reason: string; pv?: number; pvMin?: number; ver?: string }
+    | { type: 'stopped' }
+    | { type: 'closed' }
     | { type: 'timeout' };
 
 // Returns false when the transfer must stop (error already reported via cb).
@@ -257,10 +274,11 @@ async function sendSingleFile(
     cb: SenderCallbacks,
     view: ProgressView,
     emitView: () => void,
-    ackTimeoutMs: number
+    ackTimeoutMs: number,
+    session: Session
 ): Promise<boolean> {
     const { file, id } = entry;
-    const { send, onData, channel } = deps;
+    const { send, channel } = deps;
     const destroyed = cb.isDestroyed ?? (() => false);
 
     if (destroyed()) return true;
@@ -272,6 +290,7 @@ async function sendSingleFile(
     // the first file (buffer is empty).
     await drainBelow(channel, METADATA_DRAIN_THRESHOLD, destroyed);
     if (destroyed()) return true;
+    if (session.reportStop()) return false;
 
     channel.bufferedAmountLowThreshold = LOW_WATER;
 
@@ -282,23 +301,21 @@ async function sendSingleFile(
         return false;
     }
 
-    // 2. Wait for ack (120 s unless the caller set ackTimeoutMs), handling
-    // incompatible responses
-    const ackResult = await waitForAck(onData, id, ackTimeoutMs);
+    // 2. Wait for ack (120 s unless the caller set ackTimeoutMs). An
+    // incompatible frame, before or during the wait, stops the session.
+    const ackResult = await session.waitForAck(id, ackTimeoutMs);
     if (ackResult.type === 'timeout') {
         cb.onError?.('Transfer timed out waiting for receiver. Please try again.');
         return false;
     }
-    if (ackResult.type === 'incompatible') {
-        // Rebuilt from the frame's pv range rather than printed as sent, the
-        // way the Go sender has done since PR #282. On a genuine version
-        // mismatch the peer's sentence names the sides from ITS point of view
-        // and offers ITS remedy, so a browser too old for its peer used to be
-        // shown neutral wire wording instead of "refresh the page". A
-        // deliberate abort still comes through verbatim: that is the
-        // overlapping-range half of compatErrorFromIncompatible, and it is
-        // what carries the relay-cap reason from PR #429.
-        cb.onError?.(compatErrorFromIncompatible(ackResult));
+    if (ackResult.type === 'stopped') {
+        session.reportStop();
+        return false;
+    }
+    if (ackResult.type === 'closed') {
+        // The words the app already shows when the peer connection drops, so
+        // no new copy is introduced.
+        cb.onError?.('Connection lost. The other device may have closed the tab.');
         return false;
     }
 
@@ -383,6 +400,9 @@ async function sendSingleFile(
     // channel's bufferedAmount — this loop only advances view.offset.
     while (offset < file.size) {
         if (destroyed()) break;
+        // A refusal can arrive at any time; once it has, no further chunk and
+        // no end marker may be sent.
+        if (session.reportStop()) return false;
 
         const slabEnd = Math.min(offset + READ_SLAB, file.size);
         let slabBuffer: ArrayBuffer;
@@ -416,6 +436,7 @@ async function sendSingleFile(
             }
 
             if (destroyed()) break;
+            if (session.reportStop()) return false;
 
             const chunkLen = Math.min(CHUNK_SIZE, slabBuffer.byteLength - slabOffset);
             const chunk = new Uint8Array(slabBuffer, slabOffset, chunkLen);
@@ -441,56 +462,97 @@ async function sendSingleFile(
     return true;
 }
 
-function waitForAck(
-    onData: (handler: (data: string | Uint8Array | ArrayBuffer) => void) => () => void,
-    fileId: string,
-    timeoutMs: number
-): Promise<AckResult> {
-    // Both arms of the race clean up after the other wins. The listener used
-    // to survive a timeout (and the timeout aborts the transfer, so it stayed
-    // on a live peer), and the 120s timer used to survive an ack, so an
-    // N-file transfer left N pending timers each retaining its closure.
-    let off: (() => void) | null = null;
+interface Session {
+    waitForAck(fileId: string, timeoutMs: number): Promise<AckResult>;
+    // Reports the latched refusal once (onError with today's wording, then
+    // onStopped) and returns true while the session is stopped.
+    reportStop(): boolean;
+    close(): void;
+}
+
+// The session's one control listener: acks for the current file, a stop latch
+// for an incompatible frame at any time, received frames, and the channel close.
+function openSession(deps: SenderDeps, cb: SenderCallbacks, fileCount: number): Session {
+    let stopped: Incompatible | null = null;
+    let reported = false;
+    let closed = false;
+    let pending: { fileId: string; resolve: (r: AckResult) => void } | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    const done = (r: AckResult): AckResult => {
-        off?.();
-        off = null;
+
+    // Every ack wait cleans up whichever arm lost: an N-file transfer used to
+    // leave N pending timers, each retaining its closure.
+    const settle = (r: AckResult) => {
+        if (!pending) return;
+        const { resolve } = pending;
+        pending = null;
         if (timer) clearTimeout(timer);
         timer = null;
-        return r;
+        resolve(r);
     };
-    return Promise.race([
-        new Promise<AckResult>((resolve) => {
-            off = onData((raw) => {
-                // The SENDER keeps classifying by content, and must: a Go
-                // receiver sends its ack, received and incompatible frames as
-                // BINARY. That is safe here in a way it is not on the receive
-                // path, because no file data ever travels receiver to sender.
-                const msg = classifyControl(raw);
-                if (!msg) return;
-                if (msg.type === 'ack' && (msg as Ack).id === fileId) {
-                    const ack = msg as Ack;
-                    resolve({ type: 'ack', offset: ack.offset, pv: ack.pv, pvMin: ack.pvMin, ver: ack.ver });
-                } else if (msg.type === 'incompatible') {
-                    // The pv range travels with the reason, and the caller
-                    // needs it: it is what separates a version mismatch, whose
-                    // wording has to be rebuilt from this side, from a
-                    // deliberate abort, whose reason is the only account there
-                    // is. Dropping it here is what forced the caller to print
-                    // whatever the peer wrote.
-                    const incompat = msg as Incompatible;
-                    resolve({
-                        type: 'incompatible',
-                        reason: incompat.reason,
-                        pv: incompat.pv,
-                        pvMin: incompat.pvMin,
-                        ver: incompat.ver,
-                    });
-                }
+
+    const off = deps.onData((raw) => {
+        // The SENDER keeps classifying by content, and must: a Go receiver sends
+        // its ack, received and incompatible frames as BINARY. That is safe here
+        // in a way it is not on the receive path, because no file data ever
+        // travels receiver to sender. classifyControl keeps the byte cap.
+        const msg = classifyControl(raw);
+        if (!msg) return;
+        if (msg.type === 'ack') {
+            const ack = msg as Ack;
+            if (pending && ack.id === pending.fileId) {
+                settle({ type: 'ack', offset: ack.offset, pv: ack.pv, pvMin: ack.pvMin, ver: ack.ver });
+            }
+        } else if (msg.type === 'incompatible') {
+            // The first refusal wins. Its pv range travels with it, because that
+            // is what separates a version mismatch from a deliberate abort.
+            if (!stopped) stopped = msg as Incompatible;
+            settle({ type: 'stopped' });
+        } else if (msg.type === 'received') {
+            cb.onReceived?.();
+        }
+    });
+
+    const onClose = () => {
+        closed = true;
+        settle({ type: 'closed' });
+    };
+    deps.channel.addEventListener('close', onClose);
+
+    return {
+        waitForAck(fileId, timeoutMs) {
+            if (stopped) return Promise.resolve({ type: 'stopped' });
+            if (closed) return Promise.resolve({ type: 'closed' });
+            return new Promise<AckResult>((resolve) => {
+                pending = { fileId, resolve };
+                timer = setTimeout(() => settle({ type: 'timeout' }), timeoutMs);
             });
-        }),
-        new Promise<AckResult>((resolve) => {
-            timer = setTimeout(() => resolve({ type: 'timeout' }), timeoutMs);
-        }),
-    ]).then(done);
+        },
+        reportStop() {
+            if (!stopped) return false;
+            if (!reported) {
+                reported = true;
+                // Rebuilt from the frame's pv range rather than printed as sent,
+                // the way the Go sender has done since PR #282. On a genuine
+                // version mismatch the peer's sentence names the sides from ITS
+                // point of view and offers ITS remedy. A deliberate abort still
+                // comes through verbatim: that is the overlapping-range half of
+                // compatErrorFromIncompatible, and it is what carries the
+                // relay-cap reason from PR #429.
+                cb.onError?.(compatErrorFromIncompatible(stopped));
+                // The typed stop carries only an allowlisted code and a clamped
+                // count, never the peer's text.
+                const raw: unknown = stopped.saved;
+                const saved = typeof raw === 'number' && Number.isInteger(raw)
+                    ? Math.min(Math.max(raw, 0), fileCount)
+                    : 0;
+                cb.onStopped?.({ code: refusalCodeOf(stopped), saved });
+            }
+            return true;
+        },
+        close() {
+            off();
+            deps.channel.removeEventListener('close', onClose);
+            settle({ type: 'closed' });
+        },
+    };
 }
