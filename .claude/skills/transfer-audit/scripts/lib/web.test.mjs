@@ -36,6 +36,8 @@ import {
     candidateCensus,
     checkRelayPolicy,
     classifySample,
+    corruptEndFrame,
+    installHashbad,
     closeBrowser,
     createLeg,
     guardStats,
@@ -692,5 +694,45 @@ test('candidateCensus is the sorted union over samples; evidence carries it with
     assert.ok(
         !JSON.stringify(ev).includes('credential'),
         'no credential-shaped key in the evidence'
+    );
+});
+
+test('hashbad rewrite changes exactly one hex digit of an end frame and nothing else', () => {
+    const digest = 'a'.repeat(64);
+    const frame = `{"type":"end","sha256":"${digest}"}`;
+    const out = corruptEndFrame(frame);
+    assert.equal(out.length, frame.length, 'the frame keeps its length');
+    assert.notEqual(out, frame, 'the frame changed');
+    const changed = [...frame].filter((c, i) => c !== out[i]);
+    assert.equal(changed.length, 1, 'exactly one character changed');
+    const outDigest = JSON.parse(out).sha256;
+    assert.match(outDigest, /^[0-9a-f]{64}$/, 'still 64 lowercase hex characters');
+    assert.equal(outDigest.slice(1), digest.slice(1), 'only the first digit moved');
+    assert.equal(JSON.parse(out).type, 'end', 'still an end frame');
+
+    // Everything else is passed through untouched, including a chunk.
+    for (const other of [
+        '{"type":"end"}',
+        '{"type":"metadata","id":"x"}',
+        '{"type":"end","sha256":"ZZ"}',
+        '',
+    ]) {
+        assert.equal(corruptEndFrame(other), other, `untouched: ${other}`);
+    }
+    const chunk = new Uint8Array([1, 2, 3]);
+    assert.equal(corruptEndFrame(chunk), chunk, 'a chunk is returned as it came');
+});
+
+test('installHashbad ships the same rewrite into the page', async () => {
+    let installed = null;
+    await installHashbad({ addInitScript: (arg) => { installed = arg; } });
+    assert.ok(installed && typeof installed.content === 'string', 'an init script with source');
+    assert.ok(
+        installed.content.includes('{"type":"end","sha256":"'),
+        'the page gets the same prefix this test pinned'
+    );
+    assert.ok(
+        installed.content.includes('RTCDataChannel.prototype.send'),
+        'it wraps the send the app uses'
     );
 });

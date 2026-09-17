@@ -56,10 +56,12 @@ export const VERSION_RE = /^floe (\S+)\s*$/m;
 export const CODE_RE = /^\s*Code\s+([a-z]+(?:-[a-z]+){2,3})\s*$/m;
 // client/e2e/helpers.ts spawnSend
 export const LINK_RE = /https?:\/\/\S*#room=[^\s]+/;
-// Summary rows: sender.go SendFilesWithOptions (Sent, Time), receiver.go ReceiveFilesWithOptions
-// (Received, Time, Saved to). Labels are padded to the longest label.
+// Summary rows: sender.go SendFilesWithOptions (Sent, Time, Verified), receiver.go
+// ReceiveFilesWithOptions (Received, Time, Saved to, Verified). Labels are padded
+// to the longest label. Verified is present only when every file carried a digest
+// that matched, so a cell can require it or require its absence.
 export const SUMMARY_ROW_RE =
-    /^ {2}(Sent|Received|Time|Saved to) {3,}(.+?)\s*$/gm;
+    /^ {2}(Sent|Received|Time|Saved to|Verified) {3,}(.+?)\s*$/gm;
 // pion/ice/v4 agent.go:780 under PION_LOG_TRACE=ice.
 export const PION_PAIR_RE = /Set selected candidate pair: (.*)$/;
 // relay.go checkRelayGate wrapped by cobra's "Error: " prefix (main.go SilenceUsage).
@@ -119,6 +121,8 @@ export function parseSummary(stdout = '') {
         received: rows.Received ?? null,
         time: rows.Time ?? null,
         savedTo: rows['Saved to'] ?? null,
+        // Present only when every file carried a digest that matched (P0-19a).
+        verified: rows.Verified ?? null,
         files: null,
         size: null,
         duration: null,

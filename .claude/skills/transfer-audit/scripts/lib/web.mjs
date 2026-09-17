@@ -469,6 +469,45 @@ export async function guardStats(ctx, rec) {
     return rec;
 }
 
+/**
+ * The hashbad rewrite, pure so a test can pin it: an `end` frame keeps its
+ * shape and its length with one hex digit of its sha256 changed, and anything
+ * else is returned untouched. A chunk is a buffer, never a string, so it can
+ * never reach the rewrite.
+ *
+ * Defined as a standalone function because installHashbad ships its source
+ * into the page: the page and this test read the same lines.
+ */
+export function corruptEndFrame(data) {
+    const PREFIX = '{"type":"end","sha256":"';
+    if (typeof data !== 'string' || !data.startsWith(PREFIX)) return data;
+    const at = PREFIX.length;
+    const digit = data[at];
+    if (!/[0-9a-f]/.test(digit)) return data;
+    const changed = digit === '0' ? '1' : '0';
+    return data.slice(0, at) + changed + data.slice(at + 1);
+}
+
+/**
+ * Install the hashbad corrupter on a context: every `end` frame the page sends
+ * carries a well formed digest that cannot match the bytes the peer got.
+ *
+ * It wraps RTCDataChannel.prototype.send, which is where the sender hands the
+ * frame over, so nothing in the app changes and nothing corrupting exists
+ * outside this audit and the page it starts.
+ */
+export async function installHashbad(ctx) {
+    await ctx.addInitScript({
+        content: `(() => {
+    const corruptEndFrame = ${corruptEndFrame.toString()};
+    const origSend = RTCDataChannel.prototype.send;
+    RTCDataChannel.prototype.send = function (data) {
+        return origSend.call(this, corruptEndFrame(data));
+    };
+})();`,
+    });
+}
+
 /** Seed one localStorage key before any page script (docs-visual-qa.mjs). */
 export async function seedLocalStorage(ctx, key, value) {
     await ctx.addInitScript(
