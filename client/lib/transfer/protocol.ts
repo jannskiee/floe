@@ -57,15 +57,22 @@ export interface Ack {
     ver?: string;   // receiver's human release string
 }
 
+// `sha256` is optional and rides only this frame: the sender's digest of the file,
+// 64 lowercase hex characters. classifyControl casts, so read it only through
+// normalizeSha256. Mirrors endMsg in cli/engine/transfer/sender.go.
 export interface End {
     type: 'end';
+    sha256?: string;
 }
 
 // Sent by the CLI receiver after all files are written and verified.
 // Tells the CLI sender delivery is confirmed so it can close cleanly.
 // Browser receivers never send this; the protocol handles both cases.
+// `verified` counts the files whose SHA-256 matched; it is cast, so read it only
+// through verifiedCountOf.
 export interface Received {
     type: 'received';
+    verified?: number;
 }
 
 // Sent when a peer stops on purpose. Two jobs, told apart by the pv range it
@@ -121,8 +128,14 @@ export function ackMessage(id: string, offset: number, ver?: string): string {
     } satisfies Ack);
 }
 
-export function endMessage(): string {
-    return JSON.stringify({ type: 'end' } satisfies End);
+// The key is emitted only for a digest that passes normalizeSha256, and `type`
+// stays first: the transfer audit's hashbad cells match frames that start with
+// {"type":"end","sha256":". An invalid digest is left out rather than sent,
+// because a receiver refuses a malformed one.
+export function endMessage(sha256?: string | null): string {
+    const digest = normalizeSha256(sha256);
+    const msg: End = digest === null ? { type: 'end' } : { type: 'end', sha256: digest };
+    return JSON.stringify(msg);
 }
 
 export function incompatibleMessage(reason: string): string {
@@ -450,4 +463,27 @@ export function normalizeFileSize(value: unknown): number | null {
     if (!Number.isInteger(value)) return null; // also rejects NaN and Infinity
     if (value < 0 || value > Number.MAX_SAFE_INTEGER) return null;
     return value;
+}
+
+/**
+ * Validates a SHA-256 on the wire: the value when it is a string of exactly 64
+ * lowercase hex characters, and `null` for anything else. The twin of
+ * validSHA256Hex and parseEnd in cli/engine/transfer/control.go. A receiver
+ * treats a present value that comes back `null` as a refusal, never as absent.
+ */
+export function normalizeSha256(value: unknown): string | null {
+    return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value) ? value : null;
+}
+
+/**
+ * The receiver's count of files whose SHA-256 matched, or `null` when it is
+ * not a safe integer in [0, fileCount]. A range check, never a clamp, so an
+ * over-claim can never read as "all matched". The twin of parseReceived in
+ * cli/engine/transfer/sender.go.
+ */
+export function verifiedCountOf(msg: Received, fileCount: number): number | null {
+    const value: unknown = msg.verified;
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= fileCount
+        ? value
+        : null;
 }

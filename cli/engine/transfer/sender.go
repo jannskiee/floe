@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"sync"
 	"time"
@@ -115,9 +116,13 @@ type ackMsg struct {
 	Ver    string `json:"ver"`
 }
 
-// endMsg is sent after the last chunk of each file.
+// endMsg is sent after the last chunk of each file. SHA256 stays empty, and
+// so absent from the frame, until the Go sender hashes what it sends. Type is
+// declared first on purpose: the transfer audit's hashbad cells match frames
+// that start with {"type":"end","sha256":".
 type endMsg struct {
-	Type string `json:"type"`
+	Type   string `json:"type"`
+	SHA256 string `json:"sha256,omitempty"`
 }
 
 // abortFromPeer reports the peer's reason when raw is an "incompatible"
@@ -145,18 +150,43 @@ func abortFromPeer(raw []byte, localVer, updateHint string) string {
 	return compatErrorFromIncompatible(localVer, updateHint, incompat)
 }
 
-// isReceived reports whether raw is the receiver's delivery confirmation.
-// The size bound is the same one the ack loop applies: a frame larger than a
-// control message is file data and must never be JSON-parsed. Two verbatim
-// copies of this lived fourteen lines apart in the drain handshake.
-func isReceived(raw []byte) bool {
+// parseReceived reports whether raw is the receiver's delivery confirmation
+// and, when it carries a usable one, how many files the receiver says matched
+// their SHA-256. The size bound is the same one the ack loop applies: a frame
+// larger than a control message is file data and must never be JSON-parsed.
+//
+// verified is read separately, by its exact key as raw JSON, after the type.
+// A mistyped optional field must never fail the whole decode and drop the
+// frame, or a hostile "verified" would keep the delivery wait running (the
+// FND-4 class). hasVerified is true only for an integer-valued JSON number from
+// 0 to files. 3.0 and 1e0 count, because JSON.parse makes them 3 and 1 and the
+// browser twin (verifiedCountOf) must decide every frame the same way.
+// Anything else is absent, never clamped: 999 of 3 is a broken receiver, not
+// "all matched". The count is the receiver's claim, used only for equality
+// with the file count.
+func parseReceived(raw []byte, files int) (ok bool, verified int, hasVerified bool) {
 	if len(raw) > controlMsgMax {
-		return false
+		return false, 0, false
 	}
 	var msg struct {
 		Type string `json:"type"`
 	}
-	return json.Unmarshal(raw, &msg) == nil && msg.Type == "received"
+	if json.Unmarshal(raw, &msg) != nil || msg.Type != "received" {
+		return false, 0, false
+	}
+	var fields map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &fields)
+	lit := fields["verified"]
+	// A number starts with a digit or a minus. The byte test comes first because
+	// null decodes into a float64 without an error.
+	if len(lit) == 0 || (lit[0] != '-' && (lit[0] < '0' || lit[0] > '9')) {
+		return true, 0, false
+	}
+	var n float64
+	if json.Unmarshal(lit, &n) != nil || n != math.Trunc(n) || n < 0 || n > float64(files) {
+		return true, 0, false
+	}
+	return true, int(n), true
 }
 
 // SendOptions carries optional behavior for GUI clients. The zero value is
@@ -332,6 +362,9 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 	// it, and a host that must bound a session cancels in its own layer.
 	// Only the stall arm updates lastBuffered: a sample from the 50 ms tick arm
 	// would compare two reads 50 ms apart and abort a slow but live drain.
+	// What the receiver's received frame reported, read by the summary below.
+	var verified int
+	var hasVerified bool
 	lastBuffered := deliveryBuffered(dc)
 	stall := time.NewTimer(deliveryStallWindow)
 	defer stall.Stop()
@@ -347,7 +380,8 @@ drainLoop:
 			if reason := abortFromPeer(raw, localVer, opts.UpdateHint); reason != "" {
 				return fmt.Errorf("%s", reason)
 			}
-			if isReceived(raw) {
+			if ok, v, has := parseReceived(raw, len(files)); ok {
+				verified, hasVerified = v, has
 				break drainLoop
 			}
 		case <-drainTick.C:
@@ -371,7 +405,8 @@ drainLoop:
 					if reason := abortFromPeer(raw, localVer, opts.UpdateHint); reason != "" {
 						return fmt.Errorf("%s", reason)
 					}
-					if isReceived(raw) {
+					if ok, v, has := parseReceived(raw, len(files)); ok {
+						verified, hasVerified = v, has
 						break drainLoop
 					}
 				default:
@@ -400,10 +435,16 @@ drainLoop:
 	if spd := formatSpeed(float64(totalBytes) / elapsed.Seconds()); spd != "" {
 		timeVal += " · avg " + spd
 	}
-	printSummary([][2]string{
+	rows := [][2]string{
 		{"Sent", fmt.Sprintf("%s (%s)", pluralize(len(files), "file"), formatBytes(totalBytes))},
-		{"Time", timeVal},
-	})
+	}
+	// The receiver's report, not a proof made here: shown only when it said
+	// every file matched.
+	if hasVerified && verified == len(files) && len(files) > 0 {
+		rows = append(rows, [2]string{"Verified", "SHA-256 matched"})
+	}
+	rows = append(rows, [2]string{"Time", timeVal})
+	printSummary(rows)
 	return nil
 }
 

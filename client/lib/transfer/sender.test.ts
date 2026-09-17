@@ -420,12 +420,39 @@ describe('sender: session control listener', () => {
         ]);
     });
 
-    it('reports received frames without reading their fields', async () => {
+    it('reads the count on a received frame only through the validator', async () => {
         let received = 0;
+        const delivered: Array<{ files: number; verified: number | null; allVerified: boolean }> = [];
         const s = sessionDeps({ onEnd: (deliver) => deliver(JSON.stringify({ type: 'received', verified: 'x' })) });
         await sendFiles(s.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], {
             onReceived: () => { received += 1; },
+            onDelivered: (d) => { delivered.push(d); },
         });
         expect(received).toBe(1);
+        expect(delivered).toEqual([{ files: 1, verified: null, allVerified: false }]);
+    });
+
+    // The received frame arrives after the last file's end marker.
+    async function deliveredFor(verified: unknown, fileCount: number) {
+        const delivered: Array<{ files: number; verified: number | null; allVerified: boolean }> = [];
+        let ends = 0;
+        const s = sessionDeps({
+            onEnd: (deliver) => {
+                ends += 1;
+                if (ends === fileCount) deliver(JSON.stringify({ type: 'received', verified }));
+            },
+        });
+        const files = Array.from({ length: fileCount }, (_, i) => ({ id: 'f' + i, file: makeFile(8, 'f' + i + '.bin') }));
+        await sendFiles(s.deps, files, { onDelivered: (d) => { delivered.push(d); } });
+        return delivered;
+    }
+
+    it('verified below the count is not reported as matched', async () => {
+        expect(await deliveredFor(2, 3)).toEqual([{ files: 3, verified: 2, allVerified: false }]);
+        expect(await deliveredFor(3, 3)).toEqual([{ files: 3, verified: 3, allVerified: true }]);
+    });
+
+    it('verified above the count is absent', async () => {
+        expect(await deliveredFor(999, 3)).toEqual([{ files: 3, verified: null, allVerified: false }]);
     });
 });

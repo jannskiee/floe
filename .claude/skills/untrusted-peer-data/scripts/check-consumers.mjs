@@ -59,10 +59,16 @@ export const FIELDS = {
             'IncomingInfo',
             'FileInfo',
             'RefusalCode',
+            'SHA256',
+            'parseEnd',
+            'parseReceived',
+            'FileDone',
         ],
         // Code and Saved are the optional incompatible fields; both words are
         // too common to search for bare ("Saved to" is a receiver print).
-        member: ['Ver', 'Reason', 'Code', 'Saved'],
+        // Verified is FileDone's field (the receiver's own compare) and the name a
+        // struct decode of received would give the peer's count.
+        member: ['Ver', 'Reason', 'Code', 'Saved', 'Verified'],
     },
     ts: {
         word: [
@@ -77,8 +83,11 @@ export const FIELDS = {
             'Incompatible',
             'refusalCodeOf',
             'RefusalCode',
+            'Received',
+            'normalizeSha256',
+            'verifiedCountOf',
         ],
-        member: ['ver', 'reason', 'code', 'saved'],
+        member: ['ver', 'reason', 'code', 'saved', 'sha256', 'verified'],
     },
 };
 // Files the map keeps although no token appears in them, for either of two

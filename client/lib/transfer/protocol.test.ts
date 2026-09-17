@@ -14,7 +14,10 @@ import {
     compatErrorFromIncompatible,
     refusalCodeOf,
     REFUSAL_CODES,
+    normalizeSha256,
+    verifiedCountOf,
     type Incompatible,
+    type Received,
     metadataMessage,
     ackMessage,
     endMessage,
@@ -363,5 +366,38 @@ describe('classifyControl', () => {
     it('accepts an ArrayBuffer as well as Uint8Array', () => {
         const buf = toArrayBuffer(endMessage());
         expect(classifyControl(buf)?.type).toBe('end');
+    });
+});
+
+describe('per-file SHA-256 fields', () => {
+    const good = '0123456789abcdef'.repeat(4);
+
+    it('normalizeSha256 accepts only 64 lowercase hex', () => {
+        expect(normalizeSha256(good)).toBe(good);
+        // JSON escapes are undone by the parse, as in the Go engine.
+        expect(normalizeSha256((JSON.parse('{"sha256":"\\u0030' + good.slice(1) + '"}') as { sha256: unknown }).sha256)).toBe(good);
+        for (const bad of [good.toUpperCase(), good.slice(0, 63), good + '0', good.slice(0, 63) + 'g', '', ' ' + good, 3, null, undefined, true, {}, [good]]) {
+            expect(normalizeSha256(bad), JSON.stringify(bad)).toBeNull();
+        }
+    });
+
+    it('endMessage omits sha256 without a valid digest', () => {
+        for (const bad of [undefined, null, good.toUpperCase(), good.slice(0, 63)]) {
+            expect(endMessage(bad)).toBe('{"type":"end"}');
+        }
+        const hashed = endMessage(good);
+        // type first: the transfer audit's hashbad cells match this prefix.
+        expect(hashed.startsWith('{"type":"end","sha256":"')).toBe(true);
+        expect(JSON.parse(hashed)).toEqual({ type: 'end', sha256: good });
+        expect(enc.encode(hashed).byteLength).toBe(90);
+    });
+
+    it('verifiedCountOf rejects non-integers and out-of-range', () => {
+        const of = (v: unknown) => verifiedCountOf({ type: 'received', verified: v } as Received, 3);
+        expect(of(0)).toBe(0);
+        expect(of(3)).toBe(3);
+        for (const bad of [-1, 4, 3.5, '3', 2 ** 53, Infinity, NaN, null, true, [3], undefined]) {
+            expect(of(bad), String(bad)).toBeNull();
+        }
     });
 });

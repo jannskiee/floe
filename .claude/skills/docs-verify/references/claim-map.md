@@ -24,6 +24,15 @@ The map names where a value is stated; grep the old literal repo-wide before fin
 - Tests: `TestProtocolVersionPinnedToClient` (cli/engine/transfer/protocol_test.go) and the `constants` block of client/lib/transfer/protocol.test.ts pin both numbers by hand and name each other; the script does not compare them.
 - Docs: docs/reference/transfer-protocol.mdx "Protocol versioning" (which also names both test files) plus every `pv` / `pvMin` example on that page, docs/desktop/settings.mdx "Transfer protocol", docs/changelog.mdx intro (the "no release so far has changed the transfer protocol" sentence), CLAUDE.md "Transfer Protocol Versioning".
 
+## Integrity hash
+
+- `validSHA256Hex` and `parseEnd` (cli/engine/transfer/control.go) define the wire digest (64 lowercase hex) and the rule that a present but unreadable digest refuses the file; `normalizeSha256` and `verifiedCountOf` (client/lib/transfer/protocol.ts) are the browser twins, and `endMessage` emits the key only for a valid digest.
+- The `Verified` row, "SHA-256 matched", comes from the summary in `ReceiveFilesWithOptions` (receiver.go: `verifiedCount == filesReceived && filesReceived > 0`) and `SendFilesWithOptions` (sender.go: `hasVerified && verified == len(files)`). The digest is taken while writing, never re-read from disk, and on the sender the row is the receiver's report rather than a proof. A mismatched or unreadable digest deletes the .part before the rename and refuses with `CodeHashMismatch`.
+- `FileDone` and `OnFileDone` (receiver.go) are what a GUI learns per committed file.
+- Whether a sender hashes is decided by `sendFileHashes` (Go, P0-22) and the browser worker constant (P0-21b), so docs say "when the sender provides one"; browser receivers never send `received`, so they never report `verified`.
+- Tests: the `endSha256` and `receivedVerified` rows of the parity table (cli/engine/transfer/parity_test.go and client/lib/transfer/parity.test.ts), cli/engine/transfer/hash_test.go.
+- Docs: docs/reference/transfer-protocol.mdx "Integrity" and the `end` and `received` field tables, docs/how-it-works/known-limitations.mdx, docs/how-it-works/encryption.mdx, docs/cli/receive.mdx (the summary example and the byte-count sentence), docs/cli/send.mdx (the Verified row paragraph under the Sent box), CLAUDE.md "Transfer Protocol Versioning", the Store What's new draft.
+
 ## Deployed commit
 
 - `GET` in client/app/api/config/route.ts: `commit` is `VERCEL_GIT_COMMIT_SHA`, then `SOURCE_COMMIT`, else `null`, with an empty value counting as unset; `socketUrl` is unchanged.

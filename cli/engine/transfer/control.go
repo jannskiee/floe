@@ -5,6 +5,7 @@ package transfer
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -59,6 +60,15 @@ const (
 	// computed, or the hash it sent was malformed. The .part is removed before
 	// it ever gets a final name.
 	CodeHashMismatch RefusalCode = "hash-mismatch"
+)
+
+// The two ways a file fails its SHA-256, carried in RefusedError.Err so that
+// Error() can word them apart without ever reading the peer's text. Both refuse
+// with CodeHashMismatch: a digest that cannot be read cannot vouch for the
+// file either, and a second code would widen the closed set for no reader.
+var (
+	errSHA256Mismatch   = errors.New("sha256 did not match the bytes written")
+	errSHA256Unreadable = errors.New("sha256 is not 64 lowercase hex characters")
 )
 
 // AbortWithCode is abortReason for a receiver that knows WHY it stopped: the
@@ -143,6 +153,13 @@ func (e *RefusedError) Error() string {
 		// Starts with "write error" on purpose: the desktop's friendlyError
 		// already maps that to its save-folder sentence.
 		return "write error: could not finish writing a file, so it was not kept"
+	case CodeHashMismatch:
+		// Neither sentence starts with "write error": the desktop maps that to
+		// save-folder advice, which is wrong for a file that failed its hash.
+		if errors.Is(e.Err, errSHA256Unreadable) {
+			return "the sender's SHA-256 for a file could not be read, so the file was not kept"
+		}
+		return "a file did not match the SHA-256 the sender computed, so it was not kept"
 	case "":
 		return "receive stopped"
 	}
@@ -209,7 +226,7 @@ const controlMsgMax = 1000
 // The receive loop is the only caller, and it acts on "metadata", "end" and
 // "incompatible" (a sender's abort). "ack" and "received" flow the other way
 // and never come through here: the sender decodes the receiver's frames on its
-// own (the ack wait in sendFile, abortFromPeer and isReceived) under the same
+// own (the ack wait in sendFile, abortFromPeer and parseReceived) under the same
 // controlMsgMax bound. A stray "ack" or "received" that does reach the receive
 // loop matches no arm of its switch and is dropped.
 func classifyControl(data []byte) (msgType string, isControl bool) {
@@ -313,4 +330,50 @@ func parseMetadata(text string) (FileInfo, error) {
 		PvMin:      m.PvMin,
 		Ver:        m.Ver,
 	}, nil
+}
+
+// validSHA256Hex is the single definition of the wire digest: exactly 64
+// characters, each 0-9 or a-f. Lowercase only, so the check needs no case
+// folding and the TS twin (normalizeSha256) is one regular expression.
+func validSHA256Hex(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// parseEnd reads the optional sha256 of an end frame classifyControl already
+// accepted. Absent gives "" and nil: the sender does not hash, and the file is
+// committed unverified. Present but not a JSON string (null, a number, an
+// object) or a string that fails validSHA256Hex is an error, and the receiver
+// refuses the file rather than treat an unreadable digest as absent.
+//
+// The field is read by its exact key as raw JSON, as the browser reads it: a
+// struct tag would also match "SHA256", and a string decode would turn null
+// into "" and absent. JSON escapes are undone before validation, and a
+// duplicate key keeps its last value, on both sides. The error never embeds
+// the value.
+func parseEnd(data []byte) (string, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return "", errSHA256Unreadable
+	}
+	lit, present := fields["sha256"]
+	if !present {
+		return "", nil
+	}
+	if len(lit) == 0 || lit[0] != '"' {
+		return "", errSHA256Unreadable
+	}
+	var s string
+	if err := json.Unmarshal(lit, &s); err != nil || !validSHA256Hex(s) {
+		return "", errSHA256Unreadable
+	}
+	return s, nil
 }

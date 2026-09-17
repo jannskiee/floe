@@ -13,11 +13,13 @@ import {
     compatErrorMessage,
     compatErrorFromIncompatible,
     refusalCodeOf,
+    verifiedCountOf,
     PROTOCOL_VERSION,
     MIN_PROTOCOL_VERSION,
     ACK_TIMEOUT_MS,
     type Ack,
     type Incompatible,
+    type Received,
     type RefusalCode,
 } from './protocol';
 
@@ -35,6 +37,10 @@ export interface SenderCallbacks {
     onStopped?: (stop: { code: RefusalCode | null; saved: number }) => void;
     // The receiver sent `received`. No field of the frame is read here.
     onReceived?: () => void;
+    // The same frame's report: `files` is the local count, `verified` the
+    // receiver's matched count when verifiedCountOf accepts it (else null), and
+    // `allVerified` whether it equals `files`. The receiver's claim, not a proof.
+    onDelivered?: (report: { files: number; verified: number | null; allVerified: boolean }) => void;
 }
 
 export interface FileEntry {
@@ -509,6 +515,8 @@ function openSession(deps: SenderDeps, cb: SenderCallbacks, fileCount: number): 
             settle({ type: 'stopped' });
         } else if (msg.type === 'received') {
             cb.onReceived?.();
+            const verified = verifiedCountOf(msg as Received, fileCount);
+            cb.onDelivered?.({ files: fileCount, verified, allVerified: fileCount > 0 && verified === fileCount });
         }
     });
 
