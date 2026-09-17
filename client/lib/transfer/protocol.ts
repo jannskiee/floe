@@ -9,6 +9,12 @@ export const READ_SLAB = 4 * 1024 * 1024;  // 4 MB — disk read slab size
 export const DEFAULT_CHUNK = 64 * 1024;    // 64 KB — fallback chunk size
 export const MAX_CHUNK = 256 * 1024;       // 256 KB — cap on adaptive chunk
 
+// Whether the browser sender computes a per-file SHA-256 and puts it in `end`.
+// Off until the sender wiring and its measurement land (P0-21b); kept afterwards
+// as the rollback switch, because a receiver treats an absent digest as the old
+// byte-count check.
+export const SEND_FILE_HASHES = false;
+
 // Milliseconds the sender waits for the receiver's ack before failing. Mirrors
 // the CLI sender's 120 s ack deadline (cli/engine/transfer/sender.go). It must be
 // this generous because a CLI receiver only acks after a human answers its

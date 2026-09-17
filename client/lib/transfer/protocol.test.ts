@@ -16,6 +16,7 @@ import {
     REFUSAL_CODES,
     normalizeSha256,
     verifiedCountOf,
+    SEND_FILE_HASHES,
     type Incompatible,
     type Received,
     metadataMessage,
@@ -41,6 +42,7 @@ describe('constants', () => {
     // implementations refuse each other before any bytes move.
     it('PROTOCOL_VERSION is 1', () => expect(PROTOCOL_VERSION).toBe(1));
     it('MIN_PROTOCOL_VERSION is 1', () => expect(MIN_PROTOCOL_VERSION).toBe(1));
+    it('SEND_FILE_HASHES defaults to false before the sender wiring', () => expect(SEND_FILE_HASHES).toBe(false));
     it('CONTROL_MSG_MAX is 1000', () => expect(CONTROL_MSG_MAX).toBe(1000));
     it('HIGH_WATER is 8 MB', () => expect(HIGH_WATER).toBe(8 * 1024 * 1024));
     it('LOW_WATER is 4 MB', () => expect(LOW_WATER).toBe(4 * 1024 * 1024));
