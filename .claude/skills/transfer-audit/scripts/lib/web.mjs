@@ -198,7 +198,7 @@ export function AUDIT_INIT({ relayOnly = false } = {}) {
         '        pcs: [],',
         '        status: [],',
         '        bytesReported: [],',
-        '        dcBytes: { in: 0, out: 0, messages: 0 },',
+        '        dcBytes: { in: 0, out: 0, messages: 0, binIn: 0, binOut: 0 },',
         '        installedAt: Date.now(),',
         '    });',
         '    const size = (d) =>',
@@ -214,11 +214,13 @@ export function AUDIT_INIT({ relayOnly = false } = {}) {
         '        ch.__floeTracked = true;',
         "        ch.addEventListener('message', (e) => {",
         '            audit.dcBytes.in += size(e.data);',
+        "            if (typeof e.data !== 'string') audit.dcBytes.binIn += size(e.data);",
         '            audit.dcBytes.messages += 1;',
         '        });',
         '        const send = ch.send;',
         '        ch.send = function (d) {',
         '            audit.dcBytes.out += size(d);',
+        "            if (typeof d !== 'string') audit.dcBytes.binOut += size(d);",
         '            return send.call(this, d);',
         '        };',
         '    };',
@@ -356,6 +358,8 @@ export const SAMPLE = async () => {
                   in: a.dcBytes.in,
                   out: a.dcBytes.out,
                   messages: a.dcBytes.messages,
+                  binIn: a.dcBytes.binIn,
+                  binOut: a.dcBytes.binOut,
               }
             : null,
     };
@@ -381,15 +385,27 @@ export function candidateCensus(samples = []) {
 }
 
 /**
- * Pure: bytes that crossed the page's data channels (both directions) as
- * of the latest sample that carries the counter. The refusal cells read
- * this through WebLeg.bytesMoved(): a relay-capped sender refuses before
- * any metadata, so a correct refusal leaves this at 0.
+ * Pure: file bytes that crossed the page's data channels (both directions)
+ * as of the latest sample that carries the counter. The refusal cells read
+ * this through WebLeg.bytesMoved(): a relay-capped sender refuses before any
+ * metadata, so a correct refusal moves no file byte.
+ *
+ * Only BINARY frames count. Since 80edcfe (2026-09-07) a relay-capped Go
+ * sender says why in one TEXT incompatible frame before it closes (143 B for
+ * a 3 GB refusal, measured on the pre-hash deep run of 2026-09-17), and that
+ * frame is the refusal, not data: file chunks always travel as binary, and
+ * sender-to-receiver control frames always as text. Counting every message
+ * turned a correct refusal into cap-not-enforced. A sample from an older init
+ * script, without the binary counters, falls back to every byte.
  */
 export function bytesMovedFrom(samples = []) {
     for (let i = samples.length - 1; i >= 0; i--) {
         const dc = samples[i] && samples[i].dcBytes;
-        if (dc) return (Number(dc.in) || 0) + (Number(dc.out) || 0);
+        if (!dc) continue;
+        if (typeof dc.binIn === 'number' || typeof dc.binOut === 'number') {
+            return (Number(dc.binIn) || 0) + (Number(dc.binOut) || 0);
+        }
+        return (Number(dc.in) || 0) + (Number(dc.out) || 0);
     }
     return 0;
 }

@@ -324,10 +324,20 @@ test('AUDIT_INIT tracks every data channel and SAMPLE carries the counter', () =
     const script = AUDIT_INIT({});
     assert.ok(script.includes("addEventListener('datachannel'"));
     assert.ok(script.includes('createDataChannel(...args)'));
-    assert.ok(script.includes('dcBytes: { in: 0, out: 0, messages: 0 }'));
+    assert.ok(script.includes('dcBytes: { in: 0, out: 0, messages: 0, binIn: 0, binOut: 0 }'));
+    assert.ok(script.includes("if (typeof e.data !== 'string') audit.dcBytes.binIn += size(e.data)"));
     assert.ok(script.includes('audit.dcBytes.in += size(e.data)'));
     assert.doesNotThrow(() => new Function(script));
     assert.ok(String(SAMPLE).includes('dcBytes'));
+});
+
+test('bytesMovedFrom counts only binary frames, so a text refusal reason is not file data', () => {
+    // The relay-cap refusal of 2026-09-17: one 143 B TEXT incompatible frame
+    // arrived and no binary frame did. That is a correct refusal.
+    assert.equal(bytesMovedFrom([sample([], { dcBytes: { in: 143, out: 0, messages: 1, binIn: 0, binOut: 0 } })]), 0);
+    // A chunk that did cross is counted, in either direction.
+    assert.equal(bytesMovedFrom([sample([], { dcBytes: { in: 4239, out: 20, messages: 3, binIn: 4096, binOut: 0 } })]), 4096);
+    assert.equal(bytesMovedFrom([sample([], { dcBytes: { in: 0, out: 64, messages: 1, binIn: 0, binOut: 64 } })]), 64);
 });
 
 test('bytesMovedFrom counts data-channel bytes, pairBytesFrom keeps the pair counters for the record', () => {
