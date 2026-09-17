@@ -16,8 +16,11 @@
 package transfer
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"io"
 	"math"
 	"os"
@@ -116,10 +119,17 @@ type ackMsg struct {
 	Ver    string `json:"ver"`
 }
 
-// endMsg is sent after the last chunk of each file. SHA256 stays empty, and
-// so absent from the frame, until the Go sender hashes what it sends. Type is
-// declared first on purpose: the transfer audit's hashbad cells match frames
-// that start with {"type":"end","sha256":".
+// sendFileHashes is whether this sender puts a SHA-256 of each file on that
+// file's end frame. It is the rollback lever, a var so a test can turn it off:
+// with it false every receiver falls back to the byte-count check it used
+// before. The browser has the same lever in client/lib/transfer/protocol.ts.
+var sendFileHashes = true
+
+// endMsg is sent after the last chunk of each file. SHA256 carries the digest
+// of the bytes this sender put on the wire, and is absent when the file was
+// resumed from a nonzero offset or hashing is off. Type is declared first on
+// purpose: the transfer audit's hashbad cells match frames that start with
+// {"type":"end","sha256":".
 type endMsg struct {
 	Type   string `json:"type"`
 	SHA256 string `json:"sha256,omitempty"`
@@ -573,6 +583,13 @@ ackLoop:
 		bar = newProgressBar(fileSize, index, total, entry.displayName)
 		bar.Set64(offset)
 	}
+	// The digest covers exactly the bytes handed to dc.Send, so it describes
+	// what the receiver got rather than what is on disk now. Only from offset 0:
+	// a resumed file would hash a suffix, and the receiver hashes the whole file.
+	var hasher hash.Hash
+	if sendFileHashes && offset == 0 {
+		hasher = sha256.New()
+	}
 	sentFile := offset
 	report := func(n int) {
 		sentFile += int64(n)
@@ -630,6 +647,9 @@ ackLoop:
 			if sendErr := dc.Send(buf[:n]); sendErr != nil {
 				return fmt.Errorf("failed to send chunk: %w", sendErr)
 			}
+			if hasher != nil {
+				hasher.Write(buf[:n]) // hash.Hash never returns an error
+			}
 			report(n)
 			// A receiver that stops us mid-file, because it caught an over-run,
 			// has nowhere else to be heard: this loop is the only thing running.
@@ -682,8 +702,11 @@ ackLoop:
 		fmt.Println()
 	}
 
-	// Step 4: Send end marker
+	// Step 4: Send end marker, with the digest when it covers the whole file.
 	end := endMsg{Type: "end"}
+	if hasher != nil {
+		end.SHA256 = hex.EncodeToString(hasher.Sum(nil))
+	}
 	endJSON, _ := json.Marshal(end)
 	return dc.SendText(string(endJSON))
 }
