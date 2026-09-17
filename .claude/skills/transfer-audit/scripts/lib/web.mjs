@@ -670,6 +670,11 @@ export class WebLeg extends Leg {
             serviceWorkers: 'block',
         });
         await this.ctx.addInitScript(AUDIT_INIT({ relayOnly: this.relayOnly }));
+        // A hashbad cell's browser sender puts a digest on its end frame that
+        // cannot match what the peer received; the receiver must refuse it.
+        // hashmal is the CLI-shaped harness's variant, not the browser's: the
+        // page's own hashBlob only ever returns 64 lowercase hex characters.
+        if (this.opts.hashLie === 'corrupt') await installHashbad(this.ctx);
         // The route guard sits on every context: senders never report, but
         // the attestation "browser attempts 0" then covers every page.
         await guardStats(this.ctx, this.statsRec);

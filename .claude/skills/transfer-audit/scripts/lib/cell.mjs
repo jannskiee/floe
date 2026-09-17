@@ -464,6 +464,8 @@ function legOpts(cell, role, ctx, rec, extra) {
         cliHasRelayOnly: Boolean(ctx.cliHasRelayOnly),
         expect: cell.expect,
         killAtBytes: cell.killAtBytes,
+        // Only the sender lies, and only in a hashbad or hashmal cell (P0-27).
+        hashLie: role === 'sender' ? cell.hashLie || null : null,
         pionTrace: Boolean(
             ctx.pionTrace &&
             cell.path === 'REL' &&
