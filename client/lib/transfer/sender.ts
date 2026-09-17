@@ -17,11 +17,19 @@ import {
     PROTOCOL_VERSION,
     MIN_PROTOCOL_VERSION,
     ACK_TIMEOUT_MS,
+    SEND_FILE_HASHES,
     type Ack,
     type Incompatible,
     type Received,
     type RefusalCode,
 } from './protocol';
+import { hashBlob as workerHashBlob } from './fileHash';
+
+// The digest wait's own escape: how often it asks whether the transfer is still
+// alive, and the token that says it is not. The token is a symbol so it can
+// never be confused with a digest the worker returned.
+const DIGEST_STOP_POLL_MS = 200;
+const STOPPED = Symbol('transfer stopped');
 
 export interface SenderCallbacks {
     onFileStart?: (index: number, total: number, fileName: string) => void;
@@ -66,6 +74,9 @@ export interface SenderDeps {
     onData: (handler: (data: string | Uint8Array | ArrayBuffer) => void) => () => void;
     channel: BufferChannel;
     sctpMaxMessageSize?: number | null;
+    // The digest function, so a test can pass its own; the default is the Worker
+    // behind hashBlob. A rejection, or a synchronous throw, is read as null.
+    hashBlob?: (blob: Blob, signal?: AbortSignal) => Promise<string | null>;
 }
 
 // How often the progress ticker re-derives delivered bytes for the UI. It runs
@@ -98,6 +109,9 @@ export interface SendOptions {
     // ACK_TIMEOUT_MS (120 s); a caller whose receiver may take longer to
     // decide passes a longer value.
     ackTimeoutMs?: number;
+    // Whether each file's SHA-256 goes on its end frame. Defaults to
+    // SEND_FILE_HASHES, the rollback lever.
+    sendHashes?: boolean;
 }
 
 /**
@@ -159,10 +173,19 @@ export async function sendFiles(
         for (let i = 0; i < files.length; i++) {
             if (destroyed()) return;
             const entry = files[i];
-            const ok = await sendSingleFile(
-                deps, entry, i + 1, files.length, totalBytes, cb, view, emitView,
-                opts.ackTimeoutMs ?? ACK_TIMEOUT_MS, session
-            );
+            // Aborted whichever way this file ends, so a stopped transfer never
+            // leaves the worker reading the rest of a large file.
+            const hashAbort = new AbortController();
+            let ok: boolean;
+            try {
+                ok = await sendSingleFile(
+                    deps, entry, i + 1, files.length, totalBytes, cb, view, emitView,
+                    opts.ackTimeoutMs ?? ACK_TIMEOUT_MS, session,
+                    { enabled: opts.sendHashes ?? SEND_FILE_HASHES, hashBlob: deps.hashBlob ?? workerHashBlob, signal: hashAbort.signal }
+                );
+            } finally {
+                hashAbort.abort();
+            }
             if (!ok) return;
         }
 
@@ -281,7 +304,8 @@ async function sendSingleFile(
     view: ProgressView,
     emitView: () => void,
     ackTimeoutMs: number,
-    session: Session
+    session: Session,
+    hashing: { enabled: boolean; hashBlob: NonNullable<SenderDeps['hashBlob']>; signal: AbortSignal }
 ): Promise<boolean> {
     const { file, id } = entry;
     const { send, channel } = deps;
@@ -306,6 +330,16 @@ async function sendSingleFile(
     } catch {
         return false;
     }
+
+    // The digest starts as the metadata goes out and runs in the worker while the
+    // chunks are sent, so for most files it is ready by the last chunk. It reads
+    // the same File the chunks come from; a file that changes during the send
+    // makes the receiver discard it, which is the safe outcome.
+    const digest = hashing.enabled
+        ? Promise.resolve()
+            .then(() => hashing.hashBlob(file, hashing.signal))
+            .catch(() => null)
+        : null;
 
     // 2. Wait for ack (120 s unless the caller set ackTimeoutMs). An
     // incompatible frame, before or during the wait, stops the session.
@@ -460,9 +494,36 @@ async function sendSingleFile(
         }
     }
 
-    // 4. Send end marker
+    // 4. Send end marker, carrying the digest only when it covers the whole file:
+    // the receiver acked offset 0 (a resume would make a suffix digest mismatch)
+    // and the worker produced one. A null digest leaves the key out, and the
+    // receiver keeps its byte-count check.
+    let sha256: string | null = null;
+    if (digest && ackResult.offset === 0 && !destroyed()) {
+        // The wait can outlast the transfer on a slow machine, and a peer that
+        // goes away or refuses after the last chunk must end the send now: a
+        // plain await would keep the worker hashing the rest of the file for an
+        // end marker that may never be sent. The poll mirrors waitForBuffer's
+        // shape; sendFiles' finally aborts the hash itself.
+        let poll: ReturnType<typeof setInterval> | null = null;
+        const stopped = new Promise<typeof STOPPED>((resolve) => {
+            poll = setInterval(() => {
+                if (destroyed() || session.reportStop()) resolve(STOPPED);
+            }, DIGEST_STOP_POLL_MS);
+        });
+        let outcome: string | null | typeof STOPPED;
+        try {
+            outcome = await Promise.race([digest, stopped]);
+        } finally {
+            if (poll) clearInterval(poll);
+        }
+        if (outcome === STOPPED) return false;
+        sha256 = outcome;
+        // A refusal can also land in the same tick the digest resolves.
+        if (session.reportStop()) return false;
+    }
     try {
-        send(endMessage());
+        send(endMessage(sha256));
     } catch { }
 
     return true;
