@@ -10,6 +10,7 @@ const assert = require('node:assert/strict');
 const {
     errorHandler,
     getClientIp,
+    rateKey,
     generateCode,
     checkRateLimit,
     handleJoinRoom,
@@ -76,6 +77,80 @@ describe('getClientIp', () => {
 });
 
 // ---------------------------------------------------------------------------
+// rateKey: the key every per-IP limiter counts under
+// ---------------------------------------------------------------------------
+
+describe('rateKey', () => {
+    it('unwraps both mapped spellings and keeps them distinct', () => {
+        assert.equal(rateKey('::ffff:1.2.3.4'), '1.2.3.4');
+        assert.equal(rateKey('::ffff:cb00:7107'), '203.0.113.7');
+        assert.equal(rateKey('::ffff:102:304'), rateKey('::ffff:1.2.3.4'));
+        // Unwrapped, not masked: every IPv4 client would otherwise share ::ffff:0:0/64.
+        assert.notEqual(rateKey('::ffff:1.2.3.4'), rateKey('::ffff:1.2.3.5'));
+    });
+
+    it('two addresses in one /64 share a key and another /64 does not', () => {
+        assert.equal(rateKey('2001:db8:1:2:3:4:5:6'), '2001:db8:1:2::/64');
+        assert.equal(rateKey('2001:db8:1:2:aaaa:bbbb:cccc:dddd'), '2001:db8:1:2::/64');
+        assert.notEqual(rateKey('2001:db8:1:3::1'), rateKey('2001:db8:1:2::1'));
+    });
+
+    it('2001:db8::1 equals 2001:0db8::1', () => {
+        assert.equal(rateKey('2001:db8::1'), rateKey('2001:0db8::1'));
+        assert.equal(rateKey('2001:DB8::1'), '2001:db8:0:0::/64');
+    });
+
+    it('0:0:0:0:0:0:0:1 equals ::1', () => {
+        assert.equal(rateKey('0:0:0:0:0:0:0:1'), rateKey('::1'));
+    });
+
+    it('unparseable inputs keep distinct buckets', () => {
+        assert.notEqual(rateKey('unknown'), rateKey('garbage'));
+        assert.equal(rateKey('1.2.3.4'), '1.2.3.4');
+        assert.equal(rateKey(undefined), 'unknown');
+        assert.equal(rateKey('fe80::1%eth0'), 'fe80::1%eth0');
+    });
+
+    it('leaves a zone id unchanged, even one holding a dot', () => {
+        // net.isIPv6 accepts a zone id made of [0-9a-zA-Z-.:], so a dot in it once
+        // reached the dotted-IPv4 branch and threw (seven groups plus ::).
+        for (const zoned of ['1:2:3:4:5:6:7::%x.y', '::ffff:1.2.3.4%eth0', 'fe80::1%eth0.100', 'fe80::1%eth0']) {
+            assert.equal(rateKey(zoned), zoned);
+        }
+    });
+
+    it('keys every accepted spelling without throwing', () => {
+        const expected = {
+            '::': '0:0:0:0::/64',
+            '::1.2.3.4': '0:0:0:0::/64',
+            '64:ff9b::1.2.3.4': '64:ff9b:0:0::/64',
+            '1::2:1.2.3.4': '1:0:0:0::/64',
+            '1:2:3:4:5:6:7::': '1:2:3:4::/64',
+            '1:2:3:4:5:6:1.2.3.4': '1:2:3:4::/64',
+            '::2:3:4:5:6:7:8': '0:2:3:4::/64',
+            '::FFFF:1.2.3.4': '1.2.3.4',
+        };
+        for (const [addr, key] of Object.entries(expected)) assert.equal(rateKey(addr), key, addr);
+    });
+
+    it('is the key checkRateLimit and makeRateLimiter count under', () => {
+        connectionCounts.clear();
+        for (let i = 0; i < 30; i++) checkRateLimit('2001:db8:1:2::' + (i + 1).toString(16));
+        assert.equal(checkRateLimit('2001:db8:1:2:ffff::1'), false, 'a 31st address in the same /64 is blocked');
+        assert.equal(checkRateLimit('::ffff:9.9.9.9'), true);
+        assert.deepEqual([...connectionCounts.keys()], ['2001:db8:1:2::/64', '9.9.9.9']);
+        connectionCounts.clear();
+
+        const map = new Map();
+        const limiter = makeRateLimiter(map, 60000, 1);
+        limiter({ ip: '2001:db8:1:2::1' }, { status() { return this; }, json() { return this; } }, () => {});
+        let allowed = false;
+        limiter({ ip: '2001:db8:1:2::2' }, { status() { return this; }, json() { return this; } }, () => { allowed = true; });
+        assert.equal(allowed, false, 'the same /64 shares one budget');
+    });
+});
+
+// ---------------------------------------------------------------------------
 // generateCode
 // ---------------------------------------------------------------------------
 
@@ -103,6 +178,35 @@ describe('generateCode', () => {
         const next = generateCode(() => 'apple');
         assert.equal(next, fixed, 'expired slot should be reused');
         assert.equal(next.split('-').length, 3, 'should return the 3-word form');
+    });
+});
+
+describe('words.json', () => {
+    // The phrase is the only secret guarding a code transfer, so the list size is
+    // its strength: the EFF short word list (1296 words) minus its one hyphenated
+    // entry (yo-yo) and the 48 words below, which read badly in a code shown in
+    // large type and read aloud, or would alarm someone receiving files (virus,
+    // scam, spoof, error). 1247 words, 30.85 bits for three. The character class
+    // is what catches a future hyphenated word, which would print a three-word
+    // code that reads as four parts.
+    const words = require('./words.json');
+    const EXCLUDED = ['aids', 'arson', 'bribe', 'chump', 'coke', 'coma', 'crazy', 'crook', 'cult', 'curse', 'dwarf', 'ebay', 'error', 'evil', 'fetal', 'gore', 'grave', 'grope', 'hate', 'hump', 'islam', 'junky', 'kung', 'mardi', 'pagan', 'panty', 'polio', 'prude', 'rabid', 'riot', 'roman', 'santa', 'scam', 'slain', 'slob', 'slum', 'spoof', 'stole', 'theft', 'thong', 'trump', 'virus', 'vixen', 'wimp', 'womb', 'wound', 'xerox', 'yahoo'];
+
+    it('holds exactly the 1247 words of the reviewed EFF short list', () => {
+        assert.equal(words.length, 1247);
+    });
+
+    it('leaves out every excluded word', () => {
+        assert.deepEqual(words.filter((w) => EXCLUDED.includes(w)), []);
+    });
+
+    it('has no duplicates', () => {
+        assert.equal(new Set(words).size, words.length);
+    });
+
+    it('uses only 3 to 5 lowercase letters per word', () => {
+        const bad = words.filter((w) => !/^[a-z]{3,5}$/.test(w));
+        assert.deepEqual(bad, []);
     });
 });
 

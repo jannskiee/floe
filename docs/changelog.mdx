@@ -43,6 +43,23 @@ Floe ships on two version lines. `vX.Y.Z` releases floe.one, the `floe` CLI, and
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
+<Update label="desktop-v0.2.12" description="2026-09-17" tags={["Desktop"]}>
+  **A send over a slow or lossy connection no longer fails in its last moments**
+
+  - After the last file went out, Floe gave the other side 30 seconds to confirm delivery. Up to 8 MB can still be on its way at that point, so on a slow or lossy connection a send could stop at 94 to 99 percent with a delivery timeout, and the person receiving lost the file. Floe now keeps waiting as long as that remaining data is still moving, and stops only after a full minute in which nothing more gets through.
+  - A connection that has really stopped is still caught: when nothing moves for a minute, or the other side disconnects, the send ends as before.
+  - The wire protocol is unchanged, so 0.2.12 transfers with older CLI, desktop, and browser peers in both directions.
+</Update>
+
+<Update label="v1.10.11" description="2026-09-17" tags={["CLI", "Self-hosting"]}>
+  **`floe send` no longer gives up at 94 to 99 percent on a slow or lossy connection**
+
+  - After the last file, `floe send` waited a fixed 30 seconds for the receiver to confirm delivery. Up to 8 MB can still be queued at that point, so a transfer whose final stretch ran below about 1 Mbps failed with `timed out waiting for delivery confirmation from peer`, and the receiver deleted the incomplete file. The sender now keeps waiting while that data is still draining, and gives up only after a full minute with no progress, the same rule the rest of a transfer already follows.
+  - A receiver that stops responding is now reported after 60 seconds of no progress instead of a fixed 30 seconds.
+  - Self-hosting: the published images are rebuilt as `1.10.11`. They include internal cleanups since `1.10.10` and no configuration change. If you pinned `FLOE_IMAGE_TAG=1.10.10`, move to `1.10.11`.
+  - The wire protocol is unchanged, so this still transfers with older CLI, desktop, and browser peers in both directions.
+</Update>
+
 <Update label="v1.10.10" description="2026-09-11" tags={["Self-hosting"]}>
   **Six ways to stop a signaling server with one unauthenticated request are closed**
 

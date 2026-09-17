@@ -114,8 +114,10 @@ client accepts either, and anything else consuming this endpoint has to as well.
 </ResponseField>
 
 Both credential paths issue a 24-hour expiry. Cloudflare credentials are minted upstream and
-cached in the server's memory for 12 hours, so a burst of page loads costs one upstream call and
-a restart re-mints.
+cached in the server's memory for 5 minutes, so a burst of page loads costs one upstream call and
+a restart re-mints. The upstream call times out after 10 seconds. While Cloudflare's API fails, the
+server keeps serving the last good copy for up to about 23 hours after it was minted, then falls
+back to coturn or public STUN.
 
 Cloudflare's raw list is trimmed before it is served, down to one STUN URL, one UDP TURN URL, and
 one TCP-based TURN URL, preferring TLS on port 443. Clients gather ICE candidates per URL per
@@ -129,9 +131,10 @@ server returned 429 for TURN credentials. Using STUN only.`
 
 ## Room codes
 
-Codes are three lowercase words joined by hyphens, drawn from a 288-word list with a
-cryptographically secure random source. On a collision with a live code the server draws again,
-up to ten times, and only then falls back to a four-word phrase.
+Codes are three lowercase words joined by hyphens, drawn from a 1247-word list (the EFF short word
+list without its hyphenated entry and without words that read badly in a shared code) with a
+cryptographically secure random source. On a collision with a live code the server draws again, up
+to ten times, and only then falls back to a four-word phrase.
 
 ### POST /api/code
 
