@@ -66,7 +66,8 @@ export const FIELDS = {
         ],
         // Code and Saved are the optional incompatible fields; both words are
         // too common to search for bare ("Saved to" is a receiver print).
-        // Verified is the FileDone field fed by the received count.
+        // Verified is FileDone's field (the receiver's own compare) and the name a
+        // struct decode of received would give the peer's count.
         member: ['Ver', 'Reason', 'Code', 'Saved', 'Verified'],
     },
     ts: {

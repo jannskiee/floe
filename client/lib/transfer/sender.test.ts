@@ -420,7 +420,7 @@ describe('sender: session control listener', () => {
         ]);
     });
 
-    it('reports received frames without reading their fields', async () => {
+    it('reads the count on a received frame only through the validator', async () => {
         let received = 0;
         const delivered: Array<{ files: number; verified: number | null; allVerified: boolean }> = [];
         const s = sessionDeps({ onEnd: (deliver) => deliver(JSON.stringify({ type: 'received', verified: 'x' })) });

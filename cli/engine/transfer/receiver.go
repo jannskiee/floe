@@ -466,12 +466,12 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// can verify compat from its side and show the optional peer-version
 				// note. The browser checks data.byteLength before decoding, which is
 				// only defined on ArrayBuffer/Buffer, not strings.
+				// The end handler's SHA-256 covers only bytes written after claimPart,
+				// so a future non-zero offset must re-hash the prefix or skip
+				// verification.
 				ack := map[string]interface{}{
-					"type": "ack",
-					"id":   info.ID,
-					// The end handler's SHA-256 covers only bytes written after
-					// claimPart, so a future non-zero offset must re-hash the prefix
-					// or skip verification.
+					"type":   "ack",
+					"id":     info.ID,
 					"offset": 0,
 					"pv":     ProtocolVersion,
 					"pvMin":  MinProtocolVersion,

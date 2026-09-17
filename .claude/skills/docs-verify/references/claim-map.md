@@ -31,7 +31,7 @@ The map names where a value is stated; grep the old literal repo-wide before fin
 - `FileDone` and `OnFileDone` (receiver.go) are what a GUI learns per committed file.
 - Whether a sender hashes is decided by `sendFileHashes` (Go, P0-22) and the browser worker constant (P0-21b), so docs say "when the sender provides one"; browser receivers never send `received`, so they never report `verified`.
 - Tests: the `endSha256` and `receivedVerified` rows of the parity table (cli/engine/transfer/parity_test.go and client/lib/transfer/parity.test.ts), cli/engine/transfer/hash_test.go.
-- Docs: docs/reference/transfer-protocol.mdx "Integrity" and the `end` and `received` field tables, docs/how-it-works/known-limitations.mdx, docs/how-it-works/encryption.mdx, docs/cli/receive.mdx (the summary example and the byte-count sentence), CLAUDE.md "Transfer Protocol Versioning", the Store What's new draft.
+- Docs: docs/reference/transfer-protocol.mdx "Integrity" and the `end` and `received` field tables, docs/how-it-works/known-limitations.mdx, docs/how-it-works/encryption.mdx, docs/cli/receive.mdx (the summary example and the byte-count sentence), docs/cli/send.mdx (the Verified row paragraph under the Sent box), CLAUDE.md "Transfer Protocol Versioning", the Store What's new draft.
 
 ## Deployed commit
 
