@@ -169,8 +169,9 @@ The other side answered `n` at the `Accept? [Y/n]` prompt, or their process ende
 
 ### `timed out waiting for delivery confirmation from peer`
 
-Every byte was sent but the receiver never confirmed. The files may well have arrived; check with
-the recipient before resending.
+Every byte was sent, but for a full minute the receiver neither confirmed delivery nor took in any
+more of the data still on its way. The connection has most likely stalled. Check with the recipient
+before resending.
 
 ### `relay connections are capped at 2 GB`
 
