@@ -13,9 +13,12 @@ import {
     PROTOCOL_VERSION,
     MIN_PROTOCOL_VERSION,
     normalizeFileSize,
+    normalizeSha256,
+    type End,
     type Metadata,
     type Incompatible,
 } from './protocol';
+import { hashBlob as workerHashBlob } from './fileHash';
 import { sanitizeDisplayText } from '../download';
 
 export interface ReceivedFile {
@@ -23,7 +26,29 @@ export interface ReceivedFile {
     fileName: string;
     fileSize: number;
     blob: Blob;
+    // True only when the sender sent a SHA-256 and it matched this Blob. A
+    // local fact, never a peer value.
+    verified: boolean;
 }
+
+export interface ReceiverDeps {
+    // The digest function, so a test can pass Node's crypto; the default is the
+    // Worker behind hashBlob. It must resolve null rather than reject.
+    hashBlob?: (blob: Blob, signal?: AbortSignal) => Promise<string | null>;
+    // How long a digest may take for a file of this many bytes before the file
+    // is kept unverified instead.
+    hashBoundMs?: (bytes: number) => number;
+}
+
+// A floor rate of 10 MB/s plus 30 s, so a 2 GB file gets 230 s. A worker that
+// never replies must not keep settled() pending forever; a bound that fires
+// keeps the file unverified, the same as a browser without Workers.
+function defaultHashBoundMs(bytes: number): number {
+    return Math.ceil((bytes / 10_000_000) * 1000) + 30_000;
+}
+
+const HASH_MISMATCH_REASON = 'receiver discarded a file because its SHA-256 did not match';
+const HASH_UNREADABLE_REASON = "receiver discarded a file because the sender's SHA-256 was not readable";
 
 export interface ReceiverCallbacks {
     send: (data: string | Uint8Array) => void;
@@ -39,6 +64,9 @@ export interface ReceiverCallbacks {
      * instead of once per file. Mirrors the sender's `onAllSent`.
      */
     onAllComplete?: (totalBytes: number, fileCount: number) => void;
+    // A file's bytes are all here and its SHA-256 is being checked; the file is
+    // handed over, or refused, when the check settles.
+    onVerifying?: (index: number, total: number) => void;
     onWaiting?: () => void;
     onError?: (msg: string) => void;
 }
@@ -72,8 +100,17 @@ interface PartialDownload {
  *     onError: (msg) => { setError(msg); setStatus('Transfer failed'); },
  *   });
  *   peer.on('data', rx.handleMessage);
+ *
+ * `settled()` resolves once no SHA-256 check is pending. A close handler waits on
+ * it, because a Go sender exits right after its last end marker while this side
+ * may still be hashing the file it sent.
  */
-export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: string | Uint8Array | ArrayBuffer) => void } {
+export function createReceiver(
+    cb: ReceiverCallbacks,
+    deps: ReceiverDeps = {}
+): { handleMessage: (data: string | Uint8Array | ArrayBuffer) => void; settled: () => Promise<void> } {
+    const hashBlob = deps.hashBlob ?? workerHashBlob;
+    const hashBoundMs = deps.hashBoundMs ?? defaultHashBoundMs;
     const partialDownloads = new Map<string, PartialDownload>();
     let currentMetadata: Metadata | null = null;
     let hasCheckedCompat = false;
@@ -84,12 +121,95 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: s
     // when the peer announced nothing we can compare against.
     let expectedSize: number | null = null;
     let sessionBytes = 0; // accumulated across all files of the current transfer
+    // Files handed to onFileComplete in the current transfer: the `saved` a
+    // hash refusal reports, the twin of filesReceived in the Go receiver.
+    let filesHanded = 0;
+
+    // While a SHA-256 check is pending, string frames wait here and are handled
+    // in order once it settles. Binary frames are dropped instead: no file is
+    // open during the wait, which is what the synchronous path would do to them.
+    let pending = false;
+    let queued: string[] = [];
+    let settledWaiters: Array<() => void> = [];
 
     let receiveSpeedStart = performance.now();
     let receiveSpeedBytes = 0;
     let lastReceiveSpeedUpdate = 0;
 
     function handleMessage(data: string | Uint8Array | ArrayBuffer): void {
+        if (aborted) return;
+        if (pending) {
+            if (isControlFrame(data)) queued.push(data);
+            return;
+        }
+        processMessage(data);
+    }
+
+    function settled(): Promise<void> {
+        if (!pending) return Promise.resolve();
+        return new Promise((resolve) => settledWaiters.push(resolve));
+    }
+
+    // Hands a finished file over, in the order the callers rely on: the file,
+    // then the per-transfer total, then the waiting state.
+    function complete(meta: Metadata, blob: Blob, size: number, verified: boolean): void {
+        cb.onFileComplete?.({ id: meta.id, fileName: meta.fileName, fileSize: size, blob, verified }, meta.index, meta.total);
+        filesHanded += 1;
+        // Accumulate for the per-transfer callback, then fire once on the
+        // last file so reporting happens a single time per transfer.
+        sessionBytes += size;
+        if (meta.index === meta.total) {
+            cb.onAllComplete?.(sessionBytes, meta.total);
+            sessionBytes = 0; // reset for a possible subsequent transfer
+            filesHanded = 0;
+        }
+        currentMetadata = null;
+        expectedSize = null;
+        cb.onWaiting?.();
+        cb.onProgress?.(0, 0, 0);
+        cb.onSpeedReset?.();
+    }
+
+    // A file that failed its SHA-256: nothing of it is kept, the sender is told
+    // why with a code and the count already handed over, and the transfer stops.
+    function refuseHash(unreadable: boolean): void {
+        aborted = true;
+        queued = [];
+        partialDownloads.clear();
+        currentMetadata = null;
+        expectedSize = null;
+        cb.onProgress?.(0, 0, 0);
+        cb.onSpeedReset?.();
+        try {
+            const enc = new TextEncoder().encode(
+                incompatibleMessage(unreadable ? HASH_UNREADABLE_REASON : HASH_MISMATCH_REASON, 'hash-mismatch', filesHanded)
+            );
+            cb.send(new Uint8Array(enc));
+        } catch {
+            // The peer is gone; the close is all it will get.
+        }
+        cb.onError?.(
+            unreadable
+                ? "The sender's SHA-256 for a file could not be read, so the file was discarded. Ask the sender to try again."
+                : 'A file did not match what was sent, so it was discarded. Ask the sender to try again.'
+        );
+    }
+
+    // Runs after a pending check settles: the frames that waited, in order,
+    // until one of them starts another check or the transfer stops.
+    function drain(): void {
+        while (!pending && !aborted && queued.length > 0) {
+            processMessage(queued.shift() as string);
+        }
+        if (aborted) queued = [];
+        if (!pending) {
+            const waiters = settledWaiters;
+            settledWaiters = [];
+            for (const resolve of waiters) resolve();
+        }
+    }
+
+    function processMessage(data: string | Uint8Array | ArrayBuffer): void {
         if (aborted) return;
 
         // Framing decides, not content. See isControlFrame: a binary frame on
@@ -273,30 +393,47 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: s
                     return;
                 }
 
-                const blob = new Blob(fileData.chunks);
-                const completed: ReceivedFile = {
-                    id: currentMetadata.id,
-                    fileName: currentMetadata.fileName,
-                    fileSize: fileData.received,
-                    blob,
-                };
+                const meta = currentMetadata;
+                const size = fileData.received;
 
-                partialDownloads.delete(currentMetadata.id);
-                cb.onFileComplete?.(completed, currentMetadata.index, currentMetadata.total);
-
-                // Accumulate for the per-transfer callback, then fire once on the
-                // last file so reporting happens a single time per transfer.
-                sessionBytes += fileData.received;
-                if (currentMetadata.index === currentMetadata.total) {
-                    cb.onAllComplete?.(sessionBytes, currentMetadata.total);
-                    sessionBytes = 0; // reset for a possible subsequent transfer
+                // SHA-256, when the sender sent one, after the byte-count guard
+                // so a short file still reports a short file. Read only through
+                // normalizeSha256: a key that is present but unreadable (null, a
+                // number, uppercase, the wrong length) refuses at once, before any
+                // hashing, the twin of parseEnd in the Go receiver.
+                if (Object.prototype.hasOwnProperty.call(msg, 'sha256')) {
+                    const want = normalizeSha256((msg as End).sha256);
+                    if (want === null) {
+                        refuseHash(true);
+                        return;
+                    }
+                    // The Blob is what the person keeps (its object URL is the
+                    // download), so hashing this same object checks exactly those
+                    // bytes. The chunk arrays are released before the wait, so
+                    // memory peaks no longer than it did before the check.
+                    const blob = new Blob(fileData.chunks);
+                    partialDownloads.delete(meta.id);
+                    currentMetadata = null;
+                    expectedSize = null;
+                    pending = true;
+                    cb.onVerifying?.(meta.index, meta.total);
+                    hashBlob(blob, AbortSignal.timeout(hashBoundMs(size)))
+                        .catch(() => null)
+                        .then((got) => {
+                            pending = false;
+                            // A null digest (no Worker, a worker failure, the time
+                            // bound) keeps the file unverified: a missing check never
+                            // claims a match, and the byte count already passed.
+                            if (got !== null && got !== want) refuseHash(false);
+                            else complete(meta, blob, size, got === want);
+                            drain();
+                        });
+                    return;
                 }
 
-                currentMetadata = null;
-                expectedSize = null;
-                cb.onWaiting?.();
-                cb.onProgress?.(0, 0, 0);
-                cb.onSpeedReset?.();
+                const blob = new Blob(fileData.chunks);
+                partialDownloads.delete(meta.id);
+                complete(meta, blob, size, false);
             }
             return;
         }
@@ -344,5 +481,5 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: s
         }
     }
 
-    return { handleMessage };
+    return { handleMessage, settled };
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { createReceiver } from './receiver';
+import { createHash } from 'node:crypto';
+import { createReceiver, type ReceivedFile, type ReceiverDeps } from './receiver';
 import { metadataMessage, endMessage, incompatibleMessage, CONTROL_MSG_MAX, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, checkCompat } from './protocol';
 
 const enc = new TextEncoder();
@@ -561,5 +562,291 @@ describe('receiver: truncation guard', () => {
         expect(h.errors).toHaveLength(1);
         expect(h.errors[0]).toContain('Incomplete file "photognp.exe"');
         expect(h.errors[0]).not.toContain('\u202e');
+    });
+});
+
+describe('receiver: per-file SHA-256', () => {
+    const nodeHash = async (blob: Blob) => createHash('sha256').update(new Uint8Array(await blob.arrayBuffer())).digest('hex');
+    const digestOf = (data: Uint8Array) => createHash('sha256').update(data).digest('hex');
+    const MISMATCH = 'A file did not match what was sent, so it was discarded. Ask the sender to try again.';
+    const UNREADABLE = "The sender's SHA-256 for a file could not be read, so the file was discarded. Ask the sender to try again.";
+
+    function payload(n: number, seed = 1): Uint8Array {
+        const b = new Uint8Array(n);
+        for (let i = 0; i < n; i++) b[i] = ((i * 7 + seed) % 250) + 1; // never starts with '{'
+        return b;
+    }
+
+    function harness(deps: ReceiverDeps = { hashBlob: nodeHash }) {
+        const sent: (string | Uint8Array)[] = [];
+        const errors: string[] = [];
+        const completed: ReceivedFile[] = [];
+        const allComplete: Array<[number, number]> = [];
+        const verifying: Array<[number, number]> = [];
+        const rx = createReceiver(
+            {
+                send: (d) => sent.push(d),
+                onFileComplete: (f) => completed.push(f),
+                onAllComplete: (b, c) => allComplete.push([b, c]),
+                onVerifying: (i, t) => verifying.push([i, t]),
+                onError: (m) => errors.push(m),
+            },
+            deps
+        );
+        const binaryFrames = () =>
+            sent.filter((s): s is Uint8Array => typeof s !== 'string').map((b) => JSON.parse(new TextDecoder().decode(b)));
+        const acks = () => sent.filter((s): s is string => typeof s === 'string').map((s) => JSON.parse(s));
+        return { rx, sent, errors, completed, allComplete, verifying, binaryFrames, acks };
+    }
+
+    function feed(h: ReturnType<typeof harness>, id: string, data: Uint8Array, index: number, total: number, end: string) {
+        h.rx.handleMessage(metadataMessage(id, `${id}.bin`, data.byteLength, index, total, 0));
+        if (data.byteLength > 0) h.rx.handleMessage(data);
+        h.rx.handleMessage(end);
+    }
+
+    const endWith = (value: unknown) => JSON.stringify({ type: 'end', sha256: value });
+
+    it('verifies sha256 and keeps the file', async () => {
+        const h = harness();
+        const data = payload(5000);
+        feed(h, 'a', data, 1, 1, endMessage(digestOf(data)));
+        await h.rx.settled();
+        expect(h.errors).toEqual([]);
+        expect(h.completed).toHaveLength(1);
+        expect(h.completed[0].verified).toBe(true);
+        expect(new Uint8Array(await h.completed[0].blob.arrayBuffer())).toEqual(data);
+        expect(h.verifying).toEqual([[1, 1]]);
+        expect(h.allComplete).toEqual([[5000, 1]]);
+    });
+
+    it('discards a mismatched file and sends hash-mismatch', async () => {
+        const h = harness();
+        const data = payload(3000);
+        const wrong = digestOf(payload(3000, 2));
+        feed(h, 'a', data, 1, 1, endMessage(wrong));
+        await h.rx.settled();
+        expect(h.completed).toEqual([]);
+        expect(h.errors).toEqual([MISMATCH]);
+        const [frame] = h.binaryFrames();
+        expect(frame).toMatchObject({
+            type: 'incompatible',
+            reason: 'receiver discarded a file because its SHA-256 did not match',
+            code: 'hash-mismatch',
+            saved: 0,
+            pv: PROTOCOL_VERSION,
+            pvMin: MIN_PROTOCOL_VERSION,
+        });
+    });
+
+    it('refuses a malformed sha256 as hash-mismatch', async () => {
+        for (const bad of [null, 3, 'ABC', digestOf(payload(1)).toUpperCase(), 'a'.repeat(63), 'a'.repeat(65), {}, []]) {
+            const h = harness();
+            feed(h, 'a', payload(100), 1, 1, endWith(bad));
+            await h.rx.settled();
+            expect(h.completed, JSON.stringify(bad)).toEqual([]);
+            const [frame] = h.binaryFrames();
+            expect(frame.code).toBe('hash-mismatch');
+        }
+    });
+
+    it('refuses an unreadable sha256 before hashing', async () => {
+        let calls = 0;
+        const h = harness({
+            hashBlob: async (b) => {
+                calls += 1;
+                return nodeHash(b);
+            },
+        });
+        feed(h, 'a', payload(100), 1, 1, endWith('not-a-digest'));
+        await h.rx.settled();
+        expect(calls).toBe(0);
+        expect(h.errors).toEqual([UNREADABLE]);
+        expect(h.binaryFrames()[0].reason).toBe("receiver discarded a file because the sender's SHA-256 was not readable");
+        expect(h.verifying).toEqual([]);
+    });
+
+    it('accepts a file without sha256 as today', () => {
+        let calls = 0;
+        const h = harness({
+            hashBlob: async () => {
+                calls += 1;
+                return null;
+            },
+        });
+        const data = payload(200);
+        feed(h, 'a', data, 1, 1, endMessage());
+        // Synchronous, exactly as before: no check, no wait.
+        expect(calls).toBe(0);
+        expect(h.completed).toHaveLength(1);
+        expect(h.completed[0].verified).toBe(false);
+        expect(h.errors).toEqual([]);
+    });
+
+    it('treats a hasher failure as unverified', async () => {
+        const failing: Array<ReceiverDeps['hashBlob']> = [
+            async () => null,
+            async () => {
+                throw new Error('worker died');
+            },
+        ];
+        for (const hashBlob of failing) {
+            const h = harness({ hashBlob });
+            const data = payload(300);
+            feed(h, 'a', data, 1, 1, endMessage(digestOf(data)));
+            await h.rx.settled();
+            expect(h.errors).toEqual([]);
+            expect(h.completed).toHaveLength(1);
+            expect(h.completed[0].verified).toBe(false);
+        }
+    });
+
+    it('marks verified only on a matching digest', async () => {
+        const h = harness();
+        const a = payload(10, 1);
+        const b = payload(10, 2);
+        feed(h, 'a', a, 1, 2, endMessage(digestOf(a)));
+        await h.rx.settled();
+        feed(h, 'b', b, 2, 2, endMessage());
+        await h.rx.settled();
+        expect(h.completed.map((f) => f.verified)).toEqual([true, false]);
+    });
+
+    // A digest the test releases by hand, so frames can arrive while it is pending.
+    function heldHash() {
+        let release: (hex: string | null) => void = () => { };
+        const hashBlob = () =>
+            new Promise<string | null>((resolve) => {
+                release = resolve;
+            });
+        return { hashBlob, release: (hex: string | null) => release(hex) };
+    }
+
+    it('queues frames that arrive while a digest is pending', async () => {
+        const held = heldHash();
+        const h = harness({ hashBlob: held.hashBlob });
+        const a = payload(400, 1);
+        feed(h, 'a', a, 1, 2, endMessage(digestOf(a)));
+        // The next file's metadata arrives while the first file is being checked.
+        h.rx.handleMessage(metadataMessage('b', 'b.bin', 10, 2, 2, 0));
+        expect(h.acks().map((m) => m.id)).toEqual(['a']);
+        expect(h.completed).toEqual([]);
+        held.release(digestOf(a));
+        await h.rx.settled();
+        expect(h.completed.map((f) => f.fileName)).toEqual(['a.bin']);
+        // Handled in order, after the file.
+        expect(h.acks().map((m) => m.id)).toEqual(['a', 'b']);
+    });
+
+    it('drops binary frames that arrive while a digest is pending', async () => {
+        const held = heldHash();
+        const h = harness({ hashBlob: held.hashBlob });
+        const a = payload(100, 1);
+        feed(h, 'a', a, 1, 2, endMessage(digestOf(a)));
+        h.rx.handleMessage(payload(50, 9)); // mid-wait chunk: no file is open
+        h.rx.handleMessage(metadataMessage('b', 'b.bin', 20, 2, 2, 0));
+        held.release(digestOf(a));
+        await h.rx.settled();
+        const b = payload(20, 3);
+        h.rx.handleMessage(b);
+        h.rx.handleMessage(endMessage());
+        expect(h.errors).toEqual([]);
+        expect(new Uint8Array(await h.completed[1].blob.arrayBuffer())).toEqual(b);
+    });
+
+    it('drops queued frames after a refusal', async () => {
+        const held = heldHash();
+        const h = harness({ hashBlob: held.hashBlob });
+        feed(h, 'a', payload(100), 1, 2, endMessage(digestOf(payload(100, 5))));
+        h.rx.handleMessage(metadataMessage('b', 'b.bin', 20, 2, 2, 0));
+        // The real bytes' digest, not the one the sender sent.
+        held.release(digestOf(payload(100)));
+        await h.rx.settled();
+        expect(h.errors).toEqual([MISMATCH]);
+        expect(h.acks().map((m) => m.id)).toEqual(['a']);
+    });
+
+    it('sends saved as the number of files already handed over', async () => {
+        const h = harness();
+        const a = payload(10, 1);
+        feed(h, 'a', a, 1, 2, endMessage(digestOf(a)));
+        await h.rx.settled();
+        feed(h, 'b', payload(10, 2), 2, 2, endMessage(digestOf(a)));
+        await h.rx.settled();
+        expect(h.binaryFrames()[0].saved).toBe(1);
+    });
+
+    it('does not fire onAllComplete for a discarded last file', async () => {
+        const h = harness();
+        const a = payload(10, 1);
+        feed(h, 'a', a, 1, 2, endMessage(digestOf(a)));
+        await h.rx.settled();
+        feed(h, 'b', payload(10, 2), 2, 2, endMessage(digestOf(a)));
+        await h.rx.settled();
+        expect(h.completed).toHaveLength(1);
+        expect(h.allComplete).toEqual([]);
+    });
+
+    it('settled resolves at once when idle and after a pending digest', async () => {
+        const held = heldHash();
+        const h = harness({ hashBlob: held.hashBlob });
+        await h.rx.settled();
+        const a = payload(10);
+        feed(h, 'a', a, 1, 1, endMessage(digestOf(a)));
+        let done = false;
+        const waiting = h.rx.settled().then(() => {
+            done = true;
+        });
+        await Promise.resolve();
+        expect(done).toBe(false);
+        held.release(digestOf(a));
+        await waiting;
+        expect(done).toBe(true);
+        expect(h.completed).toHaveLength(1);
+    });
+
+    it('keeps the file unverified when the hash outruns its bound', async () => {
+        const h = harness({
+            hashBlob: (_blob, signal) => new Promise((resolve) => signal?.addEventListener('abort', () => resolve(null))),
+            hashBoundMs: () => 10,
+        });
+        const a = payload(10);
+        feed(h, 'a', a, 1, 1, endMessage(digestOf(a)));
+        await h.rx.settled();
+        expect(h.errors).toEqual([]);
+        expect(h.completed[0].verified).toBe(false);
+    });
+
+    it('releases the chunks of a checked file before its digest settles', async () => {
+        const held = heldHash();
+        const h = harness({ hashBlob: held.hashBlob });
+        const a = payload(300);
+        feed(h, 'a', a, 1, 2, endMessage(digestOf(a)));
+        // The same id announced again while the check runs: once handled, it must
+        // start from byte 0, which it can only do if the entry is already gone.
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 300, 2, 2, 0));
+        held.release(digestOf(a));
+        await h.rx.settled();
+        expect(h.acks().map((m) => m.offset)).toEqual([0, 0]);
+    });
+
+    it('shows the two fixed sentences', async () => {
+        const mismatch = harness();
+        feed(mismatch, 'a', payload(10), 1, 1, endMessage(digestOf(payload(10, 4))));
+        await mismatch.rx.settled();
+        const unreadable = harness();
+        feed(unreadable, 'a', payload(10), 1, 1, endWith(null));
+        await unreadable.rx.settled();
+        expect([mismatch.errors, unreadable.errors]).toEqual([[MISMATCH], [UNREADABLE]]);
+    });
+
+    it('keeps code and saved when the reason shrinks to fit the cap', () => {
+        const frame = incompatibleMessage('very long prose. '.repeat(500), 'hash-mismatch', 0);
+        expect(new TextEncoder().encode(frame).byteLength).toBeLessThanOrEqual(CONTROL_MSG_MAX);
+        const parsed = JSON.parse(frame);
+        expect(parsed).toMatchObject({ code: 'hash-mismatch', saved: 0 });
+        expect(parsed.reason.length).toBeGreaterThan(0);
+        // Uncoded callers still send exactly the old frame shape.
+        expect(Object.keys(JSON.parse(incompatibleMessage('x')))).toEqual(['type', 'reason', 'pv', 'pvMin']);
     });
 });

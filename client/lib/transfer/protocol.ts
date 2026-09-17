@@ -144,7 +144,7 @@ export function endMessage(sha256?: string | null): string {
     return JSON.stringify(msg);
 }
 
-export function incompatibleMessage(reason: string): string {
+export function incompatibleMessage(reason: string, code?: RefusalCode, saved?: number): string {
     // The cap is on the ENCODED FRAME, not on the reason. A receiver stops
     // classifying a control message past CONTROL_MSG_MAX and would read the
     // frame as file data, so a long reason has to shrink until the whole thing
@@ -153,14 +153,16 @@ export function incompatibleMessage(reason: string): string {
     // sanitizeDisplayText, which caps in UTF-16 units and
     // never leaves a lone surrogate at the end. Go trims the same frame by rune,
     // so the two can land a character apart on astral text; the cap is a byte
-    // budget on the frame either way, which is what has to hold.
+    // budget on the frame either way, which is what has to hold. `code` and
+    // `saved` are what a current reader acts on, so they are never dropped to
+    // make room; only the reason shrinks, as in incompatibleFrame in Go.
     let text = reason;
-    let frame = buildIncompatible(text);
+    let frame = buildIncompatible(text, code, saved);
     for (let budget = MAX_REASON; frameBytes(frame) > CONTROL_MSG_MAX && budget > 0; budget = Math.floor(budget / 2)) {
         text = sanitizeDisplayText(reason, budget);
-        frame = buildIncompatible(text);
+        frame = buildIncompatible(text, code, saved);
     }
-    if (frameBytes(frame) > CONTROL_MSG_MAX) frame = buildIncompatible('');
+    if (frameBytes(frame) > CONTROL_MSG_MAX) frame = buildIncompatible('', code, saved);
     return frame;
 }
 
@@ -172,13 +174,19 @@ function frameBytes(frame: string): number {
     return encoder.encode(frame).byteLength;
 }
 
-function buildIncompatible(reason: string): string {
-    return JSON.stringify({
+// A code is sent only when the caller names one, and saved only as a safe
+// integer from 0 up (0 is sent, like Go's *int), which is exactly the frame
+// every shipped peer already reads when neither is given.
+function buildIncompatible(reason: string, code?: RefusalCode, saved?: number): string {
+    const msg: Incompatible = {
         type: 'incompatible',
         reason,
         pv: PROTOCOL_VERSION,
         pvMin: MIN_PROTOCOL_VERSION,
-    } satisfies Incompatible);
+    };
+    if (code) msg.code = code;
+    if (saved !== undefined && Number.isSafeInteger(saved) && saved >= 0) msg.saved = saved;
+    return JSON.stringify(msg);
 }
 
 // --- Protocol compatibility ---
