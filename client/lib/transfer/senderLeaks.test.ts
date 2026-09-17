@@ -112,4 +112,38 @@ describe('sender teardown', () => {
         // sat here for every file in the batch.
         expect(vi.getTimerCount()).toBe(0);
     });
+
+    // The session registers one data listener and one channel close listener
+    // before the first metadata. Both must go when sendFiles returns, or a
+    // finished session keeps answering frames meant for the next one.
+    it('the session listener is removed when sendFiles returns', async () => {
+        vi.useFakeTimers();
+        const listeners = new Map<string, number>();
+        const channel = {
+            bufferedAmount: 0,
+            bufferedAmountLowThreshold: 0,
+            addEventListener: (type: string) => { listeners.set(type, (listeners.get(type) ?? 0) + 1); },
+            removeEventListener: (type: string) => { listeners.set(type, (listeners.get(type) ?? 0) - 1); },
+        };
+        let subscribed = 0;
+        const { deps, deliverAck } = makeDeps(channel);
+        const onData = deps.onData;
+        deps.onData = (h) => {
+            subscribed += 1;
+            const off = onData(h);
+            return () => { subscribed -= 1; off(); };
+        };
+
+        const p = sendFiles(deps, [{ id: 'id-leak', file: new File([new Uint8Array(8)], 'x.bin') }], {});
+        await vi.advanceTimersByTimeAsync(0);
+        expect(subscribed).toBe(1);
+        expect(listeners.get('close')).toBe(1);
+
+        deliverAck('id-leak');
+        await vi.advanceTimersByTimeAsync(0);
+        await p;
+
+        expect(subscribed).toBe(0);
+        expect(listeners.get('close')).toBe(0);
+    });
 });

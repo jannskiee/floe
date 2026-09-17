@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { sendFiles, sendAbortReason, CONTROL_FLUSH_MS, type SenderDeps } from './sender';
-import { ackMessage, incompatibleMessage, CONTROL_MSG_MAX } from './protocol';
+import { ackMessage, incompatibleMessage, CONTROL_MSG_MAX, READ_SLAB, DEFAULT_CHUNK } from './protocol';
 
 const enc = new TextEncoder();
 
@@ -291,5 +291,141 @@ describe('sender: unreadable file', () => {
         // finished after a short byte count.
         expect(sawEnd).toBe(false);
         expect(allSent).toBe(false);
+    });
+});
+
+/**
+ * One control listener for the whole session (P0-18). The per-file ack wait used
+ * to be the only listener, so a refusal that arrived after `end` or between
+ * chunks was never seen, and a closed channel left the ack wait running for its
+ * full 120 s.
+ */
+describe('sender: session control listener', () => {
+    // Loopback deps whose receiver acks every metadata and lets a test script
+    // react to later frames. `deliver` pushes a receiver-to-sender frame the
+    // way a Go receiver sends it (binary).
+    function sessionDeps(opts: {
+        onEnd?: (deliver: (frame: string) => void) => void;
+        onChunk?: (n: number, deliver: (frame: string) => void) => void;
+        ack?: boolean;
+    } = {}) {
+        let handler: ((d: string | Uint8Array | ArrayBuffer) => void) | null = null;
+        const closeHandlers: Array<() => void> = [];
+        const sent = { strings: [] as string[], chunks: 0 };
+        const deliver = (frame: string) => queueMicrotask(() => handler?.(enc.encode(frame)));
+        const channel = {
+            bufferedAmount: 0,
+            bufferedAmountLowThreshold: 0,
+            addEventListener: (type: string, h: () => void) => { if (type === 'close') closeHandlers.push(h); },
+            removeEventListener: (type: string, h: () => void) => {
+                const i = closeHandlers.indexOf(h);
+                if (type === 'close' && i >= 0) closeHandlers.splice(i, 1);
+            },
+        };
+        const deps: SenderDeps = {
+            send: (d) => {
+                if (typeof d !== 'string') {
+                    sent.chunks += 1;
+                    opts.onChunk?.(sent.chunks, deliver);
+                    return;
+                }
+                sent.strings.push(d);
+                const parsed = JSON.parse(d) as { type: string; id?: string };
+                if (parsed.type === 'metadata' && parsed.id && opts.ack !== false) deliver(ackMessage(parsed.id, 0));
+                if (parsed.type === 'end') opts.onEnd?.(deliver);
+            },
+            onData: (h) => {
+                handler = h;
+                return () => { handler = null; };
+            },
+            channel,
+            sctpMaxMessageSize: null,
+        };
+        return {
+            deps,
+            sent,
+            close: () => closeHandlers.slice().forEach((h) => h()),
+        };
+    }
+
+    const refusal = (fields: Record<string, unknown>) =>
+        JSON.stringify({ type: 'incompatible', reason: 'receiver stopped', pv: 1, pvMin: 1, ...fields });
+
+    it('incompatible after end surfaces', async () => {
+        const errors: string[] = [];
+        let allSent = false;
+        const s = sessionDeps({ onEnd: (deliver) => deliver(refusal({ code: 'write-failed', saved: 0 })) });
+        await sendFiles(s.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], {
+            onError: (m) => errors.push(m),
+            onAllSent: () => { allSent = true; },
+        });
+        expect(errors).toEqual(['receiver stopped']);
+        expect(allSent).toBe(false);
+    });
+
+    it('incompatible during chunks stops the loop', async () => {
+        // Two read slabs: the refusal lands while the loop awaits the second
+        // slab, so no chunk of it may be sent and no end marker either.
+        const size = READ_SLAB + 3 * DEFAULT_CHUNK;
+        const chunksInFirstSlab = Math.ceil(READ_SLAB / DEFAULT_CHUNK);
+        const errors: string[] = [];
+        let allSent = false;
+        const s = sessionDeps({
+            onChunk: (n, deliver) => { if (n === 1) deliver(refusal({ code: 'hash-mismatch', saved: 0 })); },
+        });
+        await sendFiles(s.deps, [{ id: 'a', file: makeFile(size, 'big.bin') }], {
+            onError: (m) => errors.push(m),
+            onAllSent: () => { allSent = true; },
+        });
+        expect(s.sent.chunks).toBe(chunksInFirstSlab);
+        expect(s.sent.strings.some((f) => JSON.parse(f).type === 'end')).toBe(false);
+        expect(errors).toEqual(['receiver stopped']);
+        expect(allSent).toBe(false);
+    });
+
+    it('a closed channel ends the ack wait promptly', async () => {
+        vi.useFakeTimers();
+        try {
+            const errors: string[] = [];
+            const s = sessionDeps({ ack: false });
+            let settled = false;
+            const p = sendFiles(s.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], {
+                onError: (m) => errors.push(m),
+            }).then(() => { settled = true; });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(settled).toBe(false);
+            s.close();
+            await vi.advanceTimersByTimeAsync(10);
+            await p;
+            expect(settled).toBe(true);
+            expect(errors).toEqual(['Connection lost. The other device may have closed the tab.']);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('onStopped reports an allowlisted code and a clamped saved count', async () => {
+        const stops: Array<{ code: string | null; saved: number }> = [];
+        const files = [
+            { id: 'a', file: makeFile(16, 'a.bin') },
+            { id: 'b', file: makeFile(16, 'b.bin') },
+        ];
+        const hostile = sessionDeps({ onEnd: (deliver) => deliver(refusal({ code: 'hash-mismatch', saved: 99 })) });
+        await sendFiles(hostile.deps, files, { onStopped: (s) => stops.push(s), onError: () => {} });
+        const unknown = sessionDeps({ onEnd: (deliver) => deliver(refusal({ code: '__proto__', saved: '3' })) });
+        await sendFiles(unknown.deps, files, { onStopped: (s) => stops.push(s), onError: () => {} });
+        expect(stops).toEqual([
+            { code: 'hash-mismatch', saved: 2 },
+            { code: null, saved: 0 },
+        ]);
+    });
+
+    it('reports received frames without reading their fields', async () => {
+        let received = 0;
+        const s = sessionDeps({ onEnd: (deliver) => deliver(JSON.stringify({ type: 'received', verified: 'x' })) });
+        await sendFiles(s.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], {
+            onReceived: () => { received += 1; },
+        });
+        expect(received).toBe(1);
     });
 });
