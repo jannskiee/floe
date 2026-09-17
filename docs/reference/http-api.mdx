@@ -129,9 +129,10 @@ server returned 429 for TURN credentials. Using STUN only.`
 
 ## Room codes
 
-Codes are three lowercase words joined by hyphens, drawn from the 1295-word EFF short word list
-with a cryptographically secure random source. On a collision with a live code the server draws
-again, up to ten times, and only then falls back to a four-word phrase.
+Codes are three lowercase words joined by hyphens, drawn from the EFF short word list (1295 words;
+its one hyphenated entry, yo-yo, is dropped) with a cryptographically secure random source. On a
+collision with a live code the server draws again, up to ten times, and only then falls back to a
+four-word phrase.
 
 ### POST /api/code
 

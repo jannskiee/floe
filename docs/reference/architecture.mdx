@@ -150,9 +150,10 @@ include codes that have already expired but that the once-a-minute sweeper has n
 
 ## Room codes
 
-Three random words joined by hyphens, drawn from the 1295-word EFF short word list in
-`server/words.json` using `crypto.randomInt`, a cryptographically secure source rather than
-`Math.random`. That matters because the phrase is the only secret guarding the transfer.
+Three random words joined by hyphens, drawn from the EFF short word list (1295 words; its one
+hyphenated entry, yo-yo, is dropped) in `server/words.json` using `crypto.randomInt`, a
+cryptographically secure source rather than `Math.random`. That matters because the phrase is the
+only secret guarding the transfer.
 
 On a collision with a code that is still live, the server draws again, up to ten times, and only
 if all ten collide does it fall back to a four-word phrase. An expired code counts as free. Codes
