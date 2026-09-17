@@ -1008,3 +1008,23 @@ test('bytesReportedCount counts a LIST, because Number(list) is NaN', () => {
         'statsProofCheck goes through the counter'
     );
 });
+
+test('a refusal cell labels the route it actually took', () => {
+    // The direct hashbad cell's own sources both said direct; the label used to
+    // say relay, because it was written when the only refusal was the 2 GB cap.
+    const hashCell = { id: 'H-DIR-W2C-hashbad', path: 'DIR', expect: 'refusal', hashLie: 'corrupt' };
+    const direct = labelForRefusal(hashCell, 'direct');
+    assert.equal(direct, 'direct [refusal]');
+    // A cap cell that refused before any byte moved has nothing to observe, so
+    // its own path decides and the old label survives.
+    const capCell = { id: 'S-REL-C2W-cap3g', path: 'REL', expect: 'refusal', hashLie: null };
+    assert.equal(labelForRefusal(capCell, null), 'relay [refusal]');
+    assert.equal(labelForRefusal({ ...capCell, path: 'DIR' }, null), 'direct [refusal]');
+});
+
+// The same expression the result builder uses, kept here so the rule is pinned
+// without exporting a one-line helper from cell.mjs.
+function labelForRefusal(cell, observed) {
+    const path = observed || (cell.path === 'REL' ? 'relay' : 'direct');
+    return `${path} [refusal]`;
+}

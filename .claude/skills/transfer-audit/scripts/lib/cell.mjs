@@ -1575,8 +1575,16 @@ function fill(result, rec, cell) {
         result.route.label = pair.label;
         result.route.sources = pair.sources;
     }
-    if (rec.route?.evidence === 'refusal')
-        result.route.label = 'relay [refusal]';
+    if (rec.route?.evidence === 'refusal') {
+        // The label follows the path the run observed. It used to be the
+        // literal 'relay [refusal]', which was true while the only refusal cell
+        // was the 2 GB relay cap and read as a lie on a direct hashbad cell
+        // whose own sources both said direct. A cap cell that refused before any
+        // byte moved has no observation, and its own path is the fallback.
+        const observed =
+            result.route.observed || (cell.path === 'REL' ? 'relay' : 'direct');
+        result.route.label = `${observed} [refusal]`;
+    }
     if (rec.integrity) result.integrity = rec.integrity;
     if (rec.completion) result.completion = rec.completion;
     if (rec.stats) result.stats = rec.stats;
