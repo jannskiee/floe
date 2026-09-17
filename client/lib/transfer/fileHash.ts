@@ -17,9 +17,11 @@ const hubs = new WeakMap<WorkerFactory, Hub>();
 let nextId = 1;
 
 // The literal new Worker(new URL(...)) form is what the bundler recognizes and
-// emits as a separate chunk, so hash-wasm never lands in a page bundle.
-const moduleWorker: WorkerFactory = () =>
-    new Worker(new URL('./fileHash.worker.ts', import.meta.url), { type: 'module' });
+// emits as a separate chunk, so hash-wasm never lands in a page bundle. A classic
+// worker, not { type: 'module' }: Turbopack's worker runtime loads the chunk's
+// own chunks with importScripts, which a module worker refuses, and because
+// hashBlob fails open that break would be silent.
+const hashWorker: WorkerFactory = () => new Worker(new URL('./fileHash.worker.ts', import.meta.url));
 
 // The worker's own output, checked before it is trusted: a digest is exactly
 // 64 lowercase hex characters, the wire format a receiver accepts.
@@ -55,9 +57,10 @@ function hubFor(factory: WorkerFactory): Hub {
  * any failure: no Worker support, a Worker that cannot start or errors, a
  * malformed reply, or an abort. It never rejects. Fail-open is safe because a
  * missing digest never claims a match anywhere: the sender omits the field and
- * the receiver keeps the byte-count check.
+ * the receiver keeps the byte-count check. It settles only on a reply, a worker
+ * failure or the signal, so a caller that needs a bound passes a signal.
  */
-export function hashBlob(blob: Blob, signal?: AbortSignal, createWorker: WorkerFactory = moduleWorker): Promise<string | null> {
+export function hashBlob(blob: Blob, signal?: AbortSignal, createWorker: WorkerFactory = hashWorker): Promise<string | null> {
     return new Promise((resolve) => {
         if (signal?.aborted) {
             resolve(null);
@@ -65,7 +68,7 @@ export function hashBlob(blob: Blob, signal?: AbortSignal, createWorker: WorkerF
         }
         let hub: Hub;
         try {
-            if (createWorker === moduleWorker && typeof Worker === 'undefined') {
+            if (createWorker === hashWorker && typeof Worker === 'undefined') {
                 resolve(null);
                 return;
             }
@@ -75,9 +78,15 @@ export function hashBlob(blob: Blob, signal?: AbortSignal, createWorker: WorkerF
             return;
         }
         const id = nextId++;
-        const onAbort = () => finish(null);
-        // An abort only stops the wait; the worker finishes its slab loop and its
-        // late reply finds no pending entry.
+        // An abort settles the wait at once and tells the worker, which stops the
+        // request at its next slab boundary; a reply already on its way finds no
+        // pending entry.
+        const onAbort = () => {
+            finish(null);
+            try {
+                hub.worker.postMessage({ id, abort: true });
+            } catch { }
+        };
         function finish(hex: string | null) {
             if (!hub.pending.delete(id)) return;
             signal?.removeEventListener('abort', onAbort);

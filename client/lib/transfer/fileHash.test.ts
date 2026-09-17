@@ -7,12 +7,12 @@ type Listener = (event: { data?: unknown }) => void;
 // answer, error or stay silent. Only the members hashBlob touches exist.
 function fakeWorker() {
     const listeners = new Map<string, Listener[]>();
-    const posted: Array<{ id: number; blob: Blob; slab: number }> = [];
+    const posted: Array<{ id: number; blob?: Blob; slab?: number; abort?: true }> = [];
     let terminated = false;
     const worker = {
         addEventListener: (type: string, fn: Listener) => listeners.set(type, [...(listeners.get(type) ?? []), fn]),
         removeEventListener: () => { },
-        postMessage: (message: { id: number; blob: Blob; slab: number }) => { posted.push(message); },
+        postMessage: (message: { id: number; blob?: Blob; slab?: number; abort?: true }) => { posted.push(message); },
         terminate: () => { terminated = true; },
     };
     const emit = (type: string, data?: unknown) => (listeners.get(type) ?? []).forEach((fn) => fn({ data }));
@@ -74,5 +74,46 @@ describe('hashBlob', () => {
         const already = new AbortController();
         already.abort();
         await expect(hashBlob(new Blob(['data']), already.signal, w.factory)).resolves.toBeNull();
+    });
+
+    it('resolves null when the message cannot be sent', async () => {
+        const factory: WorkerFactory = () =>
+            ({
+                addEventListener: () => { },
+                removeEventListener: () => { },
+                postMessage: () => {
+                    throw new Error('DataCloneError');
+                },
+                terminate: () => { },
+            }) as unknown as Worker;
+        await expect(hashBlob(new Blob(['data']), undefined, factory)).resolves.toBeNull();
+    });
+
+    it('resolves null on messageerror', async () => {
+        const w = fakeWorker();
+        const pending = hashBlob(new Blob(['data']), undefined, w.factory);
+        w.emit('messageerror');
+        await expect(pending).resolves.toBeNull();
+    });
+
+    it('tells the worker about an abort and removes its listener once settled', async () => {
+        const w = fakeWorker();
+        const controller = new AbortController();
+        const pending = hashBlob(new Blob(['data']), controller.signal, w.factory);
+        controller.abort();
+        await pending;
+        expect(w.posted[1]).toEqual({ id: w.posted[0].id, abort: true });
+
+        let added = 0;
+        let removed = 0;
+        const signal = {
+            aborted: false,
+            addEventListener: () => { added += 1; },
+            removeEventListener: () => { removed += 1; },
+        } as unknown as AbortSignal;
+        const replied = hashBlob(new Blob(['data']), signal, w.factory);
+        w.emit('message', { id: (w.posted[w.posted.length - 1] as { id: number }).id, hex: HEX });
+        await expect(replied).resolves.toBe(HEX);
+        expect([added, removed]).toEqual([1, 1]);
     });
 });

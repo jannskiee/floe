@@ -1,20 +1,16 @@
-// Module Worker that hashes one File or Blob per request, so a large file never
+// Worker that hashes File or Blob requests one at a time, so a large file never
 // blocks the page. Bytes in, a digest out: nothing here parses what it reads.
-// The slab size arrives with each request rather than as an import of READ_SLAB:
-// protocol.ts imports download.ts, which has no business in this bundle.
-import { digestSlices } from './sha256Slices';
+// The slab size arrives with each request rather than as an import of
+// READ_SLAB, which keeps protocol.ts and everything it imports out of this
+// chunk, so the chunk is the hasher only.
+import { createHashHandler, type HashReply, type HashRequest } from './sha256Slices';
 
 // The DOM lib types `self` as a Window, whose postMessage needs a target origin;
 // a dedicated worker's does not.
 const scope = self as unknown as {
-    onmessage: ((event: MessageEvent<{ id: number; blob: Blob; slab: number }>) => void) | null;
-    postMessage(message: { id: number; hex: string | null }): void;
+    onmessage: ((event: MessageEvent<HashRequest>) => void) | null;
+    postMessage(message: HashReply): void;
 };
 
-scope.onmessage = (event) => {
-    const { id, blob, slab } = event.data;
-    digestSlices((start, end) => blob.slice(start, end).arrayBuffer(), blob.size, slab).then(
-        (hex) => scope.postMessage({ id, hex }),
-        () => scope.postMessage({ id, hex: null }),
-    );
-};
+const handle = createHashHandler((reply) => scope.postMessage(reply));
+scope.onmessage = (event) => handle(event.data);
