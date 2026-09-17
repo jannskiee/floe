@@ -1166,7 +1166,15 @@ export async function runAttempt(
             rec.ledgerEventsBefore = ctx.ledger.events.length;
         });
         await phase('sender.start', T.link + 5_000, async () => {
-            const mod = await ctx.getAdapter(cell.sender.surface);
+            // A CLI-shaped sender that must lie about a digest is the test-only
+            // floe-e2ehost send mode, never the shipped CLI: the engine has no
+            // way to send a wrong digest and must not gain one. Every other
+            // cell, and every receiver, uses its own surface's adapter.
+            const senderAdapter =
+                cell.hashLie && cell.sender.surface === 'cli'
+                    ? 'harness'
+                    : cell.sender.surface;
+            const mod = await ctx.getAdapter(senderAdapter);
             legs.sender = mod.createLeg(
                 legOpts(cell, 'sender', ctx, rec, {
                     files: fixture.paths,

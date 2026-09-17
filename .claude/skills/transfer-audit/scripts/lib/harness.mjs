@@ -18,6 +18,8 @@
  * Nothing in this file ships: the binary it drives is built from
  * cli/internal/e2ehost, which `go list -deps ./cmd/floe` never names.
  */
+import { existsSync } from 'node:fs';
+
 import { Leg, PhaseError } from './surfaces.mjs';
 import { killTree, spawnFloe } from './proc.mjs';
 
@@ -182,4 +184,27 @@ export class HarnessLeg extends Leg {
 
 export function createLeg(opts) {
     return new HarnessLeg(opts);
+}
+
+/**
+ * { ok, reason, detail } like every other surface adapter. The harness is built
+ * from the repository, never downloaded and never shipped, so its absence is a
+ * precondition to report (build it with `go build ./internal/e2ehost` in
+ * `cli/`) rather than something to discover halfway through a cell.
+ */
+export async function preflight(opts = {}) {
+    const bin = opts.harnessBin || opts.bin || null;
+    if (!bin)
+        return {
+            ok: false,
+            reason: 'no harness binary path given (build ./internal/e2ehost and pass it as harnessBin)',
+            detail: { bin: null },
+        };
+    if (!existsSync(bin))
+        return {
+            ok: false,
+            reason: `harness binary missing at ${bin}: build it with go build ./internal/e2ehost in cli/`,
+            detail: { bin },
+        };
+    return { ok: true, reason: null, detail: { bin } };
 }

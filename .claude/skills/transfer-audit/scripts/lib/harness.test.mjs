@@ -8,7 +8,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { HarnessLeg, lastEvent, lieFlag } from './harness.mjs';
+import { fileURLToPath } from 'node:url';
+
+import { getAdapter, isSurfaceAdapter } from './adapters.mjs';
+import { HarnessLeg, lastEvent, lieFlag, preflight } from './harness.mjs';
 
 test('lieFlag: only the two lying modes produce a flag', () => {
     assert.equal(lieFlag('corrupt'), '-corrupt-hash');
@@ -88,4 +91,28 @@ test('a harness leg offers no route evidence, and says so rather than guessing',
     assert.equal(leg.surface, 'harness');
     assert.deepEqual(await leg.outputs(), [], 'a sender writes nothing');
     assert.equal(await leg.code(), null, 'the harness never registers a code');
+});
+
+test('preflight answers like a surface adapter: a missing binary is a precondition', async () => {
+    const none = await preflight({});
+    assert.equal(none.ok, false);
+    assert.match(none.reason, /internal.e2ehost/, 'it names the thing to build');
+
+    const missing = await preflight({ harnessBin: 'C:/nowhere/floe-e2ehost.exe' });
+    assert.equal(missing.ok, false);
+    assert.match(missing.reason, /missing at/);
+
+    // This file itself stands in for a binary that is present.
+    const here = fileURLToPath(import.meta.url);
+    const found = await preflight({ harnessBin: here });
+    assert.equal(found.ok, true);
+    assert.equal(found.reason, null);
+    assert.equal(found.detail.bin, here);
+});
+
+test('the registry can hand out the harness adapter', async () => {
+    const mod = await getAdapter('harness');
+    assert.equal(typeof mod.createLeg, 'function');
+    assert.equal(typeof mod.preflight, 'function');
+    assert.ok(isSurfaceAdapter(mod), 'it satisfies the surface-adapter shape');
 });
