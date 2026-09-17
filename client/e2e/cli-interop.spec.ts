@@ -76,7 +76,11 @@ test('Direction 2: browser send → CLI receive (SHA-256 integrity)', async ({ b
         const roomLink = await browserSenderSetup(page, fixturePath);
 
         // Spawn CLI receiver pointing at the room link.
-        await spawnReceive(roomLink, outputDir);
+        const stdout = await spawnReceive(roomLink, outputDir);
+
+        // The browser sender put the file's SHA-256 on its end frame and the Go
+        // receiver matched it against the bytes it wrote.
+        expect(stdout).toMatch(/Verified\s+SHA-256 matched/);
 
         // Verify the file landed on disk with correct content.
         const expectedName = basename(fixturePath);

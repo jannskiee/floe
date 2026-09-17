@@ -456,3 +456,145 @@ describe('sender: session control listener', () => {
         expect(await deliveredFor(999, 3)).toEqual([{ files: 3, verified: null, allVerified: false }]);
     });
 });
+
+describe('sender: per-file SHA-256 on end', () => {
+    const DIGEST = 'ab'.repeat(32);
+
+    // A loopback receiver that acks every metadata at `ackOffset` and lets a test
+    // react to chunks. Records every string frame the sender sends.
+    function hashDeps(opts: {
+        ackOffset?: number;
+        hashBlob?: SenderDeps['hashBlob'];
+        onChunk?: (n: number, deliver: (frame: string) => void) => void;
+    } = {}) {
+        let handler: ((d: string | Uint8Array | ArrayBuffer) => void) | null = null;
+        const strings: string[] = [];
+        let chunks = 0;
+        const deliver = (frame: string) => queueMicrotask(() => handler?.(enc.encode(frame)));
+        const deps: SenderDeps = {
+            send: (d) => {
+                if (typeof d !== 'string') {
+                    chunks += 1;
+                    opts.onChunk?.(chunks, deliver);
+                    return;
+                }
+                strings.push(d);
+                const parsed = JSON.parse(d) as { type: string; id?: string };
+                if (parsed.type === 'metadata' && parsed.id) deliver(ackMessage(parsed.id, opts.ackOffset ?? 0));
+            },
+            onData: (h) => {
+                handler = h;
+                return () => { handler = null; };
+            },
+            channel: makeBufferChannel(),
+            sctpMaxMessageSize: null,
+            hashBlob: opts.hashBlob,
+        };
+        const ends = () => strings.map((s) => JSON.parse(s) as { type: string; sha256?: string }).filter((m) => m.type === 'end');
+        return { deps, ends, strings };
+    }
+
+    it('awaits the digest before end', async () => {
+        const h = hashDeps({
+            hashBlob: () => new Promise((resolve) => setTimeout(() => resolve(DIGEST), 20)),
+        });
+        await sendFiles(h.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], {}, { sendHashes: true });
+        expect(h.ends()).toEqual([{ type: 'end', sha256: DIGEST }]);
+        // type stays first on the wire.
+        expect(h.strings.find((s) => s.includes('"end"'))!.startsWith('{"type":"end","sha256":"')).toBe(true);
+    });
+
+    it('omits sha256 when the hasher returns null', async () => {
+        for (const hashBlob of [
+            async () => null,
+            async () => { throw new Error('worker died'); },
+            () => { throw new Error('sync'); },
+            async () => 'NOT-A-DIGEST',
+        ] as Array<SenderDeps['hashBlob']>) {
+            const h = hashDeps({ hashBlob });
+            await sendFiles(h.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], {}, { sendHashes: true });
+            expect(h.ends()).toEqual([{ type: 'end' }]);
+        }
+    });
+
+    it('omits sha256 when hashing is off', async () => {
+        let calls = 0;
+        const h = hashDeps({ hashBlob: async () => { calls += 1; return DIGEST; } });
+        await sendFiles(h.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], {}, { sendHashes: false });
+        expect(calls).toBe(0);
+        expect(h.ends()).toEqual([{ type: 'end' }]);
+    });
+
+    it('omits sha256 at a nonzero ack offset', async () => {
+        let signal: AbortSignal | undefined;
+        const h = hashDeps({
+            ackOffset: 8,
+            hashBlob: (_blob, s) => {
+                signal = s;
+                return Promise.resolve(DIGEST);
+            },
+        });
+        await sendFiles(h.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], {}, { sendHashes: true });
+        expect(h.ends()).toEqual([{ type: 'end' }]);
+        expect(signal?.aborted).toBe(true);
+    });
+
+    it('sends no end after a refusal that arrives while the digest is pending', async () => {
+        const errors: string[] = [];
+        const h = hashDeps({
+            hashBlob: () => new Promise((resolve) => setTimeout(() => resolve(DIGEST), 30)),
+            // The last and only chunk draws a refusal, which lands during the digest wait.
+            onChunk: (n, deliver) => {
+                if (n === 1) deliver(JSON.stringify({ type: 'incompatible', reason: 'receiver stopped', pv: 1, pvMin: 1 }));
+            },
+        });
+        await sendFiles(h.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], { onError: (m) => errors.push(m) }, { sendHashes: true });
+        expect(errors).toHaveLength(1);
+        expect(h.ends()).toEqual([]);
+    });
+
+    it('ends the send when a refusal lands after the last chunk and the digest never finishes', async () => {
+        // The refusal rides the file's only chunk, so no loop iteration is left
+        // to notice it, and the hash never resolves on its own: a plain await
+        // here would hold the send open for the life of the page while the
+        // worker read the rest of the file.
+        let signal: AbortSignal | undefined;
+        const errors: string[] = [];
+        const h = hashDeps({
+            hashBlob: (_blob, s) => {
+                signal = s;
+                return new Promise(() => { });
+            },
+            onChunk: (n, deliver) => {
+                if (n === 1) deliver(JSON.stringify({ type: 'incompatible', reason: 'receiver stopped', pv: 1, pvMin: 1 }));
+            },
+        });
+        const started = Date.now();
+        await sendFiles(h.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], { onError: (m) => errors.push(m) }, { sendHashes: true });
+        expect(errors).toHaveLength(1);
+        expect(h.ends()).toEqual([]);
+        expect(signal?.aborted).toBe(true);
+        // The wait polls every 200 ms; a plain await would never return here.
+        expect(Date.now() - started).toBeLessThan(3000);
+    });
+
+    it('aborts hashing when the transfer stops', async () => {
+        let signal: AbortSignal | undefined;
+        const errors: string[] = [];
+        const h = hashDeps({
+            // A hash that would never finish on its own.
+            hashBlob: (_blob, s) => {
+                signal = s;
+                return new Promise(() => { });
+            },
+            onChunk: (n, deliver) => {
+                if (n === 1) deliver(JSON.stringify({ type: 'incompatible', reason: 'receiver stopped', pv: 1, pvMin: 1 }));
+            },
+        });
+        const size = READ_SLAB + 3 * DEFAULT_CHUNK;
+        await sendFiles(h.deps, [{ id: 'a', file: makeFile(size, 'big.bin') }], { onError: (m) => errors.push(m) }, { sendHashes: true });
+        expect(errors).toHaveLength(1);
+        expect(h.ends()).toEqual([]);
+        expect(signal?.aborted).toBe(true);
+    });
+});
