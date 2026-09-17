@@ -67,18 +67,34 @@ function generateCoturnCredentials() {
 //
 // When CLOUDFLARE_TURN_KEY_ID / CLOUDFLARE_TURN_KEY_API_TOKEN are set, mint
 // short-lived ICE servers from Cloudflare's global anycast TURN network. The
-// credentials are not per-user, so cache one set in memory and refresh well
-// before the 24h TTL instead of calling the API on every request. STUN and TURN
-// are returned as separate entries so the client's relay-off filter
-// (filterIceServers) can drop TURN while keeping STUN.
+// credentials are not per-user, so cache one set in memory for a short window
+// instead of calling the API on every request. STUN and TURN are returned as
+// separate entries so the client's relay-off filter (filterIceServers) can drop
+// TURN while keeping STUN.
 // ---------------------------------------------------------------------------
 
 const CLOUDFLARE_TURN_KEY_ID = process.env.CLOUDFLARE_TURN_KEY_ID;
 const CLOUDFLARE_TURN_KEY_API_TOKEN = process.env.CLOUDFLARE_TURN_KEY_API_TOKEN;
 const CF_TURN_TTL = 24 * 3600;         // credential lifetime requested from Cloudflare (seconds)
-const CF_CACHE_MS = 12 * 3600 * 1000;  // refresh our cached copy every 12h (well within the TTL)
+// Every client inside one cache window shares one username. 5 minutes leaves
+// at most 288 simultaneously valid usernames over a credential's 24h life (a
+// 60 s window would leave about 1,440 inside the 20/min limiter), and a window
+// this short makes a Cloudflare usage row attributable to one issuance.
+const CF_CACHE_MS = 5 * 60 * 1000;
+// A copy minted within the last CF_STALE_MS is still inside its own 24h
+// lifetime with an hour to spare, so it may be served while Cloudflare's API
+// fails. Derived, never chosen: an API outage shorter than about 23 hours never
+// becomes a relay outage, and a revoked key stops looking healthy once its last
+// copy ages out.
+const CF_STALE_MS = (CF_TURN_TTL - 3600) * 1000;
+// Node's global fetch has no timeout of its own. Without one, a hung Cloudflare
+// connection hangs every request waiting on the mint (a browser receiver's join
+// waits on it) while /health stays green.
+const CF_FETCH_TIMEOUT_MS = 10_000;
 
-let cfIceCache = { servers: null, expires: 0 };
+let cfIceCache = { servers: null, expires: 0, mintedAt: 0 };
+let cfInflight = null;           // the one mint in flight, or null
+let cfNextMintAt = 0;            // no mint starts before this, after a success or a failure
 
 // selectMinimalIceUrls reduces Cloudflare's full URL list (8 entries: STUN on two
 // ports plus TURN duplicated across udp/tcp/tls on :53/:80/:443/:3478/:5349) to
@@ -105,9 +121,56 @@ function selectMinimalIceUrls(stunUrls, turnUrls) {
     };
 }
 
+// The last good copy while it is still inside CF_STALE_MS, else null.
+function usableCloudflareCopy(now) {
+    if (!cfIceCache.servers) return null;
+    return now - cfIceCache.mintedAt <= CF_STALE_MS ? cfIceCache.servers : null;
+}
+
+// A reason word only: never the response body, a username or a credential.
+// Needs no throttle of its own: every failure path logs once per mint, and
+// cfNextMintAt already allows one mint per window.
+function logMintFailure(reason) {
+    console.error(`Cloudflare TURN mint failed (${reason})`);
+}
+
 async function generateCloudflareIceServers() {
     if (!CLOUDFLARE_TURN_KEY_ID || !CLOUDFLARE_TURN_KEY_API_TOKEN) return null;
-    if (cfIceCache.servers && Date.now() < cfIceCache.expires) return cfIceCache.servers;
+    const now = Date.now();
+    if (cfIceCache.servers && now < cfIceCache.expires) return cfIceCache.servers;
+    const usable = usableCloudflareCopy(now);
+    // In flight is checked before the negative window, or a burst of page loads
+    // right after a restart falls through to STUN while the first mint runs.
+    if (cfInflight) return usable || cfInflight;
+    if (now < cfNextMintAt) return usable;
+    cfInflight = startCloudflareMint();
+    return usable || cfInflight;
+}
+
+// Owns the shared in-flight promise, which must never reject: nothing awaits it
+// when a stale copy was served, and an un-awaited rejection reaches server.js's
+// uncaughtException backstop with origin 'unhandledRejection' (verified on Node
+// 20, 22 and 24), where crashguard.test.js fails on the "Unhandled error" line.
+// Hence the whole body sits in try/catch; never add process.on('unhandledRejection').
+async function startCloudflareMint() {
+    // Set before the await, so at most one mint starts per window by construction.
+    cfNextMintAt = Date.now() + CF_CACHE_MS;
+    try {
+        const servers = await mintCloudflareIceServers();
+        if (servers) return servers;
+    } catch {
+        // mintCloudflareIceServers catches its own errors; this arm only keeps a
+        // future change there from turning into a rejection here.
+    } finally {
+        cfInflight = null;
+    }
+    return usableCloudflareCopy(Date.now());
+}
+
+// One upstream call. Returns the trimmed server list and caches it, or null
+// after logging why (a TimeoutError, a status, no servers); the caller decides
+// what to serve instead.
+async function mintCloudflareIceServers() {
     try {
         const resp = await fetch(
             `https://rtc.live.cloudflare.com/v1/turn/keys/${CLOUDFLARE_TURN_KEY_ID}/credentials/generate-ice-servers`,
@@ -118,11 +181,18 @@ async function generateCloudflareIceServers() {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({ ttl: CF_TURN_TTL }),
+                signal: AbortSignal.timeout(CF_FETCH_TIMEOUT_MS),
             }
         );
-        if (!resp.ok) return cfIceCache.servers; // serve last good copy on a transient failure
+        if (!resp.ok) {
+            logMintFailure(`status ${resp.status}`);
+            return null;
+        }
         const { iceServers } = await resp.json();
-        if (!iceServers) return cfIceCache.servers;
+        if (!iceServers) {
+            logMintFailure('no-ice-servers');
+            return null;
+        }
 
         // Cloudflare returns one object with all URLs and a single credential.
         // Split STUN from TURN so the client can strip TURN while keeping STUN
@@ -145,13 +215,25 @@ async function generateCloudflareIceServers() {
         const servers = [];
         if (minimal.stunUrls.length) servers.push({ urls: minimal.stunUrls });
         if (minimal.turnUrls.length) servers.push({ urls: minimal.turnUrls, username, credential });
-        if (!servers.length) return cfIceCache.servers;
+        if (!servers.length) {
+            logMintFailure('no-ice-servers');
+            return null;
+        }
 
-        cfIceCache = { servers, expires: Date.now() + CF_CACHE_MS };
+        const mintedAt = Date.now();
+        cfIceCache = { servers, expires: mintedAt + CF_CACHE_MS, mintedAt };
         return servers;
-    } catch {
-        return cfIceCache.servers; // network hiccup: last good copy (may be null, then we fall through)
+    } catch (err) {
+        logMintFailure(err && err.name ? err.name : 'error');
+        return null;
     }
+}
+
+// Test hook: forget the cached copy, the in-flight mint and both windows.
+function __resetCfCacheForTests() {
+    cfIceCache = { servers: null, expires: 0, mintedAt: 0 };
+    cfInflight = null;
+    cfNextMintAt = 0;
 }
 
 /** GET /api/turn-credentials. Registered by server.js, before the error handler. */
@@ -179,4 +261,8 @@ module.exports = {
     selectMinimalIceUrls,
     generateCloudflareIceServers,
     turnCredentialsHandler,
+    CF_TURN_TTL,
+    CF_CACHE_MS,
+    CF_STALE_MS,
+    __resetCfCacheForTests,
 };

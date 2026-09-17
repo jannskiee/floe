@@ -49,7 +49,7 @@ The map names where a value is stated; grep the old literal repo-wide before fin
 
 ## TURN credential lifetimes
 
-- server/turn.js: the `ttl` local in the coturn HMAC path, `CF_TURN_TTL`, `CF_CACHE_MS`.
+- server/turn.js: the `ttl` local in the coturn HMAC path, `CF_TURN_TTL`, `CF_CACHE_MS`, `CF_STALE_MS` (the stale window derived from `CF_TURN_TTL`), `CF_FETCH_TIMEOUT_MS`, and the `logMintFailure` line the docs quote (`Cloudflare TURN mint failed`).
 - Docs: docs/self-hosting/turn-relay.mdx (the expiry sentence under the coturn setup and "How credentials work"), docs/reference/http-api.mdx `GET /api/turn-credentials`, docs/troubleshooting.mdx "The TURN relay is not working", CLAUDE.md "TURN Credentials".
 
 ## CLI flags and environment
