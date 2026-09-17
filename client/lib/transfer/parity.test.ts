@@ -11,9 +11,9 @@
  * - Seeded xorshift32 loops: 1000 generated frames per decoder, never a throw.
  *   The seed is in each test name, so a failure reproduces exactly.
  *
- * Decoders covered: refusalCodeOf and classifyControl (protocol.ts) and the
- * metadata guard of createReceiver (receiver.ts). The end and received parsers
- * join when P0-19 adds them.
+ * Decoders covered: refusalCodeOf, classifyControl, normalizeSha256 (twin of
+ * parseEnd) and verifiedCountOf (twin of parseReceived) in protocol.ts, and the
+ * metadata guard of createReceiver (receiver.ts).
  */
 import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
@@ -21,8 +21,11 @@ import {
     CONTROL_MSG_MAX,
     REFUSAL_CODES,
     classifyControl,
+    normalizeSha256,
     refusalCodeOf,
+    verifiedCountOf,
     type Incompatible,
+    type Received,
 } from './protocol';
 import { createReceiver } from './receiver';
 
@@ -78,11 +81,49 @@ const PARITY_TABLE = String.raw`
 {"decoder":"metadataGuard","name":"F3-bidi-override-name","frame":"{\"type\":\"metadata\",\"id\":\"f-3\",\"fileName\":\"photo\u202egnp.exe\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"accept","ts":"accept"}
 {"decoder":"metadataGuard","name":"leading-space","frame":" {\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"accept","ts":"ignore","finding":"FND-1"}
 {"decoder":"metadataGuard","name":"over-cap","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1,\"pad\":\"\"}","padTo":1001,"padChar":"x","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"valid","frame":"{\"type\":\"end\",\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}","go":"accept","ts":"accept"}
+{"decoder":"endSha256","name":"absent","frame":"{\"type\":\"end\"}","go":"absent","ts":"absent"}
+{"decoder":"endSha256","name":"uppercase","frame":"{\"type\":\"end\",\"sha256\":\"0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF\"}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"63-chars","frame":"{\"type\":\"end\",\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde\"}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"65-chars","frame":"{\"type\":\"end\",\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0\"}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"non-hex","frame":"{\"type\":\"end\",\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdeg\"}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"empty","frame":"{\"type\":\"end\",\"sha256\":\"\"}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"padded","frame":"{\"type\":\"end\",\"sha256\":\" 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"number","frame":"{\"type\":\"end\",\"sha256\":3}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"null","frame":"{\"type\":\"end\",\"sha256\":null}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"true","frame":"{\"type\":\"end\",\"sha256\":true}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"object","frame":"{\"type\":\"end\",\"sha256\":{}}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"array","frame":"{\"type\":\"end\",\"sha256\":[\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"]}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"escaped-valid","frame":"{\"type\":\"end\",\"sha256\":\"\\u0030123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}","go":"accept","ts":"accept"}
+{"decoder":"endSha256","name":"duplicate-good-then-bad","frame":"{\"type\":\"end\",\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"sha256\":\"x\"}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"key-case","frame":"{\"type\":\"end\",\"SHA256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"zero","frame":"{\"type\":\"received\",\"verified\":0}","go":"0","ts":"0"}
+{"decoder":"receivedVerified","name":"equal","frame":"{\"type\":\"received\",\"verified\":3}","go":"3","ts":"3"}
+{"decoder":"receivedVerified","name":"absent","frame":"{\"type\":\"received\"}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"above","frame":"{\"type\":\"received\",\"verified\":4}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"negative","frame":"{\"type\":\"received\",\"verified\":-1}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"minus-zero","frame":"{\"type\":\"received\",\"verified\":-0}","go":"0","ts":"0"}
+{"decoder":"receivedVerified","name":"integer-fraction","frame":"{\"type\":\"received\",\"verified\":3.0}","go":"3","ts":"3"}
+{"decoder":"receivedVerified","name":"exponent-one","frame":"{\"type\":\"received\",\"verified\":1e0}","go":"1","ts":"1"}
+{"decoder":"receivedVerified","name":"exponent-above","frame":"{\"type\":\"received\",\"verified\":1e2}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"fraction","frame":"{\"type\":\"received\",\"verified\":2.5}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"string","frame":"{\"type\":\"received\",\"verified\":\"3\"}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"null","frame":"{\"type\":\"received\",\"verified\":null}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"true","frame":"{\"type\":\"received\",\"verified\":true}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"array","frame":"{\"type\":\"received\",\"verified\":[3]}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"object","frame":"{\"type\":\"received\",\"verified\":{}}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"2pow53-minus-1","frame":"{\"type\":\"received\",\"verified\":9007199254740991}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"2pow53","frame":"{\"type\":\"received\",\"verified\":9007199254740992}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"overflow","frame":"{\"type\":\"received\",\"verified\":1e999}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"duplicate-3-then-string","frame":"{\"type\":\"received\",\"verified\":3,\"verified\":\"x\"}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"duplicate-string-then-2","frame":"{\"type\":\"received\",\"verified\":\"x\",\"verified\":2}","go":"2","ts":"2"}
+{"decoder":"receivedVerified","name":"key-case","frame":"{\"type\":\"received\",\"Verified\":3}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"not-received","frame":"{\"type\":\"ack\",\"verified\":3}","go":"none","ts":"none"}
 `;
 // PARITY-TABLE-END
 
 interface ParityRow {
-    decoder: 'refusalCodeOf' | 'classifyControl' | 'metadataGuard';
+    decoder: 'refusalCodeOf' | 'classifyControl' | 'metadataGuard' | 'endSha256' | 'receivedVerified';
     name: string;
     frame: string;
     padTo?: number;
@@ -123,7 +164,33 @@ function tsDecision(row: ParityRow, frame: string): string {
             return classifyControl(frame)?.type ?? 'none';
         case 'metadataGuard':
             return metadataDecision(frame);
+        case 'endSha256':
+            return endSha256Decision(frame);
+        case 'receivedVerified': {
+            // A three-file batch, as in the Go twin.
+            const msg = classifyControl(frame);
+            if (msg?.type !== 'received') return 'none';
+            const verified = verifiedCountOf(msg as Received, 3);
+            return verified === null ? 'absent' : String(verified);
+        }
     }
+}
+
+/**
+ * The receiver-side reading of an end frame's digest: absent when the key is
+ * missing, reject when normalizeSha256 refuses a present value (a present null
+ * refuses too), accept otherwise. It reads the parsed field, not the frame, so
+ * the frame-level FND-1 and FND-2 disagreements do not leak into these rows.
+ */
+function endSha256Decision(frame: string): 'accept' | 'reject' | 'absent' {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(frame);
+    } catch {
+        return 'reject';
+    }
+    if (typeof parsed !== 'object' || parsed === null || !Object.prototype.hasOwnProperty.call(parsed, 'sha256')) return 'absent';
+    return normalizeSha256((parsed as { sha256?: unknown }).sha256) === null ? 'reject' : 'accept';
 }
 
 /**
@@ -270,6 +337,8 @@ function describeFailure(seed: number, i: number, frame: string, what: string): 
 const REFUSAL_SEED = 0x5eed0017;
 const CLASSIFY_SEED = 0x5eed0b0b;
 const METADATA_SEED = 0x5eed3e7a;
+const SHA256_SEED = 0x5eed5a25;
+const VERIFIED_SEED = 0x5eedfe71;
 const FRAMES = 1000;
 
 describe('seeded xorshift32 property loops (1000 frames each)', () => {
@@ -371,5 +440,48 @@ describe('seeded xorshift32 property loops (1000 frames each)', () => {
         // Not vacuous: all three decisions happened, and some frames crossed the cap.
         expect(Object.keys(seen).sort()).toEqual(['accept', 'ignore', 'reject']);
         expect(overCap).toBeGreaterThan(0);
+    });
+    it(`the end digest reading never throws and always decides (xorshift32 seed 0x${SHA256_SEED.toString(16)})`, () => {
+        const rng = xorshift32(SHA256_SEED);
+        const good = JSON.stringify('0123456789abcdef'.repeat(4));
+        const seen: Record<string, number> = {};
+        for (let i = 0; i < FRAMES; i++) {
+            const frame = damage(rng, jsonObject([['type', field(rng, '"end"')], ['sha256', rng() % 3 ? field(rng, good) : genValue(rng)]]));
+            let decision: string;
+            try {
+                decision = endSha256Decision(frame);
+            } catch (err) {
+                throw new Error(describeFailure(SHA256_SEED, i, frame, `threw ${String(err)}`));
+            }
+            expect(['accept', 'reject', 'absent'], describeFailure(SHA256_SEED, i, frame, `decision ${decision}`)).toContain(decision);
+            seen[decision] = (seen[decision] ?? 0) + 1;
+        }
+        // Not vacuous: every decision happened.
+        expect(Object.keys(seen).sort()).toEqual(['absent', 'accept', 'reject']);
+    });
+
+    it(`verifiedCountOf never throws and never over-claims (xorshift32 seed 0x${VERIFIED_SEED.toString(16)})`, () => {
+        const rng = xorshift32(VERIFIED_SEED);
+        let usable = 0;
+        let received = 0;
+        for (let i = 0; i < FRAMES; i++) {
+            const frame = damage(rng, jsonObject([['type', field(rng, '"received"')], ['verified', rng() % 3 ? field(rng, String(rng() % 5)) : genValue(rng)]]));
+            let verified: number | null = null;
+            try {
+                const msg = classifyControl(frame);
+                if (msg?.type !== 'received') continue;
+                received++;
+                verified = verifiedCountOf(msg as Received, 3);
+            } catch (err) {
+                throw new Error(describeFailure(VERIFIED_SEED, i, frame, `threw ${String(err)}`));
+            }
+            if (verified !== null) {
+                usable++;
+                expect(Number.isSafeInteger(verified) && verified >= 0 && verified <= 3, describeFailure(VERIFIED_SEED, i, frame, `count ${verified}`)).toBe(true);
+            }
+        }
+        // Not vacuous: some frames were received frames, and some of those carried a usable count and some did not.
+        expect(usable).toBeGreaterThan(0);
+        expect(usable).toBeLessThan(received);
     });
 });

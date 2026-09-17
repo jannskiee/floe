@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -68,6 +69,44 @@ const parityTable = `
 {"decoder":"metadataGuard","name":"F3-bidi-override-name","frame":"{\"type\":\"metadata\",\"id\":\"f-3\",\"fileName\":\"photo\u202egnp.exe\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"accept","ts":"accept"}
 {"decoder":"metadataGuard","name":"leading-space","frame":" {\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"accept","ts":"ignore","finding":"FND-1"}
 {"decoder":"metadataGuard","name":"over-cap","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1,\"pad\":\"\"}","padTo":1001,"padChar":"x","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"valid","frame":"{\"type\":\"end\",\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}","go":"accept","ts":"accept"}
+{"decoder":"endSha256","name":"absent","frame":"{\"type\":\"end\"}","go":"absent","ts":"absent"}
+{"decoder":"endSha256","name":"uppercase","frame":"{\"type\":\"end\",\"sha256\":\"0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF\"}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"63-chars","frame":"{\"type\":\"end\",\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde\"}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"65-chars","frame":"{\"type\":\"end\",\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0\"}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"non-hex","frame":"{\"type\":\"end\",\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdeg\"}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"empty","frame":"{\"type\":\"end\",\"sha256\":\"\"}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"padded","frame":"{\"type\":\"end\",\"sha256\":\" 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"number","frame":"{\"type\":\"end\",\"sha256\":3}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"null","frame":"{\"type\":\"end\",\"sha256\":null}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"true","frame":"{\"type\":\"end\",\"sha256\":true}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"object","frame":"{\"type\":\"end\",\"sha256\":{}}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"array","frame":"{\"type\":\"end\",\"sha256\":[\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"]}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"escaped-valid","frame":"{\"type\":\"end\",\"sha256\":\"\\u0030123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}","go":"accept","ts":"accept"}
+{"decoder":"endSha256","name":"duplicate-good-then-bad","frame":"{\"type\":\"end\",\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"sha256\":\"x\"}","go":"reject","ts":"reject"}
+{"decoder":"endSha256","name":"key-case","frame":"{\"type\":\"end\",\"SHA256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"zero","frame":"{\"type\":\"received\",\"verified\":0}","go":"0","ts":"0"}
+{"decoder":"receivedVerified","name":"equal","frame":"{\"type\":\"received\",\"verified\":3}","go":"3","ts":"3"}
+{"decoder":"receivedVerified","name":"absent","frame":"{\"type\":\"received\"}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"above","frame":"{\"type\":\"received\",\"verified\":4}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"negative","frame":"{\"type\":\"received\",\"verified\":-1}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"minus-zero","frame":"{\"type\":\"received\",\"verified\":-0}","go":"0","ts":"0"}
+{"decoder":"receivedVerified","name":"integer-fraction","frame":"{\"type\":\"received\",\"verified\":3.0}","go":"3","ts":"3"}
+{"decoder":"receivedVerified","name":"exponent-one","frame":"{\"type\":\"received\",\"verified\":1e0}","go":"1","ts":"1"}
+{"decoder":"receivedVerified","name":"exponent-above","frame":"{\"type\":\"received\",\"verified\":1e2}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"fraction","frame":"{\"type\":\"received\",\"verified\":2.5}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"string","frame":"{\"type\":\"received\",\"verified\":\"3\"}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"null","frame":"{\"type\":\"received\",\"verified\":null}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"true","frame":"{\"type\":\"received\",\"verified\":true}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"array","frame":"{\"type\":\"received\",\"verified\":[3]}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"object","frame":"{\"type\":\"received\",\"verified\":{}}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"2pow53-minus-1","frame":"{\"type\":\"received\",\"verified\":9007199254740991}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"2pow53","frame":"{\"type\":\"received\",\"verified\":9007199254740992}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"overflow","frame":"{\"type\":\"received\",\"verified\":1e999}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"duplicate-3-then-string","frame":"{\"type\":\"received\",\"verified\":3,\"verified\":\"x\"}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"duplicate-string-then-2","frame":"{\"type\":\"received\",\"verified\":\"x\",\"verified\":2}","go":"2","ts":"2"}
+{"decoder":"receivedVerified","name":"key-case","frame":"{\"type\":\"received\",\"Verified\":3}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"not-received","frame":"{\"type\":\"ack\",\"verified\":3}","go":"none","ts":"none"}
 `
 
 // PARITY-TABLE-END
@@ -146,6 +185,33 @@ func goMetadataDecision(frame string) string {
 	return "accept"
 }
 
+// goEndSha256Decision is parseEnd in the table's vocabulary: accept a readable
+// digest, reject an unreadable one, absent when there is none. The browser twin
+// reads the parsed field, not the frame, so FND-1 and FND-2 do not leak in.
+func goEndSha256Decision(frame []byte) string {
+	sha, err := parseEnd(frame)
+	switch {
+	case err != nil:
+		return "reject"
+	case sha == "":
+		return "absent"
+	}
+	return "accept"
+}
+
+// goReceivedVerifiedDecision is parseReceived for a three-file batch: none when
+// the frame is not a received, absent when its count is unusable, else the count.
+func goReceivedVerifiedDecision(frame []byte) string {
+	ok, verified, has := parseReceived(frame, 3)
+	switch {
+	case !ok:
+		return "none"
+	case !has:
+		return "absent"
+	}
+	return strconv.Itoa(verified)
+}
+
 func loadParityRows(t *testing.T) []parityRow {
 	t.Helper()
 	var rows []parityRow
@@ -186,6 +252,10 @@ func TestDecoderParityGoDecisions(t *testing.T) {
 			}
 		case "metadataGuard":
 			got = goMetadataDecision(frame)
+		case "endSha256":
+			got = goEndSha256Decision([]byte(frame))
+		case "receivedVerified":
+			got = goReceivedVerifiedDecision([]byte(frame))
 		default:
 			t.Fatalf("row %s names an unknown decoder %q", row.Name, row.Decoder)
 		}

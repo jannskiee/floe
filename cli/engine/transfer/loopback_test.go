@@ -507,7 +507,7 @@ func newOffererPair(t *testing.T, hostTap func(webrtc.DataChannelMessage)) *offe
 	p := &offererPair{host: offerer, visitor: answerer, received: received}
 	p.hostMsgs, p.hostClosed = pumpChannel(offerer, hostTap)
 	p.visitorMsgs, p.visitorClosed = pumpChannel(answerer, func(m webrtc.DataChannelMessage) {
-		if !m.IsString && isReceived(m.Data) {
+		if ok, _, _ := parseReceived(m.Data, 0); !m.IsString && ok {
 			receivedOnce.Do(func() { close(received) })
 		}
 	})

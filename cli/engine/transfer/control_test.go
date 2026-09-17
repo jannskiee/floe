@@ -213,3 +213,90 @@ func TestParseMetadataRejectsImpossibleNumbers(t *testing.T) {
 		})
 	}
 }
+
+// TestParseEnd pins the wire digest: absent is "" and no error, a present value
+// must be a JSON string of 64 lowercase hex characters after unescaping, the
+// key is matched exactly, a duplicate keeps its last value, and the error never
+// carries the value.
+func TestParseEnd(t *testing.T) {
+	good := strings.Repeat("0123456789abcdef", 4)
+	cases := []struct {
+		name, frame, want string
+		wantErr           bool
+	}{
+		{"absent", `{"type":"end"}`, "", false},
+		{"valid", `{"type":"end","sha256":"` + good + `"}`, good, false},
+		{"escaped", `{"type":"end","sha256":"\u0030` + good[1:] + `"}`, good, false},
+		{"other key case is absent", `{"type":"end","SHA256":"` + good + `"}`, "", false},
+		{"null", `{"type":"end","sha256":null}`, "", true},
+		{"number", `{"type":"end","sha256":3}`, "", true},
+		{"bool", `{"type":"end","sha256":true}`, "", true},
+		{"array", `{"type":"end","sha256":["` + good + `"]}`, "", true},
+		{"object", `{"type":"end","sha256":{}}`, "", true},
+		{"empty", `{"type":"end","sha256":""}`, "", true},
+		{"uppercase", `{"type":"end","sha256":"` + strings.ToUpper(good) + `"}`, "", true},
+		{"63", `{"type":"end","sha256":"` + good[:63] + `"}`, "", true},
+		{"65", `{"type":"end","sha256":"` + good + `a"}`, "", true},
+		{"duplicate good then bad", `{"type":"end","sha256":"` + good + `","sha256":"x"}`, "", true},
+		{"duplicate bad then good", `{"type":"end","sha256":"x","sha256":"` + good + `"}`, good, false},
+	}
+	for _, tc := range cases {
+		got, err := parseEnd([]byte(tc.frame))
+		if (err != nil) != tc.wantErr || got != tc.want {
+			t.Errorf("%s: parseEnd = %q, %v; want %q, error %v", tc.name, got, err, tc.want, tc.wantErr)
+		}
+		if err != nil && (strings.Contains(err.Error(), good[:8]) || strings.Contains(err.Error(), "x\"")) {
+			t.Errorf("%s: the error embeds the value: %v", tc.name, err)
+		}
+	}
+}
+
+// TestParseReceived pins the sender's reading of received: the frame always
+// counts as delivery, and the count is usable only as an integer-valued JSON
+// number from 0 to the file count, never clamped.
+func TestParseReceived(t *testing.T) {
+	cases := []struct {
+		verified string // "" leaves the key out
+		ok, has  bool
+		want     int
+	}{
+		{"", true, false, 0},
+		{`0`, true, true, 0},
+		{`3`, true, true, 3},
+		{`3.0`, true, true, 3},
+		{`1e0`, true, true, 1},
+		{`-0`, true, true, 0},
+		{`4`, true, false, 0},
+		{`-1`, true, false, 0},
+		{`2.5`, true, false, 0},
+		{`1e2`, true, false, 0},
+		{`"3"`, true, false, 0},
+		{`null`, true, false, 0},
+		{`true`, true, false, 0},
+		{`[3]`, true, false, 0},
+		{`{}`, true, false, 0},
+		{`9007199254740991`, true, false, 0},
+		{`9007199254740992`, true, false, 0},
+		{`18446744073709551616`, true, false, 0},
+		{`1e999`, true, false, 0},
+	}
+	for _, tc := range cases {
+		frame := `{"type":"received"}`
+		if tc.verified != "" {
+			frame = `{"type":"received","verified":` + tc.verified + `}`
+		}
+		ok, got, has := parseReceived([]byte(frame), 3)
+		if ok != tc.ok || has != tc.has || got != tc.want {
+			t.Errorf("verified %s: parseReceived = %v, %d, %v; want %v, %d, %v", tc.verified, ok, got, has, tc.ok, tc.want, tc.has)
+		}
+	}
+	if ok, got, has := parseReceived([]byte(`{"type":"received","verified":3,"verified":"x"}`), 3); !ok || has || got != 0 {
+		t.Errorf("duplicate verified must keep the last value: %v %d %v", ok, got, has)
+	}
+	if ok, _, _ := parseReceived([]byte(`{"type":"ack","verified":3}`), 3); ok {
+		t.Error("an ack is not a received frame")
+	}
+	if ok, _, _ := parseReceived([]byte(`{"type":"received","pad":"`+strings.Repeat("x", controlMsgMax)+`"}`), 3); ok {
+		t.Error("an over-cap frame must never be parsed")
+	}
+}

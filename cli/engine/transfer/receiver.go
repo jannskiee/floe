@@ -5,9 +5,12 @@ package transfer
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -75,12 +78,24 @@ type IncomingInfo struct {
 	FirstName  string `json:"firstName"`  // sender-supplied name of the first file after displayText (controls and bidi marks replaced, at most maxDisplayName runes); display only, NOT the on-disk name
 }
 
+// FileDone describes one file committed under its final name.
+type FileDone struct {
+	SavedName string `json:"savedName"` // on-disk name relative to the output folder, the same value Progress.SavedName carries
+	Bytes     int64  `json:"bytes"`     // bytes written, equal to the announced size (the end handler refuses anything else)
+	Verified  bool   `json:"verified"`  // the sender sent a SHA-256 and it matched the bytes as they were written
+}
+
 // ReceiveOptions carries the optional callbacks for GUI clients. The zero
 // value is the CLI behavior: terminal progress bar, no incoming preview.
 // Callbacks run synchronously on the receive loop, so keep them fast.
 type ReceiveOptions struct {
 	OnProgress ProgressFunc
 	OnIncoming func(IncomingInfo)
+	// OnFileDone fires once per committed file, after the rename and any
+	// numbered-sibling correction, and never for a refused file. It delays the
+	// next ack, so keep it fast, never call back into the engine and never
+	// block on UI.
+	OnFileDone func(FileDone)
 	// UpdateHint replaces the CLI-only local update instruction in protocol
 	// compatibility errors. Leave empty for the default CLI wording.
 	UpdateHint string
@@ -166,6 +181,10 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 	var bar *progressbar.ProgressBar
 	var start time.Time
 	filesReceived := 0
+	// SHA-256 of the bytes written to the current .part, started fresh on every
+	// claim so an abandoned file can never lend its digest to the next one.
+	var currentHash hash.Hash
+	verifiedCount := 0 // committed files whose sender digest was present and matched
 	waitingForFirst := true
 	// Where the de-collision scan for each base path stopped. Scoped to this
 	// call so a long-lived desktop process does not carry numbering across
@@ -408,6 +427,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					return fmt.Errorf("cannot create file %s: %w", currentBase, err)
 				}
 				registerPartial(currentFile)
+				currentHash = sha256.New()
 				// Refuse anything that is not a regular file. claimPart already
 				// Lstats each final-name candidate and commitPart stats the
 				// placeholder it creates, so this is defense in depth on the
@@ -447,8 +467,11 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// note. The browser checks data.byteLength before decoding, which is
 				// only defined on ArrayBuffer/Buffer, not strings.
 				ack := map[string]interface{}{
-					"type":   "ack",
-					"id":     info.ID,
+					"type": "ack",
+					"id":   info.ID,
+					// The end handler's SHA-256 covers only bytes written after
+					// claimPart, so a future non-zero offset must re-hash the prefix
+					// or skip verification.
 					"offset": 0,
 					"pv":     ProtocolVersion,
 					"pvMin":  MinProtocolVersion,
@@ -523,6 +546,28 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 						return fmt.Errorf("%s", detail)
 					}
 
+					// SHA-256, when the sender sent one. After the byte-count guard,
+					// so a short file still reports "incomplete file", and before
+					// MOTW and the rename, so a file that fails never exists under
+					// its final name. The digest covers the bytes as they were
+					// written and is never re-read from disk. Not a secret, so a
+					// plain comparison; the peer's value is compared and dropped,
+					// never printed, logged or stored.
+					sha, shaErr := parseEnd(msg.Data)
+					if shaErr == nil && sha != "" && sha != hex.EncodeToString(currentHash.Sum(nil)) {
+						shaErr = errSHA256Mismatch
+					}
+					if shaErr != nil {
+						_ = os.Remove(partPath)
+						reason := "receiver discarded a file because its SHA-256 did not match"
+						if errors.Is(shaErr, errSHA256Unreadable) {
+							reason = "receiver discarded a file because the sender's SHA-256 was not readable"
+						}
+						AbortWithCode(dc, localVer, CodeHashMismatch, reason, filesReceived)
+						return &RefusedError{Code: CodeHashMismatch, Saved: filesReceived, Err: shaErr}
+					}
+					matched := sha != ""
+
 					// Mark the file as internet-sourced (Windows MOTW) so
 					// SmartScreen / Office Protected View apply when it is opened,
 					// like a browser download. Best-effort and Windows-only.
@@ -565,23 +610,40 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					}
 
 					filesReceived++
+					// Counted only after the commit, so verifiedCount can never
+					// exceed filesReceived: a commit failure above returns with the
+					// verified .part left in place and nothing counted.
+					if matched {
+						verifiedCount++
+					}
+					if opts.OnFileDone != nil {
+						opts.OnFileDone(FileDone{SavedName: currentSavedName, Bytes: bytesReceived, Verified: matched})
+					}
 					if filesReceived >= currentInfo.Total {
 						elapsed := time.Since(start)
 						timeVal := formatDuration(elapsed)
 						if spd := formatSpeed(float64(totalReceived) / elapsed.Seconds()); spd != "" {
 							timeVal += " · avg " + spd
 						}
-						printSummary([][2]string{
+						rows := [][2]string{
 							{"Received", fmt.Sprintf("%s (%s)", pluralize(filesReceived, "file"), formatBytes(totalReceived))},
-							{"Time", timeVal},
-							{"Saved to", outputDir},
-						})
+						}
+						// Only when every file matched. "Verified" is as wide as
+						// "Received" and "Saved to", so the box keeps its width, and
+						// no digest is ever printed.
+						if verifiedCount == filesReceived && filesReceived > 0 {
+							rows = append(rows, [2]string{"Verified", "SHA-256 matched"})
+						}
+						rows = append(rows, [2]string{"Time", timeVal}, [2]string{"Saved to", outputDir})
+						printSummary(rows)
 
 						// Tell the sender all bytes are written and verified so it
 						// can close cleanly without relying on SCTP buffer accounting.
 						// Sent as binary so the browser (which checks byteLength) can
 						// classify it and ignore it; CLI senders consume it explicitly.
-						receivedMsg, _ := json.Marshal(map[string]string{"type": "received"})
+						// verified is always present: 0 means this receiver checks
+						// hashes and no file carried one.
+						receivedMsg, _ := json.Marshal(map[string]interface{}{"type": "received", "verified": verifiedCount})
 						dc.Send([]byte(receivedMsg))
 
 						// Wait for the sender to close the channel (or a short grace
@@ -629,6 +691,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 		if err != nil {
 			return fmt.Errorf("write error: %w", err)
 		}
+		currentHash.Write(msg.Data[:n]) // only what reached the file
 		bytesReceived += int64(n)
 		totalReceived += int64(n)
 		if bar != nil {
