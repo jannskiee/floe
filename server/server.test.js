@@ -106,6 +106,27 @@ describe('generateCode', () => {
     });
 });
 
+describe('words.json', () => {
+    // The phrase is the only secret guarding a code transfer, so the list size is
+    // its strength: 1295 words is the EFF short wordlist minus its one hyphenated
+    // entry (yo-yo). The character class is what catches a future hyphenated word,
+    // which would print a three-word code that reads as four parts.
+    const words = require('./words.json');
+
+    it('holds exactly the 1295 words of the EFF short list', () => {
+        assert.equal(words.length, 1295);
+    });
+
+    it('has no duplicates', () => {
+        assert.equal(new Set(words).size, words.length);
+    });
+
+    it('uses only 3 to 5 lowercase letters per word', () => {
+        const bad = words.filter((w) => !/^[a-z]{3,5}$/.test(w));
+        assert.deepEqual(bad, []);
+    });
+});
+
 // ---------------------------------------------------------------------------
 // Room lifecycle — handleJoinRoom
 // ---------------------------------------------------------------------------
