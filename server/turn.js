@@ -18,6 +18,7 @@
 // notice.
 
 const crypto = require('crypto');
+const { rateKey } = require('./ratekey');
 
 const STUN_FALLBACK = [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -238,7 +239,7 @@ function __resetCfCacheForTests() {
 
 /** GET /api/turn-credentials. Registered by server.js, before the error handler. */
 async function turnCredentialsHandler(req, res) {
-    const ip = req.ip;  // Express resolves this correctly via trust proxy
+    const ip = rateKey(req.ip);  // req.ip is resolved via trust proxy; the key masks it
     const now = Date.now();
 
     if (!turnRateLimits.has(ip)) turnRateLimits.set(ip, []);

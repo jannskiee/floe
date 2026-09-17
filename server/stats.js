@@ -21,6 +21,8 @@
 // node --test, which requires server.js and with it whatever server/.env the
 // checkout holds.
 
+const { rateKey } = require('./ratekey');
+
 const statsRateLimits = new Map();
 const STATS_RATE_WINDOW = 60000;
 const STATS_MAX_REPORTS = 60; // per IP per minute
@@ -76,7 +78,7 @@ function statsHandler(_req, res) {
 
 /** POST /api/stats/report. Registered by server.js, before the error handler. */
 function statsReportHandler(req, res) {
-    const ip = req.ip;
+    const ip = rateKey(req.ip);
     const now = Date.now();
 
     if (!statsRateLimits.has(ip)) statsRateLimits.set(ip, []);

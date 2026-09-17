@@ -16,6 +16,7 @@ const { WebSocketServer, WebSocket } = require('ws');
 const cors = require('cors');
 const helmet = require('helmet');
 const crypto = require('crypto');
+const { rateKey } = require('./ratekey');
 
 // ---------------------------------------------------------------------------
 // App setup
@@ -129,12 +130,13 @@ const MAX_ACTIVE_CODES = parseInt(process.env.MAX_ACTIVE_CODES, 10) || 10000;
 function makeRateLimiter(map, windowMs, max) {
     return (req, res, next) => {
         const now = Date.now();
-        const timestamps = (map.get(req.ip) || []).filter(t => now - t < windowMs);
+        const key = rateKey(req.ip);
+        const timestamps = (map.get(key) || []).filter(t => now - t < windowMs);
         if (timestamps.length >= max) {
             return res.status(429).json({ error: 'Too many requests' });
         }
         timestamps.push(now);
-        map.set(req.ip, timestamps);
+        map.set(key, timestamps);
         next();
     };
 }
@@ -226,11 +228,12 @@ const RATE_LIMIT_WINDOW = 60000;
 const MAX_CONNECTIONS_PER_IP = parseInt(process.env.MAX_CONNECTIONS_PER_IP, 10) || 30;
 
 function checkRateLimit(ip) {
+    const key = rateKey(ip);
     const now = Date.now();
-    if (!connectionCounts.has(ip)) connectionCounts.set(ip, []);
-    const timestamps = connectionCounts.get(ip).filter(t => now - t < RATE_LIMIT_WINDOW);
+    if (!connectionCounts.has(key)) connectionCounts.set(key, []);
+    const timestamps = connectionCounts.get(key).filter(t => now - t < RATE_LIMIT_WINDOW);
     timestamps.push(now);
-    connectionCounts.set(ip, timestamps);
+    connectionCounts.set(key, timestamps);
     return timestamps.length <= MAX_CONNECTIONS_PER_IP;
 }
 
@@ -638,6 +641,7 @@ if (require.main === module) {
 module.exports = {
     errorHandler,
     getClientIp,
+    rateKey,
     generateCode,
     checkRateLimit,
     handleJoinRoom,
