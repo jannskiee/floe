@@ -144,6 +144,9 @@ function scanFiles(root) {
     for (const r of [
         'cli/engine',
         'cli/cmd',
+        // Test harnesses live here (e2ehost); their stdout reaches public CI logs
+        // and the evidence artifact, so their peer sinks are mapped too.
+        'cli/internal',
         'client/lib',
         'client/components',
         'client/hooks',

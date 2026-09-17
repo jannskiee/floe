@@ -51,6 +51,8 @@ interface Host {
     waitFor(name: string, timeoutMs: number): Promise<HostEvent>;
     /** Resolves with the exit code. */
     exited: Promise<number | null>;
+    /** The events so far plus a bounded stderr tail, for failure messages. */
+    describe(): string;
 }
 
 /**
@@ -58,10 +60,15 @@ interface Host {
  * harness contract is fixed words only, so a stray line fails the test.
  */
 function spawnHost(roomId: string, outDir: string, extra: string[] = []): Host {
+    // stdin is ignored so no engine path can block on a read. stderr carries only
+    // pion error-level lines (the engine's own prints go to the null device), so a
+    // bounded tail is safe to put in failure messages.
     const proc = spawn(hostBinary(), [
         'host', '-server', SERVER_URL, '-room', roomId, '-out', outDir, ...extra,
-    ]);
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
     const events: HostEvent[] = [];
+    let stderrTail = '';
+    proc.stderr?.on('data', (chunk: Buffer) => { stderrTail = (stderrTail + chunk.toString()).slice(-2000); });
     const waiters: Array<() => void> = [];
     let buffered = '';
     proc.stdout?.on('data', (chunk: Buffer) => {
@@ -81,20 +88,27 @@ function spawnHost(roomId: string, outDir: string, extra: string[] = []): Host {
             waiters.splice(0).forEach((w) => w());
         }
     });
+    // closed is set before the waiters run, so a harness that ends without an
+    // error event (a crash or a kill) fails a pending wait at once.
+    let closed = false;
     const exited = new Promise<number | null>((resolve) => {
         proc.on('close', (code) => {
+            closed = true;
             waiters.splice(0).forEach((w) => w());
             resolve(code);
         });
-        proc.on('error', () => resolve(-1));
+        proc.on('error', () => {
+            closed = true;
+            waiters.splice(0).forEach((w) => w());
+            resolve(-1);
+        });
     });
-    let closed = false;
-    exited.then(() => { closed = true; });
+    const describe = () => `${JSON.stringify(events)}${stderrTail ? ` stderr tail: ${stderrTail}` : ''}`;
 
     const waitFor = (name: string, timeoutMs: number) =>
         new Promise<HostEvent>((resolve, reject) => {
             const timer = setTimeout(
-                () => reject(new Error(`harness did not emit "${name}" within ${timeoutMs} ms: ${JSON.stringify(events)}`)),
+                () => reject(new Error(`harness did not emit "${name}" within ${timeoutMs} ms: ${describe()}`)),
                 timeoutMs,
             );
             const check = () => {
@@ -103,7 +117,7 @@ function spawnHost(roomId: string, outDir: string, extra: string[] = []): Host {
                 if (hit) { clearTimeout(timer); resolve(hit); return; }
                 if (failed || closed) {
                     clearTimeout(timer);
-                    reject(new Error(`harness ended before "${name}": ${JSON.stringify(events)}`));
+                    reject(new Error(`harness ended before "${name}": ${describe()}`));
                     return;
                 }
                 waiters.push(check);
@@ -111,7 +125,7 @@ function spawnHost(roomId: string, outDir: string, extra: string[] = []): Host {
             check();
         });
 
-    return { proc, events, waitFor, exited };
+    return { proc, events, waitFor, exited, describe };
 }
 
 /**
@@ -130,7 +144,9 @@ async function browserSend(
     // Socket.IO polling to localhost:3001 ("Permission was denied for this request
     // to access the `loopback` address space", measured on Chromium 151). The app
     // itself is served from loopback, and production is public to public, so only
-    // this test-made page needs the permission.
+    // this test-made page needs the permission. Specs that load the real app,
+    // the /r page included, must not copy this grant, so a change in Chromium's
+    // loopback classification stays visible there.
     await page.context().grantPermissions(['local-network-access'], { origin: WEB_URL });
     await page.route(PAGE_URL, (route) => route.fulfill({
         contentType: 'text/html',
@@ -194,7 +210,7 @@ async function browserSend(
 async function sendWhileHostRuns(host: Host, send: Promise<{ ok: boolean; error: string | null; elapsedMs: number }>) {
     const hostEnded = host.exited.then((code) => {
         if (code === 0 && host.events.some((e) => e.event === 'done')) return new Promise<never>(() => {});
-        throw new Error(`harness exited ${code} before the page finished: ${JSON.stringify(host.events)}`);
+        throw new Error(`harness exited ${code} before the page finished: ${host.describe()}`);
     });
     return Promise.race([send, hostEnded]);
 }
@@ -211,7 +227,8 @@ test('browser non-initiator sends to a Go host that offered', async ({ page }) =
     mkdirSync(outDir, { recursive: true });
     const roomId = randomUUID();
 
-    const host = spawnHost(roomId, outDir);
+    // The harness deadline sits under the test budget, so a wedge reports its stage word.
+    const host = spawnHost(roomId, outDir, ['-timeout', '60s']);
     try {
         // The host must hold seat 0 before the page joins.
         await host.waitFor('joined', 15_000);
@@ -222,7 +239,7 @@ test('browser non-initiator sends to a Go host that offered', async ({ page }) =
         expect(await host.exited).toBe(0);
         const names = host.events.map((e) => e.event);
         expect(names).not.toContain('unparsed-line');
-        expect(names).toEqual(['joined', 'offer-sent', 'incoming', 'done']);
+        expect(names).toEqual(['joined', 'channel-open', 'incoming', 'done']);
         expect(host.events.find((e) => e.event === 'incoming')).toMatchObject({ files: 3 });
 
         for (const f of fixtures) {
@@ -241,7 +258,7 @@ test('Go host holds the ack 20 seconds and the browser waits', async ({ page }) 
     mkdirSync(outDir, { recursive: true });
     const roomId = randomUUID();
 
-    const host = spawnHost(roomId, outDir, ['-hold', '20s']);
+    const host = spawnHost(roomId, outDir, ['-hold', '20s', '-timeout', '100s']);
     try {
         await host.waitFor('joined', 15_000);
 
@@ -251,7 +268,7 @@ test('Go host holds the ack 20 seconds and the browser waits', async ({ page }) 
         expect(result.elapsedMs).toBeGreaterThanOrEqual(20_000);
 
         expect(await host.exited).toBe(0);
-        expect(host.events.map((e) => e.event)).toEqual(['joined', 'offer-sent', 'incoming', 'done']);
+        expect(host.events.map((e) => e.event)).toEqual(['joined', 'channel-open', 'incoming', 'done']);
         expect(sha256OfFile(join(outDir, basename(fixture.path)))).toBe(fixture.sha256);
         expectNoPart(outDir);
     } finally {

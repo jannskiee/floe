@@ -15,7 +15,8 @@
 // engine prints to os.Stdout on its own (the incoming file's name among it),
 // so main points os.Stdout at the null device before any engine call and keeps
 // the real stdout for events only. Exit 0 after {"event":"done"}, exit 1 after
-// {"event":"error","stage":"<word>"}.
+// {"event":"error","stage":"<word>"}, or exit 2 after the usage stage (the Go flag convention),
+// so a spec typo never reads as a pairing failure.
 package main
 
 import (
@@ -42,21 +43,27 @@ func (e *events) fail(stage string) {
 	os.Exit(1)
 }
 
+// usage emits the usage stage and exits 2.
+func (e *events) usage() {
+	e.emit(map[string]interface{}{"event": "error", "stage": "usage"})
+	os.Exit(2)
+}
+
 func main() {
 	ev := &events{enc: json.NewEncoder(os.Stdout)}
 	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 	if err != nil {
-		ev.fail("usage")
+		ev.fail("init")
 	}
 	os.Stdout = devNull
 
 	if len(os.Args) < 2 {
-		ev.fail("usage")
+		ev.usage()
 	}
 	switch os.Args[1] {
 	case "host":
 		runHost(ev, os.Args[2:])
 	default:
-		ev.fail("usage")
+		ev.usage()
 	}
 }

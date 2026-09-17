@@ -27,17 +27,17 @@ func runHost(ev *events, args []string) {
 	hold := fs.Duration("hold", 0, "how long OnIncoming blocks before the ack is sent")
 	timeout := fs.Duration("timeout", 2*time.Minute, "overall deadline for the whole run")
 	if err := fs.Parse(args); err != nil || fs.NArg() != 0 || *out == "" || *hold < 0 || *timeout <= 0 {
-		ev.fail("usage")
+		ev.usage()
 	}
 	if *room == "" {
 		*room = uuid.New().String()
 	} else if _, err := uuid.Parse(*room); err != nil {
-		ev.fail("usage")
+		ev.usage()
 	}
 
 	// A wedged pairing or receive must end the process with an event rather
 	// than leave the spec to kill it.
-	time.AfterFunc(*timeout, func() { ev.fail("timeout") })
+	watchdog := time.AfterFunc(*timeout, func() { ev.fail("timeout") })
 
 	sc, err := signaling.Connect(*server)
 	if err != nil {
@@ -81,7 +81,9 @@ func runHost(ev *events, args []string) {
 	if err != nil {
 		ev.fail("setup")
 	}
-	ev.emit(map[string]interface{}{"event": "offer-sent"})
+	// SetupAsSender returns only after the data channel opened (the offer left
+	// earlier and the answer came back), so the event names that moment.
+	ev.emit(map[string]interface{}{"event": "channel-open"})
 
 	early := conn.Early()
 	err = transfer.ReceiveFilesWithOptions(dc, *out, true, "e2ehost", "", transfer.ReceiveOptions{
@@ -99,6 +101,7 @@ func runHost(ev *events, args []string) {
 	if err != nil {
 		ev.fail("receive")
 	}
+	watchdog.Stop()
 	ev.emit(map[string]interface{}{"event": "done"})
 	conn.Close()
 	sc.Close()
