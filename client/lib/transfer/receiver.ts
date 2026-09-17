@@ -14,6 +14,7 @@ import {
     MIN_PROTOCOL_VERSION,
     normalizeFileSize,
     normalizeSha256,
+    metadataProblem,
     type End,
     type Metadata,
     type Incompatible,
@@ -242,6 +243,24 @@ export function createReceiver(
             if (!msg) return;
 
             if (msg.type === 'metadata') {
+                // A description Go would refuse is refused here too, before the
+                // compatibility check and before any chunk is kept: a junk size
+                // used to switch off the byte-count guard the SHA-256 check follows.
+                const problem = metadataProblem(msg);
+                if (problem !== null) {
+                    aborted = true;
+                    partialDownloads.clear();
+                    currentMetadata = null;
+                    expectedSize = null;
+                    try {
+                        const enc = new TextEncoder().encode(incompatibleMessage(`receiver rejected the file description: ${problem}`));
+                        cb.send(new Uint8Array(enc));
+                    } catch {
+                        // The peer is gone; the close is all it will get.
+                    }
+                    cb.onError?.('The sender described a file in a way Floe could not read, so the transfer was stopped. Ask the sender to try again.');
+                    return;
+                }
                 // Protocol compatibility check on first file, before sending ack
                 // or accepting any file bytes.
                 if (!hasCheckedCompat) {

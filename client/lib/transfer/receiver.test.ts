@@ -487,34 +487,84 @@ describe('receiver: truncation guard', () => {
     });
 
     it('accepts a peer that announces no size at all', () => {
-        // metadataMessage always writes a fileSize, so build the frame by hand.
-        const h = harness();
-        h.rx.handleMessage(JSON.stringify({
-                type: 'metadata', id: 'a', fileName: 'a.bin', index: 1, total: 1, totalBytes: 0,
-            })
-        );
-        const chunk = new Uint8Array(50);
-        for (let i = 0; i < 50; i++) chunk[i] = (i + 1) % 256;
-        h.rx.handleMessage(chunk);
-        h.rx.handleMessage(endMessage());
-        expect(h.completed).toEqual(['a.bin']);
-        expect(h.errors).toEqual([]);
-    });
-
-    it('treats an unusable announced size as unknown rather than failing', () => {
-        for (const bad of ['100', -1, 1.5, null, Number.MAX_SAFE_INTEGER + 2]) {
+        // metadataMessage always writes a fileSize, so build the frame by hand. A
+        // null size reads the same way: unknown, not refused.
+        for (const fields of [{}, { fileSize: null }]) {
             const h = harness();
             h.rx.handleMessage(JSON.stringify({
+                    type: 'metadata', id: 'a', fileName: 'a.bin', index: 1, total: 1, totalBytes: 0, ...fields,
+                })
+            );
+            const chunk = new Uint8Array(50);
+            for (let i = 0; i < 50; i++) chunk[i] = (i + 1) % 256;
+            h.rx.handleMessage(chunk);
+            h.rx.handleMessage(endMessage());
+            expect(h.completed).toEqual(['a.bin']);
+            expect(h.errors).toEqual([]);
+        }
+    });
+
+    it('refuses an unusable announced size before any chunk is kept', () => {
+        // These used to read as "unknown" and switch the byte-count guard off.
+        // The Go receiver refuses every one of them, and now so does the browser.
+        for (const bad of ['100', -1, 1.5, Number.MAX_SAFE_INTEGER + 2]) {
+            const sent: (string | Uint8Array)[] = [];
+            const completed: string[] = [];
+            const errors: string[] = [];
+            const rx = createReceiver({
+                send: (d) => sent.push(d),
+                onFileComplete: (f) => completed.push(f.fileName),
+                onError: (m) => errors.push(m),
+            });
+            rx.handleMessage(JSON.stringify({
                     type: 'metadata', id: 'a', fileName: 'a.bin',
                     fileSize: bad, index: 1, total: 1, totalBytes: 0,
                 })
             );
             const chunk = new Uint8Array(10);
             for (let i = 0; i < 10; i++) chunk[i] = (i + 1) % 256;
-            h.rx.handleMessage(chunk);
-            h.rx.handleMessage(endMessage());
-            expect(h.completed).toEqual(['a.bin']);
-            expect(h.errors).toEqual([]);
+            rx.handleMessage(chunk);
+            rx.handleMessage(endMessage());
+            expect(completed, String(bad)).toEqual([]);
+            expect(errors).toEqual(['The sender described a file in a way Floe could not read, so the transfer was stopped. Ask the sender to try again.']);
+            // Never acked, and told why in a frame with no code.
+            expect(sent.some((s) => typeof s === 'string')).toBe(false);
+            const frame = JSON.parse(new TextDecoder().decode(sent[0] as Uint8Array));
+            expect(frame.reason).toBe('receiver rejected the file description: the file size is not a byte count');
+            expect(frame.code).toBeUndefined();
+        }
+    });
+
+    it('refuses a file description Go refuses', () => {
+        const base = { type: 'metadata', id: 'a', fileName: 'a.bin', fileSize: 4, index: 1, total: 1, totalBytes: 4, pv: 1, pvMin: 1 };
+        const refused = [
+            { fileSize: 9007199254740992, totalBytes: 9007199254740992 },
+            { fileSize: -1 },
+            { fileSize: 1.5 },
+            { fileSize: '4' },
+            { fileSize: 1e300 },
+            { index: 0 },
+            { total: 0 },
+            { totalBytes: 2 },
+            { pv: '1' },
+            { fileName: 7 },
+            { id: 3 },
+            { index: null },
+        ];
+        for (const fields of refused) {
+            const sent: (string | Uint8Array)[] = [];
+            const errors: string[] = [];
+            const rx = createReceiver({ send: (d) => sent.push(d), onError: (m) => errors.push(m) });
+            rx.handleMessage(JSON.stringify({ ...base, ...fields }));
+            expect(errors, JSON.stringify(fields)).toHaveLength(1);
+            expect(sent.some((s) => typeof s === 'string'), JSON.stringify(fields)).toBe(false);
+        }
+        // What Go accepts stays accepted: a legacy peer with no protocol fields, pv 0, and null name or id.
+        for (const fields of [{ pv: undefined, pvMin: undefined }, { pv: 0, pvMin: 0 }, { fileName: null }, { id: null }, { totalBytes: undefined }]) {
+            const sent: (string | Uint8Array)[] = [];
+            const rx = createReceiver({ send: (d) => sent.push(d) });
+            rx.handleMessage(JSON.stringify({ ...base, ...fields }));
+            expect(sent.filter((s) => typeof s === 'string'), JSON.stringify(fields)).toHaveLength(1);
         }
     });
 
