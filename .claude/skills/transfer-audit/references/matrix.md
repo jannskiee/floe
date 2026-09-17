@@ -18,9 +18,30 @@ path     DIR = direct expected, no side may observe relay
 surface  W = web browser (Playwright chromium)   C = CLI (Windows)
          D = desktop (Store build or portable)    L = CLI inside WSL2 Ubuntu-22.04 (deep only)
 variant  link | bnd8 | fold | zip | cap3g | thr500 | killsnd | killrcv
+         hashbad | hashmal (head profile only, see Forced mismatches)
 ```
 
-Examples: `S-DIR-W2C`, `S-REL-C2D`, `H-DIR-C2C-bnd8`, `S-DIR-L2W`.
+Examples: `S-DIR-W2C`, `S-REL-C2D`, `H-DIR-C2C-bnd8`, `S-DIR-L2W`, `H-DIR-C2C-hashbad`.
+
+## Forced mismatches (hashbad, hashmal)
+
+Every receiver checks a file's SHA-256 against the bytes it wrote and deletes a
+file that does not match. These two variants prove it, by making a sender lie:
+
+| Variant   | What the sender sends                        | How                                                                 | Expected |
+| --------- | -------------------------------------------- | ------------------------------------------------------------------- | -------- |
+| `hashbad` | the real digest with one hex digit changed   | web sender: `installHashbad` in `scripts/lib/web.mjs`; CLI-shaped sender: `floe-e2ehost send -corrupt-hash` | refusal with `hash-mismatch`, no file and no `.part` left |
+| `hashmal` | the real digest upper-cased, which the wire format forbids | `floe-e2ehost send -malformed-hash`                    | the same refusal: a digest that cannot be read cannot vouch for the file |
+
+The corrupt digest never exists in shipped code. It lives in the audit skill and
+in `cli/internal/e2ehost`, which no release builds (`go list -deps ./cmd/floe`
+never names it), and `cellPlan` exposes it to a runner as `cell.hashLie`, which
+is `null` for every other cell.
+
+The ids are `HASH_IDS` in `scripts/lib/matrix.mjs`. They are head profile only,
+and they are deliberately outside `DEFAULT_IDS` and `DEEP_IDS`: a run reaches
+them through `--cells`, and the runner needs a sender that can lie before they
+can pass. `H-DIR-C2D-hashbad` also needs `--desktop wailsdev`.
 
 ## What each surface can do
 
