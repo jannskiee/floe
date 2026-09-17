@@ -763,13 +763,19 @@ describe('receiver: per-file SHA-256', () => {
     });
 
     // A digest the test releases by hand, so frames can arrive while it is pending.
+    // The receiver starts the digest a microtask after the end frame, so release
+    // waits for that call before resolving it.
     function heldHash() {
-        let release: (hex: string | null) => void = () => { };
+        let release: ((hex: string | null) => void) | null = null;
         const hashBlob = () =>
             new Promise<string | null>((resolve) => {
                 release = resolve;
             });
-        return { hashBlob, release: (hex: string | null) => release(hex) };
+        const releaseWhenCalled = async (hex: string | null) => {
+            while (release === null) await Promise.resolve();
+            release(hex);
+        };
+        return { hashBlob, release: (hex: string | null) => void releaseWhenCalled(hex) };
     }
 
     it('queues frames that arrive while a digest is pending', async () => {
@@ -878,6 +884,73 @@ describe('receiver: per-file SHA-256', () => {
         held.release(digestOf(a));
         await h.rx.settled();
         expect(h.acks().map((m) => m.offset)).toEqual([0, 0]);
+    });
+
+    it('keeps the file unverified when the hasher throws synchronously', async () => {
+        const h = harness({
+            hashBlob: () => {
+                throw new Error('sync');
+            },
+        });
+        const a = payload(40);
+        feed(h, 'a', a, 1, 1, endMessage(digestOf(a)));
+        await h.rx.settled();
+        expect(h.errors).toEqual([]);
+        expect(h.completed).toHaveLength(1);
+        expect(h.completed[0].verified).toBe(false);
+    });
+
+    it('keeps the file unverified when onVerifying throws', async () => {
+        const completed: ReceivedFile[] = [];
+        const rx = createReceiver(
+            {
+                send: () => { },
+                onFileComplete: (f) => completed.push(f),
+                onVerifying: () => {
+                    throw new Error('ui');
+                },
+            },
+            { hashBlob: nodeHash }
+        );
+        const a = payload(40);
+        rx.handleMessage(metadataMessage('a', 'a.bin', a.byteLength, 1, 1, 0));
+        rx.handleMessage(a);
+        rx.handleMessage(endMessage(digestOf(a)));
+        await rx.settled();
+        expect(completed.map((f) => f.verified)).toEqual([false]);
+    });
+
+    it('a queued end starts a second check and settled waits for both', async () => {
+        const releases: Array<(hex: string | null) => void> = [];
+        const h = harness({
+            hashBlob: () =>
+                new Promise<string | null>((resolve) => {
+                    releases.push(resolve);
+                }),
+        });
+        const a = payload(30, 1);
+        const empty = new Uint8Array(0);
+        feed(h, 'a', a, 1, 2, endMessage(digestOf(a)));
+        // A zero-byte second file arrives whole while the first is being checked.
+        h.rx.handleMessage(metadataMessage('b', 'b.bin', 0, 2, 2, 0));
+        h.rx.handleMessage(endMessage(digestOf(empty)));
+        let done = false;
+        const waiting = h.rx.settled().then(() => {
+            done = true;
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+        releases[0](digestOf(a));
+        // Let the first check settle and the queue drain into the second check.
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+        expect(h.completed.map((f) => f.fileName)).toEqual(['a.bin']);
+        expect(h.acks().map((m) => m.id)).toEqual(['a', 'b']);
+        expect(releases).toHaveLength(2);
+        expect(done).toBe(false);
+        releases[1](digestOf(empty));
+        await waiting;
+        expect(h.completed.map((f) => [f.fileName, f.verified])).toEqual([['a.bin', true], ['b.bin', true]]);
+        expect(h.allComplete).toEqual([[30, 2]]);
     });
 
     it('shows the two fixed sentences', async () => {

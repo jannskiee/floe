@@ -34,7 +34,7 @@ export interface ReceivedFile {
 
 export interface ReceiverDeps {
     // The digest function, so a test can pass Node's crypto; the default is the
-    // Worker behind hashBlob. It must resolve null rather than reject.
+    // Worker behind hashBlob. A rejection, or a synchronous throw, is read as null.
     hashBlob?: (blob: Blob, signal?: AbortSignal) => Promise<string | null>;
     // How long a digest may take for a file of this many bytes before the file
     // is kept unverified instead.
@@ -435,17 +435,31 @@ export function createReceiver(
                     currentMetadata = null;
                     expectedSize = null;
                     pending = true;
-                    cb.onVerifying?.(meta.index, meta.total);
-                    hashBlob(blob, AbortSignal.timeout(hashBoundMs(size)))
+                    // Everything from here runs inside the promise chain, so nothing
+                    // that throws (a callback, a hasher, an engine without
+                    // AbortSignal.timeout, which Safari lacks before 16) can leave
+                    // the receiver pending with every later frame queued behind it.
+                    Promise.resolve()
+                        .then(() => {
+                            cb.onVerifying?.(meta.index, meta.total);
+                            const signal =
+                                typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+                                    ? AbortSignal.timeout(hashBoundMs(size))
+                                    : undefined;
+                            return hashBlob(blob, signal);
+                        })
                         .catch(() => null)
                         .then((got) => {
                             pending = false;
-                            // A null digest (no Worker, a worker failure, the time
-                            // bound) keeps the file unverified: a missing check never
-                            // claims a match, and the byte count already passed.
-                            if (got !== null && got !== want) refuseHash(false);
-                            else complete(meta, blob, size, got === want);
-                            drain();
+                            try {
+                                // A null digest (no Worker, a worker failure, the time
+                                // bound) keeps the file unverified: a missing check never
+                                // claims a match, and the byte count already passed.
+                                if (got !== null && got !== want) refuseHash(false);
+                                else complete(meta, blob, size, got === want);
+                            } finally {
+                                drain();
+                            }
                         });
                     return;
                 }
