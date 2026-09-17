@@ -1,10 +1,31 @@
 package transfer
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"unicode/utf8"
 )
+
+// goRefusalDecision is the engine's side of the refusalCodeOf rows in the
+// parity table (parity_test.go): an incompatible frame is "accept" only when
+// it decodes into incompatibleMsg and its Code is one of this build's
+// RefusalCode constants. It lives here, beside incompatibleMsg's other tests,
+// so the peer field is read in one test file rather than two.
+func goRefusalDecision(frame []byte) string {
+	if len(frame) > controlMsgMax {
+		return "reject"
+	}
+	var msg incompatibleMsg
+	if err := json.Unmarshal(frame, &msg); err != nil || msg.Type != "incompatible" {
+		return "reject"
+	}
+	switch RefusalCode(msg.Code) {
+	case CodeWriteFailed, CodeHashMismatch:
+		return "accept"
+	}
+	return "reject"
+}
 
 // TestProtocolVersionPinnedToClient anchors the two constants to the browser
 // client's PROTOCOL_VERSION and MIN_PROTOCOL_VERSION (client/lib/transfer/
