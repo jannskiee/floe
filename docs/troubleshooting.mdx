@@ -419,9 +419,11 @@ A working setup returns two entries: a `stun:stun.cloudflare.com:3478` one with 
 and a `turn:`/`turns:` one that carries a username and credential. If it returns Google STUN
 servers instead, one of the two variables is missing or the API token is invalid.
 
-Credentials are cached in memory for 12 hours, so after fixing a key either restart the server or
-wait out the cache. A key that breaks later is masked the same way: the server keeps serving the
-last good copy rather than failing over.
+Credentials are cached in memory for 5 minutes, so a fixed key takes effect within about 5 minutes,
+or at once after a restart. A key that breaks later is masked for a while: the server keeps serving
+the last good copy for up to about 23 hours after it was minted before it falls back, and logs
+`Cloudflare TURN mint failed` with a reason word (such as `TimeoutError` or `status 401`) at most
+once every 5 minutes.
 
 **Self-hosted coturn.** The bundled service uses host networking, so it needs a Linux host with a
 public IP, a domain, and TLS certificates. Confirm `TURN_SECRET` and `TURN_DOMAIN` match coturn's
