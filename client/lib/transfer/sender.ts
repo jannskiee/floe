@@ -77,6 +77,13 @@ interface ProgressView {
     lastSpeedDelivered: number;
 }
 
+export interface SendOptions {
+    // How long each file waits for the receiver's ack. Defaults to
+    // ACK_TIMEOUT_MS (120 s); a caller whose receiver may take longer to
+    // decide passes a longer value.
+    ackTimeoutMs?: number;
+}
+
 /**
  * Sends all files over the data channel in order.
  *
@@ -93,7 +100,8 @@ interface ProgressView {
 export async function sendFiles(
     deps: SenderDeps,
     files: FileEntry[],
-    cb: SenderCallbacks = {}
+    cb: SenderCallbacks = {},
+    opts: SendOptions = {}
 ): Promise<void> {
     const destroyed = cb.isDestroyed ?? (() => false);
     const totalBytes = files.reduce((s, e) => s + e.file.size, 0);
@@ -132,7 +140,8 @@ export async function sendFiles(
             if (destroyed()) return;
             const entry = files[i];
             const ok = await sendSingleFile(
-                deps, entry, i + 1, files.length, totalBytes, cb, view, emitView
+                deps, entry, i + 1, files.length, totalBytes, cb, view, emitView,
+                opts.ackTimeoutMs ?? ACK_TIMEOUT_MS
             );
             if (!ok) return;
         }
@@ -247,7 +256,8 @@ async function sendSingleFile(
     totalBytes: number,
     cb: SenderCallbacks,
     view: ProgressView,
-    emitView: () => void
+    emitView: () => void,
+    ackTimeoutMs: number
 ): Promise<boolean> {
     const { file, id } = entry;
     const { send, onData, channel } = deps;
@@ -272,8 +282,9 @@ async function sendSingleFile(
         return false;
     }
 
-    // 2. Wait for ack (120 s timeout), handling incompatible responses
-    const ackResult = await waitForAck(onData, id);
+    // 2. Wait for ack (120 s unless the caller set ackTimeoutMs), handling
+    // incompatible responses
+    const ackResult = await waitForAck(onData, id, ackTimeoutMs);
     if (ackResult.type === 'timeout') {
         cb.onError?.('Transfer timed out waiting for receiver. Please try again.');
         return false;
@@ -432,7 +443,8 @@ async function sendSingleFile(
 
 function waitForAck(
     onData: (handler: (data: string | Uint8Array | ArrayBuffer) => void) => () => void,
-    fileId: string
+    fileId: string,
+    timeoutMs: number
 ): Promise<AckResult> {
     // Both arms of the race clean up after the other wins. The listener used
     // to survive a timeout (and the timeout aborts the transfer, so it stayed
@@ -478,7 +490,7 @@ function waitForAck(
             });
         }),
         new Promise<AckResult>((resolve) => {
-            timer = setTimeout(() => resolve({ type: 'timeout' }), ACK_TIMEOUT_MS);
+            timer = setTimeout(() => resolve({ type: 'timeout' }), timeoutMs);
         }),
     ]).then(done);
 }

@@ -148,7 +148,7 @@ All under `cli/engine/`, imported by both the CLI (`cli/cmd/floe`) and the deskt
 - `serverurl/` - normalizes user-supplied server URLs (whitespace, trailing slashes)
 - `verify/` - short authentication string for out-of-band MITM verification; retained and tested but unwired, since the user-facing code left every surface (CLI, browser, desktop) and its last callers went with it. Nothing imports it today. PAKE is the intended replacement; see DESKTOP.md, Phase 3a
 
-`cli/internal/` still exists but holds only `selfupdate/`, which stays private to the CLI on purpose (`floe update` has no meaning for the desktop app).
+`cli/internal/` holds `selfupdate/`, which stays private to the CLI on purpose (`floe update` has no meaning for the desktop app), and `e2ehost/`, a test-only Go host harness that `client/e2e/global-setup.ts` builds; GoReleaser builds only `./cmd/floe`, so it never ships.
 
 ## Documentation Site
 
