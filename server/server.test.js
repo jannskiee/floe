@@ -106,6 +106,35 @@ describe('generateCode', () => {
     });
 });
 
+describe('words.json', () => {
+    // The phrase is the only secret guarding a code transfer, so the list size is
+    // its strength: the EFF short word list (1296 words) minus its one hyphenated
+    // entry (yo-yo) and the 48 words below, which read badly in a code shown in
+    // large type and read aloud, or would alarm someone receiving files (virus,
+    // scam, spoof, error). 1247 words, 30.85 bits for three. The character class
+    // is what catches a future hyphenated word, which would print a three-word
+    // code that reads as four parts.
+    const words = require('./words.json');
+    const EXCLUDED = ['aids', 'arson', 'bribe', 'chump', 'coke', 'coma', 'crazy', 'crook', 'cult', 'curse', 'dwarf', 'ebay', 'error', 'evil', 'fetal', 'gore', 'grave', 'grope', 'hate', 'hump', 'islam', 'junky', 'kung', 'mardi', 'pagan', 'panty', 'polio', 'prude', 'rabid', 'riot', 'roman', 'santa', 'scam', 'slain', 'slob', 'slum', 'spoof', 'stole', 'theft', 'thong', 'trump', 'virus', 'vixen', 'wimp', 'womb', 'wound', 'xerox', 'yahoo'];
+
+    it('holds exactly the 1247 words of the reviewed EFF short list', () => {
+        assert.equal(words.length, 1247);
+    });
+
+    it('leaves out every excluded word', () => {
+        assert.deepEqual(words.filter((w) => EXCLUDED.includes(w)), []);
+    });
+
+    it('has no duplicates', () => {
+        assert.equal(new Set(words).size, words.length);
+    });
+
+    it('uses only 3 to 5 lowercase letters per word', () => {
+        const bad = words.filter((w) => !/^[a-z]{3,5}$/.test(w));
+        assert.deepEqual(bad, []);
+    });
+});
+
 // ---------------------------------------------------------------------------
 // Room lifecycle — handleJoinRoom
 // ---------------------------------------------------------------------------
