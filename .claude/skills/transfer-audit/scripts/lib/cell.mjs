@@ -220,6 +220,8 @@ export const TRIAGE_KEYS = new Set([
     'kill-sender-outcome',
     'kill-sender-cleanup',
     'stats-delta',
+    'hash-not-refused',
+    'hash-refusal-code',
     'wsl-host-ip',
 ]);
 
