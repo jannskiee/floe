@@ -21,6 +21,17 @@ export const SEND_FILE_HASHES = true;
 // transfer whenever the person at the terminal is slow to accept.
 export const ACK_TIMEOUT_MS = 120_000;
 
+// The one clock pair for a transfer whose receiver is a person deciding
+// whether to accept. Mirrors VisitorAckTimeout and VisitorAckGrace in
+// cli/engine/transfer/deadlines.go (pinned there by TestDeadlineConstantsMatchTS
+// and here in protocol.test.ts). The waiting side's timer is the binding
+// clock: it waits the sum of the two, while the deciding side answers
+// "expired" at the difference, so that frame has twice the grace (30 s) to
+// arrive. Every consumer derives its wait from these and never restates a
+// literal.
+export const REQUEST_ACK_TIMEOUT_MS = 600_000;
+export const REQUEST_ACK_GRACE_MS = 15_000;
+
 // ProtocolVersion is the highest wire protocol version this build speaks.
 // MinProtocolVersion is the lowest it still supports.
 //
@@ -411,13 +422,41 @@ export function isAbortReason(msg: Incompatible): boolean {
 
 /**
  * Why a receiver stopped a transfer on purpose, as named by the optional `code`
- * on its `incompatible` frame. Mirrors RefusalCode in
- * cli/engine/transfer/control.go; the two lists must stay in sync. Phase 0
- * carries these two, and Stage 1 adds the rest of the table.
+ * on its `incompatible` frame. Mirrors RefusalCode and RefusalCodes in
+ * cli/engine/transfer/refusal.go; the two lists must stay in sync, and they are
+ * kept in the byte order of the wire values so the literals can be compared
+ * whole (TestRefusalCodeListMatchesTS there, the "twelve codes" case in
+ * protocol.test.ts here). The set is closed: a reader maps anything else to its
+ * generic stopped copy.
  */
-export type RefusalCode = 'write-failed' | 'hash-mismatch';
+export type RefusalCode =
+    | 'declined'
+    | 'disk-full'
+    | 'expired'
+    | 'file-too-large-for-folder'
+    | 'hash-mismatch'
+    | 'over-approved'
+    | 'path-too-long'
+    | 'relay-cap'
+    | 'save-blocked'
+    | 'stopped'
+    | 'time-limit'
+    | 'write-failed';
 
-export const REFUSAL_CODES: ReadonlySet<string> = new Set<RefusalCode>(['write-failed', 'hash-mismatch']);
+export const REFUSAL_CODES: ReadonlySet<string> = new Set<RefusalCode>([
+    'declined',
+    'disk-full',
+    'expired',
+    'file-too-large-for-folder',
+    'hash-mismatch',
+    'over-approved',
+    'path-too-long',
+    'relay-cap',
+    'save-blocked',
+    'stopped',
+    'time-limit',
+    'write-failed',
+]);
 
 /**
  * The one reader of a peer's refusal code: the code when it is a string in
