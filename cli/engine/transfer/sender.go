@@ -174,18 +174,20 @@ func abortFromPeer(raw []byte, localVer, updateHint string) string {
 // Anything else is absent, never clamped: 999 of 3 is a broken receiver, not
 // "all matched". The count is the receiver's claim, used only for equality
 // with the file count.
+//
+// The type is read by its exact key too. A struct tag matches keys without
+// regard to case, so {"TYPE":"received"} used to count as a delivery
+// confirmation here while the browser twin ignores it (found by
+// FuzzParseReceived, CP-0 campaign, 2026-09-18).
 func parseReceived(raw []byte, files int) (ok bool, verified int, hasVerified bool) {
 	if len(raw) > controlMsgMax {
 		return false, 0, false
 	}
-	var msg struct {
-		Type string `json:"type"`
-	}
-	if json.Unmarshal(raw, &msg) != nil || msg.Type != "received" {
+	var fields map[string]json.RawMessage
+	var typ string
+	if json.Unmarshal(raw, &fields) != nil || json.Unmarshal(fields["type"], &typ) != nil || typ != "received" {
 		return false, 0, false
 	}
-	var fields map[string]json.RawMessage
-	_ = json.Unmarshal(raw, &fields)
 	lit := fields["verified"]
 	// A number starts with a digit or a minus. The byte test comes first because
 	// null decodes into a float64 without an error.
