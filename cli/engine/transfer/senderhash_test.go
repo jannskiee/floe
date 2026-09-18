@@ -235,6 +235,9 @@ func TestLoopbackVerifiedEveryFile(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 
 	sendErr := SendFiles(sender, paths, "")
+	// Close as the CLI's deferred Close does; left open, the receive waits out
+	// its 5 s post-completion grace.
+	_ = sender.Close()
 	var receiveErr error
 	select {
 	case receiveErr = <-recvErr:
