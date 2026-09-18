@@ -9,7 +9,7 @@
 // is the single place the exit precedence lives: 2, 4, 3, 1, 5, 6, 0.
 import { createHash } from 'node:crypto';
 
-import { TRIAGE_KEYS } from './cell.mjs';
+import { TRIAGE_KEYS } from './triage.mjs';
 import { formatBytes } from './fixtures.mjs';
 import { gatingDrift } from './versions.mjs';
 

@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
-import { TRIAGE_KEYS } from './cell.mjs';
+import { TRIAGE_KEYS } from './triage.mjs';
 
 /** Pure. The first backticked key in each row's first cell; `-` rows have none. */
 function tableKeys(markdown) {
