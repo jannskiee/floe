@@ -243,13 +243,14 @@ func New(iceServers []webrtc.ICEServer, sc *signaling.Client, opts ...Option) (*
 
 // SetupAsSender is called by `floe send`.
 // It creates a data channel, sends an SDP offer, waits for the answer,
-// and returns the open data channel ready for file transfer.
+// and returns the open data channel ready for file transfer. Every failure
+// is a *SetupError naming its stage, with the text each site always had.
 func (conn *Connection) SetupAsSender() (*webrtc.DataChannel, error) {
 	// The sender (initiator) creates the data channel BEFORE the offer.
 	// The data channel label "floe" identifies it to the remote peer.
 	dc, err := conn.pc.CreateDataChannel("floe", nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create data channel: %w", err)
+		return nil, &SetupError{Stage: StageChannel, Err: fmt.Errorf("failed to create data channel: %w", err)}
 	}
 	// Before the offer even leaves, so the receiver's first ack cannot land in a
 	// channel with no handler on it. See Early.
@@ -258,11 +259,11 @@ func (conn *Connection) SetupAsSender() (*webrtc.DataChannel, error) {
 	// Create the SDP offer describing our capabilities
 	offer, err := conn.pc.CreateOffer(nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create offer: %w", err)
+		return nil, &SetupError{Stage: StageOffer, Err: fmt.Errorf("failed to create offer: %w", err)}
 	}
 
 	if err := conn.pc.SetLocalDescription(offer); err != nil {
-		return nil, fmt.Errorf("failed to set local description: %w", err)
+		return nil, &SetupError{Stage: StageOffer, Err: fmt.Errorf("failed to set local description: %w", err)}
 	}
 
 	// When the CLI is the sender, the browser reads its OWN answer SDP (not
@@ -270,7 +271,7 @@ func (conn *Connection) SetupAsSender() (*webrtc.DataChannel, error) {
 
 	// Send the offer to the receiver via the signaling server
 	if err := conn.sc.SendSignal(signalPayload{Type: "offer", SDP: offer.SDP}); err != nil {
-		return nil, fmt.Errorf("failed to send offer: %w", err)
+		return nil, &SetupError{Stage: StageOffer, Err: fmt.Errorf("failed to send offer: %w", err)}
 	}
 
 	// Wait for the receiver's SDP answer (bounded so a vanished peer fails fast).
@@ -278,11 +279,11 @@ func (conn *Connection) SetupAsSender() (*webrtc.DataChannel, error) {
 	select {
 	case a, ok := <-conn.answers:
 		if !ok {
-			return nil, fmt.Errorf("signaling closed before answer was received")
+			return nil, &SetupError{Stage: StageAnswer, Err: fmt.Errorf("signaling closed before answer was received")}
 		}
 		answer = a
 	case <-time.After(signalWaitTimeout):
-		return nil, fmt.Errorf("timed out waiting for the peer to answer")
+		return nil, &SetupError{Stage: StageAnswer, Err: fmt.Errorf("timed out waiting for the peer to answer")}
 	}
 
 	if err := conn.setRemoteDesc(answer); err != nil {
@@ -299,23 +300,24 @@ func (conn *Connection) SetupAsSender() (*webrtc.DataChannel, error) {
 		return dc, nil
 	case err := <-conn.connected:
 		if err != nil {
-			return nil, err
+			return nil, &SetupError{Stage: StageConnect, Err: err}
 		}
 		// Reached "connected"; give the data channel a brief grace to open.
 		select {
 		case <-dcOpen:
 			return dc, nil
 		case <-time.After(connectGrace):
-			return nil, fmt.Errorf("connected but the data channel did not open")
+			return nil, &SetupError{Stage: StageChannel, Err: fmt.Errorf("connected but the data channel did not open")}
 		}
 	case <-time.After(connectTimeout):
-		return nil, fmt.Errorf("timed out establishing a connection")
+		return nil, &SetupError{Stage: StageConnect, Err: fmt.Errorf("timed out establishing a connection")}
 	}
 }
 
 // SetupAsReceiver is called by `floe receive`.
 // It waits for the sender's SDP offer, sends an answer,
-// and returns the open data channel ready for file transfer.
+// and returns the open data channel ready for file transfer. Every failure
+// is a *SetupError naming its stage, with the text each site always had.
 func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 	// The receiver waits for a data channel from the sender.
 	dcChan := make(chan *webrtc.DataChannel, 1)
@@ -337,25 +339,26 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 	select {
 	case o, ok := <-conn.offers:
 		if !ok {
-			return nil, fmt.Errorf("signaling closed before offer was received")
+			return nil, &SetupError{Stage: StageOffer, Err: fmt.Errorf("signaling closed before offer was received")}
 		}
 		offer = o
 	case <-time.After(signalWaitTimeout):
-		return nil, fmt.Errorf("timed out waiting for the peer's offer")
+		return nil, &SetupError{Stage: StageOffer, Err: fmt.Errorf("timed out waiting for the peer's offer")}
 	}
 
 	if err := conn.setRemoteDesc(offer); err != nil {
 		return nil, err
 	}
 
-	// Create our SDP answer
+	// Create our SDP answer. pion builds it from the remote description, so
+	// its error can quote the peer's SDP as the remote-description one can.
 	answer, err := conn.pc.CreateAnswer(nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create answer: %w", err)
+		return nil, &SetupError{Stage: StageAnswer, Err: fmt.Errorf("failed to create answer: %w", err)}
 	}
 
 	if err := conn.pc.SetLocalDescription(answer); err != nil {
-		return nil, fmt.Errorf("failed to set local description: %w", err)
+		return nil, &SetupError{Stage: StageAnswer, Err: fmt.Errorf("failed to set local description: %w", err)}
 	}
 
 	// The answer goes out with a=max-message-size pinned to 1 GB. Chrome caps
@@ -368,7 +371,7 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 
 	// Send the answer to the sender
 	if err := conn.sc.SendSignal(signalPayload{Type: "answer", SDP: patchedSDP}); err != nil {
-		return nil, fmt.Errorf("failed to send answer: %w", err)
+		return nil, &SetupError{Stage: StageAnswer, Err: fmt.Errorf("failed to send answer: %w", err)}
 	}
 
 	// Wait for the data channel to arrive from the sender. Fail fast if the
@@ -378,16 +381,16 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 		return dc, nil
 	case err := <-conn.connected:
 		if err != nil {
-			return nil, err
+			return nil, &SetupError{Stage: StageConnect, Err: err}
 		}
 		select {
 		case dc := <-dcChan:
 			return dc, nil
 		case <-time.After(connectGrace):
-			return nil, fmt.Errorf("connected but the data channel did not open")
+			return nil, &SetupError{Stage: StageChannel, Err: fmt.Errorf("connected but the data channel did not open")}
 		}
 	case <-time.After(connectTimeout):
-		return nil, fmt.Errorf("timed out establishing a connection")
+		return nil, &SetupError{Stage: StageConnect, Err: fmt.Errorf("timed out establishing a connection")}
 	}
 }
 
@@ -453,9 +456,12 @@ func (conn *Connection) ConnectionType() (string, error) {
 }
 
 // setRemoteDesc sets the remote SDP and flushes any buffered ICE candidates.
+// The one setup error whose text carries the peer's bytes is built here,
+// once, so the stage cannot drift between its two callers: pion quotes the
+// offending SDP token, and SetupError.Error() is what makes that showable.
 func (conn *Connection) setRemoteDesc(desc webrtc.SessionDescription) error {
 	if err := conn.pc.SetRemoteDescription(desc); err != nil {
-		return fmt.Errorf("failed to set remote description: %w", err)
+		return &SetupError{Stage: StageRemoteDescription, Err: fmt.Errorf("failed to set remote description: %w", err)}
 	}
 
 	conn.mu.Lock()
