@@ -112,6 +112,15 @@ const displayExtMax = 16
 // Everything that arrives from the peer and reaches a person goes through
 // here: the file name (Incoming box, accept prompt, OnIncoming, OnProgress,
 // error strings), the peer's ver, and an incompatible reason.
+// DisplayText is displayText for other packages that print a string a peer
+// had a hand in: the peer package's SetupError wraps the SDP token pion quotes
+// in its error, and a command that prints a RefusedError's cause line goes
+// through here too. Same treatment, same caps; callers pass maxDisplayReason's
+// value (300) for an error string.
+func DisplayText(s string, maxRunes int) string {
+	return displayText(s, maxRunes)
+}
+
 func displayText(s string, maxRunes int) string {
 	clean := strings.Map(func(r rune) rune { return sanitizeRune(r, false) }, s)
 	r := []rune(clean)

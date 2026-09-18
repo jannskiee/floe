@@ -25,6 +25,7 @@ const (
 // both are peer-chosen: allowlist Code to a RefusalCode and clamp Saved to
 // [0, total] before any use, and never render either raw. Code is a plain
 // string rather than a RefusalCode so a decoded frame never looks validated.
+// refusal.go owns the code list (RefusalCodes) and the errors built from it.
 type incompatibleMsg struct {
 	Type   string `json:"type"`
 	Reason string `json:"reason"`
