@@ -1,3 +1,5 @@
+package transfer
+
 // The sender's half of the per-file SHA-256: it hashes the bytes it hands to
 // the data channel and puts the digest on that file's end frame. These tests
 // drive the real SendFiles over a real pion pair with a hand-written receiver,
@@ -5,7 +7,6 @@
 //
 // The receiver's half lives in hash_test.go; the two meet in
 // TestLoopbackVerifiedEveryFile below, which runs both real loops.
-package transfer
 
 import (
 	"encoding/json"
