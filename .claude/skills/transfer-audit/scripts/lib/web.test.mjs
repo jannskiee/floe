@@ -723,6 +723,21 @@ test('hashbad rewrite changes exactly one hex digit of an end frame and nothing 
     assert.equal(corruptEndFrame(chunk), chunk, 'a chunk is returned as it came');
 });
 
+test('the hash refusal strings the web leg waits for are the products own words', () => {
+    // Quoted rather than imported, so a copy change must break this test before
+    // it silently turns a forced-mismatch cell into a done timeout (P0-27).
+    const repo = new URL('../../../../../', import.meta.url);
+    const read = (rel) => readFileSync(new URL(rel, repo), 'utf8');
+    const receiverTs = read('client/lib/transfer/receiver.ts');
+    for (const s of TEXT.selfDiscardedHash)
+        assert.ok(receiverTs.includes(s), `receiver.ts no longer says: ${s}`);
+    const peerSources =
+        read('cli/engine/transfer/control.go') +
+        read('client/lib/transfer/protocol.ts');
+    for (const s of TEXT.peerRefusedHash)
+        assert.ok(peerSources.includes(s), `no sender-side source says: ${s}`);
+});
+
 test('installHashbad ships the same rewrite into the page', async () => {
     let installed = null;
     await installHashbad({ addInitScript: (arg) => { installed = arg; } });

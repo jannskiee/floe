@@ -84,6 +84,14 @@ export const TEXT = Object.freeze({
         "SHA-256 for a file could not be read",
         'The other side rejected the transfer.',
     ],
+    // What a browser RECEIVER shows when it discarded a file whose digest did
+    // not match or could not be read: the two fixed onError sentences in
+    // client/lib/transfer/receiver.ts (P0-19b), rendered by P2PTransfer.tsx's
+    // receiver onError through setError. Only a cell whose sender lies looks.
+    selfDiscardedHash: [
+        'A file did not match what was sent, so it was discarded.',
+        "The sender's SHA-256 for a file could not be read, so the file was discarded.",
+    ],
 });
 
 export class PlaywrightMissingError extends Error {
@@ -920,18 +928,30 @@ export class WebLeg extends Leg {
                 outcome = await handle.jsonValue();
             } else {
                 const handle = await page.waitForFunction(
-                    (n) => {
+                    (want) => {
                         const text =
                             (document.body && document.body.innerText) || '';
                         const anchors =
                             document.querySelectorAll('a[download]').length;
                         const m = text.match(/(\d+) files? received/);
-                        if (anchors >= n && m && Number(m[1]) >= n)
+                        if (anchors >= want.n && m && Number(m[1]) >= want.n)
                             return 'received';
+                        // A lying sender's cell: the page's own discard copy
+                        // is the refusal this receiver must produce.
+                        if (
+                            want.discarded &&
+                            want.discarded.some((s) => text.includes(s))
+                        )
+                            return 'refusal';
                         if (text.includes('Link Invalid')) return 'invalid';
                         return null;
                     },
-                    this.expectFiles,
+                    {
+                        n: this.expectFiles,
+                        discarded: this.opts.peerLies
+                            ? TEXT.selfDiscardedHash
+                            : null,
+                    },
                     { timeout: budget, polling: 500 }
                 );
                 outcome = await handle.jsonValue();

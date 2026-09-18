@@ -29,7 +29,7 @@ import {
     runCell,
 } from './cell.mjs';
 import { KILL_AT_BYTES } from './fixtures.mjs';
-import { cellPlan } from './matrix.mjs';
+import { HASH_IDS, cellPlan } from './matrix.mjs';
 import { Ledger } from './pacing.mjs';
 import { newSafety } from './report.mjs';
 import { SafetyError } from './surfaces.mjs';
@@ -405,6 +405,133 @@ test('refusal cell PASSes on the cap refusal and FAILs when bytes move', async (
     const bad = await runCell(cell, makeCtx(world));
     assert.equal(bad.verdict, 'FAIL');
     assert.equal(bad.reason, 'cap-not-enforced');
+});
+
+// The forced-mismatch cells join a plan only when --cells names them (P0-27).
+const hashPlan = Object.fromEntries(
+    cellPlan({ profile: 'head', cliHasRelayOnly: true, cells: [...HASH_IDS] })
+        .filter((c) => HASH_IDS.includes(c.id))
+        .map((c) => [c.id, c])
+);
+const pickHash = (id) => small(structuredClone(hashPlan[id]));
+const HARNESS_BIN = 'C:/audit/bin/floe-e2ehost-abc1234.exe';
+// prepareHarnessBuild stages the harness as builds.harness; buildFor hands it out.
+const withHarness = (world, extra = {}, patch = null) =>
+    makeCtx(
+        world,
+        {
+            buildFor: (surface) =>
+                surface === 'harness'
+                    ? { kind: 'harness', path: HARNESS_BIN }
+                    : { kind: 'head', version: 'head-abc1234', path: null },
+            ...extra,
+        },
+        patch
+    );
+
+test('a forced mismatch from the harness sender PASSes on the refusal, judged by two route observers', async () => {
+    const world = fakeWorld();
+    const r = await runCell(pickHash('H-DIR-C2C-hashbad'), withHarness(world));
+    assert.equal(r.verdict, 'PASS', r.note);
+    const sender = world.calls.find((c) => c.role === 'sender');
+    assert.equal(sender.surface, 'harness', 'never the shipped CLI');
+    assert.equal(sender.bin, HARNESS_BIN, 'the staged binary reaches the leg');
+    assert.equal(sender.hashLie, 'corrupt');
+    const receiver = world.calls.find((c) => c.role === 'receiver');
+    assert.equal(receiver.surface, 'cli');
+    assert.equal(receiver.input, 'link', 'the harness prints a link, never a code');
+    assert.equal(receiver.peerLies, true);
+    assert.equal(receiver.hashLie, null, 'only the sender lies');
+    assert.ok(
+        r.route.sources.some(
+            (s) => s.oracle === 'harness-connection-type' && s.value === 'direct'
+        ),
+        JSON.stringify(r.route.sources)
+    );
+    assert.equal(r.route.label, 'direct [refusal]');
+
+    const malWorld = fakeWorld();
+    const mal = await runCell(pickHash('H-DIR-C2C-hashmal'), withHarness(malWorld));
+    assert.equal(mal.verdict, 'PASS', mal.note);
+    assert.equal(
+        malWorld.calls.find((c) => c.role === 'sender').hashLie,
+        'malformed'
+    );
+});
+
+test('a browser receiver of a lying sender is awaited on its own copy, and its byte counter never trips the cap guard', async () => {
+    const world = fakeWorld();
+    let awaited = 0;
+    const ctx = withHarness(world, {}, (adapters) =>
+        wrapLeg(adapters, 'web', (leg) => {
+            const orig = leg.awaitDone.bind(leg);
+            leg.awaitDone = async (...a) => {
+                awaited++;
+                return orig(...a);
+            };
+        })
+    );
+    const r = await runCell(pickHash('H-DIR-C2W-hashbad'), ctx);
+    assert.equal(r.verdict, 'PASS', r.note);
+    assert.equal(awaited, 1, 'the refusal came from the page, not synthesized from the sender');
+    assert.equal(world.calls.find((c) => c.role === 'sender').surface, 'harness');
+
+    // The browser sender cell keeps its own path: no harness, no bin.
+    const w2cWorld = fakeWorld();
+    const w2c = await runCell(pickHash('H-DIR-W2C-hashbad'), withHarness(w2cWorld));
+    assert.equal(w2c.verdict, 'PASS', w2c.note);
+    const w2cSender = w2cWorld.calls.find((c) => c.role === 'sender');
+    assert.equal(w2cSender.surface, 'web');
+    assert.equal(w2cSender.bin, null);
+});
+
+test('the forced-mismatch cells FAIL when nothing was refused, the code is wrong, or a file stays', async () => {
+    for (const [id, script, reason] of [
+        // The mutation every hashbad cell exists to catch: the sender told the
+        // truth (or the receiver ignored the digest) and the file was kept.
+        ['H-DIR-C2C-hashbad', 'hashlie-kept', 'hash-not-refused'],
+        ['H-DIR-C2W-hashbad', 'hashlie-kept', 'hash-not-refused'],
+        ['H-DIR-W2C-hashbad', 'hashlie-kept', 'hash-not-refused'],
+        ['H-DIR-C2C-hashbad', 'hashlie-wrong-code', 'hash-refusal-code'],
+        ['H-DIR-C2C-hashmal', 'hashlie-leaves-file', 'hash-not-refused'],
+    ]) {
+        const world = fakeWorld();
+        world.setScript(id, script);
+        const r = await runCell(pickHash(id), withHarness(world));
+        assert.equal(r.verdict, 'FAIL', `${id} ${script}: ${r.note}`);
+        assert.equal(r.reason, reason, `${id} ${script}`);
+        assert.equal(r.attempts.length, 1, 'a refusal cell is never retried');
+    }
+});
+
+test('a harness route that disagrees with the cell or the receiver FAILs the cell', async () => {
+    const saysRelay = (adapters) =>
+        wrapLeg(adapters, 'harness', (leg) => {
+            leg.route = () =>
+                leg.connectedAt
+                    ? {
+                          t: Date.now(),
+                          source: 'harness-connection-type',
+                          local: null,
+                          remote: null,
+                          verdict: 'relay',
+                      }
+                    : null;
+        });
+    // Alone (a CLI receiver with no trace): relay on a direct cell.
+    const c2c = await runCell(
+        pickHash('H-DIR-C2C-hashbad'),
+        withHarness(fakeWorld(), {}, saysRelay)
+    );
+    assert.equal(c2c.verdict, 'FAIL');
+    assert.equal(c2c.reason, 'route-mismatch');
+    // Against a browser receiver that saw a direct pair: the two disagree.
+    const c2w = await runCell(
+        pickHash('H-DIR-C2W-hashbad'),
+        withHarness(fakeWorld(), {}, saysRelay)
+    );
+    assert.equal(c2w.verdict, 'FAIL');
+    assert.equal(c2w.reason, 'route-disagree');
 });
 
 test('kill cells: killsnd leaves no .part, killrcv leaves one and the retry lands (1)', async () => {

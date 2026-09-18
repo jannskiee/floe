@@ -43,6 +43,27 @@ and they are deliberately outside `DEFAULT_IDS` and `DEEP_IDS`: a run reaches
 them through `--cells`, and the runner needs a sender that can lie before they
 can pass. `H-DIR-C2D-hashbad` also needs `--desktop wailsdev`.
 
+How a run carries them out:
+
+- The CLI-shaped sender (C in `H-DIR-C2C-*` and `H-DIR-C2W-hashbad`) is never the
+  shipped CLI. `prepareHarnessBuild` in `scripts/audit.mjs` builds
+  `cli/internal/e2ehost` from the checkout into the run's `--bin-dir` as
+  `floe-e2ehost-<sha7>.exe` once per run, only when a planned cell needs it, and
+  the sender phase picks the `harness` adapter (`scripts/lib/harness.mjs`). A
+  failed build or preflight turns exactly those cells into SKIP `harness-build`;
+  there is no fallback. A new exe path wants one discarded warm-up run (firewall).
+- The harness prints a link and never a code, so these cells use link input.
+- Route: the harness prints `{"event":"route","path":"direct"|"relay"}` from the
+  engine's own `ConnectionType()` (the word only, never an address), so a cell is
+  judged by two observers, source `harness-connection-type` beside the receiver's.
+- The relay cap's byte guard does not run on these cells: bytes moving before the
+  refusal is the point.
+- Verdict: the receiver refused (a CLI receiver's `RefusedError` sentence and exit
+  1; a browser receiver's own fixed discard copy, awaited on the page rather than
+  synthesized from the sender) and kept no file with bytes; and when the sender is
+  the harness, the refusal code it read back is `hash-mismatch`. The FAIL keys are
+  `hash-not-refused` and `hash-refusal-code`.
+
 ## What each surface can do
 
 | Surface    | Relay forcer                                                                                                                           | Route oracle                                                                                                                                                                                                                                                                                                                                                                                                       | Completion                                                                    | Stats opt-out proof                                                                                                                                                                  | Source                                                                                                                                          |

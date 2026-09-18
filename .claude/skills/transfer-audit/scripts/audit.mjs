@@ -85,6 +85,7 @@ import {
     sideloadDesktop,
     findStagedDesktop,
     buildHeadCli,
+    buildHarness,
     headDesktopCommands,
     gitSha7,
     sha256Sync,
@@ -1219,6 +1220,65 @@ export async function prepareWslBuild({
  * Never touches a report, a transcript, a capture or attempt.json, and
  * never looks outside the run directory it is given.
  */
+/**
+ * Build the test-only sender that can lie about a digest (cli/internal/e2ehost)
+ * into the run's bin dir and record it as builds.harness, or turn the cells
+ * that need it into SKIP harness-build. Only a cell whose CLI-shaped sender must
+ * lie needs it, and only a head run has the checkout to build it from, so
+ * nothing is built for any other plan. Exported for the unit test, because a
+ * silent failure here would read as a product result.
+ */
+export async function prepareHarnessBuild({
+    cells,
+    builds,
+    binDir,
+    root,
+    sha7,
+    exec,
+    getAdapter,
+    build = buildHarness,
+    log = () => {},
+}) {
+    const lying = (cells || []).filter(
+        (c) =>
+            !c.verdict && c.hashLie && c.sender && c.sender.surface === 'cli'
+    );
+    if (!lying.length) return null;
+    try {
+        if (!builds.cli || builds.cli.kind !== 'head' || !root)
+            throw new Error(
+                'the lying harness is built from the checkout (head profile only)'
+            );
+        if (!binDir) throw new Error('no bin dir for the harness build');
+        const built = build({ root, sha7, binDir, exec });
+        const mod = await getAdapter('harness');
+        const pf = await mod.preflight({ harnessBin: built.path });
+        if (!pf.ok) throw new Error(pf.reason);
+        builds.harness = {
+            kind: 'harness',
+            source: 'go build ./internal/e2ehost',
+            path: built.path,
+            version: built.version,
+            sha7: sha7 ?? null,
+        };
+        log(
+            `harness: built ${built.version} -> ${built.path} for ${lying.length} cell(s)`
+        );
+        return builds.harness;
+    } catch (e) {
+        builds.harness = null;
+        log(
+            `harness: build failed, ${lying.length} cell(s) SKIP harness-build: ${String(e.message).split('\n')[0]}`
+        );
+        for (const c of lying) {
+            c.verdict = 'SKIP';
+            c.reason = 'harness-build';
+            c.note = SKIP_REASONS['harness-build'];
+        }
+        return null;
+    }
+}
+
 export function purgeRunData(
     runDir,
     { keepData = false, log = () => {} } = {}
@@ -1825,6 +1885,23 @@ export async function runCmd(opts, io = {}) {
             getAdapter,
             log,
         });
+        await prepareHarnessBuild({
+            cells,
+            builds,
+            binDir: manifest.binDir,
+            root: opts.root,
+            sha7: builds.cli?.sha7 ?? null,
+            exec,
+            getAdapter,
+            log,
+        });
+        run.binaries.harness = builds.harness
+            ? {
+                  path: builds.harness.path,
+                  version: builds.harness.version,
+                  source: builds.harness.source,
+              }
+            : null;
         const buildFor = (surface) => builds[surface] || null;
         const proc = await tryAdapter('proc');
         const ctx = {

@@ -405,7 +405,10 @@ case) and require the receiver to refuse with `hash-mismatch` and keep
 nothing, reached only through `--cells` and never part of a default walk
 (`HASH_IDS` in `scripts/lib/matrix.mjs`, the table in `references/matrix.md`,
 and the CLI-shaped sender they need is `go build ./internal/e2ehost` in
-`cli/`, which no release builds); and the WSL2 `Ubuntu-22.04`
+`cli/`, which no release builds: a run builds it into `--bin-dir` itself
+when a planned cell needs it, or SKIPs those cells as `harness-build`, and
+the harness reports its own path as `direct` or `relay` so the route is
+still judged from both sides); and the WSL2 `Ubuntu-22.04`
 Linux CLI sending to the Windows CLI, browser and desktop as the only
 non-loopback path on one machine (`wsl -d Ubuntu-22.04`; the tarball is
 downloaded by tag, verified with `sha256sum -c` inside WSL and extracted

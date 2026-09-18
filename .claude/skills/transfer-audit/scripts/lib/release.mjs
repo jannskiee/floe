@@ -369,6 +369,29 @@ export async function buildHeadCli({ root, sha7, binDir, exec = defaultExec }) {
     };
 }
 
+/**
+ * buildHarness({ root, sha7, binDir, exec }) -> { path, version }
+ * go build -o <bin> ./internal/e2ehost in <root>/cli: the test-only CLI-shaped
+ * sender that can lie about a digest (P0-27). It is built from the checkout
+ * under test and never downloaded, because no release ships it; the stable
+ * per-commit name keeps one exe path per head for the firewall warm-up.
+ */
+export function buildHarness({ root, sha7, binDir, exec = defaultExec }) {
+    const version = `e2ehost-${sha7 || 'unknown'}`;
+    assertSafeCliPath(binDir);
+    mkdirSync(binDir, { recursive: true });
+    const out = path.join(
+        binDir,
+        WIN ? `floe-${version}.exe` : `floe-${version}`
+    );
+    exec('go', ['build', '-o', out, './internal/e2ehost'], {
+        cwd: path.join(root, 'cli'),
+        timeout: 10 * 60_000,
+    });
+    if (!existsSync(out)) throw new Error(`go build produced no ${out}`);
+    return { path: out, version };
+}
+
 export function wailsPath({ env = process.env, exec = defaultExec } = {}) {
     let gopath = env.GOPATH || '';
     if (!gopath) {

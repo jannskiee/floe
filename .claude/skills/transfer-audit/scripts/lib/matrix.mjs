@@ -96,6 +96,8 @@ export const SKIP_REASONS = Object.freeze({
     'wsl-stopped': 'WSL Ubuntu-22.04 not present or not startable',
     'wsl-sideload':
         'Linux release CLI could not be side-loaded into WSL (tag, download or sha256sum; see log.txt)',
+    'harness-build':
+        'the lying harness sender (cli/internal/e2ehost) could not be built or failed preflight (see log.txt)',
     'infra-down': 'two consecutive infra symptoms against the signaling server',
     'budget-exhausted': 'run-wide retry or byte budget exhausted',
     present: 'user present and the desktop window needs focus',
@@ -117,7 +119,16 @@ export const NA_REASONS = Object.freeze({
 // construction, and a --cells filter is the operator's own choice.
 export const UNCOUNTED_SKIPS = new Set(['filtered']);
 
-const VARIANT_INPUT_LINK = new Set(['link', 'zip', 'bnd8', 'fold']);
+// hashbad and hashmal: a CLI-shaped sender that lies is the floe-e2ehost send
+// mode, which prints a link and never registers a code (P0-27).
+const VARIANT_INPUT_LINK = new Set([
+    'link',
+    'zip',
+    'bnd8',
+    'fold',
+    'hashbad',
+    'hashmal',
+]);
 
 export function parseCellId(id) {
     const m = /^([SH])-(DIR|REL)-([WCDL])2([WCDL])(?:-([a-z0-9]+))?$/.exec(id);

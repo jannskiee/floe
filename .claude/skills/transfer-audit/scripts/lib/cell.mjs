@@ -466,6 +466,9 @@ function legOpts(cell, role, ctx, rec, extra) {
         killAtBytes: cell.killAtBytes,
         // Only the sender lies, and only in a hashbad or hashmal cell (P0-27).
         hashLie: role === 'sender' ? cell.hashLie || null : null,
+        // The receiver of a lying sender watches for its own discard copy, the
+        // refusal it must produce (a browser receiver has no exit code).
+        peerLies: role === 'receiver' ? Boolean(cell.hashLie) : false,
         pionTrace: Boolean(
             ctx.pionTrace &&
             cell.path === 'REL' &&
@@ -844,6 +847,19 @@ async function verifyAttempt(cell, ctx, rec, legs, done, fixture, outDir) {
                 `hash-not-refused: the receiver ended ${r ? `${r.kind} (${r.detail?.error || r.exitCode})` : 'without a result'} instead of refusing the digest`,
                 { signatureKey: 'hash-not-refused' }
             );
+        // The harness sender reads the receiver's refusal frame itself, so the
+        // code on the wire is checked too: a receiver that refused for some
+        // other reason, or closed without a frame, is not the proof this cell
+        // is after.
+        if (legs.sender?.surface === 'harness') {
+            const code = s?.detail?.code ?? null;
+            if (!s || s.kind !== 'refusal' || code !== 'hash-mismatch')
+                throw new PhaseError(
+                    'verify',
+                    `hash-refusal-code: the harness sender read ${code ?? 'no refusal'} instead of hash-mismatch`,
+                    { signatureKey: 'hash-refusal-code' }
+                );
+        }
         const outs = await receiverOutputs(cell, legs, rec, outDir, {
             allowPart: true,
         });
@@ -1179,6 +1195,15 @@ export async function runAttempt(
                 legOpts(cell, 'sender', ctx, rec, {
                     files: fixture.paths,
                     evidenceDir: path.join(rec.evidenceDir, 'sender'),
+                    // The harness is staged per run by prepareHarnessBuild;
+                    // the cell's own build is the shipped-shape CLI's.
+                    ...(senderAdapter === 'harness'
+                        ? {
+                              bin: ctx.buildFor
+                                  ? (ctx.buildFor('harness')?.path ?? null)
+                                  : null,
+                          }
+                        : {}),
                 })
             );
             await legs.sender.start();
@@ -1249,7 +1274,12 @@ export async function runAttempt(
             T.firstBytes + T.complete + T.exit,
             async () => {
                 let guard = null;
-                if (cell.expect === 'refusal')
+                // The byte guard is the relay cap's oracle: that refusal must
+                // come before any byte moves. A forced mismatch refuses after
+                // every byte moved, so the guard would stop a correct run (a
+                // browser receiver's own counter trips it at the first chunk,
+                // and a CLI receiver's .part only escaped it between polls).
+                if (cell.expect === 'refusal' && !cell.hashLie)
                     guard = startByteGuard(legs, rec, ctx, outDir);
                 else if (
                     cell.expect === 'kill-sender' ||
@@ -1273,8 +1303,11 @@ export async function runAttempt(
                         const t0 = Date.now();
                         const s = await legs.sender.awaitDone(budget);
                         const left = Math.max(1000, budget - (Date.now() - t0));
+                        // A browser receiver of a lying sender does have an
+                        // oracle: its own fixed discard copy (P0-27), so it is
+                        // awaited rather than synthesized from the sender's word.
                         const noOracle =
-                            cell.receiver.surface === 'web' ||
+                            (cell.receiver.surface === 'web' && !cell.hashLie) ||
                             cell.receiver.surface === 'desktop';
                         let r = null;
                         if (!rec.guardTripped) {
