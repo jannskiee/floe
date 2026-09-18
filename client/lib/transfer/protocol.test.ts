@@ -262,7 +262,7 @@ describe('refusalCodeOf', () => {
         }
 
         const hostile: unknown[] = [
-            'too-slow', // never a code: the throughput floor was cut (E-24)
+            'too-slow', // never a code: the throughput floor it named was cut
             'WRITE-FAILED',
             'write-failed ',
             '',
