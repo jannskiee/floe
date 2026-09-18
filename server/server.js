@@ -227,14 +227,21 @@ const RATE_LIMIT_WINDOW = 60000;
 // single IP) can raise the ceiling. Production keeps the default of 30.
 const MAX_CONNECTIONS_PER_IP = parseInt(process.env.MAX_CONNECTIONS_PER_IP, 10) || 30;
 
+// Counts admitted connections only: a refused attempt is not recorded. Recording
+// it (the old push-then-compare) let a client that retries faster than the limit,
+// or many clients behind one address reconnecting after a restart or a proxy
+// reload, keep its own window full and stay blocked for as long as it retried.
 function checkRateLimit(ip) {
     const key = rateKey(ip);
     const now = Date.now();
-    if (!connectionCounts.has(key)) connectionCounts.set(key, []);
-    const timestamps = connectionCounts.get(key).filter(t => now - t < RATE_LIMIT_WINDOW);
+    const timestamps = (connectionCounts.get(key) || []).filter(t => now - t < RATE_LIMIT_WINDOW);
+    if (timestamps.length >= MAX_CONNECTIONS_PER_IP) {
+        connectionCounts.set(key, timestamps);
+        return false;
+    }
     timestamps.push(now);
     connectionCounts.set(key, timestamps);
-    return timestamps.length <= MAX_CONNECTIONS_PER_IP;
+    return true;
 }
 
 // Periodic cleanup of old rate limit entries and expired codes

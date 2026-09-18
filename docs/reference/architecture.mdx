@@ -138,11 +138,11 @@ Counters live in plain `Map`s and are swept every 60 seconds. The three HTTP lim
 rejected in middleware, which the browser sees as a `connect_error`, and a WebSocket over the
 limit is closed with code `1008`.
 
-Two behaviors that surprise people. **The connection limiter records rejected attempts**: it
-appends a timestamp before it compares, so a client that keeps retrying keeps itself blocked
-indefinitely rather than for one window. The three HTTP limiters do the opposite and return the
-`429` before recording anything, so those windows drain normally. And setting any `MAX_*` variable
-to `0` does not disable a limit; it silently restores the default.
+Every limiter records only what it admits. A refused connection attempt leaves no timestamp, just
+as the three HTTP limiters return the `429` before recording anything, so a client that keeps
+retrying gets back in as soon as its admitted connections age out of the 60-second window. One
+behavior does surprise people: setting any `MAX_*` variable to `0` does not disable a limit; it
+silently restores the default.
 
 The active-code cap is global rather than per-IP, because it guards the size of the in-memory
 registry. It counts stored entries rather than genuinely live ones, so the number can briefly

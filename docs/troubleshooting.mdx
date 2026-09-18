@@ -390,10 +390,11 @@ The three HTTP limiters answer `429` with `Too many requests`, or `Too many repo
 The connection limiter is not HTTP: it refuses the Socket.IO handshake and closes the WebSocket
 with the reason `Rate limit exceeded`.
 
-Two things to know before raising a limit. **The connection limiter counts rejected attempts**,
-so a client that keeps retrying keeps itself blocked indefinitely rather than for one window; the
-three HTTP limiters return the `429` before recording anything, so those recover normally. And
-setting any `MAX_*` variable to `0` does not disable the limit; it silently restores the default.
+Two things to know before raising a limit. **Only admitted connections count**: a refused
+connection attempt is not recorded, so a client that keeps retrying gets back in once its admitted
+connections age out of the 60-second window, the same way the three HTTP limiters recover after a
+`429`. And setting any `MAX_*` variable to `0` does not disable the limit; it silently restores the
+default.
 
 Behind a reverse proxy, set `TRUSTED_PROXY_COUNT` to the number of proxy hops so the server reads
 real client IPs instead of the proxy's. The server defaults to `1`, but the Compose stack

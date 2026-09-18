@@ -500,6 +500,41 @@ describe('checkRateLimit', () => {
         for (let i = 0; i < 30; i++) checkRateLimit('1.1.1.1');
         assert.equal(checkRateLimit('2.2.2.2'), true);
     });
+
+    it('rejected attempts do not extend the lockout', (t) => {
+        let now = 0;
+        t.mock.method(Date, 'now', () => now);
+        for (let i = 0; i < 30; i++) assert.equal(checkRateLimit('1.2.3.4'), true);
+        // 200 refused attempts spread across the rest of the window.
+        for (let i = 0; i < 200; i++) {
+            now = 1000 + Math.floor((i * 58000) / 199);
+            assert.equal(checkRateLimit('1.2.3.4'), false, `refused attempt ${i + 1} at ${now} ms`);
+        }
+        now = 60001;
+        assert.equal(checkRateLimit('1.2.3.4'), true, 'admitted once the first admissions age out');
+    });
+
+    it('thirty clients behind one key reconnect after a restart', (t) => {
+        let now = 0;
+        t.mock.method(Date, 'now', () => now);
+        // 50 clients behind one NAT reconnect after a restart (beforeEach cleared
+        // the map): 30 get in within a second.
+        for (let i = 0; i < 30; i++) {
+            now = i * 33;
+            assert.equal(checkRateLimit('203.0.113.9'), true, `client ${i + 1}`);
+        }
+        // The other 20 retry every 2 s for the rest of the window and are refused.
+        for (now = 2000; now < 60000; now += 2000) {
+            for (let c = 0; c < 20; c++) {
+                assert.equal(checkRateLimit('203.0.113.9'), false, `straggler ${c + 1} at ${now} ms`);
+            }
+        }
+        // Once the first thirty age out, every straggler gets in.
+        now = 61000;
+        for (let c = 0; c < 20; c++) {
+            assert.equal(checkRateLimit('203.0.113.9'), true, `straggler ${c + 1} after the window`);
+        }
+    });
 });
 
 // ---------------------------------------------------------------------------
