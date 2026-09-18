@@ -102,6 +102,12 @@ const controlMsgMax = 1000
 // own (the ack wait in sendFile, abortFromPeer and parseReceived) under the same
 // controlMsgMax bound. A stray "ack" or "received" that does reach the receive
 // loop matches no arm of its switch and is dropped.
+//
+// "type" is read by its exact key from a map of RAW values, so no other key's
+// value is ever converted here: decoding into interface{} turned a number out
+// of float64 range in an unrelated key into a failed decode, which dropped an
+// end frame the browser accepted and left the sender waiting. Each arm's own
+// parser still validates the fields it reads.
 func classifyControl(data []byte) (msgType string, isControl bool) {
 	if len(data) > controlMsgMax {
 		return "", false
@@ -109,11 +115,14 @@ func classifyControl(data []byte) (msgType string, isControl bool) {
 	if !looksLikeJSONObject(data) {
 		return "", false
 	}
-	var base map[string]interface{}
-	if err := json.Unmarshal(data, &base); err != nil {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
 		return "", false
 	}
-	t, _ := base["type"].(string)
+	var t string
+	if json.Unmarshal(fields["type"], &t) != nil {
+		return "", false
+	}
 	switch t {
 	case "metadata", "end", "ack", "received", "incompatible":
 		return t, true

@@ -1,7 +1,7 @@
 package transfer
 
 import (
-	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -9,19 +9,14 @@ import (
 
 // goRefusalDecision is the engine's side of the refusalCodeOf rows in the
 // parity table (parity_test.go): an incompatible frame is "accept" only when
-// it decodes into incompatibleMsg and its Code is one of this build's
-// RefusalCode constants. It lives here, beside incompatibleMsg's other tests,
-// so the peer field is read in one test file rather than two.
+// the production reader, abortFromPeer, turns it into a *PeerStoppedError,
+// which it does for a code in RefusalCodes read by exact key and nothing
+// else. It lives here, beside incompatibleMsg's other tests, so the peer field
+// is read in one test file rather than two. A three-file batch, as the
+// receivedVerified rows assume.
 func goRefusalDecision(frame []byte) string {
-	if len(frame) > controlMsgMax {
-		return "reject"
-	}
-	var msg incompatibleMsg
-	if err := json.Unmarshal(frame, &msg); err != nil || msg.Type != "incompatible" {
-		return "reject"
-	}
-	switch RefusalCode(msg.Code) {
-	case CodeWriteFailed, CodeHashMismatch:
+	var stopped *PeerStoppedError
+	if errors.As(abortFromPeer(frame, "test-ver", "", 3), &stopped) {
 		return "accept"
 	}
 	return "reject"

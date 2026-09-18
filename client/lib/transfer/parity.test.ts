@@ -33,7 +33,17 @@ import { createReceiver } from './receiver';
 const PARITY_TABLE = String.raw`
 {"decoder":"refusalCodeOf","name":"write-failed","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"write-failed\"}","go":"accept","ts":"accept"}
 {"decoder":"refusalCodeOf","name":"hash-mismatch","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"hash-mismatch\"}","go":"accept","ts":"accept"}
-{"decoder":"refusalCodeOf","name":"stage-1-code","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"too-slow\"}","go":"reject","ts":"reject"}
+{"decoder":"refusalCodeOf","name":"declined","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"declined\"}","go":"accept","ts":"accept"}
+{"decoder":"refusalCodeOf","name":"disk-full","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"disk-full\"}","go":"accept","ts":"accept"}
+{"decoder":"refusalCodeOf","name":"expired","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"expired\"}","go":"accept","ts":"accept"}
+{"decoder":"refusalCodeOf","name":"file-too-large-for-folder","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"file-too-large-for-folder\"}","go":"accept","ts":"accept"}
+{"decoder":"refusalCodeOf","name":"over-approved","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"over-approved\"}","go":"accept","ts":"accept"}
+{"decoder":"refusalCodeOf","name":"path-too-long","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"path-too-long\"}","go":"accept","ts":"accept"}
+{"decoder":"refusalCodeOf","name":"relay-cap","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"relay-cap\"}","go":"accept","ts":"accept"}
+{"decoder":"refusalCodeOf","name":"save-blocked","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"save-blocked\"}","go":"accept","ts":"accept"}
+{"decoder":"refusalCodeOf","name":"stopped","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"stopped\"}","go":"accept","ts":"accept"}
+{"decoder":"refusalCodeOf","name":"time-limit","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"time-limit\"}","go":"accept","ts":"accept"}
+{"decoder":"refusalCodeOf","name":"too-slow-cut","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"too-slow\"}","go":"reject","ts":"reject"}
 {"decoder":"refusalCodeOf","name":"upper-case","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"WRITE-FAILED\"}","go":"reject","ts":"reject"}
 {"decoder":"refusalCodeOf","name":"empty","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"\"}","go":"reject","ts":"reject"}
 {"decoder":"refusalCodeOf","name":"number","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":7}","go":"reject","ts":"reject"}
@@ -43,8 +53,12 @@ const PARITY_TABLE = String.raw`
 {"decoder":"refusalCodeOf","name":"proto","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"__proto__\"}","go":"reject","ts":"reject"}
 {"decoder":"refusalCodeOf","name":"constructor","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"constructor\"}","go":"reject","ts":"reject"}
 {"decoder":"refusalCodeOf","name":"absent","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1}","go":"reject","ts":"reject"}
-{"decoder":"refusalCodeOf","name":"saved-string","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"write-failed\",\"saved\":\"3\"}","go":"reject","ts":"accept","finding":"FND-4"}
-{"decoder":"refusalCodeOf","name":"saved-1e300","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"write-failed\",\"saved\":1e300}","go":"reject","ts":"accept","finding":"FND-4"}
+{"decoder":"refusalCodeOf","name":"saved-string","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"write-failed\",\"saved\":\"3\"}","go":"accept","ts":"accept"}
+{"decoder":"refusalCodeOf","name":"saved-1e300","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"write-failed\",\"saved\":1e300}","go":"accept","ts":"accept"}
+{"decoder":"refusalCodeOf","name":"type-key-case","frame":"{\"TYPE\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"write-failed\"}","go":"reject","ts":"reject"}
+{"decoder":"refusalCodeOf","name":"code-key-case","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"CODE\":\"write-failed\"}","go":"reject","ts":"reject"}
+{"decoder":"refusalCodeOf","name":"pv-string-with-code","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":\"1\",\"pvMin\":1,\"code\":\"write-failed\"}","go":"accept","ts":"accept"}
+{"decoder":"refusalCodeOf","name":"duplicate-code-bad-then-good","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"nope\",\"code\":\"write-failed\"}","go":"accept","ts":"accept"}
 {"decoder":"classifyControl","name":"metadata","frame":"{\"type\":\"metadata\"}","go":"metadata","ts":"metadata"}
 {"decoder":"classifyControl","name":"end","frame":"{\"type\":\"end\"}","go":"end","ts":"end"}
 {"decoder":"classifyControl","name":"ack","frame":"{\"type\":\"ack\"}","go":"ack","ts":"ack"}
@@ -52,9 +66,10 @@ const PARITY_TABLE = String.raw`
 {"decoder":"classifyControl","name":"incompatible","frame":"{\"type\":\"incompatible\"}","go":"incompatible","ts":"incompatible"}
 {"decoder":"classifyControl","name":"unknown-type","frame":"{\"type\":\"hello\"}","go":"none","ts":"none"}
 {"decoder":"classifyControl","name":"type-number","frame":"{\"type\":7}","go":"none","ts":"none"}
+{"decoder":"classifyControl","name":"type-key-case","frame":"{\"TYPE\":\"ack\"}","go":"none","ts":"none"}
 {"decoder":"classifyControl","name":"leading-space","frame":" {\"type\":\"end\"}","go":"end","ts":"end"}
 {"decoder":"classifyControl","name":"leading-newline","frame":"\n{\"type\":\"end\"}","go":"end","ts":"end"}
-{"decoder":"classifyControl","name":"number-overflow","frame":"{\"type\":\"end\",\"x\":1e999}","go":"none","ts":"end","finding":"FND-2"}
+{"decoder":"classifyControl","name":"number-overflow","frame":"{\"type\":\"end\",\"x\":1e999}","go":"end","ts":"end"}
 {"decoder":"classifyControl","name":"array","frame":"[{\"type\":\"end\"}]","go":"none","ts":"none"}
 {"decoder":"classifyControl","name":"json-null","frame":"null","go":"none","ts":"none"}
 {"decoder":"classifyControl","name":"trailing-garbage","frame":"{\"type\":\"end\"}x","go":"none","ts":"none"}

@@ -12,6 +12,7 @@ package transfer
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -509,7 +510,12 @@ func TestSenderIncompatibleTextIsDisplaySafe(t *testing.T) {
 	bidiVer := strings.Repeat("v\u202e", 200)
 	bidiPayload, _ := json.Marshal(incompatibleMsg{Type: "incompatible", Reason: "x", Pv: 2, PvMin: 2, Ver: bidiVer})
 	hugePayload, _ := json.Marshal(incompatibleMsg{Type: "incompatible", Reason: strings.Repeat("evil ", 2048), Pv: 1, PvMin: 1})
-	for _, p := range [][]byte{escPayload, bidiPayload} {
+	// A coded frame: the code is what a current sender acts on, and nothing
+	// else on the frame may reach the person, however it is dressed.
+	hostileText := "\x1b[2K‮$(calc)]]><" + strings.Repeat("⁦x", 40)
+	one := 1
+	codedPayload, _ := json.Marshal(incompatibleMsg{Type: "incompatible", Reason: hostileText, Pv: 1, PvMin: 1, Ver: "v" + hostileText, Code: string(CodeWriteFailed), Saved: &one})
+	for _, p := range [][]byte{escPayload, bidiPayload, codedPayload} {
 		if len(p) > 1000 {
 			t.Fatalf("fixture is %d bytes on the wire, must stay under the control cap", len(p))
 		}
@@ -554,6 +560,26 @@ func TestSenderIncompatibleTextIsDisplaySafe(t *testing.T) {
 			}
 			if strings.Contains(s, "evil evil") {
 				t.Errorf("the over-cap payload reached the error: %q", s)
+			}
+		}},
+		{"coded frame with hostile reason and ver prints the fixed sentence", codedPayload, false, func(t *testing.T, err error) {
+			var stopped *PeerStoppedError
+			if !errors.As(err, &stopped) {
+				t.Fatalf("expected a *PeerStoppedError, got %T: %v", err, err)
+			}
+			if stopped.Code != CodeWriteFailed || stopped.Saved != 1 {
+				t.Errorf("PeerStoppedError{%q, %d}, want write-failed and 1", stopped.Code, stopped.Saved)
+			}
+			if got, want := stopped.Error(), "Their computer could not save a file."; got != want {
+				t.Errorf("Error() = %q, want exactly %q", got, want)
+			}
+			if s := err.Error(); s != prefix+"Their computer could not save a file." {
+				t.Errorf("the wrapped error is %q, want the prefix plus the fixed sentence", s)
+			}
+			for _, bad := range []string{"\x1b", "‮", "⁦", "calc", "]]>"} {
+				if strings.Contains(err.Error(), bad) {
+					t.Errorf("%q from the peer reached the error: %q", bad, err.Error())
+				}
 			}
 		}},
 	}
