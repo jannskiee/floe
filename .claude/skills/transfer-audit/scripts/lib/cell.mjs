@@ -845,7 +845,7 @@ async function verifyAttempt(cell, ctx, rec, legs, done, fixture, outDir) {
         // any file arrived (cli.mjs, "connection closed before any file
         // arrived"): the receiver refused nothing and checked no digest, so it
         // never counts here (P0-27 review F1). What does count is the
-        // receiver's own sentence (RefusedError.Error in control.go) or a
+        // receiver's own sentence (RefusedError.Error in refusal.go) or a
         // browser receiver's own discard copy (web.mjs, kind 'refusal').
         const peerLeft = r?.detail?.class === 'peer-refused';
         const receiverRefused =

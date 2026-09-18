@@ -447,3 +447,88 @@ func TestHostPumpDeliversStagedMessage(t *testing.T) {
 	waitBoth(t, sendErr, recvErr)
 	checkTree(t, outDir, want)
 }
+
+// TestLoopbackOffererHoldsAckLong holds the first ack for 75 s on real timers:
+// longer than the 30 s idle and 60 s stall receive watchdogs (the transfer
+// package's TestLoopbackOffererHoldsAck checks that they still are), and under
+// the Go sender's hardcoded 120 s ack deadline, which the baseline spike
+// measured firing at 120.006 s with "error sending <name>: timed out waiting
+// for ack". Never raise the hold to 120 s or more here; a longer wait needs
+// SendOptions.AckTimeout (S1-ENG-08). It lives in this package so that go test
+// runs the hold alongside the transfer package's tests instead of adding 75 s
+// to them.
+func TestLoopbackOffererHoldsAckLong(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping the 75 s held-ack loopback transfer in -short mode")
+	}
+
+	const hold = 75 * time.Second
+	host, visitor := pairHostVisitor(t, newRelay(t))
+
+	srcDir := t.TempDir()
+	want := map[string][sha256.Size]byte{
+		"held.bin": writeRandom(t, srcDir, "held.bin", 64*1024),
+	}
+	sendErr := startSend(visitor, []string{filepath.Join(srcDir, "held.bin")})
+
+	// The visitor's metadata waits in the host's pump before the receive starts,
+	// as in TestHostPumpDeliversStagedMessage.
+	deadline := time.After(20 * time.Second)
+	for len(host.early.Msgs) == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("the visitor's first message never reached the host's pump")
+		case err := <-sendErr:
+			t.Fatalf("visitor send returned before the host started receiving: %v", err)
+		default:
+			time.Sleep(2 * time.Millisecond)
+		}
+	}
+
+	outDir := t.TempDir()
+	calls := 0
+	var held time.Duration
+	recvErr := make(chan error, 1)
+	go func() {
+		recvErr <- transfer.ReceiveFilesWithOptions(host.dc, outDir, true, "", "", transfer.ReceiveOptions{
+			OnProgress: func(transfer.Progress) {},
+			OnIncoming: func(transfer.IncomingInfo) {
+				calls++
+				start := time.Now()
+				time.Sleep(hold)
+				held = time.Since(start)
+			},
+			Messages: host.early.Msgs,
+			Closed:   host.early.Closed,
+		})
+	}()
+
+	// The visitor sits in its ack wait for the whole hold, under the sender's
+	// hardcoded 120 s ack deadline, so waitBoth's 60 s bound is too short here.
+	bound := hold + 60*time.Second
+	timeout := time.After(bound)
+	for got := 0; got < 2; got++ {
+		select {
+		case err := <-sendErr:
+			if err != nil {
+				t.Fatalf("visitor SendFilesWithOptions: %v", err)
+			}
+			sendErr = nil
+		case err := <-recvErr:
+			if err != nil {
+				t.Fatalf("host ReceiveFilesWithOptions: %v", err)
+			}
+			recvErr = nil
+		case <-timeout:
+			t.Fatalf("transfer did not finish within %s", bound)
+		}
+	}
+
+	if calls != 1 {
+		t.Fatalf("OnIncoming ran %d times, want 1", calls)
+	}
+	if held < hold {
+		t.Fatalf("OnIncoming held %s, want at least %s", held, hold)
+	}
+	checkTree(t, outDir, want)
+}
