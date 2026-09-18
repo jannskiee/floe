@@ -224,6 +224,13 @@ Three traps worth stating outright:
 Comments earn their place by recording a decision, a measurement, a platform
 quirk or a prohibition. A comment that restates the line beneath it does not.
 
+Tests follow the same rules, plus these conventions:
+
+- Test files are named by the concern they exercise, and the Go and
+  TypeScript halves mirror each other: `hash_test.go` is the receiver's side
+  of the per-file digest and `senderhash_test.go` the sender's, and
+  `receiverHash.test.ts` is the browser receiver's.
+
 ## Writing Style
 
 Do not use em dashes in any markdown files or documentation. Use periods, commas, hyphens, or parentheses instead. In `docs/`, Vale checks this (`docs/.vale.ini` plus the `docs/styles/Floe/EmDash.yml` rule, surfaced as the Mintlify Grammar linter CI check), reinforced by the weekly Apply style guide automation.
