@@ -98,6 +98,8 @@ export const SKIP_REASONS = Object.freeze({
         'Linux release CLI could not be side-loaded into WSL (tag, download or sha256sum; see log.txt)',
     'harness-build':
         'the lying harness sender (cli/internal/e2ehost) could not be built or failed preflight (see log.txt)',
+    'head-only':
+        'a head-profile cell named in a shipped run: the forced-mismatch cells never run against production',
     'infra-down': 'two consecutive infra symptoms against the signaling server',
     'budget-exhausted': 'run-wide retry or byte budget exhausted',
     present: 'user present and the desktop window needs focus',
@@ -354,9 +356,16 @@ function buildCell(id, { cliHasRelayOnly }) {
     }
     const bothCli =
         (snd === 'C' || snd === 'L') && (rcv === 'C' || rcv === 'L');
-    const byConstruction = p === 'DIR' && bothCli;
+    // A CLI-shaped sender that lies is the floe-e2ehost harness, which has no
+    // --no-relay: "direct by construction" would claim a flag it never got.
+    // Its path is observed instead (the harness route event, D-083), and the
+    // real CLI receiver still takes --no-relay.
+    const harnessSender = snd === 'C' && Boolean(hashLieOf(variant));
+    const byConstruction = p === 'DIR' && bothCli && !harnessSender;
     if (byConstruction) {
         sender.noRelay = true;
+        receiver.noRelay = true;
+    } else if (p === 'DIR' && bothCli) {
         receiver.noRelay = true;
     }
     const fixture = fixtureSpec(parsed);
@@ -503,6 +512,11 @@ export function cellPlan({
         // that was never asked for is `filtered` (uncounted), whatever the
         // probe would have said about it.
         if (cells && !matchCells(id, cells)) skip(cell, 'filtered');
+        // A head cell named in a shipped run (only the HASH_IDS can get here)
+        // never runs: it would drive production with a sender that lies
+        // (P0-27 review F3).
+        else if (cell.profile === 'H' && profile !== 'head')
+            skip(cell, 'head-only');
         else gateCell(cell, { probe, desktopMode, profile });
         rows.push(cell);
     }

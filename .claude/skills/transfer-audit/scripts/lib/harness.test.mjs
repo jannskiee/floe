@@ -15,6 +15,7 @@ import { getAdapter, isSurfaceAdapter } from './adapters.mjs';
 import {
     HarnessLeg,
     ROUTE_GRACE_MS,
+    durationSeconds,
     lastEvent,
     lieFlag,
     outcomeFromEvents,
@@ -113,6 +114,35 @@ test('argv takes the URLs from infra, where the runner puts them, and needs a se
     ]);
     const none = new HarnessLeg({ role: 'sender', bin: 'x', files: ['f'] });
     assert.throws(() => none.argv(), /infra\.server is required/);
+});
+
+test('argv hands the harness the attempt clock, never send.go fixed defaults', () => {
+    const leg = new HarnessLeg({
+        role: 'sender',
+        bin: 'x',
+        infra: { server: 'http://127.0.0.1:3001' },
+        hashLie: 'corrupt',
+        deadlineAt: 1_000_000 + 184_200,
+        now: 1_000_000,
+        refusalWaitMs: 15_000,
+        files: ['f'],
+    });
+    assert.deepEqual(leg.argv(), [
+        'send',
+        '-server',
+        'http://127.0.0.1:3001',
+        '-corrupt-hash',
+        '-timeout',
+        '185s',
+        '-refusal-wait',
+        '15s',
+        'f',
+    ]);
+    // A deadline already behind us still leaves the harness room to report.
+    assert.equal(durationSeconds(-5000, 30), 30);
+    assert.equal(durationSeconds(1, 5), 5);
+    assert.equal(durationSeconds(Number.NaN, 30), 30);
+    assert.equal(durationSeconds(61_001, 30), 62, 'rounded up');
 });
 
 test('env inherits the scrubbed environment and always opts out', () => {

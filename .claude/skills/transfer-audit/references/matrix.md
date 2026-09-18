@@ -53,15 +53,23 @@ How a run carries them out:
   failed build or preflight turns exactly those cells into SKIP `harness-build`;
   there is no fallback. A new exe path wants one discarded warm-up run (firewall).
 - The harness prints a link and never a code, so these cells use link input.
+- They are head cells only: a shipped run that names one SKIPs it as `head-only`,
+  because it would drive production with a sender that lies.
 - Route: the harness prints `{"event":"route","path":"direct"|"relay"}` from the
   engine's own `ConnectionType()` (the word only, never an address), so a cell is
   judged by two observers, source `harness-connection-type` beside the receiver's.
+  The harness takes no `--no-relay`, so a C2C hash cell is never "direct by
+  construction"; its CLI receiver still gets the flag.
 - The relay cap's byte guard does not run on these cells: bytes moving before the
   refusal is the point.
 - Verdict: the receiver refused (a CLI receiver's `RefusedError` sentence and exit
   1; a browser receiver's own fixed discard copy, awaited on the page rather than
-  synthesized from the sender) and kept no file with bytes; and when the sender is
-  the harness, the refusal code it read back is `hash-mismatch`. The FAIL keys are
+  synthesized from the sender) and kept nothing at all, not even an empty `.part`;
+  and when the sender is the harness, the refusal code it read back is
+  `hash-mismatch`. A CLI receiver that only saw its sender leave ("connection
+  closed before any file arrived") refused nothing and never counts. A browser
+  sender may end on "All Files Sent!" or on the receiver's wire reason; the page
+  usually reaches the first before the refusal lands. The FAIL keys are
   `hash-not-refused` and `hash-refusal-code`.
 
 ## What each surface can do

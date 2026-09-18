@@ -75,14 +75,16 @@ export const TEXT = Object.freeze({
     received: /^(\d+) files? received$/, // ReceiverPanel.tsx (the completion line)
     pill: /^(Direct|Relay|Ready|Offline)$/, // ConnectionStatusBadge.tsx (the label ternary)
     // What a sender shows when its peer refused a file it sent. The page prints
-    // the peer's own sanitized reason (compatErrorFromIncompatible in
-    // client/lib/transfer/protocol.ts), and a Go receiver's two hash reasons are
-    // RefusedError.Error() in cli/engine/transfer/control.go. The generic
-    // fallback is the page's own when a reason is missing.
+    // the peer's own sanitized WIRE reason (compatErrorFromIncompatible in
+    // client/lib/transfer/protocol.ts; P2PTransfer wires no onStopped), so these
+    // are the two reasons both receivers put on the incompatible frame
+    // (cli/engine/transfer/receiver.go and HASH_MISMATCH_REASON /
+    // HASH_UNREADABLE_REASON in client/lib/transfer/receiver.ts), never the CLI
+    // receiver's own stderr sentence (P0-27 review F2). The page usually reaches
+    // "All Files Sent!" first, which a lying cell's sender also accepts.
     peerRefusedHash: [
-        'did not match the SHA-256',
-        "SHA-256 for a file could not be read",
-        'The other side rejected the transfer.',
+        'receiver discarded a file because its SHA-256 did not match',
+        "receiver discarded a file because the sender's SHA-256 was not readable",
     ],
     // What a browser RECEIVER shows when it discarded a file whose digest did
     // not match or could not be read: the two fixed onError sentences in

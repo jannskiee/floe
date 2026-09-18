@@ -786,6 +786,10 @@ async function receiverOutputs(
  * output dir, so the previous attempt's .part is not counted again.
  */
 function bytesMovedOf(cell, rec, fixture, outs) {
+    // A forced mismatch sends every byte before the refusal, and the guard
+    // that counts a cap cell's bytes never runs on it (review F8).
+    if (cell.expect === 'refusal' && cell.hashLie)
+        return fixture?.totalBytes ?? 0;
     if (cell.expect === 'refusal') return rec.bytesMoved || 0;
     const killFirst =
         (cell.expect === 'kill-sender' || cell.expect === 'kill-receiver') &&
@@ -837,10 +841,18 @@ async function verifyAttempt(cell, ctx, rec, legs, done, fixture, outDir) {
         // A forced mismatch: the receiver must refuse the file and keep
         // nothing. Bytes moving first is the point, not a failure, so the
         // relay-cap guard below must not run on this cell.
+        // A CLI receiver's `peer-refused` class means the SENDER left before
+        // any file arrived (cli.mjs, "connection closed before any file
+        // arrived"): the receiver refused nothing and checked no digest, so it
+        // never counts here (P0-27 review F1). What does count is the
+        // receiver's own sentence (RefusedError.Error in control.go) or a
+        // browser receiver's own discard copy (web.mjs, kind 'refusal').
+        const peerLeft = r?.detail?.class === 'peer-refused';
         const receiverRefused =
             r &&
+            !peerLeft &&
             (r.kind === 'refusal' ||
-                /did not match the SHA-256|SHA-256 for a file could not be read|hash-mismatch/.test(
+                /did not match the SHA-256|SHA-256 for a file could not be read/.test(
                     String(r.detail?.error || r.detail?.tail || '')
                 ));
         if (!receiverRefused)
@@ -865,11 +877,11 @@ async function verifyAttempt(cell, ctx, rec, legs, done, fixture, outDir) {
         const outs = await receiverOutputs(cell, legs, rec, outDir, {
             allowPart: true,
         });
-        const kept = outs.filter((o) => o.bytes > 0);
-        if (kept.length)
+        // Nothing at all may stay, a zero-byte .part included (review F6).
+        if (outs.length)
             throw new PhaseError(
                 'verify',
-                `hash-not-refused: the receiver kept ${kept.length} file(s) whose digest did not match`,
+                `hash-not-refused: the receiver kept ${outs.length} file(s) whose digest did not match`,
                 { signatureKey: 'hash-not-refused' }
             );
         rec.outputs = outs;
@@ -1204,6 +1216,9 @@ export async function runAttempt(
                               bin: ctx.buildFor
                                   ? (ctx.buildFor('harness')?.path ?? null)
                                   : null,
+                              // How long the harness waits for the refusal
+                              // after its last byte: the cell's exit budget.
+                              refusalWaitMs: T.exit,
                           }
                         : {}),
                 })
@@ -1544,7 +1559,14 @@ export async function runAttempt(
 export function baseResult(cell, ctx) {
     const build = (surface, role) =>
         ctx.buildFor ? ctx.buildFor(surface, role) : null;
-    const sb = build(cell.sender.surface, 'sender');
+    // A CLI-shaped sender that lies is the staged floe-e2ehost, not the head
+    // CLI, and the report's sender build says so (P0-27 review F4).
+    const sb = build(
+        cell.hashLie && cell.sender.surface === 'cli'
+            ? 'harness'
+            : cell.sender.surface,
+        'sender'
+    );
     const rb = build(cell.receiver.surface, 'receiver');
     return {
         id: cell.id,
@@ -1622,11 +1644,11 @@ function fill(result, rec, cell) {
         // The label follows the path the run observed. It used to be the
         // literal 'relay [refusal]', which was true while the only refusal cell
         // was the 2 GB relay cap and read as a lie on a direct hashbad cell
-        // whose own sources both said direct. A cap cell that refused before any
-        // byte moved has no observation, and its own path is the fallback.
-        const observed =
-            result.route.observed || (cell.path === 'REL' ? 'relay' : 'direct');
-        result.route.label = `${observed} [refusal]`;
+        // whose own sources both said direct. `observed` is always set
+        // ('unobserved' at worst, and a passing cap cell always observed
+        // relay), so there is no fallback to the cell's own path: a label never
+        // claims a path nobody saw (P0-27 review F5).
+        result.route.label = `${result.route.observed} [refusal]`;
     }
     if (rec.integrity) result.integrity = rec.integrity;
     if (rec.completion) result.completion = rec.completion;

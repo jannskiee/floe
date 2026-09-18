@@ -422,7 +422,7 @@ const withHarness = (world, extra = {}, patch = null) =>
         {
             buildFor: (surface) =>
                 surface === 'harness'
-                    ? { kind: 'harness', path: HARNESS_BIN }
+                    ? { kind: 'harness', path: HARNESS_BIN, version: 'e2ehost-abc1234' }
                     : { kind: 'head', version: 'head-abc1234', path: null },
             ...extra,
         },
@@ -449,6 +449,18 @@ test('a forced mismatch from the harness sender PASSes on the refusal, judged by
         JSON.stringify(r.route.sources)
     );
     assert.equal(r.route.label, 'direct [refusal]');
+    // The report names the program that actually lied (review F4).
+    assert.equal(r.sender.build, 'harness');
+    assert.equal(r.sender.version, 'e2ehost-abc1234');
+    assert.equal(r.receiver.version, 'head-abc1234');
+    // Every byte moved before the refusal, and the record says so (review F8).
+    const cellRow = pickHash('H-DIR-C2C-hashbad');
+    assert.equal(r.attempts[0].bytesMoved, cellRow.fixture.totalBytes);
+    // The harness takes no --no-relay, so the cell never claims "direct by
+    // construction"; the real CLI receiver still takes the flag.
+    assert.equal(cellRow.byConstruction, false);
+    assert.equal(cellRow.sender.noRelay, false);
+    assert.equal(cellRow.receiver.noRelay, true);
 
     const malWorld = fakeWorld();
     const mal = await runCell(pickHash('H-DIR-C2C-hashmal'), withHarness(malWorld));
@@ -494,6 +506,12 @@ test('the forced-mismatch cells FAIL when nothing was refused, the code is wrong
         ['H-DIR-W2C-hashbad', 'hashlie-kept', 'hash-not-refused'],
         ['H-DIR-C2C-hashbad', 'hashlie-wrong-code', 'hash-refusal-code'],
         ['H-DIR-C2C-hashmal', 'hashlie-leaves-file', 'hash-not-refused'],
+        // The sender left before any file arrived: the CLI receiver's
+        // peer-refused class is not a hash refusal (review F1, the false PASS).
+        ['H-DIR-W2C-hashbad', 'hashlie-peer-left', 'hash-not-refused'],
+        ['H-DIR-C2C-hashbad', 'hashlie-peer-left', 'hash-not-refused'],
+        // A zero-byte .part left behind is still something kept (review F6).
+        ['H-DIR-C2C-hashbad', 'hashlie-empty-part', 'hash-not-refused'],
     ]) {
         const world = fakeWorld();
         world.setScript(id, script);
@@ -1136,22 +1154,29 @@ test('bytesReportedCount counts a LIST, because Number(list) is NaN', () => {
     );
 });
 
-test('a refusal cell labels the route it actually took', () => {
-    // The direct hashbad cell's own sources both said direct; the label used to
-    // say relay, because it was written when the only refusal was the 2 GB cap.
-    const hashCell = { id: 'H-DIR-W2C-hashbad', path: 'DIR', expect: 'refusal', hashLie: 'corrupt' };
-    const direct = labelForRefusal(hashCell, 'direct');
-    assert.equal(direct, 'direct [refusal]');
-    // A cap cell that refused before any byte moved has nothing to observe, so
-    // its own path decides and the old label survives.
-    const capCell = { id: 'S-REL-C2W-cap3g', path: 'REL', expect: 'refusal', hashLie: null };
-    assert.equal(labelForRefusal(capCell, null), 'relay [refusal]');
-    assert.equal(labelForRefusal({ ...capCell, path: 'DIR' }, null), 'direct [refusal]');
+test('a refusal cell labels the route it actually took, through the runner', async () => {
+    // The direct hashbad cell's own sources said direct; the label used to say
+    // relay, because it was written when the only refusal was the 2 GB cap.
+    // Pinned through runCell rather than a copy of the expression (review F5).
+    const seen = await runCell(pickHash('H-DIR-C2C-hashbad'), withHarness(fakeWorld()));
+    assert.equal(seen.verdict, 'PASS', seen.note);
+    assert.equal(seen.route.label, 'direct [refusal]');
+    // Nobody observed a path: the label says so and never borrows the cell's.
+    const silent = await runCell(
+        pickHash('H-DIR-C2C-hashbad'),
+        withHarness(fakeWorld(), {}, (adapters) =>
+            wrapLeg(adapters, 'harness', (leg) => {
+                leg.route = () => null;
+            })
+        )
+    );
+    assert.equal(silent.verdict, 'PASS', silent.note);
+    assert.equal(silent.route.observed, 'unobserved');
+    assert.equal(silent.route.label, 'unobserved [refusal]');
+    // The cap cell keeps its label because a passing cap cell observed relay.
+    const cap = pick('S-REL-C2W-cap3g');
+    cap.fixture = { kind: 'single', bytes: 1024, totalBytes: 1024 };
+    const capRun = await runCell(cap, makeCtx(fakeWorld()));
+    assert.equal(capRun.verdict, 'PASS', capRun.note);
+    assert.equal(capRun.route.label, 'relay [refusal]');
 });
-
-// The same expression the result builder uses, kept here so the rule is pinned
-// without exporting a one-line helper from cell.mjs.
-function labelForRefusal(cell, observed) {
-    const path = observed || (cell.path === 'REL' ? 'relay' : 'direct');
-    return `${path} [refusal]`;
-}

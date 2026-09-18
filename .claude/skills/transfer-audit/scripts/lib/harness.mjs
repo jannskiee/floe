@@ -65,6 +65,12 @@ export function lieFlag(hashLie) {
     return null;
 }
 
+/** Whole seconds for a Go duration flag, rounded up, never below floorS. */
+export function durationSeconds(ms, floorS) {
+    const s = Math.ceil(Number(ms) / 1000);
+    return Number.isFinite(s) ? Math.max(floorS, s) : floorS;
+}
+
 /**
  * Pure. The route sample for a harness stdout: the last `route` event's word
  * when it is one of the two the harness may print, else null.
@@ -139,6 +145,13 @@ export class HarnessLeg extends Leg {
         if (opts.room) args.push('-room', opts.room);
         const flag = lieFlag(opts.hashLie);
         if (flag) args.push(flag);
+        // The harness's own watchdog and refusal wait follow the attempt's
+        // clock rather than send.go's fixed 2 m and 10 s, so a slow but correct
+        // run is never killed from inside (P0-27 review F7).
+        if (opts.deadlineAt)
+            args.push('-timeout', `${durationSeconds(opts.deadlineAt - (opts.now ?? Date.now()), 30)}s`);
+        if (opts.refusalWaitMs)
+            args.push('-refusal-wait', `${durationSeconds(opts.refusalWaitMs, 5)}s`);
         return [...args, ...(opts.files || [])];
     }
 

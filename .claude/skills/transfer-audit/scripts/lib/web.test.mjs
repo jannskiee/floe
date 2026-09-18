@@ -731,11 +731,31 @@ test('the hash refusal strings the web leg waits for are the products own words'
     const receiverTs = read('client/lib/transfer/receiver.ts');
     for (const s of TEXT.selfDiscardedHash)
         assert.ok(receiverTs.includes(s), `receiver.ts no longer says: ${s}`);
-    const peerSources =
-        read('cli/engine/transfer/control.go') +
-        read('client/lib/transfer/protocol.ts');
-    for (const s of TEXT.peerRefusedHash)
-        assert.ok(peerSources.includes(s), `no sender-side source says: ${s}`);
+    // A sender page renders the WIRE reason, so each string must be what BOTH
+    // receivers put on the frame (review F2: an earlier pin read control.go's
+    // local sentences, which no sender page ever shows).
+    const receiverGo = read('cli/engine/transfer/receiver.go');
+    for (const s of TEXT.peerRefusedHash) {
+        assert.ok(receiverGo.includes(`"${s}"`), `receiver.go does not send: ${s}`);
+        assert.ok(receiverTs.includes(s), `receiver.ts does not send: ${s}`);
+    }
+    assert.match(
+        receiverTs,
+        /const HASH_MISMATCH_REASON = 'receiver discarded a file because its SHA-256 did not match';/
+    );
+});
+
+test('the hashbad rewrite matches the end frame the client really builds', () => {
+    // endMessage builds { type: 'end', sha256: digest } and JSON.stringify keeps
+    // that key order; if the order flips, corruptEndFrame becomes a
+    // pass-through and every hashbad cell reads as a false FAIL (review F10).
+    const protocolTs = readFileSync(
+        new URL('../../../../../client/lib/transfer/protocol.ts', import.meta.url),
+        'utf8'
+    );
+    assert.match(protocolTs, /\{ type: 'end', sha256: digest \}/);
+    const frame = JSON.stringify({ type: 'end', sha256: 'a'.repeat(64) });
+    assert.notEqual(corruptEndFrame(frame), frame, 'the rewrite applies to that shape');
 });
 
 test('installHashbad ships the same rewrite into the page', async () => {

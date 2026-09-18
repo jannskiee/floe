@@ -53,6 +53,11 @@ export const SCRIPTS = Object.freeze([
     'hashlie-kept',
     'hashlie-wrong-code',
     'hashlie-leaves-file',
+    // The sender left before any file arrived: a CLI receiver reports its
+    // peer-refused class, which must never read as a hash refusal (review F1).
+    'hashlie-peer-left',
+    // The receiver refused but left a zero-byte .part behind (review F6).
+    'hashlie-empty-part',
 ]);
 
 /**
@@ -488,6 +493,42 @@ class FakeLeg extends Leg {
     async hashLieScript(ms) {
         const { opts } = this;
         const s = this.script;
+        if (s === 'hashlie-peer-left') {
+            if (this.role === 'sender') {
+                this.exitCode = this.surface === 'web' ? null : 1;
+                return this.surface === 'harness'
+                    ? {
+                          ok: true,
+                          kind: 'transfer',
+                          detail: { class: 'no-refusal', code: 'closed' },
+                          exitCode: 1,
+                          ms: ms(),
+                      }
+                    : {
+                          ok: false,
+                          kind: 'error',
+                          detail: { outcome: 'failed' },
+                          exitCode: null,
+                          ms: ms(),
+                      };
+            }
+            this.exitCode = 1;
+            return {
+                ok: true,
+                kind: 'refusal',
+                detail: {
+                    class: 'peer-refused',
+                    side: 'peer',
+                    error: 'Error: connection closed before any file arrived (the sender canceled, or the transfer was blocked)',
+                },
+                exitCode: 1,
+                ms: ms(),
+            };
+        }
+        if (s === 'hashlie-empty-part' && this.role === 'receiver') {
+            mkdirSync(opts.outDir, { recursive: true });
+            writeFileSync(path.join(opts.outDir, 'fixture.bin.part'), Buffer.alloc(0));
+        }
         if (this.role === 'sender') {
             if (s === 'hashlie-kept') {
                 this.exitCode = this.surface === 'web' ? null : 1;

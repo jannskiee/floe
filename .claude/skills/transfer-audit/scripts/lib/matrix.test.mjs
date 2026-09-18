@@ -11,6 +11,7 @@ import {
     DEFAULT_IDS,
     HASH_IDS,
     QUICK_IDS,
+    SKIP_REASONS,
     cellPlan,
     countsForExit,
     matchCells,
@@ -432,6 +433,23 @@ test('the forced-mismatch cells: refusal, a hashLie, and no other cell lies', ()
         assert.ok(!DEFAULT_IDS.includes(id), `${id} is not a default cell`);
         assert.ok(!DEEP_IDS.includes(id), `${id} is not a deep cell`);
     }
+});
+
+test('a shipped run never executes a head-only hash cell against production', () => {
+    // --profile shipped --cells H-DIR-W2C-hashbad would have opened
+    // www.floe.one with a sender that lies (P0-27 review F3).
+    const plan = cellPlan({ profile: 'shipped', cells: HASH_IDS });
+    const hash = plan.filter((c) => HASH_IDS.includes(c.id));
+    assert.equal(hash.length, HASH_IDS.length);
+    for (const cell of hash) {
+        assert.equal(cell.verdict, 'SKIP', `${cell.id} must not run in a shipped run`);
+        assert.equal(cell.reason, 'head-only');
+    }
+    assert.ok(SKIP_REASONS['head-only'], 'the skip reason is documented');
+    // The same ids in a head run are executable (their other gates permitting).
+    const head = cellPlan({ profile: 'head', cells: ['H-DIR-W2C-hashbad'] });
+    const w2c = head.find((c) => c.id === 'H-DIR-W2C-hashbad');
+    assert.ok(!w2c.verdict, `${w2c.id} runs in a head run (verdict ${w2c.verdict})`);
 });
 
 test('matrix.md documents every hash id and variant the code knows', () => {

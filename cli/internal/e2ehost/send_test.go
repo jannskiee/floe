@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -22,30 +21,19 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
-// testEvents records what a mode emitted and turns its exits into panics a
-// test can recover, because the modes end by exiting on purpose.
-type testEvents struct {
-	mu     sync.Mutex
-	events []map[string]interface{}
-}
-
+// exitPanic turns a mode's exit into a panic a test can recover, because the
+// modes end by exiting on purpose.
 type exitPanic int
 
-func newTestEvents() (*events, *testEvents) {
-	rec := &testEvents{}
-	ev := &events{
+// newTestEvents is an events whose output is discarded and whose exit panics.
+// runSend's own sequence (channel-open, route, the refusal wait and the exit
+// code) is proved by the live forced-mismatch cells, not here: these tests
+// drive sendOneFile, waitForRefusal and emitRoute, the pieces it is built from.
+func newTestEvents() *events {
+	return &events{
 		enc:  json.NewEncoder(io.Discard),
 		exit: func(code int) { panic(exitPanic(code)) },
 	}
-	// emit writes through the encoder; wrap it by recording from the caller's
-	// side instead, which keeps events' own behavior untouched.
-	return ev, rec
-}
-
-func (r *testEvents) add(v map[string]interface{}) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.events = append(r.events, v)
 }
 
 // connectedPair wires two in-process pion connections together over loopback
@@ -149,7 +137,7 @@ func runSendOneFile(t *testing.T, mode hashMode, data []byte) (error, string, st
 		t.Fatalf("write source: %v", err)
 	}
 
-	ev, _ := newTestEvents()
+	ev := newTestEvents()
 	done := make(chan struct{})
 	go func() {
 		defer func() {
