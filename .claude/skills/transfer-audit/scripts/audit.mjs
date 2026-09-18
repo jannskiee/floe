@@ -104,7 +104,7 @@ import { SafetyError, sleep as defaultSleep } from './lib/surfaces.mjs';
 import { classifyIce, describeTurn, probeTurn } from './lib/turn.mjs';
 import { decodeWslOutput } from './lib/wsl.mjs';
 import { SKIP_REASONS } from './lib/matrix.mjs';
-import { PENALIZED_KEYS } from './lib/cell.mjs';
+import { PENALIZED_KEYS } from './lib/triage.mjs';
 import {
     cliUnderTestOracle,
     collectVersions,

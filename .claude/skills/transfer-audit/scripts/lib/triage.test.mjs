@@ -1,10 +1,11 @@
 /**
- * references/triage.md and TRIAGE_KEYS in cell.mjs must name the same keys: the
- * report prints its "no row" disclaimer from TRIAGE_KEYS, so a row added to the
- * table without the key (or the reverse) makes a documented FAIL read as
- * undocumented, or an undocumented one read as documented. cell.mjs has long
- * said this file asserts that; it did not exist until P0-27 added two keys and
- * the audit printed "no row" for a key the table documents.
+ * references/triage.md and TRIAGE_KEYS in triage.mjs must name the same keys:
+ * the report prints its "no row" disclaimer from TRIAGE_KEYS, so a row added to
+ * the table without the key (or the reverse) makes a documented FAIL read as
+ * undocumented, or an undocumented one read as documented. The comment on
+ * TRIAGE_KEYS has long said this file asserts that; it did not exist until
+ * P0-27 added two keys and the audit printed "no row" for a key the table
+ * documents.
  *
  * Run: node --test .claude/skills/transfer-audit/scripts/lib/triage.test.mjs
  */
@@ -12,7 +13,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
-import { TRIAGE_KEYS } from './cell.mjs';
+import { TRIAGE_KEYS } from './triage.mjs';
 
 /** Pure. The first backticked key in each row's first cell; `-` rows have none. */
 function tableKeys(markdown) {

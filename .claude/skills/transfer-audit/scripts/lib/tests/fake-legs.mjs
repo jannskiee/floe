@@ -683,24 +683,26 @@ class FakeLeg extends Leg {
                     ms: ms(),
                 };
             }
+            // A killed receiver's exitCode stays null (see above), so this check
+            // cannot sit under the exitCode guard below: there it never ran.
+            if (victim === 'receiver' && other && world.killed.has(other.pid)) {
+                this.exitCode = 1;
+                return {
+                    ok: false,
+                    kind: 'error',
+                    detail: {
+                        error: 'Error: peer disconnected mid-transfer',
+                        class: 'peer-left',
+                    },
+                    exitCode: 1,
+                    ms: ms(),
+                };
+            }
             if (
                 other &&
                 other.exitCode !== null &&
                 other.exitCode !== undefined
             ) {
-                if (victim === 'receiver' && world.killed.has(other.pid)) {
-                    this.exitCode = 1;
-                    return {
-                        ok: false,
-                        kind: 'error',
-                        detail: {
-                            error: 'Error: peer disconnected mid-transfer',
-                            class: 'peer-left',
-                        },
-                        exitCode: 1,
-                        ms: ms(),
-                    };
-                }
                 if (this.attempt >= 2) {
                     this.exitCode = 0;
                     return {

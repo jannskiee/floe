@@ -19,15 +19,11 @@ import {
     ROUTE_UNPROVEN_NOTE,
     bytesReportedCount,
     candidateNotes,
-    INFRA_KEYS,
-    PENALIZED_KEYS,
-    SIGNATURES,
-    classifySignature,
-    isEarlyRace,
     turnFetchHints,
     partFiles,
     runCell,
 } from './cell.mjs';
+import { INFRA_KEYS, PENALIZED_KEYS, SIGNATURES, classifySignature, isEarlyRace } from './triage.mjs';
 import { KILL_AT_BYTES } from './fixtures.mjs';
 import { HASH_IDS, cellPlan } from './matrix.mjs';
 import { Ledger } from './pacing.mjs';
