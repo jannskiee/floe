@@ -5,29 +5,42 @@
  *
  * It speaks one JSON event per line on stdout and nothing else, so this adapter
  * waits on event shapes rather than on human text: `link` carries the room link,
- * `channel-open` is the pairing, and `peer-refused` carries the receiver's own
- * refusal code. A run that reaches `peer-refused` with `hash-mismatch` is the
- * success this cell is asking about.
+ * `channel-open` is the pairing, `route` names the selected path, and
+ * `peer-refused` carries the receiver's own refusal code. A run that reaches
+ * `peer-refused` with `hash-mismatch` is the success this cell is asking about.
  *
- * Route: the harness prints no candidate information, on purpose (an address is
- * exactly what the audit must never write down), so a harness leg offers no
- * route evidence and the cell's route rests on the receiver's own oracle. That
- * is recorded in work/14-test-evidence/P0-27/harness-leg-design.md of the plan
- * folder rather than decided here.
+ * Route (D-083): right after `channel-open` the harness prints
+ * `{"event":"route","path":"direct"|"relay"}`, taken from the engine's own
+ * `peer.Connection.ConnectionType()`. It is the verdict word only, never an
+ * address or a candidate type, so a harness cell is judged by two observers like
+ * every other direct cell. When the harness could not classify its path it
+ * prints no route event, this leg reports `unknown`, and the receiver's oracle
+ * decides alone.
  *
  * Nothing in this file ships: the binary it drives is built from
  * cli/internal/e2ehost, which `go list -deps ./cmd/floe` never names.
  */
 import { existsSync } from 'node:fs';
 
-import { Leg, PhaseError } from './surfaces.mjs';
+import { Leg, PhaseError, sleep } from './surfaces.mjs';
 import { killTree, spawnFloe } from './proc.mjs';
+import { buildEnv } from './cli.mjs';
 
 export const LINK_EVENT_RE = /"event"\s*:\s*"link"/;
 export const OPEN_EVENT_RE = /"event"\s*:\s*"channel-open"/;
+export const ROUTE_EVENT_RE = /"event"\s*:\s*"route"/;
 export const REFUSED_EVENT_RE = /"event"\s*:\s*"peer-refused"/;
 export const DONE_EVENT_RE = /"event"\s*:\s*"done"/;
 export const ERROR_EVENT_RE = /"event"\s*:\s*"error"/;
+
+// The route event follows channel-open in the same goroutine with nothing in
+// between but one selected-pair read, so a harness that has not printed it this
+// long after the pairing never will.
+export const ROUTE_GRACE_MS = 5_000;
+
+// The codes the harness passes through from a refusal frame (send.go
+// refusalCode); `none` and `closed` mean no refusal frame arrived at all.
+const REFUSAL_CODES = new Set(['hash-mismatch', 'write-failed', 'other']);
 
 /** The last JSON object on stdout whose event matches, or null. */
 export function lastEvent(stdout, name) {
@@ -52,22 +65,97 @@ export function lieFlag(hashLie) {
     return null;
 }
 
+/**
+ * Pure. The route sample for a harness stdout: the last `route` event's word
+ * when it is one of the two the harness may print, else null.
+ */
+export function routeFromEvents(stdout, t = null) {
+    const ev = lastEvent(stdout, 'route');
+    const word = ev && (ev.path === 'direct' || ev.path === 'relay') ? ev.path : null;
+    if (!word) return null;
+    return {
+        t: t ?? Date.now(),
+        source: 'harness-connection-type',
+        local: null,
+        remote: null,
+        verdict: word,
+    };
+}
+
+/**
+ * Pure. What the sender's end looks like from its last events: a refusal the
+ * peer sent, no refusal at all (the peer kept the file or just left), or an
+ * error stage of the harness's own.
+ */
+export function outcomeFromEvents(stdout) {
+    const refused = lastEvent(stdout, 'peer-refused');
+    if (refused) {
+        const code = refused.code || 'other';
+        if (REFUSAL_CODES.has(code))
+            return {
+                ok: true,
+                kind: 'refusal',
+                detail: { class: 'peer-refused', code },
+            };
+        return { ok: true, kind: 'transfer', detail: { class: 'no-refusal', code } };
+    }
+    if (lastEvent(stdout, 'done'))
+        return { ok: true, kind: 'transfer', detail: {} };
+    const failed = lastEvent(stdout, 'error');
+    return {
+        ok: false,
+        kind: 'error',
+        detail: { stage: (failed && failed.stage) || 'unknown' },
+    };
+}
+
 export class HarnessLeg extends Leg {
     constructor(opts) {
         super(opts);
         this.surface = 'harness';
-        this.bin = opts.bin;
+        this.bin = opts.bin ?? opts.harnessBin ?? null;
+        this.label = opts.label ?? 'e2ehost-send';
+        this.marks = {};
         this._link = null;
         this.h = null;
     }
 
+    /** ms left until opts.deadlineAt, capped at ms, never below 1 s (CliLeg's rule). */
+    budget(ms) {
+        const { deadlineAt } = this.opts;
+        if (!deadlineAt) return ms;
+        return Math.max(1000, Math.min(ms, deadlineAt - Date.now()));
+    }
+
     argv() {
         const { opts } = this;
-        const args = ['send', '-server', opts.server, '-web', opts.web];
+        const infra = opts.infra || {};
+        const server = infra.server ?? opts.server;
+        const web = infra.web ?? opts.web;
+        if (!server)
+            throw new PhaseError('start', 'harness sender: infra.server is required');
+        const args = ['send', '-server', server];
+        if (web) args.push('-web', web);
         if (opts.room) args.push('-room', opts.room);
         const flag = lieFlag(opts.hashLie);
         if (flag) args.push(flag);
         return [...args, ...(opts.files || [])];
+    }
+
+    /**
+     * The inherited environment with the CLI leg's scrubbing (no PION_LOG_*, no
+     * FLOE_SERVER, FLOE_WEB or FLOE_NO_STATS from the auditor's shell), then the
+     * opt-outs. The harness is a receiver's peer and reports nothing, but it says
+     * so anyway.
+     */
+    env() {
+        const { opts } = this;
+        return {
+            ...buildEnv(opts, opts.baseEnv ?? process.env),
+            ...(opts.env || {}),
+            FLOE_NO_STATS: '1',
+            FLOE_NO_UPDATE_CHECK: '1',
+        };
     }
 
     async start() {
@@ -76,14 +164,17 @@ export class HarnessLeg extends Leg {
             throw new PhaseError('spawn', 'harness sender: bin is required');
         if (!opts.files || !opts.files.length)
             throw new PhaseError('spawn', 'harness sender: files are required');
+        const args = this.argv();
+        // send.go runSend fetches TURN and opens /ws, like the CLI sender.
+        for (const kind of ['turn', 'conn'])
+            if (opts.ledger && typeof opts.ledger.spend === 'function')
+                opts.ledger.spend(kind);
         this.h = spawnFloe({
             bin: this.bin,
-            args: this.argv(),
-            // The harness is a receiver's peer, not a receiver: it reports
-            // nothing to the stats counter, and the environment says so anyway.
-            env: { ...opts.env, FLOE_NO_STATS: '1', FLOE_NO_UPDATE_CHECK: '1' },
+            args,
+            env: this.env(),
             cwd: opts.cwd,
-            label: this.label || 'e2ehost-send',
+            label: this.label,
             evidenceDir: opts.evidenceDir,
             stallMs: opts.stallMs,
         });
@@ -115,12 +206,28 @@ export class HarnessLeg extends Leg {
     }
 
     route() {
-        return null;
+        try {
+            if (!this.h) return null;
+            return routeFromEvents(this.h.stdout, this.marks.connected ?? null);
+        } catch {
+            return null;
+        }
     }
 
-    async awaitRoute() {
-        // No candidate information by design; the receiver's oracle decides.
-        return null;
+    /**
+     * The route event lands right after the pairing or never, so this waits
+     * ROUTE_GRACE_MS at most rather than the cell's whole route timeout, and
+     * answers `unknown` (the receiver then decides alone) when it never came.
+     */
+    async awaitRoute(timeoutMs) {
+        const until = Date.now() + Math.min(timeoutMs, ROUTE_GRACE_MS);
+        for (;;) {
+            const r = this.route();
+            if (r) return r;
+            if (Date.now() >= until || (this.h && this.h.exit))
+                return { t: Date.now(), source: 'none', verdict: 'unknown' };
+            await sleep(100);
+        }
     }
 
     async awaitDone(timeoutMs) {
@@ -131,25 +238,10 @@ export class HarnessLeg extends Leg {
                 `harness sender: still running after ${timeoutMs} ms (silent for ${this.h.stalledFor()} ms)`,
                 { stalledMs: this.h.stalledFor() }
             );
-        const ms = exit.t - this.h.t0;
-        const refused = lastEvent(this.h.stdout, 'peer-refused');
-        if (refused)
-            return {
-                ok: true,
-                kind: 'refusal',
-                ms,
-                exitCode: exit.code,
-                detail: { class: 'peer-refused', code: refused.code || 'other' },
-            };
-        if (lastEvent(this.h.stdout, 'done'))
-            return { ok: true, kind: 'transfer', ms, exitCode: exit.code, detail: {} };
-        const failed = lastEvent(this.h.stdout, 'error');
         return {
-            ok: false,
-            kind: 'error',
-            ms,
+            ...outcomeFromEvents(this.h.stdout),
+            ms: exit.t - this.h.t0,
             exitCode: exit.code,
-            detail: { stage: (failed && failed.stage) || 'unknown' },
         };
     }
 
@@ -178,6 +270,9 @@ export class HarnessLeg extends Leg {
                 .split(/\r?\n/)
                 .map((l) => l.trim())
                 .filter((l) => l.startsWith('{')),
+            // A sender never reports; the receiver's proof is the one checked.
+            statsProof: null,
+            notes: this.notes,
         };
     }
 }

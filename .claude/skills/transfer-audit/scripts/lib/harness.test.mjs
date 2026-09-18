@@ -1,7 +1,8 @@
 /**
  * Tests for harness.mjs: the pure parts of the CLI-shaped sender that can lie
- * about a digest. The leg itself needs a real process and a real peer, so it is
- * exercised by the audit's own forced-mismatch cells, not here.
+ * about a digest, plus the leg driven over a stand-in process handle. The real
+ * process against a real peer is exercised by the audit's own forced-mismatch
+ * cells, not here.
  *
  * Run: node --test .claude/skills/transfer-audit/scripts/lib/harness.test.mjs
  */
@@ -11,7 +12,15 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { getAdapter, isSurfaceAdapter } from './adapters.mjs';
-import { HarnessLeg, lastEvent, lieFlag, preflight } from './harness.mjs';
+import {
+    HarnessLeg,
+    ROUTE_GRACE_MS,
+    lastEvent,
+    lieFlag,
+    outcomeFromEvents,
+    preflight,
+    routeFromEvents,
+} from './harness.mjs';
 
 test('lieFlag: only the two lying modes produce a flag', () => {
     assert.equal(lieFlag('corrupt'), '-corrupt-hash');
@@ -84,13 +93,139 @@ test('argv: the mode, the two URLs, the lie and the files, in that order', () =>
     assert.ok(!honest.argv().some((a) => a.includes('hash')), 'no lying flag');
 });
 
-test('a harness leg offers no route evidence, and says so rather than guessing', async () => {
+test('argv takes the URLs from infra, where the runner puts them, and needs a server', () => {
+    const leg = new HarnessLeg({
+        role: 'sender',
+        bin: 'x',
+        infra: { server: 'http://127.0.0.1:3001', web: 'http://127.0.0.1:3000' },
+        server: 'http://stale:1',
+        hashLie: 'malformed',
+        files: ['f'],
+    });
+    assert.deepEqual(leg.argv(), [
+        'send',
+        '-server',
+        'http://127.0.0.1:3001',
+        '-web',
+        'http://127.0.0.1:3000',
+        '-malformed-hash',
+        'f',
+    ]);
+    const none = new HarnessLeg({ role: 'sender', bin: 'x', files: ['f'] });
+    assert.throws(() => none.argv(), /infra\.server is required/);
+});
+
+test('env inherits the scrubbed environment and always opts out', () => {
+    const leg = new HarnessLeg({
+        role: 'sender',
+        bin: 'x',
+        files: ['f'],
+        baseEnv: {
+            PATH: 'C:/Windows',
+            SystemRoot: 'C:/Windows',
+            FLOE_SERVER: 'https://api.floe.one',
+            FLOE_NO_STATS: '0',
+            PION_LOG_TRACE: 'all',
+        },
+    });
+    const env = leg.env();
+    assert.equal(env.PATH, 'C:/Windows', 'the process still finds its system DLLs');
+    assert.equal(env.SystemRoot, 'C:/Windows');
+    assert.equal(env.FLOE_SERVER, undefined, 'a stray server cannot retarget it');
+    assert.equal(env.PION_LOG_TRACE, undefined, 'stdout stays events only');
+    assert.equal(env.FLOE_NO_STATS, '1');
+    assert.equal(env.FLOE_NO_UPDATE_CHECK, '1');
+});
+
+test('routeFromEvents: only the two verdict words make a route sample', () => {
+    const direct = routeFromEvents('{"event":"channel-open"}\n{"event":"route","path":"direct"}', 42);
+    assert.deepEqual(direct, {
+        t: 42,
+        source: 'harness-connection-type',
+        local: null,
+        remote: null,
+        verdict: 'direct',
+    });
+    assert.equal(routeFromEvents('{"event":"route","path":"relay"}').verdict, 'relay');
+    assert.equal(routeFromEvents('{"event":"channel-open"}'), null, 'no event, no guess');
+    assert.equal(routeFromEvents('{"event":"route","path":"host 192.0.2.1:50000"}'), null);
+    assert.equal(routeFromEvents('{"event":"route"}'), null);
+});
+
+/** A stand-in for proc.mjs's handle: stdout, an exit, and the clock start. */
+function fakeHandle(stdout, { exit = null } = {}) {
+    return { stdout, exit, t0: 0, pid: null, stalledFor: () => 0 };
+}
+
+test('route() and awaitRoute read the harness route event', async () => {
     const leg = new HarnessLeg({ role: 'sender', bin: 'x', files: ['f'] });
-    assert.equal(leg.route(), null);
-    assert.equal(await leg.awaitRoute(1000), null);
+    assert.equal(leg.route(), null, 'nothing before the process starts');
+    leg.h = fakeHandle('{"event":"channel-open"}\n{"event":"route","path":"direct"}');
+    leg.marks.connected = 7;
+    assert.equal(leg.route().verdict, 'direct');
+    assert.equal(leg.route().t, 7);
+    const r = await leg.awaitRoute(30_000);
+    assert.equal(r.verdict, 'direct');
+    assert.equal(r.source, 'harness-connection-type');
+});
+
+test('awaitRoute answers unknown without running out the cell route timeout', async () => {
+    // Exited without a route event: answered at once.
+    const gone = new HarnessLeg({ role: 'sender', bin: 'x', files: ['f'] });
+    gone.h = fakeHandle('{"event":"channel-open"}', { exit: { code: 1 } });
+    const t0 = Date.now();
+    const r1 = await gone.awaitRoute(30_000);
+    assert.equal(r1.verdict, 'unknown');
+    assert.ok(Date.now() - t0 < 1000, 'no wait for a process that already exited');
+
+    // Still running, no route event: capped by the shorter of the two clocks.
+    const quiet = new HarnessLeg({ role: 'sender', bin: 'x', files: ['f'] });
+    quiet.h = fakeHandle('{"event":"channel-open"}');
+    const t1 = Date.now();
+    const r2 = await quiet.awaitRoute(300);
+    assert.equal(r2.verdict, 'unknown');
+    assert.ok(Date.now() - t1 < 2000);
+    assert.ok(ROUTE_GRACE_MS <= 5_000, 'the grace stays well under a route timeout');
+});
+
+test('outcomeFromEvents: a refusal frame, no refusal, and the harness own errors', () => {
+    const refused = outcomeFromEvents('{"event":"peer-refused","code":"hash-mismatch"}');
+    assert.equal(refused.kind, 'refusal');
+    assert.deepEqual(refused.detail, { class: 'peer-refused', code: 'hash-mismatch' });
+    assert.equal(outcomeFromEvents('{"event":"peer-refused","code":"other"}').kind, 'refusal');
+
+    // A truthful run: the receiver kept the file and no refusal came.
+    for (const code of ['none', 'closed']) {
+        const kept = outcomeFromEvents(`{"event":"peer-refused","code":"${code}"}`);
+        assert.equal(kept.kind, 'transfer', code);
+        assert.equal(kept.detail.class, 'no-refusal');
+        assert.equal(kept.detail.code, code);
+    }
+    assert.equal(outcomeFromEvents('{"event":"done"}').kind, 'transfer');
+    const failed = outcomeFromEvents('{"event":"error","stage":"setup"}');
+    assert.equal(failed.ok, false);
+    assert.equal(failed.detail.stage, 'setup');
+    assert.equal(outcomeFromEvents('').detail.stage, 'unknown');
+});
+
+test('budget follows the attempt deadline and never drops below a second', () => {
+    const free = new HarnessLeg({ role: 'sender', bin: 'x', files: ['f'] });
+    assert.equal(free.budget(5000), 5000);
+    const late = new HarnessLeg({
+        role: 'sender',
+        bin: 'x',
+        files: ['f'],
+        deadlineAt: Date.now() - 10,
+    });
+    assert.equal(late.budget(5000), 1000);
+});
+
+test('a harness leg is a sender with no code and no outputs', async () => {
+    const leg = new HarnessLeg({ role: 'sender', bin: 'x', files: ['f'] });
     assert.equal(leg.surface, 'harness');
     assert.deepEqual(await leg.outputs(), [], 'a sender writes nothing');
     assert.equal(await leg.code(), null, 'the harness never registers a code');
+    assert.equal(leg.evidence().statsProof, null, 'a sender carries no stats proof');
 });
 
 test('preflight answers like a surface adapter: a missing binary is a precondition', async () => {
