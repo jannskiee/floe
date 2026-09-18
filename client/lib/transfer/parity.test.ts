@@ -118,6 +118,7 @@ const PARITY_TABLE = String.raw`
 {"decoder":"receivedVerified","name":"duplicate-3-then-string","frame":"{\"type\":\"received\",\"verified\":3,\"verified\":\"x\"}","go":"absent","ts":"absent"}
 {"decoder":"receivedVerified","name":"duplicate-string-then-2","frame":"{\"type\":\"received\",\"verified\":\"x\",\"verified\":2}","go":"2","ts":"2"}
 {"decoder":"receivedVerified","name":"key-case","frame":"{\"type\":\"received\",\"Verified\":3}","go":"absent","ts":"absent"}
+{"decoder":"receivedVerified","name":"type-key-case","frame":"{\"TYPE\":\"received\",\"verified\":3}","go":"none","ts":"none"}
 {"decoder":"receivedVerified","name":"not-received","frame":"{\"type\":\"ack\",\"verified\":3}","go":"none","ts":"none"}
 `;
 // PARITY-TABLE-END

@@ -348,3 +348,129 @@ func FuzzAbortFromPeer(f *testing.F) {
 		}
 	})
 }
+
+// isLowerHex64 is the digest shape the wire allows, written out here rather
+// than borrowed from validSHA256Hex so the property does not grade the code
+// with its own answer key.
+func isLowerHex64(s string) bool {
+	return len(s) == 64 && strings.Trim(s, "0123456789abcdef") == ""
+}
+
+func parseEndSeeds() []fuzzSeed {
+	digest := strings.Repeat("ab", 32)
+	end := func(field string) []byte { return []byte(`{"type":"end",` + field + `}`) }
+	return []fuzzSeed{
+		{name: "valid-lowercase", data: end(`"sha256":"` + digest + `"`)},
+		{name: "uppercase", data: end(`"sha256":"` + strings.ToUpper(digest) + `"`)},
+		{name: "63-characters", data: end(`"sha256":"` + digest[:63] + `"`)},
+		{name: "65-characters", data: end(`"sha256":"` + digest + `a"`)},
+		{name: "non-hex", data: end(`"sha256":"zz` + digest[2:] + `"`)},
+		{name: "empty-string", data: end(`"sha256":""`)},
+		{name: "null", data: end(`"sha256":null`)},
+		{name: "number", data: end(`"sha256":123`)},
+		{name: "true", data: end(`"sha256":true`)},
+		{name: "object", data: end(`"sha256":{}`)},
+		{name: "absent", data: []byte(`{"type":"end"}`)},
+		{name: "key-case-differs", data: end(`"SHA256":"` + digest + `"`)},
+		{name: "escaped-valid", data: end(`"sha256":"ab` + digest[2:] + `"`)},
+		{name: "duplicate-key-last-wins-valid", data: end(`"sha256":"zz","sha256":"` + digest + `"`)},
+		{name: "duplicate-key-last-wins-bad", data: end(`"sha256":"` + digest + `","sha256":"zz"`)},
+		{name: "not-json", data: []byte(`{"type":"end",`)},
+		{name: "json-null", data: []byte(`null`)},
+	}
+}
+
+// FuzzParseEnd (DV-FUZZ, owed since P0-19a added parseEnd): parseEnd never
+// panics; an absent "sha256" key gives "" and nil; the value comes back
+// exactly when the key's last occurrence is a JSON string of 64 lowercase hex
+// characters; anything else is errSHA256Unreadable, a fixed error that never
+// carries the input.
+func FuzzParseEnd(f *testing.F) {
+	addSeeds(f, "FuzzParseEnd", parseEndSeeds(), true)
+	f.Fuzz(func(t *testing.T, data []byte) {
+		got, err := parseEnd(data)
+		if err != nil && err != errSHA256Unreadable {
+			t.Fatalf("parseEnd(%q) returned an error other than the fixed one: %v", data, err)
+		}
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(data, &fields) != nil {
+			if err == nil || got != "" {
+				t.Fatalf("parseEnd(%q) = %q, %v for a frame that is not a JSON object", data, got, err)
+			}
+			return
+		}
+		lit, present := fields["sha256"]
+		if !present {
+			if err != nil || got != "" {
+				t.Fatalf("parseEnd(%q) = %q, %v with no sha256 key; want absent", data, got, err)
+			}
+			return
+		}
+		var s string
+		readable := len(lit) > 0 && lit[0] == '"' && json.Unmarshal(lit, &s) == nil && isLowerHex64(s)
+		if readable && (err != nil || got != s) {
+			t.Fatalf("parseEnd(%q) = %q, %v; want the digest %q", data, got, err, s)
+		}
+		if !readable && (err == nil || got != "") {
+			t.Fatalf("parseEnd(%q) = %q, %v; an unreadable digest must be refused", data, got, err)
+		}
+	})
+}
+
+func parseReceivedSeeds() []fuzzSeed {
+	rec := func(fields string) []byte { return []byte(`{"type":"received"` + fields + `}`) }
+	return []fuzzSeed{
+		{name: "no-verified", data: rec(``)},
+		{name: "verified-minus-one", data: rec(`,"verified":-1`)},
+		{name: "verified-zero", data: rec(`,"verified":0`)},
+		{name: "verified-one", data: rec(`,"verified":1`)},
+		{name: "verified-three", data: rec(`,"verified":3`)},
+		{name: "verified-four", data: rec(`,"verified":4`)},
+		{name: "verified-1e300", data: rec(`,"verified":1e300`)},
+		{name: "verified-1e400", data: rec(`,"verified":1e400`)},
+		{name: "verified-string", data: rec(`,"verified":"1"`)},
+		{name: "verified-null", data: rec(`,"verified":null`)},
+		{name: "verified-fraction", data: rec(`,"verified":1.5`)},
+		{name: "verified-minus-zero", data: rec(`,"verified":-0`)},
+		{name: "verified-exponent-form", data: rec(`,"verified":1e0`)},
+		{name: "saved-alongside", data: rec(`,"verified":1,"saved":99`)},
+		{name: "saved-alone", data: rec(`,"saved":2`)},
+		{name: "ack-with-saved", data: []byte(`{"type":"ack","id":"x","offset":0,"saved":1}`)},
+		{name: "over-cap", data: rec(`,"pad":"` + strings.Repeat("p", controlMsgMax) + `"`)},
+		{name: "not-json", data: []byte(`{"type":"received"`)},
+	}
+}
+
+// FuzzParseReceived (DV-FUZZ, owed since P0-19a added parseReceived): never
+// panics; a frame over controlMsgMax, or one whose type is not "received", is
+// not a received frame; verified counts only when it is a JSON number holding
+// an integer in [0, files]; and nothing else in the frame, "saved" included
+// (E-22), changes the answer. Checked for several file counts per input.
+func FuzzParseReceived(f *testing.F) {
+	addSeeds(f, "FuzzParseReceived", parseReceivedSeeds(), true)
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		for _, files := range []int{0, 1, 3, 10000} {
+			ok, verified, has := parseReceived(raw, files)
+			// Independent decode.
+			wantOK, wantVerified, wantHas := false, 0, false
+			var fields map[string]json.RawMessage
+			if len(raw) <= controlMsgMax && json.Unmarshal(raw, &fields) == nil {
+				var typ string
+				if json.Unmarshal(fields["type"], &typ) == nil && typ == "received" {
+					wantOK = true
+					if lit := fields["verified"]; len(lit) > 0 && (lit[0] == '-' || (lit[0] >= '0' && lit[0] <= '9')) {
+						if n, err := strconv.ParseFloat(string(lit), 64); err == nil && n == float64(int64(n)) && n >= 0 && n <= float64(files) {
+							wantVerified, wantHas = int(n), true
+						}
+					}
+				}
+			}
+			if ok != wantOK || verified != wantVerified || has != wantHas {
+				t.Fatalf("parseReceived(%q, %d) = %v, %d, %v; an independent decode says %v, %d, %v", raw, files, ok, verified, has, wantOK, wantVerified, wantHas)
+			}
+			if has && (verified < 0 || verified > files) {
+				t.Fatalf("parseReceived(%q, %d) verified %d outside [0, %d]", raw, files, verified, files)
+			}
+		}
+	})
+}
