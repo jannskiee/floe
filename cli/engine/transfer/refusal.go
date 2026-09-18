@@ -198,6 +198,27 @@ func sendIncompatible(dc *webrtc.DataChannel, encoded []byte, toReceiver bool) {
 	flushControl(dc)
 }
 
+// refuseWrite is the receive loop's one way out when its OWN disk fails after
+// the sender was accepted: it tells the sender with a code, then hands the
+// caller the typed error. The code is disk-full when the OS said the drive is
+// full and write-failed otherwise; the wire reason is that code's stock
+// sentence, except that a failure to create the file at all says so, because
+// that is what a peer without code will print. Nothing here removes the
+// .part: the arm that owns the handle does, or the deferred discard does.
+func refuseWrite(dc *webrtc.DataChannel, localVer string, saved int, creating bool, err error) error {
+	code := CodeWriteFailed
+	reason := CodeWriteFailed.WireReason()
+	switch {
+	case isDiskFull(err):
+		code = CodeDiskFull
+		reason = CodeDiskFull.WireReason()
+	case creating:
+		reason = "receiver could not create a file"
+	}
+	AbortWithCode(dc, localVer, code, reason, saved)
+	return &RefusedError{Code: code, Saved: saved, Err: err}
+}
+
 // RefusedError is returned by a receive that stopped on purpose and told the
 // sender why with AbortWithCode. Code says why and Saved how many files were
 // committed before it stopped.

@@ -5,12 +5,47 @@ package transfer
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"runtime"
 	"sort"
 	"strings"
+	"syscall"
 	"testing"
 	"unicode"
 	"unicode/utf8"
 )
+
+// TestIsDiskFull: the classifier finds the OS's own "no room" inside the
+// wrapped errors the receive loop hands it, and nothing else reads as full.
+func TestIsDiskFull(t *testing.T) {
+	full := []error{
+		syscall.ENOSPC,
+		&os.PathError{Op: "write", Path: "x.part", Err: syscall.ENOSPC},
+		fmt.Errorf("cannot create directory: %w", &os.PathError{Op: "mkdir", Path: "d", Err: syscall.ENOSPC}),
+	}
+	notFull := []error{
+		nil,
+		errors.New("simulated I/O failure"),
+		&os.PathError{Op: "write", Path: "x.part", Err: syscall.EACCES},
+		&os.PathError{Op: "open", Path: "x.part", Err: syscall.ENAMETOOLONG},
+	}
+	if runtime.GOOS == "windows" {
+		full = append(full, &os.PathError{Op: "write", Path: "x.part", Err: syscall.Errno(112)}, &os.PathError{Op: "write", Path: "x.part", Err: syscall.Errno(39)})
+	} else {
+		notFull = append(notFull, &os.PathError{Op: "write", Path: "x.part", Err: syscall.Errno(112)})
+	}
+	for _, err := range full {
+		if !isDiskFull(err) {
+			t.Errorf("isDiskFull(%v) = false, want true", err)
+		}
+	}
+	for _, err := range notFull {
+		if isDiskFull(err) {
+			t.Errorf("isDiskFull(%v) = true, want false", err)
+		}
+	}
+}
 
 // TestRefusalCodesRoundTrip: every constant parses back to itself, and the
 // near misses a case-folding or trimming decoder would accept all fail, as

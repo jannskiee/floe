@@ -18,7 +18,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -540,6 +542,193 @@ func TestReceiverSyncErrorSendsWriteFailed(t *testing.T) {
 	// completed before it is kept.
 	if left := listDir(t, outDir); len(left) != 1 || left[0] != "first.bin" {
 		t.Fatalf("expected only first.bin to remain, found %v", left)
+	}
+}
+
+// TestReceiverWriteErrorClassifiesDiskFull: a chunk write that fails on this
+// side's own handle used to return a raw "write error" and send nothing, so
+// the sender waited out its ack deadline. Now the sender is told within 2 s,
+// disk-full when the OS says the drive is full and write-failed for anything
+// else, the caller gets a *RefusedError with the cause reachable and a fixed
+// sentence, and no .part remains. Two files with the second failing, so saved
+// is proved to count. The Sync arm is classified the same way, so one of the
+// full-drive cases fails there instead of on the write.
+func TestReceiverWriteErrorClassifiesDiskFull(t *testing.T) {
+	type tc struct {
+		name     string
+		err      error
+		onSync   bool
+		wantCode RefusalCode
+	}
+	pathErr := func(op string, errno syscall.Errno) error {
+		return &os.PathError{Op: op, Path: "second.bin" + partSuffix, Err: errno}
+	}
+	cases := []tc{
+		{"ENOSPC on write", pathErr("write", syscall.ENOSPC), false, CodeDiskFull},
+		{"ENOSPC on sync", pathErr("sync", syscall.ENOSPC), true, CodeDiskFull},
+		{"any other error on write", errors.New("simulated I/O failure"), false, CodeWriteFailed},
+		{"any other error on sync", errors.New("simulated delayed write failure"), true, CodeWriteFailed},
+	}
+	if runtime.GOOS == "windows" {
+		cases = append(cases,
+			tc{"ERROR_DISK_FULL on write", pathErr("write", syscall.Errno(112)), false, CodeDiskFull},
+			tc{"ERROR_HANDLE_DISK_FULL on write", pathErr("write", syscall.Errno(39)), false, CodeDiskFull},
+		)
+	} else {
+		// 112 and 39 are other errnos off Windows and must not read as full.
+		cases = append(cases, tc{"errno 112 elsewhere", pathErr("write", syscall.Errno(112)), false, CodeWriteFailed})
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			origWrite, origSync := writePart, syncPart
+			t.Cleanup(func() { writePart, syncPart = origWrite, origSync })
+			failing := func(f *os.File) bool { return filepath.Base(f.Name()) == "second.bin"+partSuffix }
+			writePart = func(f *os.File, b []byte) (int, error) {
+				if !c.onSync && failing(f) {
+					return 0, c.err
+				}
+				return f.Write(b)
+			}
+			syncPart = func(f *os.File) error {
+				if c.onSync && failing(f) {
+					return c.err
+				}
+				return f.Sync()
+			}
+
+			h := newHandSender(t)
+			h.meta("first.bin", 4, 1, 2, 8)
+			h.bytes([]byte("data"))
+			h.text(`{"type":"end"}`)
+			h.meta("second.bin", 4, 2, 2, 8)
+			at := time.Now()
+			h.bytes([]byte("data"))
+			if c.onSync {
+				h.text(`{"type":"end"}`)
+			}
+			res := h.finish()
+
+			incompat := findRefusal(t, res.frames)
+			if took := res.firstAt.Sub(at); took > 2*time.Second {
+				t.Fatalf("the sender was told %v after the failing frame, want within 2 s", took)
+			}
+			if incompat.Code != string(c.wantCode) {
+				t.Fatalf("code = %q, want %q", incompat.Code, c.wantCode)
+			}
+			if incompat.Saved == nil || *incompat.Saved != 1 {
+				t.Fatalf("saved = %v, want 1 (first.bin was committed)", incompat.Saved)
+			}
+			if incompat.Reason != c.wantCode.WireReason() {
+				t.Fatalf("reason = %q, want %q", incompat.Reason, c.wantCode.WireReason())
+			}
+			if ok, _ := CheckCompat(MinProtocolVersion, ProtocolVersion, incompat.PvMin, incompat.Pv); !ok {
+				t.Fatalf("pv range %d-%d does not overlap ours", incompat.PvMin, incompat.Pv)
+			}
+			var refused *RefusedError
+			if !errors.As(res.err, &refused) {
+				t.Fatalf("receiver error = %v (%T), want *RefusedError", res.err, res.err)
+			}
+			if refused.Code != c.wantCode || refused.Saved != 1 {
+				t.Fatalf("RefusedError{%q, %d}, want {%q, 1}", refused.Code, refused.Saved, c.wantCode)
+			}
+			if !errors.Is(res.err, c.err) {
+				t.Fatalf("the cause is not reachable with errors.Is: %v", res.err)
+			}
+			if msg := res.err.Error(); strings.Contains(msg, "second") || strings.Contains(msg, "simulated") || strings.Contains(msg, partSuffix) {
+				t.Fatalf("Error() must be fixed wording, got %q", msg)
+			}
+			if !strings.HasPrefix(res.err.Error(), "write error: ") {
+				t.Fatalf("Error() = %q, want the write error prefix the desktop maps", res.err.Error())
+			}
+			if left := listDir(t, h.dir); len(left) != 1 || left[0] != "first.bin" {
+				t.Fatalf("expected only first.bin to remain, found %v", left)
+			}
+		})
+	}
+}
+
+// TestReceiverCreateErrorSendsWriteFailedFrame: a name the filesystem refuses
+// at claim time used to fail after Accept with a raw OS error and no frame to
+// the sender (a 704-byte name did exactly that on Windows). Now the sender
+// receives write-failed with the create-time reason within 2 s of the
+// metadata, the receiver returns a *RefusedError, and nothing is left on
+// disk. The first two cases fail the claim through the openPart seam with
+// the errors a long name and a full drive produce, so they do not depend on
+// the temp volume's limits; the last sends the real 704-byte name and skips
+// only if this filesystem accepts it.
+func TestReceiverCreateErrorSendsWriteFailedFrame(t *testing.T) {
+	cases := []struct {
+		name       string
+		claimErr   error // nil means the real claimPart
+		fileName   string
+		wantCode   RefusalCode
+		wantReason string
+	}{
+		{"name too long", &os.PathError{Op: "open", Path: "long.part", Err: syscall.ENAMETOOLONG}, "deep.bin", CodeWriteFailed, "receiver could not create a file"},
+		{"drive full at claim", &os.PathError{Op: "open", Path: "x.part", Err: syscall.ENOSPC}, "deep.bin", CodeDiskFull, CodeDiskFull.WireReason()},
+		{"real 704-byte name", nil, strings.Repeat("n", 700) + ".bin", CodeWriteFailed, "receiver could not create a file"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.claimErr != nil {
+				orig := openPart
+				t.Cleanup(func() { openPart = orig })
+				openPart = func(string, *nameHints) (*os.File, string, error) { return nil, "", tc.claimErr }
+			}
+			h := newHandSender(t)
+			meta := fmt.Sprintf(`{"type":"metadata","id":"c-1","fileName":%q,"fileSize":4,"index":1,"total":1,"totalBytes":4,"pv":1,"pvMin":1}`, tc.fileName)
+			if len(meta) > controlMsgMax {
+				t.Fatalf("fixture is %d bytes, must stay under the control cap", len(meta))
+			}
+			at := time.Now()
+			h.text(meta)
+
+			// The receiver either acks (the claim succeeded) or refuses.
+			var first webrtc.DataChannelMessage
+			select {
+			case first = <-h.back:
+			case <-time.After(20 * time.Second):
+				t.Fatal("the receiver neither acked nor refused")
+			}
+			if msgType, ok := classifyControl(first.Data); ok && msgType == "ack" {
+				if tc.claimErr != nil {
+					t.Fatal("the receiver acked although the claim was failed")
+				}
+				_ = h.sender.Close()
+				h.finish()
+				t.Skipf("this filesystem accepts a %d-byte name component", len(tc.fileName))
+			}
+			if time.Since(at) > 2*time.Second {
+				t.Fatalf("the sender was told %v after the metadata, want within 2 s", time.Since(at))
+			}
+			res := h.finish()
+			incompat := findRefusal(t, append([][]byte{first.Data}, res.frames...))
+			if incompat.Code != string(tc.wantCode) {
+				t.Fatalf("code = %q, want %q", incompat.Code, tc.wantCode)
+			}
+			if incompat.Saved == nil || *incompat.Saved != 0 {
+				t.Fatalf("saved = %v, want 0", incompat.Saved)
+			}
+			if incompat.Reason != tc.wantReason {
+				t.Fatalf("reason = %q, want %q", incompat.Reason, tc.wantReason)
+			}
+			if strings.Contains(incompat.Reason, "nnn") || strings.Contains(incompat.Reason, "deep") {
+				t.Fatalf("the file name reached the wire reason: %q", incompat.Reason)
+			}
+			var refused *RefusedError
+			if !errors.As(res.err, &refused) || refused.Code != tc.wantCode || refused.Saved != 0 {
+				t.Fatalf("receiver error = %v (%T), want *RefusedError{%q, 0}", res.err, res.err, tc.wantCode)
+			}
+			if tc.claimErr != nil && !errors.Is(res.err, tc.claimErr) {
+				t.Fatalf("the cause is not reachable with errors.Is: %v", res.err)
+			}
+			if msg := res.err.Error(); strings.Contains(msg, "deep") || strings.Contains(msg, "nnn") || strings.Contains(msg, partSuffix) {
+				t.Fatalf("Error() must be fixed wording, got %q", msg)
+			}
+			if left := listDir(t, h.dir); len(left) != 0 {
+				t.Fatalf("expected nothing on disk, found %v", left)
+			}
+		})
 	}
 }
 
