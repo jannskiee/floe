@@ -6,8 +6,10 @@ package main
 // signaling server, so the test is the send loop and the receiver only.
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -225,6 +227,37 @@ func TestSendRealHashIsAccepted(t *testing.T) {
 	}
 	if len(onDisk) != len(data) {
 		t.Fatalf("received %d bytes, sent %d", len(onDisk), len(data))
+	}
+}
+
+// TestEmitRoute pins what the route event may carry: the engine's two verdict
+// words and nothing else, so an address can never reach the audit's records
+// through this event (D-083).
+func TestEmitRoute(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+		err  error
+		want string
+	}{
+		{"direct", "direct", nil, `{"event":"route","path":"direct"}`},
+		{"relay", "relay", nil, `{"event":"route","path":"relay"}`},
+		{"error prints nothing", "", errors.New("no candidate pair selected"), ""},
+		{"a word outside the two prints nothing", "host 192.0.2.1:50000", nil, ""},
+		{"empty prints nothing", "", nil, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			ev := &events{
+				enc:  json.NewEncoder(&buf),
+				exit: func(code int) { t.Fatalf("emitRoute exited with %d", code) },
+			}
+			emitRoute(ev, func() (string, error) { return c.path, c.err })
+			if got := strings.TrimSpace(buf.String()); got != c.want {
+				t.Fatalf("emitRoute printed %q, want %q", got, c.want)
+			}
+		})
 	}
 }
 

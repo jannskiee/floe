@@ -130,6 +130,7 @@ func runSend(ev *events, args []string) {
 		ev.fail("setup")
 	}
 	ev.emit(map[string]interface{}{"event": "channel-open"})
+	emitRoute(ev, conn.ConnectionType)
 	early := conn.Early()
 
 	for i, path := range paths {
@@ -149,6 +150,19 @@ func runSend(ev *events, args []string) {
 		ev.exit(1)
 	}
 	ev.exit(0)
+}
+
+// emitRoute prints the selected path in the engine's own words, taken from the
+// same walk the CLI's route line uses, so the audit can judge a harness cell by
+// two observers like every other direct cell (D-083). Only "direct" or "relay"
+// ever leaves the harness: no address and no candidate type. An error, or any
+// other word, prints nothing, and the receiver's oracle decides alone.
+func emitRoute(ev *events, pathOf func() (string, error)) {
+	path, err := pathOf()
+	if err != nil || (path != "direct" && path != "relay") {
+		return
+	}
+	ev.emit(map[string]interface{}{"event": "route", "path": path})
 }
 
 // sendOneFile runs the protocol for one file and reports whether it finished.
