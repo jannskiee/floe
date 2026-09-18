@@ -48,6 +48,11 @@ function defaultHashBoundMs(bytes: number): number {
     return Math.ceil((bytes / 10_000_000) * 1000) + 30_000;
 }
 
+// String frames held while a SHA-256 check is pending. A conforming sender has
+// at most one in flight (it waits for the next ack), so this is room to spare,
+// not a tuning knob.
+export const MAX_QUEUED_WHILE_PENDING = 8;
+
 const HASH_MISMATCH_REASON = 'receiver discarded a file because its SHA-256 did not match';
 const HASH_UNREADABLE_REASON = "receiver discarded a file because the sender's SHA-256 was not readable";
 
@@ -140,10 +145,40 @@ export function createReceiver(
     function handleMessage(data: string | Uint8Array | ArrayBuffer): void {
         if (aborted) return;
         if (pending) {
-            if (isControlFrame(data)) queued.push(data);
+            if (!isControlFrame(data)) return;
+            // The control cap and a bound on the queue hold during a check too.
+            // Without them a sender could park any number of strings of any size
+            // in memory for as long as the hash takes (DV-AUDIT CP-0 F1). A
+            // conforming sender has at most one frame in flight here: the next
+            // file's metadata, or an incompatible.
+            if (new TextEncoder().encode(data).byteLength > CONTROL_MSG_MAX) {
+                stopWhilePending(
+                    'The sender sent a control message larger than ' +
+                        `${CONTROL_MSG_MAX} bytes, so the transfer was stopped.`
+                );
+                return;
+            }
+            if (queued.length >= MAX_QUEUED_WHILE_PENDING) {
+                stopWhilePending(
+                    'The sender sent more messages than a transfer allows while a file was being checked, so the transfer was stopped.'
+                );
+                return;
+            }
+            queued.push(data);
             return;
         }
         processMessage(data);
+    }
+
+    // A stop while a check is pending: nothing more is queued or kept, and the
+    // file being checked is not handed over when its digest settles.
+    function stopWhilePending(message: string): void {
+        aborted = true;
+        queued = [];
+        partialDownloads.clear();
+        currentMetadata = null;
+        expectedSize = null;
+        cb.onError?.(message);
     }
 
     function settled(): Promise<void> {
@@ -455,6 +490,8 @@ export function createReceiver(
                                 // A null digest (no Worker, a worker failure, the time
                                 // bound) keeps the file unverified: a missing check never
                                 // claims a match, and the byte count already passed.
+                                // A transfer stopped during the check hands nothing over.
+                                if (aborted) return;
                                 if (got !== null && got !== want) refuseHash(false);
                                 else complete(meta, blob, size, got === want);
                             } finally {
