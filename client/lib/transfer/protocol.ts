@@ -474,6 +474,13 @@ export function isControlFrame(data: string | ArrayBuffer | Uint8Array): data is
  * Zero is a valid size and must survive as `0`, not collapse to `null`, or every
  * empty file would lose its (trivially satisfiable) integrity check.
  */
+export function normalizeFileSize(value: unknown): number | null {
+    if (typeof value !== 'number') return null;
+    if (!Number.isInteger(value)) return null; // also rejects NaN and Infinity
+    if (value < 0 || value > Number.MAX_SAFE_INTEGER) return null;
+    return value;
+}
+
 /**
  * The first reason a peer's file description cannot be right, as a fixed phrase,
  * or null when nothing is wrong. The twin of parseMetadata in
@@ -500,13 +507,6 @@ export function metadataProblem(msg: Metadata): string | null {
         if (given(key) && !(typeof m[key] === 'number' && Number.isSafeInteger(m[key]))) return 'the protocol version is not a number';
     }
     return null;
-}
-
-export function normalizeFileSize(value: unknown): number | null {
-    if (typeof value !== 'number') return null;
-    if (!Number.isInteger(value)) return null; // also rejects NaN and Infinity
-    if (value < 0 || value > Number.MAX_SAFE_INTEGER) return null;
-    return value;
 }
 
 /**
