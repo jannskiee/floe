@@ -1,5 +1,5 @@
 // The failure signatures: the table that turns a leg's evidence into a triage key, and the sets
-// the runner reads from it. Moved verbatim from cell.mjs (MNT-00 L4-03); it imports nothing.
+// the runner reads from it. Moved verbatim from cell.mjs; it imports nothing.
 
 // [key, regex, retryable ('rel' = only on relay cells with a TURN-heavy
 // window or a STUN-only warning), triage heading]. First hit wins.
