@@ -2,10 +2,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import {
     DEEP_IDS,
     DEFAULT_IDS,
+    HASH_IDS,
     QUICK_IDS,
+    SKIP_REASONS,
     cellPlan,
     countsForExit,
     matchCells,
@@ -398,4 +404,62 @@ test('the size ladder spans one byte to a large file in a single batch', () => {
         ).length,
         0
     );
+});
+
+test('the forced-mismatch cells: refusal, a hashLie, and no other cell lies', () => {
+    const plan = cellPlan({ profile: 'head', cells: HASH_IDS });
+    const cells = plan.filter((c) => HASH_IDS.includes(c.id));
+    assert.equal(cells.length, HASH_IDS.length, 'every hash id plans a cell');
+    // Everything else is skipped, most of it as filtered and the rest by a gate
+    // that runs before the filter (a same-surface desktop pair, for instance).
+    for (const other of plan.filter((c) => !HASH_IDS.includes(c.id))) {
+        assert.ok(other.verdict, `${other.id} was not asked for, so it must not run`);
+    }
+    for (const cell of cells) {
+        assert.equal(cell.expect, 'refusal', `${cell.id} expects a refusal`);
+        assert.equal(
+            cell.hashLie,
+            cell.variant === 'hashmal' ? 'malformed' : 'corrupt',
+            `${cell.id} says how its sender lies`
+        );
+        assert.equal(cell.profile, 'H', 'head profile only');
+    }
+    // Nothing that ships a normal transfer carries a lie.
+    for (const cell of cellPlan({ subset: 'deep' })) {
+        assert.equal(cell.hashLie, null, `${cell.id} must not lie about a digest`);
+    }
+    // They stay out of the lists a run walks by default.
+    for (const id of HASH_IDS) {
+        assert.ok(!DEFAULT_IDS.includes(id), `${id} is not a default cell`);
+        assert.ok(!DEEP_IDS.includes(id), `${id} is not a deep cell`);
+    }
+});
+
+test('a shipped run never executes a head-only hash cell against production', () => {
+    // --profile shipped --cells H-DIR-W2C-hashbad would have opened
+    // www.floe.one with a sender that lies (P0-27 review F3).
+    const plan = cellPlan({ profile: 'shipped', cells: HASH_IDS });
+    const hash = plan.filter((c) => HASH_IDS.includes(c.id));
+    assert.equal(hash.length, HASH_IDS.length);
+    for (const cell of hash) {
+        assert.equal(cell.verdict, 'SKIP', `${cell.id} must not run in a shipped run`);
+        assert.equal(cell.reason, 'head-only');
+    }
+    assert.ok(SKIP_REASONS['head-only'], 'the skip reason is documented');
+    // The same ids in a head run are executable (their other gates permitting).
+    const head = cellPlan({ profile: 'head', cells: ['H-DIR-W2C-hashbad'] });
+    const w2c = head.find((c) => c.id === 'H-DIR-W2C-hashbad');
+    assert.ok(!w2c.verdict, `${w2c.id} runs in a head run (verdict ${w2c.verdict})`);
+});
+
+test('matrix.md documents every hash id and variant the code knows', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const md = readFileSync(join(here, '..', '..', 'references', 'matrix.md'), 'utf8');
+    for (const id of HASH_IDS) {
+        const variant = parseCellId(id).variant;
+        assert.ok(md.includes(variant), `matrix.md names the ${variant} variant`);
+    }
+    assert.ok(md.includes('hashbad'), 'matrix.md names hashbad');
+    assert.ok(md.includes('hashmal'), 'matrix.md names hashmal');
+    assert.ok(md.includes('HASH_IDS'), 'matrix.md points at the id list in the code');
 });

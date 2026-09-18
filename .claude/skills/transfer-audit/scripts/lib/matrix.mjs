@@ -41,6 +41,19 @@ export const QUICK_IDS = Object.freeze([
     'S-DIR-C2D',
 ]);
 
+// The forced-mismatch cells (P0-27). They are head-profile only, and they are
+// NOT in DEFAULT_IDS or DEEP_IDS: a run reaches them through --cells, and the
+// runner needs a sender that can lie (a web context with installHashbad, or the
+// floe-e2ehost send mode) before they can pass. Listing them here keeps
+// matrix.md and cellPlan agreeing about what the ids mean.
+export const HASH_IDS = Object.freeze([
+    'H-DIR-C2C-hashbad',
+    'H-DIR-C2C-hashmal',
+    'H-DIR-W2C-hashbad',
+    'H-DIR-C2W-hashbad',
+    'H-DIR-C2D-hashbad',
+]);
+
 const PAIRS = ['W2W', 'W2C', 'W2D', 'C2W', 'C2C', 'C2D', 'D2W', 'D2C', 'D2D'];
 export const DEFAULT_IDS = Object.freeze([
     ...PAIRS.map((p) => `S-DIR-${p}`),
@@ -83,6 +96,10 @@ export const SKIP_REASONS = Object.freeze({
     'wsl-stopped': 'WSL Ubuntu-22.04 not present or not startable',
     'wsl-sideload':
         'Linux release CLI could not be side-loaded into WSL (tag, download or sha256sum; see log.txt)',
+    'harness-build':
+        'the lying harness sender (cli/internal/e2ehost) could not be built or failed preflight (see log.txt)',
+    'head-only':
+        'a head-profile cell named in a shipped run: the forced-mismatch cells never run against production',
     'infra-down': 'two consecutive infra symptoms against the signaling server',
     'budget-exhausted': 'run-wide retry or byte budget exhausted',
     present: 'user present and the desktop window needs focus',
@@ -104,7 +121,16 @@ export const NA_REASONS = Object.freeze({
 // construction, and a --cells filter is the operator's own choice.
 export const UNCOUNTED_SKIPS = new Set(['filtered']);
 
-const VARIANT_INPUT_LINK = new Set(['link', 'zip', 'bnd8', 'fold']);
+// hashbad and hashmal: a CLI-shaped sender that lies is the floe-e2ehost send
+// mode, which prints a link and never registers a code (P0-27).
+const VARIANT_INPUT_LINK = new Set([
+    'link',
+    'zip',
+    'bnd8',
+    'fold',
+    'hashbad',
+    'hashmal',
+]);
 
 export function parseCellId(id) {
     const m = /^([SH])-(DIR|REL)-([WCDL])2([WCDL])(?:-([a-z0-9]+))?$/.exec(id);
@@ -196,9 +222,26 @@ export function fixtureSpec(parsed) {
 
 export function expectOf(variant) {
     if (variant === 'cap3g') return 'refusal';
+    // The receiver refuses a file whose digest does not match what arrived, and
+    // a digest it cannot read refuses the same way: both are the hash-mismatch
+    // code, so both cells expect a refusal rather than a transfer.
+    if (variant === 'hashbad' || variant === 'hashmal') return 'refusal';
     if (variant === 'killsnd') return 'kill-sender';
     if (variant === 'killrcv') return 'kill-receiver';
     return 'transfer';
+}
+
+/**
+ * How a cell makes its sender lie about a digest, or null when it does not.
+ * 'corrupt' changes one hex digit, so the digest is well formed and cannot
+ * match; 'malformed' upper-cases it, which the wire format forbids. A web
+ * sender gets web.mjs installHashbad; a CLI-shaped sender is the test-only
+ * floe-e2ehost send mode with -corrupt-hash or -malformed-hash.
+ */
+export function hashLieOf(variant) {
+    if (variant === 'hashbad') return 'corrupt';
+    if (variant === 'hashmal') return 'malformed';
+    return null;
 }
 
 // Per-phase timeouts from the report design (section 1.7): link/code
@@ -313,9 +356,16 @@ function buildCell(id, { cliHasRelayOnly }) {
     }
     const bothCli =
         (snd === 'C' || snd === 'L') && (rcv === 'C' || rcv === 'L');
-    const byConstruction = p === 'DIR' && bothCli;
+    // A CLI-shaped sender that lies is the floe-e2ehost harness, which has no
+    // --no-relay: "direct by construction" would claim a flag it never got.
+    // Its path is observed instead (the harness route event, D-083), and the
+    // real CLI receiver still takes --no-relay.
+    const harnessSender = snd === 'C' && Boolean(hashLieOf(variant));
+    const byConstruction = p === 'DIR' && bothCli && !harnessSender;
     if (byConstruction) {
         sender.noRelay = true;
+        receiver.noRelay = true;
+    } else if (p === 'DIR' && bothCli) {
         receiver.noRelay = true;
     }
     const fixture = fixtureSpec(parsed);
@@ -336,6 +386,8 @@ function buildCell(id, { cliHasRelayOnly }) {
         expect,
         killAtBytes: expect.startsWith('kill') ? KILL_AT_BYTES : null,
         zipDownload: variant === 'zip',
+        // null for every cell that does not lie about a digest (P0-27).
+        hashLie: hashLieOf(variant),
         timeouts,
         retryable: expect === 'transfer',
         designedSecondAttempt: expect === 'kill-receiver',
@@ -441,6 +493,14 @@ export function cellPlan({
               ? [...DEFAULT_IDS, ...DEEP_IDS]
               : DEFAULT_IDS;
     const ids = base.map((id) => prefix + id.slice(2));
+    // The forced-mismatch cells are never in a default walk: they join the plan
+    // only when --cells names one, so a run that did not ask for them cannot
+    // fail on a sender that cannot lie yet (P0-27).
+    if (cells) {
+        for (const id of HASH_IDS) {
+            if (matchCells(id, cells) && !ids.includes(id)) ids.push(id);
+        }
+    }
     const rows = [];
     for (const id of ids) {
         const cell = buildCell(id, { cliHasRelayOnly });
@@ -452,6 +512,11 @@ export function cellPlan({
         // that was never asked for is `filtered` (uncounted), whatever the
         // probe would have said about it.
         if (cells && !matchCells(id, cells)) skip(cell, 'filtered');
+        // A head cell named in a shipped run (only the HASH_IDS can get here)
+        // never runs: it would drive production with a sender that lies
+        // (P0-27 review F3).
+        else if (cell.profile === 'H' && profile !== 'head')
+            skip(cell, 'head-only');
         else gateCell(cell, { probe, desktopMode, profile });
         rows.push(cell);
     }

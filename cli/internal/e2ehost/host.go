@@ -8,7 +8,6 @@ package main
 import (
 	"flag"
 	"io"
-	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -105,5 +104,5 @@ func runHost(ev *events, args []string) {
 	ev.emit(map[string]interface{}{"event": "done"})
 	conn.Close()
 	sc.Close()
-	os.Exit(0)
+	ev.exit(0)
 }

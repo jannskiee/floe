@@ -23,6 +23,7 @@ import { after, test } from 'node:test';
 import {
     main,
     parseWslList,
+    prepareHarnessBuild,
     prepareWslBuild,
     probeWsl,
     profileLine,
@@ -1242,6 +1243,136 @@ test('prepareWslBuild hands the leg the side-loaded Linux path, pinned to the re
         null
     );
     assert.equal(untouched.wsl, undefined);
+});
+
+test('prepareHarnessBuild stages the lying sender only for the cells that need it', async () => {
+    const lyingCli = {
+        id: 'H-DIR-C2C-hashbad',
+        hashLie: 'corrupt',
+        sender: { surface: 'cli' },
+        receiver: { surface: 'cli' },
+    };
+    const lyingWeb = {
+        id: 'H-DIR-W2C-hashbad',
+        hashLie: 'corrupt',
+        sender: { surface: 'web' },
+        receiver: { surface: 'cli' },
+    };
+    const honest = {
+        id: 'H-DIR-C2C',
+        hashLie: null,
+        sender: { surface: 'cli' },
+        receiver: { surface: 'cli' },
+    };
+    const head = { kind: 'head', sha7: 'abc1234' };
+    const built = [];
+    const build = (o) => {
+        built.push(o);
+        return { path: `${o.binDir}\\floe-e2ehost-${o.sha7}.exe`, version: `e2ehost-${o.sha7}` };
+    };
+    const preflights = [];
+    const harnessMod = {
+        preflight: async (o) => {
+            preflights.push(o);
+            return { ok: true, reason: null, detail: { bin: o.harnessBin } };
+        },
+    };
+    const cells = [lyingCli, lyingWeb, honest].map((c) => ({ ...c }));
+    const builds = { cli: head };
+    const lines = [];
+    const out = await prepareHarnessBuild({
+        cells,
+        builds,
+        binDir: 'C:\\audit\\bin',
+        root: 'C:\\floe-rl',
+        sha7: 'abc1234',
+        exec: () => '',
+        getAdapter: async (name) => {
+            assert.equal(name, 'harness');
+            return harnessMod;
+        },
+        build,
+        log: (l) => lines.push(l),
+    });
+    assert.equal(built.length, 1, 'built once for the run');
+    assert.equal(built[0].root, 'C:\\floe-rl', 'from the checkout under test');
+    assert.equal(built[0].binDir, 'C:\\audit\\bin');
+    assert.equal(preflights[0].harnessBin, 'C:\\audit\\bin\\floe-e2ehost-abc1234.exe');
+    assert.equal(out.path, 'C:\\audit\\bin\\floe-e2ehost-abc1234.exe');
+    assert.equal(builds.harness.path, out.path);
+    assert.deepEqual(
+        cells.map((c) => c.verdict ?? null),
+        [null, null, null],
+        'every cell still runs'
+    );
+    assert.match(lines.join(' '), /harness: built e2ehost-abc1234 .* for 1 cell/);
+
+    // No lying CLI-shaped sender in the plan: nothing is built at all (a
+    // browser sender lies through its init script).
+    const untouched = { cli: head };
+    assert.equal(
+        await prepareHarnessBuild({
+            cells: [{ ...lyingWeb }, { ...honest }],
+            builds: untouched,
+            binDir: 'C:\\audit\\bin',
+            root: 'C:\\floe-rl',
+            getAdapter: async () => {
+                throw new Error('must not be called');
+            },
+            build: () => {
+                throw new Error('must not build');
+            },
+        }),
+        null
+    );
+    assert.equal(untouched.harness, undefined);
+
+    // A failed build, a failed preflight, or a shipped profile skips exactly the
+    // lying cells, and never falls back to the shipped CLI.
+    for (const [label, opts] of [
+        [
+            'build',
+            {
+                builds: { cli: head },
+                build: () => {
+                    throw new Error('go build: exit status 1\nmore');
+                },
+            },
+        ],
+        [
+            'preflight',
+            {
+                builds: { cli: head },
+                getAdapter: async () => ({
+                    preflight: async () => ({ ok: false, reason: 'harness binary missing at X' }),
+                }),
+            },
+        ],
+        ['shipped', { builds: { cli: { kind: 'shipped', tag: 'v1.10.11' } } }],
+    ]) {
+        const cs = [lyingCli, lyingWeb, honest].map((c) => ({ ...c }));
+        const log2 = [];
+        const res = await prepareHarnessBuild({
+            cells: cs,
+            binDir: 'C:\\audit\\bin',
+            root: 'C:\\floe-rl',
+            sha7: 'abc1234',
+            getAdapter: async () => harnessMod,
+            build,
+            log: (l) => log2.push(l),
+            ...opts,
+        });
+        assert.equal(res, null, label);
+        assert.equal(opts.builds.harness, null, `${label}: no fallback`);
+        assert.deepEqual(
+            cs.map((c) => c.verdict ?? null),
+            ['SKIP', null, null],
+            `${label}: only the lying CLI-shaped cell skips`
+        );
+        assert.equal(cs[0].reason, 'harness-build');
+        assert.match(log2.join(' '), /harness: build failed, 1 cell\(s\) SKIP harness-build/);
+        assert.ok(!/\n/.test(log2.join(' ')), `${label}: one line`);
+    }
 });
 
 test('purgeRunData removes the transferred bytes and keeps the audit', () => {

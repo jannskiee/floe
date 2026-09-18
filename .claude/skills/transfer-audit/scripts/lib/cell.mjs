@@ -220,6 +220,8 @@ export const TRIAGE_KEYS = new Set([
     'kill-sender-outcome',
     'kill-sender-cleanup',
     'stats-delta',
+    'hash-not-refused',
+    'hash-refusal-code',
     'wsl-host-ip',
 ]);
 
@@ -464,6 +466,11 @@ function legOpts(cell, role, ctx, rec, extra) {
         cliHasRelayOnly: Boolean(ctx.cliHasRelayOnly),
         expect: cell.expect,
         killAtBytes: cell.killAtBytes,
+        // Only the sender lies, and only in a hashbad or hashmal cell (P0-27).
+        hashLie: role === 'sender' ? cell.hashLie || null : null,
+        // The receiver of a lying sender watches for its own discard copy, the
+        // refusal it must produce (a browser receiver has no exit code).
+        peerLies: role === 'receiver' ? Boolean(cell.hashLie) : false,
         pionTrace: Boolean(
             ctx.pionTrace &&
             cell.path === 'REL' &&
@@ -779,6 +786,10 @@ async function receiverOutputs(
  * output dir, so the previous attempt's .part is not counted again.
  */
 function bytesMovedOf(cell, rec, fixture, outs) {
+    // A forced mismatch sends every byte before the refusal, and the guard
+    // that counts a cap cell's bytes never runs on it (review F8).
+    if (cell.expect === 'refusal' && cell.hashLie)
+        return fixture?.totalBytes ?? 0;
     if (cell.expect === 'refusal') return rec.bytesMoved || 0;
     const killFirst =
         (cell.expect === 'kill-sender' || cell.expect === 'kill-receiver') &&
@@ -826,6 +837,58 @@ async function verifyAttempt(cell, ctx, rec, legs, done, fixture, outDir) {
 
     const s = done?.s;
     const r = done?.r;
+    if (cell.expect === 'refusal' && cell.hashLie) {
+        // A forced mismatch: the receiver must refuse the file and keep
+        // nothing. Bytes moving first is the point, not a failure, so the
+        // relay-cap guard below must not run on this cell.
+        // A CLI receiver's `peer-refused` class means the SENDER left before
+        // any file arrived (cli.mjs, "connection closed before any file
+        // arrived"): the receiver refused nothing and checked no digest, so it
+        // never counts here (P0-27 review F1). What does count is the
+        // receiver's own sentence (RefusedError.Error in control.go) or a
+        // browser receiver's own discard copy (web.mjs, kind 'refusal').
+        const peerLeft = r?.detail?.class === 'peer-refused';
+        const receiverRefused =
+            r &&
+            !peerLeft &&
+            (r.kind === 'refusal' ||
+                /did not match the SHA-256|SHA-256 for a file could not be read/.test(
+                    String(r.detail?.error || r.detail?.tail || '')
+                ));
+        if (!receiverRefused)
+            throw new PhaseError(
+                'verify',
+                `hash-not-refused: the receiver ended ${r ? `${r.kind} (${r.detail?.error || r.exitCode})` : 'without a result'} instead of refusing the digest`,
+                { signatureKey: 'hash-not-refused' }
+            );
+        // The harness sender reads the receiver's refusal frame itself, so the
+        // code on the wire is checked too: a receiver that refused for some
+        // other reason, or closed without a frame, is not the proof this cell
+        // is after.
+        if (legs.sender?.surface === 'harness') {
+            const code = s?.detail?.code ?? null;
+            if (!s || s.kind !== 'refusal' || code !== 'hash-mismatch')
+                throw new PhaseError(
+                    'verify',
+                    `hash-refusal-code: the harness sender read ${code ?? 'no refusal'} instead of hash-mismatch`,
+                    { signatureKey: 'hash-refusal-code' }
+                );
+        }
+        const outs = await receiverOutputs(cell, legs, rec, outDir, {
+            allowPart: true,
+        });
+        // Nothing at all may stay, a zero-byte .part included (review F6).
+        if (outs.length)
+            throw new PhaseError(
+                'verify',
+                `hash-not-refused: the receiver kept ${outs.length} file(s) whose digest did not match`,
+                { signatureKey: 'hash-not-refused' }
+            );
+        rec.outputs = outs;
+        rec.integrity = { ok: true, files: [] };
+        rec.route.evidence = 'refusal';
+        return;
+    }
     if (cell.expect === 'refusal') {
         // Both ways bytes can show up: a staging file for a CLI or desktop
         // receiver, and the browser receiver's own data-channel counter,
@@ -1133,11 +1196,31 @@ export async function runAttempt(
             rec.ledgerEventsBefore = ctx.ledger.events.length;
         });
         await phase('sender.start', T.link + 5_000, async () => {
-            const mod = await ctx.getAdapter(cell.sender.surface);
+            // A CLI-shaped sender that must lie about a digest is the test-only
+            // floe-e2ehost send mode, never the shipped CLI: the engine has no
+            // way to send a wrong digest and must not gain one. Every other
+            // cell, and every receiver, uses its own surface's adapter.
+            const senderAdapter =
+                cell.hashLie && cell.sender.surface === 'cli'
+                    ? 'harness'
+                    : cell.sender.surface;
+            const mod = await ctx.getAdapter(senderAdapter);
             legs.sender = mod.createLeg(
                 legOpts(cell, 'sender', ctx, rec, {
                     files: fixture.paths,
                     evidenceDir: path.join(rec.evidenceDir, 'sender'),
+                    // The harness is staged per run by prepareHarnessBuild;
+                    // the cell's own build is the shipped-shape CLI's.
+                    ...(senderAdapter === 'harness'
+                        ? {
+                              bin: ctx.buildFor
+                                  ? (ctx.buildFor('harness')?.path ?? null)
+                                  : null,
+                              // How long the harness waits for the refusal
+                              // after its last byte: the cell's exit budget.
+                              refusalWaitMs: T.exit,
+                          }
+                        : {}),
                 })
             );
             await legs.sender.start();
@@ -1208,7 +1291,12 @@ export async function runAttempt(
             T.firstBytes + T.complete + T.exit,
             async () => {
                 let guard = null;
-                if (cell.expect === 'refusal')
+                // The byte guard is the relay cap's oracle: that refusal must
+                // come before any byte moves. A forced mismatch refuses after
+                // every byte moved, so the guard would stop a correct run (a
+                // browser receiver's own counter trips it at the first chunk,
+                // and a CLI receiver's .part only escaped it between polls).
+                if (cell.expect === 'refusal' && !cell.hashLie)
                     guard = startByteGuard(legs, rec, ctx, outDir);
                 else if (
                     cell.expect === 'kill-sender' ||
@@ -1232,8 +1320,11 @@ export async function runAttempt(
                         const t0 = Date.now();
                         const s = await legs.sender.awaitDone(budget);
                         const left = Math.max(1000, budget - (Date.now() - t0));
+                        // A browser receiver of a lying sender does have an
+                        // oracle: its own fixed discard copy (P0-27), so it is
+                        // awaited rather than synthesized from the sender's word.
                         const noOracle =
-                            cell.receiver.surface === 'web' ||
+                            (cell.receiver.surface === 'web' && !cell.hashLie) ||
                             cell.receiver.surface === 'desktop';
                         let r = null;
                         if (!rec.guardTripped) {
@@ -1468,7 +1559,14 @@ export async function runAttempt(
 export function baseResult(cell, ctx) {
     const build = (surface, role) =>
         ctx.buildFor ? ctx.buildFor(surface, role) : null;
-    const sb = build(cell.sender.surface, 'sender');
+    // A CLI-shaped sender that lies is the staged floe-e2ehost, not the head
+    // CLI, and the report's sender build says so (P0-27 review F4).
+    const sb = build(
+        cell.hashLie && cell.sender.surface === 'cli'
+            ? 'harness'
+            : cell.sender.surface,
+        'sender'
+    );
     const rb = build(cell.receiver.surface, 'receiver');
     return {
         id: cell.id,
@@ -1542,8 +1640,16 @@ function fill(result, rec, cell) {
         result.route.label = pair.label;
         result.route.sources = pair.sources;
     }
-    if (rec.route?.evidence === 'refusal')
-        result.route.label = 'relay [refusal]';
+    if (rec.route?.evidence === 'refusal') {
+        // The label follows the path the run observed. It used to be the
+        // literal 'relay [refusal]', which was true while the only refusal cell
+        // was the 2 GB relay cap and read as a lie on a direct hashbad cell
+        // whose own sources both said direct. `observed` is always set
+        // ('unobserved' at worst, and a passing cap cell always observed
+        // relay), so there is no fallback to the cell's own path: a label never
+        // claims a path nobody saw (P0-27 review F5).
+        result.route.label = `${result.route.observed} [refusal]`;
+    }
     if (rec.integrity) result.integrity = rec.integrity;
     if (rec.completion) result.completion = rec.completion;
     if (rec.stats) result.stats = rec.stats;

@@ -18,9 +18,59 @@ path     DIR = direct expected, no side may observe relay
 surface  W = web browser (Playwright chromium)   C = CLI (Windows)
          D = desktop (Store build or portable)    L = CLI inside WSL2 Ubuntu-22.04 (deep only)
 variant  link | bnd8 | fold | zip | cap3g | thr500 | killsnd | killrcv
+         hashbad | hashmal (head profile only, see Forced mismatches)
 ```
 
-Examples: `S-DIR-W2C`, `S-REL-C2D`, `H-DIR-C2C-bnd8`, `S-DIR-L2W`.
+Examples: `S-DIR-W2C`, `S-REL-C2D`, `H-DIR-C2C-bnd8`, `S-DIR-L2W`, `H-DIR-C2C-hashbad`.
+
+## Forced mismatches (hashbad, hashmal)
+
+Every receiver checks a file's SHA-256 against the bytes it wrote and deletes a
+file that does not match. These two variants prove it, by making a sender lie:
+
+| Variant   | What the sender sends                        | How                                                                 | Expected |
+| --------- | -------------------------------------------- | ------------------------------------------------------------------- | -------- |
+| `hashbad` | the real digest with one hex digit changed   | web sender: `installHashbad` in `scripts/lib/web.mjs`; CLI-shaped sender: `floe-e2ehost send -corrupt-hash` | refusal with `hash-mismatch`, no file and no `.part` left |
+| `hashmal` | the real digest upper-cased, which the wire format forbids | `floe-e2ehost send -malformed-hash`                    | the same refusal: a digest that cannot be read cannot vouch for the file |
+
+The corrupt digest never exists in shipped code. It lives in the audit skill and
+in `cli/internal/e2ehost`, which no release builds (`go list -deps ./cmd/floe`
+never names it), and `cellPlan` exposes it to a runner as `cell.hashLie`, which
+is `null` for every other cell.
+
+The ids are `HASH_IDS` in `scripts/lib/matrix.mjs`. They are head profile only,
+and they are deliberately outside `DEFAULT_IDS` and `DEEP_IDS`: a run reaches
+them through `--cells`, and the runner needs a sender that can lie before they
+can pass. `H-DIR-C2D-hashbad` also needs `--desktop wailsdev`.
+
+How a run carries them out:
+
+- The CLI-shaped sender (C in `H-DIR-C2C-*` and `H-DIR-C2W-hashbad`) is never the
+  shipped CLI. `prepareHarnessBuild` in `scripts/audit.mjs` builds
+  `cli/internal/e2ehost` from the checkout into the run's `--bin-dir` as
+  `floe-e2ehost-<sha7>.exe` once per run, only when a planned cell needs it, and
+  the sender phase picks the `harness` adapter (`scripts/lib/harness.mjs`). A
+  failed build or preflight turns exactly those cells into SKIP `harness-build`;
+  there is no fallback. A new exe path wants one discarded warm-up run (firewall).
+- The harness prints a link and never a code, so these cells use link input.
+- They are head cells only: a shipped run that names one SKIPs it as `head-only`,
+  because it would drive production with a sender that lies.
+- Route: the harness prints `{"event":"route","path":"direct"|"relay"}` from the
+  engine's own `ConnectionType()` (the word only, never an address), so a cell is
+  judged by two observers, source `harness-connection-type` beside the receiver's.
+  The harness takes no `--no-relay`, so a C2C hash cell is never "direct by
+  construction"; its CLI receiver still gets the flag.
+- The relay cap's byte guard does not run on these cells: bytes moving before the
+  refusal is the point.
+- Verdict: the receiver refused (a CLI receiver's `RefusedError` sentence and exit
+  1; a browser receiver's own fixed discard copy, awaited on the page rather than
+  synthesized from the sender) and kept nothing at all, not even an empty `.part`;
+  and when the sender is the harness, the refusal code it read back is
+  `hash-mismatch`. A CLI receiver that only saw its sender leave ("connection
+  closed before any file arrived") refused nothing and never counts. A browser
+  sender may end on "All Files Sent!" or on the receiver's wire reason; the page
+  usually reaches the first before the refusal lands. The FAIL keys are
+  `hash-not-refused` and `hash-refusal-code`.
 
 ## What each surface can do
 

@@ -74,6 +74,26 @@ export const TEXT = Object.freeze({
     tooManyRefreshes: 'Too many refreshes. Reconnecting', // onConnectError
     received: /^(\d+) files? received$/, // ReceiverPanel.tsx (the completion line)
     pill: /^(Direct|Relay|Ready|Offline)$/, // ConnectionStatusBadge.tsx (the label ternary)
+    // What a sender shows when its peer refused a file it sent. The page prints
+    // the peer's own sanitized WIRE reason (compatErrorFromIncompatible in
+    // client/lib/transfer/protocol.ts; P2PTransfer wires no onStopped), so these
+    // are the two reasons both receivers put on the incompatible frame
+    // (cli/engine/transfer/receiver.go and HASH_MISMATCH_REASON /
+    // HASH_UNREADABLE_REASON in client/lib/transfer/receiver.ts), never the CLI
+    // receiver's own stderr sentence (P0-27 review F2). The page usually reaches
+    // "All Files Sent!" first, which a lying cell's sender also accepts.
+    peerRefusedHash: [
+        'receiver discarded a file because its SHA-256 did not match',
+        "receiver discarded a file because the sender's SHA-256 was not readable",
+    ],
+    // What a browser RECEIVER shows when it discarded a file whose digest did
+    // not match or could not be read: the two fixed onError sentences in
+    // client/lib/transfer/receiver.ts (P0-19b), rendered by P2PTransfer.tsx's
+    // receiver onError through setError. Only a cell whose sender lies looks.
+    selfDiscardedHash: [
+        'A file did not match what was sent, so it was discarded.',
+        "The sender's SHA-256 for a file could not be read, so the file was discarded.",
+    ],
 });
 
 export class PlaywrightMissingError extends Error {
@@ -469,6 +489,45 @@ export async function guardStats(ctx, rec) {
     return rec;
 }
 
+/**
+ * The hashbad rewrite, pure so a test can pin it: an `end` frame keeps its
+ * shape and its length with one hex digit of its sha256 changed, and anything
+ * else is returned untouched. A chunk is a buffer, never a string, so it can
+ * never reach the rewrite.
+ *
+ * Defined as a standalone function because installHashbad ships its source
+ * into the page: the page and this test read the same lines.
+ */
+export function corruptEndFrame(data) {
+    const PREFIX = '{"type":"end","sha256":"';
+    if (typeof data !== 'string' || !data.startsWith(PREFIX)) return data;
+    const at = PREFIX.length;
+    const digit = data[at];
+    if (!/[0-9a-f]/.test(digit)) return data;
+    const changed = digit === '0' ? '1' : '0';
+    return data.slice(0, at) + changed + data.slice(at + 1);
+}
+
+/**
+ * Install the hashbad corrupter on a context: every `end` frame the page sends
+ * carries a well formed digest that cannot match the bytes the peer got.
+ *
+ * It wraps RTCDataChannel.prototype.send, which is where the sender hands the
+ * frame over, so nothing in the app changes and nothing corrupting exists
+ * outside this audit and the page it starts.
+ */
+export async function installHashbad(ctx) {
+    await ctx.addInitScript({
+        content: `(() => {
+    const corruptEndFrame = ${corruptEndFrame.toString()};
+    const origSend = RTCDataChannel.prototype.send;
+    RTCDataChannel.prototype.send = function (data) {
+        return origSend.call(this, corruptEndFrame(data));
+    };
+})();`,
+    });
+}
+
 /** Seed one localStorage key before any page script (docs-visual-qa.mjs). */
 export async function seedLocalStorage(ctx, key, value) {
     await ctx.addInitScript(
@@ -631,6 +690,11 @@ export class WebLeg extends Leg {
             serviceWorkers: 'block',
         });
         await this.ctx.addInitScript(AUDIT_INIT({ relayOnly: this.relayOnly }));
+        // A hashbad cell's browser sender puts a digest on its end frame that
+        // cannot match what the peer received; the receiver must refuse it.
+        // hashmal is the CLI-shaped harness's variant, not the browser's: the
+        // page's own hashBlob only ever returns 64 lowercase hex characters.
+        if (this.opts.hashLie === 'corrupt') await installHashbad(this.ctx);
         // The route guard sits on every context: senders never report, but
         // the attestation "browser attempts 0" then covers every page.
         await guardStats(this.ctx, this.statsRec);
@@ -838,6 +902,15 @@ export class WebLeg extends Leg {
                             text.includes(want.relayBanner)
                         )
                             return 'refusal';
+                        // A hashbad cell's sender never reaches allSent: its
+                        // peer refused a file, so the page shows the peer's
+                        // reason. Only this cell looks for it, so an ordinary
+                        // cell cannot pass on an error.
+                        if (
+                            want.peerRefusedHash &&
+                            want.peerRefusedHash.some((s) => text.includes(s))
+                        )
+                            return 'refusal';
                         if (text.includes(want.connectionFailed))
                             return 'failed';
                         return null;
@@ -848,24 +921,39 @@ export class WebLeg extends Leg {
                         relayBlocked: TEXT.relayBlocked,
                         relayBanner: TEXT.relayBanner,
                         connectionFailed: TEXT.connectionFailed,
+                        peerRefusedHash: this.opts.hashLie
+                            ? TEXT.peerRefusedHash
+                            : null,
                     },
                     { timeout: budget, polling: 500 }
                 );
                 outcome = await handle.jsonValue();
             } else {
                 const handle = await page.waitForFunction(
-                    (n) => {
+                    (want) => {
                         const text =
                             (document.body && document.body.innerText) || '';
                         const anchors =
                             document.querySelectorAll('a[download]').length;
                         const m = text.match(/(\d+) files? received/);
-                        if (anchors >= n && m && Number(m[1]) >= n)
+                        if (anchors >= want.n && m && Number(m[1]) >= want.n)
                             return 'received';
+                        // A lying sender's cell: the page's own discard copy
+                        // is the refusal this receiver must produce.
+                        if (
+                            want.discarded &&
+                            want.discarded.some((s) => text.includes(s))
+                        )
+                            return 'refusal';
                         if (text.includes('Link Invalid')) return 'invalid';
                         return null;
                     },
-                    this.expectFiles,
+                    {
+                        n: this.expectFiles,
+                        discarded: this.opts.peerLies
+                            ? TEXT.selfDiscardedHash
+                            : null,
+                    },
                     { timeout: budget, polling: 500 }
                 );
                 outcome = await handle.jsonValue();

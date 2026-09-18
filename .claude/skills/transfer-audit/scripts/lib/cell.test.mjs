@@ -29,7 +29,7 @@ import {
     runCell,
 } from './cell.mjs';
 import { KILL_AT_BYTES } from './fixtures.mjs';
-import { cellPlan } from './matrix.mjs';
+import { HASH_IDS, cellPlan } from './matrix.mjs';
 import { Ledger } from './pacing.mjs';
 import { newSafety } from './report.mjs';
 import { SafetyError } from './surfaces.mjs';
@@ -405,6 +405,151 @@ test('refusal cell PASSes on the cap refusal and FAILs when bytes move', async (
     const bad = await runCell(cell, makeCtx(world));
     assert.equal(bad.verdict, 'FAIL');
     assert.equal(bad.reason, 'cap-not-enforced');
+});
+
+// The forced-mismatch cells join a plan only when --cells names them (P0-27).
+const hashPlan = Object.fromEntries(
+    cellPlan({ profile: 'head', cliHasRelayOnly: true, cells: [...HASH_IDS] })
+        .filter((c) => HASH_IDS.includes(c.id))
+        .map((c) => [c.id, c])
+);
+const pickHash = (id) => small(structuredClone(hashPlan[id]));
+const HARNESS_BIN = 'C:/audit/bin/floe-e2ehost-abc1234.exe';
+// prepareHarnessBuild stages the harness as builds.harness; buildFor hands it out.
+const withHarness = (world, extra = {}, patch = null) =>
+    makeCtx(
+        world,
+        {
+            buildFor: (surface) =>
+                surface === 'harness'
+                    ? { kind: 'harness', path: HARNESS_BIN, version: 'e2ehost-abc1234' }
+                    : { kind: 'head', version: 'head-abc1234', path: null },
+            ...extra,
+        },
+        patch
+    );
+
+test('a forced mismatch from the harness sender PASSes on the refusal, judged by two route observers', async () => {
+    const world = fakeWorld();
+    const r = await runCell(pickHash('H-DIR-C2C-hashbad'), withHarness(world));
+    assert.equal(r.verdict, 'PASS', r.note);
+    const sender = world.calls.find((c) => c.role === 'sender');
+    assert.equal(sender.surface, 'harness', 'never the shipped CLI');
+    assert.equal(sender.bin, HARNESS_BIN, 'the staged binary reaches the leg');
+    assert.equal(sender.hashLie, 'corrupt');
+    const receiver = world.calls.find((c) => c.role === 'receiver');
+    assert.equal(receiver.surface, 'cli');
+    assert.equal(receiver.input, 'link', 'the harness prints a link, never a code');
+    assert.equal(receiver.peerLies, true);
+    assert.equal(receiver.hashLie, null, 'only the sender lies');
+    assert.ok(
+        r.route.sources.some(
+            (s) => s.oracle === 'harness-connection-type' && s.value === 'direct'
+        ),
+        JSON.stringify(r.route.sources)
+    );
+    assert.equal(r.route.label, 'direct [refusal]');
+    // The report names the program that actually lied (review F4).
+    assert.equal(r.sender.build, 'harness');
+    assert.equal(r.sender.version, 'e2ehost-abc1234');
+    assert.equal(r.receiver.version, 'head-abc1234');
+    // Every byte moved before the refusal, and the record says so (review F8).
+    const cellRow = pickHash('H-DIR-C2C-hashbad');
+    assert.equal(r.attempts[0].bytesMoved, cellRow.fixture.totalBytes);
+    // The harness takes no --no-relay, so the cell never claims "direct by
+    // construction"; the real CLI receiver still takes the flag.
+    assert.equal(cellRow.byConstruction, false);
+    assert.equal(cellRow.sender.noRelay, false);
+    assert.equal(cellRow.receiver.noRelay, true);
+
+    const malWorld = fakeWorld();
+    const mal = await runCell(pickHash('H-DIR-C2C-hashmal'), withHarness(malWorld));
+    assert.equal(mal.verdict, 'PASS', mal.note);
+    assert.equal(
+        malWorld.calls.find((c) => c.role === 'sender').hashLie,
+        'malformed'
+    );
+});
+
+test('a browser receiver of a lying sender is awaited on its own copy, and its byte counter never trips the cap guard', async () => {
+    const world = fakeWorld();
+    let awaited = 0;
+    const ctx = withHarness(world, {}, (adapters) =>
+        wrapLeg(adapters, 'web', (leg) => {
+            const orig = leg.awaitDone.bind(leg);
+            leg.awaitDone = async (...a) => {
+                awaited++;
+                return orig(...a);
+            };
+        })
+    );
+    const r = await runCell(pickHash('H-DIR-C2W-hashbad'), ctx);
+    assert.equal(r.verdict, 'PASS', r.note);
+    assert.equal(awaited, 1, 'the refusal came from the page, not synthesized from the sender');
+    assert.equal(world.calls.find((c) => c.role === 'sender').surface, 'harness');
+
+    // The browser sender cell keeps its own path: no harness, no bin.
+    const w2cWorld = fakeWorld();
+    const w2c = await runCell(pickHash('H-DIR-W2C-hashbad'), withHarness(w2cWorld));
+    assert.equal(w2c.verdict, 'PASS', w2c.note);
+    const w2cSender = w2cWorld.calls.find((c) => c.role === 'sender');
+    assert.equal(w2cSender.surface, 'web');
+    assert.equal(w2cSender.bin, null);
+});
+
+test('the forced-mismatch cells FAIL when nothing was refused, the code is wrong, or a file stays', async () => {
+    for (const [id, script, reason] of [
+        // The mutation every hashbad cell exists to catch: the sender told the
+        // truth (or the receiver ignored the digest) and the file was kept.
+        ['H-DIR-C2C-hashbad', 'hashlie-kept', 'hash-not-refused'],
+        ['H-DIR-C2W-hashbad', 'hashlie-kept', 'hash-not-refused'],
+        ['H-DIR-W2C-hashbad', 'hashlie-kept', 'hash-not-refused'],
+        ['H-DIR-C2C-hashbad', 'hashlie-wrong-code', 'hash-refusal-code'],
+        ['H-DIR-C2C-hashmal', 'hashlie-leaves-file', 'hash-not-refused'],
+        // The sender left before any file arrived: the CLI receiver's
+        // peer-refused class is not a hash refusal (review F1, the false PASS).
+        ['H-DIR-W2C-hashbad', 'hashlie-peer-left', 'hash-not-refused'],
+        ['H-DIR-C2C-hashbad', 'hashlie-peer-left', 'hash-not-refused'],
+        // A zero-byte .part left behind is still something kept (review F6).
+        ['H-DIR-C2C-hashbad', 'hashlie-empty-part', 'hash-not-refused'],
+    ]) {
+        const world = fakeWorld();
+        world.setScript(id, script);
+        const r = await runCell(pickHash(id), withHarness(world));
+        assert.equal(r.verdict, 'FAIL', `${id} ${script}: ${r.note}`);
+        assert.equal(r.reason, reason, `${id} ${script}`);
+        assert.equal(r.attempts.length, 1, 'a refusal cell is never retried');
+    }
+});
+
+test('a harness route that disagrees with the cell or the receiver FAILs the cell', async () => {
+    const saysRelay = (adapters) =>
+        wrapLeg(adapters, 'harness', (leg) => {
+            leg.route = () =>
+                leg.connectedAt
+                    ? {
+                          t: Date.now(),
+                          source: 'harness-connection-type',
+                          local: null,
+                          remote: null,
+                          verdict: 'relay',
+                      }
+                    : null;
+        });
+    // Alone (a CLI receiver with no trace): relay on a direct cell.
+    const c2c = await runCell(
+        pickHash('H-DIR-C2C-hashbad'),
+        withHarness(fakeWorld(), {}, saysRelay)
+    );
+    assert.equal(c2c.verdict, 'FAIL');
+    assert.equal(c2c.reason, 'route-mismatch');
+    // Against a browser receiver that saw a direct pair: the two disagree.
+    const c2w = await runCell(
+        pickHash('H-DIR-C2W-hashbad'),
+        withHarness(fakeWorld(), {}, saysRelay)
+    );
+    assert.equal(c2w.verdict, 'FAIL');
+    assert.equal(c2w.reason, 'route-disagree');
 });
 
 test('kill cells: killsnd leaves no .part, killrcv leaves one and the retry lands (1)', async () => {
@@ -1007,4 +1152,31 @@ test('bytesReportedCount counts a LIST, because Number(list) is NaN', () => {
         /const events = bytesReportedCount\(/,
         'statsProofCheck goes through the counter'
     );
+});
+
+test('a refusal cell labels the route it actually took, through the runner', async () => {
+    // The direct hashbad cell's own sources said direct; the label used to say
+    // relay, because it was written when the only refusal was the 2 GB cap.
+    // Pinned through runCell rather than a copy of the expression (review F5).
+    const seen = await runCell(pickHash('H-DIR-C2C-hashbad'), withHarness(fakeWorld()));
+    assert.equal(seen.verdict, 'PASS', seen.note);
+    assert.equal(seen.route.label, 'direct [refusal]');
+    // Nobody observed a path: the label says so and never borrows the cell's.
+    const silent = await runCell(
+        pickHash('H-DIR-C2C-hashbad'),
+        withHarness(fakeWorld(), {}, (adapters) =>
+            wrapLeg(adapters, 'harness', (leg) => {
+                leg.route = () => null;
+            })
+        )
+    );
+    assert.equal(silent.verdict, 'PASS', silent.note);
+    assert.equal(silent.route.observed, 'unobserved');
+    assert.equal(silent.route.label, 'unobserved [refusal]');
+    // The cap cell keeps its label because a passing cap cell observed relay.
+    const cap = pick('S-REL-C2W-cap3g');
+    cap.fixture = { kind: 'single', bytes: 1024, totalBytes: 1024 };
+    const capRun = await runCell(cap, makeCtx(fakeWorld()));
+    assert.equal(capRun.verdict, 'PASS', capRun.note);
+    assert.equal(capRun.route.label, 'relay [refusal]');
 });

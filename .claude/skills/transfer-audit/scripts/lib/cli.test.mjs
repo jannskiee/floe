@@ -735,3 +735,23 @@ test(
         assert.equal(leg.evidence().env.FLOE_NO_UPDATE_CHECK, '1');
     }
 );
+
+test('parses the Verified row', () => {
+    // Shape from receiver.go's summary: labels padded to the longest one.
+    const lines = [
+        '  ─────',
+        '  Received   3 files (12 MB)',
+        '  Time       4s · avg 3.0 MB/s',
+        '  Verified   SHA-256 matched',
+        '  Saved to   /tmp/out',
+        '  ─────',
+    ];
+    const summary = parseSummary(lines.join('\n'));
+    assert.equal(summary.verified, 'SHA-256 matched');
+    assert.equal(summary.received, '3 files (12 MB)');
+    assert.equal(summary.savedTo, '/tmp/out');
+
+    // A transfer without digests has no row at all, and the field says so.
+    const noRow = parseSummary(['  Received   1 file (1 MB)', '  Time       1s'].join('\n'));
+    assert.equal(noRow.verified, null);
+});
