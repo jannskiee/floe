@@ -315,30 +315,19 @@ func TestLoopbackOffererHoldsAck(t *testing.T) {
 		t.Skip("skipping ICE loopback transfer in -short mode")
 	}
 
+	// peer.TestLoopbackOffererHoldsAckLong holds the first ack for 75 s on the
+	// real watchdogs, which it cannot read from its external test package, so
+	// the check that the hold still outlasts both lives here, before they shrink.
+	const longHold = 75 * time.Second
+	if longHold <= receiveIdleTimeout || longHold <= receiveStallTimeout {
+		t.Fatalf("the 75 s hold in peer.TestLoopbackOffererHoldsAckLong no longer outlasts the receive watchdogs (%s idle, %s stall)",
+			receiveIdleTimeout, receiveStallTimeout)
+	}
+
 	oldIdle, oldStall := receiveIdleTimeout, receiveStallTimeout
 	receiveIdleTimeout = 200 * time.Millisecond
 	receiveStallTimeout = 200 * time.Millisecond
 	t.Cleanup(func() { receiveIdleTimeout = oldIdle; receiveStallTimeout = oldStall })
 
 	runOffererHold(t, 2*time.Second)
-}
-
-// TestLoopbackOffererHoldsAckLong holds the first ack for 75 s on real timers:
-// longer than the 30 s idle and 60 s stall watchdogs, and under the Go
-// sender's hardcoded 120 s ack deadline, which the baseline spike measured
-// firing at 120.006 s with "error sending <name>: timed out waiting for ack".
-// Never raise the hold to 120 s or more here; a longer wait needs
-// SendOptions.AckTimeout (S1-ENG-08).
-func TestLoopbackOffererHoldsAckLong(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping the 75 s held-ack loopback transfer in -short mode")
-	}
-
-	const hold = 75 * time.Second
-	if hold <= receiveIdleTimeout || hold <= receiveStallTimeout {
-		t.Fatalf("hold %s no longer outlasts the receive watchdogs (%s idle, %s stall)",
-			hold, receiveIdleTimeout, receiveStallTimeout)
-	}
-
-	runOffererHold(t, hold)
 }
