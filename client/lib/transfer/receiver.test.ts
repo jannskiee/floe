@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
-import { createReceiver, type ReceivedFile, type ReceiverDeps } from './receiver';
+import { createReceiver, MAX_QUEUED_WHILE_PENDING, type ReceivedFile, type ReceiverDeps } from './receiver';
 import { metadataMessage, endMessage, incompatibleMessage, CONTROL_MSG_MAX, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, checkCompat } from './protocol';
 
 const enc = new TextEncoder();
@@ -791,6 +791,57 @@ describe('receiver: per-file SHA-256', () => {
         await h.rx.settled();
         expect(h.completed.map((f) => f.fileName)).toEqual(['a.bin']);
         // Handled in order, after the file.
+        expect(h.acks().map((m) => m.id)).toEqual(['a', 'b']);
+    });
+
+    it('stops on an oversized string frame while a digest is pending, and keeps nothing', async () => {
+        // DV-AUDIT CP-0 F1: the control cap used to be skipped while a check was
+        // pending, so any number of strings of any size could wait in memory.
+        const held = heldHash();
+        const h = harness({ hashBlob: held.hashBlob });
+        const a = payload(300, 1);
+        feed(h, 'a', a, 1, 2, endMessage(digestOf(a)));
+        h.rx.handleMessage('{"type":"metadata","pad":"' + 'x'.repeat(CONTROL_MSG_MAX) + '"}');
+        expect(h.errors).toEqual([
+            `The sender sent a control message larger than ${CONTROL_MSG_MAX} bytes, so the transfer was stopped.`,
+        ]);
+        held.release(digestOf(a));
+        await h.rx.settled();
+        // The file being checked is not handed over after a stop, even though it matched.
+        expect(h.completed).toEqual([]);
+        // And nothing after the stop is read.
+        h.rx.handleMessage(metadataMessage('c', 'c.bin', 10, 2, 2, 0));
+        expect(h.acks().map((m) => m.id)).toEqual(['a']);
+    });
+
+    it('stops when a sender floods string frames while a digest is pending', async () => {
+        const held = heldHash();
+        const h = harness({ hashBlob: held.hashBlob });
+        const a = payload(200, 1);
+        feed(h, 'a', a, 1, 2, endMessage(digestOf(a)));
+        // Exactly the bound is still accepted and handled in order afterwards...
+        for (let i = 0; i < MAX_QUEUED_WHILE_PENDING; i++) h.rx.handleMessage('{"type":"unknown-' + i + '"}');
+        expect(h.errors).toEqual([]);
+        // ...and one more stops the transfer.
+        h.rx.handleMessage('{"type":"unknown-over"}');
+        expect(h.errors).toEqual([
+            'The sender sent more messages than a transfer allows while a file was being checked, so the transfer was stopped.',
+        ]);
+        held.release(digestOf(a));
+        await h.rx.settled();
+        expect(h.completed).toEqual([]);
+    });
+
+    it('a conforming frame during the check still waits and is handled after it', async () => {
+        const held = heldHash();
+        const h = harness({ hashBlob: held.hashBlob });
+        const a = payload(200, 1);
+        feed(h, 'a', a, 1, 2, endMessage(digestOf(a)));
+        h.rx.handleMessage(metadataMessage('b', 'b.bin', 10, 2, 2, 0));
+        held.release(digestOf(a));
+        await h.rx.settled();
+        expect(h.errors).toEqual([]);
+        expect(h.completed.map((f) => f.fileName)).toEqual(['a.bin']);
         expect(h.acks().map((m) => m.id)).toEqual(['a', 'b']);
     });
 
