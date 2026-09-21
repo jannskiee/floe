@@ -148,13 +148,13 @@ The active-code cap is global rather than per-IP, because it guards the size of 
 registry. It counts stored entries rather than genuinely live ones, so the number can briefly
 include codes that have already expired but that the once-a-minute sweeper has not cleared.
 
-Every per-IP limiter keys the client address after normalizing it. IPv6 addresses are keyed on
-their `/64` prefix, so everyone sharing a `/64` shares a single bucket, which stops a client from
-stepping past a limit by rotating the low 64 bits of its address. IPv4-mapped IPv6 addresses
-(`::ffff:1.2.3.4`) are unwrapped to plain IPv4, so the same IPv4 client reached through a
-dual-stack listener counts once rather than twice. Plain IPv4 is unchanged. Size
+Every per-IP limiter normalizes the client address before it counts. An IPv6 address keys on its
+`/64` prefix, so everyone sharing a `/64` shares one bucket. That stops a client from stepping
+past a limit by rotating the low 64 bits of its address. An IPv4-mapped IPv6 address
+(`::ffff:1.2.3.4`) unwraps to plain IPv4, so the same client reached through a dual-stack
+listener counts once rather than twice. Plain IPv4 is unchanged. On dual-stack deployments, size
 `MAX_CONNECTIONS_PER_IP`, `MAX_TURN_REQUESTS_PER_IP`, and `MAX_CODE_REQUESTS_PER_IP` for a whole
-IPv6 `/64` on dual-stack deployments, not for a single address.
+IPv6 `/64` rather than a single address.
 
 ## Room codes
 
