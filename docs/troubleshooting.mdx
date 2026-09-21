@@ -396,6 +396,12 @@ connections age out of the 60-second window, the same way the three HTTP limiter
 `429`. And setting any `MAX_*` variable to `0` does not disable the limit; it silently restores the
 default.
 
+**"Per IP" is per IPv6 `/64`, not per address.** The server normalizes the client address before
+every per-IP limiter: IPv6 addresses are keyed on their `/64` prefix, so everyone sharing a `/64`
+shares one bucket, and IPv4-mapped IPv6 (`::ffff:1.2.3.4`) unwraps to plain IPv4 so the same
+client reached through a dual-stack listener does not count twice. Plain IPv4 is unchanged. On
+dual-stack deployments, size the caps for a whole IPv6 `/64` rather than a single address.
+
 Behind a reverse proxy, set `TRUSTED_PROXY_COUNT` to the number of proxy hops so the server reads
 real client IPs instead of the proxy's. The server defaults to `1`, but the Compose stack
 publishes ports directly and passes `0`, so a Compose deployment behind a proxy has to set it.
