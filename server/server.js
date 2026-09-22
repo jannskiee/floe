@@ -470,8 +470,14 @@ function destroyRoom(roomId) {
 // A reservation is a bounded exception to "no room metadata outliving its
 // room": created only by a token join, at most REQUEST_CREATES_PER_DAY per rate
 // key per rolling 24 h and MAX_REQUEST_ROOMS live, and ended REQUEST_GRACE_MS
-// after its host socket closes. A flood of the cap refuses only new request
-// links (limited), never ordinary rooms, codes or the room seal.
+// after its host socket closes or REQUEST_MAX_AGE_MS after its creation,
+// whichever comes first. Live reservations are NOT bounded by live host
+// sockets: a reservation in grace needs no socket, and one socket can keep a
+// key's reservations alive by reclaiming each inside its grace. So the bound
+// per key is the daily budget across the age ceiling (about 160: 20 a day on
+// each of the 8 days a 7 d + 10 min window can touch), and the global bound is
+// MAX_REQUEST_ROOMS. A flood of the cap refuses only new request links
+// (limited), never ordinary rooms, codes or the room seal.
 //
 // Privacy: the record holds a digest of the host's rate key (sealDigest), never
 // the key, and requestCreates is keyed the same way; a reservation can live for
