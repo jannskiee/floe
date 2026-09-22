@@ -81,7 +81,7 @@ func probeServer(raw string, dialWS func(string) error) ProbeResult {
 		return ProbeResult{Message: "The address must start with https:// or http://."}
 	}
 
-	if r := probeHealth(base); !r.OK {
+	if r, _ := probeHealth(base); !r.OK {
 		return r
 	}
 	if err := dialWS(base); err != nil {
@@ -90,25 +90,77 @@ func probeServer(raw string, dialWS func(string) error) ProbeResult {
 	return probeAPI(base)
 }
 
-// probeHealth is stage one: reachable, and answering as a Floe server.
-func probeHealth(base string) ProbeResult {
+// probeHealth is stage one: reachable, and answering as a Floe server. It also
+// returns the server's optional feature list (spec 04 5.9, ["request-1"] on a
+// server with request links on), which only RequestLinkSupport reads. A missing
+// list is an older or self-hosted server and is not a failure; a list of the
+// wrong shape is treated as absent rather than failing Settings Test.
+func probeHealth(base string) (ProbeResult, []string) {
 	resp, err := probeClient().Get(base + "/health")
 	if err != nil {
-		return ProbeResult{Message: describeDialError(err)}
+		return ProbeResult{Message: describeDialError(err)}, nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return ProbeResult{Message: fmt.Sprintf(
-			"The address answered with HTTP %d. This may be the web app rather than the signaling server.", resp.StatusCode)}
+			"The address answered with HTTP %d. This may be the web app rather than the signaling server.", resp.StatusCode)}, nil
 	}
 	var body struct {
-		Status string `json:"status"`
+		Status   string          `json:"status"`
+		Features json.RawMessage `json:"features"`
 	}
 	if json.NewDecoder(resp.Body).Decode(&body) != nil || body.Status != "healthy" {
-		return ProbeResult{Message: "Something answered at that address, but it is not a Floe signaling server."}
+		return ProbeResult{Message: "Something answered at that address, but it is not a Floe signaling server."}, nil
 	}
-	return ProbeResult{OK: true}
+	var features []string
+	if json.Unmarshal(body.Features, &features) != nil {
+		features = nil
+	}
+	return ProbeResult{OK: true}, features
+}
+
+// FeatureResult is the Go-side /health probe for the Beta switch: whether the
+// server answered as a healthy Floe server, and whether it lists request-1.
+// One struct return, never a (T, error) pair, for the reason ProbeResult gives.
+type FeatureResult struct {
+	Reachable    bool `json:"reachable"`
+	RequestLinks bool `json:"requestLinks"`
+}
+
+// RequestLinkSupport probes the server this app talks to for request-1 (spec
+// 06 4.18). It runs in Go because the webview's CSP blocks the fetch, through
+// probeClient: six seconds, no redirects, so a captive portal or a catch-all
+// rewrite cannot unlock the switch. Only the two booleans reach the frontend,
+// never the body or an error text.
+func (a *App) RequestLinkSupport() FeatureResult {
+	server, _ := a.endpoints()
+	return requestLinkSupport(server)
+}
+
+// requestLinkSupport is RequestLinkSupport against an explicit base, so tests
+// can aim it at an httptest server. An unreachable or unhealthy server is the
+// zero result: not reachable, no request links.
+func requestLinkSupport(base string) FeatureResult {
+	if base == "" {
+		return FeatureResult{}
+	}
+	r, features := probeHealth(base)
+	if !r.OK {
+		return FeatureResult{}
+	}
+	return FeatureResult{Reachable: true, RequestLinks: featuresHave(features, "request-1")}
+}
+
+// featuresHave reports whether name is in the server's feature list. Exact
+// match only; names this build does not know are ignored.
+func featuresHave(list []string, name string) bool {
+	for _, f := range list {
+		if f == name {
+			return true
+		}
+	}
+	return false
 }
 
 // probeAPI is stage three: the REST endpoints a transfer actually needs, and

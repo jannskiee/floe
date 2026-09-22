@@ -81,10 +81,10 @@ func (a *App) SetSettings(server, web string, hideIP, reportStats bool) error {
 }
 
 // settingsFromArgs builds the record SetSettings persists. Fields owned by
-// other setters (NoUpdateCheck, via SetCheckUpdates) are carried over from the
-// current record: SetSettings used to construct a fresh appConfig from only
-// its arguments, which silently zeroed any field the Settings screen did not
-// know about on every save.
+// other setters (NoUpdateCheck via SetCheckUpdates, RequestLinks via
+// SetRequestLinks) are carried over from the current record: SetSettings used
+// to construct a fresh appConfig from only its arguments, which silently
+// zeroed any field the Settings screen did not know about on every save.
 func settingsFromArgs(cur appConfig, server, web string, hideIP, reportStats bool) appConfig {
 	return normalizeConfig(appConfig{
 		Server:        server,
@@ -92,6 +92,7 @@ func settingsFromArgs(cur appConfig, server, web string, hideIP, reportStats boo
 		HideIP:        hideIP,
 		ReportStats:   reportStats,
 		NoUpdateCheck: cur.NoUpdateCheck,
+		RequestLinks:  cur.RequestLinks,
 		Migrated:      true,
 	})
 }
@@ -105,6 +106,29 @@ func (a *App) SetCheckUpdates(enabled bool) error {
 	defer a.mu.Unlock()
 	cfg := a.cfg
 	cfg.NoUpdateCheck = !enabled
+	if err := saveConfig(cfg); err != nil {
+		return err
+	}
+	a.cfg = cfg
+	return nil
+}
+
+// withRequestLinks is the record SetRequestLinks persists: the current one with
+// only the Beta switch changed. A pure helper so tests never call the bound
+// setter, which writes the real desktop.json (F-04).
+func withRequestLinks(cfg appConfig, enabled bool) appConfig {
+	cfg.RequestLinks = enabled
+	return cfg
+}
+
+// SetRequestLinks persists the Settings > Beta > Request links switch alone,
+// leaving every other setting untouched. Holds the lock across the whole
+// read-modify-write for the same reason SetCheckUpdates does: the setters race
+// on quick toggle flips, and a stale snapshot would resurrect an old record.
+func (a *App) SetRequestLinks(enabled bool) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	cfg := withRequestLinks(a.cfg, enabled)
 	if err := saveConfig(cfg); err != nil {
 		return err
 	}

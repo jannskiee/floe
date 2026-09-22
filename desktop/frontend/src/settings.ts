@@ -56,3 +56,38 @@ export function webPlaceholder(server: string): string {
     if (s === 'http://localhost:3001') return 'http://localhost:3000';
     return s;
 }
+
+// Settings > Beta > Request links copy, verbatim from the approved desktop copy
+// table (Checkpoint C, rows S1 to S5). approvedCopy.test.ts byte-matches them.
+export const BETA_HEADING = 'Beta'; // S1
+export const REQUEST_LINKS_LABEL = 'Request links'; // S2
+export const REQUEST_LINKS_ON_LINE = 'Let someone send files to this PC through a link you make. Works while Floe is open.'; // S3
+export const REQUEST_LINKS_NO_SERVER_LINE = 'Not available on this server right now.'; // S4
+export const REQUEST_LINKS_LINK_OPEN_LINE = 'Close your request link first.'; // S5
+
+/** The Go-side /health probe result (FeatureResult in serverprobe.go). */
+export interface RequestFeature {
+    reachable: boolean;
+    requestLinks: boolean;
+}
+
+/** requestLinksSwitch decides the Beta switch's state and the one line under
+ *  it (spec 06 4.19).
+ *
+ *  An open link wins over everything: turning the Beta off must never strand a
+ *  live link or a running drop, so the switch locks with S5 whatever the server
+ *  says. Otherwise the switch works only against a server that listed request-1
+ *  on the last probe; an unreachable server and one without the feature read
+ *  the same (S4), because the app cannot tell a policy flip from an older
+ *  self-hosted server. Before the first probe answers (null) the switch stays
+ *  disabled but keeps the plain S3 line rather than claiming the server said
+ *  no. */
+export function requestLinksSwitch(
+    feature: RequestFeature | null,
+    linkOpen: boolean,
+): {disabled: boolean; description: string} {
+    if (linkOpen) return {disabled: true, description: REQUEST_LINKS_LINK_OPEN_LINE};
+    if (feature === null) return {disabled: true, description: REQUEST_LINKS_ON_LINE};
+    if (feature.reachable && feature.requestLinks) return {disabled: false, description: REQUEST_LINKS_ON_LINE};
+    return {disabled: true, description: REQUEST_LINKS_NO_SERVER_LINE};
+}

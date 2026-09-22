@@ -15,10 +15,12 @@ import {
     OpenFolder,
     PasteFiles,
     ReceiveByCode,
+    RequestLinkSupport,
     RevealFile,
     SelectFiles,
     SelectFolder,
     SetCheckUpdates,
+    SetRequestLinks,
     SetSettings,
     StartSend,
     StartSendText,
@@ -38,7 +40,7 @@ import {
     X,
 } from 'lucide-react';
 import {BoltMark, Button, cn, Eyebrow, Input, rowDescClass, rowLabelClass, StatusDot} from './components/ui';
-import {advancedSummary, hostOf, webPlaceholder} from './settings';
+import {BETA_HEADING, REQUEST_LINKS_LABEL, advancedSummary, hostOf, requestLinksSwitch, webPlaceholder, type RequestFeature} from './settings';
 import {UNDO_WINDOW_MS, clearLabel, clearedAnnouncement, clearedLabel, restorable, restoredAnnouncement, stagedSnapshot, supersededBy, undoLabel, type Cleared} from './clear';
 import {resetWarning} from './reset';
 import {friendlyError} from './errors';
@@ -281,6 +283,12 @@ function App() {
     const [updateDismissed, setUpdateDismissed] = useState(false);
     const [checkUpdates, setCheckUpdates] = useState(true);
 
+    // Settings > Beta > Request links. Go owns the value (desktop.json, off by
+    // default) and the probe (the webview's CSP blocks the fetch). null means
+    // the server has not been asked yet this launch.
+    const [requestLinksOn, setRequestLinksOn] = useState(false);
+    const [requestFeature, setRequestFeature] = useState<RequestFeature | null>(null);
+
     // addFiles merges incoming paths into the send selection. Shared by OS
     // drops, second-instance launches, and cold-start args; safe to call from
     // once-registered closures (functional updates + stable setters only).
@@ -314,6 +322,17 @@ function App() {
             await SetCheckUpdates(v);
         } catch {
             setCheckUpdates(!v); // revert on failure, the toggleCtxMenu pattern
+        }
+    }
+
+    // Owned by its own Go setter, like the update check, so a whole-record
+    // Settings save can never clobber it (settingsFromArgs carries it over).
+    async function toggleRequestLinks(v: boolean) {
+        setRequestLinksOn(v);
+        try {
+            await SetRequestLinks(v);
+        } catch {
+            setRequestLinksOn(!v); // revert on failure, the toggleCtxMenu pattern
         }
     }
 
@@ -434,6 +453,9 @@ function App() {
         try {
             await SetSettings('', '', false, true);
             await SetCheckUpdates(true);
+            // Off is the shipped default (F-05). Its own setter, so the reset
+            // cannot rely on SetSettings, which carries the switch over.
+            await SetRequestLinks(false);
         } catch (e) {
             // Two persists means a partial failure is possible: re-pull what
             // actually landed on disk so the screen never diverges from it.
@@ -444,6 +466,7 @@ function App() {
                 setHideIP(c.hideIP);
                 setReportStats(c.reportStats);
                 setCheckUpdates(!c.noUpdateCheck);
+                setRequestLinksOn(!!c.requestLinks);
                 serverAddrRef.current = c.server || '';
                 webAddrRef.current = c.web || '';
             } catch { /* unreadable config: leave the screen as is */ }
@@ -455,6 +478,7 @@ function App() {
         setHideIP(false);
         setReportStats(true);
         setCheckUpdates(true);
+        setRequestLinksOn(false);
         setOutput('');
         setTestStatus('');
         serverAddrRef.current = '';
@@ -681,6 +705,8 @@ function App() {
                 // Not part of the migration below: the field never lived in
                 // localStorage, and its zero value is the shipped default.
                 setCheckUpdates(!c.noUpdateCheck);
+                // Same: Go-owned from the start, and false (off) is the default.
+                setRequestLinksOn(!!c.requestLinks);
                 if (c.migrated) {
                     setHideIP(c.hideIP);
                     setReportStats(c.reportStats);
@@ -698,6 +724,21 @@ function App() {
             })
             .catch(() => {});
     }, []);
+
+    // The request-1 probe, in its own small effect (never the mount effect).
+    // It runs where its answer is used: whenever Settings opens (the Beta
+    // switch's state and line) and while the switch is on. With the switch off
+    // and Settings closed it never runs, so a launch with the Beta off (the
+    // default) sends nothing of the feature anywhere (FT-03). The live flag
+    // drops an answer that lands after the screen moved on.
+    useEffect(() => {
+        if (!settingsOpen && !requestLinksOn) return;
+        let live = true;
+        RequestLinkSupport()
+            .then((f) => { if (live) setRequestFeature({reachable: !!f?.reachable, requestLinks: !!f?.requestLinks}); })
+            .catch(() => { if (live) setRequestFeature({reachable: false, requestLinks: false}); });
+        return () => { live = false; };
+    }, [settingsOpen, requestLinksOn]);
 
     // Persist only the transfer tabs; relaunching into History would be odd.
     useEffect(() => { if (mode !== 'history') localStorage.setItem('floe:mode', mode); }, [mode]);
@@ -1465,6 +1506,10 @@ function App() {
     // Three states, not two. See settings.ts and its test.
     const advSummary = advancedSummary(serverAddr, webAddr);
 
+    // The Beta switch's state and its one line. The lane's own state joins in
+    // with the REQUEST LINK view (S1-DSK-06); until then nothing can be open.
+    const betaSwitch = requestLinksSwitch(requestFeature, false);
+
     return (
         <div className="flex h-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100 selection:bg-ice/20">
             <TitleBar onSettings={() => setSettingsOpen((o) => !o)} settingsActive={settingsOpen} onStartOver={startOver}/>
@@ -1639,6 +1684,22 @@ function App() {
                                         </div>
                                     </section>
                                 )}
+
+                                {/* After Windows and before Advanced (F-10, OD-31 O8); in
+                                    the Store build, where Windows is absent, directly after
+                                    Privacy. One row, off by default. */}
+                                <section className="space-y-2">
+                                    <Eyebrow as="h3">{BETA_HEADING}</Eyebrow>
+                                    <div className={cardClass}>
+                                        <SettingRow
+                                            checked={requestLinksOn}
+                                            onChange={(v) => void toggleRequestLinks(v)}
+                                            label={REQUEST_LINKS_LABEL}
+                                            description={betaSwitch.description}
+                                            disabled={betaSwitch.disabled}
+                                        />
+                                    </div>
+                                </section>
 
                                 <section className="space-y-2">
                                     <Eyebrow as="h3">Advanced</Eyebrow>

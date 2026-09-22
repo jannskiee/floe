@@ -1,18 +1,15 @@
 package main
 
-// The Request link lane's bound surface (spec 06 4.3 and 4.4). This file is
-// the bindings contract: the eight methods and the two structs the frontend
-// sees, frozen so the frontend and the Go lane can be built at the same time.
-// Every method here is a stub that answers "not available". None of them can
-// report a success, so the Beta switch can never appear to work before the real
-// lane lands. The lane replaces the six lane stubs in this file; the Settings
-// card replaces the last two with the real setter in endpoints.go and the real
-// probe in serverprobe.go.
+// The Request link lane's bound surface (spec 06 4.3 and 4.4). This file holds
+// the bindings contract's six lane methods and the snapshot the frontend sees,
+// frozen so the frontend and the Go lane can be built at the same time. The
+// other two contract methods live with their concerns: SetRequestLinks in
+// endpoints.go, RequestLinkSupport in serverprobe.go. Every method here is a
+// stub that answers "not available". None of them can report a success, so a
+// link can never appear to work before the real lane replaces them.
 //
 // Deliberately no *App fields, no goroutines and no network: a stub that did
 // anything could be mistaken for the feature.
-
-import "errors"
 
 // RequestLinkSnapshot is the whole host-authoritative lane state, sent on the
 // request:state event and returned by the lane methods (spec 06 4.4). Codes are
@@ -110,31 +107,3 @@ func (a *App) GetRequestLink() RequestLinkSnapshot {
 // RetryRequestLink runs the next reconnect attempt at once. Stub: nothing is
 // ever reconnecting.
 func (a *App) RetryRequestLink() {}
-
-// errRequestLinksUnavailable is the stub setter's refusal. Not user-facing
-// copy: the Settings switch reverts on any error, the toggleCheckUpdates
-// pattern.
-var errRequestLinksUnavailable = errors.New("request links are not available in this build")
-
-// FeatureResult is the Go-side /health probe for the Beta switch: whether the
-// server answered, and whether it lists request-1. One struct return, never a
-// (T, error) pair (see ProbeResult).
-type FeatureResult struct {
-	Reachable    bool `json:"reachable"`
-	RequestLinks bool `json:"requestLinks"`
-}
-
-// SetRequestLinks persists the Beta switch. Stub: turning it on is refused so
-// the switch can never appear to work; turning it off is already true.
-func (a *App) SetRequestLinks(enabled bool) error {
-	if enabled {
-		return errRequestLinksUnavailable
-	}
-	return nil
-}
-
-// RequestLinkSupport probes the server for request-1. Stub: not reachable and
-// no feature, which keeps the switch disabled with the server line (S4).
-func (a *App) RequestLinkSupport() FeatureResult {
-	return FeatureResult{}
-}

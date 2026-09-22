@@ -299,3 +299,122 @@ func TestProbeServerRefusesRedirects(t *testing.T) {
 		t.Errorf("probeServer followed a redirect: %+v", got)
 	}
 }
+
+// healthServer answers /health with body and nothing else.
+func healthServer(body string) *httptest.Server {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	})
+	return httptest.NewServer(mux)
+}
+
+// TestProbeHealthReadsFeatures: the Beta switch reads request-1 out of the
+// server's feature list; unknown names beside it are ignored, never an error.
+func TestProbeHealthReadsFeatures(t *testing.T) {
+	srv := healthServer(`{"status":"healthy","uptime":1,"features":["portal-9","request-1","x"]}`)
+	defer srv.Close()
+
+	r, features := probeHealth(srv.URL)
+	if !r.OK {
+		t.Fatalf("probeHealth = %+v, want OK", r)
+	}
+	if !featuresHave(features, "request-1") {
+		t.Errorf("features = %v, want request-1 found", features)
+	}
+	if featuresHave(features, "request-2") {
+		t.Errorf("featuresHave matched a name that is not in the list")
+	}
+	if got := requestLinkSupport(srv.URL); got != (FeatureResult{Reachable: true, RequestLinks: true}) {
+		t.Errorf("requestLinkSupport = %+v, want reachable with request-1", got)
+	}
+}
+
+// TestProbeHealthToleratesMissingFeatures: every server that predates the
+// feature list, and every self-host that never turned it on, answers without
+// one. That is a healthy server with no request links, not a failure, and
+// Settings Test must keep passing against it.
+func TestProbeHealthToleratesMissingFeatures(t *testing.T) {
+	for _, body := range []string{
+		`{"status":"healthy","uptime":42.0}`,
+		`{"status":"healthy","features":[]}`,
+		`{"status":"healthy","features":null}`,
+	} {
+		srv := healthServer(body)
+		r, features := probeHealth(srv.URL)
+		if !r.OK {
+			t.Errorf("%s: probeHealth = %+v, want OK", body, r)
+		}
+		if featuresHave(features, "request-1") {
+			t.Errorf("%s: request-1 found in %v", body, features)
+		}
+		if got := requestLinkSupport(srv.URL); got != (FeatureResult{Reachable: true}) {
+			t.Errorf("%s: requestLinkSupport = %+v, want reachable without request links", body, got)
+		}
+		srv.Close()
+	}
+
+	// A features value of the wrong shape must not fail the health check that
+	// Settings Test relies on, and must never read as request-1.
+	srv := healthServer(`{"status":"healthy","features":"request-1"}`)
+	defer srv.Close()
+	if got := requestLinkSupport(srv.URL); got.RequestLinks {
+		t.Errorf("a string features value read as request-1: %+v", got)
+	}
+}
+
+// TestRequestLinkSupportUnreachable: a server that cannot be reached, or that
+// answers but is not a Floe server, reports no request links, so the switch
+// stays disabled with S4.
+func TestRequestLinkSupportUnreachable(t *testing.T) {
+	dead := httptest.NewServer(http.NotFoundHandler())
+	url := dead.URL
+	dead.Close()
+	if got := requestLinkSupport(url); got != (FeatureResult{}) {
+		t.Errorf("closed port: requestLinkSupport = %+v, want the zero result", got)
+	}
+
+	notFloe := healthServer(`<html>welcome</html>`)
+	defer notFloe.Close()
+	if got := requestLinkSupport(notFloe.URL); got != (FeatureResult{}) {
+		t.Errorf("non-Floe answer: requestLinkSupport = %+v, want the zero result", got)
+	}
+
+	unhealthy := healthServer(`{"status":"starting","features":["request-1"]}`)
+	defer unhealthy.Close()
+	if got := requestLinkSupport(unhealthy.URL); got.RequestLinks {
+		t.Errorf("an unhealthy server's feature list was trusted: %+v", got)
+	}
+
+	if got := requestLinkSupport(""); got != (FeatureResult{}) {
+		t.Errorf("empty base: requestLinkSupport = %+v, want the zero result", got)
+	}
+}
+
+// TestRequestLinkSupportRefusesRedirects: a captive portal or a catch-all
+// rewrite pointing at a server that does list request-1 must not unlock the
+// switch. The probe shares probeClient's no-redirect rule with Settings Test.
+func TestRequestLinkSupportRefusesRedirects(t *testing.T) {
+	real := healthServer(`{"status":"healthy","features":["request-1"]}`)
+	defer real.Close()
+	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, real.URL+r.URL.Path, http.StatusFound)
+	}))
+	defer redirector.Close()
+
+	if got := requestLinkSupport(redirector.URL); got.RequestLinks || got.Reachable {
+		t.Errorf("requestLinkSupport followed a redirect: %+v", got)
+	}
+}
+
+// TestRequestLinkSupportUsesTheConfiguredServer: the bound method probes the
+// server this app talks to, the endpoints() snapshot, not a fixed host.
+func TestRequestLinkSupportUsesTheConfiguredServer(t *testing.T) {
+	srv := healthServer(`{"status":"healthy","features":["request-1"]}`)
+	defer srv.Close()
+	a := &App{cfg: appConfig{Server: srv.URL}}
+	if got := a.RequestLinkSupport(); got != (FeatureResult{Reachable: true, RequestLinks: true}) {
+		t.Errorf("RequestLinkSupport = %+v, want reachable with request-1 from %s", got, srv.URL)
+	}
+}

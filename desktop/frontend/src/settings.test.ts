@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {advancedSummary, hostOf, webPlaceholder} from './settings';
+import {advancedSummary, hostOf, requestLinksSwitch, webPlaceholder} from './settings';
 
 describe('hostOf', () => {
     it('reduces a full address to its host', () => {
@@ -94,5 +94,52 @@ describe('webPlaceholder', () => {
     it('shows the production link while the server field is blank', () => {
         expect(webPlaceholder('')).toBe('https://floe.one');
         expect(webPlaceholder('   ')).toBe('https://floe.one');
+    });
+});
+
+describe('requestLinksSwitch', () => {
+    it('request links switch is enabled when request-1 is listed', () => {
+        expect(requestLinksSwitch({reachable: true, requestLinks: true}, false)).toEqual({
+            disabled: false,
+            description: 'Let someone send files to this PC through a link you make. Works while Floe is open.',
+        });
+    });
+
+    it('request links switch is disabled with the server line when request-1 is absent', () => {
+        expect(requestLinksSwitch({reachable: true, requestLinks: false}, false)).toEqual({
+            disabled: true,
+            description: 'Not available on this server right now.',
+        });
+    });
+
+    it('request links switch is disabled with the server line when the server is unreachable', () => {
+        expect(requestLinksSwitch({reachable: false, requestLinks: false}, false)).toEqual({
+            disabled: true,
+            description: 'Not available on this server right now.',
+        });
+        // A malformed probe answer that claims the feature from an unreachable
+        // server is still unreachable.
+        expect(requestLinksSwitch({reachable: false, requestLinks: true}, false).disabled).toBe(true);
+    });
+
+    it('request links switch is disabled with Close your request link first while a link is open', () => {
+        for (const feature of [
+            {reachable: true, requestLinks: true},
+            {reachable: true, requestLinks: false},
+            {reachable: false, requestLinks: false},
+            null,
+        ]) {
+            expect(requestLinksSwitch(feature, true)).toEqual({
+                disabled: true,
+                description: 'Close your request link first.',
+            });
+        }
+    });
+
+    it('stays disabled without claiming anything before the first probe answers', () => {
+        expect(requestLinksSwitch(null, false)).toEqual({
+            disabled: true,
+            description: 'Let someone send files to this PC through a link you make. Works while Floe is open.',
+        });
     });
 });

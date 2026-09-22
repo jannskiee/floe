@@ -476,3 +476,101 @@ describe('the Wails mock', () => {
         await expect(SetRequestLinks(false)).resolves.toBeUndefined();
     });
 });
+
+/**
+ * Settings > Beta > Request links (S1-DSK-02). Off by default, usable only
+ * against a server whose /health lists request-1, reset by Reset all settings.
+ */
+describe('the Beta switch', () => {
+    const betaSwitch = () => screen.getByRole('checkbox', {name: /^Request links/}) as HTMLInputElement;
+
+    it('Beta section sits after Windows and before Advanced', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getByRole('button', {name: 'Settings'}));
+
+        const headings = screen.getAllByRole('heading', {level: 3}).map((h) => h.textContent);
+        expect(headings).toEqual(['Transfers', 'Privacy', 'Windows', 'Beta', 'Advanced', 'About']);
+    });
+
+    it('a disabled setting row ignores clicks', async () => {
+        // The stubbed probe: the server is not reachable, so the switch is
+        // disabled with the server line.
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getByRole('button', {name: 'Settings'}));
+
+        const line = await screen.findByText('Not available on this server right now.');
+        await waitFor(() => expect(wails.go.RequestLinkSupport).toHaveBeenCalled());
+        const sw = betaSwitch();
+        expect(sw.disabled).toBe(true);
+        expect(sw.closest('label')?.getAttribute('aria-disabled')).toBe('true');
+
+        await user.click(line);
+        await user.click(screen.getByText('Request links'));
+        expect(sw.checked).toBe(false);
+        expect(wails.go.SetRequestLinks).not.toHaveBeenCalled();
+    });
+
+    it('turns on against a server that lists request-1, and a refused save reverts it', async () => {
+        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: true}));
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getByRole('button', {name: 'Settings'}));
+
+        await screen.findByText('Let someone send files to this PC through a link you make. Works while Floe is open.');
+        await waitFor(() => expect(betaSwitch().disabled).toBe(false));
+
+        // The stub setter refuses to turn on, so the switch must not stay on.
+        await user.click(betaSwitch());
+        expect(wails.go.SetRequestLinks).toHaveBeenCalledWith(true);
+        await waitFor(() => expect(betaSwitch().checked).toBe(false));
+
+        // A setter that saves keeps it on.
+        wails.go.SetRequestLinks.mockImplementation(async () => {});
+        await user.click(betaSwitch());
+        await waitFor(() => expect(betaSwitch().checked).toBe(true));
+    });
+
+    it('reset all settings turns request links off', async () => {
+        wails.go.GetSettings.mockImplementation(async () => ({
+            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false,
+            requestLinks: true, migrated: true,
+        }));
+        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: true}));
+        wails.go.SetRequestLinks.mockImplementation(async () => {});
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getByRole('button', {name: 'Settings'}));
+        await waitFor(() => expect(betaSwitch().checked).toBe(true));
+
+        await user.click(screen.getByRole('button', {name: 'Reset'}));
+        const dialog = await screen.findByRole('dialog');
+        await user.click(within(dialog).getByRole('button', {name: 'Reset all settings'}));
+
+        expect(wails.go.SetRequestLinks).toHaveBeenCalledWith(false);
+        await waitFor(() => expect(betaSwitch().checked).toBe(false));
+    });
+
+    it('a Settings save sends only the fields SetSettings owns', async () => {
+        // The Go side carries RequestLinks over (settingsFromArgs); the
+        // frontend's half is never to route the switch through SetSettings,
+        // whose four arguments have no place for it.
+        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: true}));
+        wails.go.SetRequestLinks.mockImplementation(async () => {});
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getByRole('button', {name: 'Settings'}));
+        await waitFor(() => expect(betaSwitch().disabled).toBe(false));
+        await user.click(betaSwitch());
+        await user.click(screen.getByRole('checkbox', {name: /^Hide my IP address/}));
+
+        expect(wails.go.SetRequestLinks).toHaveBeenCalledTimes(1);
+        for (const call of wails.go.SetSettings.mock.calls) expect(call).toHaveLength(4);
+    });
+});

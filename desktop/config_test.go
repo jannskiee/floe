@@ -365,3 +365,118 @@ func TestMigrateWebviewProfileAdoptsOverEmptyHusk(t *testing.T) {
 		t.Errorf("empty husk must not block adoption: %v %q", err, got)
 	}
 }
+
+// TestSettingsFromArgsKeepsRequestLinks is E-56: the Settings screen saves the
+// whole record through settingsFromArgs, which knows nothing about the Beta
+// switch, so without the carry-over every Hide my IP or stats toggle, and every
+// address blur, would silently turn request links off.
+func TestSettingsFromArgsKeepsRequestLinks(t *testing.T) {
+	for _, on := range []bool{true, false} {
+		cur := appConfig{RequestLinks: on, Migrated: true}
+		got := settingsFromArgs(cur, "https://floe.example.com/", "https://app.example.com", true, false)
+		if got.RequestLinks != on {
+			t.Errorf("settingsFromArgs turned RequestLinks from %v to %v", on, got.RequestLinks)
+		}
+		if got.Server != "https://floe.example.com" || got.Web != "https://app.example.com" || !got.HideIP || got.ReportStats {
+			t.Errorf("argument fields wrong: %+v", got)
+		}
+	}
+}
+
+// TestRequestLinksFieldRoundTrip pins the switched-on state, the non-default
+// choice and so the one a widening bug would silently drop.
+func TestRequestLinksFieldRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "floe", "desktop.json")
+
+	want := appConfig{ReportStats: true, RequestLinks: true, Migrated: true}
+	if err := saveConfigTo(path, want); err != nil {
+		t.Fatalf("saveConfigTo: %v", err)
+	}
+	if got := loadConfigFrom(path); got != want {
+		t.Errorf("loadConfigFrom = %+v, want %+v", got, want)
+	}
+}
+
+// TestAbsentRequestLinksFieldDefaultsOff: every desktop.json written before the
+// field existed must load with the Beta off, the shipped default. The zero
+// value already says so; this pins that nobody inverts it.
+func TestAbsentRequestLinksFieldDefaultsOff(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pre-feature.json")
+	body := `{"server":"https://floe.example.com","web":"","hideIP":true,"reportStats":false,"noUpdateCheck":true,"migrated":true}`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := loadConfigFrom(path)
+	if got.RequestLinks {
+		t.Error("a pre-feature config loaded with RequestLinks on; the Beta must be off until the owner turns it on")
+	}
+	if got.Server != "https://floe.example.com" || !got.HideIP || got.ReportStats || !got.NoUpdateCheck || !got.Migrated {
+		t.Errorf("pre-feature fields damaged: %+v", got)
+	}
+}
+
+// TestWithRequestLinksTouchesOnlyThatField: SetRequestLinks is a
+// read-modify-write of the whole record, so the helper it builds on must hand
+// back every other field exactly as it found it.
+func TestWithRequestLinksTouchesOnlyThatField(t *testing.T) {
+	cur := appConfig{
+		Server:        "https://floe.example.com",
+		Web:           "https://app.example.com",
+		HideIP:        true,
+		ReportStats:   false,
+		NoUpdateCheck: true,
+		Migrated:      true,
+	}
+	on := withRequestLinks(cur, true)
+	want := cur
+	want.RequestLinks = true
+	if on != want {
+		t.Errorf("withRequestLinks(cur, true) = %+v, want %+v", on, want)
+	}
+	if off := withRequestLinks(on, false); off != cur {
+		t.Errorf("withRequestLinks(on, false) = %+v, want %+v", off, cur)
+	}
+}
+
+// TestRequestLinksSaveKeepsEverySetting is the settings round trip FT-03 asks
+// for: through both writers and the file, in both orders, reportStats,
+// NoUpdateCheck and the two server addresses come back untouched beside the new
+// field. reportStats false and NoUpdateCheck true are the non-default choices,
+// the ones a clobbering writer would silently reset.
+func TestRequestLinksSaveKeepsEverySetting(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "floe", "desktop.json")
+	base := appConfig{
+		Server:        "https://files.example.com",
+		Web:           "https://app.example.com",
+		HideIP:        false,
+		ReportStats:   false,
+		NoUpdateCheck: true,
+		Migrated:      true,
+	}
+
+	// The Beta switch writes first, then a Settings save lands on top.
+	if err := saveConfigTo(path, withRequestLinks(base, true)); err != nil {
+		t.Fatal(err)
+	}
+	afterSettings := settingsFromArgs(loadConfigFrom(path), base.Server, base.Web, true, base.ReportStats)
+	if err := saveConfigTo(path, afterSettings); err != nil {
+		t.Fatal(err)
+	}
+	got := loadConfigFrom(path)
+	want := base
+	want.HideIP = true
+	want.RequestLinks = true
+	if got != want {
+		t.Errorf("switch then settings save = %+v, want %+v", got, want)
+	}
+
+	// The other order: a Settings save, then the switch turned off again.
+	if err := saveConfigTo(path, withRequestLinks(loadConfigFrom(path), false)); err != nil {
+		t.Fatal(err)
+	}
+	got = loadConfigFrom(path)
+	want.RequestLinks = false
+	if got != want {
+		t.Errorf("settings save then switch off = %+v, want %+v", got, want)
+	}
+}
