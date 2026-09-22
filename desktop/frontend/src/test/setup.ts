@@ -11,6 +11,7 @@
  * mocking, and import order inside a test file does not matter.
  */
 import {afterEach, beforeEach, vi} from 'vitest';
+import {offSnapshot} from './requestFixtures';
 
 /** The Wails event bus and call log a render test drives the app through. */
 export interface WailsProbe {
@@ -74,6 +75,20 @@ function installWails() {
         StartSend: vi.fn(async () => {}),
         StartSendText: vi.fn(async () => {}),
         TestServer: vi.fn(async () => ({ok: true, message: 'Connected.', relayAvailable: true})),
+        // The Request link bindings, mocked the way the Go stubs answer
+        // (requestlink.go): nothing is available and nothing can succeed, so a
+        // test that wants a live link or a probe that lists request-1 has to
+        // say so with mockImplementation.
+        AnswerRequest: vi.fn(async () => ({...offSnapshot})),
+        CancelRequestDrop: vi.fn(async () => {}),
+        CloseRequestLink: vi.fn(async () => {}),
+        GetRequestLink: vi.fn(async () => ({...offSnapshot})),
+        MakeRequestLink: vi.fn(async () => ({...offSnapshot, state: 'error', code: 'disabled'})),
+        RequestLinkSupport: vi.fn(async () => ({reachable: false, requestLinks: false})),
+        RetryRequestLink: vi.fn(async () => {}),
+        SetRequestLinks: vi.fn(async (enabled: boolean) => {
+            if (enabled) throw new Error('request links are not available in this build');
+        }),
     };
 
     const probe: WailsProbe = {
