@@ -264,9 +264,16 @@ func TestSetupErrorWrapsEveryStage(t *testing.T) {
 			// pushes PeerLeft, and the offer wait reads PeerLeft since S1-ENG-11
 			// (a lost server ends setup at once). Take that push first, so the
 			// wait sees only the queued offer and this case keeps driving the
-			// send-answer site instead of a coin flip between the two.
-			<-sc.Down
-			<-sc.PeerLeft
+			// send-answer site instead of a coin flip between the two. Bounded,
+			// so a change that stops the close-time push fails here at once
+			// instead of hanging until the go test timeout.
+			for _, ch := range []<-chan struct{}{sc.Down, sc.PeerLeft} {
+				select {
+				case <-ch:
+				case <-time.After(3 * time.Second):
+					t.Fatal("the closed socket did not close Down and push PeerLeft within 3s")
+				}
+			}
 			conn, err := New(nil, sc)
 			if err != nil {
 				t.Fatal(err)
