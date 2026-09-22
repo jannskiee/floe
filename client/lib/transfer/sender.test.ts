@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { sendFiles, sendAbortReason, CONTROL_FLUSH_MS, type SenderDeps } from './sender';
 import { ackMessage, incompatibleMessage, CONTROL_MSG_MAX } from './protocol';
 
@@ -118,19 +118,36 @@ describe('sender: an abort reason reaches the wire before teardown', () => {
     });
 
     it('does not hang when the peer never drains', async () => {
-        const channel = {
-            bufferedAmount: 4096,
-            bufferedAmountLowThreshold: 0,
-            addEventListener: () => {},
-            removeEventListener: () => {},
-        };
-        // Resolves on the CONTROL_FLUSH_MS deadline rather than never. A peer
-        // that stopped acknowledging must not hold the teardown open.
-        await Promise.race([
-            sendAbortReason(() => {}, channel, 'why'),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('sendAbortReason never resolved')), CONTROL_FLUSH_MS + 3000)),
-        ]);
-    }, CONTROL_FLUSH_MS + 5000);
+        // Fake timers, so the deadline is asserted from both sides instead of
+        // waited out. On the real clock this test spent 2 s asleep and was the
+        // long pole of the whole client unit suite.
+        vi.useFakeTimers();
+        try {
+            const channel = {
+                bufferedAmount: 4096,
+                bufferedAmountLowThreshold: 0,
+                addEventListener: () => {},
+                removeEventListener: () => {},
+            };
+            let settled = false;
+            const done = sendAbortReason(() => {}, channel, 'why').then(() => {
+                settled = true;
+            });
+
+            // Not a millisecond early: a peer that is merely slow gets the
+            // whole window, and drainBelow's 200 ms poll must not end it.
+            await vi.advanceTimersByTimeAsync(CONTROL_FLUSH_MS - 1);
+            expect(settled).toBe(false);
+
+            // And not a millisecond late. A peer that stopped acknowledging
+            // must not hold the teardown open.
+            await vi.advanceTimersByTimeAsync(1);
+            expect(settled).toBe(true);
+            await done;
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });
 
 /**

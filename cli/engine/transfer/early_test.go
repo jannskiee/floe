@@ -137,7 +137,14 @@ func TestReceiveDrainsMessagesThatArrivedFirst(t *testing.T) {
 
 	// Send with nobody in the transfer layer listening yet.
 	sendErr := make(chan error, 1)
-	go func() { sendErr <- SendFiles(sender, []string{src}, "") }()
+	go func() {
+		err := SendFiles(sender, []string{src}, "")
+		// Close as the CLI's deferred conn.Close() does once the send is
+		// through, so the receive does not wait out the receiver's 5 s
+		// post-completion grace.
+		_ = sender.Close()
+		sendErr <- err
+	}()
 
 	// Block until the sender's first message is provably buffered. This is the
 	// whole point: at this instant the metadata has been delivered and acked at
