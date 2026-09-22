@@ -315,6 +315,11 @@ func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool, re
 	g := a.beginTransfer()
 	dir, err := a.receiveByCode(g, codeOrLink, outputDir, hideIP, reportStats)
 	if err != nil {
+		// A pasted request or drop link is a mix-up the status line explains
+		// (CP2), not a failed transfer, so it gets no failure toast.
+		if isRequestLinkPaste(err) {
+			return "", err
+		}
 		// Receive failures used to be completely silent behind a minimized
 		// window; mirror the send path's toast. Suppressed on user cancel and
 		// when a newer attempt has taken over.
@@ -357,6 +362,13 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 
 	roomID, err := code.Resolve(server, codeOrLink)
 	if err != nil {
+		// A request or drop link (S1-DSK-07, E-10) comes back as the engine's
+		// sentinel, whose text is the approved sentence. Returned bare, never
+		// wrapped: the wrapper below quotes the pasted input, which for these
+		// links is the room id in the fragment.
+		if isRequestLinkPaste(err) {
+			return "", err
+		}
 		return "", fmt.Errorf("could not resolve %q: %w", codeOrLink, err)
 	}
 
@@ -463,4 +475,12 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 		a.notify("Floe", "Files received.")
 	}
 	return absOutput, nil
+}
+
+// isRequestLinkPaste reports whether a receive failed because the input was a
+// browser-only request or drop link (code.ErrRequestLink, code.ErrDropLink).
+// Both errors carry the one approved sentence (CP2). The frontend refuses these
+// before calling ReceiveByCode; this is the defense in depth behind it.
+func isRequestLinkPaste(err error) bool {
+	return errors.Is(err, code.ErrRequestLink) || errors.Is(err, code.ErrDropLink)
 }

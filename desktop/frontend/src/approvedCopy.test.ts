@@ -18,6 +18,7 @@ import {
     REQUEST_LINKS_NO_SERVER_LINE,
     REQUEST_LINKS_ON_LINE,
 } from './settings';
+import {CODE_PASTE_LINE, OPEN_IN_BROWSER} from './requestCopy';
 
 const DEFAULT_PATH = 'C:/Users/Admin/.claude/plans/floe-portal/work/16-design/cp-3/approved-copy-desktop.md';
 const path = process.env.FLOE_APPROVED_COPY || DEFAULT_PATH;
@@ -68,5 +69,10 @@ describe.skipIf(!present)(`the approved desktop copy (${present ? path : 'not on
         expect(REQUEST_LINKS_ON_LINE).toBe(approved('S3'));
         expect(REQUEST_LINKS_NO_SERVER_LINE).toBe(approved('S4'));
         expect(REQUEST_LINKS_LINK_OPEN_LINE).toBe(approved('S5'));
+    });
+
+    it('CODE paste rows CP2 and CP3 match byte for byte', () => {
+        expect(CODE_PASTE_LINE).toBe(approved('CP2'));
+        expect(OPEN_IN_BROWSER).toBe(approved('CP3'));
     });
 });

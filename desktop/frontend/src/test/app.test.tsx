@@ -574,3 +574,73 @@ describe('the Beta switch', () => {
         for (const call of wails.go.SetSettings.mock.calls) expect(call).toHaveLength(4);
     });
 });
+
+/**
+ * A request link pasted into Receive > CODE (S1-DSK-07, VR3-D06). The link is
+ * for a web browser; Floe must say so and must never start a code receive,
+ * which would claim a transfer and toast a failure.
+ */
+describe('a request link pasted into CODE', () => {
+    const room = '6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f';
+    const link = `http://localhost:3000/r/Xk3p9Q0aB1c#${room}`;
+    const cp2 = 'That is a request link for sending files to someone. Open it in a web browser.';
+    const receiveTab = () => screen.getAllByRole('button', {name: 'Receive'})[0];
+    const receiveAction = () => screen.getAllByRole('button', {name: 'Receive'}).find((b) => b.className.includes('w-full'))!;
+
+    async function paste(value: string) {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(receiveTab());
+        await user.type(screen.getByPlaceholderText('amber-otter-cloud'), value);
+        await user.click(receiveAction());
+        return user;
+    }
+
+    it('request link pasted into CODE shows the sentence and never calls ReceiveByCode', async () => {
+        wails.go.GetSettings.mockImplementation(async () => ({
+            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false,
+            requestLinks: true, migrated: true,
+        }));
+        await paste(link);
+        expect(await screen.findByText(cp2)).toBeTruthy();
+        expect(screen.getByRole('button', {name: 'Open in browser'})).toBeTruthy();
+        expect(wails.go.ReceiveByCode).not.toHaveBeenCalled();
+        // Nothing was started, so there is nothing to cancel.
+        expect(screen.queryByRole('button', {name: 'Cancel'})).toBeNull();
+    });
+
+    it('request link pasted into CODE with the Beta switch off shows the same sentence', async () => {
+        await paste(`https://floe.one/r/Xk3p9Q0aB1c#${room}`);
+        expect(await screen.findByText(cp2)).toBeTruthy();
+        expect(wails.go.ReceiveByCode).not.toHaveBeenCalled();
+
+        // A drop link too, and Enter in the field takes the same path.
+        const field = screen.getByPlaceholderText('amber-otter-cloud');
+        await userEvent.clear(field);
+        expect(screen.queryByText(cp2)).toBeNull(); // editing clears it
+        await userEvent.type(field, 'https://floe.one/drop/aBcD1234{Enter}');
+        expect(await screen.findByText(cp2)).toBeTruthy();
+        expect(wails.go.ReceiveByCode).not.toHaveBeenCalled();
+    });
+
+    it('Open in browser passes the pasted link to BrowserOpenURL', async () => {
+        const user = await paste(link);
+        await user.click(await screen.findByRole('button', {name: 'Open in browser'}));
+        const open = (window as unknown as {runtime: {BrowserOpenURL: ReturnType<typeof vi.fn>}}).runtime.BrowserOpenURL;
+        expect(open).toHaveBeenCalledTimes(1);
+        expect(open).toHaveBeenCalledWith(link);
+    });
+
+    it('a normal #room= link still calls ReceiveByCode', async () => {
+        await paste(`http://localhost:3000/?s=abc#room=${room}`);
+        await waitFor(() => expect(wails.go.ReceiveByCode).toHaveBeenCalledTimes(1));
+        expect(screen.queryByText(cp2)).toBeNull();
+    });
+
+    it('a three-word code still calls ReceiveByCode', async () => {
+        await paste('amber-otter-cloud');
+        await waitFor(() => expect(wails.go.ReceiveByCode).toHaveBeenCalledWith('amber-otter-cloud', '', false, true));
+        expect(screen.queryByText(cp2)).toBeNull();
+    });
+});

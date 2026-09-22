@@ -44,6 +44,8 @@ import {BETA_HEADING, REQUEST_LINKS_LABEL, advancedSummary, hostOf, requestLinks
 import {UNDO_WINDOW_MS, clearLabel, clearedAnnouncement, clearedLabel, restorable, restoredAnnouncement, stagedSnapshot, supersededBy, undoLabel, type Cleared} from './clear';
 import {resetWarning} from './reset';
 import {friendlyError} from './errors';
+import {parsePastedLink} from './requestLink';
+import {CODE_PASTE_LINE, OPEN_IN_BROWSER} from './requestCopy';
 import {formatIncoming, type IncomingPreview} from './incoming';
 import {track, type Marker, type Prog} from './progress';
 import {baseName, mergePaths, normPath} from './paths';
@@ -209,6 +211,10 @@ function App() {
 
     // Receive state
     const [code, setCode] = useState('');
+    // A request or drop link the owner pasted into CODE, as the parsed http(s)
+    // href Open in browser may hand to the default browser; '' when none. Set
+    // only by receive()'s pre-check, cleared by any edit of the field.
+    const [pastedRequestLink, setPastedRequestLink] = useState('');
     const [output, setOutput] = useState(() => localStorage.getItem('floe:saveDir') || '');
     // Opt-OUT model like the browser: report unless explicitly disabled. Seeded
     // from localStorage, then replaced by the Go-owned record on mount.
@@ -1217,6 +1223,17 @@ function App() {
             setRecvStatus('Please enter a code or link.');
             return;
         }
+        // A request or drop link is for a web browser: say so and offer to
+        // open it, and never call ReceiveByCode, which claims a transfer
+        // generation before it resolves and toasts on failure (S1-DSK-07).
+        // Works whether or not the Beta switch is on: anyone can be sent
+        // somebody else's request link.
+        const pasted = parsePastedLink(code);
+        if (pasted) {
+            setPastedRequestLink(pasted.href);
+            setRecvStatus('');
+            return;
+        }
         const attempt = ++recvAttempt.current;
         setReceiving(true);
         setRecvProg(null);
@@ -1340,6 +1357,7 @@ function App() {
 
         // Receive
         setCode('');
+        setPastedRequestLink('');
         setRecvStatus(INITIAL_RECV_STATUS);
         setReceiving(false);
         setRecvProg(null);
@@ -2157,7 +2175,7 @@ function App() {
                                             <Input
                                                 placeholder="amber-otter-cloud"
                                                 value={code}
-                                                onChange={(e) => setCode(e.target.value)}
+                                                onChange={(e) => { setCode(e.target.value); setPastedRequestLink(''); }}
                                                 onKeyDown={(e) => { if (e.key === 'Enter' && !busy && code.trim()) receive(); }}
                                                 disabled={receiving}
                                                 autoFocus
@@ -2189,6 +2207,20 @@ function App() {
                                             <Button className="w-full" onClick={receive} disabled={busy}>
                                                 <Download/> Receive
                                             </Button>
+                                        )}
+
+                                        {/* A pasted request link (DK-01): the sentence, then Open in
+                                            browser on the right rail. BrowserOpenURL only ever gets
+                                            the http(s) href parsePastedLink produced. */}
+                                        {pastedRequestLink && !receiving && (
+                                            <div className="animate-floe-in space-y-2">
+                                                <p className="text-xs leading-relaxed text-zinc-400">{CODE_PASTE_LINE}</p>
+                                                <div className="flex justify-end">
+                                                    <Button variant="outline" onClick={() => BrowserOpenURL(pastedRequestLink)}>
+                                                        {OPEN_IN_BROWSER}
+                                                    </Button>
+                                                </div>
+                                            </div>
                                         )}
 
                                         {receiving && incoming && (

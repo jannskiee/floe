@@ -26,6 +26,11 @@ const PASSTHROUGH = [
 // 'connection closed' bucket must stay last of the connection family so the
 // more precise closed-variants above it win.
 const RULES: Array<[pattern: string, friendly: string]> = [
+    // First of all: a request or drop link pasted into Receive (S1-DSK-07,
+    // F-06). Go returns the approved sentence bare, but an older build wrapped
+    // it in 'could not resolve "<the link>": ...', and the typo advice of
+    // that rule is wrong for a link that parsed fine.
+    ['request link for sending files', 'That is a request link for sending files to someone. Open it in a web browser.'],
     // Before 'could not resolve': the resolve step wraps network failures too
     // ('could not resolve %q: could not reach signaling server: ...'), and a
     // dead server must not read as a typo in the code.

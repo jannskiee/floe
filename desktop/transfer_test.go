@@ -93,3 +93,52 @@ func TestRequireRelay(t *testing.T) {
 		})
 	}
 }
+
+// requestLinkPasteLinks are the browser-only link shapes a person may paste
+// into Receive > CODE by mistake: request links on floe.one, on the local dev
+// pair and on a self-hosted base path, and the Stage 2 drop shapes. Resolving
+// them is local (a URL path match), so these tests make no network call.
+var requestLinkPasteLinks = []string{
+	"https://floe.one/r/Xk3p9Q0aB1c#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f",
+	"http://localhost:3000/r/Xk3p9Q0aB1c#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f",
+	"https://files.example.com/floe/r/Xk3p9Q0aB1c/#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f",
+	"https://floe.one/d/aBcD1234#k=s3cr3t",
+	"https://floe.one/drop/aBcD1234",
+}
+
+// TestReceiveByCodeMapsRequestLink: a pasted request or drop link comes back as
+// the one approved sentence (CP2), not as "could not resolve" wrapped around
+// the pasted text, which quoted the link, room id included, into the status
+// line.
+func TestReceiveByCodeMapsRequestLink(t *testing.T) {
+	const cp2 = "That is a request link for sending files to someone. Open it in a web browser."
+	for _, link := range requestLinkPasteLinks {
+		a := &App{wake: &wakeGuard{}, notifyFn: func(string, string) {}}
+		_, err := a.ReceiveByCode(link, t.TempDir(), false, false)
+		if err == nil {
+			t.Fatalf("%s: ReceiveByCode succeeded", link)
+		}
+		if err.Error() != cp2 {
+			t.Errorf("%s: error = %q, want the CP2 sentence", link, err.Error())
+		}
+		if strings.Contains(err.Error(), "aBcD1234") || strings.Contains(err.Error(), "Xk3p9Q0aB1c") || strings.Contains(err.Error(), "6f1c2b9e") {
+			t.Errorf("%s: the error quotes the pasted link: %q", link, err.Error())
+		}
+	}
+}
+
+// TestReceiveByCodeRequestLinkSendsNoToast: a pasted request link is a mix-up
+// the status line explains, not a failed transfer, so the "receive failed"
+// toast must not fire for it.
+func TestReceiveByCodeRequestLinkSendsNoToast(t *testing.T) {
+	var got []string
+	a := &App{wake: &wakeGuard{}, notifyFn: func(title, body string) { got = append(got, title+"|"+body) }}
+	for _, link := range requestLinkPasteLinks {
+		if _, err := a.ReceiveByCode(link, t.TempDir(), false, false); err == nil {
+			t.Fatalf("%s: ReceiveByCode succeeded", link)
+		}
+	}
+	if len(got) != 0 {
+		t.Errorf("pasted request links toasted %d times: %v", len(got), got)
+	}
+}
