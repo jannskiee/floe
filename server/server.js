@@ -630,6 +630,26 @@ function reclaimHostSeat(peer, roomId, meta, now = Date.now()) {
     peer.send('room-joined', { role: 'host' });
 }
 
+// A request room seals by itself once both seats have routed a signal
+// (D-116), the signal-time rule the room seal uses for ordinary rooms
+// (D-113): a pair that has exchanged an offer and an answer is the pair the
+// drop runs between. request-seal stays the host's explicit, idempotent
+// confirmation, but it cannot be the only seal: if the visitor's socket drops
+// between the data channel opening and the host's seal frame, that seal finds
+// seat 1 empty, and a third party could be seated (and the host sent
+// user-connected) in the middle of the drop.
+//
+// `signaled` holds the ids of seated peers that have routed a signal in the
+// current pairing, at most the host and one visitor: it is cleared when a
+// visitor is seated and on reopen, and nothing is added once sealed. A visitor
+// offered to that leaves before answering has received nothing, so the room
+// stays open for the next one.
+function noteRequestSignal(meta, sender, target) {
+    if (meta.sealed) return;
+    meta.signaled.add(sender.id);
+    if (meta.signaled.has(target.id)) meta.sealed = true;
+}
+
 // The per-socket request-join budget. A frame past it is dropped before any
 // lookup: no reply, no room change, no log line, so a flooder gets nothing to
 // tune against and one socket can make the server do at most 30 lookups and
@@ -693,6 +713,7 @@ function handleRequestJoin(peer, roomId, now = Date.now()) {
     leaveCurrentRoom(peer);
     room.push(peer);
     peer.roomId = id;
+    meta.signaled.clear(); // a new pairing: both seats must signal again
     peer.send('request-joined', { role: 'visitor' });
     try {
         host.send('user-connected', { id: peer.id });
@@ -734,6 +755,7 @@ function handleRequestControl(peer, type, roomId) {
             try { visitor.send('room-full', {}); } catch { /* undeliverable */ }
         }
         meta.sealed = false;
+        meta.signaled.clear();
         return;
     }
     if (type === 'request-close') {
@@ -812,6 +834,7 @@ function handleHostJoin(peer, roomId, hostToken, now = Date.now()) {
         hostPeerId: peer.id,
         hostKey: sealDigest(peer.key),
         sealed: false,
+        signaled: new Set(), // peer ids, not keys: who has signaled in this pairing (noteRequestSignal)
         createdAt: now,
         hostAbsentSince: null,
     });
@@ -1026,6 +1049,7 @@ function handleSignal(senderPeer, signal, targetId) {
     // digest per visitor would pile up for the life of the reservation.
     const meta = roomMeta.get(senderPeer.roomId);
     if (meta && meta.kind !== 'request') meta.keys.add(sealDigest(senderPeer.key));
+    else if (meta) noteRequestSignal(meta, senderPeer, targetPeer);
 
     // signal is the only peer-supplied value this server serializes: roomId is
     // UUID-checked and target is only compared. JSON.stringify recurses, so a

@@ -2308,10 +2308,13 @@ describe('handleRequestJoin', () => {
         handleRequestJoin(v, id, T0);
         assert.deepEqual(v.msgs, [{ type: 'request-joined', data: { role: 'visitor' } }]);
         assert.deepEqual(rooms.get(id), [host, v]);
-        // And the room seal, once two keys have signaled, never refuses a request-join.
+        // And the room seal, once two keys have signaled, never refuses a
+        // request-join. The pair has sealed the request room itself (D-116), so
+        // the host reopens first.
         handleSignal(host, { type: 'offer' }, null);
         handleSignal(v, { type: 'answer' }, null);
         handleDisconnect(v);
+        handleRequestControl(host, 'request-reopen', id);
         const v2 = makePeer('v2', '198.51.100.99');
         handleRequestJoin(v2, id, T0);
         assert.deepEqual(v2.msgs, [{ type: 'request-joined', data: { role: 'visitor' } }]);
@@ -2425,6 +2428,48 @@ describe('handleRequestControl', () => {
             assert.equal(p.roomId, null);
         }
         assert.deepEqual(rooms.get(id), [host]);
+    });
+
+    it('a visitor that drops before request-seal leaves the room sealed once both seats have signaled', () => {
+        // The race request-seal alone loses: the data channel opens, the
+        // visitor's socket drops, and the host's seal frame lands on a room
+        // with seat 1 empty.
+        const { id, host, visitor } = pairedRequestRoom();
+        handleSignal(host, { type: 'offer' }, null);
+        assert.equal(roomMeta.get(id).sealed, false, 'one side alone does not seal');
+        handleSignal(visitor, { type: 'answer' }, null);
+        assert.equal(roomMeta.get(id).sealed, true, 'both seats have signaled');
+
+        handleDisconnect(visitor);
+        handleRequestControl(host, 'request-seal', id); // late, and idempotent
+        assert.equal(roomMeta.get(id).sealed, true);
+        host.msgs.length = 0;
+        const third = makePeer('third', 'k3');
+        handleRequestJoin(third, id, RQ_T0);
+        assert.deepEqual(third.msgs, [{ type: 'room-full', data: {} }]);
+        assert.equal(host.msgs.length, 0, 'no user-connected mid-drop');
+        assert.deepEqual(rooms.get(id), [host]);
+
+        // Offered to and gone before answering: nothing was received, so the
+        // room stays open (the P0-10 rule), and the next visitor must signal
+        // afresh; reopen clears the record too.
+        const o = pairedRequestRoom('ko', 'kov');
+        handleSignal(o.host, { type: 'offer' }, null);
+        handleDisconnect(o.visitor);
+        const next = makePeer('next', 'kn');
+        handleRequestJoin(next, o.id, RQ_T0);
+        assert.deepEqual(next.msgs, [{ type: 'request-joined', data: { role: 'visitor' } }]);
+        handleSignal(o.host, { type: 'offer' }, null);
+        assert.equal(roomMeta.get(o.id).sealed, false, 'the host signal before this visitor sat does not count');
+        handleSignal(next, { type: 'answer' }, null);
+        assert.equal(roomMeta.get(o.id).sealed, true);
+        handleRequestControl(o.host, 'request-reopen', o.id);
+        assert.equal(roomMeta.get(o.id).sealed, false);
+        const again = makePeer('again', 'ka');
+        handleRequestJoin(again, o.id, RQ_T0);
+        handleSignal(again, { type: 'answer' }, null);
+        assert.equal(roomMeta.get(o.id).sealed, false, 'a reopen starts the record over');
+        assert.ok(roomMeta.get(o.id).signaled.size <= 2);
     });
 
     it('request-seal with no visitor is a no-op', () => {
