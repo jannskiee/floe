@@ -366,6 +366,11 @@ describe('visitor copy: Ready and Sending strings', () => {
             stopBody: 'Files that already arrived stay on their computer. This link cannot be used again.',
             keepSending: 'Keep sending',
             stop: 'Stop',
+            reportLink: 'Report this link',
+            pluggedIn: 'Keep this computer plugged in and awake. Pin this tab so Chrome does not put it to sleep.',
+            startsOver: 'If the connection drops, the file that was moving starts over.',
+            mayHaveSlept:
+                'This computer may have slept. If the connection drops, the file that was moving starts over.',
         });
     });
 

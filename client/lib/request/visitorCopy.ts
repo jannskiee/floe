@@ -17,6 +17,7 @@
 
 import type { VisitorModel } from './visitorState';
 import { answerMinutesLeft, arrivedCount } from './visitorState';
+import type { EtaAdvice } from './eta';
 import { formatBytes } from '../utils';
 import { formatETA, formatSpeed } from '../transferUtils';
 
@@ -147,6 +148,16 @@ export const visitorCopy = {
     stopBody: 'Files that already arrived stay on their computer. This link cannot be used again.',
     keepSending: 'Keep sending',
     stop: 'Stop',
+    /** C-95: the whole-drop ETA is over 20 minutes. */
+    pluggedIn: 'Keep this computer plugged in and awake. Pin this tab so Chrome does not put it to sleep.',
+    /** C-96: the whole-drop ETA is over 2 hours. */
+    startsOver: 'If the connection drops, the file that was moving starts over.',
+    /** C-98: back from hidden after a time jump; replaces C-96 for the
+     *  session. */
+    mayHaveSlept: 'This computer may have slept. If the connection drops, the file that was moving starts over.',
+
+    /** C-12: the Ready footer's right side. A mailto carrying the link id only. */
+    reportLink: 'Report this link',
 
     // ---- Endings (V11, V12, V13) ----
     /** C-100. */
@@ -264,6 +275,25 @@ export function progressParts(sent: number, ofSize: number, bytesPerSec: number,
     const eta = formatETA(etaSeconds);
     if (eta) parts.push(`${eta} left`);
     return parts;
+}
+
+/** The lines under C-94 in Sending: C-95, C-96 and C-97 as the whole-drop
+ *  estimate earns them (eta.ts), with C-98 in place of C-96 once the page
+ *  saw the computer sleep. C-97's duration uses the app's one time format,
+ *  formatETA (D-091 Q-C12). */
+export function adviceLines(advice: readonly EtaAdvice[], slept: boolean): string[] {
+    const lines: string[] = [];
+    if (advice.some((a) => a.key === 'plugged-in')) lines.push(visitorCopy.pluggedIn);
+    if (slept) lines.push(visitorCopy.mayHaveSlept);
+    else if (advice.some((a) => a.key === 'starts-over')) lines.push(visitorCopy.startsOver);
+    for (const a of advice) {
+        if (a.key === 'will-stop') {
+            lines.push(
+                `This drop would take about ${formatETA(a.seconds)} on this connection and will stop at 24 hours. Send fewer files.`
+            );
+        }
+    }
+    return lines;
 }
 
 /** C-91: the visitor's own relative path, shortened in the middle so both the

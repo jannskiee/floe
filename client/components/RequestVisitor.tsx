@@ -11,7 +11,7 @@ if (typeof window !== 'undefined') {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import SimplePeer, { type Instance as PeerInstance } from 'simple-peer';
 import type { Socket } from 'socket.io-client';
 import * as Sentry from '@sentry/nextjs';
@@ -19,6 +19,7 @@ import { getSocket } from '@/hooks/useSignaling';
 import { useWakeLock } from '@/hooks/useWakeLock';
 import { useConnectionType } from '@/hooks/useConnectionType';
 import { useRequestFiles } from '@/hooks/useRequestFiles';
+import { useVisitorGuards } from '@/hooks/useVisitorGuards';
 import { resolveSocketUrl } from '@/lib/socketUrl';
 import { evaluateRelayGate, probeIsRelay, RELAY_SIZE_LIMIT } from '@/lib/relay';
 import { sendFiles, sendAbortReason } from '@/lib/transfer/sender';
@@ -43,8 +44,11 @@ import {
     type VisitorModel,
 } from '@/lib/request/visitorState';
 import { createAttemptGate } from '@/lib/request/attempt';
+import { deliveredBytes, dropEtaSeconds, dropPercent, etaAdvice } from '@/lib/request/eta';
+import { reportMailtoFromLocation } from '@/lib/request/report';
 import { firstStringFrame, watchSend } from '@/lib/request/sendOutcome';
 import {
+    adviceLines,
     announcement,
     progressParts,
     sendingHeader,
@@ -69,6 +73,7 @@ import { NoticeCard } from '@/components/request/NoticeCard';
 import { RequestReady } from '@/components/request/RequestReady';
 import { RequestStatus } from '@/components/request/RequestStatus';
 import { RequestProgress } from '@/components/request/RequestProgress';
+import { ReportLink } from '@/components/request/ReportLink';
 
 // ---------------------------------------------------------------------------
 // The connection controller.
@@ -559,7 +564,15 @@ export function RequestVisitor() {
     const [attemptFiles, setAttemptFiles] = useState<RequestFile[]>([]);
     const [now, setNow] = useState(0);
     const [hideIp, setHideIp] = useState(false);
-    const [env, setEnv] = useState({ canPickFolders: false, coarsePointer: false });
+    const [env, setEnv] = useState<{ canPickFolders: boolean; coarsePointer: boolean; reportHref: string | null }>({
+        canPickFolders: false,
+        coarsePointer: false,
+        reportHref: null,
+    });
+    // Set once the page saw the computer sleep during a drop; C-98 then
+    // replaces C-96 for the rest of the session.
+    const [slept, setSlept] = useState(false);
+    const onSlept = useCallback(() => setSlept(true), []);
     const { requestWakeLock, releaseWakeLock } = useWakeLock();
     const { connectionType, startPolling, stopPolling, reset } = useConnectionType();
 
@@ -590,6 +603,8 @@ export function RequestVisitor() {
         setEnv({
             canPickFolders: canPickFolders(window, navigator.userAgent),
             coarsePointer: isCoarsePointer(window),
+            // The link id from the path, never the fragment (report.ts).
+            reportHref: reportMailtoFromLocation(window.location),
         });
         const onHash = () => {
             const link = parseRequestLink(window.location.pathname, window.location.hash);
@@ -602,12 +617,26 @@ export function RequestVisitor() {
         };
     }, [controller]);
 
-    // The Waiting countdown, redrawn every 15 s so the minute changes on time.
+    // The page's clock: the Waiting countdown every 15 s so the minute changes
+    // on time, and the whole-drop estimate in Sending every 5 s.
     useEffect(() => {
-        if (model.state !== 'V7') return;
-        const t = setInterval(() => setNow(Date.now()), 15_000);
+        if (model.state !== 'V7' && model.state !== 'V10') return;
+        const t = setInterval(() => setNow(Date.now()), model.state === 'V7' ? 15_000 : 5_000);
         return () => clearInterval(t);
     }, [model.state]);
+
+    const sizes = attemptFiles.map((f) => f.file.size);
+    useVisitorGuards({
+        state: model.state,
+        progress: {
+            percent: model.state === 'V13' ? 100 : dropPercent(sizes, model.ackIndex, model.percent),
+            index: model.state === 'V13' ? model.total : model.ackIndex,
+            total: model.total,
+        },
+        requestWakeLock,
+        releaseWakeLock,
+        onSlept,
+    });
 
     const ctx: StatusContext = {
         pathAt: (index) => attemptFiles[index - 1]?.relativePath,
@@ -674,6 +703,7 @@ export function RequestVisitor() {
                     onDrop={picks.handleDrop}
                     onFiles={picks.handleFileSelection}
                     onFolder={picks.handleFolderSelection}
+                    footerEnd={<ReportLink href={env.reportHref} />}
                 />
             );
             break;
@@ -693,6 +723,17 @@ export function RequestVisitor() {
                         model.etaSeconds ?? Number.NaN
                     )}
                     arrived={arrivedRows}
+                    advice={adviceLines(
+                        etaAdvice(
+                            dropEtaSeconds({
+                                dropBytes: model.size,
+                                deliveredBytes: deliveredBytes(sizes, model.ackIndex, model.percent),
+                                bytesPerSec: model.bytesPerSec,
+                                sendingForMs: model.acceptedAt === null ? 0 : now - model.acceptedAt,
+                            })
+                        ),
+                        slept
+                    )}
                     onStop={() => controller.dispatch({ type: 'CANCEL' })}
                 />
             );
