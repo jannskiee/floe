@@ -234,7 +234,7 @@ describe('words.json', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleJoinRoom', () => {
-    beforeEach(() => { rooms.clear(); });
+    beforeEach(() => { rooms.clear(); roomToCode.clear(); codeFailures.clear(); });
 
     it('assigns sender role to the first peer in a room', () => {
         const p = makePeer('peer-A');
@@ -289,7 +289,7 @@ describe('handleJoinRoom', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleSignal', () => {
-    beforeEach(() => { rooms.clear(); });
+    beforeEach(() => { rooms.clear(); roomToCode.clear(); codeFailures.clear(); });
 
     it('routes signal to the other peer when targeted by ID', () => {
         const pA = makePeer('peer-A');
@@ -372,7 +372,7 @@ describe('handleSignal', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleDisconnect', () => {
-    beforeEach(() => { rooms.clear(); });
+    beforeEach(() => { rooms.clear(); roomToCode.clear(); codeFailures.clear(); });
 
     it('removes only the disconnecting peer; the room survives with the remaining peer', () => {
         const pA = makePeer('peer-A');
@@ -561,6 +561,53 @@ describe('code lifecycle', () => {
         assert.equal(other.statusCode, 404, 'a different key keeps its own budget');
         assert.equal(codeFailures.get(rateKey('1.2.3.4')).length, 1);
         assert.equal(codeFailures.get(rateKey('5.6.7.8')).length, 1);
+    });
+
+    it('a room emptied by its peer moving on forgets its code', () => {
+        // The second of the two destroyRoom sites: the leave-first block in
+        // handleJoinRoom, not handleDisconnect. No shipped client reaches it
+        // with a code today, so this pins the seam for P0-10 and S1-SRV-02,
+        // which both edit it.
+        const other = '11111111-2222-4333-8444-555555555555';
+        const code = register(ROOM_ID);
+        const p = makePeer('peer-A');
+        handleJoinRoom(p, ROOM_ID);
+
+        handleJoinRoom(p, other); // leave-first empties ROOM_ID
+
+        assert.equal(resolve(code).statusCode, 404);
+        assert.equal(roomToCode.size, 0);
+    });
+
+    it('resolving an expired code drops both index entries', () => {
+        // Pins dropCode on the resolve path. The sweeper calls the same helper
+        // for the same reason (the reverse index must never outlive the forward
+        // one), but the cleanup interval is not exported, so this is the only
+        // call site a unit test can reach.
+        const code = register(ROOM_ID);
+        codeToRoom.set(code, { roomId: ROOM_ID, expires: Date.now() - 1 });
+
+        assert.equal(resolve(code).statusCode, 404);
+
+        assert.equal(codeToRoom.size, 0);
+        assert.equal(roomToCode.size, 0, 'a forward-only delete would leave this at 1');
+    });
+
+    it('the budget counts under rateKey, not the raw address', () => {
+        // Swapping rateKey(req.ip) for req.ip keeps every other test green,
+        // because they all pass IPv4 literals, for which rateKey is identity.
+        // It would hand every IPv6 host an unlimited supply of budgets.
+        resolve('nope-nope-nope', '2001:db8::1');
+        resolve('nope-nope-nope', '2001:db8:0:0:dead::2');
+
+        assert.equal(codeFailures.size, 1, 'one /64 is one budget');
+        assert.equal(codeFailures.get(rateKey('2001:db8::1')).length, 2);
+
+        resolve('nope-nope-nope', '::ffff:1.2.3.4');
+        resolve('nope-nope-nope', '1.2.3.4');
+
+        assert.equal(codeFailures.get('1.2.3.4').length, 2, 'mapped IPv4 shares with plain IPv4');
+        assert.equal(codeFailures.size, 2);
     });
 });
 

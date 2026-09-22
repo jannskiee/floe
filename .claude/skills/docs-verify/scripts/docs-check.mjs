@@ -165,13 +165,13 @@ const ENV_IGNORE_CLIENT = new Set([
     'CI',
     'VERCEL_GIT_COMMIT_SHA',
 ]);
-// The server modules read exactly 14 keys between them today. Fewer means the
+// The server modules read exactly 16 keys between them today. Fewer means the
 // extractor regex broke, not that the server lost a setting; raise this when a
 // key is added. Counting across the directory rather than one file is what
 // keeps a module extraction from tripping this: the five TURN keys moving to
 // server/turn.js left server.js holding nine, and the hard fail below returns
 // early, taking every downstream env comparison with it.
-const SERVER_KEY_FLOOR = 14;
+const SERVER_KEY_FLOOR = 16;
 
 // ---------------------------------------------------------------------------
 // Helpers
