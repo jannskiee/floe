@@ -19,7 +19,12 @@
 import { REFUSAL_CODES, type RefusalCode } from '../transfer/protocol';
 import type { RelayGateVerdict } from '../relay';
 import { RELAY_SIZE_LIMIT } from '../relay';
-import { ANSWER_WINDOW_MS, ROOM_FULL_RETRY_WINDOW_MS } from './constants';
+import {
+    ANSWER_WINDOW_MS,
+    ROOM_FULL_RETRY_WINDOW_MS,
+    ROOM_FULL_SEALED_RETRIES,
+    ROOM_FULL_SEALED_WINDOW_MS,
+} from './constants';
 
 export type VisitorState =
     | 'load'
@@ -52,7 +57,8 @@ export type VisitorState =
  *  SOCKET_CONNECTED (the socket's connect, which is when request-join goes
  *  out), BACK_TO_FILES (the C-72 and C-81 button) and VERIFIED_COUNT (the
  *  display-only count from onDelivered). UNREADABLE is onFailed's third
- *  kind. */
+ *  kind. SIGNAL_SENT is the answering peer's own signal going out, which is
+ *  when the server may seal the room on this seat (review 2a L1). */
 export type VisitorEvent =
     | { type: 'LINK_OK'; roomId: string } // E01
     | { type: 'LINK_INCOMPLETE' } // E02
@@ -94,7 +100,8 @@ export type VisitorEvent =
     | { type: 'SOCKET_CONNECTED' }
     | { type: 'BACK_TO_FILES' }
     | { type: 'VERIFIED_COUNT'; verifiedCount: number | null }
-    | { type: 'UNREADABLE'; index: number };
+    | { type: 'UNREADABLE'; index: number }
+    | { type: 'SIGNAL_SENT' };
 
 /** What the page must do, in order. */
 export type VisitorEffect =
@@ -102,7 +109,7 @@ export type VisitorEffect =
     | 'buildPeer' // the answering peer, BEFORE joining, so no early offer is dropped
     | 'connectSocket' // connect, listeners for this attempt, arm the connect timer
     | 'emitJoin' // request-join with the bare room id; arm the no-answer timer
-    | 'retryJoin' // after ROOM_FULL_RETRY_DELAY_MS, request-join once more
+    | 'retryJoin' // after ROOM_FULL_RETRY_DELAY_MS, request-join again
     | 'retryConnect' // jittered socket.connect() after a limiter refusal
     | 'clearConnectTimer'
     | 'clearJoinTimer'
@@ -132,6 +139,14 @@ export interface VisitorModel {
     joinEmitted: boolean;
     joined: boolean;
     joinRetried: boolean;
+    /** This attempt sent a signal of its own (its answer). */
+    signaled: boolean;
+    /** Carried from the attempts before this one: one of them signaled and
+     *  never opened its channel, and none has joined since, so the server may
+     *  still hold the room sealed on that seat (D-116, review 2a L1). */
+    sealedOwnSeat: boolean;
+    /** Room-full answers retried under sealedOwnSeat in this attempt. */
+    sealedRetries: number;
     channelOpen: boolean;
     sendStarted: boolean;
     firstMetadataAt: number | null;
@@ -166,6 +181,9 @@ export const initialModel: VisitorModel = {
     joinEmitted: false,
     joined: false,
     joinRetried: false,
+    signaled: false,
+    sealedOwnSeat: false,
+    sealedRetries: 0,
     channelOpen: false,
     sendStarted: false,
     firstMetadataAt: null,
@@ -289,6 +307,7 @@ function startAttempt(model: VisitorModel, event: { count: number; size: number;
             hideIp: event.hideIp,
             total: event.count,
             size: event.size,
+            sealedOwnSeat: (model.signaled && !model.channelOpen) || (model.sealedOwnSeat && !model.joined),
         },
         effects: ['startAttempt'],
     };
@@ -382,6 +401,8 @@ function connecting(model: VisitorModel, event: VisitorEvent): Step {
             return to(model, 'V6c', {}, ['retryConnect']);
         case 'SOCKET_CONNECT_TIMEOUT':
             return end(model, 'V6a');
+        case 'SIGNAL_SENT':
+            return model.signaled ? stay(model) : { model: { ...model, signaled: true }, effects: [] };
         case 'JOIN_ANSWER':
             // The room seals when the channel opens; a late answer on the
             // socket must not tear down a channel that no longer needs it.
@@ -399,8 +420,26 @@ function connecting(model: VisitorModel, event: VisitorEvent): Step {
                     // R1: after request-joined, room-full is the host's
                     // request-reopen evicting this page (E-03).
                     if (model.joined) return end(model, 'V6a');
-                    // R2: this page's own previous seat may still be held.
                     const since = event.sincePreviousAttemptMs;
+                    // L1: an earlier attempt of this page signaled and never
+                    // opened its channel, so the room may be sealed on that
+                    // seat until the host reopens it. Retried in Connecting,
+                    // bounded by time and by count, then the fixed V5a.
+                    if (model.sealedOwnSeat) {
+                        if (
+                            model.sealedRetries < ROOM_FULL_SEALED_RETRIES &&
+                            typeof since === 'number' &&
+                            since >= 0 &&
+                            since <= ROOM_FULL_SEALED_WINDOW_MS
+                        ) {
+                            return to(model, 'V6', { sealedRetries: model.sealedRetries + 1 }, [
+                                'clearJoinTimer',
+                                'retryJoin',
+                            ]);
+                        }
+                        return end(model, 'V5a');
+                    }
+                    // R2: this page's own previous seat may still be held.
                     if (
                         !model.joinRetried &&
                         typeof since === 'number' &&

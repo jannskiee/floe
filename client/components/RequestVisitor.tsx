@@ -278,7 +278,9 @@ function createVisitorController(deps: ControllerDeps) {
         const p = new SimplePeer(peerOptionsFor(ice, model.hideIp));
         peer = p;
         p.on('signal', (signal) => {
-            if (gate.isLive(a)) socket?.emit('signal', { signal, target: null });
+            if (!gate.isLive(a)) return;
+            socket?.emit('signal', { signal, target: null });
+            dispatchFor(a, { type: 'SIGNAL_SENT' });
         });
         p.on('connect', () => {
             Sentry.addBreadcrumb({

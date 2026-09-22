@@ -13,7 +13,12 @@ import {
     type VisitorState,
 } from './visitorState';
 import { RELAY_SIZE_LIMIT } from '../relay';
-import { ANSWER_WINDOW_MS } from './constants';
+import {
+    ANSWER_WINDOW_MS,
+    ROOM_FULL_RETRY_DELAY_MS,
+    ROOM_FULL_SEALED_RETRIES,
+    ROOM_FULL_SEALED_WINDOW_MS,
+} from './constants';
 
 // The visitor's state machine, spec 07 4.12.4, one `it` per row, named
 // `<From> + <Event> goes to <To>`. The reducer is pure: every test hands it a
@@ -250,6 +255,123 @@ describe('visitor state: Connecting rows', () => {
         // destroy, so no second effect tears the peer down under it.
         expect(r.effects[0]).toBe('sendCancelAbort');
         expect(r.effects).not.toContain('destroyPeer');
+    });
+});
+
+describe("visitor state: a room sealed on this page's own earlier seat (review 2a L1, D-116)", () => {
+    // The server seals a request room once both seats have signaled. A page
+    // whose socket goes after it answered, but before its channel opened, ends
+    // that attempt in V6a; its Try again then meets room-full until the host
+    // reopens. That room-full is retried in Connecting, bounded, and ends in
+    // the fixed V5a once the bound passes.
+    const FULL = (since: number | null): VisitorEvent => ({
+        type: 'JOIN_ANSWER', answer: 'room-full', sincePreviousAttemptMs: since,
+    });
+
+    it('V6 + SIGNAL_SENT marks this attempt signaled, once, with no effect', () => {
+        const r = step(modelIn('V6', { joined: true }), { type: 'SIGNAL_SENT' });
+        expect(r.model.state).toBe('V6');
+        expect(r.model.signaled).toBe(true);
+        expect(r.effects).toEqual([]);
+        const again = step(r.model, { type: 'SIGNAL_SENT' });
+        expect(again).toEqual({ model: r.model, effects: [] });
+    });
+
+    it('Try again after an attempt that signaled and never opened carries the sealed seat', () => {
+        for (const s of ['V6a', 'V6d'] as VisitorState[]) {
+            const ev = s === 'V6d' ? SEND : TRY;
+            const r = step(modelIn(s, { joinEmitted: true, joined: true, signaled: true }), ev);
+            expect(r.model.state, s).toBe('V6');
+            expect(r.model.sealedOwnSeat, s).toBe(true);
+            // The new attempt's own facts start over.
+            expect(r.model.signaled, s).toBe(false);
+            expect(r.model.joined, s).toBe(false);
+            expect(r.model.sealedRetries, s).toBe(0);
+        }
+    });
+
+    it('an attempt whose channel opened, or that never signaled, carries nothing', () => {
+        const opened = step(modelIn('V12a', { joined: true, signaled: true, channelOpen: true }), TRY);
+        expect(opened.model.state).toBe('V6');
+        expect(opened.model.sealedOwnSeat).toBe(false);
+        const silent = step(modelIn('V6a', { joined: true }), TRY);
+        expect(silent.model.sealedOwnSeat).toBe(false);
+        // The first Send of the page carries nothing either.
+        const first = step(modelIn('V3'), SEND);
+        expect(first.model.sealedOwnSeat).toBe(false);
+    });
+
+    it('a retrying attempt that never joined keeps carrying the seal; one that joined does not', () => {
+        const unjoined = step(modelIn('V6a', { sealedOwnSeat: true }), TRY);
+        expect(unjoined.model.sealedOwnSeat).toBe(true);
+        const joined = step(modelIn('V6a', { sealedOwnSeat: true, joined: true }), TRY);
+        expect(joined.model.sealedOwnSeat).toBe(false);
+    });
+
+    it('V6 + E11 room-full on a sealed seat retries request-join in Connecting', () => {
+        const r = step(modelIn('V6', { sealedOwnSeat: true }), FULL(20_000));
+        expect(r.model.state).toBe('V6');
+        expect(r.effects).toEqual(['clearJoinTimer', 'retryJoin']);
+        expect(r.model.sealedRetries).toBe(1);
+        // Past the 15 s R2 window, which alone would have ended in V5a.
+        expect(step(modelIn('V6'), FULL(20_000)).model.state).toBe('V5a');
+    });
+
+    it('the sealed retries are bounded by count and never loop against a room that stays full', () => {
+        let m = modelIn('V6', { sealedOwnSeat: true });
+        let retries = 0;
+        for (let i = 0; i < ROOM_FULL_SEALED_RETRIES * 3; i++) {
+            const r = step(m, FULL(1_000));
+            m = r.model;
+            if (m.state !== 'V6') break;
+            expect(r.effects).toEqual(['clearJoinTimer', 'retryJoin']);
+            retries++;
+        }
+        expect(retries).toBe(ROOM_FULL_SEALED_RETRIES);
+        expect(m.state).toBe('V5a');
+    });
+
+    it('the sealed retries are bounded by time: past the window it is the fixed V5a', () => {
+        let since = 1_000;
+        let last = step(modelIn('V6', { sealedOwnSeat: true }), FULL(since));
+        while (last.model.state === 'V6') {
+            since += ROOM_FULL_RETRY_DELAY_MS;
+            last = step(last.model, FULL(since));
+        }
+        expect(last.model.state).toBe('V5a');
+        expect(last.effects).toContain('disconnectSocket');
+        expect(since).toBeGreaterThan(ROOM_FULL_SEALED_WINDOW_MS);
+        const at = (ms: number) => step(modelIn('V6', { sealedOwnSeat: true }), FULL(ms)).model.state;
+        expect(at(ROOM_FULL_SEALED_WINDOW_MS)).toBe('V6');
+        expect(at(ROOM_FULL_SEALED_WINDOW_MS + 1)).toBe('V5a');
+    });
+
+    it('a sealed seat with no previous end, or a clock that went back, is the fixed V5a', () => {
+        expect(step(modelIn('V6', { sealedOwnSeat: true }), FULL(null)).model.state).toBe('V5a');
+        expect(step(modelIn('V6', { sealedOwnSeat: true }), FULL(-1)).model.state).toBe('V5a');
+    });
+
+    it('a room-full on the first join of the page stays the fixed V5a', () => {
+        const r = step(modelIn('V3'), SEND);
+        const full = step({ ...r.model, joinEmitted: true }, FULL(null));
+        expect(full.model.state).toBe('V5a');
+    });
+
+    it('once the host reopens, a sealed retry pairs as any join does', () => {
+        const retried = step(modelIn('V6', { sealedOwnSeat: true }), FULL(4_000));
+        const joined = step(retried.model, { type: 'JOIN_ANSWER', answer: 'request-joined' });
+        expect(joined.model.state).toBe('V6');
+        expect(joined.model.joined).toBe(true);
+        expect(joined.effects).toEqual(['clearJoinTimer', 'armSetupTimer']);
+        // After request-joined, room-full is the eviction row R1 as before.
+        expect(step(joined.model, FULL(8_000)).model.state).toBe('V6a');
+    });
+
+    it("the retry window covers the host's own connect wait", () => {
+        // The host waits 30 s for the channel after the answer, then reopens
+        // (connectTimeout in cli/engine/peer/connection.go).
+        expect(ROOM_FULL_SEALED_WINDOW_MS).toBeGreaterThan(30_000);
+        expect(ROOM_FULL_SEALED_RETRIES).toBe(Math.ceil(ROOM_FULL_SEALED_WINDOW_MS / ROOM_FULL_RETRY_DELAY_MS));
     });
 });
 

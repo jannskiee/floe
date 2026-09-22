@@ -92,6 +92,17 @@ export const RELAY_PROBE_DELAY_MS = 2_000;
 export const ROOM_FULL_RETRY_WINDOW_MS = 15_000;
 export const ROOM_FULL_RETRY_DELAY_MS = 3_000;
 
+/** The server seals a request room once both seats have signaled (D-116), so
+ *  a page whose socket went after it answered, but before its channel opened,
+ *  meets room-full on its next join until the host reopens the link. The host
+ *  waits 30 s for the channel after the answer (connectTimeout in
+ *  cli/engine/peer/connection.go) and then reopens, so that room-full is
+ *  retried for this long after the previous attempt ended, every
+ *  ROOM_FULL_RETRY_DELAY_MS, and never more often than the count below
+ *  (review 2a L1). */
+export const ROOM_FULL_SEALED_WINDOW_MS = 45_000;
+export const ROOM_FULL_SEALED_RETRIES = Math.ceil(ROOM_FULL_SEALED_WINDOW_MS / ROOM_FULL_RETRY_DELAY_MS);
+
 /** The STUN servers the page keeps when the TURN answer is missing or
  *  malformed: the same two the main page starts from. */
 export const DEFAULT_STUN_SERVERS: readonly RTCIceServer[] = [

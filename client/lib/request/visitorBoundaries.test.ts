@@ -161,6 +161,14 @@ describe('the /r page boundaries', () => {
         expect(visitor.match(/new SimplePeer[(]/g)).toHaveLength(1);
     });
 
+    it('the answering peer reports its own signal, so a sealed seat is known (review 2a L1)', () => {
+        const visitor = read('components/RequestVisitor.tsx');
+        const handler = visitor.slice(visitor.indexOf("p.on('signal'"));
+        const body = handler.slice(0, handler.indexOf("p.on('connect'"));
+        expect(body).toContain("socket?.emit('signal'");
+        expect(body).toContain("dispatchFor(a, { type: 'SIGNAL_SENT' })");
+    });
+
     it('a reload waits for the Cancel reason to reach the host', () => {
         // WP-W1 review R2-3: the Cancel flush is added to the tracker, and the reload the
         // reducer asks for on a fragment change runs only once it settled.
