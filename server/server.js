@@ -308,9 +308,7 @@ function checkRateLimit(ip) {
 }
 
 // Periodic cleanup of old rate limit entries and expired codes
-// .unref() so the interval doesn't prevent the process from exiting (e.g. in tests).
-const cleanupInterval = setInterval(() => {
-    const now = Date.now();
+function cleanupTick(now = Date.now()) {
     for (const [ip, timestamps] of connectionCounts.entries()) {
         const valid = timestamps.filter(t => now - t < RATE_LIMIT_WINDOW);
         if (valid.length === 0) connectionCounts.delete(ip);
@@ -340,7 +338,10 @@ const cleanupInterval = setInterval(() => {
     for (const [code, entry] of codeToRoom.entries()) {
         if (now > entry.expires) dropCode(code, entry.roomId);
     }
-}, 60000).unref();
+}
+
+// .unref() so the interval doesn't prevent the process from exiting (e.g. in tests).
+const cleanupInterval = setInterval(() => cleanupTick(), 60000).unref();
 
 // ---------------------------------------------------------------------------
 // Unified room registry
