@@ -291,7 +291,8 @@ counts as PASS. SKIP names a machine or run precondition (`uia-setvalue`,
 `desktop-savedir`, `desktop-none`, `desktop-unavailable`,
 `head-desktop-pending`, `present`, `local-stun-only`, `prod-turn-absent`,
 `browser-relay-na`, `firewall-block`, `wsl-stopped`, `wsl-sideload`,
-`disk-space`, `infra-down`, `budget-exhausted`; `filtered` marks cells
+`disk-space`, `infra-down`, `budget-exhausted`, `server-no-request-1`;
+`filtered` marks cells
 dropped by `--cells` and is never counted). NA is impossible with the
 shipped product (`single-instance`, `no-cli-relay-forcer`). ERROR is a
 harness fault (for example `init-script-not-applied`), never a product
@@ -466,6 +467,9 @@ each SKIPs `server-no-request-1` until probe P10 finds `request-1`.
   proxy (`scripts/lib/blip.mjs`, 127.0.0.1 only, loopback upstream only);
   `cellPlan` refuses the cell as a usage error against any server that is
   not loopback, so it can never point at api.floe.one.
+- Until the runner wires the request flow with the web visitor page
+  (CP-QA), a planned request cell ends ERROR `request-runner-pending`
+  before any leg starts: it never runs as a plain cell and never PASSes.
 - TA-17 (`-reqopen`) is the six quick cells with a link open on the desktop;
   it needs the desktop even for its W2W cell, and the link must still be
   waiting afterwards.

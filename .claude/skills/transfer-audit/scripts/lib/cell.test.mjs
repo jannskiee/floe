@@ -966,6 +966,33 @@ test('Safety denominator: a CLI receiver leg that fails in the connect phase sti
     assert.deepEqual(ok.safety.cliReceiversOptedOut, { ok: 1, total: 1 });
 });
 
+test('a request link cell never runs as a plain cell: ERROR request-runner-pending before any leg starts', async () => {
+    const reqPlan = cellPlan({
+        profile: 'head',
+        cells: ['H-DIR-W2D-req', 'H-DIR-C2D-reqopen'],
+        probe: {
+            server: { features: ['request-1'] },
+            desktop: { available: true },
+        },
+        server: 'http://localhost:3001',
+    }).filter((c) => c.request);
+    assert.equal(reqPlan.length, 2);
+    for (const cell of reqPlan) {
+        assert.equal(cell.verdict, null, `${cell.id} is executable in the plan`);
+        let legs = 0;
+        const ctx = makeCtx(fakeWorld(), {}, (adapters) => {
+            for (const s of ['web', 'cli', 'desktop'])
+                wrapLeg(adapters, s, () => (legs += 1));
+            return adapters;
+        });
+        const r = await runCell(small(structuredClone(cell)), ctx);
+        assert.equal(r.verdict, 'ERROR', cell.id);
+        assert.equal(r.reason, 'request-runner-pending');
+        assert.equal(r.countsForExit, true);
+        assert.equal(legs, 0, `${cell.id} started no leg`);
+    }
+});
+
 test('Safety denominator: a CLI receiver spawned without its opt-out counts in the total and not in ok', async () => {
     const w = fakeWorld();
     w.setScript('S-DIR-W2C', 'connect-timeout');

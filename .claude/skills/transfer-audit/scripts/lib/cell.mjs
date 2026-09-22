@@ -1495,6 +1495,20 @@ export async function runCell(cell, ctx) {
         return result;
     }
     assertStatsOff(cell);
+    // The request flow (Make link, the visitor on /r, Accept, the drop
+    // subfolder oracles) is not wired into the runner yet: the web visitor
+    // page is not on this base. Run as a plain cell, a request cell would
+    // move a normal room's bytes and PASS without proving anything about
+    // request links, so it ends ERROR before any leg starts.
+    if (cell.request) {
+        result.verdict = 'ERROR';
+        result.reason = 'request-runner-pending';
+        result.note =
+            'request link cells are planned, and the runner wires them with the web visitor page (CP-QA)';
+        result.countsForExit = true;
+        result.durationS = 0;
+        return result;
+    }
     const sleep = ctx.sleep || defaultSleep;
     ctx.retry = ctx.retry || { used: 0, cap: RETRY_CAP };
     const attempts = [];
