@@ -710,6 +710,21 @@ function openSession(deps: SenderDeps, cb: SenderCallbacks, fileCount: number): 
             // the last end frame this is what reports the refusal and tears the
             // session down; outside it, lateDone is null and this does nothing.
             finishLate('stopped');
+            // Reported at receipt, whatever the send loop is doing. A receiver
+            // that refuses mid-file sends this frame and then tears the channel
+            // down, and the loop used to read the latch only at its
+            // checkpoints: a refusal that landed while it waited for buffer
+            // space lost to whatever teardown came next (the channel close,
+            // an ICE failure, a channel error, a stuck-closing timer), and the
+            // page reported a lost connection instead (WP-W1 review F1 and
+            // R2-1; spec 07 4.7's wire-code rule). reportStop reports once;
+            // every checkpoint still sees the latch and stops the send. A
+            // throwing page handler must not break the data stream this runs in.
+            try {
+                reportStop();
+            } catch {
+                // Already marked reported; the latch still stops the send.
+            }
         } else if (msg.type === 'received') {
             cb.onReceived?.();
             const verified = verifiedCountOf(msg as Received, fileCount);
@@ -719,22 +734,12 @@ function openSession(deps: SenderDeps, cb: SenderCallbacks, fileCount: number): 
         }
     });
 
+    // A refusal is already reported when its frame arrives (above), so the
+    // close has nothing of its own to report.
     const onClose = () => {
-        // A refusal latched before the close is reported first. A receiver that
-        // refuses mid-file sends its incompatible frame and then closes, and
-        // the latch is otherwise read only at the send loop's checkpoints: a
-        // frame that landed while the loop waited for buffer space lost to the
-        // close, and the page reported a lost connection instead of the
-        // refusal (WP-W1 review F1; spec 07 4.7's wire-code rule). Reported
-        // once, like every other path; the teardown below runs whatever the
-        // page's handlers do.
-        try {
-            reportStop();
-        } finally {
-            closed = true;
-            settle({ type: 'closed' });
-            finishLate('closed');
-        }
+        closed = true;
+        settle({ type: 'closed' });
+        finishLate('closed');
     };
     deps.channel.addEventListener('close', onClose);
 

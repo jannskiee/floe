@@ -1161,7 +1161,10 @@ describe('sender: visitor options', () => {
  * close now reports a latched refusal first.
  */
 describe('sender: a refusal wins over the close that follows it', () => {
-    function refusingMidFile(onFrames: (deliver: () => void) => void = (deliver) => deliver()) {
+    function refusingMidFile(
+        onFrames: (deliver: () => void) => void = (deliver) => deliver(),
+        closeEvent = true
+    ) {
         let handler: ((d: string | Uint8Array | ArrayBuffer) => void) | null = null;
         let buffered = 0;
         let destroyed = false;
@@ -1181,7 +1184,7 @@ describe('sender: a refusal wins over the close that follows it', () => {
                     setTimeout(() => {
                         onFrames(() => handler?.(enc.encode(incompatibleMessage('x', 'disk-full', 0))));
                         destroyed = true;
-                        for (const f of closeListeners) f();
+                        if (closeEvent) for (const f of closeListeners) f();
                     }, 20);
                 }
             },
@@ -1229,6 +1232,22 @@ describe('sender: a refusal wins over the close that follows it', () => {
         expect(seen).toEqual(['ack1', 'stopped:disk-full:0']);
         // The main page hears it too, through today's wording for an abort.
         expect(errors).toEqual(['x']);
+    });
+
+    it('a refusal is reported when it arrives, even if no close event follows', async () => {
+        // WP-W1 review R2-1: teardowns that do not start with the channel's own
+        // close event (ICE failure, a channel error, simple-peer's stuck-closing
+        // timer) only make the page's peer destroyed. The refusal must already
+        // be reported by then.
+        const { deps, isDestroyed } = refusingMidFile(undefined, false);
+        const seen: string[] = [];
+        await sendFiles(deps, [{ id: 'f1', file: makeFile(1024 * 1024, 'a.bin') }], {
+            isDestroyed,
+            onAck: (i) => seen.push(`ack${i}`),
+            onStopped: ({ code }) => seen.push(`stopped:${code}`),
+            onFailed: ({ kind }) => seen.push(`failed:${kind}`),
+        }, { requireReceived: true, sendHashes: false });
+        expect(seen).toEqual(['ack1', 'stopped:disk-full']);
     });
 
     it('a close with no refusal latched still reports nothing but the close', async () => {
