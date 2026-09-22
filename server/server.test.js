@@ -2551,9 +2551,9 @@ describe('handleRequestControl', () => {
         const next = makePeer('next', 'kn');
         handleRequestJoin(next, o.id, RQ_T0);
         assert.deepEqual(next.msgs, [{ type: 'request-joined', data: { role: 'visitor' } }]);
-        handleSignal(o.host, { type: 'offer' }, null);
+        handleSignal(next, { candidate: 'early' }, null);
         assert.equal(roomMeta.get(o.id).sealed, false, 'the host signal before this visitor sat does not count');
-        handleSignal(next, { type: 'answer' }, null);
+        handleSignal(o.host, { type: 'offer' }, null);
         assert.equal(roomMeta.get(o.id).sealed, true);
         handleRequestControl(o.host, 'request-reopen', o.id);
         assert.equal(roomMeta.get(o.id).sealed, false);
