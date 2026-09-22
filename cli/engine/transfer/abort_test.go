@@ -244,6 +244,141 @@ refuse:
 	}
 }
 
+// sendTwoAndRefuseDuringTheSecondAck drives a scripted receiver that acks file
+// 1, reads its bytes and its end marker, lets the sender announce file 2, and
+// only then sends refuse(rdc) into file 2's ack wait. That is where a refusal
+// of file 1 really lands: the receiver decides after the end marker, by which
+// time the sender has moved on. It returns what SendFiles returned.
+func sendTwoAndRefuseDuringTheSecondAck(t *testing.T, refuse func(*webrtc.DataChannel)) error {
+	t.Helper()
+	sender, recvCh, msgs, _, closeFn := newPumpedPair(t)
+	t.Cleanup(closeFn)
+
+	dir := t.TempDir()
+	one := filepath.Join(dir, "one.bin")
+	two := filepath.Join(dir, "two.bin")
+	for _, p := range []string{one, two} {
+		if err := os.WriteFile(p, make([]byte, 64), 0o600); err != nil {
+			t.Fatalf("write source: %v", err)
+		}
+	}
+
+	var rdc *webrtc.DataChannel
+	select {
+	case rdc = <-recvCh:
+	case <-time.After(20 * time.Second):
+		t.Fatal("receiver data channel never opened")
+	}
+
+	sendErr := make(chan error, 1)
+	go func() { sendErr <- SendFiles(sender, []string{one, two}, "test-ver") }()
+
+	var meta struct {
+		ID string `json:"id"`
+	}
+	select {
+	case m := <-msgs:
+		if err := json.Unmarshal(m.Data, &meta); err != nil || meta.ID == "" {
+			t.Fatalf("first message is not file 1's metadata: %q", m.Data)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("file 1's metadata never arrived")
+	}
+	if err := rdc.Send([]byte(`{"type":"ack","id":"` + meta.ID + `","offset":0,"pv":1,"pvMin":1}`)); err != nil {
+		t.Fatalf("ack file 1: %v", err)
+	}
+	for ended := false; !ended; {
+		select {
+		case m := <-msgs:
+			if msgType, ok := classifyControl(m.Data); ok && msgType == "end" {
+				ended = true
+			}
+		case <-time.After(20 * time.Second):
+			t.Fatal("file 1's end marker never arrived")
+		}
+	}
+	select {
+	case m := <-msgs:
+		if msgType, ok := classifyControl(m.Data); !ok || msgType != "metadata" {
+			t.Fatalf("expected file 2's metadata, got %q", m.Data)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("file 2's metadata never arrived")
+	}
+	refuse(rdc)
+
+	select {
+	case err := <-sendErr:
+		return err
+	case <-time.After(30 * time.Second):
+		t.Fatal("SendFiles did not return after the refusal")
+	}
+	return nil
+}
+
+// TestSenderRefusalOfEarlierFileNamesNoFile: a coded refusal of file 1 arrives
+// while file 2 waits for its ack, and the sender used to wrap it as "error
+// sending two.bin", blaming the file the receiver never saw (F-SHA-3). A
+// peer-originated error now reaches the caller exactly as the peer's own
+// account, with no local file name on it at all.
+func TestSenderRefusalOfEarlierFileNamesNoFile(t *testing.T) {
+	err := sendTwoAndRefuseDuringTheSecondAck(t, func(rdc *webrtc.DataChannel) {
+		AbortWithCode(rdc, "", CodeHashMismatch, CodeHashMismatch.WireReason(), 0)
+	})
+	if err == nil {
+		t.Fatal("sender reported success over a refused file")
+	}
+	var stopped *PeerStoppedError
+	if !errors.As(err, &stopped) {
+		t.Fatalf("sender error = %v (%T), want *PeerStoppedError", err, err)
+	}
+	if stopped.Code != CodeHashMismatch {
+		t.Fatalf("PeerStoppedError code = %q, want %q", stopped.Code, CodeHashMismatch)
+	}
+	for _, bad := range []string{"error sending", "one.bin", "two.bin"} {
+		if strings.Contains(err.Error(), bad) {
+			t.Fatalf("a refusal of an earlier file carries %q: %q", bad, err.Error())
+		}
+	}
+	if got, want := err.Error(), stopped.Error(); got != want {
+		t.Fatalf("sender error text = %q, want exactly the fixed sentence %q", got, want)
+	}
+}
+
+// TestSenderRefusalWithUnknownCodeNamesNoFileEither: the same frame without a
+// code this build knows is still the peer's account, not this sender's own
+// failure, so it keeps today's text (the reason through displayText) and still
+// carries no local file name.
+func TestSenderRefusalWithUnknownCodeNamesNoFileEither(t *testing.T) {
+	const reason = "old peer prose about a file it threw away"
+	err := sendTwoAndRefuseDuringTheSecondAck(t, func(rdc *webrtc.DataChannel) {
+		refusal, _ := json.Marshal(incompatibleMsg{
+			Type:   "incompatible",
+			Reason: reason,
+			Pv:     ProtocolVersion,
+			PvMin:  MinProtocolVersion,
+		})
+		if err := rdc.Send(refusal); err != nil {
+			t.Errorf("refusal: %v", err)
+		}
+	})
+	if err == nil {
+		t.Fatal("sender reported success over a refused file")
+	}
+	var stopped *PeerStoppedError
+	if errors.As(err, &stopped) {
+		t.Fatalf("a code-less frame became a PeerStoppedError{%q}", stopped.Code)
+	}
+	if got, want := err.Error(), displayText(reason, maxDisplayReason); got != want {
+		t.Fatalf("sender error text = %q, want the reason through displayText %q", got, want)
+	}
+	for _, bad := range []string{"error sending", "one.bin", "two.bin"} {
+		if strings.Contains(err.Error(), bad) {
+			t.Fatalf("a code-less refusal carries %q: %q", bad, err.Error())
+		}
+	}
+}
+
 // TestSenderReadsTheReceiversIntegrityReason: a receiver that discards a file
 // now says so, so a sender with more files to send fails at once instead of
 // waiting out its 120 s ack deadline and blaming a timeout.
@@ -853,8 +988,13 @@ func TestEveryRefusalCodeReachesGoSenderWithin2s(t *testing.T) {
 				if stopped.Code != code || stopped.Saved != saved {
 					t.Fatalf("PeerStoppedError{%q, %d}, want {%q, %d}", stopped.Code, stopped.Saved, code, saved)
 				}
-				if got, want := err.Error(), "error sending only.bin: "+stopped.Error(); got != want {
-					t.Fatalf("sender error text = %q, want %q", got, want)
+				if got, want := err.Error(), stopped.Error(); got != want {
+					t.Fatalf("sender error text = %q, want exactly the fixed sentence %q", got, want)
+				}
+				// A peer refusal is never wrapped with a local file name: the
+				// name would be the file the sender had moved on to (F-SHA-3).
+				if strings.Contains(err.Error(), "error sending") || strings.Contains(err.Error(), "only.bin") {
+					t.Fatalf("a peer refusal named a local file: %q", err.Error())
 				}
 				if strings.Contains(err.Error(), code.WireReason()) {
 					t.Fatalf("the wire reason reached the sender's text: %q", err.Error())

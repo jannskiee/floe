@@ -524,6 +524,8 @@ func TestSenderIncompatibleTextIsDisplaySafe(t *testing.T) {
 		t.Fatalf("huge fixture is %d bytes, must exceed the control cap", len(hugePayload))
 	}
 
+	// The wrap the sender puts on its OWN failures. A peer-originated error must
+	// not carry it (F-SHA-3), so here the prefix is what must be absent.
 	const prefix = "error sending hostile.bin: "
 	cases := []struct {
 		name       string
@@ -536,11 +538,10 @@ func TestSenderIncompatibleTextIsDisplaySafe(t *testing.T) {
 			if strings.Contains(s, "\x1b") || strings.Contains(s, "\n") {
 				t.Errorf("a raw control character reached the error: %q", s)
 			}
-			body := strings.TrimPrefix(s, prefix)
-			if body == s {
-				t.Errorf("error lacks the sender's wrapping prefix: %q", s)
+			if strings.HasPrefix(s, prefix) {
+				t.Errorf("a peer reason was wrapped with a local file name: %q", s)
 			}
-			if n := utf8.RuneCountInString(body); n > 300 {
+			if n := utf8.RuneCountInString(s); n > 300 {
 				t.Errorf("reason is %d runes, want at most 300", n)
 			}
 		}},
@@ -573,8 +574,8 @@ func TestSenderIncompatibleTextIsDisplaySafe(t *testing.T) {
 			if got, want := stopped.Error(), "Their computer could not save a file."; got != want {
 				t.Errorf("Error() = %q, want exactly %q", got, want)
 			}
-			if s := err.Error(); s != prefix+"Their computer could not save a file." {
-				t.Errorf("the wrapped error is %q, want the prefix plus the fixed sentence", s)
+			if s := err.Error(); s != "Their computer could not save a file." {
+				t.Errorf("the wrapped error is %q, want exactly the fixed sentence", s)
 			}
 			for _, bad := range []string{"\x1b", "‮", "⁦", "calc", "]]>"} {
 				if strings.Contains(err.Error(), bad) {

@@ -321,6 +321,14 @@ func TestLoopbackForcedMismatchStopsSender(t *testing.T) {
 // returns what the sender printed and its error.
 func sendOneAndAnswer(t *testing.T, answer string) (string, error) {
 	t.Helper()
+	return sendOneAndAnswerWithOptions(t, answer, SendOptions{})
+}
+
+// sendOneAndAnswerWithOptions is sendOneAndAnswer with the options a GUI
+// client would pass. Split out so a test can observe OnDelivered; the zero
+// SendOptions is the CLI behavior sendOneAndAnswer has always had.
+func sendOneAndAnswerWithOptions(t *testing.T, answer string, opts SendOptions) (string, error) {
+	t.Helper()
 	sender, recvCh, msgs, _, closeFn := newPumpedPair(t)
 	t.Cleanup(closeFn)
 	src := filepath.Join(t.TempDir(), "one.bin")
@@ -335,7 +343,7 @@ func sendOneAndAnswer(t *testing.T, answer string) (string, error) {
 	}
 	restore := captureStdout(t)
 	sendErr := make(chan error, 1)
-	go func() { sendErr <- SendFiles(sender, []string{src}, "") }()
+	go func() { sendErr <- SendFilesWithOptions(sender, []string{src}, "", opts) }()
 
 	var meta struct {
 		ID string `json:"id"`
@@ -402,6 +410,42 @@ func TestSenderReadsVerifiedCount(t *testing.T) {
 			}
 			if hex64.MatchString(out) {
 				t.Fatalf("a 64-hex digest was printed:\n%s", out)
+			}
+		})
+	}
+}
+
+// TestSendOptionsOnDeliveredReportsTheVerifiedCount: a GUI client is handed
+// the same numbers the Verified row reads, exactly once, on the success path
+// only, and before SendFilesWithOptions returns. HasVerified is the range
+// check, never a clamp: 999 of 1 reads as absent, not as a match.
+func TestSendOptionsOnDeliveredReportsTheVerifiedCount(t *testing.T) {
+	cases := []struct {
+		name, frame string
+		want        Delivered
+	}{
+		{"equal", `{"type":"received","verified":1}`, Delivered{Files: 1, Verified: 1, HasVerified: true}},
+		{"above the count", `{"type":"received","verified":999}`, Delivered{Files: 1, Verified: 0, HasVerified: false}},
+		{"missing", `{"type":"received"}`, Delivered{Files: 1, Verified: 0, HasVerified: false}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got []Delivered
+			_, err := sendOneAndAnswerWithOptions(t, tc.frame, SendOptions{
+				OnDelivered: func(d Delivered) { got = append(got, d) },
+			})
+			if err != nil {
+				t.Fatalf("a received frame must end the send cleanly, got: %v", err)
+			}
+			// got is written only on the send goroutine, and the helper
+			// returns only after that goroutine handed SendFilesWithOptions'
+			// result over a channel. So seeing the call here IS the proof that
+			// it happened before the return, with no flag to race on.
+			if len(got) != 1 {
+				t.Fatalf("OnDelivered fired %d times, want exactly 1", len(got))
+			}
+			if got[0] != tc.want {
+				t.Fatalf("Delivered = %+v, want %+v", got[0], tc.want)
 			}
 		})
 	}

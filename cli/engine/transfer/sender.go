@@ -153,6 +153,30 @@ func controlFields(raw []byte) (fields map[string]json.RawMessage, typ string, o
 	return fields, typ, true
 }
 
+// peerReason is what abortFromPeer returns for an incompatible frame it cannot
+// name with a code: the peer's own account, either rebuilt locally from pv and
+// pvMin or passed through displayText. It carries no new information; it exists
+// so the send loop can tell an error that came off the wire from one of its own
+// and leave the local file name off it (F-SHA-3). Error() is byte for byte the
+// text errors.New returned before, so every caller that compares the string,
+// including FuzzAbortFromPeer and TestSenderUnknownCodeKeepsReasonText, is
+// unaffected. Unexported and never wrapped: nothing outside this file should
+// match on it, and errors.As is the only reader.
+type peerReason struct{ text string }
+
+func (e *peerReason) Error() string { return e.text }
+
+// fromPeer reports whether err arrived on the wire rather than being raised by
+// this sender. Both shapes abortFromPeer can return count; nothing else does.
+// Deliberately errors.As on two concrete pointer types and not errors.Is:
+// neither type has Unwrap, and giving peerReason one would let a local
+// fmt.Errorf("...: %w", ...) masquerade as peer-originated.
+func fromPeer(err error) bool {
+	var stopped *PeerStoppedError
+	var reason *peerReason
+	return errors.As(err, &stopped) || errors.As(err, &reason)
+}
+
 // abortFromPeer reads the receiver's "incompatible" frame and returns the
 // error the send ends with, or nil when raw is not that frame.
 //
@@ -189,7 +213,7 @@ func abortFromPeer(raw []byte, localVer, updateHint string, total int) error {
 	if code, known := refusalCodeIn(fields); known {
 		return &PeerStoppedError{Code: code, Saved: savedCountIn(fields, total)}
 	}
-	return errors.New(compatErrorFromIncompatible(localVer, updateHint, incompat))
+	return &peerReason{compatErrorFromIncompatible(localVer, updateHint, incompat)}
 }
 
 // refusalCodeIn is the one reader of a peer's code: a JSON string that
@@ -277,6 +301,10 @@ func parseReceived(raw []byte, files int) (ok bool, verified int, hasVerified bo
 // the CLI behavior: terminal progress and the CLI update instruction.
 type SendOptions struct {
 	OnProgress ProgressFunc
+	// OnDelivered fires exactly once, after the delivery wait ends and before
+	// the summary is printed, with the same numbers the Verified row reads. It
+	// does not fire on any error path. Leave nil for the CLI.
+	OnDelivered func(Delivered)
 	// UpdateHint replaces the CLI-only local update instruction in protocol
 	// compatibility errors. Leave empty for the default CLI wording.
 	UpdateHint string
@@ -415,6 +443,16 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 	var sentSoFar int64
 	for i, entry := range files {
 		if err := sendFile(dc, ackCh, sendMore, done, entry, i+1, len(files), totalBytes, localVer, onProgress, opts.UpdateHint, sentSoFar, chunk); err != nil {
+			// A refusal the PEER sent is returned as it came. The wrap named
+			// entry.displayName, which is the file the sender had already moved
+			// on to: a receiver refuses file N after its end marker, and the
+			// frame lands while file N+1 waits for its ack, so the wrong file
+			// was blamed in every multi-file batch (F-SHA-3). The wrap still
+			// belongs on this sender's own failures, where the name is the
+			// whole point.
+			if fromPeer(err) {
+				return err
+			}
 			return fmt.Errorf("error sending %s: %w", entry.displayName, err)
 		}
 		sentSoFar += entry.size
@@ -518,6 +556,12 @@ drainLoop:
 	timeVal := formatDuration(elapsed)
 	if spd := formatSpeed(float64(totalBytes) / elapsed.Seconds()); spd != "" {
 		timeVal += " · avg " + spd
+	}
+	// Every return inside drainLoop is an error path and skips this by
+	// construction, which is what "fires exactly once, on success only, before
+	// SendFilesWithOptions returns" means.
+	if opts.OnDelivered != nil {
+		opts.OnDelivered(Delivered{Files: len(files), Verified: verified, HasVerified: hasVerified})
 	}
 	rows := [][2]string{
 		{"Sent", fmt.Sprintf("%s (%s)", pluralize(len(files), "file"), formatBytes(totalBytes))},
