@@ -75,6 +75,7 @@ const {
     REQUEST_JOINS_PER_MINUTE,
     handleRequestControl,
     REQUEST_MAX_AGE_MS,
+    REQUEST_CREATE_KEYS_MAX,
 } = require('./server');
 
 // ---------------------------------------------------------------------------
@@ -2145,6 +2146,35 @@ describe('handleHostJoin', () => {
         const lt = newToken();
         assert.deepEqual(hostJoin(late, lt, T0), { type: 'refused', data: { code: 'disabled' } });
         assert.equal(roomMeta.has(roomIdFromToken(lt)), false);
+    });
+
+    it('requestCreates holds at most REQUEST_CREATE_KEYS_MAX keys and drops the oldest first, never refusing a new key', () => {
+        assert.equal(REQUEST_CREATE_KEYS_MAX, 10000);
+        // A full log: the first entry expired a day ago, the rest are live, in
+        // the Map's order (least recently created first).
+        requestCreates.set('planted-expired', [T0 - REQUEST_CREATE_WINDOW_MS - 1]);
+        for (let i = 1; i < REQUEST_CREATE_KEYS_MAX; i++) requestCreates.set(`planted-${i}`, [T0 - 1000 + (i % 500)]);
+        assert.equal(requestCreates.size, REQUEST_CREATE_KEYS_MAX);
+
+        // A fresh key still creates (no limited for a full log), and the
+        // expired entry is what makes room.
+        const fresh = makePeer('fresh', '203.0.113.50');
+        assert.deepEqual(hostJoin(fresh, newToken(), T0), { type: 'room-joined', data: { role: 'host' } });
+        assert.equal(requestCreates.size, REQUEST_CREATE_KEYS_MAX);
+        assert.equal(requestCreates.has('planted-expired'), false);
+        assert.equal(createsInWindow('203.0.113.50', T0), 1);
+
+        // Then the oldest live entry goes, and a key that just created moves
+        // to the back, so it is kept longest.
+        const again = makePeer('planted-owner', '203.0.113.50');
+        hostJoin(again, newToken(), T0 + 1);
+        const other = makePeer('other', '203.0.113.51');
+        hostJoin(other, newToken(), T0 + 2);
+        assert.equal(requestCreates.size, REQUEST_CREATE_KEYS_MAX);
+        assert.equal(requestCreates.has('planted-1'), false, 'the oldest live key');
+        assert.ok(requestCreates.has('planted-2'));
+        assert.equal(createsInWindow('203.0.113.50', T0 + 2), 2);
+        assert.equal([...requestCreates.keys()].pop().startsWith('planted-'), false);
     });
 
     it('a malformed requestCreates entry never escapes cleanupTick', () => {

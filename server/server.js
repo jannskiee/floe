@@ -504,6 +504,19 @@ const REQUEST_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000 + 10 * 60 * 1000;
 // sealDigest(rateKey) -> timestamps of successful creates inside the window, at
 // most REQUEST_CREATES_PER_DAY each. Written only on a successful create, which
 // already took an admitted connection; trimmed by cleanupTick.
+//
+// At most REQUEST_CREATE_KEYS_MAX keys (D-116). The per-key budget cannot bind
+// an attacker holding many keys (IPv6 /64s, or any X-Forwarded-For on a
+// self-host exposed directly), and a create followed by request-close frees its
+// MAX_REQUEST_ROOMS slot, so without a ceiling the log grows by one entry per
+// key per day. Past the ceiling the least recently created key is dropped
+// (an expired one first, since the Map is kept in last-create order): never a
+// limited answer to a new key, which would let one many-key caller stop every
+// request link for a day. Dropping a key's history can only give that key a
+// fresh budget; MAX_REQUEST_ROOMS stays the global bound on live reservations.
+// Measured cost at the ceiling (Node 22, heapUsed after gc): about 3.0 MB with
+// one timestamp per key (299 B a key) and about 5.0 MB with the full 20.
+const REQUEST_CREATE_KEYS_MAX = 10000;
 const requestCreates = new Map();
 
 function createsInWindow(key, now = Date.now()) {
@@ -518,6 +531,12 @@ function recordCreate(key, now = Date.now()) {
     const digest = sealDigest(key);
     const ts = (requestCreates.get(digest) || []).filter(t => now - t < REQUEST_CREATE_WINDOW_MS);
     ts.push(now);
+    // Re-inserted at the back, so the Map stays in last-create order and its
+    // first key is always the one to drop.
+    requestCreates.delete(digest);
+    while (requestCreates.size >= REQUEST_CREATE_KEYS_MAX) {
+        requestCreates.delete(requestCreates.keys().next().value);
+    }
     requestCreates.set(digest, ts);
 }
 
@@ -1434,6 +1453,7 @@ module.exports = {
     REQUEST_CREATES_PER_DAY,
     REQUEST_CREATE_WINDOW_MS,
     MAX_REQUEST_ROOMS,
+    REQUEST_CREATE_KEYS_MAX,
     handleRequestJoin,
     requestJoinAllowed,
     REQUEST_JOINS_PER_MINUTE,
