@@ -701,6 +701,80 @@ func TestJoinAfterFlag(t *testing.T) {
 	}
 }
 
+// offer:skip and reopen-after:<ms> parse, and malformed forms are refused.
+func TestStallStepsParse(t *testing.T) {
+	good := map[string]decideStep{
+		"offer:skip":        {skipOffer: true},
+		"reopen-after:1":    {skipOffer: true, reopenAfter: time.Millisecond},
+		"reopen-after:3000": {skipOffer: true, reopenAfter: 3 * time.Second},
+	}
+	for spec, want := range good {
+		got, err := parseDecideStep(spec)
+		if err != nil || got != want {
+			t.Errorf("parseDecideStep(%q) = %+v, %v; want %+v", spec, got, err, want)
+		}
+	}
+	for _, bad := range []string{"offer:", "offer:Skip", "offer:skip ", "reopen-after:", "reopen-after:0", "reopen-after:-5", "reopen-after:x", "reopen-after:1.5"} {
+		if _, err := parseDecideStep(bad); err == nil {
+			t.Errorf("parseDecideStep(%q) accepted a step it must refuse", bad)
+		}
+	}
+	steps, err := parseDecideScript("reopen-after:3000,accept")
+	if err != nil || len(steps) != 2 || !steps[0].skipOffer || steps[1].kind != transfer.DecisionAccept {
+		t.Fatalf("parseDecideScript = %+v, %v", steps, err)
+	}
+}
+
+// reopen-after:<ms>,accept: the first visitor is seated and never offered to,
+// the harness reopens the room under it (the server evicts it with room-full),
+// and the next visitor delivers (S1-WEB-05 test 10).
+func TestRequestModeReopenAfterEvictsAStalledVisitor(t *testing.T) {
+	srv := newFakeRequestServer(t)
+	out := t.TempDir()
+	path, _ := payload(t, 64*1024)
+	h := startRequest(t, "-server", srv.url, "-out", out, "-decide", "reopen-after:500,accept", "-timeout", "60s")
+
+	room := roomFromLink(t, h.until(t, "link")["link"].(string))
+	stalled, err := signaling.Connect(srv.url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stalled.Close()
+	if res, err := stalled.RequestJoin(room); err != nil || res != signaling.VisitorJoined {
+		t.Fatalf("stalled visitor not seated: %v %v", res, err)
+	}
+	h.until(t, "offer-skipped")
+	start := time.Now()
+	select {
+	case <-stalled.RoomFull:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the stalled visitor was never evicted with room-full")
+	}
+	if waited := time.Since(start); waited > 5*time.Second {
+		t.Fatalf("eviction took %v, want about the 500 ms reopen-after", waited)
+	}
+	if r := h.until(t, "reopened"); r["evicted"] != true {
+		t.Fatalf("reopened = %v, want evicted true", r)
+	}
+	if err := visit(srv.url, room, path); err != nil {
+		t.Fatalf("next visitor: %v", err)
+	}
+	if d := h.until(t, "done"); d["files"] != float64(1) {
+		t.Fatalf("done = %v", d)
+	}
+	if code := h.exitCode(t); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	want := []string{"joined", "link", "user-connected", "offer-skipped", "reopened", "user-connected", "offer-sent", "sealed", "deciding", "accepted", "file-committed", "closed", "done"}
+	if got := h.names(); !equalNames(got, want) {
+		t.Fatalf("events %v, want %v", got, want)
+	}
+	_, _, controls := srv.snapshot()
+	if !equalNames(controls, []string{"request-reopen", "request-seal", "request-close"}) {
+		t.Fatalf("control frames %v", controls)
+	}
+}
+
 // decline,accept with -keep-waiting: the first visitor is declined, the room
 // is reopened, and the second visitor delivers.
 func TestRequestModeKeepWaitingReopensAfterADecline(t *testing.T) {

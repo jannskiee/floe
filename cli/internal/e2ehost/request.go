@@ -60,11 +60,20 @@ type decideStep struct {
 	code  transfer.RefusalCode  // refuse only
 	delay time.Duration         // how long before answering
 	never bool                  // never answer: the decide window or the visitor's leaving ends it
+	// skipOffer seats the visitor and never makes the offer (offer:skip), the
+	// stalled setup S1-WEB-05 test 10 needs. With reopenAfter set
+	// (reopen-after:<ms>), request-reopen goes out that long after
+	// user-connected, which evicts the seated visitor with room-full (E-03).
+	skipOffer   bool
+	reopenAfter time.Duration
 }
 
 // parseDecideStep reads one of accept, decline, delay:<ms> (accept after
 // that many milliseconds), never, refuse:<code> (a RefusalCode this build
-// knows). Anything else is an error, so a typo in a spec fails at start.
+// knows), offer:skip (never offer; the visit ends when the visitor leaves)
+// or reopen-after:<ms> (never offer, and evict the visitor with
+// request-reopen after that many milliseconds). Anything else is an error, so
+// a typo in a spec fails at start.
 func parseDecideStep(s string) (decideStep, error) {
 	switch {
 	case s == "accept":
@@ -79,6 +88,14 @@ func parseDecideStep(s string) (decideStep, error) {
 			return decideStep{}, fmt.Errorf("decide: bad delay in %q", s)
 		}
 		return decideStep{kind: transfer.DecisionAccept, delay: time.Duration(ms) * time.Millisecond}, nil
+	case s == "offer:skip":
+		return decideStep{skipOffer: true}, nil
+	case strings.HasPrefix(s, "reopen-after:"):
+		ms, err := strconv.Atoi(strings.TrimPrefix(s, "reopen-after:"))
+		if err != nil || ms < 1 {
+			return decideStep{}, fmt.Errorf("decide: bad reopen-after in %q", s)
+		}
+		return decideStep{skipOffer: true, reopenAfter: time.Duration(ms) * time.Millisecond}, nil
 	case strings.HasPrefix(s, "refuse:"):
 		code, ok := transfer.ParseRefusalCode(strings.TrimPrefix(s, "refuse:"))
 		if !ok {
@@ -340,6 +357,9 @@ type visitOutcome int
 const (
 	visitDelivered visitOutcome = iota + 1
 	visitRefused
+	// visitEvicted: the harness itself sent request-reopen under a seated
+	// visitor (reopen-after); the room is already open for the next visit.
+	visitEvicted
 )
 
 // refusalWord is the code a refused visit reports: always a constant this
@@ -372,6 +392,9 @@ func (h *requestHost) visit(step decideStep) visitOutcome {
 		h.ev.fail("signaling")
 	}
 	h.emit("user-connected", nil)
+	if step.skipOffer {
+		return h.stall(step)
+	}
 
 	servers, _, err := ice.FetchDetail(h.cfg.server)
 	if err != nil {
@@ -438,6 +461,34 @@ func (h *requestHost) visit(step decideStep) visitOutcome {
 	return visitDelivered
 }
 
+// stall is a visit that never gets an offer: the visitor stays seated in
+// its setup until it leaves, or, under reopen-after, until the harness
+// reopens the room under it, which the server answers by evicting the visitor
+// with room-full.
+func (h *requestHost) stall(step decideStep) visitOutcome {
+	h.emit("offer-skipped", nil)
+	var reopen <-chan time.Time
+	if step.reopenAfter > 0 {
+		t := time.NewTimer(step.reopenAfter)
+		defer t.Stop()
+		reopen = t.C
+	}
+	select {
+	case <-reopen:
+		if err := h.sc.RequestReopen(); err != nil {
+			h.ev.fail("reopen")
+		}
+		h.emit("reopened", map[string]interface{}{"evicted": true})
+		return visitEvicted
+	case <-h.sc.PeerLeft:
+		h.emit("refused", map[string]interface{}{"code": "peer-left"})
+		return visitRefused
+	case <-h.sc.Down:
+		h.ev.fail("signaling")
+	}
+	return visitRefused
+}
+
 // runRequest is request mode's entry.
 func runRequest(ev *events, args []string) {
 	cfg, err := parseRequestFlags(args)
@@ -476,7 +527,20 @@ func runRequest(ev *events, args []string) {
 		if n < len(cfg.steps) {
 			step = cfg.steps[n]
 		}
-		if h.visit(step) == visitDelivered || !cfg.keepWaiting {
+		outcome := h.visit(step)
+		if outcome == visitDelivered {
+			break
+		}
+		if outcome == visitEvicted {
+			// Already reopened by the harness; the next step takes the next
+			// visitor. A stale peer-disconnected is dropped as below.
+			select {
+			case <-h.sc.PeerLeft:
+			default:
+			}
+			continue
+		}
+		if !cfg.keepWaiting {
 			break
 		}
 		// A stale peer-disconnected from the visit that just ended must not
