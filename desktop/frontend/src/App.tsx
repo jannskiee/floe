@@ -514,12 +514,17 @@ function App() {
     // Do not "fix" this by wiring the context menu in.
     async function resetAllSettings() {
         setResetErr('');
+        // While the lane holds a link, a drop or its result, the Beta switch is
+        // locked (S5), and Reset honors the lock like the switch does: turning
+        // it off here would tear down the request listeners and strand the link
+        // with no way to reach or close it. Everything else still resets.
+        const keepRequestLinks = settingsLocked(requestPhase(reqUI));
         try {
             await SetSettings('', '', false, true);
             await SetCheckUpdates(true);
             // Off is the shipped default (F-05). Its own setter, so the reset
             // cannot rely on SetSettings, which carries the switch over.
-            await SetRequestLinks(false);
+            if (!keepRequestLinks) await SetRequestLinks(false);
         } catch (e) {
             // Two persists means a partial failure is possible: re-pull what
             // actually landed on disk so the screen never diverges from it.
@@ -542,7 +547,7 @@ function App() {
         setHideIP(false);
         setReportStats(true);
         setCheckUpdates(true);
-        setRequestLinksOn(false);
+        if (!keepRequestLinks) setRequestLinksOn(false);
         setOutput('');
         setTestStatus('');
         serverAddrRef.current = '';

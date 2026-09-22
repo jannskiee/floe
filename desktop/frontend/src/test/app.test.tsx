@@ -1042,3 +1042,57 @@ describe('request drops in History', () => {
         expect(screen.getAllByText('Acme footage')).toHaveLength(2);
     });
 });
+
+describe('reset all settings with a link open', () => {
+    it('reset all settings leaves request links on while a link is open', async () => {
+        wails.go.GetSettings.mockImplementation(async () => ({
+            server: 'http://localhost:3001', web: '', hideIP: true, reportStats: false, noUpdateCheck: false, requestLinks: true, migrated: true,
+        }));
+        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: true}));
+        wails.go.SetRequestLinks.mockImplementation(async () => {});
+        const user = userEvent.setup();
+        mount();
+        await waitFor(() => expect(wails.listeners.size).toBe(15));
+        act(() => {
+            wails.emit('request:state', {
+                state: 'waiting', code: '', gen: 2, promptGen: 0, link: 'http://localhost:3000/r/Xk3p9Q0aB1c#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f',
+                label: 'Acme footage', saveDir: 'D:\\x', expiresAt: Date.now() + 3600_000, route: '', suggestClose: false,
+            });
+        });
+
+        await user.click(screen.getByRole('button', {name: 'Settings'}));
+        const sw = () => screen.getByRole('checkbox', {name: /^Request links/}) as HTMLInputElement;
+        await waitFor(() => expect(sw().checked).toBe(true));
+        expect(screen.getByText('Close your request link first.')).toBeTruthy();
+
+        await user.click(screen.getByRole('button', {name: 'Reset'}));
+        await user.click(within(await screen.findByRole('dialog')).getByRole('button', {name: 'Reset all settings'}));
+
+        // Everything else went back to the defaults...
+        await waitFor(() => expect(wails.go.SetSettings).toHaveBeenCalledWith('', '', false, true));
+        // ...but the switch a live link depends on was left alone (S5).
+        expect(wails.go.SetRequestLinks).not.toHaveBeenCalledWith(false);
+        expect(sw().checked).toBe(true);
+        expect(wails.listeners.has('request:state')).toBe(true);
+
+        // And the link is still reachable to close.
+        await user.click(screen.getByRole('button', {name: 'Back'}));
+        await user.click(screen.getByRole('button', {name: 'Request link is open'}));
+        expect(await screen.findByRole('button', {name: 'Close link'})).toBeTruthy();
+    });
+
+    it('reset all settings still turns request links off with nothing open', async () => {
+        wails.go.GetSettings.mockImplementation(async () => ({
+            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false, requestLinks: true, migrated: true,
+        }));
+        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: true}));
+        wails.go.SetRequestLinks.mockImplementation(async () => {});
+        const user = userEvent.setup();
+        mount();
+        await waitFor(() => expect(wails.listeners.size).toBe(15));
+        await user.click(screen.getByRole('button', {name: 'Settings'}));
+        await user.click(screen.getByRole('button', {name: 'Reset'}));
+        await user.click(within(await screen.findByRole('dialog')).getByRole('button', {name: 'Reset all settings'}));
+        expect(wails.go.SetRequestLinks).toHaveBeenCalledWith(false);
+    });
+});
