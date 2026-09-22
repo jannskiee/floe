@@ -533,6 +533,19 @@ function repliesUntilPong(ws, ms = 10000) {
     });
 }
 
+// A socket that stops answering is what a throw out of a ws 'message' listener
+// looks like from outside (its Receiver is left mid-write). When a wait times
+// out, check the backstop first, so the failure names the Unhandled error line
+// rather than the silence it caused.
+async function orBackstop(srv, promise, what) {
+    try {
+        return await promise;
+    } catch (err) {
+        await assertSurvived(srv, what);
+        throw err;
+    }
+}
+
 function policyFileSaying(t, on) {
     const file = policyDir(t);
     writePolicy(file, JSON.stringify({ requestLinks: on }));
@@ -682,7 +695,7 @@ test('a hostToken of any hostile shape never reaches the backstop', async (t) =>
     const replies = repliesUntilPong(ws);
     for (const f of frames) ws.send(f);
     ws.send(JSON.stringify({ type: 'ping' }));
-    const got = await replies;
+    const got = await orBackstop(srv, replies, 'hostile hostToken and roomId shapes on a host join');
 
     assert.equal(got.length, frames.length, JSON.stringify(got));
     for (const m of got.slice(0, 6)) assert.deepEqual(m, { type: 'error', message: 'Invalid host token' });
@@ -705,14 +718,15 @@ test('digest comparison never sees unequal lengths', async (t) => {
     // Short and long tokens against a stored digest: refused by the regex
     // before any hash. A foreign token of the right shape fails the derivation.
     const other = await open(srv);
+    const what = 'token lengths 1 to 10,000 against a stored digest, then a reclaim';
     for (const bad of ['A', 'A'.repeat(10000), `${token}A`, token.slice(1)]) {
-        assert.deepEqual(await hostJoin(other, bad, id), { type: 'error', message: 'Invalid host token' });
+        assert.deepEqual(await orBackstop(srv, hostJoin(other, bad, id), what), { type: 'error', message: 'Invalid host token' });
     }
-    assert.deepEqual(await hostJoin(other, newToken(), id), { type: 'error', message: 'Invalid host token' });
+    assert.deepEqual(await orBackstop(srv, hostJoin(other, newToken(), id), what), { type: 'error', message: 'Invalid host token' });
 
     // The one path that reaches the compare: the real token again, from a new
     // socket (newest host wins). Two 32-byte digests, by construction.
-    assert.deepEqual(await hostJoin(other, token), { type: 'room-joined', role: 'host' });
+    assert.deepEqual(await orBackstop(srv, hostJoin(other, token), what), { type: 'room-joined', role: 'host' });
     await assertSurvived(srv, 'token lengths 1 to 10,000 against a stored digest, then a reclaim');
 });
 
