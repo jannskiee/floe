@@ -13,8 +13,9 @@
  * S1-WEB-09 is folded in (D-109 FT-19): there is no gate guard here, so these
  * run in every gated e2e leg. Test 16 keeps its own local-only guard.
  *
- * Three cells need harness pieces that do not exist yet. They are test.fixme
- * with the missing flag named, so none of them can pass silently.
+ * One cell (the over-approved refusal) needs harness limit flags that wait
+ * for WP-A1's ReceiveLimits. It is test.fixme with the missing flags named,
+ * so it cannot pass silently.
  */
 
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
@@ -116,14 +117,25 @@ function strayLink(): string {
 }
 
 test.describe('request-link', () => {
-    test('request-link: host absent, then back', async () => {
-        test.fixme(
-            true,
-            'needs a harness way to know the link before the host joins: floe-e2ehost request makes a fresh host token, ' +
-                'so the room exists only after it starts. Missing flag: -token <hex> (or -join-after <ms>, printing the link first)'
-        );
-        // Flow once the flag exists: load the link, pick, Send (C-40, C-41, Try again), start the harness with
-        // -decide accept, Try again, delivered, manifests equal, stats 0.
+    test('request-link: host absent, then back', async ({ page, context }) => {
+        const stats = await guard(context);
+        const sent = makeFiles({ 'a.bin': 64 * 1024 });
+        // The harness prints the link and claims the room 20 s later, long
+        // enough for a dev-server compile of /r, a pick and a Send.
+        const h = host({ decide: 'accept', joinAfter: 20_000 });
+        await page.goto(await requestLink(h));
+        await pickFiles(page, ['a.bin']);
+        await send(page);
+        await expect(page.getByRole('heading', { name: visitorCopy.hostAbsentTitle })).toBeVisible();
+        await expect(page.getByText(visitorCopy.hostAbsentBody)).toBeVisible();
+        const tryAgain = page.getByRole('button', { name: visitorCopy.tryAgain });
+        await expect(tryAgain).toBeVisible();
+        expect(h.events.some((e) => e.event === 'joined')).toBe(false);
+
+        await waitForHostEvent(h, 'joined', 30_000);
+        await tryAgain.click();
+        await expectDelivered(page, h, sent);
+        expect(await stats([page])).toBe(0);
     });
 
     test('request-link: used link answers room-full while sealed and host-absent after close', async ({ page, context, browser }) => {
@@ -277,10 +289,23 @@ test.describe('request-link', () => {
         expect(await stats([page])).toBe(0);
     });
 
-    test('request-link: reopen evicts a stalled visitor and the next visit delivers', async () => {
-        test.fixme(true, 'needs the harness decide cues offer:skip (join, never offer) and reopen-after:<ms> (request-reopen while seat 1 is held)');
-        // Flow once they exist: offer:skip plus reopen-after:3000; C-52 with Try
-        // again within 6 s; the harness switches to accept; Try again delivers.
+    test('request-link: reopen evicts a stalled visitor and the next visit delivers', async ({ page, context }) => {
+        const stats = await guard(context);
+        const sent = makeFiles({ 'a.bin': 64 * 1024 });
+        // First visit: seated, never offered to, evicted by the harness's own
+        // request-reopen after 3 s (E-03); every later visit is accepted.
+        const h = host({ decide: 'reopen-after:3000,accept' });
+        await page.goto(await requestLink(h));
+        await pickFiles(page, ['a.bin']);
+        const sentAt = Date.now();
+        await send(page);
+        await expect(page.getByRole('heading', { name: visitorCopy.couldNotConnect })).toBeVisible({ timeout: 6_000 });
+        // Well inside the 75 s setup timer: the eviction, not the timer, ended it.
+        expect(Date.now() - sentAt).toBeLessThan(6_000);
+        await waitForHostEvent(h, 'reopened', 5_000);
+        await page.getByRole('button', { name: visitorCopy.tryAgain }).click();
+        await expectDelivered(page, h, sent);
+        expect(await stats([page])).toBe(0);
     });
 
     test('request-link: hash lines follow verified, and a corrupt hash deletes the file', async ({ page, context }) => {

@@ -42,6 +42,8 @@ export interface RequestHostOptions {
     blipAfter?: string;
     /** -timeout, a Go duration (default 2m in the harness). */
     timeout?: string;
+    /** -join-after: print the link, then claim the room this many ms later. */
+    joinAfter?: number;
 }
 
 export interface RequestHost {
@@ -63,6 +65,7 @@ export function startRequestHost(opts: RequestHostOptions): RequestHost {
     if (opts.corruptHash) args.push('-corrupt-hash');
     if (opts.blipAfter) args.push('-blip-after', opts.blipAfter);
     if (opts.timeout) args.push('-timeout', opts.timeout);
+    if (opts.joinAfter !== undefined) args.push('-join-after', String(opts.joinAfter));
     const proc = spawn(E2E_HOST_BINARY, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     const events: RequestHostEvent[] = [];
     const host = { proc, events, outDir: opts.outDir } as RequestHost & { waiters: Array<() => void>; closed: boolean };
