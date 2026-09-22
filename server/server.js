@@ -347,7 +347,8 @@ const cleanupInterval = setInterval(() => {
 //
 // Both Socket.IO (browser) and WebSocket (CLI) peers share this registry.
 // Each "peer" is a plain object with:
-//   { id, type, roomId, send(type, data) }
+//   { id, type, key, roomId, send(type, data) }
+// where key is the rateKey of the address the connection was admitted under.
 //
 // This means a browser and a CLI can be in the same room and exchange
 // WebRTC signals through the same routing logic.
@@ -355,19 +356,28 @@ const cleanupInterval = setInterval(() => {
 
 const rooms = new Map(); // roomId → [peer, peer]
 
+// One record per live room, created with the room and deleted with it in
+// destroyRoom, so it can never outlive the room or hold more entries than
+// `rooms` does. `keys` is every rate key that has taken a seat in the room,
+// including peers that have since left: that history is what the seal in
+// handleJoinRoom reads.
+const roomMeta = new Map(); // roomId → { keys: Set<rateKey> }
+
 // The single way a room stops existing. A room that is gone must not leave a
 // working code behind it: the phrase is the whole secret, and a code outliving
 // its room is a phrase an attacker can still guess for whatever is created at
 // that id next. Every rooms.delete goes through here.
 function destroyRoom(roomId) {
     rooms.delete(roomId);
+    roomMeta.delete(roomId);
     forgetCode(roomId);
 }
 
-function createSocketIOPeer(socket) {
+function createSocketIOPeer(socket, key) {
     return {
         id: socket.id,
         type: 'socketio',
+        key,
         roomId: null,
         send(type, data) {
             // 'user-connected' historically sent just the peer ID string in the
@@ -391,10 +401,11 @@ function createSocketIOPeer(socket) {
 // itself: 2600 frames offered, 94 MB peak, 30 MB above where it started.
 const WS_SEND_BUFFER_CEILING = 1e6;
 
-function createWSPeer(ws) {
+function createWSPeer(ws, key) {
     return {
         id: ws.peerId,
         type: 'ws',
+        key,
         roomId: null,
         send(type, data) {
             if (ws.readyState !== WebSocket.OPEN) return;
@@ -439,16 +450,39 @@ function handleJoinRoom(peer, roomId) {
         peer.roomId = null;
     }
 
+    // The seal. Once two distinct keys have sat in a room, a third key is
+    // refused for as long as the room exists, so a stranger holding the link
+    // cannot take the receiver's seat after the receiver leaves or drops.
+    //
+    // Counted in keys, never a "has been paired" flag. The browser re-joins a
+    // reconnecting sender with a bare join-room (P2PTransfer.tsx, the socket
+    // reconnect handler), which can land in seat two beside its own ghost; a
+    // flag set there would refuse the real receiver for the life of the room.
+    // One key twice is still one key.
+    //
+    // Fails open, on purpose, for peers that share a key (one NAT, one IPv6
+    // /64, or loopback, which is how the e2e suite runs both peers): they never
+    // reach two keys, so a stranger behind the receiver's own address is not
+    // refused. Closing that needs a per-room token, and the released clients
+    // have no field to send one in.
+    const meta = roomMeta.get(roomId);
+    if (meta && meta.keys.size >= 2 && !meta.keys.has(peer.key)) {
+        peer.send('room-full', {});
+        return;
+    }
+
     const room = rooms.get(roomId) || [];
 
     if (room.length === 0) {
         room.push(peer);
         rooms.set(roomId, room);
+        roomMeta.set(roomId, { keys: new Set([peer.key]) });
         peer.roomId = roomId;
         peer.send('room-joined', { role: 'sender' });
     } else if (room.length === 1) {
         room.push(peer);
         rooms.set(roomId, room);
+        if (meta) meta.keys.add(peer.key);
         peer.roomId = roomId;
         // The code has done its job: both seats are taken, so retire it. Burning
         // here rather than on the first GET is what keeps a pre-join failure
@@ -535,11 +569,13 @@ const io = new Server(server, {
 io.use((socket, next) => {
     const ip = getClientIp(socket.handshake.headers['x-forwarded-for'], socket.handshake.address);
     if (!checkRateLimit(ip)) return next(new Error('Rate limit exceeded'));
+    // The key the room seal counts this peer under (handleJoinRoom).
+    socket.data.rateKey = rateKey(ip);
     next();
 });
 
 io.on('connection', (socket) => {
-    const peer = createSocketIOPeer(socket);
+    const peer = createSocketIOPeer(socket, socket.data.rateKey);
 
     socket.on('ping', (callback) => {
         if (typeof callback === 'function') callback();
@@ -670,7 +706,7 @@ wss.on('connection', (ws, req) => {
     ws.isAlive = true;
     ws.pingNonce = null;
 
-    const peer = createWSPeer(ws);
+    const peer = createWSPeer(ws, rateKey(ip));
 
     ws.on('pong', (data) => handlePong(ws, data));
 
@@ -812,6 +848,7 @@ module.exports = {
     handlePong,
     WS_SEND_BUFFER_CEILING,
     rooms,
+    roomMeta,
     codeToRoom,
     roomToCode,
     codeFailures,

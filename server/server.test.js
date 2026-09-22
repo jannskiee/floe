@@ -19,6 +19,7 @@ const {
     registerCodeHandler,
     resolveCodeHandler,
     rooms,
+    roomMeta,
     codeToRoom,
     roomToCode,
     codeFailures,
@@ -40,10 +41,15 @@ const {
 
 const ROOM_ID   = '11111111-1111-1111-1111-111111111111';
 
-function makePeer(id) {
+// `key` is the peer's rate key, as createSocketIOPeer and createWSPeer record
+// it. The default is what getClientIp and rateKey yield for a peer with no
+// address, so every test that names no key has all of its peers sharing one,
+// which the room seal deliberately never seals (see 'room seal' below).
+function makePeer(id, key = 'unknown') {
     const msgs = [];
     return {
         id,
+        key,
         roomId: null,
         msgs,
         send(type, data) { msgs.push({ type, data }); },
@@ -234,7 +240,7 @@ describe('words.json', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleJoinRoom', () => {
-    beforeEach(() => { rooms.clear(); roomToCode.clear(); codeFailures.clear(); });
+    beforeEach(() => { rooms.clear(); roomMeta.clear(); roomToCode.clear(); codeFailures.clear(); });
 
     it('assigns sender role to the first peer in a room', () => {
         const p = makePeer('peer-A');
@@ -289,7 +295,7 @@ describe('handleJoinRoom', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleSignal', () => {
-    beforeEach(() => { rooms.clear(); roomToCode.clear(); codeFailures.clear(); });
+    beforeEach(() => { rooms.clear(); roomMeta.clear(); roomToCode.clear(); codeFailures.clear(); });
 
     it('routes signal to the other peer when targeted by ID', () => {
         const pA = makePeer('peer-A');
@@ -372,7 +378,7 @@ describe('handleSignal', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleDisconnect', () => {
-    beforeEach(() => { rooms.clear(); roomToCode.clear(); codeFailures.clear(); });
+    beforeEach(() => { rooms.clear(); roomMeta.clear(); roomToCode.clear(); codeFailures.clear(); });
 
     it('removes only the disconnecting peer; the room survives with the remaining peer', () => {
         const pA = makePeer('peer-A');
@@ -448,12 +454,137 @@ describe('handleDisconnect', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Room seal: once two keys have sat in a room, a third key is refused
+// ---------------------------------------------------------------------------
+
+describe('room seal', () => {
+    beforeEach(() => { rooms.clear(); roomMeta.clear(); roomToCode.clear(); codeFailures.clear(); });
+
+    it('a third key after the receiver leaves gets room-full', () => {
+        const pA = makePeer('peer-A', 'a');
+        const pB = makePeer('peer-B', 'b');
+        const pC = makePeer('peer-C', 'c');
+        handleJoinRoom(pA, ROOM_ID);
+        handleJoinRoom(pB, ROOM_ID);
+        handleDisconnect(pB); // seat two is free again, so only the seal can refuse
+        pA.msgs.length = 0;
+
+        handleJoinRoom(pC, ROOM_ID);
+
+        assert.deepEqual(pC.msgs, [{ type: 'room-full', data: {} }]);
+        assert.equal(pC.roomId, null);
+        assert.deepEqual(rooms.get(ROOM_ID).map(p => p.id), ['peer-A']);
+        assert.equal(pA.msgs.length, 0, 'the seated sender hears nothing of a refused joiner');
+    });
+
+    it('the browser re-join with the same key gets receiver and a fresh user-connected', () => {
+        // A browser receiver whose socket dropped comes back on a new socket id
+        // from the same address and re-runs its join (P2PTransfer.tsx, the
+        // reconnect handler). Its key is already one of the two.
+        const pA = makePeer('peer-A', 'a');
+        const pB = makePeer('peer-B', 'b');
+        handleJoinRoom(pA, ROOM_ID);
+        handleJoinRoom(pB, ROOM_ID);
+        handleDisconnect(pB);
+        pA.msgs.length = 0;
+
+        const pB2 = makePeer('peer-B2', 'b');
+        handleJoinRoom(pB2, ROOM_ID);
+
+        assert.deepEqual(pB2.msgs, [{ type: 'room-joined', data: { role: 'receiver' } }]);
+        assert.deepEqual(
+            pA.msgs.filter(m => m.type === 'user-connected'),
+            [{ type: 'user-connected', data: { id: 'peer-B2' } }],
+        );
+    });
+
+    it('the ghost case admits the real receiver', () => {
+        // P2PTransfer.tsx re-joins a reconnecting sender with a bare join-room,
+        // which can land beside its own ghost (the old socket's disconnect has not
+        // arrived yet) and so take seat two. A seal on "this room has been full
+        // once" would then refuse the real receiver forever. Two keys have not
+        // sat here, so the room stays open.
+        const ghost = makePeer('peer-A-old', 'a');
+        const rejoin = makePeer('peer-A-new', 'a');
+        const pB = makePeer('peer-B', 'b');
+        handleJoinRoom(ghost, ROOM_ID);
+        handleJoinRoom(rejoin, ROOM_ID);
+        assert.deepEqual(rejoin.msgs, [{ type: 'room-joined', data: { role: 'receiver' } }]);
+        handleDisconnect(ghost);
+
+        handleJoinRoom(pB, ROOM_ID);
+
+        assert.deepEqual(pB.msgs, [{ type: 'room-joined', data: { role: 'receiver' } }]);
+        assert.equal(pB.roomId, ROOM_ID);
+        assert.deepEqual(rooms.get(ROOM_ID).map(p => p.id), ['peer-A-new', 'peer-B']);
+    });
+
+    it('peers sharing one key are not sealed', () => {
+        // The same-NAT fail-open, asserted because it is deliberate: two people
+        // behind one address never reach two keys, so the seal cannot tell a
+        // stranger from the receiver there. The e2e suite runs both peers on
+        // loopback and depends on it. A per-room token is the only fix, and the
+        // released binaries have no field to carry one.
+        const [pA, pB, pC] = ['peer-A', 'peer-B', 'peer-C'].map(id => makePeer(id, 'nat'));
+        handleJoinRoom(pA, ROOM_ID);
+        handleJoinRoom(pB, ROOM_ID);
+        handleDisconnect(pB);
+
+        handleJoinRoom(pC, ROOM_ID);
+
+        assert.deepEqual(pC.msgs, [{ type: 'room-joined', data: { role: 'receiver' } }]);
+        assert.deepEqual(rooms.get(ROOM_ID).map(p => p.id), ['peer-A', 'peer-C']);
+    });
+
+    it('an unpaired room is not sealed', () => {
+        // One key has sat here, so the room is still waiting for its receiver.
+        const pA = makePeer('peer-A', 'a');
+        const pB = makePeer('peer-B', 'b');
+        handleJoinRoom(pA, ROOM_ID);
+
+        handleJoinRoom(pB, ROOM_ID);
+
+        assert.deepEqual(pB.msgs, [{ type: 'room-joined', data: { role: 'receiver' } }]);
+        assert.deepEqual(pA.msgs.filter(m => m.type === 'user-connected'), [{ type: 'user-connected', data: { id: 'peer-B' } }]);
+    });
+
+    it('the seal lives and dies with its room', () => {
+        // Deleted by destroyRoom at both of its call sites, so a room id that has
+        // emptied starts unsealed, and the map cannot grow past the live rooms.
+        const pA = makePeer('peer-A', 'a');
+        const pB = makePeer('peer-B', 'b');
+        handleJoinRoom(pA, ROOM_ID);
+        assert.deepEqual([...roomMeta.get(ROOM_ID).keys], ['a']);
+        handleJoinRoom(pB, ROOM_ID);
+        assert.deepEqual([...roomMeta.get(ROOM_ID).keys], ['a', 'b']);
+        handleDisconnect(pB);
+        assert.deepEqual([...roomMeta.get(ROOM_ID).keys], ['a', 'b'], 'a departed key stays counted while the room exists');
+
+        handleDisconnect(pA); // handleDisconnect's destroyRoom
+        assert.equal(roomMeta.size, 0);
+
+        const pC = makePeer('peer-C', 'c');
+        const pD = makePeer('peer-D', 'd');
+        handleJoinRoom(pC, ROOM_ID);
+        handleJoinRoom(pD, ROOM_ID);
+        assert.deepEqual(pD.msgs, [{ type: 'room-joined', data: { role: 'receiver' } }], 'the emptied id starts unsealed');
+
+        const other = '11111111-2222-4333-8444-555555555555';
+        handleDisconnect(pD);
+        handleJoinRoom(pC, other); // the leave-first block's destroyRoom
+        assert.deepEqual([...roomMeta.keys()], [other]);
+        assert.deepEqual([...roomMeta.get(other).keys], ['c']);
+    });
+});
+
+// ---------------------------------------------------------------------------
 // Code lifecycle and the per-key failed-resolve budget
 // ---------------------------------------------------------------------------
 
 describe('code lifecycle', () => {
     beforeEach(() => {
         rooms.clear();
+        roomMeta.clear();
         codeToRoom.clear();
         roomToCode.clear();
         codeFailures.clear();
