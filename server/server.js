@@ -77,12 +77,23 @@ app.use(
 // CLIENT_URL alone would refuse all of them. Host only, never the scheme: TLS
 // usually ends at the proxy. Lowercased, because hostnames are case-insensitive
 // and the URL parser lowercases the Origin's side but not the Host header's.
+//
+// The host names must match; the ports only when the Host header still carries
+// one (D-114). nginx `proxy_set_header Host $host`, the docs' own example and
+// the usual Nginx Proxy Manager default, forwards the name without its port, so
+// a CLI pointed at https://api.example.com:8443 arrives as that Origin with
+// Host api.example.com. The Host is parsed with the Origin's scheme so a default
+// port spelled out on either side (:80, :443) normalizes away. What this admits
+// beyond an exact match is a page on another port of the same host name, which
+// only that host's owner can serve.
 function isAllowedOrigin(origin, host) {
     if (origin === undefined || origin === '') return true;
     if (allowedOrigins.includes(origin)) return true;
     if (!host) return false;
     try {
-        return new URL(origin).host === String(host).toLowerCase();
+        const o = new URL(origin);
+        const h = new URL(`${o.protocol}//${String(host).toLowerCase()}`);
+        return o.hostname === h.hostname && (h.port === '' || h.port === o.port);
     } catch {
         return false;
     }

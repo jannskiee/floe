@@ -135,11 +135,13 @@ const UPGRADE_HEADERS =
 // One raw upgrade request. Resolves with the reply headers, the socket (so a
 // caller can write frames on an accepted connection), and afterHandshake(), which
 // waits for a pattern in whatever the server sends once the headers are done.
-// extraHeaders is inserted verbatim, each line ending in \r\n.
-function rawUpgrade(srv, target, extraHeaders = '') {
+// extraHeaders is inserted verbatim, each line ending in \r\n. host is the Host
+// header, which the server never routes on, so a test can present whatever a
+// proxy in front of it would have forwarded.
+function rawUpgrade(srv, target, extraHeaders = '', host = `127.0.0.1:${srv.port}`) {
     return new Promise((resolve, reject) => {
         const socket = track(net.connect(srv.port, '127.0.0.1', () => {
-            socket.write(`GET ${target} HTTP/1.1\r\nHost: 127.0.0.1:${srv.port}\r\n${extraHeaders}${UPGRADE_HEADERS}\r\n`);
+            socket.write(`GET ${target} HTTP/1.1\r\nHost: ${host}\r\n${extraHeaders}${UPGRADE_HEADERS}\r\n`);
         }));
         let buf = '';
         let headEnd = -1;
@@ -614,4 +616,63 @@ test('a foreign Origin on a Socket.IO target is refused by Socket.IO alone', asy
     await assertSurvived(srv, 'two Socket.IO targets from a foreign Origin');
     assert.equal((srv.stderr.match(REFUSED_SIO) || []).length, 1, `stderr:\n${srv.stderr}`);
     assert.equal((srv.stderr.match(REFUSED_WS) || []).length, 0, `the /ws check ran for a Socket.IO target:\n${srv.stderr}`);
+});
+
+// The Origin and Host the Go client sends, built the way it builds them, so the
+// same-host rule is exercised with the request every installed CLI and desktop
+// app actually makes. A copy of originFromServer in cli/engine/signaling/client.go
+// (unchanged in every release): keep the two in step. The Host header is the
+// URL's host as typed (gorilla/websocket sets `Host: u.Host`), or, behind a
+// proxy like nginx `proxy_set_header Host $host`, the lowercased host name
+// without its port.
+function originFromServer(serverURL) {
+    if (serverURL === 'https://api.floe.one') return 'https://floe.one';
+    if (serverURL === 'http://localhost:3001') return 'http://localhost:3000';
+    const u = serverURL.endsWith('/') ? serverURL.slice(0, -1) : serverURL;
+    const i = u.indexOf('://');
+    if (i === -1) return u;
+    let host = u.slice(i + 3);
+    const j = host.indexOf('/');
+    if (j !== -1) host = host.slice(0, j);
+    return u.slice(0, i + 3) + host;
+}
+
+function typedHost(serverURL) {
+    const rest = serverURL.slice(serverURL.indexOf('://') + 3);
+    const j = rest.indexOf('/');
+    return j === -1 ? rest : rest.slice(0, j);
+}
+
+function portStrippedHost(serverURL) {
+    return new URL(serverURL.replace(/^ws/, 'http')).hostname;
+}
+
+test('a Go client\'s handshake passes the same-host rule directly and through a port-stripping proxy', async (t) => {
+    const srv = await startServer();
+    t.after(() => srv.stop());
+
+    const servers = [
+        `http://127.0.0.1:${srv.port}`,
+        'https://floe.example.com:8443',
+        'https://floe.example.com:8443/',
+        'https://Floe.Example.com:8443/signal',
+        'wss://floe.example.com:8443',
+        'https://floe.example.com:443',
+        'http://floe.example.com:80',
+        'https://floe.example.com',
+    ];
+    for (const server of servers) {
+        const origin = `Origin: ${originFromServer(server)}\r\n`;
+        for (const [how, host] of [['direct', typedHost(server)], ['port-stripping proxy', portStrippedHost(server)]]) {
+            const { head, socket } = await rawUpgrade(srv, '/ws', origin, host);
+            assert.match(head, /^HTTP\/1\.1 101 /, `--server ${server}, ${how} (Host ${host})`);
+            socket.destroy();
+        }
+    }
+
+    // The edge this rule does not cover, and the docs name: a proxy that
+    // rewrites Host to the upstream address.
+    const { head } = await rawUpgrade(srv, '/ws', `Origin: ${originFromServer('https://floe.example.com:8443')}\r\n`, 'localhost:3001');
+    assert.match(head, /^HTTP\/1\.1 403 /);
+    await assertSurvived(srv, 'Go-shaped handshakes, direct and through proxies');
 });

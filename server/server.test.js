@@ -182,6 +182,55 @@ describe('isAllowedOrigin', () => {
         assert.equal(isAllowedOrigin(`https://evil.example\\@${HOST}`, HOST), false);
     });
 
+    it('the same-host rule holds across the whole table, including a Host a proxy stripped of its port', () => {
+        // One row per expectation above, plus the rows the port rule adds
+        // (D-114). nginx `proxy_set_header Host $host`, the docs' own example
+        // and the usual Nginx Proxy Manager and SWAG default, forwards the host
+        // name without its port, so a CLI or desktop app pointed at
+        // https://api.example.com:8443 arrives with that Origin and Host
+        // api.example.com. A default port spelled out in --server (:80, :443)
+        // stays in both the Origin and the Host the Go client sends.
+        const rows = [
+            // [origin, host, expected, why]
+            [undefined, HOST, true, 'absent'],
+            ['', HOST, true, 'empty'],
+            [undefined, undefined, true, 'absent, no Host'],
+            ['https://floe.one', HOST, true, 'allow-list'],
+            ['https://www.floe.one', '192.168.1.50:3001', true, 'allow-list on another host'],
+            ['http://localhost:3000', undefined, true, 'allow-list, no Host'],
+            ['http://192.168.1.50:3001', '192.168.1.50:3001', true, 'same host and port'],
+            ['https://floe.example.com', 'floe.example.com', true, 'same host, default port'],
+            ['http://[::1]:3001', '[::1]:3001', true, 'IPv6 literal'],
+            ['https://192.168.1.50:3001', '192.168.1.50:3001', true, 'scheme ignored'],
+            ['https://Floe.Example.com', 'Floe.Example.com', true, 'case kept on both sides'],
+            ['https://floe.example.com', 'FLOE.example.COM', true, 'case differs'],
+            ['https://floe.example.com:8443', 'floe.example.com', true, 'proxy dropped the port from Host'],
+            ['https://floe.example.com:8443', 'FLOE.EXAMPLE.COM', true, 'proxy dropped the port, case differs'],
+            ['https://floe.example.com:443', 'floe.example.com:443', true, ':443 spelled out'],
+            ['http://floe.example.com:80', 'floe.example.com:80', true, ':80 spelled out'],
+            ['https://floe.example.com:443', 'floe.example.com', true, ':443 in Origin only'],
+            ['https://evil.example', HOST, false, 'foreign'],
+            ['https://floe.one.evil.example', HOST, false, 'lookalike'],
+            ['https://api.floe.one.evil.example', HOST, false, 'lookalike of the host itself'],
+            ['https://evil.example:8443', 'floe.example.com', false, 'port dropped, different host'],
+            ['http://192.168.1.50:3000', '192.168.1.50:3001', false, 'port mismatch'],
+            ['http://192.168.1.50', '192.168.1.50:3001', false, 'Host carries a port the Origin lacks'],
+            ['https://floe.example.com', 'floe.example.com:8443', false, 'Host carries a port the Origin lacks'],
+            ['https://floe.example.com:8443', 'localhost:3001', false, 'Host rewritten to the upstream'],
+            ['null', HOST, false, 'null origin'],
+            ['null', 'null', false, 'null origin and Host'],
+            ['https://floe.one, https://evil.example', HOST, false, 'joined duplicate'],
+            [`https://${HOST}, https://evil.example`, HOST, false, 'joined duplicate of the host'],
+            [`https://evil.example\\@${HOST}`, HOST, false, 'backslash authority'],
+            ['https://evil.example', undefined, false, 'no Host'],
+            ['https://evil.example', '', false, 'empty Host'],
+        ];
+        const wrong = rows
+            .filter(([origin, host, expected]) => isAllowedOrigin(origin, host) !== expected)
+            .map(([origin, host, expected, why]) => `${why}: isAllowedOrigin(${JSON.stringify(origin)}, ${JSON.stringify(host)}) should be ${expected}`);
+        assert.deepEqual(wrong, []);
+    });
+
     it('refuses anything else when the Host header is absent', () => {
         assert.equal(isAllowedOrigin('https://evil.example', undefined), false);
         assert.equal(isAllowedOrigin('https://evil.example', ''), false);
