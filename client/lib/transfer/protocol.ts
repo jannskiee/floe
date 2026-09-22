@@ -32,6 +32,23 @@ export const ACK_TIMEOUT_MS = 120_000;
 export const REQUEST_ACK_TIMEOUT_MS = 600_000;
 export const REQUEST_ACK_GRACE_MS = 15_000;
 
+/**
+ * How long a digest may take for a file of this many bytes before the side
+ * waiting on it gives up: a floor rate of 10 MB/s plus 30 s, so a 2 GB file
+ * gets 230 s.
+ *
+ * One formula for both sides, which is why it lives here and not in
+ * fileHash.ts (the Worker boundary, which holds no caller policy). A hasher
+ * that never answers must leave neither the receiver pending forever with every
+ * later frame queued behind it nor the sender without an end frame (CP0-F2).
+ * Giving up is never a refusal on either side: the receiver keeps the file
+ * unverified and the sender sends its end frame with no digest key, which is
+ * what an absent digest has always meant.
+ */
+export function hashBoundMs(bytes: number): number {
+    return Math.ceil((bytes / 10_000_000) * 1000) + 30_000;
+}
+
 // ProtocolVersion is the highest wire protocol version this build speaks.
 // MinProtocolVersion is the lowest it still supports.
 //

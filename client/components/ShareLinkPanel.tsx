@@ -9,6 +9,9 @@ interface ShareLinkPanelProps {
     showQr: boolean;
     onToggleQr: () => void;
     status: string;
+    // 'SHA-256 matched' once the receiver reported every file verified, else
+    // null. Never a digest value, and never a count (D-101).
+    verifiedLine: string | null;
 }
 
 /**
@@ -24,6 +27,7 @@ export function ShareLinkPanel({
     showQr,
     onToggleQr,
     status,
+    verifiedLine,
 }: ShareLinkPanelProps) {
     const isComplete = status === 'All Files Sent!' || status.includes('Transfer complete');
 
@@ -107,6 +111,13 @@ export function ShareLinkPanel({
                     {status}
                 </span>
             </div>
+
+            {/* A sibling of the status line, not part of it: the audit anchors
+                on the sender's completion status as its own text, and that
+                string must stay byte for byte what it is. */}
+            {verifiedLine && (
+                <p className="mt-1 text-center text-xs text-zinc-500">{verifiedLine}</p>
+            )}
         </div>
     );
 }

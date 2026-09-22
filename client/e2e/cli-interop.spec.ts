@@ -65,6 +65,12 @@ test('Direction 1: CLI send → browser receive (SHA-256 integrity)', async ({ b
         // never ran (the download link above proves it ran to completion).
         const body = await page.locator('body').innerText();
         expect(body).not.toMatch(/did not match what was sent|could not be read/i);
+
+        // And the page now says so: every handed-over file verified, so the
+        // success line shows under the completion line. The transient
+        // "Verifying file 1 of 1" is deliberately not asserted; for a 12 MB
+        // file the check is milliseconds and the assertion would flake.
+        await expect(page.locator('body')).toContainText('SHA-256 matched', { timeout: 15_000 });
     } finally {
         await ctx.close();
         proc.kill();
@@ -89,6 +95,12 @@ test('Direction 2: browser send → CLI receive (SHA-256 integrity)', async ({ b
         // The browser sender put the file's SHA-256 on its end frame and the Go
         // receiver matched it against the bytes it wrote.
         expect(stdout).toMatch(/Verified\s+SHA-256 matched/);
+
+        // The CLI receiver's `received` frame carries verified=1 and now
+        // reaches the page, because the session listener outlives onAllSent
+        // (F-SHA-4). Before this the finally closed the channel first.
+        await expect(page.locator('body')).toContainText('SHA-256 matched', { timeout: 15_000 });
+        await expect(page.locator('body')).toContainText('All Files Sent!');
 
         // Verify the file landed on disk with correct content.
         const expectedName = basename(fixturePath);

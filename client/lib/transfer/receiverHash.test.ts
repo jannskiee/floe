@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { createReceiver, MAX_QUEUED_WHILE_PENDING, type ReceivedFile, type ReceiverDeps } from './receiver';
 import { metadataMessage, endMessage, incompatibleMessage, CONTROL_MSG_MAX, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION } from './protocol';
@@ -310,6 +310,49 @@ describe('receiver: per-file SHA-256', () => {
         await h.rx.settled();
         expect(h.errors).toEqual([]);
         expect(h.completed[0].verified).toBe(false);
+    });
+
+    // CP0-F2. The bound used to be AbortSignal.timeout, which Safari before 16
+    // does not have: the signal was undefined there, so a hasher that never
+    // answered left settled() pending forever with every later frame queued
+    // behind it. An AbortController plus a setTimeout works on every engine.
+    it('bounds the hash wait with a timer when AbortSignal.timeout is missing', async () => {
+        const realTimeout = AbortSignal.timeout;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (AbortSignal as any).timeout = undefined;
+        try {
+            const h = harness({
+                hashBlob: (_blob, signal) => new Promise((resolve) => signal?.addEventListener('abort', () => resolve(null))),
+                hashBoundMs: () => 10,
+            });
+            const a = payload(10);
+            feed(h, 'a', a, 1, 1, endMessage(digestOf(a)));
+            await h.rx.settled();
+            expect(h.errors).toEqual([]);
+            expect(h.completed).toHaveLength(1);
+            // A missing check never claims a match, and never refuses either.
+            expect(h.completed[0].verified).toBe(false);
+        } finally {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (AbortSignal as any).timeout = realTimeout;
+        }
+    });
+
+    it('clears the bound timer when the digest settles', async () => {
+        vi.useFakeTimers();
+        try {
+            const h = harness({ hashBlob: nodeHash, hashBoundMs: () => 30_000 });
+            const a = payload(10);
+            feed(h, 'a', a, 1, 1, endMessage(digestOf(a)));
+            const done = h.rx.settled();
+            await vi.advanceTimersByTimeAsync(0);
+            await done;
+            expect(h.completed[0].verified).toBe(true);
+            // The 30 s bound must not outlive the digest it was guarding.
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('releases the chunks of a checked file before its digest settles', async () => {

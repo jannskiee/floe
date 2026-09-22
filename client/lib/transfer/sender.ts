@@ -18,6 +18,7 @@ import {
     MIN_PROTOCOL_VERSION,
     ACK_TIMEOUT_MS,
     SEND_FILE_HASHES,
+    hashBoundMs,
     type Ack,
     type Incompatible,
     type Received,
@@ -77,6 +78,10 @@ export interface SenderDeps {
     // The digest function, so a test can pass its own; the default is the Worker
     // behind hashBlob. A rejection, or a synchronous throw, is read as null.
     hashBlob?: (blob: Blob, signal?: AbortSignal) => Promise<string | null>;
+    // How long a digest may take for a file of this many bytes before the end
+    // frame goes out without one. Overridable as on the receiver, so a test can
+    // make the bound fire.
+    hashBoundMs?: (bytes: number) => number;
 }
 
 // How often the progress ticker re-derives delivered bytes for the UI. It runs
@@ -168,6 +173,9 @@ export async function sendFiles(
     // that arrived after `end` or between chunks was never seen.
     const session = openSession(deps, cb, files.length);
     const ticker = setInterval(emitView, PROGRESS_TICK_MS);
+    // Set once the session is handed to lingerUntilDone, which owns the close
+    // from then on. Every other exit still closes it here.
+    let lingering = false;
 
     try {
         for (let i = 0; i < files.length; i++) {
@@ -199,9 +207,16 @@ export async function sendFiles(
         emitView();
         cb.onSpeedReset?.();
         cb.onAllSent?.();
+        // Fire and forget, never awaited: a CLI receiver's hash refusal lands
+        // about CONTROL_FLUSH_MS after the last byte, and closing here dropped
+        // it and left the page claiming success (F-SHA-4). Awaiting it instead
+        // would leave sendFiles pending for the life of the page whenever the
+        // peer answers nothing, which is every browser-to-browser transfer.
+        lingering = true;
+        session.lingerUntilDone(destroyed);
     } finally {
         clearInterval(ticker);
-        session.close();
+        if (!lingering) session.close();
     }
 }
 
@@ -506,16 +521,25 @@ async function sendSingleFile(
         // end marker that may never be sent. The poll mirrors waitForBuffer's
         // shape; sendFiles' finally aborts the hash itself.
         let poll: ReturnType<typeof setInterval> | null = null;
+        let boundTimer: ReturnType<typeof setTimeout> | null = null;
         const stopped = new Promise<typeof STOPPED>((resolve) => {
             poll = setInterval(() => {
                 if (destroyed() || session.reportStop()) resolve(STOPPED);
             }, DIGEST_STOP_POLL_MS);
         });
+        // A hasher that never answers used to leave this await pending for the
+        // life of the page, so no end frame ever went out (CP0-F2). The bound
+        // resolves null, which is what an absent digest already means: the key
+        // is left off the frame and the receiver keeps its byte-count check.
+        const bound = new Promise<null>((resolve) => {
+            boundTimer = setTimeout(() => resolve(null), (deps.hashBoundMs ?? hashBoundMs)(entry.file.size));
+        });
         let outcome: string | null | typeof STOPPED;
         try {
-            outcome = await Promise.race([digest, stopped]);
+            outcome = await Promise.race([digest, stopped, bound]);
         } finally {
             if (poll) clearInterval(poll);
+            if (boundTimer) clearTimeout(boundTimer);
         }
         if (outcome === STOPPED) return false;
         sha256 = outcome;
@@ -535,6 +559,16 @@ interface Session {
     // onStopped) and returns true while the session is stopped.
     reportStop(): boolean;
     close(): void;
+    // After onAllSent the listener stays attached until the first of a
+    // `received` frame, the channel close, or destroyed() polled at
+    // DIGEST_STOP_POLL_MS. A CLI receiver's hash refusal lands about
+    // CONTROL_FLUSH_MS after the last byte, which is after onAllSent, and
+    // closing here dropped it and left the page claiming success (F-SHA-4).
+    // The same window is what lets a `received` frame reach onDelivered at all.
+    // Synchronous and fire and forget: sendFiles must not await it, or a peer
+    // that never answers would never let the send resolve. It closes the
+    // session itself on every exit.
+    lingerUntilDone(destroyed: () => boolean): void;
 }
 
 // The session's one control listener: acks for the current file, a stop latch
@@ -557,6 +591,21 @@ function openSession(deps: SenderDeps, cb: SenderCallbacks, fileCount: number): 
         resolve(r);
     };
 
+    // Set only while the post-onAllSent window is open (lingerUntilDone). One
+    // shot: whichever of a `received` frame, the channel close or a destroyed()
+    // poll arrives first runs it, and it clears itself first, so a second frame
+    // cannot re-enter teardown and close() calling it again is a no-op.
+    let lateDone: (() => void) | null = null;
+    const finishLate = () => {
+        const f = lateDone;
+        lateDone = null;
+        f?.();
+    };
+    // Whether the peer already confirmed delivery. Read only by
+    // lingerUntilDone, so a `received` that arrived before the window opened
+    // does not arm a poll that nothing would ever clear.
+    let delivered = false;
+
     const off = deps.onData((raw) => {
         // The SENDER keeps classifying by content, and must: a Go receiver sends
         // its ack, received and incompatible frames as BINARY. That is safe here
@@ -574,18 +623,59 @@ function openSession(deps: SenderDeps, cb: SenderCallbacks, fileCount: number): 
             // is what separates a version mismatch from a deliberate abort.
             if (!stopped) stopped = msg as Incompatible;
             settle({ type: 'stopped' });
+            // Last, so today's callbacks still run first. In the post-onAllSent
+            // window this is what reports the refusal and tears the session
+            // down; outside it, lateDone is null and this does nothing.
+            finishLate();
         } else if (msg.type === 'received') {
             cb.onReceived?.();
             const verified = verifiedCountOf(msg as Received, fileCount);
             cb.onDelivered?.({ files: fileCount, verified, allVerified: fileCount > 0 && verified === fileCount });
+            delivered = true;
+            finishLate();
         }
     });
 
     const onClose = () => {
         closed = true;
         settle({ type: 'closed' });
+        finishLate();
     };
     deps.channel.addEventListener('close', onClose);
+
+    // Hoisted out of the returned literal so lingerUntilDone can call both
+    // without `this`, and so the teardown body exists exactly once.
+    const reportStop = (): boolean => {
+        if (!stopped) return false;
+        if (!reported) {
+            reported = true;
+            // Rebuilt from the frame's pv range rather than printed as sent,
+            // the way the Go sender has done since PR #282. On a genuine
+            // version mismatch the peer's sentence names the sides from ITS
+            // point of view and offers ITS remedy. A deliberate abort still
+            // comes through verbatim: that is the overlapping-range half of
+            // compatErrorFromIncompatible, and it is what carries the
+            // relay-cap reason from PR #429.
+            cb.onError?.(compatErrorFromIncompatible(stopped));
+            // The typed stop carries only an allowlisted code and a clamped
+            // count, never the peer's text.
+            const raw: unknown = stopped.saved;
+            const saved = typeof raw === 'number' && Number.isInteger(raw)
+                ? Math.min(Math.max(raw, 0), fileCount)
+                : 0;
+            cb.onStopped?.({ code: refusalCodeOf(stopped), saved });
+        }
+        return true;
+    };
+
+    const close = () => {
+        // First, so a close from any other path can never strand the linger's
+        // interval. lateDone is already null when the window was never opened.
+        finishLate();
+        off();
+        deps.channel.removeEventListener('close', onClose);
+        settle({ type: 'closed' });
+    };
 
     return {
         waitForAck(fileId, timeoutMs) {
@@ -596,32 +686,27 @@ function openSession(deps: SenderDeps, cb: SenderCallbacks, fileCount: number): 
                 timer = setTimeout(() => settle({ type: 'timeout' }), timeoutMs);
             });
         },
-        reportStop() {
-            if (!stopped) return false;
-            if (!reported) {
-                reported = true;
-                // Rebuilt from the frame's pv range rather than printed as sent,
-                // the way the Go sender has done since PR #282. On a genuine
-                // version mismatch the peer's sentence names the sides from ITS
-                // point of view and offers ITS remedy. A deliberate abort still
-                // comes through verbatim: that is the overlapping-range half of
-                // compatErrorFromIncompatible, and it is what carries the
-                // relay-cap reason from PR #429.
-                cb.onError?.(compatErrorFromIncompatible(stopped));
-                // The typed stop carries only an allowlisted code and a clamped
-                // count, never the peer's text.
-                const raw: unknown = stopped.saved;
-                const saved = typeof raw === 'number' && Number.isInteger(raw)
-                    ? Math.min(Math.max(raw, 0), fileCount)
-                    : 0;
-                cb.onStopped?.({ code: refusalCodeOf(stopped), saved });
+        reportStop,
+        close,
+        lingerUntilDone(destroyed) {
+            // Everything that could already have ended the window: a refusal
+            // latched before onAllSent, a delivery already confirmed, a closed
+            // channel, a destroyed peer. Nothing to wait for, so close now.
+            if (reportStop() || delivered || closed || destroyed()) {
+                close();
+                return;
             }
-            return true;
-        },
-        close() {
-            off();
-            deps.channel.removeEventListener('close', onClose);
-            settle({ type: 'closed' });
+            // destroyed() is a poll because a destroyed peer fires no event
+            // here; `received` and the channel close come through the listener
+            // itself and run lateDone directly.
+            const poll = setInterval(() => {
+                if (destroyed()) finishLate();
+            }, DIGEST_STOP_POLL_MS);
+            lateDone = () => {
+                clearInterval(poll);
+                reportStop();
+                close();
+            };
         },
     };
 }

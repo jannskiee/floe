@@ -28,11 +28,18 @@ export function TransferProgressBar({
         <div className="space-y-2">
             <div className="flex justify-between text-xs text-zinc-400 font-mono">
                 <span>
+                    {/* A refusal that lands after the last byte leaves this row
+                        on screen, and "Sending file X of N..." would then be a
+                        false claim about a transfer that stopped. The failed
+                        status drops the label rather than inventing a new
+                        string; the banner above already says what happened. */}
                     {isSender
                         ? status === 'All Files Sent!'
                             ? `Sent ${filesCount} ${filesCount === 1 ? 'file' : 'files'}`
-                            : `Sending file ${currentFileIndex + 1} of ${filesCount}...`
-                        : status.includes('Receiving')
+                            : status === 'Transfer failed'
+                                ? ''
+                                : `Sending file ${currentFileIndex + 1} of ${filesCount}...`
+                        : status.includes('Receiving') || status.includes('Verifying')
                             ? status
                             : 'Receiving...'}
                 </span>
