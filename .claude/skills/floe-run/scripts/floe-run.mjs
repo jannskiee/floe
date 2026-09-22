@@ -29,11 +29,21 @@
  * killed without /T) can leave next dev holding :3000 with no parent; `stop`
  * finds that listener through netstat / lsof and kills it too.
  *
- * Modes: start [--client] [--relaxed] | check [--json] | stop
+ * --request-links points the server at a policy file this script writes
+ * beside the pidfile ({"requestLinks":true}, nothing else) and deletes on
+ * stop. --local-turn hands the server the launching session's
+ * FLOE_LOCAL_TURN_* pair under the two names server/turn.js reads, and hands
+ * it to nothing else: no other child, file, pidfile or printed line. Both
+ * report through READY and check: `features` is what /health lists, and
+ * `turn` is one word decided from the URL schemes of /api/turn-credentials,
+ * whose body carries live credentials and is never printed.
+ *
+ * Modes: start [--client] [--relaxed] [--request-links] [--local-turn] |
+ * check [--json] | stop
  * Exit codes: 0 ok; 1 check found a server it cannot vouch for, or stop
- * refused a pid; 2 usage, or nothing to check or stop; 3 a port is bound;
- * 4 the server read a non-zero total; 5 the server or client never became
- * healthy.
+ * refused a pid; 2 usage (including --local-turn without its two session
+ * variables), or nothing to check or stop; 3 a port is bound; 4 the server
+ * read a non-zero total; 5 the server or client never became healthy.
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -68,11 +78,18 @@ const SENTINEL_TOKEN = 'local-sentinel';
 const WIN = process.platform === 'win32';
 const SELF = 'node .claude/skills/floe-run/scripts/floe-run.mjs';
 const MODE_FLAGS = {
-    start: ['--client', '--relaxed'],
+    start: ['--client', '--relaxed', '--request-links', '--local-turn'],
     check: ['--json'],
     stop: [],
 };
+const USAGE = `usage: ${SELF} <start [--client] [--relaxed] [--request-links] [--local-turn] | check [--json] | stop>`;
 const NODE_IMAGE = path.basename(process.execPath);
+// Beside the pidfile (the OS temp dir), never in the repo tree. Only a
+// --request-links start writes it, and only stop or teardown deletes it.
+const POLICY_PATH = path.join(path.dirname(PIDFILE), 'floe-run-policy.json');
+// The launching session's names for the local coturn. No child inherits them
+// under these names; the server gets them renamed, and only with --local-turn.
+const LOCAL_TURN_VARS = /^FLOE_LOCAL_TURN_/i;
 
 const children = { server: null, client: null };
 let tearingDown = false;
@@ -86,12 +103,78 @@ function fail(code, message) {
 function parseArgs(argv) {
     const [mode = 'start', ...rest] = argv;
     if (!(mode in MODE_FLAGS)) return null;
-    const flags = { client: false, relaxed: false, json: false };
+    const flags = {
+        client: false,
+        relaxed: false,
+        json: false,
+        requestLinks: false,
+        localTurn: false,
+    };
     for (const arg of rest) {
         if (!MODE_FLAGS[mode].includes(arg)) return null;
-        flags[arg.slice(2)] = true;
+        flags[arg.slice(2).replace(/-(\w)/g, (_, c) => c.toUpperCase())] = true;
     }
     return { mode, flags };
+}
+
+// process.env for a child, minus the session's local coturn names.
+function inheritedEnv() {
+    const env = { ...process.env };
+    for (const key of Object.keys(env)) {
+        if (LOCAL_TURN_VARS.test(key)) delete env[key];
+    }
+    return env;
+}
+
+// What /health lists under `features`, strings only; [] from a server that
+// predates the field, null when /health gave no JSON.
+function healthFeatures(res) {
+    try {
+        const list = JSON.parse(res.body).features;
+        return Array.isArray(list)
+            ? list.filter((f) => typeof f === 'string')
+            : [];
+    } catch {
+        return null;
+    }
+}
+
+// One word from a /api/turn-credentials response: `coturn` when a turn: or
+// turns: URL is served, `stun-only` otherwise, null when it did not answer.
+// The body carries live credentials, so it is parsed here and dropped; only
+// the schemes decide, and nothing from it is returned, printed or stored
+// (the transfer-audit P4 rule). Cloudflare keys, which the local stack is not
+// meant to carry, would outrank coturn in server/turn.js and read the same.
+function turnKind(res) {
+    if (!res || res.status !== 200) return null;
+    let list;
+    try {
+        list = JSON.parse(res.body);
+    } catch {
+        return null;
+    }
+    if (!Array.isArray(list)) return null;
+    const served = list.some((entry) =>
+        [entry?.urls]
+            .flat()
+            .some((u) => typeof u === 'string' && /^turns?:/i.test(u))
+    );
+    return served ? 'coturn' : 'stun-only';
+}
+
+function describeFeatures(features, flags) {
+    if (!features) return 'unreadable (/health did not answer with JSON)';
+    const text = JSON.stringify(features);
+    return flags.requestLinks && !features.includes('request-1')
+        ? `${text} (--request-links is set, but this server does not list request-1)`
+        : text;
+}
+
+function describeTurn(turn, flags) {
+    if (!turn) return 'unreadable (/api/turn-credentials gave no JSON list)';
+    return flags.localTurn && turn !== 'coturn'
+        ? `${turn} (--local-turn is set, but no turn: URL was served)`
+        : turn;
 }
 
 function run(cmd, args) {
@@ -194,15 +277,16 @@ async function readTotalBytes() {
     }
 }
 
+// The first 200 response, or null.
 async function waitFor(url, timeoutMs, requestTimeoutMs, gaveUp) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-        if (gaveUp()) return false;
+        if (gaveUp()) return null;
         const res = await httpGet(url, requestTimeoutMs);
-        if (res && res.status === 200) return true;
+        if (res && res.status === 200) return res;
         await sleep(250);
     }
-    return false;
+    return null;
 }
 
 function readPidfile() {
@@ -219,6 +303,14 @@ function removePidfile() {
         unlinkSync(PIDFILE);
     } catch {
         // Already gone.
+    }
+}
+
+function removePolicyFile() {
+    try {
+        unlinkSync(POLICY_PATH);
+    } catch {
+        // Never written, or already gone.
     }
 }
 
@@ -329,6 +421,7 @@ function teardown(code, why) {
     if (children.client) killTree(children.client.pid, { group: true });
     if (children.server) killTree(children.server.pid);
     removePidfile();
+    removePolicyFile();
     process.exit(code);
 }
 
@@ -343,6 +436,19 @@ function watchChild(name, child) {
 }
 
 async function start(flags) {
+    // Before anything is probed, written or spawned.
+    if (
+        flags.localTurn &&
+        !(
+            process.env.FLOE_LOCAL_TURN_DOMAIN &&
+            process.env.FLOE_LOCAL_TURN_SECRET
+        )
+    ) {
+        fail(
+            2,
+            `--local-turn needs FLOE_LOCAL_TURN_DOMAIN and FLOE_LOCAL_TURN_SECRET set, both non-empty, in the same shell call as start\n${USAGE}`
+        );
+    }
     const own = ownership();
     if (own.owned)
         fail(3, `already running (pid ${own.state.serverPid}), run stop`);
@@ -369,15 +475,30 @@ async function start(flags) {
               MAX_TURN_REQUESTS_PER_IP: '1000',
           }
         : {};
+    if (flags.requestLinks) {
+        writeFileSync(
+            POLICY_PATH,
+            `${JSON.stringify({ requestLinks: true })}\n`
+        );
+    }
     const server = spawn(process.execPath, ['server.js'], {
         cwd: path.join(ROOT, 'server'),
         env: {
-            ...process.env,
+            ...inheritedEnv(),
             CLIENT_URL,
             PORT: String(SERVER_PORT),
             UPSTASH_REDIS_REST_URL: SENTINEL_URL,
             UPSTASH_REDIS_REST_TOKEN: SENTINEL_TOKEN,
             ...relaxed,
+            ...(flags.requestLinks ? { POLICY_FILE: POLICY_PATH } : {}),
+            // Read from the session here and placed here only: never held
+            // in a variable, printed, or written to the pidfile.
+            ...(flags.localTurn
+                ? {
+                      TURN_DOMAIN: process.env.FLOE_LOCAL_TURN_DOMAIN,
+                      TURN_SECRET: process.env.FLOE_LOCAL_TURN_SECRET,
+                  }
+                : {}),
         },
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
@@ -389,13 +510,13 @@ async function start(flags) {
     // Windows raises SIGHUP when the console window closes.
     process.on('SIGHUP', () => teardown(0, 'hangup'));
 
-    const healthy = await waitFor(
+    const health = await waitFor(
         `${SERVER_URL}/health`,
         30_000,
         2000,
         () => server.exitCode !== null
     );
-    if (!healthy) {
+    if (!health) {
         teardown(
             5,
             server.exitCode !== null
@@ -419,6 +540,8 @@ async function start(flags) {
     // From here on a server death is a failure, including during the client
     // wait below, so READY can never advertise a dead pid.
     watchChild('server', server);
+    const features = healthFeatures(health);
+    const turn = turnKind(await httpGet(`${SERVER_URL}/api/turn-credentials`));
 
     let launcher = null;
     if (flags.client) {
@@ -426,7 +549,7 @@ async function start(flags) {
         const client = spawn(launcher.cmd, launcher.args, {
             cwd: path.join(ROOT, 'client'),
             env: {
-                ...process.env,
+                ...inheritedEnv(),
                 NEXT_PUBLIC_SOCKET_URL: SOCKET_URL,
                 COREPACK_ENABLE_DOWNLOAD_PROMPT: '0',
             },
@@ -482,6 +605,8 @@ async function start(flags) {
     console.log(
         `server: ${SERVER_URL}  (/health, /api/stats, /api/turn-credentials)`
     );
+    console.log(`features: ${describeFeatures(features, flags)}`);
+    console.log(`turn: ${describeTurn(turn, flags)}`);
     if (children.client) {
         console.log(
             `web: ${CLIENT_URL}  (${launcher.label}, NEXT_PUBLIC_SOCKET_URL=${SOCKET_URL}, pid ${children.client.pid})`
@@ -508,6 +633,10 @@ async function check(flags) {
     const health = serverBound ? await httpGet(`${SERVER_URL}/health`) : null;
     const healthy = Boolean(health && health.status === 200);
     const totalBytes = serverBound ? await readTotalBytes() : null;
+    const features = healthy ? healthFeatures(health) : null;
+    const turn = serverBound
+        ? turnKind(await httpGet(`${SERVER_URL}/api/turn-credentials`))
+        : null;
     const own = ownership();
 
     let code;
@@ -534,6 +663,8 @@ async function check(flags) {
             serverBound,
             healthy,
             totalBytes,
+            features,
+            turn,
             clientBound,
             owned: own.owned,
             ownership: own.reason,
@@ -556,6 +687,10 @@ async function check(flags) {
                 ? `:3001 bound, /health ${healthy ? 'ok' : 'failing'}, ${stats}, ${owner}`
                 : `:3001 free (${own.reason})`
         );
+        if (serverBound) {
+            console.log(`features: ${describeFeatures(features, {})}`);
+            console.log(`turn: ${describeTurn(turn, {})}`);
+        }
         const clientPid =
             own.owned && own.state.clientPid
                 ? ` (client pid ${own.state.clientPid})`
@@ -578,6 +713,7 @@ async function stop() {
     // Pidfile first: the foreground `start` reads its absence as a deliberate
     // stop when its children exit.
     removePidfile();
+    removePolicyFile();
     let refused = 0;
     for (const [name, pid, expected, group] of [
         ['client', state.clientPid, state.clientImage, true],
@@ -627,11 +763,7 @@ async function stop() {
 }
 
 const parsed = parseArgs(process.argv.slice(2));
-if (!parsed)
-    fail(
-        2,
-        `usage: ${SELF} <start [--client] [--relaxed] | check [--json] | stop>`
-    );
+if (!parsed) fail(2, USAGE);
 if (parsed.mode === 'start') await start(parsed.flags);
 else if (parsed.mode === 'check') await check(parsed.flags);
 else await stop();
