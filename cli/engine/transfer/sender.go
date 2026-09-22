@@ -250,6 +250,20 @@ func stopBeforeClose(ackCh <-chan []byte, flushed <-chan struct{}, localVer, upd
 	}
 }
 
+// refusalAfterSendError is the check a failed Send makes. pion marks the
+// channel Closed before it runs onClose, so a Send in that window fails with
+// io.ErrClosedPipe while the receiver's refusal already sits in ackCh and
+// done has not fired yet (FT-GO-REFUSAL review F1). It waits up to a second
+// for done, which follows within microseconds, and then reports a queued
+// refusal through stopBeforeClose; nil keeps the Send's own error.
+func refusalAfterSendError(done <-chan struct{}, ackCh <-chan []byte, flushed <-chan struct{}, localVer, updateHint string, total int) error {
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+	}
+	return stopBeforeClose(ackCh, flushed, localVer, updateHint, total)
+}
+
 // refusalCodeIn is the one reader of a peer's code: a JSON string that
 // ParseRefusalCode knows, else nothing. Not a string (a number, null, an
 // object) is nothing, never an error, because the field is optional.
@@ -679,6 +693,9 @@ func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struc
 	}
 	metaJSON, _ := json.Marshal(meta)
 	if err := dc.SendText(string(metaJSON)); err != nil {
+		if stop := refusalAfterSendError(done, ackCh, flushed, localVer, updateHint, total); stop != nil {
+			return stop
+		}
 		return fmt.Errorf("failed to send metadata: %w", err)
 	}
 
@@ -847,6 +864,9 @@ ackLoop:
 				}
 			}
 			if sendErr := dc.Send(buf[:n]); sendErr != nil {
+				if stop := refusalAfterSendError(done, ackCh, flushed, localVer, updateHint, total); stop != nil {
+					return stop
+				}
 				return fmt.Errorf("failed to send chunk: %w", sendErr)
 			}
 			if hasher != nil {
@@ -910,5 +930,11 @@ ackLoop:
 		end.SHA256 = hex.EncodeToString(hasher.Sum(nil))
 	}
 	endJSON, _ := json.Marshal(end)
-	return dc.SendText(string(endJSON))
+	if err := dc.SendText(string(endJSON)); err != nil {
+		if stop := refusalAfterSendError(done, ackCh, flushed, localVer, updateHint, total); stop != nil {
+			return stop
+		}
+		return err
+	}
+	return nil
 }

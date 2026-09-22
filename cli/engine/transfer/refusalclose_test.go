@@ -140,19 +140,72 @@ func wantDiskFull(t *testing.T, err error) {
 // ready together and the ack wait sees its frame and done ready together.
 // Before the fix each was a coin flip (about 1 in 4 runs reported the
 // refusal); run with -count=20.
+//
+// The race is a Go select between two ready cases, so one pass catches a
+// regression only some of the time: the scenario runs 10 times per test run,
+// each on a fresh pair (review F3).
 func TestSenderReportsARefusalThatArrivesWithTheCloseAtTheAckWait(t *testing.T) {
-	dc, _ := newBlockingPair(t)
+	for i := 0; i < 10; i++ {
+		dc, _ := newBlockingPair(t)
+		msgs := make(chan webrtc.DataChannelMessage, 4)
+		closed := make(chan struct{})
+		msgs <- webrtc.DataChannelMessage{IsString: true, Data: []byte(diskFullRefusal)}
+		close(closed)
+
+		err := SendFilesWithOptions(dc, []string{sizedFile(t, 1024)}, "test", SendOptions{
+			OnProgress: func(Progress) {},
+			Messages:   msgs,
+			Closed:     closed,
+		})
+		wantDiskFull(t, err)
+	}
+}
+
+// A send that fails because the channel just closed: pion marks the channel
+// Closed before it runs onClose, so dc.Send returns io.ErrClosedPipe while the
+// refusal already sits in ackCh and done has not fired yet (review F1). Here
+// the sender's own channel is closed after the metadata, the ack and the
+// refusal are queued in that order, and Closed fires 100 ms later: the ack
+// wait takes the ack, the first chunk's Send fails, and the refusal must
+// still be reported. Deterministic both ways.
+func TestSenderReportsARefusalThatArrivesWithTheCloseAtASend(t *testing.T) {
+	dc, first := newBlockingPair(t)
 	msgs := make(chan webrtc.DataChannelMessage, 4)
 	closed := make(chan struct{})
+	errc := make(chan error, 1)
+	go func() {
+		errc <- SendFilesWithOptions(dc, []string{sizedFile(t, 256*1024)}, "test", SendOptions{
+			OnProgress: func(Progress) {},
+			Messages:   msgs,
+			Closed:     closed,
+		})
+	}()
+	var meta struct {
+		ID string `json:"id"`
+	}
+	select {
+	case raw := <-first:
+		if err := json.Unmarshal(raw, &meta); err != nil || meta.ID == "" {
+			t.Fatalf("first frame is not the metadata: %v", err)
+		}
+	case err := <-errc:
+		t.Fatalf("send ended before the metadata: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("no metadata within 10s")
+	}
+	if err := dc.Close(); err != nil {
+		t.Fatalf("close the sender's channel: %v", err)
+	}
+	ack, _ := json.Marshal(map[string]interface{}{"type": "ack", "id": meta.ID, "offset": 0, "pv": 1, "pvMin": 1})
+	msgs <- webrtc.DataChannelMessage{IsString: true, Data: ack}
 	msgs <- webrtc.DataChannelMessage{IsString: true, Data: []byte(diskFullRefusal)}
-	close(closed)
-
-	err := SendFilesWithOptions(dc, []string{sizedFile(t, 1024)}, "test", SendOptions{
-		OnProgress: func(Progress) {},
-		Messages:   msgs,
-		Closed:     closed,
-	})
-	wantDiskFull(t, err)
+	time.AfterFunc(100*time.Millisecond, func() { close(closed) })
+	select {
+	case err := <-errc:
+		wantDiskFull(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the send did not end within 10s")
+	}
 }
 
 // The backpressure wait: the receiver has accepted and then stopped reading,
