@@ -140,6 +140,42 @@ describe('scrubUrl on a request link', () => {
         expect(scrubSpanJson(span).data['url.full']).toBe('https://floe.one/r/redacted');
     });
 
+    it('the transaction name is redacted, parameterized or not', () => {
+        // The name is the field Sentry indexes and lists, and it is the one
+        // place the id would survive every URL scrub above.
+        expect(scrubTransactionEvent({ transaction: `/r/${LINK_ID}` }).transaction).toBe(
+            '/r/redacted'
+        );
+
+        // Both parameterized forms collapse to the same bucket, deliberately.
+        // The Next SDK names a /r pageload /r/:linkId today, from a route
+        // manifest it injects by default; this does not depend on that default
+        // holding, and it does not try to tell a placeholder from an id. There
+        // is one /r route, so one bucket is all the grouping it can offer, and
+        // a rule that redacted only today's 11-character id shape would stop
+        // covering an id of any other length without anyone noticing.
+        expect(scrubTransactionEvent({ transaction: '/r/:linkId' }).transaction).toBe(
+            '/r/redacted'
+        );
+        expect(scrubTransactionEvent({ transaction: '/r/[linkId]' }).transaction).toBe(
+            '/r/redacted'
+        );
+
+        // Every other route keeps its name, including the bare /r that has no
+        // id in it to hide.
+        expect(scrubTransactionEvent({ transaction: '/download' }).transaction).toBe('/download');
+        expect(scrubTransactionEvent({ transaction: '/r' }).transaction).toBe('/r');
+        expect(scrubTransactionEvent({ transaction: '/robots.txt' }).transaction).toBe(
+            '/robots.txt'
+        );
+
+        // A transaction with no name is left alone rather than coerced into
+        // one. Typed rather than a bare {}, so the generic has the field to
+        // infer and tsc can see the assertion.
+        const nameless: { transaction?: string } = {};
+        expect(scrubTransactionEvent(nameless).transaction).toBeUndefined();
+    });
+
     it('breadcrumb from and to on /r are redacted', () => {
         // beforeBreadcrumb in sentry.client.config.ts runs scrubUrl over
         // data.url, data.to and data.from; navigation breadcrumbs carry the

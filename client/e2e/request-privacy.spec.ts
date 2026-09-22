@@ -32,13 +32,27 @@ async function waitFor(
         .catch(() => false);
 }
 
-/** Every request that would mean the page reached for the network on load. */
+/** Every request that would mean the page reached for the network on load.
+ *
+ *  `/api/config` is on the list because resolveSocketUrl() asks for it before
+ *  any socket on a build with no NEXT_PUBLIC_SOCKET_URL baked in, so it is the
+ *  earliest sign that something started resolving a signaling server.
+ *
+ *  The websocket listener is not redundant. Playwright's `request` event never
+ *  fires for a WebSocket upgrade. Socket.IO's default transports start with
+ *  HTTP polling, so a handshake is visible as a request today, but the day
+ *  anyone pins `transports: ['websocket']` this helper would go quietly blind,
+ *  and S1-WEB-03 reuses it for a page that really does open a socket. */
 function watchSignaling(page: Page): string[] {
     const seen: string[] = [];
+    const interesting = (url: string) =>
+        url.includes('socket.io') ||
+        url.includes('turn-credentials') ||
+        url.includes('/api/config');
     page.on('request', (req) => {
-        const url = req.url();
-        if (url.includes('socket.io') || url.includes('turn-credentials')) seen.push(url);
+        if (interesting(req.url())) seen.push(req.url());
     });
+    page.on('websocket', (ws) => seen.push(ws.url()));
     return seen;
 }
 
@@ -109,7 +123,19 @@ test.describe('request privacy', () => {
         const response = await page.goto(LINK);
         expect(response?.headers()['referrer-policy']).toBe('no-referrer');
 
+        // A hydration barrier, and it is load-bearing. page.goto waits for
+        // `load`, while the real <script> element is appended by next/script in
+        // an effect AFTER hydration, so a broken gate would append it moments
+        // after a count assertion had already passed. This text appears only
+        // once RequestShell's own mount effect has run, by which point
+        // next/script's effect has had its chance too.
+        await expect(page.getByText('SEND FILES THROUGH THIS LINK')).toBeVisible();
         await expect(page.locator('script[src*="cloud.umami.is"]')).toHaveCount(0);
+        // The half that needs no hydration at all: in the App Router,
+        // next/script emits ReactDOM.preload output into the SERVED HTML for an
+        // afterInteractive script, so a /r that rendered the tracker would carry
+        // this link tag before a single effect ran.
+        await expect(page.locator('link[rel="preload"][href*="cloud.umami.is"]')).toHaveCount(0);
         expect(umami).toEqual([]);
 
         if (process.env.E2E_EXPECT_UMAMI === '1') {

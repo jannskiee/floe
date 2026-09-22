@@ -76,6 +76,8 @@ export interface ScrubbableSpan {
 
 export interface ScrubbableTransaction {
     request?: { url?: string };
+    /** The transaction NAME, which Sentry indexes and shows in every list. */
+    transaction?: string;
     contexts?: { trace?: { data?: Record<string, unknown> } };
     spans?: ScrubbableSpan[];
 }
@@ -97,8 +99,25 @@ export function scrubSpanJson<T extends ScrubbableSpan>(span: T): T {
 // included, onto every event's request.url and onto the segment span's
 // url.full. On a receiver page that is the whole share link, and with
 // tracesSampleRate 0.1 one page load in ten was sending it.
+// The transaction NAME is scrubbed too, and unconditionally.
+//
+// Today a /r pageload is already named /r/:linkId rather than /r/<id>, because
+// the Next SDK parameterizes it from the route manifest it injects into the
+// client bundle. That is an SDK DEFAULT, not something this repo pins: if it
+// ever flips, or a future SDK stops injecting the manifest, the name becomes
+// the raw path and the id lands in the one field Sentry indexes and lists.
+//
+// So this does not try to tell an id from a placeholder. Both /r/<id> and
+// /r/:linkId collapse to /r/redacted, deliberately: there is exactly one /r
+// route, so one name is all the grouping anyone can want from it, and a rule
+// that redacted only strings matching today's 11-character id shape would
+// silently stop covering an id of any other length. Fail closed, and it costs
+// a bucket name nobody reads.
 export function scrubTransactionEvent<T extends ScrubbableTransaction>(event: T): T {
     if (event.request?.url) event.request.url = scrubUrl(event.request.url);
+    if (typeof event.transaction === 'string') {
+        event.transaction = redactRequestPath(event.transaction);
+    }
     scrubAttributes(event.contexts?.trace?.data);
     for (const span of event.spans ?? []) scrubAttributes(span.data);
     return event;
