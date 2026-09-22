@@ -18,6 +18,7 @@
 //    end frame only follows an ack.
 
 import type { SenderCallbacks, SenderDeps } from '../transfer/sender';
+import type { VisitorEvent } from './visitorState';
 
 export interface SendWatch {
     /** The callbacks to hand sendFiles: the page's own, with the three
@@ -66,4 +67,12 @@ export function firstStringFrame(
             onFirst();
         }
     };
+}
+
+/** What the page does once a send has settled (WP-W1 review F2 keeps this
+ *  decision out of the component). A settlement of the live attempt with no
+ *  verdict is Lost (E31); a verdict already reported, or an attempt that has
+ *  ended, needs nothing more. */
+export function afterSettle(input: { live: boolean; reported: boolean }): VisitorEvent | null {
+    return input.live && !input.reported ? { type: 'SEND_SETTLED_SILENT' } : null;
 }

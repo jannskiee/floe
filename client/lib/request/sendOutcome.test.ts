@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { watchSend, firstStringFrame } from './sendOutcome';
+import { watchSend, firstStringFrame, afterSettle } from './sendOutcome';
 import { sendFiles, type SenderDeps } from '../transfer/sender';
 import { ackMessage } from '../transfer/protocol';
 
@@ -131,5 +131,14 @@ describe('firstStringFrame', () => {
         send2('{}');
         send2('{}');
         expect(calls).toBe(1);
+    });
+});
+
+describe('afterSettle', () => {
+    it('a live attempt that settled with no verdict is Lost (E31), and nothing else is', () => {
+        expect(afterSettle({ live: true, reported: false })).toEqual({ type: 'SEND_SETTLED_SILENT' });
+        expect(afterSettle({ live: true, reported: true })).toBeNull();
+        expect(afterSettle({ live: false, reported: false })).toBeNull();
+        expect(afterSettle({ live: false, reported: true })).toBeNull();
     });
 });

@@ -36,7 +36,7 @@ import {
     reduce,
     initialModel,
     arrivedCount,
-    peerConfigFor,
+    peerOptionsFor,
     sendBlock,
     ATTEMPT_ENDING_STATES,
     type VisitorEffect,
@@ -46,7 +46,8 @@ import {
 import { createAttemptGate } from '@/lib/request/attempt';
 import { deliveredBytes, dropEtaSeconds, dropPercent, etaAdvice } from '@/lib/request/eta';
 import { reportMailtoFromLocation } from '@/lib/request/report';
-import { firstStringFrame, watchSend } from '@/lib/request/sendOutcome';
+import { afterSettle, firstStringFrame, watchSend } from '@/lib/request/sendOutcome';
+import { senderEvents } from '@/lib/request/senderEvents';
 import {
     adviceLines,
     announcement,
@@ -262,14 +263,8 @@ function createVisitorController(deps: ControllerDeps) {
     /** Step 5: the answering peer, built before the socket joins so an early
      *  offer always finds it. Hide my IP is iceTransportPolicy 'relay'. */
     function buildPeer(a: number) {
-        const p = new SimplePeer({
-            initiator: false,
-            trickle: true,
-            // Keeps the SCTP text and binary bit intact, as on the main page:
-            // a text frame arrives as a string and a binary one as a Buffer.
-            readableObjectMode: true,
-            config: peerConfigFor(ice, model.hideIp),
-        });
+        // peerOptionsFor pins the whole option set, the relay policy with it.
+        const p = new SimplePeer(peerOptionsFor(ice, model.hideIp));
         peer = p;
         p.on('signal', (signal) => {
             if (gate.isLive(a)) socket?.emit('signal', { signal, target: null });
@@ -419,37 +414,21 @@ function createVisitorController(deps: ControllerDeps) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const pc = (p as any)._pc as RTCPeerConnection | undefined;
         const live = () => gate.isLive(a) && !p.destroyed;
-        const watch = watchSend({
-            // Mandatory under requireReceived, which has no deadline (E-36):
-            // Cancel, which ends the attempt, is the only way out of a host
-            // that neither answers nor closes.
-            isDestroyed: () => !live(),
-            onAck: (index) => dispatchFor(a, { type: 'ACK', index, now: Date.now() }),
-            onProgress: (percent) => dispatchFor(a, { type: 'PROGRESS', percent }),
-            onSpeed: (bytesPerSec, etaSeconds) => dispatchFor(a, { type: 'PROGRESS', bytesPerSec, etaSeconds }),
-            onStopped: (stop) => {
-                wireCode = true;
-                dispatchFor(a, {
-                    type: 'INCOMPATIBLE',
-                    refusal: stop.code,
-                    savedCount: stop.saved,
-                    rangeOverlaps: stop.rangeOverlaps,
-                });
-            },
-            // A claim, shown only on Delivered, and never an ending.
-            onDelivered: (report) => dispatchFor(a, { type: 'VERIFIED_COUNT', verifiedCount: report.verified }),
-            // E22: success is onAllSent and nothing else.
-            onAllSent: () => dispatchFor(a, { type: 'RECEIVED', now: Date.now() }),
-            onFailed: (failure) =>
-                dispatchFor(
-                    a,
-                    failure.kind === 'ack-timeout'
-                        ? { type: 'ACK_TIMEOUT', index: failure.index }
-                        : failure.kind === 'unreadable'
-                          ? { type: 'UNREADABLE', index: failure.index }
-                          : { type: 'CHANNEL_CLOSED' }
-                ),
-        });
+        // The callback-to-event mapping, and with it E22 from onAllSent only
+        // and the refusal latch, lives in senderEvents (tested there).
+        const watch = watchSend(
+            senderEvents({
+                dispatch: (event) => dispatchFor(a, event),
+                now: () => Date.now(),
+                // Mandatory under requireReceived, which has no deadline
+                // (E-36): Cancel, which ends the attempt, is the only way out
+                // of a host that neither answers nor closes.
+                isDestroyed: () => !live(),
+                onWireVerdict: () => {
+                    wireCode = true;
+                },
+            })
+        );
         const send = firstStringFrame(
             (d) => p.send(d),
             () => dispatchFor(a, { type: 'FIRST_METADATA_SENT', now: Date.now() })
@@ -473,7 +452,8 @@ function createVisitorController(deps: ControllerDeps) {
                 // E31: settled with no verdict. Two of the three ways there
                 // are values the host chose (a version range miss on the ack,
                 // an unusable resume offset), so this is Lost, not a wait.
-                if (live() && !watch.reported()) dispatch({ type: 'SEND_SETTLED_SILENT' });
+                const settled = afterSettle({ live: live(), reported: watch.reported() });
+                if (settled) dispatch(settled);
             });
     }
 

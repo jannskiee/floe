@@ -244,6 +244,20 @@ export function peerConfigFor(
     };
 }
 
+/** Every option the visitor's answering peer is built with, so the page's
+ *  one construction site cannot drop Hide my IP's relay policy unnoticed
+ *  (WP-W1 review F2): the answering side (initiator false), trickle ICE, and
+ *  readableObjectMode, which keeps the SCTP text and binary bit intact exactly
+ *  as the main page's peer does. */
+export function peerOptionsFor(iceServers: readonly RTCIceServer[], hideIp: boolean) {
+    return {
+        initiator: false,
+        trickle: true,
+        readableObjectMode: true,
+        config: peerConfigFor(iceServers, hideIp),
+    };
+}
+
 type Step = { model: VisitorModel; effects: VisitorEffect[] };
 
 const stay = (model: VisitorModel): Step => ({ model, effects: [] });

@@ -146,6 +146,21 @@ describe('the /r page boundaries', () => {
         expect(visitor).toContain('isDestroyed: () => !live()');
     });
 
+    it('the visitor wires its sender callbacks, settle guard and peer through the tested mappers', () => {
+        // WP-W1 review F2. The mapping rules are unit tested in senderEvents,
+        // sendOutcome and visitorState; these pins make sure the component
+        // uses them and adds no mapping of its own. The reviewer's mutation
+        // (onDelivered wired to Delivered in the component) fails here.
+        const visitor = read('components/RequestVisitor.tsx');
+        expect(visitor).toMatch(/watchSend[(]\s*senderEvents[(][{]/);
+        for (const own of ['onDelivered', 'onReceived', 'onAllSent:', 'onStopped:', 'onFailed:', "type: 'RECEIVED'"]) {
+            expect(visitor.includes(own), own).toBe(false);
+        }
+        expect(visitor).toContain('afterSettle({ live: live(), reported: watch.reported() })');
+        expect(visitor).toContain('new SimplePeer(peerOptionsFor(ice, model.hideIp))');
+        expect(visitor.match(/new SimplePeer[(]/g)).toHaveLength(1);
+    });
+
     it('every socket emit on /r is request-join or signal', () => {
         const sources = requestSources();
         const events: string[] = [];

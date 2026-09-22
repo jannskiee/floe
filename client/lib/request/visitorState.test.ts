@@ -6,6 +6,7 @@ import {
     sendBlock,
     answerMinutesLeft,
     peerConfigFor,
+    peerOptionsFor,
     ATTEMPT_ENDING_STATES,
     type VisitorModel,
     type VisitorEvent,
@@ -617,6 +618,13 @@ describe('visitor state: helpers', () => {
         expect(answerMinutesLeft(ANSWER_WINDOW_MS - 59_999)).toBe(0);
         expect(answerMinutesLeft(ANSWER_WINDOW_MS + 30_000)).toBe(0);
         expect(answerMinutesLeft(-5)).toBe(9);
+    });
+    it('the peer is built answering, trickling and with the relay policy the switch asks for', () => {
+        const servers = [{ urls: 'stun:s.example:3478' }, { urls: 'turn:t.example:3478' }];
+        const hidden = peerOptionsFor(servers, true);
+        expect(hidden).toMatchObject({ initiator: false, trickle: true, readableObjectMode: true });
+        expect(hidden.config).toEqual({ iceServers: servers, iceTransportPolicy: 'relay' });
+        expect(peerOptionsFor(servers, false).config.iceTransportPolicy).toBe('all');
     });
     it('Hide my IP asks for relay candidates only and keeps TURN in the list', () => {
         const servers = [{ urls: 'stun:stun.example:3478' }, { urls: ['turn:t.example:3478', 'turns:t.example:443'] }];
