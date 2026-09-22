@@ -295,8 +295,14 @@ you set a value and nothing happens. See
 **CORS.** Browser requests are checked against an allow-list: whatever you set as `CLIENT_URL`,
 plus `https://floe.one`, `https://www.floe.one`, and `http://localhost:3000`. The match is exact,
 including the scheme and with no trailing slash, and `CLIENT_URL` holds **one** origin. A
-comma-separated list matches nothing. Requests with no `Origin` header always pass, which is why
-the CLI and the desktop app reach your server regardless of this setting.
+comma-separated list matches nothing. Requests with no `Origin` header always pass.
+
+**WebSocket origins.** Both WebSocket paths check `Origin` against the same list, and also let in
+an `Origin` whose host matches the request's own `Host` header. That second rule is how the CLI and
+the desktop app reach a self-hosted server regardless of `CLIENT_URL`: they send the server's own
+address as their origin. A handshake from any other origin is refused before the connection opens:
+`/ws` answers `403`, and Socket.IO answers `400` with the body `Origin not allowed` on its WebSocket
+transport and `403` on polling. The server logs the first refusal on each path, once.
 
 A rejected origin does not come back as a recognizable CORS error. The server answers `500` with
 `{ "error": "Internal server error" }` while the browser reports a generic CORS failure. If you

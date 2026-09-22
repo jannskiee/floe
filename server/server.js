@@ -64,6 +64,45 @@ app.use(
     })
 );
 
+// Who may open a WebSocket, on /ws and on Socket.IO. cors above covers HTTP
+// reads only: a browser opens a WebSocket to any host without asking, so without
+// this any page on any site could hold signaling sockets here, spending its
+// visitors' connection budget from their own addresses.
+//
+// Three ways in. No Origin at all: any non-browser client may leave it out, so
+// requiring it would only stop our own users. The allow-list above. And an
+// Origin whose host is this server's own Host header, which is what every
+// installed CLI and desktop app sends a self-hosted server
+// (cli/engine/signaling/client.go originFromServer); an allow-list of
+// CLIENT_URL alone would refuse all of them. Host only, never the scheme: TLS
+// usually ends at the proxy. Lowercased, because hostnames are case-insensitive
+// and the URL parser lowercases the Origin's side but not the Host header's.
+function isAllowedOrigin(origin, host) {
+    if (origin === undefined || origin === '') return true;
+    if (allowedOrigins.includes(origin)) return true;
+    if (!host) return false;
+    try {
+        return new URL(origin).host === String(host).toLowerCase();
+    } catch {
+        return false;
+    }
+}
+
+// One line per path for the life of the process, so an operator whose proxy
+// rewrites Host learns why every CLI is refused, and a page that retries
+// forever gets no flood lever. A Set rather than one flag, or the first path
+// refused would silence the other; it holds at most the two literal paths.
+// The origin is quoted and cut so a newline in it cannot forge a log line.
+const warnedOriginPaths = new Set();
+function warnRejectedOrigin(path, origin) {
+    if (warnedOriginPaths.has(path)) return;
+    warnedOriginPaths.add(path);
+    console.warn(
+        `Refused a connection on ${path} from Origin ${JSON.stringify(String(origin).slice(0, 200))}: ` +
+        `not CLIENT_URL, a floe.one origin, or this server's own host. Further refusals on ${path} are not logged.`
+    );
+}
+
 // After cors on purpose. A malformed body makes this middleware throw, and the
 // error short-circuits straight to the error handler; if cors ran later, that
 // response would carry no Access-Control-Allow-Origin and the browser would
@@ -594,6 +633,16 @@ const io = new Server(server, {
         methods: ['GET', 'POST'],
         credentials: true,
     },
+    // The Origin check for both Socket.IO transports, run by engine.io on the
+    // handshake before any session exists (io.use would run after one has been
+    // opened). A refused websocket upgrade gets engine.io's 400 with this
+    // message as its body, a refused polling handshake a 403. cors above stays
+    // as it is: it only decides which answers a browser may read.
+    allowRequest: (req, callback) => {
+        if (isAllowedOrigin(req.headers.origin, req.headers.host)) return callback(null, true);
+        warnRejectedOrigin('/socket.io', req.headers.origin);
+        callback('Origin not allowed', false);
+    },
     maxHttpBufferSize: 1e6, // Signaling only: SDP/ICE < 10 KB
 });
 
@@ -703,6 +752,18 @@ function handleUpgradeRequest(req, socket, head) {
     // completing it twice throws. Reusing engine.io's own predicate, rather than
     // matching dot segments, covers the %2e%2e and backslash spellings too.
     if (req.url.startsWith(io.path() + '/')) return;
+
+    // The Origin check, and the only refusal below the two returns above, on
+    // purpose: placed above either one it would answer for sockets engine.io
+    // owns. By here the socket is ours, because the return above reuses
+    // engine.io's own claim predicate. Socket.IO's half of the check is its
+    // allowRequest option, not this. No ws verifyClient and no check in the
+    // connection handler: both run after this point and would only repeat it.
+    if (!isAllowedOrigin(req.headers.origin, req.headers.host)) {
+        warnRejectedOrigin('/ws', req.headers.origin);
+        refuseUpgrade(socket, 403);
+        return;
+    }
 
     // Any future drift between the two routers lands on that same throw.
     // Destroy rather than refuse: reaching here means someone else may own this
@@ -866,6 +927,7 @@ if (require.main === module) {
 module.exports = {
     errorHandler,
     getClientIp,
+    isAllowedOrigin,
     rateKey,
     generateCode,
     registerCodeHandler,

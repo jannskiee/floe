@@ -46,8 +46,9 @@ One instance goes a long way. File data never passes through it, so it is broker
 and then getting out of the way. If you need redundancy, use a failover pair rather than a
 load-balanced set, and accept that transfers in flight do not survive the switch.
 
-`CLIENT_URL` governs browser traffic only. CLI and desktop peers connect over `/ws`,
-which performs no origin check, so they reach your server regardless of that setting.
+`CLIENT_URL` governs browser traffic only. CLI and desktop peers connect over `/ws` and
+send your server's own address as their origin, which the server accepts as long as your
+proxy keeps the `Host` header, so they reach your server regardless of that setting.
 
 ## Contents
 

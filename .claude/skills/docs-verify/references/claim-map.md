@@ -53,6 +53,11 @@ The map names where a value is stated; grep the old literal repo-wide before fin
 - server/server.js `sealDigest`: `roomMeta` stores an HMAC-SHA256 of each key under `SEAL_SECRET` (random per process, memory only), never the key itself, because a room can outlive the retention the privacy page promises for an IP address. Storing the raw `rateKey`, or an unkeyed hash of it, makes both privacy sentences below untrue.
 - Docs: docs/how-it-works/signaling.mdx "A room holds exactly two people" (the freed-seat paragraphs), docs/reference/architecture.mdx (both `room-full` rows and the "A room also seals" paragraph), docs/web-app/sending.mdx "One link, one recipient at a time", docs/desktop/sending.mdx (the one-receiver paragraph). Privacy (depends on `sealDigest`, not on the seal's wording): client/app/privacy/page.tsx "IP addresses" ("at most about two minutes after your last request") and the reports paragraph ("keeps no record of who joined which room").
 
+## WebSocket origin check
+
+- server/server.js: `isAllowedOrigin` (absent Origin, `allowedOrigins`, then the same-host rule on the lowercased `Host` header), `warnRejectedOrigin` (once per path), the Socket.IO `allowRequest` (engine.io answers a refused upgrade `400` with the reason as its body and a refused polling handshake `403`) and the `/ws` `refuseUpgrade(socket, 403)` in `handleUpgradeRequest`. cli/engine/signaling/client.go `originFromServer` is what the CLI and the desktop app send: never an absent Origin, always an allowed or same-host one.
+- Docs: docs/reference/http-api.mdx "WebSocket origins", docs/self-hosting/reverse-proxy.mdx (the keep-the-`Host`-header paragraph and its two uncovered edges), docs/self-hosting/overview.mdx (the `CLIENT_URL` paragraph), docs/self-hosting/configuration.mdx `CLIENT_URL` row.
+
 ## TURN credential lifetimes
 
 - server/turn.js: the `ttl` local in the coturn HMAC path, `CF_TURN_TTL`, `CF_CACHE_MS`, `CF_STALE_MS` (the stale window derived from `CF_TURN_TTL`), `CF_FETCH_TIMEOUT_MS`, and the `logMintFailure` line the docs quote (`Cloudflare TURN mint failed`).
