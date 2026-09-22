@@ -79,6 +79,30 @@ const nextConfig = {
                     },
                 ],
             },
+            // Request links (/r/<linkId>). The link id sits in the PATH, and a
+            // path is exactly what the site-wide policy above still sends: under
+            // strict-origin-when-cross-origin a click from /r to another origin
+            // carries the full URL, and /docs is another origin (it is a rewrite
+            // onto Mintlify). no-referrer sends no Referer at all, from the
+            // header and, belt and braces, from the page's own referrer meta.
+            //
+            // These MUST stay after the /:path* entry: Next applies every
+            // matching entry in order and the last one wins for a repeated key,
+            // so reversed they would be overwritten by the site-wide value and
+            // silently do nothing. They must also stay before the
+            // development-only spread, or production would not send them.
+            //
+            // Only Referrer-Policy is set here, deliberately. The entry above
+            // still supplies the CSP, X-Frame-Options, nosniff and the
+            // permissions policy for /r, and the CSP is not tightened for this
+            // page: connect-src and worker-src would both need blob: (see the
+            // note above this block), and the ZIP worker is what /r's own send
+            // path will lean on.
+            { source: '/r', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }] },
+            {
+                source: '/r/:path*',
+                headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }],
+            },
             // Development only. next dev serves the whole app's CSS from a STABLE
             // url, /_next/static/chunks/[root-of-the-server]__<id>._.css, where the
             // id is a chunking-context ident and not a hash of the contents: the
