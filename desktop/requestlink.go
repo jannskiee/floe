@@ -468,14 +468,31 @@ func (a *App) setRequestSignaling(rg uint64, sc *signaling.Client) bool {
 	return true
 }
 
-// clearRequestSignaling forgets sc if it is still rg's socket.
-func (a *App) clearRequestSignaling(rg uint64, sc *signaling.Client) {
+// releaseRequestSocket lets go of sc if the lane still holds it: forgets it,
+// sends request-close best effort when sendClose, and closes it. A socket the
+// lane no longer holds was taken by Close link, a quit or a new Make link,
+// which end it themselves after their own request-close; closing it here too
+// would race that write and drop it (the 20x stress caught that), so it is
+// left alone.
+func (a *App) releaseRequestSocket(sc *signaling.Client, sendClose bool) {
+	if sc == nil {
+		return
+	}
 	l := a.lane()
 	l.mu.Lock()
-	defer l.mu.Unlock()
-	if rg == l.gen && l.sc == sc {
+	owned := l.sc == sc
+	if owned {
 		l.sc = nil
 	}
+	wait, closeFrame := l.closeWait, l.closeFrameFn
+	l.mu.Unlock()
+	if !owned {
+		return
+	}
+	if sendClose {
+		sendCloseWithin(sc, closeFrame, wait)
+	}
+	sc.Close()
 }
 
 // displayLabel is the owner's label as the snapshot carries it: trimmed and
@@ -617,6 +634,12 @@ func (a *App) MakeRequestLink(label string, saveDir string, lifetime string) Req
 		l.mu.Unlock()
 		return refusal
 	}
+	// A socket an ended link's goroutine has not let go of yet is taken here
+	// and torn down below, so the new link's registration can never orphan
+	// it (finishRequestSocket leaves a socket it no longer owns alone).
+	leftover := l.sc
+	l.sc = nil
+	leftWait, leftClose := l.closeWait, l.closeFrameFn
 	l.gen++
 	rg := l.gen
 	l.cancelled = false
@@ -628,6 +651,13 @@ func (a *App) MakeRequestLink(label string, saveDir string, lifetime string) Req
 	l.saveDir = strings.TrimSpace(saveDir)
 	if l.saveDir == "" {
 		l.saveDir = filepath.Join(defaultReceiveDir(), "Floe requests")
+	}
+	if leftover != nil {
+		l.wg.Add(1)
+		go func() {
+			defer l.wg.Done()
+			requestTeardown(leftover, nil, leftWait, leftClose)
+		}()
 	}
 	if !on {
 		l.setStateLocked("error", "off")
@@ -730,8 +760,7 @@ func (a *App) runRequestLink(rg uint64, stop <-chan struct{}, hideIP bool, lifet
 	}
 	if res != signaling.HostJoined {
 		if sc != nil {
-			a.clearRequestSignaling(rg, sc)
-			sc.Close()
+			a.releaseRequestSocket(sc, false)
 		}
 		a.reqFail(rg, joinCode(res))
 		return
@@ -741,7 +770,7 @@ func (a *App) runRequestLink(rg uint64, stop <-chan struct{}, hideIP bool, lifet
 		l.link = link
 		l.setStateLocked("waiting", "")
 	}) {
-		sc.Close()
+		a.releaseRequestSocket(sc, false)
 		return
 	}
 
@@ -753,8 +782,7 @@ func (a *App) runRequestLink(rg uint64, stop <-chan struct{}, hideIP bool, lifet
 			a.finishRequestSocket(sc)
 			return
 		case waitDown:
-			a.clearRequestSignaling(rg, sc)
-			sc.Close()
+			a.releaseRequestSocket(sc, false)
 			if time.Since(joinedAt) >= requestStableAfter {
 				attempt = 0
 			}
@@ -784,8 +812,7 @@ func (a *App) hostJoin(rg uint64, server, roomID, hostToken string) (*signaling.
 	}
 	res, _ := joinWithTokenFn(sc, roomID, hostToken)
 	if !a.requestActive(rg) {
-		a.clearRequestSignaling(rg, sc)
-		sc.Close()
+		a.releaseRequestSocket(sc, false)
 		return nil, 0
 	}
 	return sc, res
@@ -825,8 +852,7 @@ func (a *App) waitRequest(rg uint64, stop <-chan struct{}, sc *signaling.Client,
 			if code == "disabled" {
 				c = "disabled"
 			}
-			a.clearRequestSignaling(rg, sc)
-			sc.Close()
+			a.releaseRequestSocket(sc, false)
 			a.reqFail(rg, c)
 			return waitEnded
 		case <-sc.Down:
@@ -841,24 +867,11 @@ func (a *App) waitRequest(rg uint64, stop <-chan struct{}, sc *signaling.Client,
 // finishRequestSocket lets go of the lane goroutine's socket when its link
 // has ended. A socket still registered with the lane is the goroutine's to
 // end: request-close best effort (a used-up or ended link frees its
-// reservation now), then closed. One that Close link or a quit already took
-// is theirs; closing it again here is harmless.
+// reservation now), then closed. One that Close link, a quit or a new Make
+// link already took is theirs, and it is left alone: closing it here would
+// race their request-close write and drop it (the 20x stress caught that).
 func (a *App) finishRequestSocket(sc *signaling.Client) {
-	if sc == nil {
-		return
-	}
-	l := a.lane()
-	l.mu.Lock()
-	owned := l.sc == sc
-	if owned {
-		l.sc = nil
-	}
-	wait, closeFrame := l.closeWait, l.closeFrameFn
-	l.mu.Unlock()
-	if owned {
-		sendCloseWithin(sc, closeFrame, wait)
-	}
-	sc.Close()
+	a.releaseRequestSocket(sc, true)
 }
 
 // requestWaiting reports whether rg's lane still has a link that waits for a
@@ -876,11 +889,7 @@ func (a *App) expireRequest(rg uint64, sc *signaling.Client) {
 	if !a.reqUpdate(rg, func(l *requestLane) { l.endLocked("ended", "expired") }) {
 		return
 	}
-	a.clearRequestSignaling(rg, sc)
-	if sc != nil {
-		_ = sc.RequestClose()
-		sc.Close()
-	}
+	a.releaseRequestSocket(sc, true)
 }
 
 // reconnect retries the connect and the token join with full-jitter backoff
@@ -934,22 +943,20 @@ func (a *App) reconnect(rg uint64, stop <-chan struct{}, server, roomID, hostTok
 				l.setStateLocked("waiting", "")
 				l.reconnectUntil = time.Time{}
 			}) {
-				sc.Close()
+				a.releaseRequestSocket(sc, false)
 				return nil, attempt
 			}
 			return sc, attempt + 1
 		case signaling.HostTimeout, signaling.HostDown:
 			// One failed attempt; the next one waits longer.
 			if sc != nil {
-				a.clearRequestSignaling(rg, sc)
-				sc.Close()
+				a.releaseRequestSocket(sc, false)
 			}
 			attempt++
 			continue
 		}
 		if sc != nil {
-			a.clearRequestSignaling(rg, sc)
-			sc.Close()
+			a.releaseRequestSocket(sc, false)
 		}
 		a.reqFail(rg, joinCode(res))
 		return nil, attempt

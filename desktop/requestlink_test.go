@@ -1527,9 +1527,7 @@ func TestEndedLinkLetsGoOfItsSocket(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the lane goroutine kept waiting after its link ended")
 	}
-	if f.count("request-close") != 1 {
-		t.Fatalf("request-close sent %d times, want 1", f.count("request-close"))
-	}
+	waitFor(t, 5*time.Second, "request-close", func() bool { return f.count("request-close") == 1 })
 	waitFor(t, 5*time.Second, "the socket to close", func() bool {
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -1539,4 +1537,75 @@ func TestEndedLinkLetsGoOfItsSocket(t *testing.T) {
 		t.Fatal("the lane kept the ended link's socket")
 	}
 	makeWaiting(t, a)
+}
+
+// TestRequestSnapshotSeqUniqueUnderConcurrency (D-115, WP-D-UI review-2): with
+// AnswerRequest replies, GetRequestLink replies and request:state events all
+// racing, every snapshot carries a seq, the emitted ones strictly increase in
+// emit order, and no two snapshots, emitted or returned, share a seq (so no
+// two different snapshots share a (gen, seq) pair).
+func TestRequestSnapshotSeqUniqueUnderConcurrency(t *testing.T) {
+	a := &App{notifyFn: func(string, string) {}}
+	rec := &snapRecorder{}
+	l := a.lane()
+	l.emitFn = rec.emit
+	l.flashFn = func(bool) {}
+	l.setTitleFn = func(string) {}
+	forceGen(a, 1)
+	pg := a.openPrompt(1, RequestPrompt{Files: 1})
+
+	var mu sync.Mutex
+	var returned []RequestLinkSnapshot
+	keep := func(s RequestLinkSnapshot) {
+		mu.Lock()
+		returned = append(returned, s)
+		mu.Unlock()
+	}
+	var wg sync.WaitGroup
+	for w := 0; w < 8; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for i := 0; i < 50; i++ {
+				switch (w + i) % 4 {
+				case 0:
+					keep(a.AnswerRequest(pg, "accept"))
+					select {
+					case <-l.decision:
+					default:
+					}
+				case 1:
+					keep(a.GetRequestLink())
+				case 2:
+					a.emitState(1)
+				case 3:
+					a.reqUpdate(1, func(l *requestLane) { l.route = "direct" })
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	seen := map[uint64]bool{}
+	var prev uint64
+	for i, s := range rec.all() {
+		if s.Seq == 0 || s.Seq <= prev {
+			t.Fatalf("emitted snapshot %d has seq %d after %d", i, s.Seq, prev)
+		}
+		prev = s.Seq
+		seen[s.Seq] = true
+	}
+	for _, s := range returned {
+		if s.Seq == 0 {
+			t.Fatal("a returned snapshot has no seq")
+		}
+		if seen[s.Seq] {
+			t.Fatalf("seq %d was given to two snapshots", s.Seq)
+		}
+		seen[s.Seq] = true
+	}
+	if rec.len() < 100 || len(returned) < 100 {
+		t.Fatalf("only %d emitted and %d returned snapshots", rec.len(), len(returned))
+	}
+	forceState(a, "off", 0)
 }
