@@ -1005,3 +1005,40 @@ describe('visitor names in the app', () => {
         for (const name of HOSTILE) expect(recorded.includes(JSON.stringify(name).slice(1, -1)), name).toBe(false);
     });
 });
+
+describe('request drops in History', () => {
+    it('a terminal request snapshot appends exactly one history row', async () => {
+        wails.go.GetSettings.mockImplementation(async () => ({
+            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false, requestLinks: true, migrated: true,
+        }));
+        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: true}));
+        const user = userEvent.setup();
+        mount();
+        await waitFor(() => expect(wails.listeners.size).toBe(15));
+        const base = {
+            code: '', gen: 3, promptGen: 1, link: 'http://localhost:3000/r/Xk3p9Q0aB1c#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f',
+            label: 'Acme footage', saveDir: 'D:\\x', expiresAt: Date.now() + 3600_000, route: 'direct', suggestClose: false,
+        };
+        const done = {...base, state: 'done', result: {files: 3, saved: 3, bytes: 3072, verified: 3, renamed: 0, folder: 'D:\\x\\Acme footage 2026-09-14 1405', names: ['a', 'b', 'c']}};
+        act(() => { wails.emit('request:state', {...base, state: 'receiving'}); });
+        act(() => { wails.emit('request:state', done); });
+        // Re-emitted, and pulled again: still one row.
+        act(() => { wails.emit('request:state', done); });
+        act(() => { wails.emit('request:state', {...done}); });
+
+        await waitFor(() => expect(JSON.parse(localStorage.getItem('floe:history') || '[]')).toHaveLength(1));
+        const stored = localStorage.getItem('floe:history') || '';
+        expect(JSON.parse(stored)[0]).toMatchObject({kind: 'recv', via: 'request', label: 'Acme footage', count: 3, dir: 'D:\\x\\Acme footage 2026-09-14 1405'});
+        expect(stored).not.toContain('Xk3p9Q0aB1c');
+        expect(stored).not.toContain('6f1c2b9e');
+
+        // A stop with nothing saved adds no row; the next drop's result does.
+        act(() => { wails.emit('request:state', {...base, gen: 4, state: 'stopped', code: 'relay-cap', result: {...done.result, saved: 0}}); });
+        act(() => { wails.emit('request:state', {...base, gen: 5, state: 'stopped', code: 'disk-full', result: {...done.result, saved: 2}}); });
+        await waitFor(() => expect(JSON.parse(localStorage.getItem('floe:history') || '[]')).toHaveLength(2));
+        expect(JSON.parse(localStorage.getItem('floe:history') || '[]')[0]).toMatchObject({stopped: 'disk-full', count: 2, offered: 3});
+
+        await user.click(screen.getByRole('button', {name: 'History'}));
+        expect(screen.getAllByText('Acme footage')).toHaveLength(2);
+    });
+});

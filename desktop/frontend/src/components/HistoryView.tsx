@@ -1,9 +1,11 @@
-import type {Dispatch, SetStateAction} from 'react';
+import {useState, type Dispatch, type SetStateAction} from 'react';
 import {ArrowDownLeft, ArrowUpRight, ChevronDown} from 'lucide-react';
 import {OpenFolder, RevealFile} from '../../wailsjs/go/main/App';
 import {cn, Eyebrow} from './ui';
 import {fmtWhen, histKey, type HistEntry} from '../history';
 import {fmtBytes} from '../incoming';
+import {VERIFIED_LINE, renamedLine, stoppedFull, verifiedAll} from '../requestCopy';
+import {RenamedConfirm} from './RequestLinkView';
 
 /** HistoryView is the History console: the header with Clear and its inline
  *  confirm, the empty state, and the list of expandable rows.
@@ -13,7 +15,13 @@ import {fmtBytes} from '../incoming';
  *  confirmation, and Start over resets both confirmClear and expandedRow, so
  *  both writers live outside this view. The names in each row came from the
  *  other machine (see the floe:history row of the consumer map); they reach
- *  React as text nodes only, and RevealFile is gated by safeLeaf in reveal.go. */
+ *  React as text nodes only, and RevealFile is gated by safeLeaf in reveal.go.
+ *
+ *  A request drop's row (via 'request', S1-DSK-09) is titled with the owner's
+ *  own label, carries the verified, renamed and stop lines its Done or Stopped
+ *  card had, and opens only its folder: never RevealFile or OpenFile, and
+ *  after renames only once the owner confirms (DN8, DN9), the same question
+ *  the card asked, because the renamed files are still in that folder. */
 export default function HistoryView({history, setHistory, confirmClear, setConfirmClear, expandedRow, setExpandedRow}: {
     history: HistEntry[];
     setHistory: Dispatch<SetStateAction<HistEntry[]>>;
@@ -22,6 +30,8 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
     expandedRow: string | null;
     setExpandedRow: Dispatch<SetStateAction<string | null>>;
 }) {
+    // The folder a request row is asking to open (DN8), or null.
+    const [confirmDir, setConfirmDir] = useState<string | null>(null);
     return (
         <div className="space-y-3">
             <div className="flex items-baseline justify-between px-0.5">
@@ -61,6 +71,8 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
                         const multi = h.count > 1;
                         const expanded = expandedRow === key;
                         const panelId = `floe-hist-panel-${i}`;
+                        const request = h.via === 'request';
+                        const offered = h.offered ?? h.count;
                         return (
                             <li key={key} className="transition-colors hover:bg-white/[0.03]">
                                 {/* The whole row is one disclosure button, the same idiom as the
@@ -79,7 +91,7 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
                                         : <ArrowDownLeft className="size-4 shrink-0 text-zinc-500"/>}
                                     <span className="min-w-0 flex-1">
                                         <span className="block truncate text-sm text-zinc-200">
-                                            {h.count === 1 ? (h.names[0] || '1 file') : `${h.count} files`}
+                                            {request && h.label ? h.label : h.count === 1 ? (h.names[0] || '1 file') : `${h.count} files`}
                                         </span>
                                         <span className="flex items-center gap-2 text-xs text-zinc-500">
                                             <span>{h.kind === 'send' ? 'Sent' : 'Received'}</span>
@@ -103,6 +115,15 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
                                         {h.kind === 'recv' && h.dir && (
                                             <p className="truncate pl-7 font-mono text-xs text-zinc-500" title={h.dir}>{h.dir}</p>
                                         )}
+                                        {request && !h.stopped && verifiedAll({files: offered, saved: h.count, verified: h.verified ?? 0}) && (
+                                            <p className="pl-7 text-xs leading-relaxed text-zinc-500">{VERIFIED_LINE}</p>
+                                        )}
+                                        {request && (h.renamed ?? 0) > 0 && (
+                                            <p className="pl-7 text-xs leading-relaxed text-amber-300/80">{renamedLine(h.renamed ?? 0)}</p>
+                                        )}
+                                        {request && h.stopped && (
+                                            <p className="pl-7 text-xs leading-relaxed text-amber-300/80">{stoppedFull(h.stopped, h.count, offered)}</p>
+                                        )}
                                         {/* Footer actions behind an inset hairline. The border-t is the
                                             row dividers' white/[0.04] but stops at the px-3.5 content
                                             edges, so it reads as this panel's footer, not the next row's
@@ -118,7 +139,14 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
                                             {h.kind === 'recv' && h.dir && (
                                                 <button
                                                     type="button"
-                                                    onClick={() => { (h.count === 1 ? RevealFile(h.dir!, h.names[0] || '') : OpenFolder(h.dir!)).catch(() => {}); }}
+                                                    onClick={() => {
+                                                        if (request) {
+                                                            if ((h.renamed ?? 0) > 0) setConfirmDir(h.dir!);
+                                                            else OpenFolder(h.dir!).catch(() => {});
+                                                            return;
+                                                        }
+                                                        (h.count === 1 ? RevealFile(h.dir!, h.names[0] || '') : OpenFolder(h.dir!)).catch(() => {});
+                                                    }}
                                                     className="rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice/60"
                                                 >
                                                     Show in folder
@@ -138,6 +166,12 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
                         );
                     })}
                 </ul>
+            )}
+            {confirmDir !== null && (
+                <RenamedConfirm
+                    onCancel={() => setConfirmDir(null)}
+                    onConfirm={() => { const dir = confirmDir; setConfirmDir(null); OpenFolder(dir).catch(() => {}); }}
+                />
             )}
         </div>
     );

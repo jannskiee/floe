@@ -87,7 +87,7 @@ import {
 import {formatIncoming, type IncomingPreview} from './incoming';
 import {track, type Marker, type Prog} from './progress';
 import {baseName, mergePaths, normPath} from './paths';
-import {HISTORY_CAP, loadHistory, type HistEntry} from './history';
+import {HISTORY_CAP, loadHistory, requestHistoryEntry, type HistEntry} from './history';
 import {DOWNLOAD_URL, bareVersion, isNewerDesktopVersion} from './update';
 import TitleBar from './components/TitleBar';
 import {Tooltip} from './components/Tooltip';
@@ -879,6 +879,20 @@ function App() {
     useEffect(() => {
         try { localStorage.setItem('floe:requestSaveDir', requestSaveDir); } catch { /* storage unavailable */ }
     }, [requestSaveDir]);
+
+    // One History row per finished drop (S1-DSK-09): the first time a lane
+    // generation reaches done, or stopped with files saved. Go may re-emit a
+    // terminal snapshot (a GetRequestLink pull, a later event of the same
+    // gen), so the gens already recorded are remembered and a copy adds
+    // nothing. The row keeps no link and no room id (requestHistoryEntry).
+    const recordedGens = useRef(new Set<number>());
+    useEffect(() => {
+        const s = reqUI.snap;
+        if ((s.state !== 'done' && s.state !== 'stopped') || recordedGens.current.has(s.gen)) return;
+        recordedGens.current.add(s.gen);
+        const row = requestHistoryEntry(s);
+        if (row) setHistory((prev) => [row, ...prev].slice(0, HISTORY_CAP));
+    }, [reqUI.snap]);
 
     // A1 once per prompt, and the channel emptied between prompts so the next
     // one is a change the screen reader speaks. A2 comes from the view.
