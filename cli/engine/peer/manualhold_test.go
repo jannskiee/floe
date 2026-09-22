@@ -20,7 +20,7 @@ package peer_test
 // Run it from cli/ with the floe-run stack up, stats neutralized, holding the
 // machine's stack lock, and with -v so the timestamps stream as they happen:
 //
-//	FLOE_NO_STATS=1 FLOE_MANUAL_HOLD_DIR=C:/Users/Admin/floe-audit/idle-hold \
+//	FLOE_NO_STATS=1 FLOE_MANUAL_HOLD_DIR=<a folder outside the checkout> \
 //	  go test -tags manual -v -timeout 30m -run TestManualIdleHold ./engine/peer/
 //
 // It compares nothing itself. manifest-match.ps1 compares the src and out
