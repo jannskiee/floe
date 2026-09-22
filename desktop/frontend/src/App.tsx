@@ -893,7 +893,14 @@ function App() {
         if ((s.state !== 'done' && s.state !== 'stopped') || recordedGens.current.has(s.gen)) return;
         recordedGens.current.add(s.gen);
         const row = requestHistoryEntry(s);
-        if (row) setHistory((prev) => [row, ...prev].slice(0, HISTORY_CAP));
+        // The row is keyed by its exclusive subfolder too: a webview reload
+        // empties recordedGens and re-pulls a still-done lane, and the folder
+        // that drop was saved into is already on a stored row (review F7).
+        if (row) {
+            setHistory((prev) => (row.dir && prev.some((h) => h.via === 'request' && h.dir === row.dir)
+                ? prev
+                : [row, ...prev].slice(0, HISTORY_CAP)));
+        }
     }, [reqUI.snap]);
 
     // A1 once per prompt, and the channel emptied between prompts so the next

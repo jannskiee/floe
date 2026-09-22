@@ -90,7 +90,7 @@ describe('the mount effect', () => {
             server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false, requestLinks: true, migrated: true,
         }));
         wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: true}));
-        wails.go.SelectFolder.mockImplementation(async () => 'D:\Footage\Floe requests');
+        wails.go.SelectFolder.mockImplementation(async () => 'D:\\Footage\\Floe requests');
         const user = userEvent.setup();
         mount();
         await waitFor(() => expect(wails.listeners.size).toBe(15));
@@ -98,7 +98,7 @@ describe('the mount effect', () => {
         await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
         expect(localStorage.getItem('floe:requestSaveDir')).toBeNull();
         await user.click(screen.getByRole('button', {name: /Browse/}));
-        await waitFor(() => expect(localStorage.getItem('floe:requestSaveDir')).toBe('D:\Footage\Floe requests'));
+        await waitFor(() => expect(localStorage.getItem('floe:requestSaveDir')).toBe('D:\\Footage\\Floe requests'));
         // Emptying the field forgets it.
         await user.clear(screen.getByLabelText('Save to'));
         expect(localStorage.getItem('floe:requestSaveDir')).toBeNull();
@@ -1053,9 +1053,10 @@ describe('request drops in History', () => {
         expect(stored).not.toContain('Xk3p9Q0aB1c');
         expect(stored).not.toContain('6f1c2b9e');
 
-        // A stop with nothing saved adds no row; the next drop's result does.
+        // A stop with nothing saved adds no row; the next drop's result (its
+        // own exclusive subfolder) does.
         act(() => { wails.emit('request:state', {...base, gen: 4, state: 'stopped', code: 'relay-cap', result: {...done.result, saved: 0}}); });
-        act(() => { wails.emit('request:state', {...base, gen: 5, state: 'stopped', code: 'disk-full', result: {...done.result, saved: 2}}); });
+        act(() => { wails.emit('request:state', {...base, gen: 5, state: 'stopped', code: 'disk-full', result: {...done.result, saved: 2, folder: 'D:\\x\\Acme footage 2026-09-14 1510'}}); });
         await waitFor(() => expect(JSON.parse(localStorage.getItem('floe:history') || '[]')).toHaveLength(2));
         expect(JSON.parse(localStorage.getItem('floe:history') || '[]')[0]).toMatchObject({stopped: 'disk-full', count: 2, offered: 3});
 
@@ -1173,5 +1174,37 @@ describe('turning the Beta off', () => {
         await waitFor(() => expect(sw().checked).toBe(false));
         // Off now, and the server still lacks request-1: it cannot go back on.
         await waitFor(() => expect(sw().disabled).toBe(true));
+    });
+});
+
+describe('a webview reload', () => {
+    it('does not add a finished drop to History a second time', async () => {
+        // The page reloaded while the lane still holds a done drop: its row is
+        // already in the store, and the pulled snapshot must not add another.
+        const folder = 'D:\\x\\Acme footage 2026-09-14 1405';
+        localStorage.setItem('floe:history', JSON.stringify([
+            {kind: 'recv', names: ['a', 'b'], count: 2, dir: folder, at: 1_700_000_000_000, bytes: 2048, via: 'request', label: 'Acme footage', verified: 2, renamed: 0, offered: 2},
+        ]));
+        const done = {
+            state: 'done', code: '', gen: 3, seq: 9, promptGen: 1, link: '', label: 'Acme footage', saveDir: 'D:\\x',
+            expiresAt: Date.now() + 3600_000, route: 'direct', suggestClose: false,
+            result: {files: 2, saved: 2, bytes: 2048, verified: 2, renamed: 0, folder, names: ['a', 'b']},
+        };
+        wails.go.GetSettings.mockImplementation(async () => ({
+            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false, requestLinks: true, migrated: true,
+        }));
+        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: true}));
+        wails.go.GetRequestLink.mockImplementation(async () => done);
+        mount();
+        await waitFor(() => expect(wails.listeners.size).toBe(15));
+        await waitFor(() => expect(wails.go.GetRequestLink).toHaveBeenCalled());
+        act(() => { wails.emit('request:state', done); });
+        await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+        const stored = JSON.parse(localStorage.getItem('floe:history') || '[]');
+        expect(stored).toHaveLength(1);
+
+        // A different drop still gets its own row.
+        act(() => { wails.emit('request:state', {...done, gen: 4, seq: 10, result: {...done.result, folder: folder + ' (2)'}}); });
+        await waitFor(() => expect(JSON.parse(localStorage.getItem('floe:history') || '[]')).toHaveLength(2));
     });
 });
