@@ -75,12 +75,14 @@ func metaFor(name string, size, index, total, totalBytes int64) string {
 
 // hostileRun is what one receive against a hand-written sender left behind.
 type hostileRun struct {
-	acked    bool
-	refusal  *incompatibleMsg // the incompatible frame, when the receiver sent one
-	firstIn  time.Duration    // from the metadata to the first frame back
-	err      error
-	incoming int
-	tree     []string // every file and folder under the output folder, folders ending in "/"
+	acked     bool
+	received  bool             // the receiver's received frame came back
+	refusal   *incompatibleMsg // the incompatible frame, when the receiver sent one
+	refusalAt time.Time        // when that frame arrived
+	firstIn   time.Duration    // from the metadata to the first frame back
+	err       error
+	incoming  int
+	tree      []string // every file and folder under the output folder, folders ending in "/"
 }
 
 // runHostile sends meta to a fresh receive into its own folder. When the
@@ -139,7 +141,12 @@ func runScripted(t *testing.T, dir, meta string, opts ReceiveOptions, onAck func
 				acks++
 				onAck(h, acks)
 			case "received":
+				run.received = true
 				_ = h.sender.Close()
+			case "incompatible":
+				if run.refusalAt.IsZero() {
+					run.refusalAt = time.Now()
+				}
 			}
 		case run.err = <-h.recvErr:
 			returned = true
@@ -153,6 +160,9 @@ func runScripted(t *testing.T, dir, meta string, opts ReceiveOptions, onAck func
 		case m := <-h.back:
 			if len(frames) == 0 {
 				run.firstIn = time.Since(at)
+			}
+			if kind, _ := classifyControl(m.Data); kind == "incompatible" && run.refusalAt.IsZero() {
+				run.refusalAt = time.Now()
 			}
 			frames = append(frames, m.Data)
 		case <-time.After(300 * time.Millisecond):

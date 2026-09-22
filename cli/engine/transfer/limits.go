@@ -21,6 +21,7 @@ package transfer
 import (
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode/utf16"
 
 	"github.com/pion/webrtc/v4"
@@ -79,6 +80,12 @@ type ReceiveLimits struct {
 	// drop past the limit is refused relay-cap. A probe that fails lets the
 	// drop through, as the sender's gate does.
 	HostRelayCheck bool
+	// CommitRetry is how long a finished file's move into place keeps
+	// retrying a lock (an antivirus scanner or an indexer holding the .part),
+	// once a second, before the receive stops with save-blocked and a
+	// *CommitError. The verified .part is kept either way. Zero keeps the
+	// bounded retry every receive has always had: five attempts 200 ms apart.
+	CommitRetry time.Duration
 }
 
 // The volume questions, as seams so a test can stand in any file system and

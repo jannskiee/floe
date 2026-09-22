@@ -6,6 +6,7 @@ package transfer
 // invariant, the never-overwrite commit, and the Ctrl+C abandon path.
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -212,7 +213,7 @@ func TestAbandonPartialsSparesCompletedFile(t *testing.T) {
 	f.Close()
 	registerPartial(f)
 
-	if _, err := commitPart(f.Name(), dest, base); err != nil {
+	if _, err := commitPart(f.Name(), dest, base, 0); err != nil {
 		t.Fatal(err)
 	}
 	// The receiver unregisters after committing; the hazard is an abandon that
@@ -306,7 +307,7 @@ func TestCommitAbandonTorture(t *testing.T) {
 				if f.Close() != nil {
 					continue
 				}
-				final, err := commitPart(f.Name(), dest, base)
+				final, err := commitPart(f.Name(), dest, base, 0)
 				if err != nil {
 					continue
 				}
@@ -352,7 +353,7 @@ func TestCommitPart(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.Close()
-	final, err := commitPart(f.Name(), dest, base)
+	final, err := commitPart(f.Name(), dest, base, 0)
 	if err != nil {
 		t.Fatalf("commitPart: %v", err)
 	}
@@ -381,7 +382,7 @@ func TestCommitPart(t *testing.T) {
 	if err := os.WriteFile(dest2, []byte("INTRUDER"), 0666); err != nil {
 		t.Fatal(err)
 	}
-	final2, err := commitPart(f2.Name(), dest2, base2)
+	final2, err := commitPart(f2.Name(), dest2, base2, 0)
 	if err != nil {
 		t.Fatalf("commitPart with occupied dest: %v", err)
 	}
@@ -393,5 +394,175 @@ func TestCommitPart(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(final2); string(b) != "mine" {
 		t.Errorf("payload content = %q, want %q", b, "mine")
+	}
+}
+
+// renameStub replaces renamePart for one test: the first fails calls fail the
+// way an antivirus or indexer lock does (every call when fails is negative),
+// and the rest rename for real. It runs on the receive goroutine; the counts
+// are read after the receive or commitPart has returned.
+type renameStub struct {
+	mu    sync.Mutex
+	fails int
+	calls []time.Time
+}
+
+var errSimulatedLock = errors.New("simulated sharing violation on the .part")
+
+func stubRename(t *testing.T, fails int) *renameStub {
+	t.Helper()
+	orig := renamePart
+	t.Cleanup(func() { renamePart = orig })
+	s := &renameStub{fails: fails}
+	renamePart = func(src, dst string) error {
+		s.mu.Lock()
+		s.calls = append(s.calls, time.Now())
+		n := len(s.calls)
+		s.mu.Unlock()
+		if s.fails < 0 || n <= s.fails {
+			return &os.LinkError{Op: "rename", Old: src, New: dst, Err: errSimulatedLock}
+		}
+		return orig(src, dst)
+	}
+	return s
+}
+
+func (s *renameStub) attempts() []time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]time.Time(nil), s.calls...)
+}
+
+// stagedPart claims base in a fresh folder and writes body to its .part, the
+// state commitPart starts from.
+func stagedPart(t *testing.T, body string) (part, dest, base string) {
+	t.Helper()
+	base = filepath.Join(t.TempDir(), "report.pdf")
+	f, dest, err := claimPart(base, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(body); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return f.Name(), dest, base
+}
+
+// TestCommitRetrySucceedsOnThirdAttempt (VR2-12): a lock that clears on the
+// third attempt commits the file, with a CommitRetry window and with the zero
+// value's five attempts alike, and the .part is gone afterward.
+func TestCommitRetrySucceedsOnThirdAttempt(t *testing.T) {
+	for _, retry := range []time.Duration{5 * time.Second, 0} {
+		t.Run(retry.String(), func(t *testing.T) {
+			stub := stubRename(t, 2)
+			part, dest, base := stagedPart(t, "verified")
+			final, err := commitPart(part, dest, base, retry)
+			if err != nil {
+				t.Fatalf("commitPart: %v", err)
+			}
+			if final != dest {
+				t.Fatalf("committed at %s, want %s", final, dest)
+			}
+			if n := len(stub.attempts()); n != 3 {
+				t.Fatalf("%d rename attempts, want 3", n)
+			}
+			if got, err := os.ReadFile(dest); err != nil || string(got) != "verified" {
+				t.Fatalf("final file %q, %v", got, err)
+			}
+			if _, err := os.Stat(part); !os.IsNotExist(err) {
+				t.Fatalf("the .part is still there after the commit: %v", err)
+			}
+		})
+	}
+}
+
+// TestCommitRetryZeroKeepsFiveAttempts: CommitRetry zero, the CLI and code
+// receive, is today's bounded retry exactly: five attempts 200 ms apart, then
+// the error, with the verified .part left where it is.
+func TestCommitRetryZeroKeepsFiveAttempts(t *testing.T) {
+	stub := stubRename(t, -1)
+	part, dest, base := stagedPart(t, "verified")
+	start := time.Now()
+	_, err := commitPart(part, dest, base, 0)
+	took := time.Since(start)
+	if !errors.Is(err, errSimulatedLock) {
+		t.Fatalf("commitPart error = %v, want the lock", err)
+	}
+	if n := len(stub.attempts()); n != 5 {
+		t.Fatalf("%d rename attempts, want 5", n)
+	}
+	if took < 750*time.Millisecond || took > 3*time.Second {
+		t.Fatalf("five attempts took %v, want about 800 ms (four 200 ms waits)", took)
+	}
+	if got, err := os.ReadFile(part); err != nil || string(got) != "verified" {
+		t.Fatalf("the verified .part was not kept: %q, %v", got, err)
+	}
+}
+
+// TestCommitRetryGivesUpAfterWindowAndSendsSaveBlocked (E-36): a lock that
+// outlasts the CommitRetry window ends the receive with save-blocked on the
+// wire within 2 s of the window running out, a *CommitError naming the .part,
+// and the verified .part still on disk (the data-loss rule: complete bytes are
+// never deleted over a lock).
+func TestCommitRetryGivesUpAfterWindowAndSendsSaveBlocked(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ICE loopback transfer in -short mode")
+	}
+	const window = 2 * time.Second
+	stubDisk(t, 0, 1<<40)
+	stub := stubRename(t, -1)
+	run := runHostile(t, metaFor("a.txt", 4, 1, 1, 4), []byte("abcd"), ReceiveOptions{
+		Limits: &ReceiveLimits{MaxFiles: 10000, CommitRetry: window},
+	})
+	if run.refusal == nil || run.refusal.Code != string(CodeSaveBlocked) || run.refusal.Reason != CodeSaveBlocked.WireReason() {
+		t.Fatalf("frame = %+v, want save-blocked with its wire reason", run.refusal)
+	}
+	if run.refusal.Saved == nil || *run.refusal.Saved != 0 {
+		t.Fatalf("frame saved = %v, want 0", run.refusal.Saved)
+	}
+	var commitErr *CommitError
+	if !errors.As(run.err, &commitErr) {
+		t.Fatalf("receive error = %v (%T), want *CommitError", run.err, run.err)
+	}
+	if got, err := os.ReadFile(commitErr.PartPath); err != nil || string(got) != "abcd" {
+		t.Fatalf("the verified .part at %s was not kept: %q, %v", commitErr.PartPath, got, err)
+	}
+	if strings.Join(run.tree, "|") != "a.txt.part" {
+		t.Fatalf("output tree %v, want only the kept a.txt.part", run.tree)
+	}
+	attempts := stub.attempts()
+	if len(attempts) < 2 {
+		t.Fatalf("%d rename attempts, want the window retried", len(attempts))
+	}
+	spent := run.refusalAt.Sub(attempts[0])
+	if spent < window-100*time.Millisecond {
+		t.Fatalf("gave up %v after the first attempt, before the %v window", spent, window)
+	}
+	if spent > window+2*time.Second {
+		t.Fatalf("the sender heard save-blocked %v after the first attempt, want within 2 s of the %v window", spent, window)
+	}
+}
+
+// TestCommitRetryLastFileStillEndsInReceived (E-36): a lock on the last file
+// that clears inside the window commits it, and the receive still ends the
+// way every good receive does, with the received frame and no error.
+func TestCommitRetryLastFileStillEndsInReceived(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ICE loopback transfer in -short mode")
+	}
+	stubDisk(t, 0, 1<<40)
+	stub := stubRename(t, 2)
+	run := runHostile(t, metaFor("a.txt", 4, 1, 1, 4), []byte("abcd"), ReceiveOptions{
+		Limits: &ReceiveLimits{MaxFiles: 10000, CommitRetry: 5 * time.Second},
+	})
+	wantSaved(t, run, "a.txt")
+	if !run.received {
+		t.Fatal("no received frame reached the sender")
+	}
+	if n := len(stub.attempts()); n != 3 {
+		t.Fatalf("%d rename attempts, want 3", n)
 	}
 }

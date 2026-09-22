@@ -312,10 +312,11 @@ func (e *PeerStoppedError) Error() string {
 // transient lock would be data loss), and the fields say where it is so a
 // caller can retry the move or point at it.
 //
-// Nothing returns it yet; the commit failure still returns its plain wrapped
-// error. Error()'s text is provisional until a caller exists, and it prints
-// no path and no cause either way: PartPath, Dest and Base carry the sender's
-// file name after sanitizing, and Err can carry the OS's own words.
+// The receive loop returns it when a commit still fails after its retries
+// (ReceiveLimits.CommitRetry, or five attempts), right after sending
+// save-blocked. Error() prints no path and no cause: PartPath, Dest and Base
+// carry the sender's file name after sanitizing, and Err can carry the OS's
+// own words.
 type CommitError struct {
 	PartPath string // the .part still on disk, complete and verified
 	Dest     string // the final name this receive had claimed

@@ -771,11 +771,17 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					// Publish the verified bytes at the final name. On failure the
 					// staging file is deliberately left in place: the bytes are
 					// complete and verified, and deleting them over a transient
-					// AV lock would be data loss.
-					finalPath, commitErr := commitPart(partPath, currentDest, currentBase)
+					// AV lock would be data loss. A request link retries for
+					// Limits.CommitRetry; every receive tells the sender
+					// save-blocked and hands its caller the .part's whereabouts.
+					commitRetry := time.Duration(0)
+					if opts.Limits != nil {
+						commitRetry = opts.Limits.CommitRetry
+					}
+					finalPath, commitErr := commitPart(partPath, currentDest, currentBase, commitRetry)
 					if commitErr != nil {
-						return fmt.Errorf("received %q in full but could not finish saving it: %w",
-							currentSavedName, commitErr)
+						AbortWithCode(dc, localVer, CodeSaveBlocked, CodeSaveBlocked.WireReason(), filesReceived)
+						return &CommitError{PartPath: partPath, Dest: currentDest, Base: currentBase, Err: commitErr}
 					}
 
 					// External interference only: something claimed the final name
