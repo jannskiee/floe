@@ -1,7 +1,7 @@
-// The Request link's owner-facing copy, verbatim from the approved desktop copy
-// table (Checkpoint C, 2026-09-18, D-091): every string here is a row of
-// work/16-design/cp-3/approved-copy-desktop.md, named by its row ID, and
-// approvedCopy.test.ts byte-matches each one against that file. Codes map to
+// The Request link's owner-facing copy, verbatim from the frozen Checkpoint C
+// desktop copy table (2026-09-18, D-091, kept outside this repository): every
+// string here is a row of that table, named by its row ID, and
+// approvedCopy.test.ts byte-matches each one against it. Codes map to
 // fixed sentences; engine text, error text and a visitor's words never render.
 // Where a row carries a value (a time, a count, a size), the builder fills it,
 // and the approved mock values reproduce the row exactly.

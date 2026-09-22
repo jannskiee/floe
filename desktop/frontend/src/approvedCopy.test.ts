@@ -1,13 +1,14 @@
 /**
  * Byte-matches the Request link copy the app renders against the frozen,
- * owner-approved desktop copy table (Checkpoint C, 2026-09-18, D-091):
- * work/16-design/cp-3/approved-copy-desktop.md in the build's plan folder.
+ * owner-approved Checkpoint C desktop copy table (2026-09-18, D-091), which is
+ * kept outside this repository.
  *
- * That file lives outside the repository, so this reads it from
- * FLOE_APPROVED_COPY, else from the plan folder on the build machine, and
- * skips (saying so) where neither exists, such as CI. The literal expectations
- * in settings.test.ts and requestCopy.test.ts keep pinning the same strings
- * everywhere; this file is what ties those literals to the approved source.
+ * The table's path comes from FLOE_APPROVED_COPY and from nowhere else. Unset
+ * (CI, a contributor's machine) the whole block is skipped under a title that
+ * says how to run it; the build lane and QA set it on every run so the check
+ * never skips silently there. The literal expectations in settings.test.ts and
+ * requestCopy.test.ts keep pinning the same strings everywhere; this file is
+ * what ties those literals to the approved source.
  *
  * How a row is compared: a plain row byte for byte; a row carrying a value is
  * rebuilt from the table's own mock values (D-3: Acme footage, D:\Footage\Floe
@@ -18,7 +19,6 @@
  * checked here or listed in NOT_RENDERED_HERE with the reason, and no cut row's
  * string can come out of requestCopy.ts.
  */
-import {existsSync, readFileSync} from 'node:fs';
 import {describe, expect, it} from 'vitest';
 import {
     BETA_HEADING,
@@ -31,9 +31,15 @@ import * as c from './requestCopy';
 import {fmtBytes} from './incoming';
 import {fmtEta, fmtSpeed} from './progress';
 
-const DEFAULT_PATH = 'C:/Users/Admin/.claude/plans/floe-portal/work/16-design/cp-3/approved-copy-desktop.md';
-const path = process.env.FLOE_APPROVED_COPY || DEFAULT_PATH;
-const present = existsSync(path);
+// Node's fs and the process environment, reached at run time only. The
+// frontend carries no Node types (the app never runs in Node), and declaring
+// them for the whole src program would let app code type-check against APIs
+// WebView2 does not have; so the two calls are typed here, locally.
+type NodeFs = {existsSync(p: string): boolean; readFileSync(p: string, enc: 'utf8'): string};
+const fs = (await import(/* @vite-ignore */ ['node', 'fs'].join(':'))) as NodeFs;
+const env = (globalThis as {process?: {env?: Record<string, string | undefined>}}).process?.env ?? {};
+const path = env.FLOE_APPROVED_COPY ?? '';
+const present = path !== '' && fs.existsSync(path);
 
 interface Row {
     id: string;
@@ -56,7 +62,7 @@ function parseRows(md: string): Map<string, Row> {
     return rows;
 }
 
-const rows = present ? parseRows(readFileSync(path, 'utf8')) : new Map<string, Row>();
+const rows = present ? parseRows(fs.readFileSync(path, 'utf8')) : new Map<string, Row>();
 const checked = new Set<string>();
 
 /** The approved string of a row, which must exist and must not be cut. */
@@ -112,7 +118,7 @@ const NOT_RENDERED_HERE: Record<string, string> = {
     TO3: 'a toast, a Go constant (S1-DSK-05)',
 };
 
-describe.skipIf(!present)(`the approved desktop copy (${present ? path : 'not on this machine, skipped'})`, () => {
+describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved desktop copy (skipped: set FLOE_APPROVED_COPY to the frozen copy table to run)', () => {
     it('parses the frozen table', () => {
         // One row per ID; a parse that finds a handful means the table format
         // moved and every check below would be vacuous.
