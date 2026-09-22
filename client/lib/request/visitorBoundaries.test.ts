@@ -173,6 +173,17 @@ describe('the /r page boundaries', () => {
         expect(body.indexOf('flushes.settled(')).toBeLessThan(body.indexOf('window.location.reload()'));
     });
 
+    it('no Send or Try again starts while a fragment reload is pending', () => {
+        // WP-W1 review R3-1: while the reload waits for a Cancel flush the
+        // page still shows Ready, and a Send there would join the old room.
+        const visitor = read('components/RequestVisitor.tsx');
+        const reload = visitor.slice(visitor.indexOf("case 'reload':"));
+        expect(reload.slice(0, reload.indexOf('return;'))).toContain('reloadPending = true;');
+        const start = visitor.slice(visitor.indexOf("start(type: 'SEND' | 'TRY_AGAIN'"));
+        const body = start.slice(0, start.indexOf('dispatch({'));
+        expect(body).toContain('if (reloadPending) return;');
+    });
+
     it('every socket emit on /r is request-join or signal', () => {
         const sources = requestSources();
         const events: string[] = [];

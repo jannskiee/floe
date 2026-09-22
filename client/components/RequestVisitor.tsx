@@ -123,6 +123,10 @@ function createVisitorController(deps: ControllerDeps) {
     const timers = new Map<TimerName, ReturnType<typeof setTimeout>>();
     // Cancel reasons still on their way to the host; a reload waits for them.
     const flushes = createFlushTracker();
+    // Set once a new fragment asked for a reload: the page is leaving, and no
+    // Send or Try again may start an attempt to the old room meanwhile
+    // (WP-W1 review R3-1).
+    let reloadPending = false;
 
     function arm(name: TimerName, ms: number, fire: () => void) {
         clearTimer(name);
@@ -237,6 +241,7 @@ function createVisitorController(deps: ControllerDeps) {
                 // A new fragment reloads the page, but only once a Cancel
                 // reason still flushing has reached the host, or its bound
                 // has passed (WP-W1 review R2-3).
+                reloadPending = true;
                 void flushes.settled(CONTROL_FLUSH_MS + 1_000).then(() => window.location.reload());
                 return;
         }
@@ -509,6 +514,7 @@ function createVisitorController(deps: ControllerDeps) {
         /** A Send or a Try again with this selection. The reducer decides
          *  whether it starts an attempt; the selection is taken only if so. */
         start(type: 'SEND' | 'TRY_AGAIN', selection: RequestFile[], hideIp: boolean, reading: boolean) {
+            if (reloadPending) return;
             pendingFiles = selection;
             dispatch({
                 type,
