@@ -546,6 +546,16 @@ async function orBackstop(srv, promise, what) {
     }
 }
 
+// Nothing a request-room run handles may reach the child's logs: no host
+// token, no room id, no address. The server logs only fixed lines today; this
+// is the guard for the day someone adds one that carries a value.
+function assertLogsCarryNone(srv, values, what) {
+    const logs = srv.stdout + srv.stderr;
+    for (const v of values) {
+        assert.ok(!logs.includes(v), `${what}: the server's output carries ${JSON.stringify(v)}\n--- output ---\n${logs.slice(0, 2000)}`);
+    }
+}
+
 function policyFileSaying(t, on) {
     const file = policyDir(t);
     writePolicy(file, JSON.stringify({ requestLinks: on }));
@@ -739,6 +749,7 @@ test('a hostToken of any hostile shape never reaches the backstop', async (t) =>
 
     // The socket still serves, and a real host join still works.
     assert.deepEqual(await hostJoin(ws, token), { type: 'room-joined', role: 'host' });
+    assertLogsCarryNone(srv, [token, id], 'hostile host joins');
 });
 
 test('digest comparison never sees unequal lengths', async (t) => {
@@ -893,10 +904,12 @@ test('full lifecycle churn 200 times', { timeout: 180000 }, async (t) => {
     const srv = await startServer({ POLICY_FILE: policyFileSaying(t, true), MAX_CONNECTIONS_PER_IP: '1000' });
     t.after(() => srv.stop());
 
+    const seen = [];
     for (let i = 0; i < 200; i++) {
         const hostAddress = `203.0.113.${i}`;
         const token = newToken();
         const id = roomIdFromToken(token);
+        seen.push(token, id, hostAddress, `198.51.100.${i}`);
         const a = await openAs(srv, hostAddress);
         assert.deepEqual(await hostJoin(a, token), { type: 'room-joined', role: 'host' }, `create ${i}`);
 
@@ -915,9 +928,12 @@ test('full lifecycle churn 200 times', { timeout: 180000 }, async (t) => {
 
         const b = await openAs(srv, hostAddress);
         assert.deepEqual(await hostJoin(b, token), { type: 'room-joined', role: 'host' }, `reclaim ${i}`);
+        // The link's end as the desktop sends it, then the socket.
+        b.send(JSON.stringify({ type: 'request-close', roomId: id }));
         b.close();
     }
     await assertSurvived(srv, '200 create, visitor join, host drop, visitor leave, reclaim and close cycles');
+    assertLogsCarryNone(srv, seen, 'a full request-room lifecycle');
 });
 
 // --- request rooms: seal, reopen, close and the grace sweep --------------------
