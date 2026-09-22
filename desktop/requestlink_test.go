@@ -959,3 +959,92 @@ func TestGetRequestLinkDoesNotWaitOnAppMutex(t *testing.T) {
 		t.Fatal("GetRequestLink waited on a.mu")
 	}
 }
+
+// TestRequestSnapshotSeqOrdersEverySnapshot (D-115): every snapshot the lane
+// emits or returns carries a seq from one counter, so (gen, seq) orders them
+// all, emitted ones in emit order, and a reply can never tie an event.
+func TestRequestSnapshotSeqOrdersEverySnapshot(t *testing.T) {
+	f := newFakeSignalServer(t)
+	a, rec := laneApp(t, f)
+	made := a.MakeRequestLink("x", t.TempDir(), "24h")
+	waitState(t, a, 10*time.Second, "waiting")
+	refused := a.MakeRequestLink("y", "", "24h")
+	got := a.GetRequestLink()
+	a.CloseRequestLink()
+	after := a.GetRequestLink()
+
+	seen := map[uint64]bool{}
+	var prevGen, prevSeq uint64
+	for i, s := range rec.all() {
+		if s.Seq == 0 {
+			t.Fatalf("emitted snapshot %d has no seq", i)
+		}
+		if s.Gen < prevGen || (s.Gen == prevGen && s.Seq <= prevSeq) {
+			t.Fatalf("emitted snapshot %d (gen %d, seq %d) is not after (gen %d, seq %d)", i, s.Gen, s.Seq, prevGen, prevSeq)
+		}
+		prevGen, prevSeq = s.Gen, s.Seq
+		seen[s.Seq] = true
+	}
+	for name, s := range map[string]RequestLinkSnapshot{"make": made, "refusal": refused, "get": got, "after": after} {
+		if s.Seq == 0 {
+			t.Errorf("%s returned no seq", name)
+		}
+		if seen[s.Seq] {
+			t.Errorf("%s reused seq %d of an emitted snapshot", name, s.Seq)
+		}
+		seen[s.Seq] = true
+	}
+	if after.Seq <= got.Seq || got.Seq <= refused.Seq || refused.Seq <= made.Seq {
+		t.Errorf("returned seqs out of order: make %d, refusal %d, get %d, after %d", made.Seq, refused.Seq, got.Seq, after.Seq)
+	}
+}
+
+// TestSetRequestLinksOffRefusedWhileLinkLive (D-115): the switch cannot be
+// turned off under a live link, and nothing changes; it turns off otherwise.
+func TestSetRequestLinksOffRefusedWhileLinkLive(t *testing.T) {
+	a := &App{cfg: appConfig{RequestLinks: true}}
+	for _, st := range []string{"making", "waiting", "reconnecting", "deciding", "declined", "receiving"} {
+		forceState(a, st, 0)
+		if err := a.SetRequestLinks(false); err != errRequestLinksLive {
+			t.Errorf("%s: SetRequestLinks(false) = %v, want the live refusal", st, err)
+		}
+		if !a.GetSettings().RequestLinks {
+			t.Fatalf("%s: the refused change turned the switch off", st)
+		}
+	}
+	forceState(a, "off", 0)
+	for _, live := range []bool{false} {
+		if err := requestLinksChange(false, live, func() FeatureResult {
+			t.Fatal("turning off probed the server")
+			return FeatureResult{}
+		}); err != nil {
+			t.Fatalf("turning off with nothing live = %v", err)
+		}
+	}
+}
+
+// TestSetRequestLinksOnNeedsRequest1 (D-115): turning the switch on needs
+// request-1 right now; an unreachable server or one without it refuses.
+func TestSetRequestLinksOnNeedsRequest1(t *testing.T) {
+	f := newFakeSignalServer(t)
+	f.set(func(f *fakeSignalServer) { f.features = false })
+	a := &App{cfg: appConfig{Server: f.url()}}
+	if err := a.SetRequestLinks(true); err != errRequestLinksUnsupported {
+		t.Fatalf("SetRequestLinks(true) without request-1 = %v", err)
+	}
+	if a.GetSettings().RequestLinks {
+		t.Fatal("the refused change turned the switch on")
+	}
+	for _, c := range []struct {
+		fr   FeatureResult
+		want error
+	}{
+		{FeatureResult{}, errRequestLinksUnsupported},
+		{FeatureResult{Reachable: true}, errRequestLinksUnsupported},
+		{FeatureResult{Reachable: true, RequestLinks: true}, nil},
+	} {
+		if err := requestLinksChange(true, false, func() FeatureResult { return c.fr }); err != c.want {
+			t.Errorf("turn on with %+v = %v, want %v", c.fr, err, c.want)
+		}
+	}
+}

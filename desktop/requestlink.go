@@ -156,6 +156,10 @@ type requestLane struct {
 	cancelled bool   // the owning generation was ended by the owner or a quit
 	state     string // "" reads as off
 	code      string
+	// seq stamps every snapshot the lane builds, emitted or returned, so
+	// (gen, seq) totally orders them (D-115). One lane per process, so this
+	// is the per-process counter; only ever read and bumped under mu.
+	seq uint64
 
 	// The link's secrets, in memory only; endLocked forgets them.
 	roomID    string
@@ -268,6 +272,14 @@ func liveState(state string) bool {
 	return false
 }
 
+// liveNow reports whether a link is being made, is open, or a drop runs. It
+// reads the atomic only and never takes the lane mutex, so a caller holding
+// a.mu (SetRequestLinks) or running on the Windows message-pump thread (the
+// close guard) can never wait on the lane. Nil-safe.
+func (l *requestLane) liveNow() bool {
+	return l != nil && l.live.Load()
+}
+
 // setStateLocked moves the lane to state with code and keeps live in step.
 func (l *requestLane) setStateLocked(state, code string) {
 	l.state, l.code = state, code
@@ -298,17 +310,21 @@ func (l *requestLane) detachLocked() (sc *signaling.Client, conn closer) {
 	return sc, conn
 }
 
-// snapshotLocked copies the lane into the bound shape. Slices are copied so a
-// later change never reaches a snapshot already handed out.
+// snapshotLocked copies the lane into the bound shape and stamps it with the
+// next seq. Every snapshot that leaves the lane, on request:state or as a
+// bound method's return, is built here, so none escapes unstamped. Slices are
+// copied so a later change never reaches a snapshot already handed out.
 func (l *requestLane) snapshotLocked() RequestLinkSnapshot {
 	state := l.state
 	if state == "" {
 		state = "off"
 	}
+	l.seq++
 	s := RequestLinkSnapshot{
 		State:        state,
 		Code:         l.code,
 		Gen:          l.gen,
+		Seq:          l.seq,
 		PromptGen:    l.promptGen,
 		Link:         l.link,
 		Label:        l.label,
@@ -570,9 +586,11 @@ func (a *App) MakeRequestLink(label string, saveDir string, lifetime string) Req
 	if l.live.Load() {
 		// One link in the Beta (OD-05). The live link is left exactly as it
 		// is, and the refusal carries gen 0 so a frontend already following
-		// the live link never adopts it over that link.
+		// the live link never adopts it over that link. It still takes a seq.
+		l.seq++
+		refusal := RequestLinkSnapshot{State: "error", Code: "already-open", Seq: l.seq}
 		l.mu.Unlock()
-		return RequestLinkSnapshot{State: "error", Code: "already-open"}
+		return refusal
 	}
 	l.gen++
 	rg := l.gen
