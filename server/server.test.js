@@ -460,12 +460,22 @@ describe('handleDisconnect', () => {
 describe('room seal', () => {
     beforeEach(() => { rooms.clear(); roomMeta.clear(); roomToCode.clear(); codeFailures.clear(); });
 
+    // What every real pair does before a single file byte can move: the sender
+    // offers, the receiver answers. A key counts toward the seal only once its
+    // peer has routed a signal, so a test that means "these two have paired"
+    // has to say so with this, not with two joins.
+    function exchangeSignals(sender, receiver) {
+        handleSignal(sender, { type: 'offer' }, receiver.id);
+        handleSignal(receiver, { type: 'answer' }, sender.id);
+    }
+
     it('a third key after the receiver leaves gets room-full', () => {
         const pA = makePeer('peer-A', 'a');
         const pB = makePeer('peer-B', 'b');
         const pC = makePeer('peer-C', 'c');
         handleJoinRoom(pA, ROOM_ID);
         handleJoinRoom(pB, ROOM_ID);
+        exchangeSignals(pA, pB);
         handleDisconnect(pB); // seat two is free again, so only the seal can refuse
         pA.msgs.length = 0;
 
@@ -485,6 +495,7 @@ describe('room seal', () => {
         const pB = makePeer('peer-B', 'b');
         handleJoinRoom(pA, ROOM_ID);
         handleJoinRoom(pB, ROOM_ID);
+        exchangeSignals(pA, pB); // sealed, so only the key check lets B2 in
         handleDisconnect(pB);
         pA.msgs.length = 0;
 
@@ -528,6 +539,7 @@ describe('room seal', () => {
         const [pA, pB, pC] = ['peer-A', 'peer-B', 'peer-C'].map(id => makePeer(id, 'nat'));
         handleJoinRoom(pA, ROOM_ID);
         handleJoinRoom(pB, ROOM_ID);
+        exchangeSignals(pA, pB); // a real pair, and still one key
         handleDisconnect(pB);
 
         handleJoinRoom(pC, ROOM_ID);
@@ -554,11 +566,13 @@ describe('room seal', () => {
         const pA = makePeer('peer-A', 'a');
         const pB = makePeer('peer-B', 'b');
         handleJoinRoom(pA, ROOM_ID);
-        assert.deepEqual([...roomMeta.get(ROOM_ID).keys], ['a']);
+        assert.equal(roomMeta.get(ROOM_ID).keys.size, 0, 'a join alone counts nothing');
         handleJoinRoom(pB, ROOM_ID);
-        assert.deepEqual([...roomMeta.get(ROOM_ID).keys], ['a', 'b']);
+        assert.equal(roomMeta.get(ROOM_ID).keys.size, 0);
+        exchangeSignals(pA, pB);
+        assert.equal(roomMeta.get(ROOM_ID).keys.size, 2);
         handleDisconnect(pB);
-        assert.deepEqual([...roomMeta.get(ROOM_ID).keys], ['a', 'b'], 'a departed key stays counted while the room exists');
+        assert.equal(roomMeta.get(ROOM_ID).keys.size, 2, 'a departed key stays counted while the room exists');
 
         handleDisconnect(pA); // handleDisconnect's destroyRoom
         assert.equal(roomMeta.size, 0);
@@ -573,7 +587,68 @@ describe('room seal', () => {
         handleDisconnect(pD);
         handleJoinRoom(pC, other); // the leave-first block's destroyRoom
         assert.deepEqual([...roomMeta.keys()], [other]);
-        assert.deepEqual([...roomMeta.get(other).keys], ['c']);
+        assert.equal(roomMeta.get(other).keys.size, 0);
+    });
+
+    it('a sender that re-joins from a new address beside its own ghost does not lock out the receiver', () => {
+        // The web sender waits with its link open. Its network changes (Wi-Fi to
+        // cellular, a VPN toggled), Socket.IO reconnects within seconds under a
+        // new key, and the bare re-join lands in seat two because the old
+        // socket is still seated until its ping timeout reaps it (up to about
+        // 45 s). Two keys have now sat in the room, but neither has signaled:
+        // the ghost is dead and the sender has no one to offer to. Counting
+        // them would have the sender seal its own room against the receiver.
+        const ghost = makePeer('peer-A-old', 'wifi');
+        const rejoin = makePeer('peer-A-new', 'cellular');
+        const pB = makePeer('peer-B', 'home');
+        handleJoinRoom(ghost, ROOM_ID);
+        handleJoinRoom(rejoin, ROOM_ID);
+        handleDisconnect(ghost);
+
+        handleJoinRoom(pB, ROOM_ID);
+
+        assert.deepEqual(pB.msgs, [{ type: 'room-joined', data: { role: 'receiver' } }]);
+        assert.deepEqual(rooms.get(ROOM_ID).map(p => p.id), ['peer-A-new', 'peer-B']);
+
+        // The pair that then forms still seals the room.
+        exchangeSignals(rejoin, pB);
+        handleDisconnect(pB);
+        const stranger = makePeer('peer-X', 'elsewhere');
+        handleJoinRoom(stranger, ROOM_ID);
+        assert.deepEqual(stranger.msgs, [{ type: 'room-full', data: {} }]);
+    });
+
+    it('a key that has only been signaled to does not count', () => {
+        // The rule is "has routed a signal", not "has taken part in one". A
+        // receiver that was offered to and left before answering has no
+        // connection and has received nothing, and its own network may be why
+        // it left: counting it would refuse that receiver when it comes back
+        // from its new address, and refuse nobody who could have been sent a
+        // byte.
+        const pA = makePeer('peer-A', 'a');
+        const pB = makePeer('peer-B', 'b');
+        const pC = makePeer('peer-C', 'c');
+        handleJoinRoom(pA, ROOM_ID);
+        handleJoinRoom(pB, ROOM_ID);
+        handleSignal(pA, { type: 'offer' }, 'peer-B');
+        handleDisconnect(pB);
+
+        handleJoinRoom(pC, ROOM_ID);
+
+        assert.deepEqual(pC.msgs, [{ type: 'room-joined', data: { role: 'receiver' } }]);
+    });
+
+    it('a signal the server drops counts nothing', () => {
+        // Only a signal that reaches the other seat counts: a lone sender has no
+        // one to route to, and a signal naming someone else is dropped.
+        const pA = makePeer('peer-A', 'a');
+        const pB = makePeer('peer-B', 'b');
+        handleJoinRoom(pA, ROOM_ID);
+        handleSignal(pA, { type: 'offer' }, null); // nobody in seat two yet
+        handleJoinRoom(pB, ROOM_ID);
+        handleSignal(pB, { type: 'answer' }, 'not-peer-A');
+
+        assert.equal(roomMeta.get(ROOM_ID).keys.size, 0);
     });
 });
 

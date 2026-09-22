@@ -66,7 +66,7 @@ Server to client:
 | `user-connected` | `peerId: string` | The receiver arrived. Sent to the sender. |
 | `signal` | `{ signal, sender: peerId }` | A signal from the other peer. |
 | `peer-disconnected` | `{}` | The other peer left. |
-| `room-full` | `{}` | The room already holds two peers, or two other addresses have already joined it. |
+| `room-full` | `{}` | The room already holds two peers, or peers at two other addresses have already signaled through it. |
 | `error` | `{ message: string }` | Server error. |
 
 ### WebSocket messages
@@ -89,7 +89,7 @@ Server to client:
 | `user-connected` | `id: string` | The receiver arrived. |
 | `signal` | `signal`, `sender: string` | A signal from the other peer. |
 | `peer-disconnected` | - | The other peer left. |
-| `room-full` | - | The room already holds two peers, or two other addresses have already joined it. |
+| `room-full` | - | The room already holds two peers, or peers at two other addresses have already signaled through it. |
 | `pong` | - | Answer to a client `ping`. |
 | `error` | `message: string` | Server error. |
 
@@ -101,9 +101,12 @@ A room outlives a one-sided drop. When a peer disconnects the server removes onl
 keeps the room for the other one, which is what lets a browser rejoin the same room after its
 socket reconnects. The room is deleted when the last peer leaves.
 
-A room also seals. Once peers from two different client addresses have joined it, a peer from a
-third address gets `room-full` until the room is deleted. The address is the one the per-IP limits
-count (an IPv6 address counts by its /64), so peers that share one address are never sealed out.
+A room also seals. Once peers from two different client addresses have each sent a `signal` that
+the server routed to the other peer, a peer from a third address gets `room-full` until the room is
+deleted. Joining alone does not count an address, so a sender that reconnects from a new address
+beside its own stale connection does not seal its own room. The address is the one the per-IP
+limits count (an IPv6 address counts by its /64), so peers that share one address are never sealed
+out.
 
 The connection is kept alive below this layer. Every 30 seconds the server sends a WebSocket
 protocol-level ping to each `/ws` client and terminates any that did not answer the previous one.

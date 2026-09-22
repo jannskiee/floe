@@ -358,9 +358,9 @@ const rooms = new Map(); // roomId → [peer, peer]
 
 // One record per live room, created with the room and deleted with it in
 // destroyRoom, so it can never outlive the room or hold more entries than
-// `rooms` does. `keys` is every rate key that has taken a seat in the room,
-// including peers that have since left: that history is what the seal in
-// handleJoinRoom reads.
+// `rooms` does. `keys` is every rate key whose peer has routed a signal in the
+// room (handleSignal), including peers that have since left: that history is
+// what the seal in handleJoinRoom reads.
 const roomMeta = new Map(); // roomId → { keys: Set<rateKey> }
 
 // The single way a room stops existing. A room that is gone must not leave a
@@ -450,15 +450,18 @@ function handleJoinRoom(peer, roomId) {
         peer.roomId = null;
     }
 
-    // The seal. Once two distinct keys have sat in a room, a third key is
-    // refused for as long as the room exists, so a stranger holding the link
-    // cannot take the receiver's seat after the receiver leaves or drops.
+    // The seal. Once two distinct keys have routed signals in a room, a third
+    // key is refused for as long as the room exists, so a stranger holding the
+    // link cannot take the receiver's seat after the receiver leaves or drops.
     //
-    // Counted in keys, never a "has been paired" flag. The browser re-joins a
-    // reconnecting sender with a bare join-room (P2PTransfer.tsx, the socket
-    // reconnect handler), which can land in seat two beside its own ghost; a
-    // flag set there would refuse the real receiver for the life of the room.
-    // One key twice is still one key.
+    // Counted in signaling keys, never in seats and never as a "has been
+    // paired" flag. The browser re-joins a reconnecting sender with a bare
+    // join-room (P2PTransfer.tsx, the socket reconnect handler), which can land
+    // in seat two beside its own ghost, and under a new key when the sender's
+    // network changed while it waited. A flag or a seat count would then have
+    // the sender seal its own room against the real receiver. Neither the ghost
+    // nor the waiting sender routes a signal, while a real pair always has
+    // before any file byte moves (handleSignal).
     //
     // Fails open, on purpose, for peers that share a key (one NAT, one IPv6
     // /64, or loopback, which is how the e2e suite runs both peers): they never
@@ -476,13 +479,12 @@ function handleJoinRoom(peer, roomId) {
     if (room.length === 0) {
         room.push(peer);
         rooms.set(roomId, room);
-        roomMeta.set(roomId, { keys: new Set([peer.key]) });
+        roomMeta.set(roomId, { keys: new Set() });
         peer.roomId = roomId;
         peer.send('room-joined', { role: 'sender' });
     } else if (room.length === 1) {
         room.push(peer);
         rooms.set(roomId, room);
-        if (meta) meta.keys.add(peer.key);
         peer.roomId = roomId;
         // The code has done its job: both seats are taken, so retire it. Burning
         // here rather than on the first GET is what keeps a pre-join failure
@@ -515,6 +517,17 @@ function handleSignal(senderPeer, signal, targetId) {
     const targetPeer = room.find(p => p.id !== senderPeer.id);
     if (!targetPeer) return;
     if (targetId && targetPeer.id !== targetId) return;
+
+    // From here the signal goes to the other seat, and only now does the
+    // sender's key count toward the room seal (handleJoinRoom). A sender and a
+    // receiver each route one (the offer, the answer) before any file byte can
+    // move; a ghost never routes one, and a lone sender has no seat to route to.
+    // Only the sender of the signal counts: a receiver that was offered to and
+    // left before answering has received nothing. The key comes from the
+    // connection, never from the frame. At most three keys: once two count, only
+    // a peer already seated then can add one more.
+    const meta = roomMeta.get(senderPeer.roomId);
+    if (meta) meta.keys.add(senderPeer.key);
 
     // signal is the only peer-supplied value this server serializes: roomId is
     // UUID-checked and target is only compared. JSON.stringify recurses, so a
