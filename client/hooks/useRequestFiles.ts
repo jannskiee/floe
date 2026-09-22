@@ -4,6 +4,7 @@ import { checkPick } from '@/lib/request/metadataBudget';
 import { MAX_REQUEST_FILES } from '@/lib/request/constants';
 import { visitorCopy } from '@/lib/request/visitorCopy';
 import { mergeSelection, type RequestFile } from '@/lib/request/mergeSelection';
+import { createPickTracker } from '@/lib/request/pickTracker';
 
 /**
  * The visitor's file selection.
@@ -42,8 +43,11 @@ export function useRequestFiles(events: RequestFileEvents = {}) {
     const [emptyFolders, setEmptyFolders] = useState(0);
     /** True while a dropped folder is being walked or a plain drop probed. A
      *  large or slow walk is visible as pending, and Send stays off until it
-     *  settles, so a half-walked folder can never be sent. */
+     *  settles, so a half-walked folder can never be sent. Counted by the
+     *  tracker, so two overlapping drops keep it on until the last settles,
+     *  and a walk that began before Clear drops its result (review F5). */
     const [reading, setReading] = useState(false);
+    const [tracker] = useState(createPickTracker);
 
     // The selection as the LAST commit left it. A pick finishes after an await,
     // by which time the closure's `files` can be a render behind, and the check
@@ -84,9 +88,11 @@ export function useRequestFiles(events: RequestFileEvents = {}) {
 
     const ingestEntries = useCallback(
         async (entries: EntryLike[]) => {
+            const token = tracker.begin();
             setReading(true);
             try {
                 const walked = await walkEntries(entries, { maxFiles: MAX_REQUEST_FILES });
+                if (!tracker.current(token)) return;
                 if (walked.outcome === 'too-many') {
                     setNotice(visitorCopy.tooManyFiles);
                     eventsRef.current.onRefused?.();
@@ -99,10 +105,11 @@ export function useRequestFiles(events: RequestFileEvents = {}) {
                 }
                 commit(walked.files, walked.emptyFolders);
             } finally {
-                setReading(false);
+                tracker.end();
+                setReading(tracker.reading());
             }
         },
-        [commit]
+        [commit, tracker]
     );
 
     /** The fallback path, for a browser with no entries API.
@@ -124,10 +131,13 @@ export function useRequestFiles(events: RequestFileEvents = {}) {
                 eventsRef.current.onRefused?.();
                 return;
             }
+            const token = tracker.begin();
             setReading(true);
             try {
                 for (const file of list) {
-                    if (!(await firstByteReadable(file))) {
+                    const readable = await firstByteReadable(file);
+                    if (!tracker.current(token)) return;
+                    if (!readable) {
                         setNotice(visitorCopy.foldersUnsupported);
                         eventsRef.current.onRefused?.();
                         return;
@@ -138,10 +148,11 @@ export function useRequestFiles(events: RequestFileEvents = {}) {
                     0
                 );
             } finally {
-                setReading(false);
+                tracker.end();
+                setReading(tracker.reading());
             }
         },
-        [commit]
+        [commit, tracker]
     );
 
     const handleDragOver = (e: DragEvent) => {
@@ -213,6 +224,8 @@ export function useRequestFiles(events: RequestFileEvents = {}) {
     };
 
     const clear = () => {
+        // A walk still in flight belongs to the selection being cleared.
+        tracker.clear();
         selected.current = [];
         setFiles([]);
         setNotice(null);

@@ -189,6 +189,18 @@ describe('the /r page boundaries', () => {
         }
     });
 
+    it('the files hook counts overlapping reads and drops a read that Clear made stale', () => {
+        // WP-W1 review F5, pinned from outside the vitest globs; the counting
+        // itself is pickTracker.test.ts. A boolean let the first of two drops
+        // turn Send back on, and a Clear during a walk was refilled.
+        const hook = read('hooks/useRequestFiles.ts');
+        const count = (needle: string) => hook.split(needle).length - 1;
+        expect(count('setReading(tracker.reading())')).toBe(2);
+        expect(count('if (!tracker.current(token)) return;')).toBe(2);
+        expect(count('tracker.clear();')).toBe(1);
+        expect(count('setReading(false)')).toBe(0);
+    });
+
     it('Sentry breadcrumbs on /r carry counts only, never a path, a name or the link', () => {
         const sources = requestSources();
         let crumbs = 0;
