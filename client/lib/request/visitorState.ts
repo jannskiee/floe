@@ -194,10 +194,13 @@ export const ATTEMPT_ENDING_STATES: readonly VisitorState[] = [
 const READY_LIKE: readonly VisitorState[] = ['V3', 'V3c', 'V6b', 'V6d'];
 /** States from which Try again (or Send) starts a new attempt (4.12.4). */
 const RETRY_FROM: readonly VisitorState[] = ['V4', 'V8a', 'V8b', 'V9', 'V6a', 'V6d', 'V12a'];
-/** States where a changed fragment reloads the page (E29). */
-const RELOAD_ON_HASH: readonly VisitorState[] = [
-    'V1', 'V2', 'V3', 'V3c', 'V4', 'V5a', 'V5b', 'V5c', 'V8a', 'V8b', 'V9',
-];
+/** The states with an attempt live. A changed fragment reloads the page in
+ *  every OTHER state (E29): the card lists V1 to V5, V8 and V9, and the review
+ *  (WP-W1 F4) found that the idle states it leaves out (V6a, V6b, V6d, V12a,
+ *  and the endings) would let the next Send or Try again join the old room
+ *  while the address bar shows the new one. Mid-attempt the page ignores it:
+ *  the room it is in is the one it joined. */
+const LIVE_ATTEMPT: readonly VisitorState[] = ['V6', 'V6c', 'V7', 'V10'];
 
 const TEARDOWN: VisitorEffect[] = ['clearTimers', 'disconnectSocket', 'releaseWakeLock', 'destroyPeer'];
 /** With the channel open, the fixed Cancel reason goes first, and the effect
@@ -319,7 +322,7 @@ export function reduce(model: VisitorModel, event: VisitorEvent): Step {
     // E29: a different room id in the fragment reloads the page while no
     // attempt is live.
     if (event.type === 'HASHCHANGE') {
-        if (RELOAD_ON_HASH.includes(s) && event.roomId !== model.roomId) return { model, effects: ['reload'] };
+        if (!LIVE_ATTEMPT.includes(s) && event.roomId !== model.roomId) return { model, effects: ['reload'] };
         return stay(model);
     }
     // E28: the guards hook owns what visibility does; the state never moves.

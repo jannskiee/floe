@@ -456,6 +456,15 @@ describe('visitor state: visibility and hash rows', () => {
             expect(r.effects).toEqual(['reload']);
         });
     }
+    // WP-W1 review F4: the idle states that show Ready or Try again. Ignoring a
+    // changed fragment there let the next Send join the OLD room while the
+    // address bar showed the new one.
+    for (const s of ['V6a', 'V6b', 'V6d', 'V12a', 'V11', 'V11a', 'V11b', 'V12', 'V13'] as VisitorState[]) {
+        it(`${s} + E29 (different roomId) reloads`, () => {
+            const r = step(modelIn(s), { type: 'HASHCHANGE', roomId: '11111111-1111-4111-8111-111111111111' });
+            expect(r.effects).toEqual(['reload']);
+        });
+    }
     it('E29 with the same roomId changes nothing', () => {
         expect(step(modelIn('V3'), { type: 'HASHCHANGE', roomId: ROOM }).effects).toEqual([]);
     });
@@ -464,7 +473,7 @@ describe('visitor state: visibility and hash rows', () => {
         expect(step(v1, { type: 'HASHCHANGE', roomId: ROOM }).effects).toEqual(['reload']);
     });
     it('E29 never reloads a live attempt', () => {
-        for (const s of ['V6', 'V7', 'V10'] as VisitorState[]) {
+        for (const s of ['V6', 'V6c', 'V7', 'V10'] as VisitorState[]) {
             expect(step(modelIn(s), { type: 'HASHCHANGE', roomId: null }).effects).toEqual([]);
         }
     });
