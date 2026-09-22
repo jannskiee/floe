@@ -6,7 +6,28 @@
 // fragment) so error reports, breadcrumbs, and request URLs sent to Sentry can
 // never be replayed to hijack a transfer.
 //
+// A request link (/r/<linkId>) carries an id in the PATH as well, and the two
+// exclude flags that keep a room id out of telemetry only cover the query and
+// the fragment. That id is not a secret and cannot be replayed into a transfer,
+// but it names one link and one person's request, and telemetry has no use for
+// it, so it is redacted here beside the room id.
+//
 // Accepts absolute or relative URLs and never throws.
+
+// One request-link path segment, matched case-insensitively and only where a
+// path segment can begin (string start, or after a slash). The captured
+// boundary is put back, so "/r/x" and "r/x" each stay their own shape, and it
+// is what keeps /rx/abc and /robots.txt out of the match. A bare /r has no id
+// to redact and is left alone.
+const REQUEST_PATH = /(^|\/)r\/[^/]+/gi;
+
+function redactRequestPath(path: string): string {
+    // lastIndex is reset per call: the regex is module-level and /g is stateful,
+    // so a shared one would skip the next caller's match.
+    REQUEST_PATH.lastIndex = 0;
+    return path.replace(REQUEST_PATH, '$1r/redacted');
+}
+
 export function scrubUrl(url: string | undefined | null): string | undefined {
     if (!url) return url ?? undefined;
 
@@ -16,6 +37,7 @@ export function scrubUrl(url: string | undefined | null): string | undefined {
     try {
         const u = new URL(url, BASE);
         if (u.searchParams.has('room')) u.searchParams.set('room', 'redacted');
+        u.pathname = redactRequestPath(u.pathname);
         u.hash = '';
         const out = u.toString();
         // Match BASE plus the path separator, not BASE as a bare prefix: a
@@ -26,9 +48,17 @@ export function scrubUrl(url: string | undefined | null): string | undefined {
         return out.startsWith(BASE + '/') ? out.slice(BASE.length) || '/' : out;
     } catch {
         // Parsing failed (unusual breadcrumb value); fall back to a plain strip.
-        return url
-            .replace(/#.*$/, '')
-            .replace(/([?&])room=[^&]*/i, '$1room=redacted');
+        // The path is split off by hand here because there is no parsed URL to
+        // ask: the room redaction must stay on the query side and the request
+        // redaction on the path side, or a ?room= value containing "/r/" would
+        // rewrite itself.
+        const withoutHash = url.replace(/#.*$/, '');
+        const q = withoutHash.indexOf('?');
+        const path = q >= 0 ? withoutHash.slice(0, q) : withoutHash;
+        const query = q >= 0 ? withoutHash.slice(q) : '';
+        return (
+            redactRequestPath(path) + query.replace(/([?&])room=[^&]*/i, '$1room=redacted')
+        );
     }
 }
 
@@ -46,6 +76,8 @@ export interface ScrubbableSpan {
 
 export interface ScrubbableTransaction {
     request?: { url?: string };
+    /** The transaction NAME, which Sentry indexes and shows in every list. */
+    transaction?: string;
     contexts?: { trace?: { data?: Record<string, unknown> } };
     spans?: ScrubbableSpan[];
 }
@@ -67,8 +99,25 @@ export function scrubSpanJson<T extends ScrubbableSpan>(span: T): T {
 // included, onto every event's request.url and onto the segment span's
 // url.full. On a receiver page that is the whole share link, and with
 // tracesSampleRate 0.1 one page load in ten was sending it.
+// The transaction NAME is scrubbed too, and unconditionally.
+//
+// Today a /r pageload is already named /r/:linkId rather than /r/<id>, because
+// the Next SDK parameterizes it from the route manifest it injects into the
+// client bundle. That is an SDK DEFAULT, not something this repo pins: if it
+// ever flips, or a future SDK stops injecting the manifest, the name becomes
+// the raw path and the id lands in the one field Sentry indexes and lists.
+//
+// So this does not try to tell an id from a placeholder. Both /r/<id> and
+// /r/:linkId collapse to /r/redacted, deliberately: there is exactly one /r
+// route, so one name is all the grouping anyone can want from it, and a rule
+// that redacted only strings matching today's 11-character id shape would
+// silently stop covering an id of any other length. Fail closed, and it costs
+// a bucket name nobody reads.
 export function scrubTransactionEvent<T extends ScrubbableTransaction>(event: T): T {
     if (event.request?.url) event.request.url = scrubUrl(event.request.url);
+    if (typeof event.transaction === 'string') {
+        event.transaction = redactRequestPath(event.transaction);
+    }
     scrubAttributes(event.contexts?.trace?.data);
     for (const span of event.spans ?? []) scrubAttributes(span.data);
     return event;

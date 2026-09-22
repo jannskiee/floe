@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import { ServiceWorkerRegistration } from '@/components/ServiceWorkerRegistration';
-import Script from 'next/script';
+import { UmamiScript } from '@/components/UmamiScript';
 
 import { siteUrl, metadataBase } from '@/lib/siteUrl';
 import { sharedOpenGraph, sharedTwitter } from '@/lib/socialMetadata';
@@ -96,27 +96,12 @@ export default function RootLayout({
             >
                 <ServiceWorkerRegistration />
                 {children}
-                {process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID && (
-                    <Script
-                        defer
-                        src="https://cloud.umami.is/script.js"
-                        data-website-id={process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID}
-                        // The two exclude flags are load-bearing privacy settings, not tidiness.
-                        // The tracker reports location.href and only strips the fragment
-                        // when exclude-hash is set, so without this a receiver opening
-                        // /?s=nonce#room=<uuid> would POST the room secret to Umami, which
-                        // is exactly what the privacy page promises never happens.
-                        data-exclude-hash="true"
-                        data-exclude-search="true"
-                        // Honor the browser's Do Not Track signal: with this set the
-                        // tracker sends nothing at all for that visitor. The live
-                        // cloud.umami.is script reads data-do-not-track and checks
-                        // navigator.doNotTrack, msDoNotTrack and window.doNotTrack
-                        // (verified 2026-09-05); the privacy page states this.
-                        data-do-not-track="true"
-                        strategy="afterInteractive"
-                    />
-                )}
+                {/* The tracker, and the paths it may not load on, live together
+                    in components/UmamiScript.tsx. The exclude flags strip the
+                    fragment and the query but not the path, and a request link
+                    (/r/<linkId>) keeps its id in the path, so knowing the path
+                    is what decides whether the script renders at all. */}
+                <UmamiScript websiteId={process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID} />
                 {/* JSON-LD structured data: tells Google this is a free web application */}
                 <script
                     type="application/ld+json"
