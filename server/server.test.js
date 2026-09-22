@@ -6,6 +6,7 @@
 
 const { describe, it, beforeEach, after } = require('node:test');
 const assert = require('node:assert/strict');
+const { createHash } = require('node:crypto');
 
 const {
     errorHandler,
@@ -649,6 +650,45 @@ describe('room seal', () => {
         handleSignal(pB, { type: 'answer' }, 'not-peer-A');
 
         assert.equal(roomMeta.get(ROOM_ID).keys.size, 0);
+    });
+
+    it('roomMeta keeps a per-process digest of each key, never the key', () => {
+        // A rate key is an address (an IPv4 address in full, an IPv6 /64), and a
+        // room can live for hours, past the "at most about two minutes" the
+        // privacy page promises for an IP address. The seal only has to tell
+        // keys apart, so it compares keyed digests instead.
+        const other = '11111111-2222-4333-8444-555555555555';
+        const raw = ['203.0.113.7', '2001:db8:1:2::/64', '198.51.100.9'];
+        const pA = makePeer('peer-A', raw[0]);
+        const pB = makePeer('peer-B', raw[1]);
+        handleJoinRoom(pA, ROOM_ID);
+        handleJoinRoom(pB, ROOM_ID);
+        handleSignal(pA, { type: 'offer' }, 'peer-B');
+        const [digestA] = roomMeta.get(ROOM_ID).keys;
+        handleSignal(pB, { type: 'answer' }, 'peer-A');
+        const digestB = [...roomMeta.get(ROOM_ID).keys].find(d => d !== digestA);
+
+        // The same key in another room of this process: the same digest.
+        const pA2 = makePeer('peer-A2', raw[0]);
+        const pC = makePeer('peer-C', raw[2]);
+        handleJoinRoom(pA2, other);
+        handleJoinRoom(pC, other);
+        handleSignal(pA2, { type: 'offer' }, 'peer-C');
+
+        assert.deepEqual([...roomMeta.get(other).keys], [digestA], 'one key, one digest');
+        assert.equal(roomMeta.get(ROOM_ID).keys.size, 2);
+        assert.ok(digestB && digestB !== digestA, 'two keys, two digests');
+
+        const dump = JSON.stringify([...roomMeta].map(([id, m]) => [id, [...m.keys]]));
+        for (const key of raw) assert.ok(!dump.includes(key), `roomMeta holds ${key}`);
+        // Keyed, not a bare hash: 2^32 SHA-256 runs reverse any IPv4 address.
+        const bare = raw.flatMap(k => ['hex', 'base64', 'base64url'].map(enc => createHash('sha256').update(k).digest(enc)));
+        for (const d of [digestA, digestB]) {
+            assert.equal(typeof d, 'string');
+            assert.ok(!bare.includes(d), 'an unkeyed hash of the key');
+        }
+        // The secret stays inside server.js.
+        assert.ok(!Object.values(require('./server')).some(v => v instanceof Uint8Array), 'an exported secret');
     });
 });
 

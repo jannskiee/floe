@@ -50,7 +50,8 @@ The map names where a value is stated; grep the old literal repo-wide before fin
 ## Room seal
 
 - server/server.js: the seal check in `handleJoinRoom` (after the leave-first block: refuse when the room's `roomMeta` record holds two keys and not the joiner's), the key added in `handleSignal` once a signal passes the room and target checks (the create branch starts the set empty and a join never adds to it, so only a peer that has routed a signal counts), and `roomMeta.delete` in `destroyRoom` (the seal lasts exactly as long as the room). The key is `rateKey(ip)` (server/ratekey.js), the same key every per-IP limiter counts under, carried by `createSocketIOPeer` and `createWSPeer`; peers sharing one key are never sealed out, on purpose.
-- Docs: docs/how-it-works/signaling.mdx "A room holds exactly two people" (the freed-seat paragraphs), docs/reference/architecture.mdx (both `room-full` rows and the "A room also seals" paragraph), docs/web-app/sending.mdx "One link, one recipient at a time", docs/desktop/sending.mdx (the one-receiver paragraph).
+- server/server.js `sealDigest`: `roomMeta` stores an HMAC-SHA256 of each key under `SEAL_SECRET` (random per process, memory only), never the key itself, because a room can outlive the retention the privacy page promises for an IP address. Storing the raw `rateKey`, or an unkeyed hash of it, makes both privacy sentences below untrue.
+- Docs: docs/how-it-works/signaling.mdx "A room holds exactly two people" (the freed-seat paragraphs), docs/reference/architecture.mdx (both `room-full` rows and the "A room also seals" paragraph), docs/web-app/sending.mdx "One link, one recipient at a time", docs/desktop/sending.mdx (the one-receiver paragraph). Privacy (depends on `sealDigest`, not on the seal's wording): client/app/privacy/page.tsx "IP addresses" ("at most about two minutes after your last request") and the reports paragraph ("keeps no record of who joined which room").
 
 ## TURN credential lifetimes
 

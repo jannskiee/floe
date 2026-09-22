@@ -358,10 +358,26 @@ const rooms = new Map(); // roomId → [peer, peer]
 
 // One record per live room, created with the room and deleted with it in
 // destroyRoom, so it can never outlive the room or hold more entries than
-// `rooms` does. `keys` is every rate key whose peer has routed a signal in the
-// room (handleSignal), including peers that have since left: that history is
-// what the seal in handleJoinRoom reads.
-const roomMeta = new Map(); // roomId → { keys: Set<rateKey> }
+// `rooms` does. `keys` holds the sealDigest of every rate key whose peer has
+// routed a signal in the room (handleSignal), including peers that have since
+// left: that history is what the seal in handleJoinRoom reads.
+const roomMeta = new Map(); // roomId → { keys: Set<sealDigest(rateKey)> }
+
+// The seal tells keys apart without keeping them. A rate key is an address (an
+// IPv4 address in full, an IPv6 /64), a room can live for hours, and the
+// privacy page promises an IP address is kept at most about two minutes. So a
+// room keeps an HMAC-SHA256 of each key under a secret drawn once per process:
+// equal keys still match within this process, hashing every IPv4 address does
+// not reverse a digest, and every digest means nothing after a restart. The
+// secret lives in this binding only. Never log, print, export or persist it.
+const SEAL_SECRET = crypto.randomBytes(32);
+
+// String() so a missing key digests as 'undefined' (one shared key, which the
+// seal fails open for) instead of throwing inside update() on the
+// unauthenticated join and signal paths.
+function sealDigest(key) {
+    return crypto.createHmac('sha256', SEAL_SECRET).update(String(key)).digest('base64');
+}
 
 // The single way a room stops existing. A room that is gone must not leave a
 // working code behind it: the phrase is the whole secret, and a code outliving
@@ -469,7 +485,7 @@ function handleJoinRoom(peer, roomId) {
     // refused. Closing that needs a per-room token, and the released clients
     // have no field to send one in.
     const meta = roomMeta.get(roomId);
-    if (meta && meta.keys.size >= 2 && !meta.keys.has(peer.key)) {
+    if (meta && meta.keys.size >= 2 && !meta.keys.has(sealDigest(peer.key))) {
         peer.send('room-full', {});
         return;
     }
@@ -527,7 +543,7 @@ function handleSignal(senderPeer, signal, targetId) {
     // connection, never from the frame. At most three keys: once two count, only
     // a peer already seated then can add one more.
     const meta = roomMeta.get(senderPeer.roomId);
-    if (meta) meta.keys.add(senderPeer.key);
+    if (meta) meta.keys.add(sealDigest(senderPeer.key));
 
     // signal is the only peer-supplied value this server serializes: roomId is
     // UUID-checked and target is only compared. JSON.stringify recurses, so a
