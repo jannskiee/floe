@@ -225,7 +225,9 @@ func refuseWrite(dc *webrtc.DataChannel, localVer string, saved int, creating bo
 //
 // Error() is fixed local wording chosen by Code: never the peer's text, and
 // never Err, whose message can carry a local path built from the sender's file
-// name. Err keeps the cause for errors.Is and errors.As.
+// name. Err keeps the cause for errors.Is and errors.As. Code is always a
+// constant this side chose, never a value from the wire; the peer's code
+// becomes a PeerStoppedError instead.
 type RefusedError struct {
 	Code  RefusalCode
 	Saved int

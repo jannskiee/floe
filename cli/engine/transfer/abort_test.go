@@ -950,7 +950,7 @@ func TestAbortFromPeerReadsCodeAndSavedByExactKey(t *testing.T) {
 		{"code with surrounding space", `{"type":"incompatible","reason":"x","pv":1,"pvMin":1,"code":" declined"}`, "", 0},
 		{"code upper", `{"type":"incompatible","reason":"x","pv":1,"pvMin":1,"code":"DECLINED"}`, "", 0},
 		{"code array", `{"type":"incompatible","reason":"x","pv":1,"pvMin":1,"code":["declined"]}`, "", 0},
-		{"code escaped", `{"type":"incompatible","reason":"x","pv":1,"pvMin":1,"code":"declined"}`, CodeDeclined, 0},
+		{"code escaped", `{"type":"incompatible","reason":"x","pv":1,"pvMin":1,"code":"\u0064eclined"}`, CodeDeclined, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
