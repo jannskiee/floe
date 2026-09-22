@@ -16,7 +16,7 @@ import (
 
 // e41Extensions is the E-41 table written out here, not read from
 // blockedExtensions, so dropping an entry from the package list fails a row.
-var e41Extensions = []string{".lnk", ".url", ".library-ms", ".searchConnector-ms", ".scf", ".theme", ".themepack", ".website", ".search-ms"}
+var e41Extensions = []string{".lnk", ".url", ".library-ms", ".searchConnector-ms", ".scf", ".theme", ".themepack", ".deskthemepack", ".website", ".search-ms"}
 
 const testCLSID = "{ED7BA470-8E54-465E-825C-99712043E01C}"
 

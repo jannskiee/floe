@@ -339,6 +339,7 @@ func nameHookSeeds() []fuzzSeed {
 		{name: "scf", text: "x.scf"},
 		{name: "theme", text: "x.theme"},
 		{name: "themepack", text: "x.themepack"},
+		{name: "deskthemepack", text: "x.deskthemepack"},
 		{name: "website", text: "x.website"},
 		{name: "search-ms", text: "x.search-ms"},
 		{name: "desktop-ini-nested", text: "a/b/c/desktop.ini"},

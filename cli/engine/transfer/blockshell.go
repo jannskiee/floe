@@ -49,9 +49,11 @@ func stripClassIDs(p string) string {
 	}
 }
 
-// blockedExtensions are the E-41 table: spec 05 8.4's seven plus .website and
-// .search-ms. Matched against the leaf's last extension, case-insensitively.
-var blockedExtensions = []string{".lnk", ".url", ".library-ms", ".searchConnector-ms", ".scf", ".theme", ".themepack", ".website", ".search-ms"}
+// blockedExtensions are the E-41 table: spec 05 8.4's seven plus .website,
+// .search-ms and .deskthemepack (the Windows 8 and later spelling of a
+// .themepack, a CAB holding a .theme; WP-A1 review L3). Matched against the
+// leaf's last extension, case-insensitively.
+var blockedExtensions = []string{".lnk", ".url", ".library-ms", ".searchConnector-ms", ".scf", ".theme", ".themepack", ".deskthemepack", ".website", ".search-ms"}
 
 // blockedLeafNames are matched against the whole leaf, in any folder.
 var blockedLeafNames = []string{"desktop.ini"}
