@@ -38,4 +38,19 @@ export const visitorCopy = {
     unsupportedTitle: 'This browser cannot send through Floe',
     /** C-23. */
     unsupportedBody: 'Open the link in current Chrome or Edge.',
+
+    /** C-30: V3a, this browser cannot pick folders. It is also the refusal for a
+     *  dropped folder that arrived as a directory pseudo-File, because from the
+     *  visitor's side those are the same problem with the same remedy. */
+    foldersUnsupported: 'This browser cannot pick folders. Drag the folder in, or zip it first.',
+    /** C-34, the over-10,000-files half. */
+    tooManyFiles: 'This drop has more than 10,000 files. Zip them first.',
+    /** C-34, the path-over-the-cap half. Its second sentence is C-33, which is
+     *  drawn only as this tail and never on its own. */
+    pathTooLong: 'A folder path is too long to send. Zip deeply nested folders first.',
+    /** C-35: a quiet line under the count, not a refusal. Empty folders, and the
+     *  modification times, are not delivered. */
+    emptyFoldersSkipped: 'Empty folders are not sent.',
+    /** C-36: the walk hit an entry it could not read, so nothing was added. */
+    folderUnreadable: 'Some files in this folder could not be read. Nothing was added.',
 } as const;
