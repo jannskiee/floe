@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { parseRequestLink } from '@/lib/request/requestLink';
 import { hasDataChannelSupport } from '@/lib/request/browserSupport';
 import { visitorCopy } from '@/lib/request/visitorCopy';
+import { ReadyHeader } from '@/components/request/ReadyHeader';
+import { NoticeCard } from '@/components/request/NoticeCard';
 
 type VisitorState = 'checking' | 'incomplete' | 'unsupported' | 'ready';
 
@@ -86,49 +88,6 @@ export function RequestShell() {
 
             <RequestFooter />
         </div>
-    );
-}
-
-/** The Ready header: eyebrow with the Beta chip, the intro, and the support
- *  line. The controls below it arrive with S1-WEB-03. */
-function ReadyHeader() {
-    return (
-        <section className="w-full rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 sm:p-7">
-            <div className="flex items-baseline justify-between gap-4">
-                {/* The page's heading, drawn as the mono eyebrow the approved
-                    frame shows. A heading element rather than a paragraph so
-                    the Ready state has one, like the two notice states do. */}
-                <h1 className="pl-[0.2em] font-mono text-[11px] leading-none tracking-[0.2em] text-zinc-500">
-                    {visitorCopy.readyEyebrow}
-                </h1>
-                <span className="shrink-0 rounded-full border border-ice/30 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.15em] text-ice">
-                    {visitorCopy.betaChip}
-                </span>
-            </div>
-            <p className="mt-4 text-sm leading-relaxed text-zinc-300">
-                {visitorCopy.readyIntro}
-            </p>
-            <p className="mt-2 text-xs leading-relaxed text-zinc-500">
-                {visitorCopy.betaSupport}
-            </p>
-        </section>
-    );
-}
-
-/** V1 and V2. Both are terminal, both were decided locally, and neither offers a
- *  button: there is nothing here for the page to retry. */
-function NoticeCard({ title, body }: { title: string; body: string }) {
-    return (
-        <section className="w-full rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 sm:p-7">
-            <div className="flex items-center gap-2.5">
-                <span
-                    className="h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-600"
-                    aria-hidden="true"
-                />
-                <h1 className="text-base font-semibold tracking-tight text-white">{title}</h1>
-            </div>
-            <p className="mt-3 text-sm leading-relaxed text-zinc-400">{body}</p>
-        </section>
     );
 }
 
