@@ -38,6 +38,9 @@ type SetupError struct {
 }
 
 func (e *SetupError) Error() string {
+	if e.Err == nil {
+		return ""
+	}
 	return transfer.DisplayText(e.Err.Error(), maxSetupErrorRunes)
 }
 
