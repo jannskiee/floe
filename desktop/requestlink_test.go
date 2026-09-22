@@ -7,6 +7,9 @@ package main
 
 import (
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1094,7 +1097,7 @@ func TestRequestWakeAcquiredOnAcceptReleasedOnEnd(t *testing.T) {
 	for name, end := range ends {
 		t.Run(name, func(t *testing.T) {
 			w, blocks, allows := countingWake()
-			a := &App{wake: w}
+			a := &App{wake: w, notifyFn: func(string, string) {}}
 			a.lane().emitFn = func(string, any) {}
 			forceGen(a, 7)
 			if pg := a.openPrompt(7, RequestPrompt{Files: 1, TotalBytes: 1}); pg == 0 {
@@ -1138,7 +1141,7 @@ func TestOpenIdleLinkHoldsNoWakeLock(t *testing.T) {
 // running drop's hold alone.
 func TestTransferReleaseDoesNotReleaseRequestHold(t *testing.T) {
 	w, _, allows := countingWake()
-	a := &App{wake: w}
+	a := &App{wake: w, notifyFn: func(string, string) {}}
 	a.lane().emitFn = func(string, any) {}
 	forceGen(a, 3)
 	a.openPrompt(3, RequestPrompt{})
@@ -1158,7 +1161,7 @@ func TestTransferReleaseDoesNotReleaseRequestHold(t *testing.T) {
 // TestPromptCarriesLaptopPowerWarning (E-27): every prompt carries the
 // generic laptop line exactly once, as a code.
 func TestPromptCarriesLaptopPowerWarning(t *testing.T) {
-	a := &App{}
+	a := &App{notifyFn: func(string, string) {}}
 	a.lane().emitFn = func(string, any) {}
 	forceGen(a, 1)
 	pg := a.openPrompt(1, RequestPrompt{Files: 2, Warnings: []string{"low-space"}})
@@ -1178,4 +1181,362 @@ func TestPromptCarriesLaptopPowerWarning(t *testing.T) {
 		t.Fatalf("warnings %q on a prompt with none of its own", got)
 	}
 	forceState(a, "off", 0)
+}
+
+// attentionRec records what the lane did to get the owner's attention.
+type attentionRec struct {
+	mu      sync.Mutex
+	titles  []string
+	flashes []bool
+	toasts  [][2]string
+}
+
+func (r *attentionRec) toast(title, body string) {
+	r.mu.Lock()
+	r.toasts = append(r.toasts, [2]string{title, body})
+	r.mu.Unlock()
+}
+
+func (r *attentionRec) snapshot() (titles []string, flashes []bool, toasts [][2]string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.titles...), append([]bool(nil), r.flashes...), append([][2]string(nil), r.toasts...)
+}
+
+func (r *attentionRec) count(title, body string) int {
+	_, _, toasts := r.snapshot()
+	n := 0
+	for _, p := range toasts {
+		if p[0] == title && p[1] == body {
+			n++
+		}
+	}
+	return n
+}
+
+// watchAttention wires a's toast, title and flash seams to a recorder, and
+// its E-40 clock to *clock.
+func watchAttention(a *App, clock *time.Time) *attentionRec {
+	r := &attentionRec{}
+	a.notifyFn = r.toast
+	l := a.lane()
+	l.mu.Lock()
+	l.setTitleFn = func(s string) { r.mu.Lock(); r.titles = append(r.titles, s); r.mu.Unlock() }
+	l.flashFn = func(on bool) { r.mu.Lock(); r.flashes = append(r.flashes, on); r.mu.Unlock() }
+	if clock != nil {
+		l.now = func() time.Time { return *clock }
+	}
+	l.mu.Unlock()
+	return r
+}
+
+// attentionApp is a bare App for the attention tests, generation 1 live.
+func attentionApp(t *testing.T, clock *time.Time) (*App, *attentionRec) {
+	t.Helper()
+	a := &App{wake: &wakeGuard{onBlock: func() {}, onAllow: func() {}}}
+	a.lane().emitFn = func(string, any) {}
+	r := watchAttention(a, clock)
+	forceGen(a, 1)
+	return a, r
+}
+
+// The three table entries, spelled out here so the test is independent of
+// the table it checks.
+var (
+	to1 = [2]string{"Floe", "Someone wants to send you files. Open Floe to answer."}
+	to2 = [2]string{"Floe", "Files received."}
+	to3 = [2]string{"Floe - receive failed", "The transfer did not complete. Open Floe to see what happened."}
+)
+
+// TestRequestToastsAreConstant (VR3-G08): whatever the visitor's names and
+// the owner's label hold, every notification the lane sends is one of the
+// three table pairs, and none of the hostile text reaches one.
+func TestRequestToastsAreConstant(t *testing.T) {
+	hostile := []string{"$(calc)]]><x", "]]><![CDATA[", "`whoami`.txt", "photo\u202egnp.exe"}
+	label := "$(calc) ]]><x `id` \u202e"
+	f := newFakeSignalServer(t)
+	a, _ := laneApp(t, f)
+	r := watchAttention(a, nil)
+
+	drop := func(end func(rg uint64)) {
+		a.MakeRequestLink(label, t.TempDir(), "24h")
+		s := waitState(t, a, 10*time.Second, "waiting")
+		if s.Label == "" {
+			t.Fatal("the label did not reach the snapshot")
+		}
+		a.openPrompt(s.Gen, RequestPrompt{Files: len(hostile), TotalBytes: 42, Folder: `Floe requests\` + sanitizeRequestLabel(label)})
+		a.acceptDrop(s.Gen)
+		end(s.Gen)
+	}
+	drop(func(rg uint64) { a.endDrop(rg, "done", "", &RequestResult{Files: 4, Saved: 4, Names: hostile}) })
+	drop(func(rg uint64) {
+		a.endDrop(rg, "stopped", "write-failed", &RequestResult{Files: 4, Saved: 1, Names: hostile[:1]})
+	})
+	drop(func(rg uint64) {
+		l := a.lane()
+		l.mu.Lock()
+		l.dropCancel = func() { a.endDrop(rg, "stopped", "stopped", nil) }
+		l.mu.Unlock()
+		a.CancelRequestDrop()
+	})
+
+	_, _, toasts := r.snapshot()
+	if len(toasts) != 5 {
+		t.Fatalf("%d notifications, want 5 (three TO1, one TO2, one TO3): %q", len(toasts), toasts)
+	}
+	for _, p := range toasts {
+		if p != to1 && p != to2 && p != to3 {
+			t.Errorf("notification %q is not in the table", p)
+		}
+		for _, h := range append(hostile, label, "calc", "CDATA", "whoami", "\u202e") {
+			if strings.Contains(p[0]+p[1], h) {
+				t.Errorf("notification %q carries %q", p, h)
+			}
+		}
+	}
+	if r.count(to1[0], to1[1]) != 3 || r.count(to2[0], to2[1]) != 1 || r.count(to3[0], to3[1]) != 1 {
+		t.Fatalf("toast counts wrong: %q", toasts)
+	}
+}
+
+// TestNoDirectNotifyInRequestLane: in requestlink.go and in runRequestDrop
+// (transfer.go, S1-DSK-03b), nothing calls notify, notifyFn,
+// notifyTransferFailed or the Wails notification except notifyRequest, whose
+// text comes from the constant table, and every notifyRequest call passes a
+// table key.
+func TestNoDirectNotifyInRequestLane(t *testing.T) {
+	keys := map[string]bool{"toastRequestArrived": true, "toastDropDone": true, "toastDropFailed": true}
+	fset := token.NewFileSet()
+	calls := 0
+	check := func(file, only string) {
+		f, err := parser.ParseFile(fset, file, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, decl := range f.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if !ok || (only != "" && fd.Name.Name != only) {
+				continue
+			}
+			if fd.Name.Name == "requestToastText" {
+				ast.Inspect(fd, func(n ast.Node) bool {
+					if ret, ok := n.(*ast.ReturnStmt); ok {
+						for _, res := range ret.Results {
+							switch v := res.(type) {
+							case *ast.BasicLit:
+							case *ast.Ident:
+								if v.Name != "true" && v.Name != "false" {
+									t.Errorf("requestToastText returns %s, not a constant", v.Name)
+								}
+							default:
+								t.Errorf("requestToastText returns a non-constant at %v", fset.Position(res.Pos()))
+							}
+						}
+					}
+					return true
+				})
+			}
+			ast.Inspect(fd, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				var name string
+				switch fn := call.Fun.(type) {
+				case *ast.SelectorExpr:
+					name = fn.Sel.Name
+				case *ast.Ident:
+					name = fn.Name
+				}
+				at := fset.Position(call.Pos())
+				switch name {
+				case "notify":
+					calls++
+					if fd.Name.Name != "notifyRequest" {
+						t.Errorf("%v: %s calls notify directly", at, fd.Name.Name)
+					}
+				case "notifyFn", "notifyTransferFailed", "SendNotification":
+					t.Errorf("%v: %s calls %s", at, fd.Name.Name, name)
+				case "notifyRequest":
+					if len(call.Args) != 2 {
+						t.Errorf("%v: notifyRequest with %d args", at, len(call.Args))
+						break
+					}
+					if id, ok := call.Args[1].(*ast.Ident); !ok || !keys[id.Name] {
+						t.Errorf("%v: notifyRequest with a key that is not a table constant", at)
+					}
+				}
+				return true
+			})
+		}
+	}
+	check("requestlink.go", "")
+	check("transfer.go", "runRequestDrop")
+	if calls != 1 {
+		t.Fatalf("%d notify calls in the lane, want exactly the one in notifyRequest", calls)
+	}
+}
+
+// TestPromptSpamSuppressesToastKeepsFlashAndTitle (E-40): after two prompts
+// end without Accept within 10 minutes, the next prompt sends no toast but
+// still flashes and sets the title, and suggests closing the link; once those
+// ends leave the window, toasts come back.
+func TestPromptSpamSuppressesToastKeepsFlashAndTitle(t *testing.T) {
+	clock := time.Unix(1_800_000_000, 0)
+	a, r := attentionApp(t, &clock)
+	for i := 0; i < 2; i++ {
+		a.openPrompt(1, RequestPrompt{})
+		a.endPrompt(1)
+		clock = clock.Add(time.Minute)
+	}
+	if r.count(to1[0], to1[1]) != 2 {
+		t.Fatal("the first two prompts did not each toast")
+	}
+	a.openPrompt(1, RequestPrompt{})
+	titles, flashes, _ := r.snapshot()
+	if r.count(to1[0], to1[1]) != 2 {
+		t.Fatal("the third prompt toasted after two unanswered ends")
+	}
+	if titles[len(titles)-1] != "(1) Floe" || !flashes[len(flashes)-1] {
+		t.Fatal("the quiet prompt lost its flash or title")
+	}
+	if !a.GetRequestLink().SuggestClose {
+		t.Fatal("suggestClose is not set")
+	}
+	a.endPrompt(1)
+	clock = clock.Add(11 * time.Minute)
+	a.openPrompt(1, RequestPrompt{})
+	if r.count(to1[0], to1[1]) != 3 || a.GetRequestLink().SuggestClose {
+		t.Fatal("the toast did not come back once the ends left the window")
+	}
+	a.endPrompt(1)
+}
+
+// TestPromptSpamResetsAfterAccept (E-40): an Accept clears the count.
+func TestPromptSpamResetsAfterAccept(t *testing.T) {
+	clock := time.Unix(1_800_000_000, 0)
+	a, _ := attentionApp(t, &clock)
+	a.openPrompt(1, RequestPrompt{})
+	a.endPrompt(1)
+	a.openPrompt(1, RequestPrompt{})
+	a.endPrompt(1)
+	a.openPrompt(1, RequestPrompt{})
+	if !a.GetRequestLink().SuggestClose {
+		t.Fatal("suggestClose is not set after two unanswered ends")
+	}
+	a.acceptDrop(1)
+	if a.GetRequestLink().SuggestClose {
+		t.Fatal("Accept did not clear suggestClose")
+	}
+	l := a.lane()
+	l.mu.Lock()
+	n := len(l.promptEnds)
+	l.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("Accept left %d prompt ends", n)
+	}
+	a.endDrop(1, "done", "", nil)
+}
+
+// TestRequestTitleSetAndRestored: "(1) Floe" exactly while a prompt waits,
+// "Floe" again after every way a prompt ends.
+func TestRequestTitleSetAndRestored(t *testing.T) {
+	ends := map[string]func(a *App){
+		"accept":       func(a *App) { a.acceptDrop(1) },
+		"decline":      func(a *App) { a.endPrompt(1) },
+		"timeout":      func(a *App) { a.endPrompt(1) },
+		"visitor-left": func(a *App) { a.endPrompt(1) },
+		"close-link":   func(a *App) { a.CloseRequestLink() },
+		"quit":         func(a *App) { a.lane().closeForQuit() },
+	}
+	for name, end := range ends {
+		t.Run(name, func(t *testing.T) {
+			a, r := attentionApp(t, nil)
+			a.notifyFn = func(string, string) {}
+			a.openPrompt(1, RequestPrompt{})
+			end(a)
+			titles, _, _ := r.snapshot()
+			if strings.Join(titles, "|") != "(1) Floe|Floe" {
+				t.Fatalf("titles %q, want (1) Floe then Floe", titles)
+			}
+			end(a) // a second end changes nothing
+			if titles2, _, _ := r.snapshot(); len(titles2) != 2 {
+				t.Fatalf("titles after a second end %q", titles2)
+			}
+		})
+	}
+}
+
+// TestRequestFlashStartsOnPromptStopsOnAnswer: the flash is on exactly while
+// a prompt waits.
+func TestRequestFlashStartsOnPromptStopsOnAnswer(t *testing.T) {
+	a, r := attentionApp(t, nil)
+	a.notifyFn = func(string, string) {}
+	a.openPrompt(1, RequestPrompt{})
+	if _, flashes, _ := r.snapshot(); len(flashes) != 1 || !flashes[0] {
+		t.Fatalf("flashes after the prompt %v", flashes)
+	}
+	a.acceptDrop(1)
+	if _, flashes, _ := r.snapshot(); len(flashes) != 2 || flashes[1] {
+		t.Fatalf("flashes after Accept %v", flashes)
+	}
+	a.endDrop(1, "done", "", nil)
+	if _, flashes, _ := r.snapshot(); len(flashes) != 2 {
+		t.Fatalf("the drop's end flashed again: %v", flashes)
+	}
+}
+
+// TestOwnerCancelSendsNoFailureToast: the owner's own Cancel drop is not a
+// failure; a stop the owner did not cause sends TO3 once.
+func TestOwnerCancelSendsNoFailureToast(t *testing.T) {
+	a, r := attentionApp(t, nil)
+	a.openPrompt(1, RequestPrompt{})
+	a.acceptDrop(1)
+	l := a.lane()
+	l.mu.Lock()
+	l.dropCancel = func() { a.endDrop(1, "stopped", "stopped", nil) }
+	l.mu.Unlock()
+	a.CancelRequestDrop()
+	if r.count(to3[0], to3[1]) != 0 {
+		t.Fatal("the owner's Cancel drop sent the failure toast")
+	}
+	forceGen(a, 2)
+	a.openPrompt(2, RequestPrompt{})
+	a.acceptDrop(2)
+	a.endDrop(2, "stopped", "peer-abort", nil)
+	if r.count(to3[0], to3[1]) != 1 {
+		t.Fatal("a stop the owner did not cause sent no failure toast")
+	}
+}
+
+// TestEndedLinkLetsGoOfItsSocket: when a link ends from outside the lane
+// goroutine (a drop's end), the goroutine wakes, sends request-close for the
+// used-up link and closes its socket, instead of holding both until the
+// link's old end time; a new link then starts clean.
+func TestEndedLinkLetsGoOfItsSocket(t *testing.T) {
+	f := newFakeSignalServer(t)
+	a, _ := laneApp(t, f)
+	s := makeWaiting(t, a)
+	a.openPrompt(s.Gen, RequestPrompt{})
+	a.acceptDrop(s.Gen)
+	a.endDrop(s.Gen, "done", "", nil)
+	done := make(chan struct{})
+	go func() { a.lane().wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the lane goroutine kept waiting after its link ended")
+	}
+	if f.count("request-close") != 1 {
+		t.Fatalf("request-close sent %d times, want 1", f.count("request-close"))
+	}
+	waitFor(t, 5*time.Second, "the socket to close", func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.closedCnt == 1
+	})
+	if _, _, sc := laneHandles(a); sc != nil {
+		t.Fatal("the lane kept the ended link's socket")
+	}
+	makeWaiting(t, a)
 }

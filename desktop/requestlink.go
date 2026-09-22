@@ -186,6 +186,12 @@ type requestLane struct {
 	prompt         *RequestPrompt
 	result         *RequestResult
 	dropCancel     func() // set while a drop runs (S1-DSK-03b)
+	ownerStop      bool   // the owner's own Cancel drop ended it: no failure toast
+
+	// Attention (S1-DSK-05): whether the flash and the "(1) Floe" title are
+	// on, and when prompts on this link ended without Accept (E-40).
+	attention  bool
+	promptEnds []time.Time
 
 	stop  chan struct{} // closed when this link's generation ends
 	retry chan struct{} // buffered 1; Retry now
@@ -211,6 +217,9 @@ type requestLane struct {
 	// before any goroutine starts.
 	emitFn       func(event string, data any)
 	closeFrameFn func(sc *signaling.Client) error // the request-close write
+	setTitleFn   func(title string)               // nil: runtime.WindowSetTitle
+	flashFn      func(on bool)                    // nil: flashTaskbar / stopFlash
+	now          func() time.Time                 // the E-40 clock
 	supportFn    func(server string) FeatureResult
 	relayFn      func(server string) (hasRelay, degraded bool, err error)
 	lifetimeFn   func(lifetime string) (time.Duration, bool)
@@ -227,6 +236,7 @@ func newRequestLane(a *App) *requestLane {
 	l := &requestLane{
 		app:          a,
 		closeFrameFn: (*signaling.Client).RequestClose,
+		now:          time.Now,
 		decision:     make(chan reqAnswer, 1),
 		supportFn:    requestLinkSupport,
 		relayFn:      fetchRelay,
@@ -300,6 +310,17 @@ func (l *requestLane) endLocked(state, code string) {
 	l.hostToken, l.roomID, l.linkID, l.link = "", "", "", ""
 	l.prompt = nil
 	l.reconnectUntil = time.Time{}
+	// A link that ended needs no goroutine: wake it, so it lets go of its
+	// socket instead of waiting on it until the link's old end time.
+	l.stopLocked()
+}
+
+// stopLocked closes the current link's stop channel once.
+func (l *requestLane) stopLocked() {
+	if l.stop != nil {
+		close(l.stop)
+		l.stop = nil
+	}
 }
 
 // detachLocked ends the owning generation (bump and cancel), wakes its
@@ -307,10 +328,7 @@ func (l *requestLane) endLocked(state, code string) {
 func (l *requestLane) detachLocked() (sc *signaling.Client, conn closer) {
 	l.gen++
 	l.cancelled = true
-	if l.stop != nil {
-		close(l.stop)
-		l.stop = nil
-	}
+	l.stopLocked()
 	sc, conn = l.sc, l.conn
 	l.sc, l.conn = nil, nil
 	l.dropCancel = nil
@@ -605,6 +623,7 @@ func (a *App) MakeRequestLink(label string, saveDir string, lifetime string) Req
 	l.endLocked("", "")
 	l.expiresAt = time.Time{}
 	l.route, l.result, l.missedAt, l.suggestClose = "", nil, time.Time{}, false
+	l.promptEnds, l.ownerStop = nil, false
 	l.label = displayLabel(label)
 	l.saveDir = strings.TrimSpace(saveDir)
 	if l.saveDir == "" {
@@ -731,6 +750,7 @@ func (a *App) runRequestLink(rg uint64, stop <-chan struct{}, hideIP bool, lifet
 	for {
 		switch a.waitRequest(rg, stop, sc, expiresAt) {
 		case waitEnded:
+			a.finishRequestSocket(sc)
 			return
 		case waitDown:
 			a.clearRequestSignaling(rg, sc)
@@ -816,6 +836,29 @@ func (a *App) waitRequest(rg uint64, stop <-chan struct{}, sc *signaling.Client,
 			// Down, which the Down case decides on.
 		}
 	}
+}
+
+// finishRequestSocket lets go of the lane goroutine's socket when its link
+// has ended. A socket still registered with the lane is the goroutine's to
+// end: request-close best effort (a used-up or ended link frees its
+// reservation now), then closed. One that Close link or a quit already took
+// is theirs; closing it again here is harmless.
+func (a *App) finishRequestSocket(sc *signaling.Client) {
+	if sc == nil {
+		return
+	}
+	l := a.lane()
+	l.mu.Lock()
+	owned := l.sc == sc
+	if owned {
+		l.sc = nil
+	}
+	wait, closeFrame := l.closeWait, l.closeFrameFn
+	l.mu.Unlock()
+	if owned {
+		sendCloseWithin(sc, closeFrame, wait)
+	}
+	sc.Close()
 }
 
 // requestWaiting reports whether rg's lane still has a link that waits for a
@@ -968,6 +1011,7 @@ func (a *App) CloseRequestLink() {
 	l.endLocked("ended", "closed")
 	wait, closeFrame := l.closeWait, l.closeFrameFn
 	l.mu.Unlock()
+	a.attentionOff()
 	a.emitCurrent()
 	requestTeardown(sc, conn, wait, closeFrame)
 }
@@ -1017,6 +1061,7 @@ func (l *requestLane) closeForQuit() {
 	l.mu.Unlock()
 	if app != nil {
 		app.requestWakeRelease(old)
+		app.attentionOff()
 	}
 	if conn != nil {
 		conn.Close()
@@ -1048,6 +1093,7 @@ func withLaptopPower(warnings []string) []string {
 // it can never answer this prompt.
 func (a *App) openPrompt(rg uint64, p RequestPrompt) uint64 {
 	var pg uint64
+	var quiet bool
 	if !a.reqUpdate(rg, func(l *requestLane) {
 		select {
 		case <-l.decision:
@@ -1058,22 +1104,43 @@ func (a *App) openPrompt(rg uint64, p RequestPrompt) uint64 {
 		p.Warnings = withLaptopPower(p.Warnings)
 		l.prompt = &p
 		l.setStateLocked("deciding", "")
+		quiet = l.pruneEndsLocked()
+		l.suggestClose = quiet
 	}) {
 		return 0
 	}
+	a.onPrompt(rg, quiet)
 	return pg
+}
+
+// endPrompt is the end of a prompt that was not accepted: declined, timed
+// out, or the visitor left while the owner decided. The flash stops, the title
+// is Floe again, and the end is counted for E-40.
+func (a *App) endPrompt(rg uint64) {
+	l := a.lane()
+	l.mu.Lock()
+	if rg == l.gen {
+		l.promptEnds = append(l.promptEnds, l.now())
+		l.pruneEndsLocked()
+	}
+	l.mu.Unlock()
+	a.attentionOff()
 }
 
 // acceptDrop is Accept's lane half, run by the Decide callback once the
 // exclusive subfolder exists: receiving, and the wake hold for
-// ("request", rg). False when rg no longer owns the lane (nothing held).
+// ("request", rg). False when rg no longer owns the lane (nothing held). An
+// Accept ends the prompt's attention and resets the E-40 count.
 func (a *App) acceptDrop(rg uint64) bool {
 	if !a.reqUpdate(rg, func(l *requestLane) {
 		l.prompt = nil
+		l.promptEnds = nil
+		l.suggestClose = false
 		l.setStateLocked("receiving", "")
 	}) {
 		return false
 	}
+	a.attentionOff()
 	a.requestWakeAcquire(rg)
 	return true
 }
@@ -1082,14 +1149,156 @@ func (a *App) acceptDrop(rg uint64) bool {
 // (the engine's, the owner's Cancel drop, a visitor leave, the time limit),
 // with the result, and the wake hold released. The release is not gated on
 // rg still owning the lane: a quit that moved the generation on must not
-// leave the PC held awake.
+// leave the PC held awake. Done sends TO2; a stop the owner did not cause
+// sends TO3; the owner's own Cancel drop sends nothing.
 func (a *App) endDrop(rg uint64, state, code string, res *RequestResult) {
 	a.requestWakeRelease(rg)
-	a.reqUpdate(rg, func(l *requestLane) {
+	var ownerStop bool
+	if !a.reqUpdate(rg, func(l *requestLane) {
+		ownerStop = l.ownerStop
+		l.ownerStop = false
 		l.result = res
 		l.dropCancel = nil
 		l.endLocked(state, code)
-	})
+	}) {
+		return
+	}
+	switch {
+	case state == "done":
+		a.notifyRequest(rg, toastDropDone)
+	case state == "stopped" && !ownerStop:
+		a.notifyRequest(rg, toastDropFailed)
+	}
+}
+
+// requestSpamWindow is E-40's window: two prompts ending without Accept
+// within it silence the toast for the next ones.
+const requestSpamWindow = 10 * time.Minute
+
+// pruneEndsLocked drops prompt ends older than the E-40 window and reports
+// whether two or more remain: then the toast stays quiet and the snapshot
+// suggests closing the link (the flash and the title still fire).
+func (l *requestLane) pruneEndsLocked() bool {
+	cut := l.now().Add(-requestSpamWindow)
+	kept := l.promptEnds[:0]
+	for _, t := range l.promptEnds {
+		if t.After(cut) {
+			kept = append(kept, t)
+		}
+	}
+	l.promptEnds = kept
+	return len(kept) >= 2
+}
+
+// requestToast names one of the three fixed notifications the lane may send.
+// Nothing else can reach a Windows toast from this lane: go-toast falls back
+// to a PowerShell script on any COM error, where a visitor string could run
+// a command (spec 05 section 10, L14), so the text is a closed set of
+// constants and never the label, a name, a count or engine text.
+type requestToast int
+
+const (
+	toastRequestArrived requestToast = iota + 1 // TO1
+	toastDropDone                               // TO2
+	toastDropFailed                             // TO3
+)
+
+// requestToastText is the constant table (approved copy TO1 to TO3). An
+// unknown key has no text and sends nothing.
+func requestToastText(t requestToast) (title, body string, ok bool) {
+	switch t {
+	case toastRequestArrived:
+		return "Floe", "Someone wants to send you files. Open Floe to answer.", true
+	case toastDropDone:
+		return "Floe", "Files received.", true
+	case toastDropFailed:
+		return "Floe - receive failed", "The transfer did not complete. Open Floe to see what happened.", true
+	}
+	return "", "", false
+}
+
+// notifyRequest is the lane's only way to a notification: a table key, gated
+// on rg still owning the lane. TestNoDirectNotifyInRequestLane keeps it so.
+func (a *App) notifyRequest(rg uint64, t requestToast) {
+	title, body, ok := requestToastText(t)
+	if !ok || !a.requestActive(rg) {
+		return
+	}
+	a.notify(title, body)
+}
+
+// Window titles: "(1) Floe" while a prompt waits, "Floe" otherwise (T1). The
+// frameless window draws its own lockup, so this is what the taskbar button
+// and Alt+Tab show.
+const (
+	titlePrompt = "(1) Floe"
+	titleIdle   = "Floe"
+)
+
+// setTitle sets the window title through the seam, or the Wails runtime when
+// the app has a window.
+func (a *App) setTitle(title string) {
+	l := a.lane()
+	if l.setTitleFn != nil {
+		l.setTitleFn(title)
+		return
+	}
+	a.mu.Lock()
+	ctx := a.ctx
+	a.mu.Unlock()
+	if ctx != nil {
+		runtime.WindowSetTitle(ctx, title)
+	}
+}
+
+// flash turns the taskbar flash on or off through the seam.
+func (a *App) flash(on bool) {
+	l := a.lane()
+	if l.flashFn != nil {
+		l.flashFn(on)
+		return
+	}
+	if on {
+		flashTaskbar()
+	} else {
+		stopFlash()
+	}
+}
+
+// onPrompt gets the owner's attention for a new prompt: the flash, the
+// "(1) Floe" title, and TO1 unless E-40 has quieted the toast. No visitor
+// value is passed to any of them.
+func (a *App) onPrompt(rg uint64, quiet bool) {
+	l := a.lane()
+	l.mu.Lock()
+	active := rg == l.gen && !l.cancelled
+	if active {
+		l.attention = true
+	}
+	l.mu.Unlock()
+	if !active {
+		return
+	}
+	a.flash(true)
+	a.setTitle(titlePrompt)
+	if !quiet {
+		a.notifyRequest(rg, toastRequestArrived)
+	}
+}
+
+// attentionOff stops the flash and restores the title, once, whatever ended
+// the prompt: an answer, a timeout, a visitor leave, Close link or quit.
+func (a *App) attentionOff() {
+	l := a.lane()
+	l.mu.Lock()
+	on := l.attention
+	l.attention = false
+	l.mu.Unlock()
+	if !on {
+		return
+	}
+	a.flash(false)
+	a.setTitle(titleIdle)
 }
 
 // AnswerRequest answers the prompt promptGen (spec 06 4.3). A stale promptGen
@@ -1136,6 +1345,9 @@ func (a *App) CancelRequestDrop() {
 	l.mu.Lock()
 	cancel := l.dropCancel
 	receiving := l.state == "receiving"
+	if receiving && cancel != nil {
+		l.ownerStop = true // the owner's own stop is not a failure: no TO3
+	}
 	l.mu.Unlock()
 	if receiving && cancel != nil {
 		cancel()
