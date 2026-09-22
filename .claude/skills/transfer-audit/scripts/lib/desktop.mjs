@@ -33,6 +33,14 @@
 //   wailsdev  Playwright page on http://localhost:34115; the thinnest lane,
 //             kept for the HEAD receiver when UIA cannot drive the input.
 //
+// HEAD builds: buildHead() turns lib/release.mjs headDesktopCommands()'s
+// plan into the build audit.mjs drives. The wailsdev lane runs no build step
+// and only requires the operator's dev server to answer, so it returns no
+// exe path (P7 reads n/a); the portable lane runs npm run build then wails
+// build and requires the exe's mtime to advance, because `wails build` can
+// exit 0 on a silent failure. Neither lane writes outside the plan's build
+// dirs, which go through the fence before the first step runs.
+//
 // Presence: PRESENT (default) uses provider-side UIA only. The two actions
 // that activate a window, WM_COPYDATA staging (desktop/app.go
 // onSecondInstanceLaunch calls WindowUnminimise and WindowShow) and any
@@ -71,6 +79,7 @@ import {
 } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { sha256OfFile } from './fixtures.mjs';
 import { registerPid } from './proc.mjs';
 import { Leg, PhaseError, SafetyError, sleep } from './surfaces.mjs';
 import { defaultExec } from './versions.mjs';
@@ -2406,6 +2415,122 @@ export async function preflight(opts = {}) {
     if (!exe || !existsSync(exe))
         return { ok: false, reason: 'desktop-exe-missing', detail };
     return { ok: true, reason: null, detail };
+}
+
+// ------------------------------------------------------------ head build
+
+/** The launch modes buildHead can produce a build for by running steps. */
+const HEAD_BUILD_MODES = Object.freeze(['portable', 'head', 'auto']);
+
+function mtimeOf(file) {
+    try {
+        return statSync(file).mtimeMs;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * The HEAD desktop build for one launch lane, from lib/release.mjs
+ * headDesktopCommands()'s plan ({ version, steps, exe, writes }) plus the
+ * run's mode, fence, log and exec. Returns
+ * { path, sha256, version, launch, builtAt } for audit.mjs's builds.desktop.
+ *
+ *   wailsdev  runs NO build step. The operator already has `wails dev`
+ *             serving the app under their own isolated APPDATA, and the
+ *             audit never starts it, so the only precondition is that the
+ *             dev server answers. The lane has no exe on disk, so path and
+ *             sha256 come back null and P7 reads n/a.
+ *   portable  runs the plan's steps in order: npm run build in
+ *   head      desktop/frontend first (desktop/main.go embeds frontend/dist
+ *   auto      and that directory is gitignored), then wails build with
+ *             shell false so the -ldflags value stays one argv element.
+ *             `wails build` can exit 0 on a silent failure (CLAUDE.md), so
+ *             the exe's mtime is read before the wails step and has to have
+ *             advanced after it.
+ *
+ * Refuses any other mode, `store` included: the Store build is shipped, not
+ * built here. Writes nothing itself and deletes nothing. Every byte lands
+ * under the plan's `writes`, and each of those goes through the fence before
+ * the first step runs, so a plan naming the real %APPDATA%\floe is a
+ * SafetyError rather than a write (lib/fence.mjs refuses that tree, its
+ * WebView2 profile and desktop.json ahead of the allowlist, so allowDir
+ * cannot open it).
+ */
+export async function buildHead({
+    version = null,
+    steps = [],
+    exe = null,
+    writes = [],
+    mode = 'portable',
+    fence = null,
+    log = () => {},
+    exec = defaultExec,
+    head = httpHead,
+} = {}) {
+    if (mode === 'wailsdev') {
+        const status = await head(WAILSDEV_URL);
+        if (!status)
+            throw new PreconditionError(
+                `desktop wailsdev: nothing answers ${WAILSDEV_URL}. The operator starts this lane: npm run build in desktop/frontend, then wails dev in desktop/ with APPDATA redirected away from the real %APPDATA%\\floe.`,
+                { reason: 'wailsdev-down' }
+            );
+        log(
+            `desktop: wailsdev ${version} answers at ${WAILSDEV_URL} (status ${status}); no build step, no exe on disk`
+        );
+        return {
+            path: null,
+            sha256: null,
+            version,
+            launch: 'wailsdev',
+            served: WAILSDEV_URL,
+            builtAt: null,
+        };
+    }
+    if (!HEAD_BUILD_MODES.includes(mode))
+        throw new PreconditionError(
+            `desktop buildHead: ${mode} is not a head desktop lane (expected wailsdev or one of ${HEAD_BUILD_MODES.join(', ')})`,
+            { reason: 'head-desktop-mode' }
+        );
+    if (!exe)
+        throw new PreconditionError(
+            'desktop buildHead: the build plan carries no exe path',
+            { reason: 'head-desktop-plan' }
+        );
+    if (!fence)
+        throw new PreconditionError(
+            'desktop buildHead: a write fence is required before any build step runs',
+            { reason: 'head-desktop-fence' }
+        );
+    for (const w of writes) fence.allowDir(w);
+    for (const w of writes) fence.assertWritable(w);
+    fence.assertWritable(exe);
+    const before = mtimeOf(exe);
+    for (const step of steps) {
+        log(
+            `desktop: head build ${step.cmd} ${step.args.join(' ')} (cwd ${step.cwd})`
+        );
+        await exec(step.cmd, step.args, {
+            cwd: step.cwd,
+            shell: Boolean(step.shell),
+            timeout: step.timeoutMs,
+        });
+    }
+    const after = mtimeOf(exe);
+    if (after === null || (before !== null && after <= before))
+        throw new PreconditionError(
+            `wails build produced no new ${exe} (it can exit 0 on a silent failure, so the exe's mtime has to advance)`,
+            { reason: 'head-desktop-build' }
+        );
+    const sha256Hex = await sha256OfFile(exe);
+    log(`desktop: head build ${version} -> ${exe}`);
+    return {
+        path: exe,
+        sha256: sha256Hex,
+        version,
+        launch: 'portable',
+        builtAt: new Date(after).toISOString(),
+    };
 }
 
 // ---------------------------------------------------------------- probes

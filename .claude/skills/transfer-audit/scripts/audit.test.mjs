@@ -1446,3 +1446,229 @@ test('purgeRunData removes the transferred bytes and keeps the audit', () => {
         { p: true, f: 0 }
     );
 });
+
+// ------------------------------------------------- the head desktop lane
+
+// A head run really resolves its builds (no io.builds), so audit.mjs's head
+// block calls desktop.buildHead. --cells keeps it to the two desktop direct
+// cells, which is what CP-0 skipped.
+const headResponse = (body) =>
+    new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+    });
+
+function headIo(world, extra = {}) {
+    const adapters = makeFakeAdapters(world);
+    const stdout = [];
+    const stderr = [];
+    return {
+        stdout: (s) => stdout.push(s),
+        stderr: (s) => stderr.push(s),
+        lines: stdout,
+        errors: stderr,
+        adapters,
+        getAdapter: async (name) => adapters[name],
+        tryAdapter: async (name) => adapters[name] ?? null,
+        exec: (cmd, args = []) => {
+            if (cmd === 'git' && args[0] === 'worktree')
+                return `worktree ${root}\n`;
+            // buildHeadCli checks the exe it asked go to write.
+            if (cmd === 'go' && args[0] === 'build') {
+                const o = args[args.indexOf('-o') + 1];
+                mkdirSync(path.dirname(o), { recursive: true });
+                writeFileSync(o, 'MZ fake head cli');
+                return '';
+            }
+            if (cmd === 'go') return 'go version go1.25 windows/amd64';
+            return '';
+        },
+        sha7: 'abc1234',
+        versions: VERSIONS(),
+        infra: {
+            name: 'local',
+            server: 'http://localhost:3001',
+            web: 'http://localhost:3000',
+            servesTurn: true,
+            relaxed: true,
+            statsOracle: 'none',
+        },
+        infraRows: [{ check: 'local /health', ok: true, detail: 'healthy' }],
+        fetchImpl: async (url) =>
+            String(url).includes('/api/turn-credentials')
+                ? headResponse({
+                      iceServers: [
+                          { urls: ['stun:x:3478'] },
+                          {
+                              urls: ['turn:x:3478', 'turns:x:5349'],
+                              username: 'u',
+                              credential: 'c',
+                          },
+                      ],
+                  })
+                : new Response('ok', { status: 200 }),
+        sleep: async () => {},
+        retryWaitMs: 0,
+        drainWaitMs: 0,
+        noSignals: true,
+        appData: path.join(base, 'appdata'),
+        defaultRoot: root,
+        ...extra,
+    };
+}
+
+const headRunDir = (outDir) =>
+    path.join(
+        outDir,
+        readdirSync(outDir).find((d) => /-head-/.test(d))
+    );
+const headArgs = (outDir) => [
+    'run',
+    '--profile',
+    'head',
+    '--desktop',
+    'wailsdev',
+    '--cells',
+    'H-DIR-D2C,H-DIR-C2D',
+    '--relaxed',
+    '--root',
+    root,
+    '--out',
+    outDir,
+];
+
+test('head profile --desktop wailsdev calls desktop.buildHead and gates no desktop cell as desktop-unavailable', async () => {
+    const world = fakeWorld();
+    const i = headIo(world);
+    const outDir = out('head-wailsdev');
+    const code = await main(headArgs(outDir), { ...i, cellHook: shrink });
+    assert.equal(code, 0, i.lines.concat(i.errors).join('\n'));
+
+    const built = world.calls.filter((c) => 'buildHead' in c);
+    assert.equal(built.length, 1, 'the head build ran exactly once');
+    assert.equal(built[0].buildHead, 'wailsdev');
+
+    const runDir = headRunDir(outDir);
+    const json = JSON.parse(
+        readFileSync(path.join(runDir, 'run.json'), 'utf8')
+    );
+    const byId = Object.fromEntries(json.cells.map((c) => [c.id, c]));
+    for (const id of ['H-DIR-D2C', 'H-DIR-C2D'])
+        assert.equal(
+            byId[id].verdict,
+            'PASS',
+            `${id} ${byId[id].verdict} ${byId[id].reason ?? ''}`
+        );
+    assert.equal(
+        json.cells.filter((c) =>
+            ['desktop-unavailable', 'head-desktop-pending'].includes(c.reason)
+        ).length,
+        0,
+        'no cell is gated on a missing head desktop build'
+    );
+    const log = readFileSync(path.join(runDir, 'log.txt'), 'utf8');
+    assert.ok(
+        !log.includes('HEAD desktop build pending'),
+        'the pending branch is not taken when the adapter can build'
+    );
+    // The wailsdev lane has no exe, so P7 has nothing to probe.
+    const probe = JSON.parse(
+        readFileSync(path.join(outDir, 'probe.json'), 'utf8')
+    );
+    assert.match(probe.motw.detail, /^n\/a/);
+});
+
+test('a desktop adapter without buildHead still logs the pending line and skips desktop cells', async () => {
+    const world = fakeWorld();
+    const i = headIo(world);
+    delete i.adapters.desktop.buildHead;
+    const outDir = out('head-pending');
+    const code = await main(headArgs(outDir), { ...i, cellHook: shrink });
+    assert.equal(code, 5, i.lines.concat(i.errors).join('\n'));
+
+    assert.deepEqual(
+        world.calls.filter((c) => 'buildHead' in c),
+        []
+    );
+    const runDir = headRunDir(outDir);
+    const log = readFileSync(path.join(runDir, 'log.txt'), 'utf8');
+    assert.ok(
+        log.includes(
+            'desktop: HEAD desktop build pending (desktop adapter has no buildHead)'
+        ),
+        log
+    );
+    const json = JSON.parse(
+        readFileSync(path.join(runDir, 'run.json'), 'utf8')
+    );
+    const byId = Object.fromEntries(json.cells.map((c) => [c.id, c]));
+    // matrix.mjs gateCell tries available before headBuild, and audit.mjs
+    // sets both in one literal, so the reason is desktop-unavailable and
+    // head-desktop-pending is shadowed (CP-0 recorded exactly this).
+    for (const id of ['H-DIR-D2C', 'H-DIR-C2D'])
+        assert.deepEqual(
+            [byId[id].verdict, byId[id].reason],
+            ['SKIP', 'desktop-unavailable'],
+            id
+        );
+});
+
+test('a wailsdev build with no exe path leaves P7 at n/a instead of probing a missing file', async () => {
+    const world = fakeWorld();
+    // A release exe staged under --bin-dir is a different build: the
+    // wailsdev lane must not adopt it for P2 or P7.
+    const binDir = out('head-bin');
+    mkdirSync(path.join(binDir, 'floe-desktop-3.4.5'), { recursive: true });
+    writeFileSync(
+        path.join(binDir, 'floe-desktop-3.4.5', 'floe-desktop.exe'),
+        'MZ staged release exe'
+    );
+    const i = headIo(world, {
+        builds: {
+            cli: null,
+            desktop: {
+                kind: 'head',
+                launch: 'wailsdev',
+                version: 'head-abc1234',
+                path: null,
+                isPackaged: false,
+                sha256: null,
+            },
+            web: null,
+            wsl: null,
+        },
+    });
+    const outDir = out('head-probe');
+    const code = await main(
+        [
+            'probe',
+            '--profile',
+            'head',
+            '--desktop',
+            'wailsdev',
+            '--root',
+            root,
+            '--bin-dir',
+            binDir,
+            '--out',
+            outDir,
+        ],
+        i
+    );
+    assert.equal(code, 0, i.lines.concat(i.errors).join('\n'));
+    const probe = JSON.parse(
+        readFileSync(path.join(outDir, 'probe.json'), 'utf8')
+    );
+    assert.equal(
+        probe.desktop.portableExe,
+        null,
+        'the staged 3.4.5 exe is not the build under test'
+    );
+    assert.equal(probe.motw.marked, null);
+    assert.match(probe.motw.detail, /^n\/a \(wailsdev lane/);
+    const p7 = i.lines.find((l) => l.startsWith('probe P7 MOTW:'));
+    assert.ok(
+        !p7.includes('floe-desktop.exe'),
+        `P7 names no exe on this lane: ${p7}`
+    );
+});

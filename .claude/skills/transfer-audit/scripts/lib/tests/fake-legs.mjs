@@ -880,10 +880,32 @@ export function makeFakeAdapters(world = fakeWorld()) {
         statsTotal: async () => 0,
     };
     // The desktop adapter also answers the probe subcommand: storePackage
-    // and the aggregate shape audit.mjs prints and matrix.mjs gates on.
+    // and the aggregate shape audit.mjs prints and matrix.mjs gates on, plus
+    // buildHead on the head profile. The wailsdev lane returns no exe path,
+    // the way lib/desktop.mjs buildHead does, so the fake exercises the null
+    // path P7 has to tolerate.
     const desktop = {
         ...surface('desktop'),
         storePackage: async () => ({ present: false }),
+        buildHead: async (o = {}) => {
+            world.calls.push({ buildHead: o.mode ?? null, exe: o.exe ?? null });
+            return o.mode === 'wailsdev'
+                ? {
+                      path: null,
+                      sha256: null,
+                      version: o.version ?? null,
+                      launch: 'wailsdev',
+                      served: 'http://localhost:34115',
+                      builtAt: null,
+                  }
+                : {
+                      path: o.exe ?? null,
+                      sha256: 'd'.repeat(64),
+                      version: o.version ?? null,
+                      launch: 'portable',
+                      builtAt: new Date(0).toISOString(),
+                  };
+        },
         probe: async (o = {}) => ({
             available: true,
             receiverDrivable: true,

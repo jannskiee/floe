@@ -13,7 +13,9 @@ import {
     mkdirSync,
     mkdtempSync,
     readFileSync,
+    readdirSync,
     rmSync,
+    utimesSync,
     writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -22,6 +24,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { createFence } from './fence.mjs';
 import { started } from './proc.mjs';
+import { headDesktopCommands } from './release.mjs';
 import { PhaseError, SafetyError, sleep } from './surfaces.mjs';
 import {
     AUMID,
@@ -41,10 +44,12 @@ import {
     STRINGS,
     ShellMenuGuard,
     USER_AWAY_IDLE_S,
+    WAILSDEV_URL,
     WINDOWS_APPS,
     activeGuards,
     activeLegs,
     aggregateProbes,
+    buildHead,
     classifyStatus,
     createLeg,
     defaultConfigPath,
@@ -2114,4 +2119,252 @@ test('awaitConnected accepts a completion that landed between two polls (fast tr
     );
     assert.equal((await s.leg.awaitDone(2000)).ok, true);
     await s.leg.stop('test');
+});
+
+// ----------------------------------------------------------- head builds
+
+test('buildHead wailsdev: runs no build step, needs the dev server to answer, and returns a build with no exe path', async () => {
+    const dir = tmp();
+    const plan = headDesktopCommands({
+        root: path.join(dir, 'repo'),
+        sha7: 'abc1234',
+        wails: 'C:\\go\\bin\\wails.exe',
+    });
+    const execCalls = [];
+    const exec = (cmd, args) => {
+        execCalls.push([cmd, ...args]);
+        return '';
+    };
+    const probed = [];
+    const up = await buildHead({
+        ...plan,
+        mode: 'wailsdev',
+        fence: null,
+        exec,
+        head: async (url) => {
+            probed.push(url);
+            return 200;
+        },
+    });
+    assert.deepEqual(execCalls, [], 'the wailsdev lane runs no build step');
+    assert.deepEqual(probed, [WAILSDEV_URL]);
+    assert.equal(up.path, null, 'no exe on disk, so P7 has nothing to probe');
+    assert.equal(up.sha256, null);
+    assert.equal(up.launch, 'wailsdev');
+    assert.equal(up.served, WAILSDEV_URL);
+    assert.equal(up.version, 'head-abc1234');
+
+    // Nothing answering 34115 is a machine precondition, not a verdict.
+    let thrown = null;
+    try {
+        await buildHead({
+            ...plan,
+            mode: 'wailsdev',
+            exec,
+            head: async () => 0,
+        });
+    } catch (e) {
+        thrown = e;
+    }
+    assert.ok(thrown instanceof PreconditionError);
+    assert.equal(thrown.reason, 'wailsdev-down');
+    assert.equal(thrown.exitCode, 3);
+    assert.match(thrown.message, /wails dev/);
+    assert.deepEqual(execCalls, [], 'still no build step on the down path');
+    rmSync(dir, { recursive: true, force: true });
+});
+
+test('buildHead portable: runs npm run build then wails build through exec with no shell for wails, requires the exe mtime to advance, and returns its sha256', async () => {
+    const dir = tmp();
+    const root = path.join(dir, 'repo');
+    const plan = headDesktopCommands({
+        root,
+        sha7: 'abc1234',
+        wails: 'C:\\go\\bin\\wails.exe',
+    });
+    for (const w of plan.writes) mkdirSync(w, { recursive: true });
+    writeFileSync(plan.exe, 'MZ stale build');
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(plan.exe, old, old);
+    const fence = {
+        allowed: [],
+        asserted: [],
+        allowDir(d) {
+            this.allowed.push(d);
+        },
+        assertWritable(p) {
+            this.asserted.push(p);
+            return p;
+        },
+    };
+    const calls = [];
+    const exec = (cmd, args, o = {}) => {
+        calls.push({
+            cmd,
+            args,
+            cwd: o.cwd,
+            shell: o.shell,
+            timeout: o.timeout,
+        });
+        if (cmd === plan.steps[1].cmd)
+            writeFileSync(plan.exe, 'MZ fresh head desktop build');
+        return '';
+    };
+    const built = await buildHead({ ...plan, mode: 'portable', fence, exec });
+
+    assert.equal(calls.length, 2, 'both steps, in order');
+    assert.deepEqual(calls[0].args, ['run', 'build']);
+    assert.equal(calls[0].cwd, path.join(root, 'desktop', 'frontend'));
+    assert.equal(
+        calls[0].shell,
+        process.platform === 'win32',
+        'the npm step keeps the plan shell flag'
+    );
+    assert.equal(calls[1].cmd, 'C:\\go\\bin\\wails.exe');
+    assert.equal(calls[1].cwd, path.join(root, 'desktop'));
+    assert.equal(calls[1].shell, false, 'no shell for wails');
+    const ld = calls[1].args.indexOf('-ldflags');
+    assert.ok(ld > -1);
+    assert.equal(
+        calls[1].args[ld + 1],
+        '-X main.version=head-abc1234',
+        'the ldflags value is one argv element, so no shell quoting'
+    );
+    assert.equal(calls[1].timeout, plan.steps[1].timeoutMs);
+    assert.deepEqual(
+        fence.allowed,
+        plan.writes,
+        'every build dir is registered with the fence before any step runs'
+    );
+    assert.deepEqual(fence.asserted, [...plan.writes, plan.exe]);
+
+    assert.equal(built.path, plan.exe);
+    assert.equal(built.launch, 'portable');
+    assert.equal(built.version, 'head-abc1234');
+    assert.equal(built.sha256, sha256(readFileSync(plan.exe)));
+    assert.ok(built.builtAt > old.toISOString());
+
+    // wails build can exit 0 on a silent failure, so a run that leaves the
+    // exe alone is a failed build however the child exited.
+    const quiet = [];
+    let thrown = null;
+    try {
+        await buildHead({
+            ...plan,
+            mode: 'portable',
+            fence,
+            exec: (cmd) => {
+                quiet.push(cmd);
+                return '';
+            },
+        });
+    } catch (e) {
+        thrown = e;
+    }
+    assert.ok(thrown instanceof PreconditionError);
+    assert.equal(quiet.length, 2, 'both steps ran and both exited 0');
+    assert.ok(
+        thrown.message.includes(plan.exe),
+        `the failure names the exe: ${thrown.message}`
+    );
+    rmSync(dir, { recursive: true, force: true });
+});
+
+test('buildHead never writes under the real APPDATA', async () => {
+    const dir = tmp();
+    const appData = path.join(dir, 'appdata');
+    mkdirSync(path.join(appData, 'floe'), { recursive: true });
+    const fence = createFence({
+        allow: [path.join(dir, 'out')],
+        repoRoots: [],
+        appData,
+    });
+    const exec = () => {
+        throw new Error('no step may run once a write is refused');
+    };
+    // A plan naming the real %APPDATA%\floe: allowDir cannot open that tree,
+    // because the fence refuses it ahead of its own allowlist.
+    for (const target of [
+        path.join(appData, 'floe'),
+        path.join(appData, 'floe', 'webview'),
+        path.join(appData, 'floe', 'desktop.json'),
+    ]) {
+        let thrown = null;
+        try {
+            await buildHead({
+                version: 'head-abc1234',
+                steps: [{ cmd: 'npm', args: ['run', 'build'], cwd: dir }],
+                exe: path.join(dir, 'out', 'floe-desktop.exe'),
+                writes: [target],
+                mode: 'portable',
+                fence,
+                exec,
+            });
+        } catch (e) {
+            thrown = e;
+        }
+        assert.ok(
+            thrown instanceof SafetyError,
+            `${target} must be refused, got ${thrown && thrown.name}`
+        );
+        assert.match(thrown.message, /write refused/);
+    }
+    assert.deepEqual(
+        readdirSync(path.join(appData, 'floe')),
+        [],
+        'nothing was created under the real app data'
+    );
+    // The fence is also required: without one the guarantee is unproven.
+    let noFence = null;
+    try {
+        await buildHead({
+            version: 'head-abc1234',
+            steps: [],
+            exe: path.join(dir, 'out', 'floe-desktop.exe'),
+            writes: [],
+            mode: 'portable',
+            exec,
+        });
+    } catch (e) {
+        noFence = e;
+    }
+    assert.ok(noFence instanceof PreconditionError);
+    assert.match(noFence.message, /write fence is required/);
+    rmSync(dir, { recursive: true, force: true });
+});
+
+test('buildHead refuses a mode it does not know', async () => {
+    const exec = () => {
+        throw new Error('no step may run for an unknown mode');
+    };
+    const head = async () => {
+        throw new Error('no dev server probe for an unknown mode');
+    };
+    for (const mode of ['store', 'none', 'auto-magic', '', null]) {
+        let thrown = null;
+        try {
+            await buildHead({
+                version: 'head-abc1234',
+                steps: [],
+                exe: 'C:\\x\\floe-desktop.exe',
+                writes: [],
+                mode,
+                fence: createFence({ allow: [], repoRoots: [] }),
+                exec,
+                head,
+            });
+        } catch (e) {
+            thrown = e;
+        }
+        assert.ok(
+            thrown instanceof PreconditionError,
+            `${String(mode)} must be refused`
+        );
+        assert.equal(thrown.reason, 'head-desktop-mode');
+        assert.equal(thrown.exitCode, 3);
+        assert.match(thrown.message, /not a head desktop lane/);
+    }
+    // store is a launch mode the adapter knows; it is just not a head build.
+    assert.ok(LAUNCH_MODES.includes('store'));
+    assert.ok(LAUNCH_MODES.includes('wailsdev'));
 });

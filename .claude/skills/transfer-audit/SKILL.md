@@ -382,6 +382,19 @@ at the audit server and `reportStats:false`; it was not exercised in the
 first round. A wailsdev receiver is refused (exit 3) unless `GetSettings()`
 shows `reportStats:false`, `migrated:true` and the audit server.
 
+Both head desktop lanes are built by `lib/desktop.mjs` `buildHead` from
+`lib/release.mjs` `headDesktopCommands`. On `wailsdev` it runs no build step:
+it requires `http://localhost:34115` to answer (exit 3 `wailsdev-down`
+otherwise) and returns a build with no exe path, so P2 and P7 read `n/a` and
+a release exe staged under `--bin-dir` is never adopted for them. On
+`portable` it runs `npm run build` in `desktop/frontend`, then `wails build`
+with no shell so the `-ldflags` value stays one argv element, and requires
+the exe's mtime to advance, because `wails build` can exit 0 on a silent
+failure. Both build dirs go through the write fence before the first step
+runs, so nothing a plan names can land under the real `%APPDATA%\floe`. An
+adapter without `buildHead` logs `HEAD desktop build pending` and every
+desktop cell SKIPs `desktop-unavailable`.
+
 ## 8. Deep cells (the shapes that shipped bugs: chunk edges, sizes, kills, the cap, one non-loopback path)
 
 `--deep` runs on the shipped profile; the driver creates the 3 GiB sparse
