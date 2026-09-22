@@ -26,6 +26,7 @@ import {
     type RefusalCode,
 } from './protocol';
 import { hashBlob as workerHashBlob } from './fileHash';
+import { sanitizeDisplayText } from '../download';
 
 // The digest wait's own escape: how often it asks whether the transfer is still
 // alive, and the token that says it is not. The token is a symbol so it can
@@ -144,8 +145,21 @@ export interface SendOptions {
     // has always done. With it the last end frame is not the end: the receiver
     // may still be committing a large file or retrying a blocked rename, so
     // the wait ends only on `received` (then onAllSent), on a refusal, or on
-    // the channel closing. There is no deadline on purpose (E-36): the
-    // receiver's own retry is bounded and the page keeps its Cancel.
+    // the channel closing.
+    //
+    // Two rules for a caller that turns this on:
+    //
+    // Success is onAllSent and nothing else. Under this option onAllSent
+    // cannot fire before the last end frame, while a `received` frame is
+    // whatever the peer chose to send whenever it chose to send it: one during
+    // the first file latches delivery all the same. So onReceived and
+    // onDelivered report a claim and must not drive a page state transition,
+    // or one early frame from a hostile peer ends the transfer's UI mid-send.
+    //
+    // isDestroyed is mandatory. There is no deadline here on purpose (E-36):
+    // the receiver's own blocked-rename retry is what is bounded, so a host
+    // that simply stalls leaves this wait open, and Cancel, which is
+    // isDestroyed going true, is the only way out of it.
     requireReceived?: boolean;
 }
 
@@ -454,8 +468,15 @@ async function sendSingleFile(
     // end marker after zero bytes. Refuse it before the file is touched.
     const resumeAt: unknown = ackResult.offset;
     if (typeof resumeAt !== 'number' || !Number.isInteger(resumeAt) || resumeAt < 0 || resumeAt > file.size) {
+        // The refused value is quoted back so the person can see what was
+        // asked for, which makes it peer text on a screen: cleaned and capped
+        // like every other peer string that reaches this banner. A number needs
+        // no more than a few characters, and a hostile one is bounded by the
+        // frame alone, which is what let a bidi mark reorder the line for
+        // pv and pvMin (protocolNumber's comment records that fix).
         cb.onError?.(
-            `The receiver asked to resume "${file.name}" from byte ${String(resumeAt)} of ${file.size}, ` +
+            `The receiver asked to resume "${wireName}" from byte ` +
+            `${sanitizeDisplayText(String(resumeAt), 32)} of ${file.size}, ` +
             `which is not possible. Please try again.`
         );
         return false;
@@ -778,9 +799,16 @@ function openSession(deps: SenderDeps, cb: SenderCallbacks, fileCount: number): 
                 }, DIGEST_STOP_POLL_MS);
                 lateDone = (why) => {
                     clearInterval(poll);
-                    reportStop();
-                    close();
-                    resolve(why);
+                    // The teardown and the answer are owed whatever the page's
+                    // own handlers do: a throwing onStopped or onError used to
+                    // leave the listener attached, and with the wait awaited it
+                    // would leave the send pending for the life of the page too.
+                    try {
+                        reportStop();
+                    } finally {
+                        close();
+                        resolve(why);
+                    }
                 };
             });
         },

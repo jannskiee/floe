@@ -244,6 +244,25 @@ describe('sender: resume offset from the receiver', () => {
         expect(sent.some((f) => f.includes('"end"'))).toBe(false);
     }, 5000);
 
+    // The refused value is quoted back to the person, so it is peer text on a
+    // screen and gets the cleaning and the cap every other peer string on this
+    // path gets; and the file is named the way the metadata named it.
+    it('a hostile resume offset is cleaned and capped in the error', async () => {
+        const bidi = String.fromCharCode(0x202e);
+        const hostile = bidi + 'x'.repeat(200);
+        const errors: string[] = [];
+        const sent: string[] = [];
+        await sendFiles(
+            scriptedDeps((id) => JSON.stringify({ type: 'ack', id, offset: hostile }), sent),
+            [{ id: 'x', file: makeFile(16, 'a.bin'), relativePath: 'docs/q3/a.bin' }],
+            { onError: (m) => errors.push(m) });
+        expect(errors).toHaveLength(1);
+        expect(errors[0]).not.toContain(bidi);
+        expect(errors[0]).not.toContain('x'.repeat(40));
+        expect(errors[0]).toContain('docs/q3/a.bin');
+        expect(sent.some((f) => f.includes('"end"'))).toBe(false);
+    }, 5000);
+
     it('still accepts a resume from inside the file', async () => {
         const errors: string[] = [];
         const sent: string[] = [];
@@ -914,6 +933,34 @@ describe('sender: visitor options', () => {
         expect(allSent).toBe(0);
     });
 
+    it('requireReceived stops waiting when the page destroys the session', async () => {
+        // The fourth ending, and the reason isDestroyed is mandatory with the
+        // option: no frame and no close, just Cancel. Nothing else could end
+        // this wait, which by design has no deadline.
+        const v = visitorDeps();
+        const failures: Failure[] = [];
+        let gone = false;
+        let allSent = 0;
+        let settled = false;
+        const p = sendFiles(v.deps, entries(1), {
+            isDestroyed: () => gone,
+            onAllSent: () => { allSent += 1; },
+            onFailed: (f) => failures.push(f),
+        }, { requireReceived: true }).then(() => { settled = true; });
+
+        await settleTick();
+        expect(settled).toBe(false);
+
+        gone = true;
+        // A destroyed peer fires nothing, so the poll is what notices.
+        await within(p);
+        expect(settled).toBe(true);
+        // A page that tore the transfer down neither succeeded nor needs
+        // telling what happened.
+        expect(allSent).toBe(0);
+        expect(failures).toEqual([]);
+    });
+
     it('requireReceived reports verified through onDelivered', async () => {
         const delivered: Report[] = [];
         const v = visitorDeps({
@@ -1018,16 +1065,18 @@ describe('sender: visitor options', () => {
 
     it('onStopped never carries reason text', async () => {
         const bidi = String.fromCharCode(0x202e);
-        const hostile = [
-            '<img src=x onerror=alert(1)>',
-            '$(calc)',
-            'x' + bidi + 'y',
-            // Past CONTROL_MSG_MAX, so classifyControl drops the frame before
-            // anything can read it. Asserted all the same: the page must learn
-            // nothing either way.
-            'z'.repeat(10_000),
+        // The flag is whether the frame fits CONTROL_MSG_MAX, and so whether it
+        // reaches the session at all.
+        const hostile: Array<[string, boolean]> = [
+            ['<img src=x onerror=alert(1)>', true],
+            ['$(calc)', true],
+            ['x' + bidi + 'y', true],
+            // Past the cap, so classifyControl drops this one before anything
+            // can read it. Asserted all the same: the page must learn nothing
+            // either way.
+            ['z'.repeat(10_000), false],
         ];
-        for (const text of hostile) {
+        for (const [text, inCap] of hostile) {
             const seen: unknown[] = [];
             const record = (...args: unknown[]) => { seen.push(...args); };
             const v = visitorDeps({
@@ -1049,6 +1098,11 @@ describe('sender: visitor options', () => {
             }));
             await settleTick();
             v.close();
+            // Without these two the assertion below would also pass if the
+            // callbacks had stopped firing altogether.
+            expect(seen.length).toBeGreaterThan(0);
+            const stops = seen.filter((x) => typeof x === 'object' && x !== null && 'code' in x);
+            expect(stops).toHaveLength(inCap ? 1 : 0);
             expect(JSON.stringify(seen)).not.toContain(text);
         }
     });

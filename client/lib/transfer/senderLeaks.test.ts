@@ -253,26 +253,31 @@ describe('sender teardown', () => {
 
         for (const ending of ['received', 'refused', 'closed'] as const) {
             vi.useFakeTimers();
-            const c = countingDeps();
+            // In a finally, so a failed assertion cannot leave fake timers
+            // installed for whatever runs after it in this file.
+            try {
+                const c = countingDeps();
 
-            const p = sendFiles(c.deps, file(), { onError: () => {} }, { requireReceived: true });
-            await vi.advanceTimersByTimeAsync(0);
-            c.deliverAck('id-visitor');
-            await vi.advanceTimersByTimeAsync(0);
-            expect(c.subscribed()).toBe(1);
+                const p = sendFiles(c.deps, file(), { onError: () => {} }, { requireReceived: true });
+                await vi.advanceTimersByTimeAsync(0);
+                c.deliverAck('id-visitor');
+                await vi.advanceTimersByTimeAsync(0);
+                expect(c.subscribed()).toBe(1);
 
-            if (ending === 'received') c.deliverFrame('{"type":"received"}');
-            if (ending === 'refused') {
-                c.deliverFrame(JSON.stringify({ type: 'incompatible', reason: 'receiver stopped', pv: 1, pvMin: 1 }));
+                if (ending === 'received') c.deliverFrame('{"type":"received"}');
+                if (ending === 'refused') {
+                    c.deliverFrame(JSON.stringify({ type: 'incompatible', reason: 'receiver stopped', pv: 1, pvMin: 1 }));
+                }
+                if (ending === 'closed') c.close();
+                await vi.advanceTimersByTimeAsync(0);
+                await p;
+
+                expect(c.subscribed()).toBe(0);
+                expect(c.listeners.get('close')).toBe(0);
+                expect(vi.getTimerCount()).toBe(0);
+            } finally {
+                vi.useRealTimers();
             }
-            if (ending === 'closed') c.close();
-            await vi.advanceTimersByTimeAsync(0);
-            await p;
-
-            expect(c.subscribed()).toBe(0);
-            expect(c.listeners.get('close')).toBe(0);
-            expect(vi.getTimerCount()).toBe(0);
-            vi.useRealTimers();
         }
     });
 });
