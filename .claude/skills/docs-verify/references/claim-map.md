@@ -45,7 +45,12 @@ The map names where a value is stated; grep the old literal repo-wide before fin
 ## Room code TTL and retirement
 
 - server/server.js: the `expires:` expression in the `codeToRoom.set(...)` call under `POST /api/code` (the outside limit), and the three `forgetCode(roomId)` call sites that retire a code earlier: `registerCodeHandler`, the second-seat branch of `handleJoinRoom`, and `destroyRoom`. Resolving never retires a code: the pre-join retry depends on it.
-- Docs: docs/reference/http-api.mdx "Room codes" (stated twice), docs/cli/send.mdx "Output", docs/troubleshooting.mdx (the "codes expire after" heading and the "503" section), docs/reference/architecture.mdx "Room codes", docs/self-hosting/configuration.mdx `MAX_ACTIVE_CODES` row, CLAUDE.md "Room Codes".
+- Docs: docs/reference/http-api.mdx "Room codes" (stated twice), docs/cli/send.mdx "Output", docs/troubleshooting.mdx (the "codes expire after" heading and the "503" section), docs/reference/architecture.mdx "Room codes", docs/self-hosting/configuration.mdx `MAX_ACTIVE_CODES` row, docs/desktop/sending.mdx (the one-receiver paragraph: the code stops working once the recipient joins), CLAUDE.md "Room Codes".
+
+## Room seal
+
+- server/server.js: the seal check in `handleJoinRoom` (after the leave-first block: refuse when the room's `roomMeta` record holds two keys and not the joiner's), the key added on the create and second-seat branches, and `roomMeta.delete` in `destroyRoom` (the seal lasts exactly as long as the room). The key is `rateKey(ip)` (server/ratekey.js), the same key every per-IP limiter counts under, carried by `createSocketIOPeer` and `createWSPeer`; peers sharing one key are never sealed out, on purpose.
+- Docs: docs/how-it-works/signaling.mdx "A room holds exactly two people" (the freed-seat paragraphs), docs/reference/architecture.mdx (both `room-full` rows and the "A room also seals" paragraph), docs/web-app/sending.mdx "One link, one recipient at a time", docs/desktop/sending.mdx (the one-receiver paragraph).
 
 ## TURN credential lifetimes
 
