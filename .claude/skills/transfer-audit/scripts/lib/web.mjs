@@ -52,6 +52,33 @@ export const GOTO_TIMEOUT_MS = 30_000;
 export const LINK_TIMEOUT_MS = 20_000;
 export const JOIN_TIMEOUT_MS = 30_000;
 export const HASH_TIMEOUT_MS = 120_000;
+// How long a lying cell's sender may keep claiming success before its peer's
+// refusal has to be on the page. A CLI receiver puts the refusal on the wire
+// and then flushes it for up to controlFlushTimeout (2 s,
+// cli/engine/transfer/control.go:17) before closing the channel, so the gap
+// after "All Files Sent!" is about 2 s; this is that gap with room for a
+// loaded machine. The bound exists because the sender rule used to accept
+// "All Files Sent!" on its own, which is how a page that kept claiming
+// success through a refusal passed every H-DIR-W2C-hashbad run.
+export const HASH_REFUSAL_AFTER_SENT_MS = 15_000;
+
+// The two reasons both receivers put on the incompatible frame
+// (cli/engine/transfer/receiver.go, and HASH_MISMATCH_REASON /
+// HASH_UNREADABLE_REASON in client/lib/transfer/receiver.ts). A sender page
+// that reads the refusal while it is still sending prints this sanitized WIRE
+// reason through compatErrorFromIncompatible in
+// client/lib/transfer/protocol.ts, never the CLI receiver's own stderr
+// sentence (P0-27 review F2).
+export const HASH_WIRE_REASONS = Object.freeze([
+    'receiver discarded a file because its SHA-256 did not match',
+    "receiver discarded a file because the sender's SHA-256 was not readable",
+]);
+
+// What a browser sender prints when the refusal lands after every file has
+// gone out: the fixed sentence P2PTransfer.tsx maps the hash-mismatch code to.
+// Approved copy, byte for byte. It names no digest and repeats no peer text.
+export const HASH_REFUSAL_SENTENCE =
+    'The other side discarded a file that did not match what was sent. Try sending again.';
 
 // Strings the adapter waits for, client/components/P2PTransfer.tsx unless
 // noted (ReceiverPanel.tsx is its sibling in client/components/). The pill
@@ -74,18 +101,15 @@ export const TEXT = Object.freeze({
     tooManyRefreshes: 'Too many refreshes. Reconnecting', // onConnectError
     received: /^(\d+) files? received$/, // ReceiverPanel.tsx (the completion line)
     pill: /^(Direct|Relay|Ready|Offline)$/, // ConnectionStatusBadge.tsx (the label ternary)
-    // What a sender shows when its peer refused a file it sent. The page prints
-    // the peer's own sanitized WIRE reason (compatErrorFromIncompatible in
-    // client/lib/transfer/protocol.ts; P2PTransfer wires no onStopped), so these
-    // are the two reasons both receivers put on the incompatible frame
-    // (cli/engine/transfer/receiver.go and HASH_MISMATCH_REASON /
-    // HASH_UNREADABLE_REASON in client/lib/transfer/receiver.ts), never the CLI
-    // receiver's own stderr sentence (P0-27 review F2). The page usually reaches
-    // "All Files Sent!" first, which a lying cell's sender also accepts.
-    peerRefusedHash: [
-        'receiver discarded a file because its SHA-256 did not match',
-        "receiver discarded a file because the sender's SHA-256 was not readable",
-    ],
+    // What a sender shows when its peer refused a file it sent: the wire
+    // reason while the send is still running, or the fixed sentence once every
+    // file has gone out and the refusal arrives late. A lying cell's sender is
+    // not done until one of them is on the page (awaitRefusalAfterSent); the
+    // page reaching "All Files Sent!" first is not an answer.
+    peerRefusedHash: Object.freeze([
+        ...HASH_WIRE_REASONS,
+        HASH_REFUSAL_SENTENCE,
+    ]),
     // What a browser RECEIVER shows when it discarded a file whose digest did
     // not match or could not be read: the two fixed onError sentences in
     // client/lib/transfer/receiver.ts (P0-19b), rendered by P2PTransfer.tsx's
@@ -902,10 +926,10 @@ export class WebLeg extends Leg {
                             text.includes(want.relayBanner)
                         )
                             return 'refusal';
-                        // A hashbad cell's sender never reaches allSent: its
-                        // peer refused a file, so the page shows the peer's
-                        // reason. Only this cell looks for it, so an ordinary
-                        // cell cannot pass on an error.
+                        // A hashbad cell's sender shows its peer's reason once
+                        // the refusal reaches it, which can be before or after
+                        // the success line. Only this cell looks for it, so an
+                        // ordinary cell cannot pass on an error.
                         if (
                             want.peerRefusedHash &&
                             want.peerRefusedHash.some((s) => text.includes(s))
@@ -965,6 +989,14 @@ export class WebLeg extends Leg {
                 { cause: err }
             );
         }
+        // On a cell whose sender lies about a digest, "All Files Sent!" is not
+        // a completion: the peer refused a file that had already gone out, so
+        // the refusal has to reach the page within HASH_REFUSAL_AFTER_SENT_MS
+        // of the success line. Accepting the success line on its own is what
+        // let a sender page keep claiming success through a refusal. Outside
+        // the catch above, so the failure keeps its own wording.
+        if (this.role === 'sender' && this.opts.hashLie && outcome === 'sent')
+            outcome = await this.awaitRefusalAfterSent();
         this.marks.done = Date.now();
         const ms = Date.now() - t0;
         if (
@@ -986,6 +1018,44 @@ export class WebLeg extends Leg {
                 ms,
             };
         return { ok: false, kind: 'error', detail: { outcome }, ms };
+    }
+
+    /**
+     * The second half of a lying cell's sender rule. The page has shown its
+     * success line, so one of TEXT.peerRefusedHash must follow within
+     * HASH_REFUSAL_AFTER_SENT_MS. Returns 'refusal' when it does, and throws
+     * a done PhaseError when the bound runs out: a sender still claiming
+     * success after its peer threw a file away is the defect, not a pass. It
+     * has to throw rather than report a failed completion, because
+     * verifyAttempt reads the SENDER's result on a forced-mismatch cell only
+     * when that sender is the harness (cell.mjs, the cell.hashLie branch), so
+     * a browser sender's own verdict reaches the record through this phase
+     * alone. Only awaitDone's sender branch calls this, and only when the
+     * cell lies.
+     */
+    async awaitRefusalAfterSent() {
+        const bound = this.budget(HASH_REFUSAL_AFTER_SENT_MS);
+        try {
+            const handle = await this.page.waitForFunction(
+                (want) => {
+                    const text =
+                        (document.body && document.body.innerText) || '';
+                    return want.some((s) => text.includes(s))
+                        ? 'refusal'
+                        : null;
+                },
+                TEXT.peerRefusedHash,
+                { timeout: bound, polling: 500 }
+            );
+            return await handle.jsonValue();
+        } catch (err) {
+            this.notes.push('hash-refusal-missing');
+            throw new PhaseError(
+                'done',
+                `hash-refusal-missing: the web sender still claims success ${bound} ms after "${TEXT.allSent}", and its peer refused a file it had sent`,
+                { cause: err, signatureKey: 'hash-refusal-missing' }
+            );
+        }
     }
 
     /** Receiver: every a[download] hashed in-page (helpers.ts:85-93). */
