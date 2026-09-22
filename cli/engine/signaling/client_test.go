@@ -181,3 +181,60 @@ func TestReadLoopSkipsMalformedFrames(t *testing.T) {
 		t.Fatal("room-full never arrived after a malformed frame")
 	}
 }
+
+// The signaling server keeps a /ws seat only for a peer that answers the
+// heartbeat ping with a pong carrying the same payload; a pong that answers no
+// outstanding ping is ignored, so a client that invented its own payload would
+// be reaped mid-wait. A CLI sender waits for its receiver for as long as the
+// person takes to open the link, which is many heartbeats, so this is the guard
+// against a false reap: it pins that a Client built by Connect answers with the
+// bytes it was sent, through gorilla's default ping handler and readLoop's
+// reads (control frames are only processed while something is reading).
+func TestClientEchoesPingPayload(t *testing.T) {
+	const payload = "nonce-42"
+	got := make(chan string, 1)
+
+	up := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := up.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		conn.SetPongHandler(func(data string) error {
+			select {
+			case got <- data:
+			default:
+			}
+			return nil
+		})
+		if err := conn.WriteControl(websocket.PingMessage, []byte(payload), time.Now().Add(2*time.Second)); err != nil {
+			return
+		}
+		// A pong is delivered to the handler from the read path, so the test
+		// server has to read too. It ends when the client closes or the
+		// deadline passes, whichever comes first.
+		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+	defer srv.Close()
+
+	c, err := Connect(strings.Replace(srv.URL, "http://", "ws://", 1))
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	defer c.Close()
+
+	select {
+	case p := <-got:
+		if p != payload {
+			t.Fatalf("pong payload = %q, want %q", p, payload)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no pong within 3s: a waiting CLI would lose its seat at the next heartbeat")
+	}
+}

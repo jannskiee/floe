@@ -375,3 +375,101 @@ test('a malformed frame on a rate-limited connection is not fatal', async (t) =>
 
     await assertSurvived(srv, 'an unmasked frame on a rate-limited connection');
 });
+
+// --- liveness and backpressure on /ws --------------------------------------
+//
+// Not a crash: two ways a /ws peer can cost the process something without ever
+// sending a malformed byte. They live here because, like the six kills above,
+// neither is observable in process. The reap is a real heartbeat interval
+// firing against a real socket, and the ceiling is the server's own
+// bufferedAmount under a real paused TCP peer, which no fake can produce.
+
+test('an unsolicited pong does not keep a silent socket seated', async (t) => {
+    // HEARTBEAT_MS is a test knob; production never sets it and runs at 30 s.
+    // At 300 ms the second tick, the one that reaps, lands near 600 ms.
+    const srv = await startServer({ HEARTBEAT_MS: '300' });
+    t.after(() => srv.stop());
+
+    // autoPong: false switches off ws's own answer, so the only pongs on this
+    // socket are the unsolicited ones below. The default client next to it
+    // echoes the ping payload, which is what every shipped Floe peer does.
+    const spoofer = track(new WebSocket(`ws://127.0.0.1:${srv.port}/ws`, { autoPong: false }));
+    spoofer.on('error', () => {});
+    await new Promise((resolve, reject) => {
+        spoofer.once('open', resolve);
+        spoofer.once('error', reject);
+    });
+    const honest = await open(srv);
+    honest.on('error', () => {});
+
+    const spam = setInterval(() => {
+        try { spoofer.pong(Buffer.from('notanonce')); } catch { /* closed */ }
+    }, 100);
+    t.after(() => clearInterval(spam));
+
+    const started = Date.now();
+    const reaped = await Promise.race([
+        new Promise((resolve) => spoofer.once('close', () => resolve(true))),
+        new Promise((resolve) => setTimeout(() => resolve(false), 1500)),
+    ]);
+    assert.equal(reaped, true, 'a stream of unsolicited pongs kept a silent socket seated');
+
+    // "Stays open past 1.5 s" means past five heartbeat ticks.
+    await new Promise((r) => setTimeout(r, Math.max(0, 1500 - (Date.now() - started))));
+    assert.equal(
+        honest.readyState, WebSocket.OPEN,
+        'a peer that echoes the ping payload must never be reaped'
+    );
+
+    await assertSurvived(srv, 'a stream of unsolicited pongs');
+});
+
+test('a peer flooding a non-reading peer is cut off, not buffered', async (t) => {
+    const srv = await startServer();
+    t.after(() => srv.stop());
+
+    const { a, b } = await pair(srv);
+    a.on('error', () => {});
+    b.on('error', () => {});
+
+    // B stops reading. Its kernel receive buffer fills, then the server's send
+    // buffer, then the server's own heap: every frame A aims at B is held in
+    // this process until B reads it, and B never will.
+    b.pause();
+
+    // The cut-off is asserted on A, not on B. A paused socket issues no reads,
+    // so the reset that ends B arrives in B's kernel buffer and is not seen
+    // until B resumes: b.readyState stays OPEN through the whole flood whether
+    // or not the server cut it off. What is observable is handleDisconnect
+    // telling the surviving peer, which is reading.
+    let cutOff = false;
+    const sawCutOff = waitFor(a, 'peer-disconnected', 20000).then(
+        () => { cutOff = true; return true; },
+        () => false
+    );
+
+    // Under maxPayload (1 MB) per frame, and at most 64 of them: 32 MB offered
+    // in total and never more, so a regression cannot grow the CI runner past
+    // that bound. The pacing lets the server read and route each frame.
+    const payload = 'x'.repeat(512 * 1024);
+    let frames = 0;
+    while (frames < 64 && !cutOff) {
+        a.send(JSON.stringify({ type: 'signal', signal: payload }));
+        frames++;
+        await new Promise((r) => setTimeout(r, 25));
+    }
+
+    assert.equal(
+        await sawCutOff, true,
+        `the server queued ${frames} frames of 512 KB for a peer that never read one`
+    );
+    assert.ok(frames < 64, `expected the cut-off before the 32 MB cap, offered all ${frames} frames`);
+
+    // A is untouched: the flood costs the flooder's own peer its seat, nothing
+    // more. The app-level ping is the cheapest proof the socket still serves.
+    const pong = waitFor(a, 'pong');
+    a.send(JSON.stringify({ type: 'ping' }));
+    await pong;
+
+    await assertSurvived(srv, 'a flood aimed at a peer that is not reading');
+});
