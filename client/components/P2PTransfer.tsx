@@ -38,6 +38,8 @@ import {RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, probeIsRelay} fro
 import {buildShareLink, getRoomFromUrl, isValidRoomId} from '@/lib/roomLink';
 import {classifyPeerError} from '@/lib/peerErrors';
 import {decideReceiverClose} from '@/lib/receiverClose';
+import {describeSenderStop} from '@/lib/senderStop';
+import {verifiedLine, VERIFIED_LINE} from '@/lib/verifiedLine';
 import {peerDisconnectAction} from '@/lib/peerDisconnect';
 import {copyText} from '@/lib/clipboard';
 import {resolveSocketUrl} from '@/lib/socketUrl';
@@ -82,6 +84,12 @@ export function P2PTransfer() {
     const [currentFileIndex, setCurrentFileIndex] = useState(0);
     const [progress, setProgress] = useState(0);
     const [receivedFiles, setReceivedFiles] = useState<ReceivedFile[]>([]);
+    // The sender's own record of the receiver's delivery report, reduced to a
+    // boolean in the callback. The count itself never reaches a render.
+    const [allVerified, setAllVerified] = useState(false);
+    // The file count the sender announced. expectedFilesRef holds the same
+    // number but is a ref, so it does not re-render the success line.
+    const [expectedFiles, setExpectedFiles] = useState(0);
     const [copied, setCopied] = useState(false);
     const [error, setError] = useState('');
     const [transferSpeed, setTransferSpeed] = useState('');
@@ -251,10 +259,24 @@ export function P2PTransfer() {
                 });
                 return;
             }
-            if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
-                setStatus(receiveOutcome());
-            } else {
-                setStatus('Peer disconnected. Waiting for reconnection');
+            // A wire reason wins. The peer told us why it stopped, and the
+            // signaling socket it drops about two seconds later is a
+            // consequence of that, not a second opinion: a CLI receiver
+            // flushes its refusal for controlFlushTimeout, closes the channel,
+            // then exits. receiveOutcome() returns the literal 'Transfer
+            // complete' whenever expectedFilesRef is 0, and on the sender that
+            // ref is never written, so without this the status flipped from
+            // 'Transfer failed' back to 'Transfer complete' under a banner
+            // saying a file was discarded. The receiver arrives here with the
+            // same latch set by its own onError and wants the same answer: a
+            // discarded file is not a completed receive. Only the status write
+            // is guarded; the teardown below still runs on every path.
+            if (!wireReasonRef.current) {
+                if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
+                    setStatus(receiveOutcome());
+                } else {
+                    setStatus('Peer disconnected. Waiting for reconnection');
+                }
             }
             // Set before destroy, so the close handler this triggers sees it.
             closedByUsRef.current = peerRef.current;
@@ -262,6 +284,9 @@ export function P2PTransfer() {
             releaseWakeLock();
         },
         onDisconnect: () => {
+            // The same latch as onPeerDisconnected: this side's own socket
+            // going away is not news that overrides the peer's account.
+            if (wireReasonRef.current) return;
             if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
                 setStatus(receiveOutcome());
             }
@@ -516,6 +541,7 @@ export function P2PTransfer() {
             send: (d) => peer.send(d),
             onFileStart: (index, total) => {
                 expectedFilesRef.current = total;
+                setExpectedFiles(total);
                 setTransferSpeed('');
                 setEstimatedTime('');
                 setStatus(`Receiving file ${index} of ${total}`);
@@ -535,6 +561,11 @@ export function P2PTransfer() {
                 setTransferSpeed('');
                 setEstimatedTime('');
             },
+            // The same slot as the Receiving line: the file's bytes are all
+            // here and its SHA-256 is being checked. index and total are the
+            // sender's announced position and count, rendered as digits in a
+            // fixed template and nowhere else.
+            onVerifying: (index, total) => setStatus(`Verifying file ${index} of ${total}`),
             onFileComplete: (file) => {
                 const url = URL.createObjectURL(file.blob);
                 const newFile = {
@@ -542,6 +573,9 @@ export function P2PTransfer() {
                     fileName: file.fileName,
                     fileSize: file.fileSize,
                     downloadUrl: url,
+                    // A local compare result from receiver.ts, never a peer
+                    // value.
+                    verified: file.verified,
                 };
                 setReceivedFiles((prev) => {
                     const updated = [...prev, newFile];
@@ -713,6 +747,11 @@ export function P2PTransfer() {
             // "capped at 2 GB" banner would still be up during a transfer that
             // is under the cap.
             setRelayBlocked(false);
+            // The only place a sender session begins, so the only place these
+            // may be cleared: both are per peer, and the wire-reason latch has
+            // to be down before the next peer can set it.
+            wireReasonRef.current = false;
+            setAllVerified(false);
             setStatus('Peer joined. Starting transfer');
             requestWakeLock();
 
@@ -827,6 +866,10 @@ export function P2PTransfer() {
                 });
             });
             peer.on('error', (err) => {
+                // The peer already told us why (onStopped). Overwriting a named
+                // refusal with "Connection interrupted" is the wrong-cause
+                // problem the receiver's own guard above already fixes.
+                if (wireReasonRef.current) return;
                 if (transferCompleteRef.current || progressRef.current > 0) {
                     setStatus('Connection interrupted');
                     return;
@@ -925,6 +968,29 @@ export function P2PTransfer() {
                         bytes: fileList.reduce((s, f) => s + f.file.size, 0),
                         connection: connectionTypeRef.current ?? 'unknown',
                         role: 'sender',
+                    });
+                },
+                // Reduced to a boolean here, before anything a render can read:
+                // the receiver's count is a claim, and no number goes on screen.
+                onDelivered: ({ allVerified: ok }) => setAllVerified(ok),
+                onStopped: (stop) => {
+                    const sentence = describeSenderStop({ ...stop, files: fileList.length });
+                    if (!sentence) return;
+                    // Latched for the same reason the receiver's onError is:
+                    // this is the protocol's own account, and the close and
+                    // error events that follow must not talk over it. onStopped
+                    // runs after onError inside reportStop, so this overwrites
+                    // the generic wording in the same tick; every other code
+                    // keeps that wording.
+                    wireReasonRef.current = true;
+                    setError(sentence);
+                    setStatus('Transfer failed');
+                    setAllVerified(false);
+                    track('transfer-failed', {
+                        reason: 'peer-reason',
+                        role: 'sender',
+                        files: fileList.length,
+                        bytes: fileList.reduce((s, f) => s + f.file.size, 0),
                     });
                 },
             }
@@ -1106,6 +1172,7 @@ export function P2PTransfer() {
                                                 showQr={showQr}
                                                 onToggleQr={() => setShowQr((v) => !v)}
                                                 status={status}
+                                                verifiedLine={allVerified ? VERIFIED_LINE : null}
                                             />
                                         )}
 
@@ -1178,6 +1245,7 @@ export function P2PTransfer() {
                                     onDownloadAll={handleDownloadAll}
                                     onDownloadZip={handleDownloadZip}
                                     listRef={fileListRef}
+                                    verifiedLine={verifiedLine(receivedFiles, expectedFiles)}
                                 />
                             )}
                         </>

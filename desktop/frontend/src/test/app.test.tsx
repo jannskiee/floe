@@ -21,7 +21,7 @@ import App from '../App';
 // down once".
 const mount = () => render(<StrictMode><App /></StrictMode>);
 
-const settled = () => waitFor(() => expect(wails.listeners.size).toBe(11));
+const settled = () => waitFor(() => expect(wails.listeners.size).toBe(13));
 
 describe('the mount effect', () => {
     it('registers every Go listener and tears down every one', async () => {
@@ -30,13 +30,17 @@ describe('the mount effect', () => {
 
         // Not a hand-copied list for its own sake: the assertion is that OFF
         // mirrors ON, whatever ON turns out to be.
+        // The last two belong to the verification effect that sits after this
+        // one, with its own teardown; the balance assertion below covers both.
         expect([...wails.listeners.keys()].sort()).toEqual([
             'close:blocked',
             'files:open',
+            'recv:file-done',
             'recv:incoming',
             'recv:progress',
             'recv:route',
             'send:code',
+            'send:delivered',
             'send:done',
             'send:error',
             'send:progress',
@@ -199,6 +203,66 @@ describe('the route badge', () => {
         // to leave an amber dot beside the word Ready.
         await waitFor(() => expect(dot()?.className).toContain('bg-green-500'));
         expect(dot()?.className).not.toContain('bg-amber-500');
+    });
+});
+
+/**
+ * The verification effect. Its two listeners sit in their own effect after the
+ * mount effect, and their counters are refs, so the handlers registered once at
+ * mount keep counting correctly instead of reading a first-render value.
+ */
+describe('the verification line', () => {
+    it('shows SHA-256 matched after send:delivered with every file verified, and nothing otherwise', async () => {
+        mount();
+        await settled();
+
+        act(() => {
+            wails.emit('send:done');
+            wails.emit('send:delivered', {files: 2, verified: 2, hasVerified: true});
+        });
+        expect(await screen.findByText('SHA-256 matched')).toBeTruthy();
+
+        // A short count is not a match, and a count the validator refused
+        // (hasVerified false) is absent, never "all matched".
+        act(() => {
+            wails.emit('send:delivered', {files: 2, verified: 1, hasVerified: true});
+        });
+        await waitFor(() => expect(screen.queryByText('SHA-256 matched')).toBeNull());
+
+        act(() => {
+            wails.emit('send:delivered', {files: 2, verified: 2, hasVerified: false});
+        });
+        await waitFor(() => expect(screen.queryByText('SHA-256 matched')).toBeNull());
+    });
+
+    it('shows SHA-256 matched after a receive whose every recv:file-done was verified, and resets on the next receive', async () => {
+        let finish!: (dir: string) => void;
+        wails.go.ReceiveByCode.mockImplementation(
+            () => new Promise<string>((resolve) => { finish = resolve; })
+        );
+        const user = userEvent.setup();
+        mount();
+        await settled();
+
+        // Two buttons say Receive: the mode tab and the action below it. The
+        // action is the full-width one.
+        const named = () => screen.getAllByRole('button', {name: 'Receive'});
+        const start = () => named().find((b) => b.className.includes('w-full'))!;
+        await user.click(named()[0]);
+        await user.type(screen.getByPlaceholderText('amber-otter-cloud'), 'amber-otter-cloud');
+        await user.click(start());
+
+        act(() => {
+            wails.emit('recv:file-done', {savedName: 'a.bin', bytes: 10, verified: true});
+            wails.emit('recv:file-done', {savedName: 'b.bin', bytes: 20, verified: true});
+        });
+        await act(async () => { finish('C:\\dl'); });
+        expect(await screen.findByText('SHA-256 matched')).toBeTruthy();
+
+        // A second receive starts from nothing: the counters are reset in
+        // receive(), so the previous transfer's verdict cannot carry over.
+        await user.click(start());
+        await waitFor(() => expect(screen.queryByText('SHA-256 matched')).toBeNull());
     });
 });
 

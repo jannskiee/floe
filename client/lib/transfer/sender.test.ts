@@ -327,6 +327,7 @@ describe('sender: session control listener', () => {
         ack?: boolean;
     } = {}) {
         let handler: ((d: string | Uint8Array | ArrayBuffer) => void) | null = null;
+        let offs = 0;
         const closeHandlers: Array<() => void> = [];
         const sent = { strings: [] as string[], chunks: 0 };
         const deliver = (frame: string) => queueMicrotask(() => handler?.(enc.encode(frame)));
@@ -353,7 +354,7 @@ describe('sender: session control listener', () => {
             },
             onData: (h) => {
                 handler = h;
-                return () => { handler = null; };
+                return () => { handler = null; offs += 1; };
             },
             channel,
             sctpMaxMessageSize: null,
@@ -361,6 +362,11 @@ describe('sender: session control listener', () => {
         return {
             deps,
             sent,
+            // A frame delivered after sendFiles resolved, which is what a CLI
+            // receiver's late refusal and its `received` both are.
+            deliver,
+            // How many times the session's own unsubscribe ran.
+            offs: () => offs,
             close: () => closeHandlers.slice().forEach((h) => h()),
         };
     }
@@ -472,6 +478,76 @@ describe('sender: session control listener', () => {
     it('verified above the count is absent', async () => {
         expect(await deliveredFor(999, 3)).toEqual([{ files: 3, verified: null, allVerified: false }]);
     });
+
+    // F-SHA-4. sendFiles resolves at onAllSent and hands the session to
+    // lingerUntilDone, so the one control listener outlives the send. Before
+    // this the finally called session.close() the moment the last byte was
+    // acknowledged, and a CLI receiver's refusal (about CONTROL_FLUSH_MS later)
+    // was dropped while the page went on saying "All Files Sent!".
+    const settleTick = () => new Promise((r) => setTimeout(r, 20));
+
+    it('reports a refusal that lands after onAllSent through onError and onStopped', async () => {
+        const errors: string[] = [];
+        const stops: Array<{ code: string | null; saved: number }> = [];
+        const s = sessionDeps();
+        let allSent = false;
+        await sendFiles(s.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], {
+            onError: (m) => errors.push(m),
+            onStopped: (st) => stops.push(st),
+            onAllSent: () => { allSent = true; },
+        });
+        expect(allSent).toBe(true);
+        expect(stops).toEqual([]);
+
+        await settleTick();
+        s.deliver(refusal({ code: 'hash-mismatch', saved: 0 }));
+        await settleTick();
+        expect(stops).toEqual([{ code: 'hash-mismatch', saved: 0 }]);
+        expect(errors).toEqual(['receiver stopped']);
+    });
+
+    it('detaches the lingering listener on received, on close and once destroyed', async () => {
+        const file = () => [{ id: 'a', file: makeFile(16, 'a.bin') }];
+
+        const onReceived = sessionDeps();
+        await sendFiles(onReceived.deps, file(), {});
+        expect(onReceived.offs()).toBe(0);
+        onReceived.deliver('{"type":"received"}');
+        await settleTick();
+        expect(onReceived.offs()).toBe(1);
+
+        const onClose = sessionDeps();
+        await sendFiles(onClose.deps, file(), {});
+        expect(onClose.offs()).toBe(0);
+        onClose.close();
+        await settleTick();
+        expect(onClose.offs()).toBe(1);
+
+        // Nothing fires on a destroyed peer, so this arm is the poll's.
+        const onDestroy = sessionDeps();
+        let gone = false;
+        await sendFiles(onDestroy.deps, file(), { isDestroyed: () => gone });
+        expect(onDestroy.offs()).toBe(0);
+        gone = true;
+        // Longer than DIGEST_STOP_POLL_MS (200 ms), which is not exported.
+        await new Promise((r) => setTimeout(r, 300));
+        expect(onDestroy.offs()).toBe(1);
+    });
+
+    it('a refusal after onAllSent never reaches onStopped twice', async () => {
+        const stops: Array<{ code: string | null; saved: number }> = [];
+        const errors: string[] = [];
+        const s = sessionDeps();
+        await sendFiles(s.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], {
+            onStopped: (st) => stops.push(st),
+            onError: (m) => errors.push(m),
+        });
+        s.deliver(refusal({ code: 'hash-mismatch', saved: 0 }));
+        s.deliver(refusal({ code: 'write-failed', saved: 1 }));
+        await settleTick();
+        expect(stops).toEqual([{ code: 'hash-mismatch', saved: 0 }]);
+        expect(errors).toEqual(['receiver stopped']);
+    });
 });
 
 describe('sender: per-file SHA-256 on end', () => {
@@ -482,6 +558,7 @@ describe('sender: per-file SHA-256 on end', () => {
     function hashDeps(opts: {
         ackOffset?: number;
         hashBlob?: SenderDeps['hashBlob'];
+        hashBoundMs?: SenderDeps['hashBoundMs'];
         onChunk?: (n: number, deliver: (frame: string) => void) => void;
     } = {}) {
         let handler: ((d: string | Uint8Array | ArrayBuffer) => void) | null = null;
@@ -506,6 +583,7 @@ describe('sender: per-file SHA-256 on end', () => {
             channel: makeBufferChannel(),
             sctpMaxMessageSize: null,
             hashBlob: opts.hashBlob,
+            hashBoundMs: opts.hashBoundMs,
         };
         const ends = () => strings.map((s) => JSON.parse(s) as { type: string; sha256?: string }).filter((m) => m.type === 'end');
         return { deps, ends, strings };
@@ -532,6 +610,21 @@ describe('sender: per-file SHA-256 on end', () => {
             await sendFiles(h.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], {}, { sendHashes: true });
             expect(h.ends()).toEqual([{ type: 'end' }]);
         }
+    });
+
+    // CP0-F2. A hasher that never answers used to leave the digest wait pending
+    // for the life of the page, so no end frame ever went out and the receiver
+    // sat on a file it could not finish.
+    it('sends end without a digest when the hasher outruns its bound', async () => {
+        const h = hashDeps({
+            hashBlob: () => new Promise<string | null>(() => {}),
+            hashBoundMs: () => 10,
+        });
+        await sendFiles(h.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], {}, { sendHashes: true });
+        // Exactly what an absent digest has always been, so both receivers fall
+        // back to their byte-count check.
+        expect(h.ends()).toEqual([{ type: 'end' }]);
+        expect(h.strings.filter((s) => s.includes('"end"'))).toEqual(['{"type":"end"}']);
     });
 
     it('omits sha256 when hashing is off', async () => {

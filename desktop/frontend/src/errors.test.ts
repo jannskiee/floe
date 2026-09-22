@@ -100,6 +100,55 @@ describe('friendlyError', () => {
         );
     });
 
+    it('names a hash refusal as a mismatch, not a truncation', () => {
+        const HASH = 'Error: The other side discarded a file that did not match what was sent. Try sending again.';
+        // A current peer: abortFromPeer returns *PeerStoppedError and the CLI
+        // prints its fixed sentence for hash-mismatch. Since the Go half of
+        // this card the sender no longer wraps a peer refusal with a local file
+        // name, so both forms are asserted: a released peer's output still
+        // carries the old wrap, and friendlyError matches on a substring.
+        const coded = 'transfer failed: A file changed or was damaged on the way, so their Floe deleted it.';
+        expect(friendlyError(coded)).toBe(HASH);
+        expect(friendlyError('transfer failed: error sending a.bin: A file changed or was damaged on the way, so their Floe deleted it.')).toBe(HASH);
+        // A peer that predates `code` sends the wire reason instead. Both
+        // variants reach a desktop sender, and both used to fall into the
+        // 'receiver discarded a file' truncation bucket.
+        expect(friendlyError('transfer failed: error sending a.bin: receiver discarded a file because its SHA-256 did not match')).toBe(HASH);
+        expect(friendlyError("transfer failed: error sending a.bin: receiver discarded a file because the sender's SHA-256 was not readable")).toBe(HASH);
+        // And the older reason with no SHA words still reads as a truncation.
+        expect(friendlyError('transfer failed: receiver discarded a file: incomplete file "a.bin": received 40 of 100 bytes')).toBe(
+            'Error: The other side did not get a file whole, so it was discarded. Start the transfer again.',
+        );
+    });
+
+    it('never maps a peer-stopped sentence to a wrong cause', () => {
+        // The twelve fixed sentences from PeerStoppedError.Error() in
+        // cli/engine/transfer/refusal.go, plus its unreachable fallback,
+        // quoted because Go cannot be imported here. hash-mismatch has its own
+        // rule above; the other eleven have no rule and must pass through
+        // whole. PASSTHROUGH is deliberately not extended for them: for these
+        // inputs it would return the identical string to the default branch,
+        // so it would be dead code. This guard is what actually holds, and it
+        // fails the moment a future RULES entry swallows one of them.
+        const sentences = [
+            'They declined. Nothing was sent.',
+            'Their computer ran out of space.',
+            'They did not answer in time. Nothing was sent.',
+            'A file is too large for the drive they save to.',
+            'More data arrived than they accepted. If files changed after you chose them, ask them for a new link.',
+            'A folder path is too long for their computer. Zip deeply nested folders first.',
+            'Relayed drops are capped at 2 GB.',
+            'A file arrived but their computer blocked saving it.',
+            'They stopped this drop.',
+            'This drop reached the 24-hour limit, so their Floe stopped it.',
+            'Their computer could not save a file.',
+            'The drop stopped on their computer.',
+        ];
+        for (const s of sentences) {
+            expect(friendlyError('transfer failed: ' + s)).toBe('Error: transfer failed: ' + s);
+        }
+    });
+
     it('passes the relay cap reason a blocked sender now sends through verbatim', () => {
         // A receiver used to see only a close and reported "The sender canceled,
         // or the transfer was blocked". It now carries the sender's own words.

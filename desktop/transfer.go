@@ -72,10 +72,11 @@ func requireRelay(hideIP, hasRelay, degraded bool) error {
 
 // StartSend validates the given paths and launches the send flow in the
 // background. Progress is reported to the UI via Wails events:
-//   - "send:code"   {code, link}  once the room code is registered
-//   - "send:status" string        status updates (peer connected, etc.)
-//   - "send:done"   string        transfer finished
-//   - "send:error"  string        any failure
+//   - "send:code"      {code, link}                    once the room code is registered
+//   - "send:status"    string                          status updates (peer connected, etc.)
+//   - "send:done"      string                          transfer finished
+//   - "send:delivered" {files, verified, hasVerified}  the receiver's delivery report
+//   - "send:error"     string                          any failure
 func (a *App) StartSend(paths []string, hideIP bool) error {
 	if len(paths) == 0 {
 		return fmt.Errorf("no files selected")
@@ -272,9 +273,12 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 	sendEarly := conn.Early()
 	if err := transfer.SendFilesWithOptions(dc, paths, version, transfer.SendOptions{
 		OnProgress: onProgress,
-		UpdateHint: desktopUpdateHint,
-		Messages:   sendEarly.Msgs,
-		Closed:     sendEarly.Closed,
+		// Fires once when the receiver confirms delivery, with the numbers the
+		// CLI's Verified row reads. The UI shows only a boolean from it.
+		OnDelivered: func(d transfer.Delivered) { emit("send:delivered", d) },
+		UpdateHint:  desktopUpdateHint,
+		Messages:    sendEarly.Msgs,
+		Closed:      sendEarly.Closed,
 	}); err != nil {
 		// The relay cap is a policy block, not a failure: skip the "transfer
 		// failed" wrapper, and when Hide my IP forced the relay, name the
@@ -300,6 +304,11 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 // (signaling, Pion WebRTC, the transfer protocol), so it interoperates with both
 // browser senders and CLI senders. WebRTC and all file bytes run in Go here; the
 // webview never touches the data channel.
+//
+// Progress is reported to the UI via Wails events:
+//   - "recv:incoming"  IncomingInfo                 as the sender's first metadata arrives
+//   - "recv:progress"  Progress                     throttled to ten a second
+//   - "recv:file-done" {savedName, bytes, verified} once per committed file
 //
 // Returns the absolute output directory on success.
 func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool, reportStats bool) (string, error) {
@@ -439,6 +448,10 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 		// Fires once as the sender's first metadata arrives, before any byte
 		// lands: the UI shows what is incoming while the transfer starts.
 		OnIncoming: func(inc transfer.IncomingInfo) { emit("recv:incoming", inc) },
+		// Fires once per committed file, after the rename. It delays the next
+		// ack, so this does nothing but forward: emit is non-blocking and the
+		// UI does the counting.
+		OnFileDone: func(d transfer.FileDone) { emit("recv:file-done", d) },
 		Messages:   recvEarly.Msgs,
 		Closed:     recvEarly.Closed,
 	}

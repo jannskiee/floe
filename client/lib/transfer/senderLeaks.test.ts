@@ -40,7 +40,14 @@ function makeDeps(channel: { bufferedAmount: number } & SenderDeps['channel'], f
         channel,
         sctpMaxMessageSize: null,
     };
-    return { deps, deliverAck: (id: string) => handler?.(enc.encode(ackMessage(id, 0))) };
+    return {
+        deps,
+        deliverAck: (id: string) => handler?.(enc.encode(ackMessage(id, 0))),
+        // Any receiver-to-sender frame, encoded the way a Go receiver sends it
+        // (binary). A raw string rather than a typed wire interface, because
+        // the consumer-map checker counts those names as peer-field tokens.
+        deliverFrame: (raw: string) => handler?.(enc.encode(raw)),
+    };
 }
 
 afterEach(() => {
@@ -98,7 +105,7 @@ describe('sender teardown', () => {
             addEventListener: () => {},
             removeEventListener: () => {},
         };
-        const { deps, deliverAck } = makeDeps(channel);
+        const { deps, deliverAck, deliverFrame } = makeDeps(channel);
 
         const file = new File([new Uint8Array(8)], 'x.bin');
         const p = sendFiles(deps, [{ id: 'id-ack', file }], {});
@@ -108,16 +115,21 @@ describe('sender teardown', () => {
         await vi.advanceTimersByTimeAsync(0);
         await p;
 
+        // The session now outlives sendFiles (F-SHA-4), so its 200 ms poll is
+        // live here until the peer confirms delivery. Close the window the way
+        // a real receiver does before counting timers.
+        deliverFrame('{"type":"received"}');
+        await vi.advanceTimersByTimeAsync(0);
+
         // Nothing may be left waiting to fire. Before the fix the 120s deadline
         // sat here for every file in the batch.
         expect(vi.getTimerCount()).toBe(0);
     });
 
-    // The session registers one data listener and one channel close listener
-    // before the first metadata. Both must go when sendFiles returns, or a
-    // finished session keeps answering frames meant for the next one.
-    it('the session listener is removed when sendFiles returns', async () => {
-        vi.useFakeTimers();
+    // A channel that counts its close listeners, plus an onData wrapper that
+    // counts subscriptions. Shared by the two tests below, which pull the same
+    // session apart from its two ends.
+    function countingDeps() {
         const listeners = new Map<string, number>();
         const channel = {
             bufferedAmount: 0,
@@ -125,25 +137,94 @@ describe('sender teardown', () => {
             addEventListener: (type: string) => { listeners.set(type, (listeners.get(type) ?? 0) + 1); },
             removeEventListener: (type: string) => { listeners.set(type, (listeners.get(type) ?? 0) - 1); },
         };
+        const made = makeDeps(channel);
         let subscribed = 0;
-        const { deps, deliverAck } = makeDeps(channel);
-        const onData = deps.onData;
-        deps.onData = (h) => {
+        const onData = made.deps.onData;
+        made.deps.onData = (h) => {
             subscribed += 1;
             const off = onData(h);
             return () => { subscribed -= 1; off(); };
         };
+        return { ...made, listeners, subscribed: () => subscribed };
+    }
 
-        const p = sendFiles(deps, [{ id: 'id-leak', file: new File([new Uint8Array(8)], 'x.bin') }], {});
+    // The session registers one data listener and one channel close listener
+    // before the first metadata. On every exit that is NOT the success path
+    // both must go when sendFiles returns, or a finished session keeps
+    // answering frames meant for the next one.
+    it('the session listener is removed when sendFiles returns on a failure path', async () => {
+        vi.useFakeTimers();
+        const { deps, deliverFrame, listeners, subscribed } = countingDeps();
+
+        const p = sendFiles(deps, [{ id: 'id-leak', file: new File([new Uint8Array(8)], 'x.bin') }], {
+            onError: () => {},
+        });
         await vi.advanceTimersByTimeAsync(0);
-        expect(subscribed).toBe(1);
+        expect(subscribed()).toBe(1);
         expect(listeners.get('close')).toBe(1);
 
-        deliverAck('id-leak');
+        // A refusal instead of the ack, so the send never reaches onAllSent and
+        // the finally is what closes the session.
+        deliverFrame(JSON.stringify({ type: 'incompatible', reason: 'receiver stopped', pv: 1, pvMin: 1 }));
         await vi.advanceTimersByTimeAsync(0);
         await p;
 
-        expect(subscribed).toBe(0);
+        expect(subscribed()).toBe(0);
         expect(listeners.get('close')).toBe(0);
+    });
+
+    // The success path is the opposite contract (F-SHA-4): the listener stays
+    // attached past onAllSent, because a CLI receiver's hash refusal lands
+    // about CONTROL_FLUSH_MS after the last byte and closing here dropped it.
+    it('after onAllSent the listener stays until received, close or destroy', async () => {
+        vi.useFakeTimers();
+        const { deps, deliverAck, deliverFrame, listeners, subscribed } = countingDeps();
+
+        const p = sendFiles(deps, [{ id: 'id-linger', file: new File([new Uint8Array(8)], 'x.bin') }], {});
+        await vi.advanceTimersByTimeAsync(0);
+        deliverAck('id-linger');
+        await vi.advanceTimersByTimeAsync(0);
+        await p;
+
+        expect(subscribed()).toBe(1);
+        expect(listeners.get('close')).toBe(1);
+
+        deliverFrame('{"type":"received"}');
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(subscribed()).toBe(0);
+        expect(listeners.get('close')).toBe(0);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    // The `delivered` guard in openSession, pinned by the one ordering that
+    // exercises it. A peer that confirms delivery BEFORE onAllSent runs that
+    // arm while lateDone is still null, so finishLate does nothing; without the
+    // guard lingerUntilDone would then arm a 200 ms interval that only a
+    // channel close or a destroyed peer could ever clear. Deleting the flag
+    // turns the timer count and the subscription count below red.
+    it('arms no poll when the peer confirms delivery before onAllSent', async () => {
+        vi.useFakeTimers();
+        const { deps, deliverAck, deliverFrame, listeners, subscribed } = countingDeps();
+        let deliveries = 0;
+
+        const p = sendFiles(deps, [{ id: 'id-early', file: new File([new Uint8Array(8)], 'x.bin') }], {
+            onDelivered: () => { deliveries += 1; },
+        });
+        await vi.advanceTimersByTimeAsync(0);
+
+        // Both synchronous, so the confirmation lands while the file's ack wait
+        // is still the only thing running. That ordering is reachable from a
+        // fast or hostile peer, because drainBelow resolves on the LOCAL
+        // buffer and not on anything the peer has to do.
+        deliverAck('id-early');
+        deliverFrame('{"type":"received"}');
+        await vi.advanceTimersByTimeAsync(0);
+        await p;
+
+        expect(deliveries).toBe(1);
+        expect(subscribed()).toBe(0);
+        expect(listeners.get('close')).toBe(0);
+        expect(vi.getTimerCount()).toBe(0);
     });
 });

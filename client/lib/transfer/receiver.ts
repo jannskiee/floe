@@ -15,6 +15,7 @@ import {
     normalizeFileSize,
     normalizeSha256,
     metadataProblem,
+    hashBoundMs as defaultHashBoundMs,
     type End,
     type Metadata,
     type Incompatible,
@@ -39,13 +40,6 @@ export interface ReceiverDeps {
     // How long a digest may take for a file of this many bytes before the file
     // is kept unverified instead.
     hashBoundMs?: (bytes: number) => number;
-}
-
-// A floor rate of 10 MB/s plus 30 s, so a 2 GB file gets 230 s. A worker that
-// never replies must not keep settled() pending forever; a bound that fires
-// keeps the file unverified, the same as a browser without Workers.
-function defaultHashBoundMs(bytes: number): number {
-    return Math.ceil((bytes / 10_000_000) * 1000) + 30_000;
 }
 
 // String frames held while a SHA-256 check is pending. A conforming sender has
@@ -474,17 +468,26 @@ export function createReceiver(
                     // that throws (a callback, a hasher, an engine without
                     // AbortSignal.timeout, which Safari lacks before 16) can leave
                     // the receiver pending with every later frame queued behind it.
+                    let boundTimer: ReturnType<typeof setTimeout> | null = null;
                     Promise.resolve()
                         .then(() => {
                             cb.onVerifying?.(meta.index, meta.total);
-                            const signal =
-                                typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
-                                    ? AbortSignal.timeout(hashBoundMs(size))
-                                    : undefined;
-                            return hashBlob(blob, signal);
+                            // A controller plus a timer, not AbortSignal.timeout:
+                            // Safari before 16 has no AbortSignal.timeout, so the
+                            // signal was undefined there and a hasher that never
+                            // answered left this pending forever with every later
+                            // frame queued behind it (CP0-F2). AbortController is
+                            // available wherever Workers are.
+                            const ac = new AbortController();
+                            boundTimer = setTimeout(() => ac.abort(), hashBoundMs(size));
+                            return hashBlob(blob, ac.signal);
                         })
                         .catch(() => null)
                         .then((got) => {
+                            if (boundTimer !== null) {
+                                clearTimeout(boundTimer);
+                                boundTimer = null;
+                            }
                             pending = false;
                             try {
                                 // A null digest (no Worker, a worker failure, the time
