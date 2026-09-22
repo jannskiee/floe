@@ -5,6 +5,7 @@
 // <S|H>-<DIR|REL>-<snd>2<rcv>[-variant] with W web, C CLI, D desktop, L CLI
 // inside WSL2. Every receiver leg carries statsOff: true; matrix.test.mjs
 // asserts it, and lib/cell.mjs refuses a leg without it.
+import { UsageError } from './args.mjs';
 import { CAPABILITIES } from './surfaces.mjs';
 import {
     BOUNDARY_SIZES,
@@ -53,6 +54,74 @@ export const HASH_IDS = Object.freeze([
     'H-DIR-C2W-hashbad',
     'H-DIR-C2D-hashbad',
 ]);
+
+// The request link cells (S1-REL-03a, spec 09 2.7.2). The visitor is a web
+// page on /r (W) and the host is the desktop (D), so every one is a W2D
+// cell except TA-17, which is the six quick cells run while the desktop
+// holds an open link. Like HASH_IDS they are outside DEFAULT_IDS and
+// DEEP_IDS: a run reaches them through --cells, and each SKIPs
+// `server-no-request-1` until probe P10 finds request-1 in the server's
+// /health features. TA-14 (reqcaddy) and TA-16 (the CLI visitor) are not
+// planned yet (Phase F prep, and deferred with B6).
+export const REQUEST_VARIANTS = Object.freeze([
+    'req', // TA-10, TA-11 and the head twins: one visitor, Accept, delivered
+    'reqhideip', // TA-12: relay forced by the host's Hide my IP
+    'reqblip', // TA-13: the host's /ws cut while the link waits (head only)
+    'reqdecline', // TA-15: Decline, Keep waiting, a second visitor delivers
+    'reqopen', // TA-17: a quick cell run with a link open on the desktop
+]);
+export const REQUEST_OPEN_IDS = Object.freeze(
+    QUICK_IDS.map((id) => `${id}-reqopen`)
+);
+export const REQUEST_IDS = Object.freeze([
+    'S-DIR-W2D-req', // TA-10
+    'S-REL-W2D-req', // TA-11
+    'S-REL-W2D-reqhideip', // TA-12 (optional)
+    'H-DIR-W2D-reqblip', // TA-13
+    'H-DIR-W2D-reqdecline', // TA-15
+    ...REQUEST_OPEN_IDS, // TA-17
+    'H-DIR-W2D-req', // head twin of TA-10
+    'H-REL-W2D-req', // head twin of TA-11
+    ...REQUEST_OPEN_IDS.map((id) => `H-${id.slice(2)}`), // head twins of TA-17
+]);
+/** The cut TA-13 makes in the host's /ws while the link waits (09 2.7.2). */
+export const REQUEST_BLIP_MS = 5_000;
+/**
+ * The audit clicks Accept or Decline no earlier than this after the prompt
+ * was first seen; the frontend's guard is 1 s. lib/desktop.mjs
+ * ACCEPT_WAIT_MS is the same number (matrix.test.mjs asserts it).
+ */
+export const REQUEST_ACCEPT_WAIT_MS = 1_200;
+const MiB = 1024 * 1024;
+
+export function requestFlowOf(variant) {
+    switch (variant) {
+        case 'req':
+        case 'reqhideip':
+            return 'accept';
+        case 'reqblip':
+            return 'blip-then-accept';
+        case 'reqdecline':
+            return 'decline-then-accept';
+        case 'reqopen':
+            return 'open-link-precondition';
+        default:
+            return null;
+    }
+}
+
+/** True for http(s) URLs whose host is loopback; anything else is false. */
+export function isLoopbackUrl(url) {
+    let u;
+    try {
+        u = new URL(String(url));
+    } catch {
+        return false;
+    }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+    const h = u.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+    return h === 'localhost' || h === '::1' || /^127(\.\d{1,3}){3}$/.test(h);
+}
 
 const PAIRS = ['W2W', 'W2C', 'W2D', 'C2W', 'C2C', 'C2D', 'D2W', 'D2C', 'D2D'];
 export const DEFAULT_IDS = Object.freeze([
@@ -107,6 +176,8 @@ export const SKIP_REASONS = Object.freeze({
     'desktop-unavailable':
         'no desktop build to drive (probe or preflight failed)',
     'head-desktop-pending': 'HEAD desktop build not available in this run',
+    'server-no-request-1':
+        'the server under test does not list request-1 in its /health features (probe P10)',
     filtered: 'excluded by --cells',
 });
 
@@ -178,6 +249,17 @@ function desktopDirCell(parsed) {
 
 export function fixtureSpec(parsed) {
     switch (parsed.variant) {
+        // TA-17 moves what its quick cell moves.
+        case 'reqopen':
+            return fixtureSpec({ ...parsed, variant: null });
+        case 'reqdecline':
+            return { kind: 'single', bytes: MiB, totalBytes: MiB };
+        case 'req':
+        case 'reqhideip':
+        case 'reqblip': {
+            const bytes = parsed.path === 'REL' ? REL_BYTES : DESKTOP_DIR_BYTES;
+            return { kind: 'single', bytes, totalBytes: bytes };
+        }
         case 'bnd8':
             return {
                 kind: 'batch',
@@ -347,6 +429,16 @@ function buildCell(id, { cliHasRelayOnly }) {
             reason = 'no-cli-relay-forcer';
         }
     }
+    const flow = requestFlowOf(variant);
+    // TA-12: the host's Hide my IP forces the relay; the visitor's context
+    // stays unforced, so the host-side relay path is what gets proved.
+    if (variant === 'reqhideip' && p === 'REL' && !verdict) {
+        forcer = 'hideIP';
+        forcedSide = 'receiver';
+    }
+    // The visitor opens <web>/r/<linkId>#<roomId>; TA-17 keeps its quick
+    // cell's own input, since the open link is only a precondition there.
+    if (flow && flow !== 'open-link-precondition') receiver.input = 'request-link';
     if (forcedSide === 'sender') {
         sender.relayOnly = true;
         sender.forcer = forcer;
@@ -371,6 +463,17 @@ function buildCell(id, { cliHasRelayOnly }) {
     const fixture = fixtureSpec(parsed);
     const expect = expectOf(variant);
     const timeouts = phaseTimeouts({ path: p, snd, rcv, expect, fixture });
+    const request = flow ? requestSpec(variant, flow) : null;
+    if (request && flow !== 'open-link-precondition') {
+        // Make link and the prompt: 30 s plus the Accept wait; a blip adds
+        // its cut and a reclaim; a decline adds the second visitor.
+        timeouts.accept = 30_000 + REQUEST_ACCEPT_WAIT_MS;
+        timeouts.hardCap += timeouts.accept;
+        if (flow === 'blip-then-accept')
+            timeouts.hardCap += REQUEST_BLIP_MS + 60_000;
+        if (flow === 'decline-then-accept')
+            timeouts.hardCap += timeouts.join + timeouts.connect;
+    }
     const cell = {
         id,
         profile,
@@ -388,6 +491,8 @@ function buildCell(id, { cliHasRelayOnly }) {
         zipDownload: variant === 'zip',
         // null for every cell that does not lie about a digest (P0-27).
         hashLie: hashLieOf(variant),
+        // null for every cell that is not a request link cell.
+        request,
         timeouts,
         retryable: expect === 'transfer',
         designedSecondAttempt: expect === 'kill-receiver',
@@ -404,6 +509,52 @@ function buildCell(id, { cliHasRelayOnly }) {
     };
     cell.cost = cellCost(cell);
     return cell;
+}
+
+/**
+ * What a request link cell asks of the runner. Every oracle is from 09
+ * 2.7.2; the visitor's stats attempts must be 0 in every one, and the link
+ * (with its room fragment) stays inside the run folder.
+ */
+function requestSpec(variant, flow) {
+    if (flow === 'open-link-precondition')
+        return {
+            flow,
+            feature: 'request-1',
+            host: 'desktop',
+            linkOpen: true,
+            loopbackOnly: false,
+            oracles: ['quick-cell-oracles', 'link-still-waiting-after'],
+        };
+    const oracles = [
+        'sha256-in-drop-subfolder',
+        'visitor-arrived-line',
+        'visitor-sha-line-only-when-verified-equals-n',
+        'desktop-received-n-files',
+        'route',
+        'desktop-json-proof',
+        'visitor-stats-attempts-0',
+        'link-used-up-after',
+    ];
+    if (flow === 'blip-then-accept')
+        oracles.push('visitor-not-connected-during-cut', 'host-reconnecting-then-waiting');
+    if (flow === 'decline-then-accept')
+        oracles.push('visitor-declined-line', 'keep-waiting-reopens', 'second-visitor-delivers');
+    if (variant === 'reqhideip') oracles.push('prompt-text-only-over-2gb');
+    return {
+        flow,
+        feature: 'request-1',
+        host: 'desktop',
+        visitor: 'web',
+        visitors: flow === 'decline-then-accept' ? 2 : 1,
+        acceptWaitMs: REQUEST_ACCEPT_WAIT_MS,
+        blipMs: flow === 'blip-then-accept' ? REQUEST_BLIP_MS : null,
+        // TA-13 cuts sockets through a driver-owned proxy in front of the
+        // server, which only ever makes sense on this machine (never
+        // api.floe.one, OD-33): cellPlan refuses a non-loopback server.
+        loopbackOnly: flow === 'blip-then-accept',
+        oracles,
+    };
 }
 
 function skip(cell, reason) {
@@ -423,7 +574,16 @@ export function gateCell(
 ) {
     if (cell.verdict === 'NA') return cell;
     const p = probe || {};
+    // A request cell never runs against a server that is not known to list
+    // request-1: an absent or unreadable features field fails closed.
+    if (cell.request) {
+        const features = p.server?.features;
+        if (!Array.isArray(features) || !features.includes(cell.request.feature))
+            return skip(cell, 'server-no-request-1');
+    }
+    // Every request cell has the desktop as its host, TA-17's W2W included.
     const hasDesktop =
+        Boolean(cell.request) ||
         cell.sender.surface === 'desktop' ||
         cell.receiver.surface === 'desktop';
     const hasWsl =
@@ -482,6 +642,7 @@ export function cellPlan({
     cliHasRelayOnly = false,
     cells = null,
     desktopMode = 'auto',
+    server = null,
 } = {}) {
     if (!['shipped', 'head'].includes(profile))
         throw new Error(`unknown profile ${profile}`);
@@ -499,6 +660,13 @@ export function cellPlan({
     if (cells) {
         for (const id of HASH_IDS) {
             if (matchCells(id, cells) && !ids.includes(id)) ids.push(id);
+        }
+        // Request cells join the same way. A shipped id joins a shipped
+        // run and a head id a head run; a head-only id named in a shipped
+        // run joins so that it can SKIP head-only below.
+        for (const id of REQUEST_IDS) {
+            const own = id.startsWith(prefix) || id.startsWith('H-');
+            if (own && matchCells(id, cells) && !ids.includes(id)) ids.push(id);
         }
     }
     const rows = [];
@@ -519,6 +687,19 @@ export function cellPlan({
             skip(cell, 'head-only');
         else gateCell(cell, { probe, desktopMode, profile });
         rows.push(cell);
+    }
+    // TA-13 cuts the host's sockets through a proxy on this machine: a
+    // planned blip cell against any server that is not loopback is a usage
+    // error before anything is created (never api.floe.one, OD-33). An
+    // unknown server is refused as well, so no caller can skip the check.
+    for (const cell of rows) {
+        if (!cell.request?.loopbackOnly) continue;
+        if (cell.verdict === 'SKIP' && ['filtered', 'head-only'].includes(cell.reason))
+            continue;
+        if (!isLoopbackUrl(server))
+            throw new UsageError(
+                `${cell.id} runs only against a loopback server (got ${server ?? 'none'}); it cuts sockets through a local proxy and never touches a shared server`
+            );
     }
     return rows;
 }

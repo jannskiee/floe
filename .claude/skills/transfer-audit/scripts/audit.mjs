@@ -129,6 +129,10 @@ const LOCAL = Object.freeze({
     server: 'http://localhost:3001',
     web: 'http://localhost:3000',
 });
+/** The signaling server a profile drives: production, or the local stack. */
+export function serverFor(profile) {
+    return profile === 'head' ? LOCAL.server : PROD.server;
+}
 const WIN = process.platform === 'win32';
 const PS = [
     '-NoProfile',
@@ -524,6 +528,64 @@ function probeMotw(exec, exe, fence, { desktopMode = 'auto' } = {}) {
     }
 }
 
+/**
+ * P10: GET <server>/health and record its `features` (spec 04: request-1
+ * means the server serves request links). Only well-formed short tokens are
+ * kept, at most 20, so a server's answer cannot put arbitrary text in the
+ * report. An absent, malformed or unreachable answer records features null,
+ * and every request cell then SKIPs server-no-request-1 (lib/matrix.mjs).
+ */
+export async function probeServerFeatures(server, { fetchImpl } = {}) {
+    const url = `${server}/health`;
+    try {
+        const r = await getJson(url, { timeoutMs: 5_000, fetchImpl });
+        const raw = r.json && r.json.features;
+        const features = Array.isArray(raw)
+            ? raw
+                  .filter(
+                      (f) => typeof f === 'string' && /^[a-z0-9-]{1,40}$/.test(f)
+                  )
+                  .slice(0, 20)
+            : null;
+        const ok = r.status === 200;
+        return {
+            server,
+            status: r.status,
+            features: ok ? features : null,
+            requestLinks: ok && Array.isArray(features)
+                ? features.includes('request-1')
+                : false,
+            detail: !ok
+                ? `HTTP ${r.status}`
+                : features === null
+                  ? 'no features field'
+                  : features.length
+                    ? features.join(', ')
+                    : 'none listed',
+        };
+    } catch (e) {
+        return {
+            server,
+            status: null,
+            features: null,
+            requestLinks: false,
+            detail: `unreachable: ${String(e.message).split('\n')[0]}`,
+        };
+    }
+}
+
+/** The Versions INFO row for the server's features (never gates a run). */
+export function serverFeaturesRow(p) {
+    return {
+        surface: 'Server features',
+        installed: p ? p.detail : 'not probed',
+        latest: '-',
+        oracle: 'GET /health features (probe P10)',
+        status: 'INFO',
+        gate: false,
+    };
+}
+
 async function localServerUp(fetchImpl) {
     try {
         const r = await getJson(`${LOCAL.server}/health`, {
@@ -684,6 +746,10 @@ async function runProbes({ opts, io, ledger, fence, log, builds, versions }) {
             servesTurn: opts.profile === 'head' ? false : null,
             detail: 'local server not running',
         };
+    probe.server = await probeServerFeatures(serverFor(opts.profile), {
+        fetchImpl: io.fetchImpl,
+    });
+    log(`probe P10 server features: ${probe.server.detail}`);
     probe.playwright = playwrightCheck(opts.clientDir);
     const web = await (io.tryAdapter || realTryAdapter)('web');
     if (
@@ -1428,6 +1494,7 @@ export async function runCmd(opts, io = {}) {
             subset: opts.subset,
             cells: opts.cells,
             cliHasRelayOnly: true,
+            server: serverFor(opts.profile),
         });
         if (!plan.some((c) => c.reason !== 'filtered' && c.verdict !== 'NA'))
             throw new UsageError(
@@ -1808,6 +1875,17 @@ export async function runCmd(opts, io = {}) {
                 log(`probe P4 local TURN re-probe failed: ${e.message}`);
             }
         }
+        if (!io.probe) {
+            // probe.json may predate P10 or a flip of the server's flag;
+            // the request cells gate on this answer, so it is always fresh.
+            const server = await probeServerFeatures(serverFor(opts.profile), {
+                fetchImpl: io.fetchImpl,
+            });
+            probe = { ...probe, server };
+            log(`probe P10 server features (re-probed): ${server.detail}`);
+        }
+        if (Array.isArray(run.versions))
+            run.versions.push(serverFeaturesRow(probe.server));
         run.probe = probe;
         if (probe.turn?.prod)
             run.infra.push({
@@ -1885,6 +1963,7 @@ export async function runCmd(opts, io = {}) {
             cliHasRelayOnly: Boolean(builds.cli?.hasRelayOnly),
             cells: opts.cells,
             desktopMode: opts.desktop,
+            server: serverFor(opts.profile),
         });
         if (typeof io.cellHook === 'function') io.cellHook(cells);
         log(
@@ -2163,7 +2242,11 @@ export async function probeCmd(opts, io = {}) {
         versions,
     });
     probe.versions = versions
-        ? { rows: versions.rows, latest: versions.latest, ghOk: versions.ghOk }
+        ? {
+              rows: [...versions.rows, serverFeaturesRow(probe.server)],
+              latest: versions.latest,
+              ghOk: versions.ghOk,
+          }
         : null;
     if (versions && versions.ghOk === false) {
         probe.pending.push('gh auth (gh release view failed)');
@@ -2190,6 +2273,9 @@ export async function probeCmd(opts, io = {}) {
         );
         out(
             `probe P3 browser relay: ${probe.browserRelay.ok === null ? probe.browserRelay.detail : probe.browserRelay.ok ? 'ok' : `NO (${probe.browserRelay.detail})`}`
+        );
+        out(
+            `probe P10 server features: ${probe.server?.detail ?? 'not probed'}`
         );
         const d = probe.desktop || {};
         if (d.probes && Object.keys(d.probes).length) {

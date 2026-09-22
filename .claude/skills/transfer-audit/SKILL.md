@@ -120,6 +120,11 @@ a code or link.` or an empty read-back means every desktop-receiver cell
   runs `Unblock-File` on its own scratch file only). P8, `ShowWindow`
   SW_SHOWNOACTIVATE un-minimizes without activation. P9, the remembered
   save dir (`floe:saveDir`) reads back and restores through UIA.
+- P10, `GET <server>/health` `features` on the server the profile drives
+  (local for head, production for shipped; one GET, re-read on every run).
+  Only short tokens are kept. Without `request-1` every request link cell
+  SKIPs `server-no-request-1`; the Versions table carries it as the INFO row
+  `Server features`.
 
 Every probe records a verdict object; a probe that throws records `error`
 and the dependent cells SKIP with that reason.
@@ -436,6 +441,34 @@ failure. Both build dirs go through the write fence before the first step
 runs, so nothing a plan names can land under the real `%APPDATA%\floe`. An
 adapter without `buildHead` logs `HEAD desktop build pending` and every
 desktop cell SKIPs `desktop-unavailable`.
+
+## 7a. Request-link cells (need request-1 on the server)
+
+TA-10 to TA-13, TA-15 and TA-17 of spec 09 2.7.2, listed in
+`references/matrix.md` (Request-link cells) and `REQUEST_IDS` in
+`scripts/lib/matrix.mjs`. A run reaches them only through `--cells`, and
+each SKIPs `server-no-request-1` until probe P10 finds `request-1`.
+
+- The host is the desktop on the wailsdev lane today: the DOM verbs on
+  `PlaywrightDriver` (make, read, accept, decline, keep waiting, close; the
+  table in matrix.md). The UIA verbs for the Store and portable builds are
+  Phase F prep, and so are TA-14 (Caddy reload) and TA-16 (the CLI visitor).
+- Accept and Decline wait at least 1.2 s from the moment the prompt was
+  first seen (the frontend's guard is 1 s); a click inside the guard would
+  be ignored, and the verb then fails on its read-back.
+- Receivers stay opted out: the visitor's `floe:report-stats` seed is
+  `false`, `**/api/stats/report` is aborted and counted, and the count must
+  be 0 in every cell. Relay cells move 4 MiB.
+- The link carries the room after `#`: it goes to the visitor leg only.
+  Any line a person reads uses `redactRequestLink` (`#<room>`), and neither
+  audit.md nor run.json carries it.
+- `H-DIR-W2D-reqblip` cuts the host's `/ws` for 5 s through the driver's own
+  proxy (`scripts/lib/blip.mjs`, 127.0.0.1 only, loopback upstream only);
+  `cellPlan` refuses the cell as a usage error against any server that is
+  not loopback, so it can never point at api.floe.one.
+- TA-17 (`-reqopen`) is the six quick cells with a link open on the desktop;
+  it needs the desktop even for its W2W cell, and the link must still be
+  waiting afterwards.
 
 ## 8. Deep cells (the shapes that shipped bugs: chunk edges, sizes, kills, the cap, one non-loopback path)
 

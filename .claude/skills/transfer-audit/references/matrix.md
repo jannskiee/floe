@@ -19,6 +19,7 @@ surface  W = web browser (Playwright chromium)   C = CLI (Windows)
          D = desktop (Store build or portable)    L = CLI inside WSL2 Ubuntu-22.04 (deep only)
 variant  link | bnd8 | fold | zip | cap3g | thr500 | killsnd | killrcv
          hashbad | hashmal (head profile only, see Forced mismatches)
+         req | reqhideip | reqblip | reqdecline | reqopen (see Request-link cells)
 ```
 
 Examples: `S-DIR-W2C`, `S-REL-C2D`, `H-DIR-C2C-bnd8`, `S-DIR-L2W`, `H-DIR-C2C-hashbad`.
@@ -71,6 +72,71 @@ How a run carries them out:
   sender may end on "All Files Sent!" or on the receiver's wire reason; the page
   usually reaches the first before the refusal lands. The FAIL keys are
   `hash-not-refused` and `hash-refusal-code`.
+
+## Request-link cells (need request-1)
+
+The Stage 1 cells of spec 09 2.7.2. The ids are `REQUEST_IDS` in
+`scripts/lib/matrix.mjs`, and each row below has a `cellPlan` entry (and the
+reverse; `matrix.test.mjs` parses this table). Like the hash cells they are
+outside `DEFAULT_IDS` and `DEEP_IDS`: a run reaches them through `--cells`.
+Every one SKIPs `server-no-request-1` until probe P10 (`GET <server>/health`)
+finds `request-1` in the server's `features`; an absent, malformed or
+unreachable answer counts as absent. The host is always the desktop (D), so
+`--desktop none` drops them all, TA-17's W2W included.
+
+The visitor (W) opens `<web>/r/<linkId>#<roomId>` in a fresh Chromium
+context. The link comes from the host's `GetRequestLink` on the wailsdev
+lane (`PlaywrightDriver.readRequestLink`, checked against what the waiting
+view shows) and goes to the visitor leg only: `redactRequestLink` replaces
+the room fragment with `<room>` in every line a person reads, and neither
+audit.md nor run.json carries it. The visitor seeds
+`localStorage['floe:report-stats']` to `false` and aborts and counts every
+`**/api/stats/report` request: attempts must be 0 in every cell. Accept and
+Decline are clicked no earlier than 1.2 s after the prompt was first seen
+(`REQUEST_ACCEPT_WAIT_MS`; the frontend guard is 1 s). Relay cells move
+4 MiB. `reqblip` refuses any server that is not loopback, as a usage error
+before anything is created, and cuts only through the driver's own proxy
+(`scripts/lib/blip.mjs`, 127.0.0.1 only).
+
+Not planned yet: TA-14 `H-DIR-W2D-reqcaddy` (a Caddy reload on a local
+Docker Caddy; Phase F prep, on the untested list until it runs) and TA-16
+`S-DIR-C2D-req` (the CLI visitor, deferred with B6). The id scheme takes one
+variant token, so TA-12 is `reqhideip` (spec 09 writes `req-hideip`).
+
+| Cell                   | TA        | Snd | Rcv | Path | Forcer         | Input        | Size        | Required oracles |
+| ---------------------- | --------- | --- | --- | ---- | -------------- | ------------ | ----------- | ---------------- |
+| S-DIR-W2D-req          | TA-10     | W   | D   | DIR  | none           | request-link | 64 MiB      | on-disk sha256 inside the exclusive drop subfolder; visitor arrived line, its SHA line only when verified equals N; desktop `Received N files` and the SHA sentence; D pill `Direct` and W `direct`; desktop.json proof; visitor stats attempts 0; the link reads used up afterwards |
+| S-REL-W2D-req          | TA-11     | W   | D   | REL  | W sender       | request-link | 4 MiB       | as TA-10 with W `local=relay` and D pill `Relay` |
+| S-REL-W2D-reqhideip    | TA-12     | W   | D   | REL  | D hideIP       | request-link | 4 MiB       | as TA-11 with the relay forced by the host; the over 2 GB prompt warning read from prompt text only (no bytes moved); optional |
+| H-DIR-W2D-reqblip      | TA-13     | W   | D   | DIR  | none           | request-link | 64 MiB      | the host's `/ws` cut 5 s through the blip proxy while the link waits: a visitor in the gap gets the not-connected copy; the desktop shows Reconnecting then Waiting; after the reclaim the visitor's Try again delivers and hashes match; head only, loopback only |
+| H-DIR-W2D-reqdecline   | TA-15     | W   | D   | DIR  | none           | request-link | 1 MiB       | Decline: the visitor reads the declined copy; Keep waiting sends `request-reopen`; a second visitor context delivers and hashes match |
+| S-DIR-W2W-reqopen      | TA-17     | W   | W   | DIR  | none           | link         | 12 MiB      | the S-DIR-W2W oracles with a link open on the desktop; the link still waits afterwards |
+| S-DIR-C2W-reqopen      | TA-17     | C   | W   | DIR  | none           | link         | 12 MiB      | as S-DIR-C2W, link open |
+| S-DIR-W2C-reqopen      | TA-17     | W   | C   | DIR  | none           | link         | 12 MiB      | as S-DIR-W2C, link open |
+| S-REL-W2C-reqopen      | TA-17     | W   | C   | REL  | W sender       | link         | 4 MiB       | as S-REL-W2C, link open |
+| S-DIR-D2C-reqopen      | TA-17     | D   | C   | DIR  | none           | code         | 64 MiB      | as S-DIR-D2C, link open (the Send lane beside an open link) |
+| S-DIR-C2D-reqopen      | TA-17     | C   | D   | DIR  | none           | code         | 64 MiB      | as S-DIR-C2D, link open (code Receive and the early-race fix beside an open link) |
+| H-DIR-W2D-req          | TA-10 (H) | W   | D   | DIR  | none           | request-link | 64 MiB      | as TA-10 on the local stack |
+| H-REL-W2D-req          | TA-11 (H) | W   | D   | REL  | W sender       | request-link | 4 MiB       | as TA-11; SKIP `local-stun-only` without the local coturn (floe-run `--local-turn`) |
+| H-DIR-W2W-reqopen      | TA-17 (H) | W   | W   | DIR  | none           | link         | 12 MiB      | as S-DIR-W2W-reqopen on the local stack |
+| H-DIR-C2W-reqopen      | TA-17 (H) | C   | W   | DIR  | none           | link         | 12 MiB      | as S-DIR-C2W-reqopen |
+| H-DIR-W2C-reqopen      | TA-17 (H) | W   | C   | DIR  | none           | link         | 12 MiB      | as S-DIR-W2C-reqopen |
+| H-REL-W2C-reqopen      | TA-17 (H) | W   | C   | REL  | W sender       | link         | 4 MiB       | as S-REL-W2C-reqopen |
+| H-DIR-D2C-reqopen      | TA-17 (H) | D   | C   | DIR  | none           | code         | 64 MiB      | as S-DIR-D2C-reqopen |
+| H-DIR-C2D-reqopen      | TA-17 (H) | C   | D   | DIR  | none           | code         | 64 MiB      | as S-DIR-C2D-reqopen |
+
+The host verbs on the wailsdev lane (`scripts/lib/desktop.mjs`
+`PlaywrightDriver`), each by its frozen accessible name from
+`work/16-design/cp-3/approved-copy-desktop.md`:
+
+| Verb              | Clicks                                                  | Reads back                               |
+| ----------------- | ------------------------------------------------------- | ---------------------------------------- |
+| makeRequestLink   | `Receive`, `Request link, beta`, `In 7 days` (7d only), `Make link` | `Copy link` shows (waiting)   |
+| readRequestLink   | nothing                                                 | `GetRequestLink` link, matched to the screen |
+| acceptRequest     | `Accept`, at least 1200 ms after the prompt was seen    | `Accept` gone (the prompt left)          |
+| declineRequest    | `Decline`, at least 1200 ms after the prompt was seen   | `Keep waiting` shows (declined)          |
+| keepWaiting       | `Keep waiting` (only from the declined view)            | `Copy link` shows again (waiting)        |
+| closeRequestLink  | `Close link`                                            | `Make another link` shows (ended)        |
 
 ## What each surface can do
 

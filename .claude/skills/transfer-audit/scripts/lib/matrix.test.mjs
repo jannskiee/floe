@@ -11,13 +11,21 @@ import {
     DEFAULT_IDS,
     HASH_IDS,
     QUICK_IDS,
+    REQUEST_ACCEPT_WAIT_MS,
+    REQUEST_BLIP_MS,
+    REQUEST_IDS,
+    REQUEST_OPEN_IDS,
+    REQUEST_VARIANTS,
     SKIP_REASONS,
     cellPlan,
     countsForExit,
+    isLoopbackUrl,
     matchCells,
     parseCellId,
     phaseTimeouts,
 } from './matrix.mjs';
+import { ACCEPT_WAIT_MS } from './desktop.mjs';
+import { UsageError } from './args.mjs';
 
 const byId = (rows) => Object.fromEntries(rows.map((c) => [c.id, c]));
 
@@ -462,4 +470,188 @@ test('matrix.md documents every hash id and variant the code knows', () => {
     assert.ok(md.includes('hashbad'), 'matrix.md names hashbad');
     assert.ok(md.includes('hashmal'), 'matrix.md names hashmal');
     assert.ok(md.includes('HASH_IDS'), 'matrix.md points at the id list in the code');
+});
+
+// ------------------------------------------------ request link cells
+
+const WITH_FEATURE = {
+    server: { features: ['request-1'] },
+    desktop: { available: true },
+};
+const LOCAL = 'http://localhost:3001';
+const requestPlan = (profile, probe = WITH_FEATURE) =>
+    cellPlan({
+        profile,
+        cells: REQUEST_IDS,
+        probe,
+        server: profile === 'head' ? LOCAL : 'https://api.floe.one',
+    }).filter((c) => REQUEST_IDS.includes(c.id));
+
+function requestTableIds() {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const md = readFileSync(
+        join(here, '..', '..', 'references', 'matrix.md'),
+        'utf8'
+    );
+    const start = md.indexOf('## Request-link cells (need request-1)');
+    assert.ok(start >= 0, 'matrix.md has the Request-link cells section');
+    const end = md.indexOf('\n## ', start + 5);
+    const section = md.slice(start, end < 0 ? undefined : end);
+    const row = /^\|\s*([SH]-(?:DIR|REL)-[WCDL]2[WCDL]-[a-z0-9]+)\s*\|/;
+    return section
+        .split('\n')
+        .map((l) => row.exec(l))
+        .filter(Boolean)
+        .map((m) => m[1]);
+}
+
+test('matrix.md and cellPlan agree on every request link cell, both ways', () => {
+    const table = requestTableIds();
+    assert.deepEqual([...table].sort(), [...REQUEST_IDS].sort());
+    const planned = [...requestPlan('shipped'), ...requestPlan('head')].map(
+        (c) => c.id
+    );
+    for (const id of REQUEST_IDS)
+        assert.ok(planned.includes(id), `${id} has a cellPlan entry`);
+    for (const id of table)
+        assert.ok(REQUEST_VARIANTS.includes(parseCellId(id).variant), id);
+    assert.equal(
+        REQUEST_OPEN_IDS.length,
+        QUICK_IDS.length,
+        'TA-17 is all six quick cells'
+    );
+});
+
+test('request cells SKIP server-no-request-1 without the feature, and absent or malformed counts as absent', () => {
+    assert.match(SKIP_REASONS['server-no-request-1'], /probe P10/);
+    for (const probe of [
+        {},
+        { server: null },
+        { server: { features: null } },
+        { server: { features: 'request-1' } },
+        { server: { features: ['request-2'] } },
+    ]) {
+        for (const profile of ['shipped', 'head']) {
+            const rows = requestPlan(profile, {
+                ...probe,
+                desktop: { available: true },
+            }).filter((c) => c.reason !== 'head-only');
+            assert.ok(rows.length > 0);
+            for (const c of rows)
+                assert.equal(
+                    c.reason,
+                    'server-no-request-1',
+                    `${c.id} ${JSON.stringify(probe)}`
+                );
+        }
+    }
+    const head = requestPlan('head');
+    assert.ok(head.length > 0);
+    for (const c of head) assert.equal(c.verdict, null, `${c.id} runs with request-1`);
+});
+
+test('request cells are never in a walk without --cells, and every receiver leg is opted out', () => {
+    for (const subset of ['quick', 'default', 'deep'])
+        for (const profile of ['shipped', 'head'])
+            assert.ok(
+                !cellPlan({ profile, subset }).some((c) => c.request),
+                `${profile}/${subset} plans no request cell`
+            );
+    for (const c of [...requestPlan('shipped'), ...requestPlan('head')])
+        assert.equal(c.receiver.statsOff, true, c.id);
+});
+
+test('request cells: sizes, inputs, forcers, flows and the Accept wait', () => {
+    const all = byId([...requestPlan('shipped'), ...requestPlan('head')]);
+    const MiB = 1024 * 1024;
+    const want = {
+        'S-DIR-W2D-req': [64 * MiB, 'request-link', 'none', null, 'accept'],
+        'S-REL-W2D-req': [4 * MiB, 'request-link', 'initScript', 'sender', 'accept'],
+        'S-REL-W2D-reqhideip': [4 * MiB, 'request-link', 'hideIP', 'receiver', 'accept'],
+        'H-DIR-W2D-reqblip': [64 * MiB, 'request-link', 'none', null, 'blip-then-accept'],
+        'H-DIR-W2D-reqdecline': [MiB, 'request-link', 'none', null, 'decline-then-accept'],
+        'S-DIR-W2W-reqopen': [12 * MiB, 'link', 'none', null, 'open-link-precondition'],
+        'S-REL-W2C-reqopen': [4 * MiB, 'link', 'initScript', 'sender', 'open-link-precondition'],
+        'S-DIR-C2D-reqopen': [64 * MiB, 'code', 'none', null, 'open-link-precondition'],
+        'H-REL-W2D-req': [4 * MiB, 'request-link', 'initScript', 'sender', 'accept'],
+    };
+    for (const [id, [bytes, input, forcer, side, flow]] of Object.entries(want)) {
+        const c = all[id];
+        assert.ok(c, id);
+        assert.equal(c.fixture.totalBytes, bytes, `${id} size`);
+        assert.equal(c.receiver.input, input, `${id} input`);
+        assert.equal(c.forcer, forcer, `${id} forcer`);
+        assert.equal(c.forcedSide, side, `${id} forced side`);
+        assert.equal(c.request.flow, flow, `${id} flow`);
+        assert.equal(c.request.feature, 'request-1');
+    }
+    assert.equal(all['S-REL-W2D-reqhideip'].receiver.relayOnly, true);
+    assert.equal(all['S-REL-W2D-reqhideip'].sender.relayOnly, false);
+    assert.equal(all['H-DIR-W2D-reqblip'].request.blipMs, REQUEST_BLIP_MS);
+    assert.equal(REQUEST_BLIP_MS, 5_000);
+    assert.equal(all['H-DIR-W2D-reqdecline'].request.visitors, 2);
+    assert.equal(REQUEST_ACCEPT_WAIT_MS, ACCEPT_WAIT_MS, 'one Accept wait');
+    assert.ok(REQUEST_ACCEPT_WAIT_MS >= 1200);
+    for (const c of Object.values(all)) {
+        if (c.request.flow === 'open-link-precondition') continue;
+        assert.equal(c.request.acceptWaitMs, REQUEST_ACCEPT_WAIT_MS);
+        assert.ok(c.timeouts.accept >= REQUEST_ACCEPT_WAIT_MS);
+        assert.ok(c.request.oracles.includes('visitor-stats-attempts-0'), c.id);
+    }
+    // TA-17's W2W has no desktop leg, but its host is the desktop.
+    const none = cellPlan({
+        profile: 'shipped',
+        cells: ['S-DIR-W2W-reqopen'],
+        probe: WITH_FEATURE,
+        desktopMode: 'none',
+    }).find((c) => c.id === 'S-DIR-W2W-reqopen');
+    assert.equal(none.reason, 'desktop-none');
+});
+
+test('reqblip refuses any server that is not loopback, as a usage error before anything is created', () => {
+    for (const server of [
+        'https://api.floe.one',
+        'http://192.168.1.10:3001',
+        'http://localhost.evil.example:3001',
+        'ws://localhost:3001',
+        'not a url',
+        null,
+    ]) {
+        assert.throws(
+            () =>
+                cellPlan({
+                    profile: 'head',
+                    cells: ['H-DIR-W2D-reqblip'],
+                    probe: WITH_FEATURE,
+                    server,
+                }),
+            (e) => e instanceof UsageError && /loopback/.test(e.message),
+            String(server)
+        );
+    }
+    for (const server of [
+        'http://localhost:3001',
+        'http://127.0.0.1:3001',
+        'http://[::1]:3001',
+    ])
+        assert.ok(isLoopbackUrl(server), server);
+    const ok = cellPlan({
+        profile: 'head',
+        cells: ['H-DIR-W2D-reqblip'],
+        probe: WITH_FEATURE,
+        server: LOCAL,
+    }).find((c) => c.id === 'H-DIR-W2D-reqblip');
+    assert.equal(ok.verdict, null);
+    assert.equal(ok.request.loopbackOnly, true);
+    // A shipped run that names it SKIPs head-only and never reaches a server.
+    const shipped = cellPlan({
+        profile: 'shipped',
+        cells: ['H-DIR-W2D-reqblip'],
+        probe: WITH_FEATURE,
+        server: 'https://api.floe.one',
+    }).find((c) => c.id === 'H-DIR-W2D-reqblip');
+    assert.equal(shipped.reason, 'head-only');
+    // Only the blip cell carries the loopback rule.
+    for (const c of requestPlan('head'))
+        assert.equal(c.request.loopbackOnly, c.id === 'H-DIR-W2D-reqblip', c.id);
 });
