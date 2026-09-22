@@ -378,9 +378,64 @@ with `COREPACK_ENABLE_AUTO_PIN=0` (from the repo root corepack resolves
 after `npm run build` in `desktop/frontend`; it proves HEAD, not the shipped
 exe, and the report labels it. The lane expects `wails dev` to be started by
 the operator from that checkout's `desktop/` with its `desktop.json` pointed
-at the audit server and `reportStats:false`; it was not exercised in the
-first round. A wailsdev receiver is refused (exit 3) unless `GetSettings()`
-shows `reportStats:false`, `migrated:true` and the audit server.
+at the audit server and `reportStats:false`. A wailsdev receiver is refused
+(exit 3) unless `GetSettings()` shows `reportStats:false`, `migrated:true`
+and the audit server.
+
+The lane first ran on 2026-09-22 (DV-MATRIX-DSK). Four things the lane needs
+that no other lane does, every one of them learned from that run:
+
+- **The sender's files.** `planLaunch` starts no process for `wailsdev`
+  (`filesStaged: false`), so nothing carries the files on argv and the page
+  opens on an empty drop zone. The leg hands them over first, through the
+  `files:open` event `App.tsx` listens on, which is the same entry point
+  Explorer's verb and a second instance use. The native picker behind the
+  Files button (`SelectFiles()`) cannot be driven from a browser page, and
+  `StartSend()` would skip the button the cell exists to exercise.
+- **The receive view's primary button.** It carries the same accessible
+  name as the RECEIVE tab, and the calm redesign left it a sibling of the
+  field groups rather than of the code input, so it is reached by document
+  order after the code input (the tab row is in the card header above the
+  body), never by sibling position.
+- **The room code and the share link.** They render together, from one
+  `send:code` event, but the leg reads them one after the other, so it
+  waits for both rather than returning on whichever read wins. `readText`
+  answers with the innermost matching elements, because an element's
+  textContent carries its descendants' and the page root would otherwise
+  answer every loose pattern first, and a share link is parsed as a URL
+  with a `#room=` fragment before the receiver is driven with it.
+- **The relay forcer.** Every other mode takes `hideIP` from the
+  desktop.json it launches with, but the operator starts this one and the
+  audit never writes its config, so an `H-REL-*` cell with a desktop side
+  sets Hide my IP through the Settings switch and puts it back on stop.
+  The switch, not the bound `SetSettings` call: App.tsx passes its own
+  React `hideIP` to `StartSend` and `ReceiveByCode`, and that state is read
+  from `GetSettings` once at mount, so writing the file under a running
+  page would persist a value the transfer never uses. `GetSettings` is read
+  back as the proof, and a switch that will not move is a precondition
+  failure rather than a relay cell quietly recorded as direct.
+
+`wails dev` serves the page over its own websocket bridge, so the runtime's
+`window.WailsInvoke("runtime:ready")` reaches the dev server's dispatcher,
+which does not know that message and logs `ERR | Unknown message from front
+end: runtime:ready`, once per page connect. Only the WebView2 frontend
+handles it, and all it does there is set the CSS drag and drop property
+names. It is noise for an external browser page: bound method calls (`C`)
+and events (`EE`, `EX`) take different dispatcher branches, so nothing the
+driver relies on is dropped.
+
+Both head desktop lanes are built by `lib/desktop.mjs` `buildHead` from
+`lib/release.mjs` `headDesktopCommands`. On `wailsdev` it runs no build step:
+it requires `http://localhost:34115` to answer (exit 3 `wailsdev-down`
+otherwise) and returns a build with no exe path, so P2 and P7 read `n/a` and
+a release exe staged under `--bin-dir` is never adopted for them. On
+`portable` it runs `npm run build` in `desktop/frontend`, then `wails build`
+with no shell so the `-ldflags` value stays one argv element, and requires
+the exe's mtime to advance, because `wails build` can exit 0 on a silent
+failure. Both build dirs go through the write fence before the first step
+runs, so nothing a plan names can land under the real `%APPDATA%\floe`. An
+adapter without `buildHead` logs `HEAD desktop build pending` and every
+desktop cell SKIPs `desktop-unavailable`.
 
 ## 8. Deep cells (the shapes that shipped bugs: chunk edges, sizes, kills, the cap, one non-loopback path)
 

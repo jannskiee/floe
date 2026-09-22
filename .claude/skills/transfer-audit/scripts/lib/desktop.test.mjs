@@ -13,7 +13,9 @@ import {
     mkdirSync,
     mkdtempSync,
     readFileSync,
+    readdirSync,
     rmSync,
+    utimesSync,
     writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -22,6 +24,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { createFence } from './fence.mjs';
 import { started } from './proc.mjs';
+import { headDesktopCommands } from './release.mjs';
 import { PhaseError, SafetyError, sleep } from './surfaces.mjs';
 import {
     AUMID,
@@ -33,6 +36,7 @@ import {
     FAST_SAMPLE_WINDOW_MS,
     LAUNCH_MODES,
     PROBE_NAMES,
+    PlaywrightDriver,
     PreconditionError,
     RE,
     READY_AFTER_DECISIVE_MS,
@@ -41,15 +45,18 @@ import {
     STRINGS,
     ShellMenuGuard,
     USER_AWAY_IDLE_S,
+    WAILSDEV_URL,
     WINDOWS_APPS,
     activeGuards,
     activeLegs,
     aggregateProbes,
+    buildHead,
     classifyStatus,
     createLeg,
     defaultConfigPath,
     editDesktopJson,
     identityVersion,
+    isRoomLink,
     listDesktopProcesses,
     parseTag,
     parseTasklist,
@@ -71,6 +78,7 @@ import {
     versionForIdentity,
     withDesktopConfig,
     writeShellMenu,
+    xpathLiteral,
 } from './desktop.mjs';
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), 'desktop-test-'));
@@ -583,6 +591,21 @@ function scriptedDriver(state) {
             calls.push(['stage', paths, cwd]);
             if (state.onStage) state.onStage(paths);
             return { target: 1, chars: 1, cbData: 1, activates: true };
+        },
+        // The wailsdev pieces: GetSettings over the dev bridge and one
+        // Settings switch. state.settings is the app's persisted record, so
+        // a toggle that claims to have landed has to show up in it.
+        async settings() {
+            calls.push(['settings']);
+            return state.settings ?? null;
+        },
+        async setToggle(name, value) {
+            calls.push(['set-toggle', String(name), value]);
+            const before = Boolean(state.settings && state.settings.hideIP);
+            if (state.toggleStuck)
+                return { before, after: before, changed: false };
+            if (state.settings) state.settings.hideIP = value;
+            return { before, after: value, changed: before !== value };
         },
     };
 }
@@ -2114,4 +2137,660 @@ test('awaitConnected accepts a completion that landed between two polls (fast tr
     );
     assert.equal((await s.leg.awaitDone(2000)).ok, true);
     await s.leg.stop('test');
+});
+
+// ----------------------------------------------------------- head builds
+
+test('buildHead wailsdev: runs no build step, needs the dev server to answer, and returns a build with no exe path', async () => {
+    const dir = tmp();
+    const plan = headDesktopCommands({
+        root: path.join(dir, 'repo'),
+        sha7: 'abc1234',
+        wails: 'C:\\go\\bin\\wails.exe',
+    });
+    const execCalls = [];
+    const exec = (cmd, args) => {
+        execCalls.push([cmd, ...args]);
+        return '';
+    };
+    const probed = [];
+    const up = await buildHead({
+        ...plan,
+        mode: 'wailsdev',
+        fence: null,
+        exec,
+        head: async (url) => {
+            probed.push(url);
+            return 200;
+        },
+    });
+    assert.deepEqual(execCalls, [], 'the wailsdev lane runs no build step');
+    assert.deepEqual(probed, [WAILSDEV_URL]);
+    assert.equal(up.path, null, 'no exe on disk, so P7 has nothing to probe');
+    assert.equal(up.sha256, null);
+    assert.equal(up.launch, 'wailsdev');
+    assert.equal(up.served, WAILSDEV_URL);
+    assert.equal(up.version, 'head-abc1234');
+
+    // Nothing answering 34115 is a machine precondition, not a verdict.
+    let thrown = null;
+    try {
+        await buildHead({
+            ...plan,
+            mode: 'wailsdev',
+            exec,
+            head: async () => 0,
+        });
+    } catch (e) {
+        thrown = e;
+    }
+    assert.ok(thrown instanceof PreconditionError);
+    assert.equal(thrown.reason, 'wailsdev-down');
+    assert.equal(thrown.exitCode, 3);
+    assert.match(thrown.message, /wails dev/);
+    assert.deepEqual(execCalls, [], 'still no build step on the down path');
+    rmSync(dir, { recursive: true, force: true });
+});
+
+test('buildHead portable: runs npm run build then wails build through exec with no shell for wails, requires the exe mtime to advance, and returns its sha256', async () => {
+    const dir = tmp();
+    const root = path.join(dir, 'repo');
+    const plan = headDesktopCommands({
+        root,
+        sha7: 'abc1234',
+        wails: 'C:\\go\\bin\\wails.exe',
+    });
+    for (const w of plan.writes) mkdirSync(w, { recursive: true });
+    writeFileSync(plan.exe, 'MZ stale build');
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(plan.exe, old, old);
+    const fence = {
+        allowed: [],
+        asserted: [],
+        allowDir(d) {
+            this.allowed.push(d);
+        },
+        assertWritable(p) {
+            this.asserted.push(p);
+            return p;
+        },
+    };
+    const calls = [];
+    const exec = (cmd, args, o = {}) => {
+        calls.push({
+            cmd,
+            args,
+            cwd: o.cwd,
+            shell: o.shell,
+            timeout: o.timeout,
+        });
+        if (cmd === plan.steps[1].cmd)
+            writeFileSync(plan.exe, 'MZ fresh head desktop build');
+        return '';
+    };
+    const built = await buildHead({ ...plan, mode: 'portable', fence, exec });
+
+    assert.equal(calls.length, 2, 'both steps, in order');
+    assert.deepEqual(calls[0].args, ['run', 'build']);
+    assert.equal(calls[0].cwd, path.join(root, 'desktop', 'frontend'));
+    assert.equal(
+        calls[0].shell,
+        process.platform === 'win32',
+        'the npm step keeps the plan shell flag'
+    );
+    assert.equal(calls[1].cmd, 'C:\\go\\bin\\wails.exe');
+    assert.equal(calls[1].cwd, path.join(root, 'desktop'));
+    assert.equal(calls[1].shell, false, 'no shell for wails');
+    const ld = calls[1].args.indexOf('-ldflags');
+    assert.ok(ld > -1);
+    assert.equal(
+        calls[1].args[ld + 1],
+        '-X main.version=head-abc1234',
+        'the ldflags value is one argv element, so no shell quoting'
+    );
+    assert.equal(calls[1].timeout, plan.steps[1].timeoutMs);
+    assert.deepEqual(
+        fence.allowed,
+        plan.writes,
+        'every build dir is registered with the fence before any step runs'
+    );
+    assert.deepEqual(fence.asserted, [...plan.writes, plan.exe]);
+
+    assert.equal(built.path, plan.exe);
+    assert.equal(built.launch, 'portable');
+    assert.equal(built.version, 'head-abc1234');
+    assert.equal(built.sha256, sha256(readFileSync(plan.exe)));
+    assert.ok(built.builtAt > old.toISOString());
+
+    // wails build can exit 0 on a silent failure, so a run that leaves the
+    // exe alone is a failed build however the child exited.
+    const quiet = [];
+    let thrown = null;
+    try {
+        await buildHead({
+            ...plan,
+            mode: 'portable',
+            fence,
+            exec: (cmd) => {
+                quiet.push(cmd);
+                return '';
+            },
+        });
+    } catch (e) {
+        thrown = e;
+    }
+    assert.ok(thrown instanceof PreconditionError);
+    assert.equal(quiet.length, 2, 'both steps ran and both exited 0');
+    assert.ok(
+        thrown.message.includes(plan.exe),
+        `the failure names the exe: ${thrown.message}`
+    );
+    rmSync(dir, { recursive: true, force: true });
+});
+
+test('buildHead never writes under the real APPDATA', async () => {
+    const dir = tmp();
+    const appData = path.join(dir, 'appdata');
+    mkdirSync(path.join(appData, 'floe'), { recursive: true });
+    const fence = createFence({
+        allow: [path.join(dir, 'out')],
+        repoRoots: [],
+        appData,
+    });
+    const exec = () => {
+        throw new Error('no step may run once a write is refused');
+    };
+    // A plan naming the real %APPDATA%\floe: allowDir cannot open that tree,
+    // because the fence refuses it ahead of its own allowlist.
+    for (const target of [
+        path.join(appData, 'floe'),
+        path.join(appData, 'floe', 'webview'),
+        path.join(appData, 'floe', 'desktop.json'),
+    ]) {
+        let thrown = null;
+        try {
+            await buildHead({
+                version: 'head-abc1234',
+                steps: [{ cmd: 'npm', args: ['run', 'build'], cwd: dir }],
+                exe: path.join(dir, 'out', 'floe-desktop.exe'),
+                writes: [target],
+                mode: 'portable',
+                fence,
+                exec,
+            });
+        } catch (e) {
+            thrown = e;
+        }
+        assert.ok(
+            thrown instanceof SafetyError,
+            `${target} must be refused, got ${thrown && thrown.name}`
+        );
+        assert.match(thrown.message, /write refused/);
+    }
+    assert.deepEqual(
+        readdirSync(path.join(appData, 'floe')),
+        [],
+        'nothing was created under the real app data'
+    );
+    // The fence is also required: without one the guarantee is unproven.
+    let noFence = null;
+    try {
+        await buildHead({
+            version: 'head-abc1234',
+            steps: [],
+            exe: path.join(dir, 'out', 'floe-desktop.exe'),
+            writes: [],
+            mode: 'portable',
+            exec,
+        });
+    } catch (e) {
+        noFence = e;
+    }
+    assert.ok(noFence instanceof PreconditionError);
+    assert.match(noFence.message, /write fence is required/);
+    rmSync(dir, { recursive: true, force: true });
+});
+
+test('buildHead refuses a mode it does not know', async () => {
+    const exec = () => {
+        throw new Error('no step may run for an unknown mode');
+    };
+    const head = async () => {
+        throw new Error('no dev server probe for an unknown mode');
+    };
+    for (const mode of ['store', 'none', 'auto-magic', '', null]) {
+        let thrown = null;
+        try {
+            await buildHead({
+                version: 'head-abc1234',
+                steps: [],
+                exe: 'C:\\x\\floe-desktop.exe',
+                writes: [],
+                mode,
+                fence: createFence({ allow: [], repoRoots: [] }),
+                exec,
+                head,
+            });
+        } catch (e) {
+            thrown = e;
+        }
+        assert.ok(
+            thrown instanceof PreconditionError,
+            `${String(mode)} must be refused`
+        );
+        assert.equal(thrown.reason, 'head-desktop-mode');
+        assert.equal(thrown.exitCode, 3);
+        assert.match(thrown.message, /not a head desktop lane/);
+    }
+    // store is a launch mode the adapter knows; it is just not a head build.
+    assert.ok(LAUNCH_MODES.includes('store'));
+    assert.ok(LAUNCH_MODES.includes('wailsdev'));
+});
+
+// -------------------------------------------------- the wailsdev driver
+
+/**
+ * A page that records the locator chain instead of touching a browser, so
+ * the shape of a selector is testable without Playwright or a DOM. evaluate
+ * runs the real page function against a stub window, which is what pins the
+ * event name and payload rather than the source text.
+ */
+function fakePage({ runtime } = {}) {
+    const chain = [];
+    const node = () => ({
+        locator(sel) {
+            chain.push(['locator', sel]);
+            return node();
+        },
+        getByRole(role, o) {
+            chain.push(['getByRole', role, o]);
+            return node();
+        },
+        nth(i) {
+            chain.push(['nth', i]);
+            return node();
+        },
+        async click() {
+            chain.push(['click']);
+        },
+    });
+    return {
+        chain,
+        locator(sel) {
+            chain.push(['locator', sel]);
+            return node();
+        },
+        getByRole(role, o) {
+            chain.push(['getByRole', role, o]);
+            return node();
+        },
+        async evaluate(fn, arg) {
+            const had = 'window' in globalThis;
+            const prev = globalThis.window;
+            globalThis.window = { runtime };
+            try {
+                return await fn(arg);
+            } finally {
+                if (had) globalThis.window = prev;
+                else delete globalThis.window;
+            }
+        },
+    };
+}
+
+test('xpathLiteral quotes a value XPath 1.0 has no escape for', () => {
+    assert.equal(xpathLiteral('Receive'), "'Receive'");
+    assert.equal(xpathLiteral(STRINGS.cancel), "'Cancel'");
+    assert.equal(xpathLiteral('say "hi"'), '\'say "hi"\'');
+    assert.equal(xpathLiteral("it's"), '"it\'s"');
+    // Both quote characters: only concat() can express it.
+    assert.equal(xpathLiteral('it\'s "x"'), "concat('it',\"'\",'s \"x\"')");
+});
+
+test("PlaywrightDriver.click reaches the receive view's primary button by document order, not by sibling position", async () => {
+    const page = fakePage();
+    const d = new PlaywrightDriver(page, null, {});
+
+    // The tab carries the same accessible name and is clicked by index.
+    await d.click(STRINGS.tabReceive, { index: 0 });
+    assert.deepEqual(page.chain, [
+        ['getByRole', 'button', { name: 'Receive', exact: true }],
+        ['nth', 0],
+        ['click'],
+    ]);
+
+    page.chain.length = 0;
+    await d.click(STRINGS.receiveButton, {
+        after: STRINGS.codePlaceholder,
+        controlType: 'Button',
+    });
+    assert.deepEqual(page.chain, [
+        ['locator', 'input[placeholder="amber-otter-cloud"]'],
+        ['locator', "xpath=following::button[normalize-space(.)='Receive']"],
+        ['nth', 0],
+        ['click'],
+    ]);
+    const selectors = page.chain
+        .filter((c) => c[0] === 'locator')
+        .map((c) => c[1]);
+    // The shape that failed every live *2D cell on 2026-09-22: the button
+    // is a sibling of the field group, so `~ *` matched it and getByRole
+    // then searched inside it. Nothing may chain a role query onto a
+    // container here, and no sibling combinator may appear.
+    assert.ok(!selectors.some((s) => s.includes('~ *')), selectors.join(' | '));
+    assert.ok(
+        !page.chain.some((c, i) => c[0] === 'getByRole' && i > 0),
+        'the button is taken by the anchored XPath, not by a nested role query'
+    );
+});
+
+test('PlaywrightDriver.stage hands the app its files through the files:open event', async () => {
+    const emitted = [];
+    const page = fakePage({
+        runtime: { EventsEmit: (...a) => emitted.push(a) },
+    });
+    const d = new PlaywrightDriver(page, null, {});
+    const files = ['C:\\fx\\a.bin', 'C:\\fx\\b.bin'];
+    const out = await d.stage(files);
+    // App.tsx's mount effect: EventsOn('files:open', (paths) => addFiles(paths)),
+    // so the payload is one array argument, not one argument per path.
+    assert.deepEqual(emitted, [['files:open', files]]);
+    assert.deepEqual(out, { staged: 2, via: 'files:open' });
+
+    // A page without the Wails runtime is a start-phase fault, never a
+    // silent no-op that would look like an empty drop zone.
+    const bare = new PlaywrightDriver(fakePage(), null, {});
+    await assert.rejects(() => bare.stage(files), PhaseError);
+});
+
+test('wailsdev sender: the leg stages its files before waiting for the send button', async () => {
+    const state = {
+        values: {},
+        texts: ['READY', 'Select or drag files, then click Send.'],
+        buttons: ['SEND', 'RECEIVE', 'Send'],
+    };
+    // Staging is what makes the button appear, exactly as addFiles does.
+    state.onStage = () => state.buttons.push('Send 1 item');
+    state.onClick = (name) => {
+        if (sameText(name, 'Send 1 item'))
+            state.texts = [
+                'ACTIVE',
+                'olive-tiger-castle',
+                'https://floe.one/#room=abc',
+                STRINGS.waitingForReceiver,
+            ];
+    };
+    const { leg, driver } = legWith(
+        {
+            role: 'sender',
+            files: ['C:\\fx\\a.bin'],
+            build: { launch: 'wailsdev' },
+        },
+        state
+    );
+    await leg.start();
+    const order = driver.calls.map((c) => c[0]);
+    assert.ok(order.includes('stage'), driver.calls.map(String).join(' | '));
+    assert.ok(
+        order.indexOf('stage') < order.indexOf('click'),
+        'the files are staged before the send button is clicked'
+    );
+    assert.deepEqual(driver.calls.find((c) => c[0] === 'stage').slice(0, 2), [
+        'stage',
+        ['C:\\fx\\a.bin'],
+    ]);
+    assert.deepEqual(
+        driver.calls.find((c) => c[0] === 'click').slice(0, 2),
+        ['click', 'Send 1 item'],
+        'the cell still exercises the button, not a direct StartSend'
+    );
+    assert.ok(
+        leg.notes.some((n) =>
+            /staged 1 file\(s\) through the files:open event/.test(n)
+        ),
+        leg.notes.join(' | ')
+    );
+    await leg.stop('test');
+
+    // Every other mode stages at launch, so none of them calls stage.
+    const pstate = {
+        values: {},
+        texts: ['READY'],
+        buttons: ['SEND', 'RECEIVE', 'Send 1 item'],
+    };
+    pstate.onClick = (name) => {
+        if (sameText(name, 'Send 1 item'))
+            pstate.texts = ['ACTIVE', 'https://floe.one/#room=abc'];
+    };
+    const p = legWith(
+        {
+            role: 'sender',
+            files: ['C:\\fx\\a.bin'],
+            build: { launch: 'portable', path: 'x' },
+        },
+        pstate
+    );
+    await p.leg.start();
+    assert.ok(!p.driver.calls.some((c) => c[0] === 'stage'));
+    await p.leg.stop('test');
+});
+
+// ------------------------------------- reading the share panel, and relay
+
+/** The SharePanel shape App.tsx renders, as far as readText can see it. */
+function fakeShareDom({ code, link }) {
+    const node = (tag, text, kids = []) => ({
+        tag,
+        kids,
+        get textContent() {
+            return this.kids.length
+                ? this.kids.map((k) => k.textContent).join('')
+                : text;
+        },
+        contains(o) {
+            return (
+                o === this ||
+                this.kids.some((k) => k === o || (k.contains && k.contains(o)))
+            );
+        },
+    });
+    const codeSpan = node('span', code);
+    const linkCode = node('code', link);
+    const panel = node('div', '', [
+        node('span', 'Room code'),
+        codeSpan,
+        node('span', 'Share link'),
+        linkCode,
+    ]);
+    const root = node('div', '', [
+        node('h2', 'Send anything, peer to peer.'),
+        panel,
+        node('p', 'Waiting for the receiver...'),
+    ]);
+    const all = [];
+    const walk = (n) => {
+        all.push(n);
+        n.kids.forEach(walk);
+    };
+    walk(root);
+    return {
+        querySelectorAll: (sel) =>
+            all.filter((n) => sel.split(', ').includes(n.tag)),
+    };
+}
+
+test('isRoomLink takes a share link and refuses the page around it', () => {
+    const link = 'http://localhost:3000/?s=a7ac39a8#room=7d6d89b2-0742-4f75';
+    assert.equal(isRoomLink(link), true);
+    assert.equal(isRoomLink('https://www.floe.one/#room=abc'), true);
+    // What the wailsdev read actually handed the web receiver on 2026-09-22.
+    assert.equal(
+        isRoomLink(
+            'FloedesktopPeer to peerSend anything,peer to peer.Room codestung-step-tamerShare linkhttp://localhost:3000/?s=a#room=b'
+        ),
+        false
+    );
+    assert.equal(isRoomLink('stung-step-tamer'), false);
+    assert.equal(isRoomLink('http://localhost:3000/'), false);
+    assert.equal(isRoomLink('http://localhost:3000/#room='), false);
+    assert.equal(isRoomLink('file:///c:/x#room=abc'), false);
+    assert.equal(isRoomLink(null), false);
+});
+
+test('PlaywrightDriver.readText answers with the innermost matches, so a share link is the link and not the page', async () => {
+    const code = 'stung-step-tamer';
+    const link = 'http://localhost:3000/?s=a7ac39a8#room=7d6d89b2-0742-4f75';
+    const dom = fakeShareDom({ code, link });
+    const page = {
+        async evaluate(fn, arg) {
+            const had = 'document' in globalThis;
+            const prev = globalThis.document;
+            globalThis.document = dom;
+            try {
+                return await fn(arg);
+            } finally {
+                if (had) globalThis.document = prev;
+                else delete globalThis.document;
+            }
+        },
+    };
+    const d = new PlaywrightDriver(page, null, {});
+
+    // Every ancestor of the link matches RE.link too, and document order
+    // puts the page root first, which is what used to be read.
+    const links = await d.readText(RE.link, { controlType: 'any' });
+    assert.deepEqual(links, [link]);
+    assert.ok(links.every((l) => isRoomLink(l)));
+
+    // The anchored code pattern never matched a container, but it still has
+    // to answer with the code span.
+    const codes = await d.readText(RE.code, { controlType: 'Text' });
+    assert.deepEqual(codes, [code]);
+});
+
+test('wailsdev sender: the room code and the share link are read together, not whichever renders first', async () => {
+    const code = 'stung-step-tamer';
+    const link = 'http://localhost:3000/?s=a7ac39a8#room=7d6d89b2-0742-4f75';
+    let reads = 0;
+    const state = {
+        values: {},
+        buttons: ['SEND', 'RECEIVE', 'Send'],
+        // App.tsx renders both from one send:code event, but the leg reads
+        // them one after the other: this script puts a render between the
+        // two reads of the first poll, which is what the live run hit (13 ms
+        // from click to link, code still unread).
+        get texts() {
+            reads += 1;
+            return reads <= 2 ? ['ACTIVE', link] : ['ACTIVE', code, link];
+        },
+    };
+    state.onStage = () => state.buttons.push('Send 1 item');
+    const { leg } = legWith(
+        {
+            role: 'sender',
+            files: ['C:\\fx\\a.bin'],
+            build: { launch: 'wailsdev' },
+        },
+        state
+    );
+    await leg.start();
+    assert.equal(await leg.link(), link, 'the link is the link');
+    assert.equal(
+        await leg.code(),
+        code,
+        'the code is read even though the link won the first poll'
+    );
+    await leg.stop('test');
+});
+
+test('wailsdev relay cell: Hide my IP is set through Settings, proved by GetSettings, and put back on stop', async () => {
+    const code = 'stung-step-tamer';
+    const link = 'http://localhost:3000/?s=a7ac39a8#room=7d6d89b2-0742-4f75';
+    const state = {
+        values: {},
+        texts: ['ACTIVE', code, link],
+        buttons: ['SEND', 'RECEIVE', 'Send'],
+        settings: {
+            server: 'http://localhost:3001',
+            reportStats: false,
+            migrated: true,
+            hideIP: false,
+        },
+    };
+    state.onStage = () => state.buttons.push('Send 1 item');
+    const { leg, driver } = legWith(
+        {
+            role: 'sender',
+            files: ['C:\\fx\\a.bin'],
+            relayOnly: true,
+            build: { launch: 'wailsdev' },
+        },
+        state
+    );
+    await leg.start();
+    const toggles = driver.calls.filter((c) => c[0] === 'set-toggle');
+    assert.deepEqual(
+        toggles.map((c) => c[2]),
+        [true],
+        'the cell forces relay exactly once'
+    );
+    assert.equal(state.settings.hideIP, true, 'and the app agrees it is on');
+    // Settings is opened and closed around it, and the files are staged
+    // afterwards, because addFiles closes Settings.
+    const order = driver.calls.map((c) => c[0]);
+    assert.ok(order.indexOf('set-toggle') < order.indexOf('stage'));
+    assert.equal(
+        driver.calls.filter(
+            (c) => c[0] === 'click' && sameText(c[1], STRINGS.settings)
+        ).length,
+        2,
+        'the gear toggles Settings open and shut'
+    );
+    await leg.stop('test');
+    assert.equal(
+        state.settings.hideIP,
+        false,
+        'and it is put back when the cell ends'
+    );
+
+    // A switch that will not move is a precondition failure, never a relay
+    // cell quietly recorded as direct.
+    const stuck = {
+        values: {},
+        texts: ['ACTIVE', code, link],
+        buttons: ['SEND', 'RECEIVE', 'Send 1 item'],
+        settings: { server: 'http://localhost:3001', hideIP: false },
+        toggleStuck: true,
+    };
+    const s = legWith(
+        {
+            role: 'sender',
+            files: ['C:\\fx\\a.bin'],
+            relayOnly: true,
+            build: { launch: 'wailsdev' },
+        },
+        stuck
+    );
+    await assert.rejects(() => s.leg.start(), PreconditionError);
+    await s.leg.stop('test');
+
+    // A direct cell on the same lane never touches the switch.
+    const plain = {
+        values: {},
+        texts: ['ACTIVE', code, link],
+        buttons: ['SEND', 'RECEIVE', 'Send'],
+        settings: { server: 'http://localhost:3001', hideIP: false },
+    };
+    plain.onStage = () => plain.buttons.push('Send 1 item');
+    const p = legWith(
+        {
+            role: 'sender',
+            files: ['C:\\fx\\a.bin'],
+            build: { launch: 'wailsdev' },
+        },
+        plain
+    );
+    await p.leg.start();
+    assert.ok(!p.driver.calls.some((c) => c[0] === 'set-toggle'));
+    await p.leg.stop('test');
 });

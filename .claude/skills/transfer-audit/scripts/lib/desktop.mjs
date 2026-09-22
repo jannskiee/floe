@@ -33,6 +33,14 @@
 //   wailsdev  Playwright page on http://localhost:34115; the thinnest lane,
 //             kept for the HEAD receiver when UIA cannot drive the input.
 //
+// HEAD builds: buildHead() turns lib/release.mjs headDesktopCommands()'s
+// plan into the build audit.mjs drives. The wailsdev lane runs no build step
+// and only requires the operator's dev server to answer, so it returns no
+// exe path (P7 reads n/a); the portable lane runs npm run build then wails
+// build and requires the exe's mtime to advance, because `wails build` can
+// exit 0 on a silent failure. Neither lane writes outside the plan's build
+// dirs, which go through the fence before the first step runs.
+//
 // Presence: PRESENT (default) uses provider-side UIA only. The two actions
 // that activate a window, WM_COPYDATA staging (desktop/app.go
 // onSecondInstanceLaunch calls WindowUnminimise and WindowShow) and any
@@ -71,6 +79,7 @@ import {
 } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { sha256OfFile } from './fixtures.mjs';
 import { registerPid } from './proc.mjs';
 import { Leg, PhaseError, SafetyError, sleep } from './surfaces.mjs';
 import { defaultExec } from './versions.mjs';
@@ -121,6 +130,7 @@ export const STRINGS = Object.freeze({
     busyFooter: 'Keep this window open. Closing it cancels the transfer.',
     relayCap: 'relay connections are capped', // errors.ts PASSTHROUGH
     settingUp: 'Setting up...',
+    hideIpRow: 'Hide my IP address', // Settings > Privacy SettingRow label
 });
 
 // UIA Names carry the rendered CSS case (measured 2026-08-29: tabs SEND and
@@ -142,6 +152,10 @@ export const RE = Object.freeze({
     peerConnected: /^Peer connected\. Sending\.\.\.$/i,
     checkForUpdates: /^Check for updates$/i,
     protocolRow: /^Version (\d+)$/i,
+    // The Settings switch takes its accessible name from the label that
+    // wraps it, which carries the row description too, so this matches a
+    // part of that name rather than all of it.
+    hideIpRow: /Hide my IP address/i,
 });
 
 export const sameText = (a, b) =>
@@ -156,6 +170,12 @@ export const FIND_WINDOW_MS = 30_000;
 export const TREE_MS = 20_000;
 export const STAGE_MS = 20_000;
 export const CODE_MS = 30_000;
+/**
+ * How long a sender waits for the room code once the share link is up.
+ * They render together, so this only covers the gap between two reads; a
+ * sender that really registered none spends it once and then reports.
+ */
+export const CODE_AFTER_LINK_MS = 3_000;
 export const STATUS_MS = 10_000;
 export const CANCEL_MS = 10_000;
 export const EXIT_MS = 15_000;
@@ -227,6 +247,42 @@ export function versionForIdentity(identity) {
 export function sendButtonName(n) {
     if (!n) return 'Send';
     return `Send ${n} ${n === 1 ? 'item' : 'items'}`;
+}
+
+/**
+ * An XPath 1.0 string literal for an arbitrary value. XPath 1.0 has no
+ * escape sequence, so a value carrying both quote characters can only be
+ * written as concat() of its pieces.
+ */
+/**
+ * A share link the receiver can be driven with: an http(s) URL carrying a
+ * `#room=` fragment. The wailsdev page's read used to hand the whole page
+ * text to the web receiver, which failed as
+ * `page.goto: Cannot navigate to invalid URL` (H-DIR-D2W, 2026-09-22), so
+ * what the driver reads is parsed before it is believed.
+ */
+export function isRoomLink(value) {
+    let url;
+    try {
+        url = new URL(String(value).trim());
+    } catch {
+        return false;
+    }
+    return (
+        (url.protocol === 'http:' || url.protocol === 'https:') &&
+        url.hash.startsWith('#room=') &&
+        url.hash.length > '#room='.length
+    );
+}
+
+export function xpathLiteral(value) {
+    const v = String(value);
+    if (!v.includes("'")) return `'${v}'`;
+    if (!v.includes('"')) return `"${v}"`;
+    return `concat(${v
+        .split("'")
+        .map((part) => `'${part}'`)
+        .join(`,"'",`)})`;
 }
 
 export function sha256(buf) {
@@ -1038,18 +1094,67 @@ export class PlaywrightDriver {
         });
     }
     async click(name, { index = 0, after } = {}) {
-        let loc = this.page.getByRole('button', { name, exact: true });
         if (after === STRINGS.codePlaceholder) {
-            // The primary Receive button sits below the code input.
-            loc = this.page
+            // The receive view's primary button, told apart from the
+            // RECEIVE tab, which carries the same accessible name.
+            //
+            // The sibling shape this replaced could not reach it and cost
+            // the first live wailsdev run every *2D cell (2026-09-22,
+            // `locator.click: Timeout 30000ms exceeded`). App.tsx renders
+            // the view as <div.space-y-4> holding one field group per
+            // <div.space-y-2> and then the button, so the button is a
+            // sibling of the GROUP that holds the code input, not of the
+            // input, and not a descendant of any of those siblings:
+            // `... ~ *` matched it and `.getByRole()` then searched
+            // INSIDE it, where there is no button.
+            //
+            // Document order is the relationship that actually holds and
+            // survives a layout change: the tab row lives in the card
+            // header above the body, so the first button after the code
+            // input carrying this exact label is the primary one.
+            await this.page
+                .locator(`input[placeholder="${STRINGS.codePlaceholder}"]`)
                 .locator(
-                    'input[placeholder="amber-otter-cloud"] ~ *, div:has(> input[placeholder="amber-otter-cloud"]) ~ *'
+                    `xpath=following::button[normalize-space(.)=${xpathLiteral(name)}]`
                 )
-                .getByRole('button', { name, exact: true });
-            index = 0;
+                .nth(0)
+                .click();
+            return { via: 'playwright', index: 0 };
         }
-        await loc.nth(index).click();
+        await this.page
+            .getByRole('button', { name, exact: true })
+            .nth(index)
+            .click();
         return { via: 'playwright', index };
+    }
+    /**
+     * Hand the app files the way Explorer and a second instance do: the
+     * `files:open` event App.tsx listens on (its mount effect,
+     * `EventsOn('files:open', (paths) => addFiles(paths))`), which is the
+     * one entry point that does not need a native window.
+     *
+     * The picker the Files button opens is Go's SelectFiles(), a native
+     * dialog no browser page can drive, and StartSend() would skip the
+     * very button the cell exists to exercise, so neither is usable here.
+     * Wails v2 EventsEmit notifies this page's own listeners before it
+     * forwards anything to Go (runtime/desktop/events.js: notifyListeners,
+     * then WailsInvoke 'EE'), so the paths reach addFiles in this page
+     * with no round trip and no dependence on the dev bridge.
+     */
+    async stage(files) {
+        const paths = (files || []).map(String);
+        const ok = await this.page.evaluate((p) => {
+            const rt = window.runtime;
+            if (!rt || typeof rt.EventsEmit !== 'function') return false;
+            rt.EventsEmit('files:open', p);
+            return true;
+        }, paths);
+        if (!ok)
+            throw new PhaseError(
+                'start',
+                'desktop wailsdev: window.runtime.EventsEmit is missing on the dev server page'
+            );
+        return { staged: paths.length, via: 'files:open' };
     }
     async setValue(placeholder, value, { scope } = {}) {
         const loc = this._edit(placeholder, scope);
@@ -1079,19 +1184,58 @@ export class PlaywrightDriver {
         }
         return all.first();
     }
-    /** join is accepted and moot here: textContent already joins the leaves. */
+    /**
+     * join is accepted and moot here: textContent already joins the leaves.
+     *
+     * The match runs in the page so containment can be used. An element's
+     * textContent includes every descendant's, so a loose pattern matches
+     * each ancestor of a hit as well, and querySelectorAll returns document
+     * order, which put the page root first: `RE.link` used to answer with
+     * the whole page text, and the web receiver was handed that as a URL
+     * (H-DIR-D2W, 2026-09-22). UIA names one control at a time, which is
+     * what the RE table was written against, so keep the innermost hits
+     * only and this reads the same way on both drivers.
+     */
     async readText(re, { controlType = 'Text', join = false } = {}) {
         void join;
-        const texts = await this.page.evaluate(
-            (selector) => {
-                return [...document.querySelectorAll(selector)]
+        const rx = re instanceof RegExp ? re : new RegExp(String(re), 'i');
+        return this.page.evaluate(
+            ({ selector, source, flags }) => {
+                const test = new RegExp(source, flags);
+                const hit = [...document.querySelectorAll(selector)].filter(
+                    (e) => test.test((e.textContent || '').trim())
+                );
+                return hit
+                    .filter((e) => !hit.some((o) => o !== e && e.contains(o)))
                     .map((e) => (e.textContent || '').trim())
                     .filter(Boolean);
             },
-            controlType === 'Button' ? 'button' : 'p, span, code, h2, div'
+            {
+                selector:
+                    controlType === 'Button'
+                        ? 'button'
+                        : 'p, span, code, h2, div',
+                source: rx.source,
+                // A sticky or global flag would carry lastIndex across the
+                // filter above and drop every other match.
+                flags: rx.flags.replace(/[gy]/g, ''),
+            }
         );
-        const rx = re instanceof RegExp ? re : new RegExp(String(re), 'i');
-        return texts.filter((t) => rx.test(t));
+    }
+    /**
+     * Set one Settings switch (SettingsPrimitives.tsx Switch: a real
+     * checkbox, visually hidden, inside the label that names it). The label
+     * is clicked rather than the input, because the input is `sr-only` and
+     * a click at its own box is not what a person does. Returns what the
+     * control read before and after, never a claim that it changed.
+     */
+    async setToggle(name, value) {
+        const box = this.page.getByRole('checkbox', { name });
+        const before = await box.isChecked();
+        if (before !== value)
+            await box.locator('xpath=ancestor::label[1]').click();
+        const after = await box.isChecked();
+        return { before, after, changed: after !== before };
     }
     async capture(file) {
         await this.page.screenshot({ path: file });
@@ -1559,6 +1703,27 @@ export class DesktopLeg extends Leg {
             );
         const want = sendButtonName(files.length);
         await this.launch(files);
+        // Before anything is staged: addFiles closes Settings, and the
+        // forcer has to be in the page's state before StartSend reads it.
+        await this.applyRelayForcer();
+        // The wailsdev lane launches no process, so nothing carried the
+        // files on argv (planLaunch sets filesStaged false for it) and the
+        // page starts on an empty drop zone. Hand them over before spending
+        // the staging budget on a wait that cannot pass: the first live run
+        // burned 21 s per D2* cell to reach `no button named "Send 1 item"`
+        // (2026-09-22). Every other mode stages at launch, and the store
+        // fallback below stays the only way to stage a running app, because
+        // it activates the window.
+        if (
+            this.mode === 'wailsdev' &&
+            !this.plan?.filesStaged &&
+            typeof this.driver.stage === 'function'
+        ) {
+            await this.driver.stage(files);
+            this.note(
+                `staged ${files.length} file(s) through the files:open event`
+            );
+        }
         let staged = await this.waitForButton(want, this.budget(STAGE_MS));
         if (!staged && this.mode === 'store') {
             if (!this.userAway) {
@@ -1597,6 +1762,23 @@ export class DesktopLeg extends Leg {
         await this.driver.click(want, { controlType: 'Button' });
         this.marks.clicked = Date.now();
         const until = Date.now() + this.budget(CODE_MS);
+        // The code and the link land in ONE render: App.tsx sets sendCode
+        // and sendLink from the same send:code event. The two reads below
+        // are two round trips, so a render between them used to leave the
+        // code unread while the link was already on screen, and the cell
+        // failed code-registration-failed with the code visible in its own
+        // capture (H-DIR-D2C, 2026-09-22: 13 ms from click to link). So
+        // wait for both, and settle for a link alone only after a grace
+        // window, which is what a sender that really registered no code
+        // (a 429 from POST /api/code) looks like.
+        let link = null;
+        let code = null;
+        let linkSeenAt = 0;
+        const settle = () => {
+            this._link = link;
+            this._code = code ? code.toLowerCase() : null;
+            this.marks.link = Date.now();
+        };
         while (Date.now() < until) {
             const codes = await this.driver.readText(RE.code, {
                 controlType: 'Text',
@@ -1604,13 +1786,26 @@ export class DesktopLeg extends Leg {
             const links = await this.driver.readText(RE.link, {
                 controlType: 'any',
             });
-            const code = codes.find(
-                (c) => !sameText(c, STRINGS.codePlaceholder)
-            );
-            if (links.length) {
-                this._link = links[0];
-                this._code = code ? code.toLowerCase() : null;
-                this.marks.link = Date.now();
+            code =
+                codes.find((c) => !sameText(c, STRINGS.codePlaceholder)) ??
+                code;
+            // Never believe a read that is not a share link: the page's own
+            // container text matches a loose pattern too, and the receiver
+            // is driven with whatever this returns.
+            const shareLink = links.find((l) => isRoomLink(l));
+            if (shareLink && !link) {
+                link = shareLink;
+                linkSeenAt = Date.now();
+            }
+            if (
+                link &&
+                (code || Date.now() - linkSeenAt >= CODE_AFTER_LINK_MS)
+            ) {
+                if (!code)
+                    this.note(
+                        `share link is up but no room code appeared within ${CODE_AFTER_LINK_MS} ms`
+                    );
+                settle();
                 await this.capture('link');
                 return;
             }
@@ -1622,6 +1817,11 @@ export class DesktopLeg extends Leg {
                 throw new PhaseError('start', `desktop sender: ${status.text}`);
             }
             await sleep(500);
+        }
+        if (link) {
+            settle();
+            await this.capture('link');
+            return;
         }
         throw new PhaseError(
             'start',
@@ -1652,6 +1852,7 @@ export class DesktopLeg extends Leg {
                 'desktop receiver: opts.outDir is required'
             );
         await this.launch([]);
+        await this.applyRelayForcer();
         await this.driver.click(STRINGS.tabReceive, { index: 0 });
         const orig = await this.driver.getValue(STRINGS.saveDirPlaceholder, {
             scope: 'receive',
@@ -2119,6 +2320,70 @@ export class DesktopLeg extends Leg {
         }
     }
 
+    /**
+     * Force the desktop side onto the relay on the wailsdev lane.
+     *
+     * Every other mode gets `hideIP` from the desktop.json it launches with
+     * (edit(), applied by the config guard or seedRedirectedConfig), but
+     * the wailsdev app is started by the operator and the audit never
+     * writes its config, so H-REL-*2D and H-REL-D2* observed `direct` and
+     * failed forcer-ineffective (2026-09-22).
+     *
+     * The Settings switch is the mechanism, not the bound SetSettings call,
+     * because App.tsx passes its own React `hideIP` to StartSend and
+     * ReceiveByCode. That state is read from GetSettings once at mount, so
+     * writing the file under a running page would persist a value the
+     * transfer never uses. The switch's onChange sets the state AND saves
+     * through the app's own saveSettings, which carries reportStats and the
+     * addresses over untouched, and GetSettings then proves it landed.
+     */
+    async applyRelayForcer() {
+        if (!this.opts.relayOnly || this.mode !== 'wailsdev') return;
+        if (typeof this.driver.setToggle !== 'function')
+            throw new PreconditionError(
+                'desktop wailsdev: no way to force relay without a settings toggle',
+                { reason: 'wailsdev-config' }
+            );
+        const r = await this.withSettings(() =>
+            this.driver.setToggle(RE.hideIpRow, true)
+        );
+        const after = await this.driver.settings();
+        if (after?.hideIP !== true)
+            throw new PreconditionError(
+                `desktop wailsdev: Hide my IP did not take (toggle ${r.before} -> ${r.after}, GetSettings hideIP=${after?.hideIP}); refusing to record a relay cell that ran direct`,
+                { reason: 'wailsdev-config' }
+            );
+        this.hideIpForced = r.changed;
+        this.note(`relay forced through Hide my IP (was ${r.before})`);
+    }
+
+    /** Put Hide my IP back, whatever happened to the cell. */
+    async restoreRelayForcer() {
+        if (!this.hideIpForced || !this.driver) return;
+        this.hideIpForced = false;
+        try {
+            const r = await this.withSettings(() =>
+                this.driver.setToggle(RE.hideIpRow, false)
+            );
+            this.note(`Hide my IP restored to ${r.after}`);
+        } catch (err) {
+            this.note(`Hide my IP restore failed: ${err.message}`);
+        }
+    }
+
+    /** Open Settings, run one action against it, close Settings. */
+    async withSettings(fn) {
+        await this.driver.click(STRINGS.settings, { controlType: 'Button' });
+        try {
+            return await fn();
+        } finally {
+            // TitleBar's gear toggles, so the same click closes it.
+            await this.driver.click(STRINGS.settings, {
+                controlType: 'Button',
+            });
+        }
+    }
+
     async restoreSaveDir() {
         if (!this.saveDir.changed || !this.driver) return;
         try {
@@ -2175,6 +2440,7 @@ export class DesktopLeg extends Leg {
                 } catch (err) {
                     this.note(`cancel: ${err.message}`);
                 }
+                await this.restoreRelayForcer();
                 await this.restoreSaveDir();
                 await this.capture('stop');
                 closeResult = await closeAndWait(this.driver, this.pid, {
@@ -2406,6 +2672,122 @@ export async function preflight(opts = {}) {
     if (!exe || !existsSync(exe))
         return { ok: false, reason: 'desktop-exe-missing', detail };
     return { ok: true, reason: null, detail };
+}
+
+// ------------------------------------------------------------ head build
+
+/** The launch modes buildHead can produce a build for by running steps. */
+const HEAD_BUILD_MODES = Object.freeze(['portable', 'head', 'auto']);
+
+function mtimeOf(file) {
+    try {
+        return statSync(file).mtimeMs;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * The HEAD desktop build for one launch lane, from lib/release.mjs
+ * headDesktopCommands()'s plan ({ version, steps, exe, writes }) plus the
+ * run's mode, fence, log and exec. Returns
+ * { path, sha256, version, launch, builtAt } for audit.mjs's builds.desktop.
+ *
+ *   wailsdev  runs NO build step. The operator already has `wails dev`
+ *             serving the app under their own isolated APPDATA, and the
+ *             audit never starts it, so the only precondition is that the
+ *             dev server answers. The lane has no exe on disk, so path and
+ *             sha256 come back null and P7 reads n/a.
+ *   portable  runs the plan's steps in order: npm run build in
+ *   head      desktop/frontend first (desktop/main.go embeds frontend/dist
+ *   auto      and that directory is gitignored), then wails build with
+ *             shell false so the -ldflags value stays one argv element.
+ *             `wails build` can exit 0 on a silent failure (CLAUDE.md), so
+ *             the exe's mtime is read before the wails step and has to have
+ *             advanced after it.
+ *
+ * Refuses any other mode, `store` included: the Store build is shipped, not
+ * built here. Writes nothing itself and deletes nothing. Every byte lands
+ * under the plan's `writes`, and each of those goes through the fence before
+ * the first step runs, so a plan naming the real %APPDATA%\floe is a
+ * SafetyError rather than a write (lib/fence.mjs refuses that tree, its
+ * WebView2 profile and desktop.json ahead of the allowlist, so allowDir
+ * cannot open it).
+ */
+export async function buildHead({
+    version = null,
+    steps = [],
+    exe = null,
+    writes = [],
+    mode = 'portable',
+    fence = null,
+    log = () => {},
+    exec = defaultExec,
+    head = httpHead,
+} = {}) {
+    if (mode === 'wailsdev') {
+        const status = await head(WAILSDEV_URL);
+        if (!status)
+            throw new PreconditionError(
+                `desktop wailsdev: nothing answers ${WAILSDEV_URL}. The operator starts this lane: npm run build in desktop/frontend, then wails dev in desktop/ with APPDATA redirected away from the real %APPDATA%\\floe.`,
+                { reason: 'wailsdev-down' }
+            );
+        log(
+            `desktop: wailsdev ${version} answers at ${WAILSDEV_URL} (status ${status}); no build step, no exe on disk`
+        );
+        return {
+            path: null,
+            sha256: null,
+            version,
+            launch: 'wailsdev',
+            served: WAILSDEV_URL,
+            builtAt: null,
+        };
+    }
+    if (!HEAD_BUILD_MODES.includes(mode))
+        throw new PreconditionError(
+            `desktop buildHead: ${mode} is not a head desktop lane (expected wailsdev or one of ${HEAD_BUILD_MODES.join(', ')})`,
+            { reason: 'head-desktop-mode' }
+        );
+    if (!exe)
+        throw new PreconditionError(
+            'desktop buildHead: the build plan carries no exe path',
+            { reason: 'head-desktop-plan' }
+        );
+    if (!fence)
+        throw new PreconditionError(
+            'desktop buildHead: a write fence is required before any build step runs',
+            { reason: 'head-desktop-fence' }
+        );
+    for (const w of writes) fence.allowDir(w);
+    for (const w of writes) fence.assertWritable(w);
+    fence.assertWritable(exe);
+    const before = mtimeOf(exe);
+    for (const step of steps) {
+        log(
+            `desktop: head build ${step.cmd} ${step.args.join(' ')} (cwd ${step.cwd})`
+        );
+        await exec(step.cmd, step.args, {
+            cwd: step.cwd,
+            shell: Boolean(step.shell),
+            timeout: step.timeoutMs,
+        });
+    }
+    const after = mtimeOf(exe);
+    if (after === null || (before !== null && after <= before))
+        throw new PreconditionError(
+            `wails build produced no new ${exe} (it can exit 0 on a silent failure, so the exe's mtime has to advance)`,
+            { reason: 'head-desktop-build' }
+        );
+    const sha256Hex = await sha256OfFile(exe);
+    log(`desktop: head build ${version} -> ${exe}`);
+    return {
+        path: exe,
+        sha256: sha256Hex,
+        version,
+        launch: 'portable',
+        builtAt: new Date(after).toISOString(),
+    };
 }
 
 // ---------------------------------------------------------------- probes

@@ -486,7 +486,9 @@ function probeMotw(exec, exe, fence, { desktopMode = 'auto' } = {}) {
             detail:
                 desktopMode === 'none'
                     ? 'n/a (--desktop none)'
-                    : 'n/a (store build; no portable exe staged, so nothing to unblock)',
+                    : desktopMode === 'wailsdev'
+                      ? 'n/a (wailsdev lane; the dev server serves the app, so there is no exe on disk)'
+                      : 'n/a (store build; no portable exe staged, so nothing to unblock)',
         };
     try {
         const out = exec(
@@ -570,7 +572,10 @@ async function probeDesktopInputs({
         build && (build.launch === 'portable' || build.kind === 'head')
             ? (build.path ?? null)
             : null;
-    if (!portableExe && tag && opts.binDir) {
+    // The wailsdev lane is the dev server, not an exe: a staged release exe
+    // under --bin-dir is a different build, so it is never adopted here.
+    // P2 and P7 stay n/a rather than reporting on something not under test.
+    if (!portableExe && mode !== 'wailsdev' && tag && opts.binDir) {
         const staged = findStagedDesktop(opts.binDir, tag);
         if (staged) {
             portableExe = staged.path;
@@ -992,12 +997,19 @@ async function resolveBuilds({ opts, io, versions, log, fence, manifest }) {
                     log,
                     exec,
                 });
+                // The path is whatever the adapter returned, null included:
+                // the wailsdev lane has no exe on disk, and plan.exe as a
+                // fallback would hand P7 (motwExe below) a wails build path
+                // that need not exist, or worse a stale exe an earlier
+                // portable build left there, which is not the build under
+                // test.
                 builds.desktop = {
                     kind: 'head',
                     launch:
-                        opts.desktop === 'wailsdev' ? 'wailsdev' : 'portable',
-                    version: plan.version,
-                    path: d?.path ?? plan.exe,
+                        d?.launch ??
+                        (opts.desktop === 'wailsdev' ? 'wailsdev' : 'portable'),
+                    version: d?.version ?? plan.version,
+                    path: d?.path ?? null,
                     isPackaged: false,
                     sha256: d?.sha256 ?? null,
                 };
