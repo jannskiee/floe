@@ -599,13 +599,28 @@ function leaveCurrentRoom(peer) {
 // survive 30 to 60 s; the token holder's new socket replaces that ghost rather
 // than being locked out by it. The ghost's roomId is cleared, so its later
 // close is a no-op in handleDisconnect. No user-connected is re-sent.
-function reclaimHostSeat(peer, roomId, meta) {
-    if (peer.roomId && peer.roomId !== roomId) leaveCurrentRoom(peer);
+//
+// A replacement is the host departure the server never saw (D-116), so an
+// UNSEALED room loses its visitor exactly as leaveRequestRoom would have done
+// it: host-absent, seat cleared. That visitor was paired with the dead socket
+// and cannot answer the new host's offer; left seated, it would hold seat 1
+// against the invited person while the new host waits for a user-connected
+// that never comes. Its Try again then pairs cleanly. A sealed visitor stays:
+// its drop runs on the data channel.
+function reclaimHostSeat(peer, roomId, meta, now = Date.now()) {
+    if (peer.roomId && peer.roomId !== roomId) leaveCurrentRoom(peer, now);
     const room = rooms.get(roomId) || [];
     const old = room.find(p => p.id === meta.hostPeerId);
     if (old && old.id !== peer.id) {
         room.splice(room.indexOf(old), 1);
         old.roomId = null;
+    }
+    if (!meta.sealed && meta.hostPeerId !== peer.id) {
+        for (const v of room.filter(p => p.id !== peer.id)) {
+            room.splice(room.indexOf(v), 1);
+            v.roomId = null;
+            try { v.send('host-absent', {}); } catch { /* undeliverable */ }
+        }
     }
     if (!room.includes(peer)) room.push(peer);
     rooms.set(roomId, room);
@@ -771,7 +786,7 @@ function handleHostJoin(peer, roomId, hostToken, now = Date.now()) {
         if (meta.hostPeerId === null && now - meta.hostAbsentSince > REQUEST_GRACE_MS) {
             endReservation(id); // lazy expiry, then a fresh (counted) create below
         } else {
-            reclaimHostSeat(peer, id, meta); // not counted against the daily budget
+            reclaimHostSeat(peer, id, meta, now); // not counted against the daily budget
             return;
         }
     }

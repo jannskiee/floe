@@ -2712,6 +2712,40 @@ describe('request rooms: disconnect and sweep', () => {
         assert.equal(roomMeta.get(plain).keys.size, 2);
     });
 
+    it('newest host wins while Paired and unsealed: the visitor hears host-absent and loses its seat; the next request-join seats and the new host gets user-connected', () => {
+        // Host A's socket went dead without the server noticing; V was seated
+        // (its user-connected went to the dead socket); the desktop reconnects.
+        const { token, id, host: a, visitor: v } = pairedRequestRoom();
+        const a2 = makePeer('a2', 'host-key');
+        assert.deepEqual(hostJoin(a2, token, RQ_T0 + 1000), { type: 'room-joined', data: { role: 'host' } });
+        assert.deepEqual(v.msgs, [{ type: 'host-absent', data: {} }]);
+        assert.equal(v.roomId, null);
+        assert.equal(a.roomId, null);
+        assert.deepEqual(rooms.get(id), [a2]);
+
+        // V's Try again on the same socket, then a clean pairing.
+        handleRequestJoin(v, id, RQ_T0 + 2000);
+        assert.deepEqual(v.msgs.pop(), { type: 'request-joined', data: { role: 'visitor' } });
+        assert.deepEqual(a2.msgs.pop(), { type: 'user-connected', data: { id: v.id } });
+        assert.deepEqual(rooms.get(id), [a2, v]);
+
+        // A sealed room keeps its visitor through a replacement (its drop runs
+        // on the data channel).
+        const s = pairedRequestRoom('ks', 'ksv');
+        handleRequestControl(s.host, 'request-seal', s.id);
+        const s2 = makePeer('s2', 'ks');
+        hostJoin(s2, s.token, RQ_T0 + 1000);
+        assert.equal(s.visitor.msgs.length, 0);
+        assert.equal(s.visitor.roomId, s.id);
+        assert.deepEqual(rooms.get(s.id), [s.visitor, s2]);
+
+        // The same host socket re-sending its join changes nothing.
+        const same = pairedRequestRoom('kx', 'kxv');
+        hostJoin(same.host, same.token, RQ_T0 + 1000);
+        assert.equal(same.visitor.roomId, same.id);
+        assert.equal(same.visitor.msgs.length, 0);
+    });
+
     it('memory returns to zero', () => {
         // Close.
         const a = pairedRequestRoom('ka', 'kav');
