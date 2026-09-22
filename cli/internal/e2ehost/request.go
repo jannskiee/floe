@@ -141,6 +141,10 @@ type requestConfig struct {
 	// limits is ReceiveOptions.Limits: nil unless -max-files or
 	// -block-shell-types is given.
 	limits *transfer.ReceiveLimits
+	// joinAfter, when set, prints the link first and claims the room only
+	// after this long, so a spec can load the link while the host is absent
+	// (S1-WEB-05 test 1). The token still never leaves this process.
+	joinAfter time.Duration
 }
 
 // requestMaxFiles is the request lane's Beta file cap (spec 05 8.3), kept when
@@ -166,6 +170,7 @@ func parseRequestFlags(args []string) (requestConfig, error) {
 	timeout := fs.Duration("timeout", 2*time.Minute, "overall deadline for the whole run")
 	maxFiles := fs.Int("max-files", 0, "cap the files a drop may announce (turns the request limits on)")
 	blockShell := fs.Bool("block-shell-types", false, "save shell-parsed types as .floe-blocked (turns the request limits on)")
+	joinAfter := fs.Int("join-after", 0, "print the link, then join the room this many milliseconds later")
 	if err := fs.Parse(args); err != nil {
 		return requestConfig{}, err
 	}
@@ -185,7 +190,7 @@ func parseRequestFlags(args []string) (requestConfig, error) {
 			limits.MaxFiles = *maxFiles
 		}
 	}
-	if fs.NArg() != 0 || *out == "" || *timeout <= 0 {
+	if fs.NArg() != 0 || *out == "" || *timeout <= 0 || *joinAfter < 0 {
 		return requestConfig{}, errors.New("request: usage")
 	}
 	if *blip != "" && !blipEvents[*blip] {
@@ -203,6 +208,7 @@ func parseRequestFlags(args []string) (requestConfig, error) {
 		server: *server, web: strings.TrimRight(*web, "/"), out: *out, steps: steps,
 		decideWindow: window, keepWaiting: *keep, corruptHash: *corrupt,
 		blipAfter: *blip, timeout: *timeout, limits: limits,
+		joinAfter: time.Duration(*joinAfter) * time.Millisecond,
 	}, nil
 }
 
@@ -450,9 +456,20 @@ func runRequest(ev *events, args []string) {
 
 	watchdog := time.AfterFunc(cfg.timeout, func() { ev.fail("timeout") })
 
-	h.sc = h.connect()
-	h.emit("joined", map[string]interface{}{"role": "host", "roomId": h.room})
-	h.emit("link", map[string]interface{}{"link": cfg.web + "/r/" + linkID + "#" + h.room})
+	link := cfg.web + "/r/" + linkID + "#" + h.room
+	if cfg.joinAfter > 0 {
+		// The link first, then the room: until the join the server answers
+		// the visitor host-absent. The room id is the token's derivation, so
+		// it is known before any join; the token itself is never printed.
+		h.emit("link", map[string]interface{}{"link": link})
+		time.Sleep(cfg.joinAfter)
+		h.sc = h.connect()
+		h.emit("joined", map[string]interface{}{"role": "host", "roomId": h.room})
+	} else {
+		h.sc = h.connect()
+		h.emit("joined", map[string]interface{}{"role": "host", "roomId": h.room})
+		h.emit("link", map[string]interface{}{"link": link})
+	}
 
 	for n := 0; ; n++ {
 		step := cfg.steps[len(cfg.steps)-1]

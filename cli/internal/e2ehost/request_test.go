@@ -643,6 +643,64 @@ func TestRequestModeDeliversThroughAFakeServer(t *testing.T) {
 	}
 }
 
+// -join-after: the link is printed before the host claims the room, a visitor
+// in that window is answered host-absent, and after the join the same link
+// delivers (S1-WEB-05 test 1). The token is still never printed.
+func TestRequestModeJoinAfterPrintsTheLinkFirst(t *testing.T) {
+	srv := newFakeRequestServer(t)
+	out := t.TempDir()
+	path, _ := payload(t, 64*1024)
+	h := startRequest(t, "-server", srv.url, "-out", out, "-join-after", "1500", "-timeout", "60s")
+
+	room := roomFromLink(t, h.until(t, "link")["link"].(string))
+	if tokens, _, _ := srv.snapshot(); len(tokens) != 0 {
+		t.Fatal("the host joined before the link was printed")
+	}
+	early, err := signaling.Connect(srv.url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := early.RequestJoin(room)
+	early.Close()
+	if err != nil || res != signaling.VisitorHostAbsent {
+		t.Fatalf("a visitor before the join got %v (err %v), want host-absent", res, err)
+	}
+	h.until(t, "joined")
+	if err := visit(srv.url, room, path); err != nil {
+		t.Fatalf("visitor after the join: %v", err)
+	}
+	if d := h.until(t, "done"); d["files"] != float64(1) {
+		t.Fatalf("done = %v", d)
+	}
+	if code := h.exitCode(t); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	want := []string{"link", "joined", "user-connected", "offer-sent", "sealed", "deciding", "accepted", "file-committed", "closed", "done"}
+	if got := h.names(); !equalNames(got, want) {
+		t.Fatalf("events %v, want %v", got, want)
+	}
+	tokens, badRoom, _ := srv.snapshot()
+	checkNoToken(t, h, tokens)
+	if badRoom || len(tokens) != 1 {
+		t.Fatalf("host joins %d, badRoom %v", len(tokens), badRoom)
+	}
+}
+
+// -join-after is 0 (today's order) unless given, and never negative.
+func TestJoinAfterFlag(t *testing.T) {
+	plain, err := parseRequestFlags([]string{"-out", t.TempDir()})
+	if err != nil || plain.joinAfter != 0 {
+		t.Fatalf("default joinAfter %v, err %v; want 0", plain.joinAfter, err)
+	}
+	set, err := parseRequestFlags([]string{"-out", t.TempDir(), "-join-after", "2500"})
+	if err != nil || set.joinAfter != 2500*time.Millisecond {
+		t.Fatalf("joinAfter %v, err %v; want 2.5s", set.joinAfter, err)
+	}
+	if _, err := parseRequestFlags([]string{"-out", t.TempDir(), "-join-after", "-1"}); err == nil {
+		t.Fatal("a negative -join-after was accepted")
+	}
+}
+
 // decline,accept with -keep-waiting: the first visitor is declined, the room
 // is reopened, and the second visitor delivers.
 func TestRequestModeKeepWaitingReopensAfterADecline(t *testing.T) {
