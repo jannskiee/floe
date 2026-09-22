@@ -52,7 +52,12 @@ function watchSignaling(page: Page): string[] {
     page.on('request', (req) => {
         if (interesting(req.url())) seen.push(req.url());
     });
-    page.on('websocket', (ws) => seen.push(ws.url()));
+    // Filtered, not raw: `next dev` opens its own hot-reload socket
+    // (/_next/webpack-hmr) on every page load, and an unfiltered watch counts
+    // that as the page reaching for a signaling server.
+    page.on('websocket', (ws) => {
+        if (interesting(ws.url())) seen.push(ws.url());
+    });
     return seen;
 }
 
