@@ -145,60 +145,66 @@ func (c *Client) readLoop() {
 			}
 			return
 		}
+		c.dispatch(raw)
+	}
+}
 
-		var msg Message
-		if err := json.Unmarshal(raw, &msg); err != nil {
-			continue
+// dispatch decodes one server frame and routes it to its channel. readLoop is
+// its only caller; it is a function of its own so a test can drive the decoder
+// without a socket.
+func (c *Client) dispatch(raw []byte) {
+	var msg Message
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		return
+	}
+
+	switch msg.Type {
+	// Non-blocking, like every other case below. Both channels are buffered
+	// to 1 and every consumer reads them exactly once, so a second frame can
+	// only arrive when nobody is waiting for it. The server re-sends
+	// user-connected to the room's first peer on every second-peer join and
+	// keeps the surviving seat across a one-sided drop, so a receiver that
+	// dropped and rejoined twice filled the buffer and then wedged this loop
+	// for good. readLoop is the only reader of the socket, so a wedge here
+	// silently stops trickle ICE and the transfer dies at the 30s connect
+	// timeout with nothing to diagnose from.
+	case "room-joined":
+		select {
+		case c.Role <- msg.Role:
+		default:
 		}
 
-		switch msg.Type {
-		// Non-blocking, like every other case below. Both channels are buffered
-		// to 1 and every consumer reads them exactly once, so a second frame can
-		// only arrive when nobody is waiting for it. The server re-sends
-		// user-connected to the room's first peer on every second-peer join and
-		// keeps the surviving seat across a one-sided drop, so a receiver that
-		// dropped and rejoined twice filled the buffer and then wedged this loop
-		// for good. readLoop is the only reader of the socket, so a wedge here
-		// silently stops trickle ICE and the transfer dies at the 30s connect
-		// timeout with nothing to diagnose from.
-		case "room-joined":
-			select {
-			case c.Role <- msg.Role:
-			default:
-			}
+	case "user-connected":
+		select {
+		case c.PeerConnected <- msg.ID:
+		default:
+		}
 
-		case "user-connected":
+	case "signal":
+		if len(msg.Signal) > 0 {
 			select {
-			case c.PeerConnected <- msg.ID:
+			case c.Signal <- msg.Signal:
 			default:
+				// Buffer full — drop; shouldn't happen in normal flow
 			}
+		}
 
-		case "signal":
-			if len(msg.Signal) > 0 {
-				select {
-				case c.Signal <- msg.Signal:
-				default:
-					// Buffer full — drop; shouldn't happen in normal flow
-				}
-			}
+	case "peer-disconnected":
+		select {
+		case c.PeerLeft <- struct{}{}:
+		default:
+		}
 
-		case "peer-disconnected":
-			select {
-			case c.PeerLeft <- struct{}{}:
-			default:
-			}
+	case "room-full":
+		select {
+		case c.RoomFull <- struct{}{}:
+		default:
+		}
 
-		case "room-full":
-			select {
-			case c.RoomFull <- struct{}{}:
-			default:
-			}
-
-		case "error":
-			select {
-			case c.Errors <- msg.Msg:
-			default:
-			}
+	case "error":
+		select {
+		case c.Errors <- msg.Msg:
+		default:
 		}
 	}
 }
