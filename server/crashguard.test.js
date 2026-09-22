@@ -20,11 +20,12 @@ const test = require('node:test');
 const assert = require('node:assert');
 const net = require('node:net');
 const { spawn } = require('node:child_process');
-const { randomUUID } = require('node:crypto');
+const { randomBytes, randomUUID } = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const WebSocket = require('ws');
+const { roomIdFromToken } = require('./hosttoken');
 
 const SERVER = require.resolve('./server.js');
 
@@ -479,6 +480,65 @@ test('a peer flooding a non-reading peer is cut off, not buffered', async (t) =>
     await assertSurvived(srv, 'a flood aimed at a peer that is not reading');
 });
 
+// --- request-link helpers -----------------------------------------------------
+
+function newToken() {
+    return randomBytes(32).toString('base64url');
+}
+
+// One host join; resolves with the server's first answer to it.
+function hostJoin(ws, token, roomId = roomIdFromToken(token)) {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => { ws.off('message', onMessage); reject(new Error('no answer to a host join')); }, 5000);
+        function onMessage(raw) {
+            let msg;
+            try { msg = JSON.parse(raw); } catch { return; }
+            if (!msg || !['room-joined', 'refused', 'room-full', 'error'].includes(msg.type)) return;
+            clearTimeout(timer);
+            ws.off('message', onMessage);
+            resolve(msg);
+        }
+        ws.on('message', onMessage);
+        ws.send(JSON.stringify({ type: 'join-room', roomId, hostToken: token }));
+    });
+}
+
+// A /ws connection that names its own address (getClientIp trusts one hop).
+function openAs(srv, address) {
+    const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`, { headers: { 'X-Forwarded-For': address } });
+    track(ws);
+    return new Promise((resolve, reject) => {
+        ws.once('open', () => resolve(ws));
+        ws.once('error', reject);
+    });
+}
+
+// Every frame's reply, in order, until a pong closes the batch.
+function repliesUntilPong(ws, ms = 10000) {
+    return new Promise((resolve, reject) => {
+        const got = [];
+        const timer = setTimeout(() => { ws.off('message', onMessage); reject(new Error(`no pong; got ${JSON.stringify(got)}`)); }, ms);
+        function onMessage(raw) {
+            let msg;
+            try { msg = JSON.parse(raw); } catch { return; }
+            if (msg && msg.type === 'pong') {
+                clearTimeout(timer);
+                ws.off('message', onMessage);
+                resolve(got);
+                return;
+            }
+            got.push(msg);
+        }
+        ws.on('message', onMessage);
+    });
+}
+
+function policyFileSaying(t, on) {
+    const file = policyDir(t);
+    writePolicy(file, JSON.stringify({ requestLinks: on }));
+    return file;
+}
+
 // --- the request-link policy file (POLICY_FILE) ------------------------------
 //
 // The file is read at startup and on every tick of the real 60 s cleanup
@@ -560,20 +620,117 @@ test.describe('request-link policy file', { concurrency: true }, () => {
         t.after(() => srv.stop());
         const pid = srv.child.pid;
         assert.deepEqual(await features(srv), []);
+        const early = await open(srv);
+        assert.deepEqual(await hostJoin(early, newToken()), { type: 'refused', code: 'disabled' });
 
         writePolicy(file, '{"requestLinks":true}');
         const onAt = Date.now();
         await until('request-1 in /health', 65000, async () => (await features(srv)).includes('request-1'));
         const onAfter = Date.now() - onAt;
 
+        // A host that waits through the flip back to off is told so.
+        const waiting = await open(srv);
+        assert.deepEqual(await hostJoin(waiting, newToken()), { type: 'room-joined', role: 'host' });
+        const told = waitFor(waiting, 'refused', 70000);
+
         writePolicy(file, '{"requestLinks":false}');
         const offAt = Date.now();
         await until('request-1 to leave /health', 65000, async () => !(await features(srv)).includes('request-1'));
         const offAfter = Date.now() - offAt;
+        assert.deepEqual(await told, { type: 'refused', code: 'disabled' });
 
         assert.equal(srv.child.pid, pid);
         assert.equal(srv.child.exitCode, null, 'the flip must not cost a restart');
         t.diagnostic(`on after ${onAfter} ms, off after ${offAfter} ms, pid ${pid} throughout`);
         await assertSurvived(srv, 'two policy flips');
     });
+});
+
+// --- request rooms: the host join ---------------------------------------------
+
+test('a hostToken of any hostile shape never reaches the backstop', async (t) => {
+    const srv = await startServer({ POLICY_FILE: policyFileSaying(t, true) });
+    t.after(() => srv.stop());
+
+    const depth = stringifyOverflowDepth();
+    assert.ok(depth, 'JSON.stringify no longer overflows at any depth this test can build');
+    const deep = '['.repeat(depth * 2) + ']'.repeat(depth * 2);
+    const token = newToken();
+    const id = roomIdFromToken(token);
+    const big = JSON.stringify('A'.repeat(900 * 1024));
+
+    // Raw frames, so the hostile values are exactly what the wire carries.
+    // The one-element array is the shape that slips past a regex without the
+    // typeof guard (an array stringifies to its only element) and then reaches
+    // the hash.
+    const frames = [
+        `{"type":"join-room","roomId":"${id}","hostToken":null}`,
+        `{"type":"join-room","roomId":"${id}","hostToken":1}`,
+        `{"type":"join-room","roomId":"${id}","hostToken":{}}`,
+        `{"type":"join-room","roomId":"${id}","hostToken":${deep}}`,
+        `{"type":"join-room","roomId":"${id}","hostToken":${big}}`,
+        `{"type":"join-room","roomId":"${id}","hostToken":["${token}"]}`,
+        `{"type":"join-room","roomId":null,"hostToken":"${token}"}`,
+        `{"type":"join-room","roomId":{},"hostToken":"${token}"}`,
+        `{"type":"join-room","roomId":["${id}"],"hostToken":"${token}"}`,
+        `{"type":"join-room","roomId":${deep},"hostToken":"${token}"}`,
+        `{"type":"join-room","roomId":${big},"hostToken":"${token}"}`,
+    ];
+    for (const f of frames) assert.ok(f.length < 1e6, `frame of ${f.length} bytes is over maxPayload`);
+
+    const ws = await open(srv);
+    const replies = repliesUntilPong(ws);
+    for (const f of frames) ws.send(f);
+    ws.send(JSON.stringify({ type: 'ping' }));
+    const got = await replies;
+
+    assert.equal(got.length, frames.length, JSON.stringify(got));
+    for (const m of got.slice(0, 6)) assert.deepEqual(m, { type: 'error', message: 'Invalid host token' });
+    for (const m of got.slice(6)) assert.deepEqual(m, { type: 'error', message: 'Invalid room ID' });
+    await assertSurvived(srv, 'hostile hostToken and roomId shapes on a host join');
+
+    // The socket still serves, and a real host join still works.
+    assert.deepEqual(await hostJoin(ws, token), { type: 'room-joined', role: 'host' });
+});
+
+test('digest comparison never sees unequal lengths', async (t) => {
+    const srv = await startServer({ POLICY_FILE: policyFileSaying(t, true) });
+    t.after(() => srv.stop());
+
+    const token = newToken();
+    const id = roomIdFromToken(token);
+    const host = await open(srv);
+    assert.deepEqual(await hostJoin(host, token), { type: 'room-joined', role: 'host' });
+
+    // Short and long tokens against a stored digest: refused by the regex
+    // before any hash. A foreign token of the right shape fails the derivation.
+    const other = await open(srv);
+    for (const bad of ['A', 'A'.repeat(10000), `${token}A`, token.slice(1)]) {
+        assert.deepEqual(await hostJoin(other, bad, id), { type: 'error', message: 'Invalid host token' });
+    }
+    assert.deepEqual(await hostJoin(other, newToken(), id), { type: 'error', message: 'Invalid host token' });
+
+    // The one path that reaches the compare: the real token again, from a new
+    // socket (newest host wins). Two 32-byte digests, by construction.
+    assert.deepEqual(await hostJoin(other, token), { type: 'room-joined', role: 'host' });
+    await assertSurvived(srv, 'token lengths 1 to 10,000 against a stored digest, then a reclaim');
+});
+
+test('host lifecycle churn 200 times leaves the server healthy', { timeout: 120000 }, async (t) => {
+    // Every connection comes from its own TEST-NET address, so neither the
+    // connection limiter nor the 20-a-day create budget is what this measures.
+    const srv = await startServer({ POLICY_FILE: policyFileSaying(t, true), MAX_CONNECTIONS_PER_IP: '1000' });
+    t.after(() => srv.stop());
+
+    for (let i = 0; i < 200; i++) {
+        const address = `203.0.113.${i % 250}`;
+        const token = newToken();
+        const a = await openAs(srv, i < 250 ? address : `198.51.100.${i}`);
+        assert.deepEqual(await hostJoin(a, token), { type: 'room-joined', role: 'host' }, `create ${i}`);
+        a.terminate();
+        const b = await openAs(srv, address);
+        assert.deepEqual(await hostJoin(b, token), { type: 'room-joined', role: 'host' }, `reclaim ${i}`);
+        b.close();
+    }
+    await assertSurvived(srv, '200 host create, terminate, reclaim and close cycles');
 });
