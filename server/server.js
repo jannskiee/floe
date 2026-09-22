@@ -303,6 +303,14 @@ function createSocketIOPeer(socket) {
     };
 }
 
+// One full inbound frame (the wss maxPayload below). A whole signaling exchange
+// is under 10 KB, so a /ws target holding more than one frame's worth of undrained
+// output is not reading, and everything further aimed at it accumulates in this
+// process's heap. Measured before this bound: one attacker pair, the flooder and
+// a partner that paused its socket, grew the server's working set by 157 MB in
+// about 3.2 seconds and was still climbing when the probe stopped itself.
+const WS_SEND_BUFFER_CEILING = 1e6;
+
 function createWSPeer(ws) {
     return {
         id: ws.peerId,
@@ -310,6 +318,16 @@ function createWSPeer(ws) {
         roomId: null,
         send(type, data) {
             if (ws.readyState !== WebSocket.OPEN) return;
+            // Checked before every send, so a socket holds at most the ceiling
+            // plus the one frame in flight, about 2 MB. Terminate rather than
+            // drop: a peer this far behind has already stopped being a peer, and
+            // dropping alone would leave the queued megabyte held for the life of
+            // the socket. Silent on purpose, like handleSignal's catch: a log
+            // line per attempt is a flood lever at a rate the caller picks.
+            if (ws.bufferedAmount > WS_SEND_BUFFER_CEILING) {
+                ws.terminate();
+                return;
+            }
             // Spread data into the top-level object alongside "type"
             ws.send(JSON.stringify({ type, ...data }));
         },
@@ -455,6 +473,11 @@ io.on('connection', (socket) => {
 // Signaling carries only SDP/ICE (< 10 KB); larger frames are rejected (close 1009).
 const wss = new WebSocketServer({ noServer: true, maxPayload: 1e6 });
 
+// Heartbeat period. A test knob, not an operator setting: production and every
+// self-host leave it unset and run at 30 s. server/crashguard.test.js sets it so
+// the reap it asserts happens in under two seconds instead of 86.
+const HEARTBEAT_MS = parseInt(process.env.HEARTBEAT_MS, 10) || 30000;
+
 // Answer an upgrade we will not complete, then close. Same shape as ws's own
 // abortHandshake. A bare destroy would also work; a reason on the wire is what
 // makes a misconfigured proxy diagnosable.
@@ -541,10 +564,11 @@ wss.on('connection', (ws, req) => {
 
     ws.peerId = crypto.randomUUID();
     ws.isAlive = true;
+    ws.pingNonce = null;
 
     const peer = createWSPeer(ws);
 
-    ws.on('pong', () => { ws.isAlive = true; });
+    ws.on('pong', (data) => handlePong(ws, data));
 
     ws.on('message', (raw) => {
         let msg;
@@ -573,14 +597,35 @@ wss.on('connection', (ws, req) => {
     ws.on('error', () => handleDisconnect(peer));
 });
 
-// Heartbeat: detect and close dead WebSocket connections every 30 seconds
-const heartbeat = setInterval(() => {
-    wss.clients.forEach((ws) => {
-        if (!ws.isAlive) { ws.terminate(); return; }
+// Heartbeat: detect and close dead WebSocket connections every 30 seconds.
+//
+// Each ping carries a fresh 8-byte nonce and only a pong echoing it counts, so
+// liveness means "this peer answered the question we just asked". A flag set by
+// any pong, or set only while a ping is outstanding, is defeated the same way: a
+// peer that sends unsolicited pongs faster than the interval keeps its seat
+// forever without ever reading. The nonce is not a secret, it only has to be
+// unpredictable to a peer that is not listening. RFC 6455 requires a pong to
+// carry the ping's payload, and every shipped Floe client answers through its
+// library's default handler (gorilla/websocket for the CLI and the desktop app,
+// ws for Node), so honest peers keep their seats unchanged.
+function heartbeatTick(clients) {
+    clients.forEach((ws) => {
+        if (ws.isAlive === false) { ws.terminate(); return; }
         ws.isAlive = false;
-        ws.ping();
+        ws.pingNonce = crypto.randomBytes(8);
+        ws.ping(ws.pingNonce);
     });
-}, 30000).unref();
+}
+
+function handlePong(ws, data) {
+    if (ws.pingNonce && Buffer.isBuffer(data) && data.equals(ws.pingNonce)) {
+        ws.isAlive = true;
+        // Spent: a replay of these bytes answers nothing after the next tick.
+        ws.pingNonce = null;
+    }
+}
+
+const heartbeat = setInterval(() => heartbeatTick(wss.clients), HEARTBEAT_MS).unref();
 
 wss.on('close', () => clearInterval(heartbeat));
 
@@ -654,6 +699,10 @@ module.exports = {
     handleJoinRoom,
     handleSignal,
     handleDisconnect,
+    createWSPeer,
+    heartbeatTick,
+    handlePong,
+    WS_SEND_BUFFER_CEILING,
     rooms,
     codeToRoom,
     connectionCounts,

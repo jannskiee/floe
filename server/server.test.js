@@ -24,6 +24,10 @@ const {
     makeRateLimiter,
     codeRateLimits,
     selectMinimalIceUrls,
+    createWSPeer,
+    heartbeatTick,
+    handlePong,
+    WS_SEND_BUFFER_CEILING,
 } = require('./server');
 
 // ---------------------------------------------------------------------------
@@ -741,5 +745,192 @@ describe('errorHandler', () => {
         errorHandler(malformedBodyError(), {}, res, () => {});
         assert.equal(res.statusCode, 200, 'must not touch the status mid-response');
         assert.equal(res.body, null, 'must not append a second body');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// WebSocket liveness and backpressure
+// ---------------------------------------------------------------------------
+
+// The fields heartbeatTick, handlePong and createWSPeer().send touch, and
+// nothing else. A real ws socket needs a real TCP peer; these three functions
+// only read readyState and bufferedAmount and only call ping, send and
+// terminate, so a plain object records exactly what each one did.
+function fakeWS(overrides = {}) {
+    return {
+        peerId: 'peer-1',
+        isAlive: true,
+        pingNonce: null,
+        readyState: 1, // WebSocket.OPEN
+        bufferedAmount: 0,
+        pings: [],
+        sent: [],
+        terminated: 0,
+        ping(payload) { this.pings.push(payload); },
+        send(frame) { this.sent.push(frame); },
+        terminate() { this.terminated++; },
+        ...overrides,
+    };
+}
+
+describe('handlePong', () => {
+    it('a socket that echoes the nonce survives two ticks', () => {
+        const ws = fakeWS();
+
+        heartbeatTick([ws]);
+        handlePong(ws, ws.pings[0]);
+        assert.equal(ws.isAlive, true, 'the answered ping must mark the socket alive');
+
+        heartbeatTick([ws]);
+        handlePong(ws, ws.pings[1]);
+        assert.equal(ws.isAlive, true);
+
+        // The tick that would reap it if either answer had been missed.
+        heartbeatTick([ws]);
+        assert.equal(ws.terminated, 0, 'an answering socket is never terminated');
+        assert.equal(ws.pings.length, 3);
+    });
+
+    it('unsolicited pongs do not keep a socket alive', () => {
+        const ws = fakeWS();
+
+        // A stream that arrives before any ping. Nothing is outstanding, so
+        // there is nothing it can answer.
+        for (let i = 0; i < 10; i++) handlePong(ws, Buffer.alloc(8, 0x41));
+        assert.equal(ws.isAlive, true, 'no tick has run yet');
+
+        heartbeatTick([ws]);
+        assert.equal(ws.isAlive, false);
+
+        // The attack: a pong every few milliseconds, each one the wrong bytes.
+        // The flag-only design ("a pong counts while a ping is outstanding")
+        // clears on the first of these; the nonce design does not.
+        for (let i = 0; i < 10; i++) handlePong(ws, Buffer.alloc(8, 0x41));
+        assert.equal(ws.isAlive, false, 'a pong that answers no ping must not count');
+
+        heartbeatTick([ws]);
+        assert.equal(ws.terminated, 1, 'the second tick must reap the silent socket');
+    });
+
+    it('a replay of the previous nonce is ignored', () => {
+        const ws = fakeWS();
+
+        heartbeatTick([ws]);
+        const first = ws.pings[0];
+        handlePong(ws, first);
+        assert.equal(ws.isAlive, true);
+
+        heartbeatTick([ws]);
+        // Same bytes, but that nonce has already been spent and a new one is
+        // outstanding. An eavesdropper replaying what it saw gains nothing.
+        handlePong(ws, Buffer.from(first));
+        assert.equal(ws.isAlive, false);
+
+        heartbeatTick([ws]);
+        assert.equal(ws.terminated, 1);
+    });
+
+    it('ignores a pong that is not a buffer or not the right length', () => {
+        const ws = fakeWS();
+        heartbeatTick([ws]);
+        const nonce = ws.pings[0];
+
+        handlePong(ws, undefined);
+        handlePong(ws, nonce.toString('latin1'));
+        handlePong(ws, Buffer.alloc(0));
+        handlePong(ws, Buffer.concat([nonce, Buffer.from([0])]));
+        assert.equal(ws.isAlive, false);
+
+        handlePong(ws, nonce);
+        assert.equal(ws.isAlive, true, 'the real answer still counts');
+    });
+});
+
+describe('heartbeatTick', () => {
+    it('a silent socket is terminated on the second tick', () => {
+        const ws = fakeWS();
+
+        heartbeatTick([ws]);
+        assert.equal(ws.terminated, 0, 'the first tick only asks');
+        assert.equal(ws.pings.length, 1);
+        assert.equal(ws.isAlive, false);
+
+        heartbeatTick([ws]);
+        assert.equal(ws.terminated, 1);
+        assert.equal(ws.pings.length, 1, 'a reaped socket is not pinged again');
+    });
+
+    it('the nonce changes every tick', () => {
+        const ws = fakeWS();
+        const seen = new Set();
+
+        for (let i = 0; i < 8; i++) {
+            heartbeatTick([ws]);
+            const nonce = ws.pings[i];
+            assert.ok(Buffer.isBuffer(nonce), 'the ping payload must be a buffer');
+            assert.equal(nonce.length, 8);
+            assert.equal(ws.pingNonce, nonce, 'the outstanding nonce is what was sent');
+            seen.add(nonce.toString('hex'));
+            handlePong(ws, nonce);
+            assert.equal(ws.pingNonce, null, 'an answered nonce is spent');
+        }
+
+        assert.equal(seen.size, 8, 'a nonce is never reused');
+    });
+
+    it('reaps only the sockets that owe an answer', () => {
+        const alive = fakeWS();
+        const silent = fakeWS();
+
+        heartbeatTick([alive, silent]);
+        handlePong(alive, alive.pings[0]);
+        heartbeatTick([alive, silent]);
+
+        assert.equal(alive.terminated, 0);
+        assert.equal(silent.terminated, 1);
+    });
+});
+
+describe('createWSPeer backpressure', () => {
+    it('send over the ceiling terminates and drops', () => {
+        const ws = fakeWS({ bufferedAmount: WS_SEND_BUFFER_CEILING + 1 });
+        const peer = createWSPeer(ws);
+
+        peer.send('signal', { signal: 'x', sender: 'peer-2' });
+
+        assert.equal(ws.sent.length, 0, 'nothing may be queued behind the ceiling');
+        assert.equal(ws.terminated, 1, 'a target that is not draining is cut off');
+    });
+
+    it('send at the ceiling still delivers', () => {
+        // Strictly greater-than, so the boundary value is deliverable.
+        const ws = fakeWS({ bufferedAmount: WS_SEND_BUFFER_CEILING });
+        const peer = createWSPeer(ws);
+
+        peer.send('signal', { signal: 'x', sender: 'peer-2' });
+
+        assert.equal(ws.terminated, 0);
+        assert.deepEqual(JSON.parse(ws.sent[0]), { type: 'signal', signal: 'x', sender: 'peer-2' });
+    });
+
+    it('a closed socket is dropped without being terminated again', () => {
+        const ws = fakeWS({ readyState: 3, bufferedAmount: WS_SEND_BUFFER_CEILING + 1 });
+        const peer = createWSPeer(ws);
+
+        peer.send('signal', { signal: 'x' });
+
+        assert.equal(ws.sent.length, 0);
+        assert.equal(ws.terminated, 0, 'the readyState check still comes first');
+    });
+
+    it('the ceiling is one maxPayload frame', () => {
+        // A whole signaling exchange is under 10 KB, so the ceiling is set by
+        // the inbound frame limit, not by the traffic: one full frame may be in
+        // flight, a second one means the target is not reading. The two numbers
+        // are coupled, so pin both.
+        assert.equal(WS_SEND_BUFFER_CEILING, 1e6);
+
+        const source = require('node:fs').readFileSync(require.resolve('./server.js'), 'utf8');
+        assert.match(source, /maxPayload: 1e6/, 'maxPayload must still be the 1 MB the ceiling mirrors');
     });
 });
