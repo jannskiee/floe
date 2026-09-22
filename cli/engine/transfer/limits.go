@@ -70,6 +70,13 @@ type ReceiveLimits struct {
 	// class ID suffix is stripped from every path component. A rename, never
 	// a refusal.
 	BlockShellTypes bool
+	// HostRelayCheck holds a drop to RelaySizeLimit when this side's own
+	// probe of the selected candidate pair says relay (relay.go,
+	// hostRelayVerdict): probed once when the transfer is accepted, then a
+	// file whose announced size, or a frame whose bytes, would take the
+	// drop past the limit is refused relay-cap. A probe that fails lets the
+	// drop through, as the sender's gate does.
+	HostRelayCheck bool
 }
 
 // The volume questions, as seams so a test can stand in any file system and

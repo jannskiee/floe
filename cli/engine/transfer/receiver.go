@@ -218,6 +218,10 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 	metadataFrames := 0
 	var firstInfo FileInfo
 	var approvedTotal int64
+	// This side's reading of the selected pair, taken once when the transfer
+	// is accepted and only with Limits.HostRelayCheck: no ICE restart exists,
+	// so the pair does not change during a drop.
+	relayVerdict := "unknown"
 	// SHA-256 of the bytes written to the current .part, started fresh on every
 	// claim so an abandoned file can never lend its digest to the next one.
 	var currentHash hash.Hash
@@ -568,6 +572,9 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					// Accepted, by Decide, the prompt or autoAccept: this is
 					// the total the rest of the drop is held to.
 					approvedTotal = info.TotalBytes
+					if opts.Limits != nil && opts.Limits.HostRelayCheck {
+						relayVerdict = hostRelayVerdict(dc)
+					}
 				}
 
 				// Layer 2 at every metadata, immediately before the claim:
@@ -582,6 +589,13 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					}
 					if code, reason := checkEveryMetadata(info, firstInfo, filesReceived, metadataFrames, opts.Limits, free); code != "" {
 						return refuseLimit(dc, localVer, code, reason, filesReceived)
+					}
+					// On a relay this side confirmed, a file that would take
+					// the drop past the cap is refused before its ack.
+					if opts.Limits.HostRelayCheck {
+						if err := checkRelayGate(relayVerdict, totalReceived+info.FileSize); err != nil {
+							return refuseRelay(dc, localVer, filesReceived, err)
+						}
 					}
 				}
 
@@ -872,6 +886,11 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 		if opts.Limits != nil {
 			if code, reason := checkFrame(totalReceived, len(msg.Data), approvedTotal); code != "" {
 				return refuseLimit(dc, localVer, code, reason, filesReceived)
+			}
+			if opts.Limits.HostRelayCheck {
+				if err := relayFrameCheck(relayVerdict, totalReceived, len(msg.Data)); err != nil {
+					return refuseRelay(dc, localVer, filesReceived, err)
+				}
 			}
 		}
 		// A failed write used to return the raw OS error with nothing on the
