@@ -22,6 +22,10 @@ const (
 	connectGrace      = 10 * time.Second // extra grace for the data channel after "connected"
 )
 
+// signalWait is the offer and answer wait the two Setup calls use:
+// signalWaitTimeout, as a variable only so a test can shrink it.
+var signalWait = signalWaitTimeout
+
 // signalPayload is the JSON structure for WebRTC signals sent over the
 // signaling channel. It can be either an SDP (offer/answer) or an ICE candidate.
 type signalPayload struct {
@@ -282,7 +286,18 @@ func (conn *Connection) SetupAsSender() (*webrtc.DataChannel, error) {
 			return nil, &SetupError{Stage: StageAnswer, Err: fmt.Errorf("signaling closed before answer was received")}
 		}
 		answer = a
-	case <-time.After(signalWaitTimeout):
+	// The peer leaving, the server going away and a local Close end every
+	// setup wait at once, instead of costing the full timeout and reading as
+	// a failure to connect. PeerLeft is read here and in the three waits
+	// below only: the join waits that also read it all finish before New.
+	case <-conn.sc.PeerLeft:
+		if conn.signalingLost() {
+			return nil, &SetupError{Stage: StageSignalingLost, Err: ErrSignalingLost}
+		}
+		return nil, &SetupError{Stage: StagePeerLeft, Err: ErrPeerLeft}
+	case <-conn.done:
+		return nil, &SetupError{Stage: StageClosed, Err: ErrClosed}
+	case <-time.After(signalWait):
 		return nil, &SetupError{Stage: StageAnswer, Err: fmt.Errorf("timed out waiting for the peer to answer")}
 	}
 
@@ -309,6 +324,13 @@ func (conn *Connection) SetupAsSender() (*webrtc.DataChannel, error) {
 		case <-time.After(connectGrace):
 			return nil, &SetupError{Stage: StageChannel, Err: fmt.Errorf("connected but the data channel did not open")}
 		}
+	case <-conn.sc.PeerLeft:
+		if conn.signalingLost() {
+			return nil, &SetupError{Stage: StageSignalingLost, Err: ErrSignalingLost}
+		}
+		return nil, &SetupError{Stage: StagePeerLeft, Err: ErrPeerLeft}
+	case <-conn.done:
+		return nil, &SetupError{Stage: StageClosed, Err: ErrClosed}
 	case <-time.After(connectTimeout):
 		return nil, &SetupError{Stage: StageConnect, Err: fmt.Errorf("timed out establishing a connection")}
 	}
@@ -342,7 +364,14 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 			return nil, &SetupError{Stage: StageOffer, Err: fmt.Errorf("signaling closed before offer was received")}
 		}
 		offer = o
-	case <-time.After(signalWaitTimeout):
+	case <-conn.sc.PeerLeft:
+		if conn.signalingLost() {
+			return nil, &SetupError{Stage: StageSignalingLost, Err: ErrSignalingLost}
+		}
+		return nil, &SetupError{Stage: StagePeerLeft, Err: ErrPeerLeft}
+	case <-conn.done:
+		return nil, &SetupError{Stage: StageClosed, Err: ErrClosed}
+	case <-time.After(signalWait):
 		return nil, &SetupError{Stage: StageOffer, Err: fmt.Errorf("timed out waiting for the peer's offer")}
 	}
 
@@ -389,8 +418,29 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 		case <-time.After(connectGrace):
 			return nil, &SetupError{Stage: StageChannel, Err: fmt.Errorf("connected but the data channel did not open")}
 		}
+	case <-conn.sc.PeerLeft:
+		if conn.signalingLost() {
+			return nil, &SetupError{Stage: StageSignalingLost, Err: ErrSignalingLost}
+		}
+		return nil, &SetupError{Stage: StagePeerLeft, Err: ErrPeerLeft}
+	case <-conn.done:
+		return nil, &SetupError{Stage: StageClosed, Err: ErrClosed}
 	case <-time.After(connectTimeout):
 		return nil, &SetupError{Stage: StageConnect, Err: fmt.Errorf("timed out establishing a connection")}
+	}
+}
+
+// signalingLost tells a PeerLeft push that came from the socket closing from
+// one the server sent: the signaling client closes Down before it pushes
+// PeerLeft on the way out of its read loop, so a closed Down here means the
+// server is gone, not the peer. A client built without Connect has a nil
+// Down, which reads as open.
+func (conn *Connection) signalingLost() bool {
+	select {
+	case <-conn.sc.Down:
+		return true
+	default:
+		return false
 	}
 }
 

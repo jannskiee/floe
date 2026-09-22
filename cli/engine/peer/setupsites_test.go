@@ -2,9 +2,11 @@ package peer
 
 // Every setup failure site returns a *SetupError or passes through the one
 // setRemoteDesc built: a source-shape check, because nine of the nineteen
-// return sites cannot be driven in-process (pion refusing valid input, the
-// 30 s waits), and a wrap dropped at CreateAnswer would hand pion's text,
-// which can quote the peer's SDP, to a terminal unsanitized.
+// original return sites cannot be driven in-process (pion refusing valid
+// input, the 30 s waits), and a wrap dropped at CreateAnswer would hand
+// pion's text, which can quote the peer's SDP, to a terminal unsanitized.
+// S1-ENG-11 added twelve more, three in each of the four waits (peer left,
+// signaling lost, closed), which the setup tests in connection_test.go drive.
 
 import (
 	"os"
@@ -58,8 +60,8 @@ func TestEverySetupReturnIsTyped(t *testing.T) {
 		t.Fatal(err)
 	}
 	sites := setupReturnSites(string(src))
-	if len(sites) != 19 {
-		t.Fatalf("expected 19 return sites across SetupAsSender and SetupAsReceiver, found %d: a new site needs its SetupError and this count", len(sites))
+	if len(sites) != 31 {
+		t.Fatalf("expected 31 return sites across SetupAsSender and SetupAsReceiver, found %d: a new site needs its SetupError and this count", len(sites))
 	}
 	if bad := untypedSetupReturns(sites); len(bad) != 0 {
 		t.Fatalf("setup return sites that are neither a *SetupError nor the setRemoteDesc passthrough: %q", bad)

@@ -260,6 +260,13 @@ func TestSetupErrorWrapsEveryStage(t *testing.T) {
 		{"receiver: send answer", StageAnswer, "failed to send answer: ", false, func(t *testing.T) error {
 			sc, _ := signalSink(t)
 			sc.Close()
+			// The closed socket also ends the read loop, which closes Down and
+			// pushes PeerLeft, and the offer wait reads PeerLeft since S1-ENG-11
+			// (a lost server ends setup at once). Take that push first, so the
+			// wait sees only the queued offer and this case keeps driving the
+			// send-answer site instead of a coin flip between the two.
+			<-sc.Down
+			<-sc.PeerLeft
 			conn, err := New(nil, sc)
 			if err != nil {
 				t.Fatal(err)

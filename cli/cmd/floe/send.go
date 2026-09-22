@@ -139,7 +139,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 	fmt.Println("  Connecting...")
 	dc, err := conn.SetupAsSender()
 	if err != nil {
-		return fmt.Errorf("WebRTC setup failed: %w", err)
+		return fmt.Errorf("%s", setupFailureLine(err))
 	}
 
 	fmt.Println(connectedLine(conn.ConnectionType()))

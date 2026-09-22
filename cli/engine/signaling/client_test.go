@@ -73,9 +73,9 @@ func testServer(t *testing.T, write func(*websocket.Conn)) *httptest.Server {
 	return srv
 }
 
-func dial(t *testing.T, srv *httptest.Server) *Client {
+func dial(t *testing.T, srv *httptest.Server, opts ...Option) *Client {
 	t.Helper()
-	c, err := Connect(strings.Replace(srv.URL, "http://", "ws://", 1))
+	c, err := Connect(strings.Replace(srv.URL, "http://", "ws://", 1), opts...)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
