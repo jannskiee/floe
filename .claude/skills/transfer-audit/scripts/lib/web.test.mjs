@@ -27,6 +27,7 @@ import { sleep } from './surfaces.mjs';
 import {
     AUDIT_INIT,
     HASH_REFUSAL_AFTER_SENT_MS,
+    HASH_REFUSAL_HOLD_MS,
     HASH_REFUSAL_SENTENCE,
     HASH_WIRE_REASONS,
     PlaywrightMissingError,
@@ -784,6 +785,19 @@ test('a lying cell senders bound comes from the receivers own flush timeout', ()
         HASH_REFUSAL_AFTER_SENT_MS > flushMs * 2,
         'the bound must outlast the receivers flush, not race it'
     );
+    // The hold is the same clock read from the other end: the receiver closes
+    // and exits after that flush, and the exit is what drops the socket that
+    // fires peer-disconnected on the sender. Four times the flush, and inside
+    // the first bound so a lying cell never pays for two long waits.
+    assert.equal(HASH_REFUSAL_HOLD_MS, 8_000);
+    assert.ok(
+        HASH_REFUSAL_HOLD_MS > flushMs * 2,
+        'the hold must outlast the receivers flush and exit, not race them'
+    );
+    assert.ok(
+        HASH_REFUSAL_HOLD_MS < HASH_REFUSAL_AFTER_SENT_MS,
+        'the hold must not dominate the wait that precedes it'
+    );
 });
 
 /**
@@ -855,7 +869,11 @@ test("a lying cell's web sender is complete only once the refusal copy shows", a
         const done = await late.awaitDone(1000);
         assert.equal(done.kind, 'refusal');
         assert.equal(done.ok, true);
-        assert.equal(late.page.timeouts.length, 2, 'allSent opened a second wait');
+        assert.equal(
+            late.page.timeouts.length,
+            3,
+            'allSent opened the refusal wait and then the hold'
+        );
         assert.ok(!late.notes.includes('hash-refusal-missing'));
     });
 
@@ -887,6 +905,47 @@ test("a lying cell's web sender is complete only once the refusal copy shows", a
         const done = await early.awaitDone(1000);
         assert.equal(done.kind, 'refusal');
         assert.equal(early.page.timeouts.length, 1);
+    });
+
+    // The refusal showing is not the end of it. The CLI receiver exits about
+    // two seconds later and drops its signaling socket, and the sender's
+    // onPeerDisconnected used to rewrite the status with receiveOutcome(),
+    // which on a sender returns 'Transfer complete'. The banner stayed right,
+    // so the wait above passed while the page contradicted itself.
+    await t.test('a status that goes back to complete under the banner fails', async () => {
+        const flips = mk([
+            TEXT.allSent,
+            `${TEXT.allSent}\n${HASH_REFUSAL_SENTENCE}`,
+            `${TEXT.transferComplete}\n${HASH_REFUSAL_SENTENCE}`,
+        ]);
+        await assert.rejects(flips.awaitDone(1000), (err) => {
+            assert.equal(err.name, 'PhaseError');
+            assert.equal(err.phase, 'done');
+            assert.equal(err.signatureKey, 'hash-refusal-overwritten');
+            assert.match(err.message, /went back to/);
+            return true;
+        });
+        assert.ok(
+            flips.notes.includes('hash-refusal-overwritten'),
+            'the evidence names why the cell failed'
+        );
+        assert.ok(
+            !flips.notes.includes('hash-refusal-missing'),
+            'the refusal did show, so the earlier signature must not fire'
+        );
+    });
+
+    await t.test('a refusal that holds through the bound is the verdict', async () => {
+        const holds = mk([
+            TEXT.allSent,
+            `${TEXT.allSent}\n${HASH_REFUSAL_SENTENCE}`,
+            `${TEXT.allSent}\n${HASH_REFUSAL_SENTENCE}`,
+        ]);
+        const done = await holds.awaitDone(1000);
+        assert.equal(done.kind, 'refusal');
+        assert.equal(done.ok, true);
+        assert.equal(holds.page.timeouts.length, 3, 'the hold is its own wait');
+        assert.equal(holds.notes.length, 0);
     });
 
     // No other cell's verdict changed: a sender that does not lie is done at

@@ -62,6 +62,18 @@ export const HASH_TIMEOUT_MS = 120_000;
 // success through a refusal passed every H-DIR-W2C-hashbad run.
 export const HASH_REFUSAL_AFTER_SENT_MS = 15_000;
 
+// How long the refusal then has to STAY the page's account. The same clock read
+// from the other end: after that flush the CLI receiver closes the channel and
+// exits, and it is the exit that drops its signaling socket and fires
+// peer-disconnected on the sender. A sender that lets that event rewrite its
+// status is back to claiming a completed transfer beside a banner saying a file
+// was thrown away, which is the same defect wearing a different hat and which
+// the wait above cannot see, because it reads the banner and the banner is
+// still right. Four times the flush, so the whole flush, close and exit
+// sequence is inside the window on a loaded machine, and well under
+// HASH_REFUSAL_AFTER_SENT_MS so a lying cell never pays for two long waits.
+export const HASH_REFUSAL_HOLD_MS = 8_000;
+
 // The two reasons both receivers put on the incompatible frame
 // (cli/engine/transfer/receiver.go, and HASH_MISMATCH_REASON /
 // HASH_UNREADABLE_REASON in client/lib/transfer/receiver.ts). A sender page
@@ -1032,9 +1044,13 @@ export class WebLeg extends Leg {
      * a browser sender's own verdict reaches the record through this phase
      * alone. Only awaitDone's sender branch calls this, and only when the
      * cell lies.
+     *
+     * Showing the refusal is only half of it: assertRefusalHolds then requires
+     * it to survive the peer's exit.
      */
     async awaitRefusalAfterSent() {
         const bound = this.budget(HASH_REFUSAL_AFTER_SENT_MS);
+        let outcome;
         try {
             const handle = await this.page.waitForFunction(
                 (want) => {
@@ -1047,7 +1063,7 @@ export class WebLeg extends Leg {
                 TEXT.peerRefusedHash,
                 { timeout: bound, polling: 500 }
             );
-            return await handle.jsonValue();
+            outcome = await handle.jsonValue();
         } catch (err) {
             this.notes.push('hash-refusal-missing');
             throw new PhaseError(
@@ -1056,6 +1072,57 @@ export class WebLeg extends Leg {
                 { cause: err, signatureKey: 'hash-refusal-missing' }
             );
         }
+        // Deliberately outside the catch: assertRefusalHolds throws its own
+        // done PhaseError, and the catch above would relabel it as a missing
+        // refusal, which is the opposite of what happened.
+        await this.assertRefusalHolds();
+        return outcome;
+    }
+
+    /**
+     * The third wait on a lying cell's sender. The refusal is on the page, and
+     * it has to still be the page's account HASH_REFUSAL_HOLD_MS later. What
+     * this catches is a status line that goes back to TEXT.transferComplete
+     * while the banner still carries the refusal: the CLI receiver's exit drops
+     * its signaling socket about two seconds after the refusal, and a sender
+     * that lets peer-disconnected rewrite its status ends up saying a transfer
+     * completed beside a sentence saying a file was thrown away.
+     *
+     * Shaped as an assertion that something never happens, so this wait TIMING
+     * OUT is the pass and a match is the failure. It costs HASH_REFUSAL_HOLD_MS
+     * on the one cell that lies and nothing anywhere else.
+     */
+    async assertRefusalHolds() {
+        const hold = this.budget(HASH_REFUSAL_HOLD_MS);
+        let overwritten = false;
+        try {
+            const handle = await this.page.waitForFunction(
+                (want) => {
+                    const text =
+                        (document.body && document.body.innerText) || '';
+                    return want.refusal.some((s) => text.includes(s)) &&
+                        text.includes(want.transferComplete)
+                        ? 'overwritten'
+                        : null;
+                },
+                {
+                    refusal: TEXT.peerRefusedHash,
+                    transferComplete: TEXT.transferComplete,
+                },
+                { timeout: hold, polling: 500 }
+            );
+            overwritten = Boolean(await handle.jsonValue());
+        } catch {
+            // The bound ran out with the refusal still standing alone, which is
+            // the pass.
+        }
+        if (!overwritten) return;
+        this.notes.push('hash-refusal-overwritten');
+        throw new PhaseError(
+            'done',
+            `hash-refusal-overwritten: the web sender went back to "${TEXT.transferComplete}" within ${hold} ms of showing its peer's refusal, so the page claims a completed transfer beside a discarded file`,
+            { signatureKey: 'hash-refusal-overwritten' }
+        );
     }
 
     /** Receiver: every a[download] hashed in-page (helpers.ts:85-93). */
