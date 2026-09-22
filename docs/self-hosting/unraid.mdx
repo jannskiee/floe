@@ -118,7 +118,7 @@ client and server separately, and enable WebSocket forwarding for the server.
    Nginx Proxy Manager and SWAG do by default. The CLI and Floe Desktop connect to
    the signaling hostname, which is not your Client URL, so the server matches
    their `Origin` against `Host`, and a proxy that rewrites `Host` to the
-   container address refuses them with a `403`.
+   container address gets them refused with a `403`.
 
 For example:
 
