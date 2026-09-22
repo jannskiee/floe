@@ -61,6 +61,14 @@ const RULES: Array<[pattern: string, friendly: string]> = [
     // sentence is already actionable but arrives behind two wrappers
     // ('transfer failed: error sending x: ...'); say it once, cleanly.
     ['while it was being sent', 'A file changed while it was being sent, so it was not delivered. Send it again once the file has stopped changing.'],
+    // A setup the engine ended early (peer.ErrPeerLeft, ErrSignalingLost and
+    // ErrClosed): above 'timed out establishing a connection' and the generic
+    // 'connection closed' bucket, because none of the three is a failure to
+    // connect. The closed one never shows in practice: transfer.go suppresses
+    // the failure of a canceled transfer.
+    ['left before the connection was established', 'The other side left before the connection was established. Ask them to try again.'],
+    ['lost before the peer connected', 'Could not reach the server. Check your internet connection.'],
+    ['closed before the connection was established', 'Canceled.'],
     ['timed out waiting for the peer', 'The other side never connected. Both people need Floe open at the same time.'],
     ['timed out waiting for ack', 'The other side never connected. Both people need Floe open at the same time.'],
     ['timed out establishing a connection', 'A connection could not be established. Check that both devices are online and try again.'],

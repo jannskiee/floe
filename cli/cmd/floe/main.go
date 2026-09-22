@@ -15,6 +15,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -185,6 +186,22 @@ func connectedLine(ct string, err error) string {
 		return "  Connected (" + ct + ")"
 	}
 	return "  Connected"
+}
+
+// setupFailureLine is the error a failed WebRTC setup ends send or receive
+// with. A setup that stopped because the other side left, the server went
+// away or the connection was closed is not a connection problem to
+// diagnose, so each of the three prints its sentinel's own fixed sentence;
+// every other failure keeps "WebRTC setup failed: " and the error's text,
+// byte for byte what the command printed before (a present peer that cannot
+// connect still reads "timed out establishing a connection").
+func setupFailureLine(err error) string {
+	for _, stop := range []error{peer.ErrPeerLeft, peer.ErrSignalingLost, peer.ErrClosed} {
+		if errors.Is(err, stop) {
+			return stop.Error()
+		}
+	}
+	return "WebRTC setup failed: " + err.Error()
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────

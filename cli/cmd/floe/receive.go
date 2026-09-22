@@ -124,7 +124,7 @@ func runReceive(cmd *cobra.Command, args []string) error {
 
 	dc, err := conn.SetupAsReceiver()
 	if err != nil {
-		return fmt.Errorf("WebRTC setup failed: %w", err)
+		return fmt.Errorf("%s", setupFailureLine(err))
 	}
 
 	fmt.Println(connectedLine(conn.ConnectionType()))

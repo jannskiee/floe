@@ -73,6 +73,39 @@ describe('friendlyError', () => {
         );
     });
 
+    it('names a setup that stopped early instead of calling it a failed connection', () => {
+        // The three sentinels SetupAsSender and SetupAsReceiver return when
+        // setup is ended rather than failing (peer.ErrPeerLeft,
+        // ErrSignalingLost and ErrClosed in cli/engine/peer/setuperror.go),
+        // quoted because Go cannot be imported here, as desktop/transfer.go
+        // wraps them. They used to wait out the 30 s timeout and read as
+        // "A connection could not be established".
+        expect(friendlyError('WebRTC setup failed: the other side left before the connection was established')).toBe(
+            'Error: The other side left before the connection was established. Ask them to try again.',
+        );
+        expect(friendlyError('WebRTC setup failed: the connection to the server was lost before the peer connected')).toBe(
+            'Error: Could not reach the server. Check your internet connection.',
+        );
+        expect(friendlyError('WebRTC setup failed: closed before the connection was established')).toBe('Error: Canceled.');
+    });
+
+    it('checks the early-stop rules above the connect timeout and the generic closed bucket', () => {
+        // One input carrying the new pattern and both older ones shows which
+        // rule sits higher in RULES: the early stop must win over both.
+        const both = (s: string) => `WebRTC setup failed: ${s} (then: timed out establishing a connection; connection closed)`;
+        expect(friendlyError(both('the other side left before the connection was established'))).toBe(
+            'Error: The other side left before the connection was established. Ask them to try again.',
+        );
+        expect(friendlyError(both('the connection to the server was lost before the peer connected'))).toBe(
+            'Error: Could not reach the server. Check your internet connection.',
+        );
+        expect(friendlyError(both('closed before the connection was established'))).toBe('Error: Canceled.');
+        // A present peer that cannot connect keeps its own sentence.
+        expect(friendlyError('WebRTC setup failed: timed out establishing a connection')).toBe(
+            'Error: A connection could not be established. Check that both devices are online and try again.',
+        );
+    });
+
     it('names a source file that changed under the send, not a lost connection', () => {
         // Two backend wrappers sit in front of the engine sentence, which is
         // why this is a substring rule rather than an equality one.
@@ -122,11 +155,12 @@ describe('friendlyError', () => {
     });
 
     it('never maps a peer-stopped sentence to a wrong cause', () => {
-        // The twelve fixed sentences from PeerStoppedError.Error() in
-        // cli/engine/transfer/refusal.go, plus its unreachable fallback,
-        // quoted because Go cannot be imported here. hash-mismatch has its own
-        // rule above; the other eleven have no rule and must pass through
-        // whole. PASSTHROUGH is deliberately not extended for them: for these
+        // Eleven of the twelve fixed sentences from PeerStoppedError.Error()
+        // in cli/engine/transfer/refusal.go, plus its unreachable fallback,
+        // quoted because Go cannot be imported here. The twelfth,
+        // hash-mismatch, is deliberately absent: it has its own rule above.
+        // These eleven have no rule and must pass through whole.
+        // PASSTHROUGH is deliberately not extended for them: for these
         // inputs it would return the identical string to the default branch,
         // so it would be dead code. This guard is what actually holds, and it
         // fails the moment a future RULES entry swallows one of them.

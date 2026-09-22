@@ -2,9 +2,12 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/jannskiee/floe/cli/engine/peer"
 )
 
 // TestConnectedLine pins the three shapes the status line can take. The bare
@@ -29,6 +32,46 @@ func TestConnectedLine(t *testing.T) {
 				t.Errorf("connectedLine(%q, %v) = %q, want %q", tc.ct, tc.err, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestSetupFailureLine: a setup that stopped because the other side left,
+// the server went away or the connection was closed ends with the sentinel's
+// own fixed sentence, found through any wrapping; every other setup failure
+// keeps today's "WebRTC setup failed: " line byte for byte, which is what
+// fmt.Errorf("WebRTC setup failed: %w", err) printed before.
+func TestSetupFailureLine(t *testing.T) {
+	stopped := []struct {
+		name     string
+		sentinel error
+		stage    string
+	}{
+		{"peer left", peer.ErrPeerLeft, peer.StagePeerLeft},
+		{"signaling lost", peer.ErrSignalingLost, peer.StageSignalingLost},
+		{"closed", peer.ErrClosed, peer.StageClosed},
+	}
+	for _, tc := range stopped {
+		t.Run(tc.name, func(t *testing.T) {
+			err := &peer.SetupError{Stage: tc.stage, Err: tc.sentinel}
+			if got := setupFailureLine(err); got != tc.sentinel.Error() {
+				t.Errorf("setupFailureLine = %q, want %q", got, tc.sentinel.Error())
+			}
+			wrapped := fmt.Errorf("outer: %w", err)
+			if got := setupFailureLine(wrapped); got != tc.sentinel.Error() {
+				t.Errorf("through a wrap: %q, want %q", got, tc.sentinel.Error())
+			}
+		})
+	}
+	for _, err := range []error{
+		&peer.SetupError{Stage: peer.StageConnect, Err: errors.New("timed out establishing a connection")},
+		&peer.SetupError{Stage: peer.StageOffer, Err: errors.New("timed out waiting for the peer's offer")},
+		&peer.SetupError{Stage: peer.StageChannel, Err: errors.New("connected but the data channel did not open")},
+		errors.New("something else entirely"),
+	} {
+		want := fmt.Errorf("WebRTC setup failed: %w", err).Error()
+		if got := setupFailureLine(err); got != want {
+			t.Errorf("setupFailureLine(%v) = %q, want today's %q", err, got, want)
+		}
 	}
 }
 

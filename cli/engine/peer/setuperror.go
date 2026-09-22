@@ -4,7 +4,11 @@ package peer
 // copy by type and stage instead of matching on text, and with the text made
 // safe to show.
 
-import "github.com/jannskiee/floe/cli/engine/transfer"
+import (
+	"errors"
+
+	"github.com/jannskiee/floe/cli/engine/transfer"
+)
 
 // The stages a SetupError names, in the order a session goes through them.
 const (
@@ -13,6 +17,29 @@ const (
 	StageRemoteDescription = "remote-description" // applying the peer's SDP
 	StageConnect           = "connect"            // ICE and DTLS
 	StageChannel           = "channel"            // the data channel after the connection
+)
+
+// The stages of a setup that stopped early, at any of its waits, because
+// something ended it rather than because it failed. Each comes with the
+// sentinel below of the same name.
+const (
+	StagePeerLeft      = "peer-left"      // the server reported the other side gone
+	StageSignalingLost = "signaling-lost" // the socket to the server closed
+	StageClosed        = "closed"         // Close was called on this Connection
+)
+
+// The sentinels a setup that stopped early wraps in its SetupError, for
+// errors.Is. Their texts are fixed and local: no peer or server text is ever
+// in them.
+var (
+	// ErrPeerLeft: the signaling server reported the other side gone
+	// (peer-disconnected) while setup was waiting on it.
+	ErrPeerLeft = errors.New("the other side left before the connection was established")
+	// ErrSignalingLost: the socket to the signaling server closed while setup
+	// was waiting, so no signal could arrive any more.
+	ErrSignalingLost = errors.New("the connection to the server was lost before the peer connected")
+	// ErrClosed: Close was called while setup was waiting.
+	ErrClosed = errors.New("closed before the connection was established")
 )
 
 // maxSetupErrorRunes caps SetupError's text. The one site whose text embeds
