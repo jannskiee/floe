@@ -14,6 +14,11 @@ import {render, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {describe, expect, it, vi} from 'vitest';
 import App from '../App';
+// The generated declarations as text, through Vite's raw import (the frontend
+// carries no Node types, so no fs).
+import appDts from '../../wailsjs/go/main/App.d.ts?raw';
+import {AnswerRequest, GetRequestLink, MakeRequestLink, RequestLinkSupport, SetRequestLinks} from '../../wailsjs/go/main/App';
+import {REQUEST_BINDINGS} from './requestFixtures';
 
 // main.tsx wraps App in StrictMode, so the tests do too. Not ceremony:
 // StrictMode double-invokes effects, which is what turns the balance assertion
@@ -60,6 +65,22 @@ describe('the mount effect', () => {
         const ons = wails.calls.filter((c) => c.startsWith('on:'));
         const offs = wails.calls.filter((c) => c.startsWith('off:'));
         expect(offs.length).toBe(ons.length);
+    });
+
+    // FT-03: the Request link is off by default, and off means off. Nothing
+    // of the feature may run at launch, not even a probe, so a build whose
+    // lane is broken cannot touch a user who never turned it on.
+    it('runs no request binding at mount while the switch is off', async () => {
+        mount();
+        await settled();
+        await waitFor(() => expect(wails.go.GetSettings).toHaveBeenCalled());
+        // Let the GetSettings promise and every effect it schedules settle.
+        await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+
+        for (const name of REQUEST_BINDINGS) {
+            expect(wails.go[name], name).not.toHaveBeenCalled();
+        }
+        expect([...wails.listeners.keys()].filter((k) => k.startsWith('request:'))).toEqual([]);
     });
 
     it('asks for pending files only after files:open is listening', async () => {
@@ -427,5 +448,31 @@ describe('the history view', () => {
         // apart.
         expect(screen.getByText('report.pdf')).toBe(row);
         expect(row.closest('ul')).toBe(list);
+    });
+});
+
+/**
+ * The Wails mock in setup.ts is hand-written, so it can fall behind the
+ * generated bindings. A binding with no mock surfaces as an unrelated-looking
+ * "Cannot read properties of undefined" inside whichever effect calls it first.
+ */
+describe('the Wails mock', () => {
+    it('mocks every binding App.d.ts exports', () => {
+        const exported = [...appDts.matchAll(/^export function (\w+)\(/gm)].map((m) => m[1]);
+        expect(exported.length).toBeGreaterThan(0);
+        expect(exported.filter((name) => !(name in wails.go))).toEqual([]);
+        for (const name of REQUEST_BINDINGS) expect(exported).toContain(name);
+    });
+
+    // Through the generated shims, so the mock answers the way the Go stubs do
+    // (requestlink.go) at the call sites App.tsx will use: nothing is
+    // available and nothing reports a success.
+    it('answers every request binding with a disabled or not-available result', async () => {
+        await expect(MakeRequestLink('Acme footage', '', '24h')).resolves.toMatchObject({state: 'error', code: 'disabled'});
+        await expect(GetRequestLink()).resolves.toMatchObject({state: 'off', link: ''});
+        await expect(AnswerRequest(1, 'accept')).resolves.toMatchObject({state: 'off'});
+        await expect(RequestLinkSupport()).resolves.toEqual({reachable: false, requestLinks: false});
+        await expect(SetRequestLinks(true)).rejects.toThrow();
+        await expect(SetRequestLinks(false)).resolves.toBeUndefined();
     });
 });
