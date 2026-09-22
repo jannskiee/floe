@@ -1004,8 +1004,13 @@ function handleSignal(senderPeer, signal, targetId) {
     // left before answering has received nothing. The key comes from the
     // connection, never from the frame. At most three keys: once two count, only
     // a peer already seated then can add one more.
+    //
+    // Not in a request room (D-116): nothing reads its keys (the reserved guard
+    // in handleJoinRoom returns first), and its seat 1 frees on the visitor's
+    // own disconnect, so the three-key bound above does not hold there and a
+    // digest per visitor would pile up for the life of the reservation.
     const meta = roomMeta.get(senderPeer.roomId);
-    if (meta) meta.keys.add(sealDigest(senderPeer.key));
+    if (meta && meta.kind !== 'request') meta.keys.add(sealDigest(senderPeer.key));
 
     // signal is the only peer-supplied value this server serializes: roomId is
     // UUID-checked and target is only compared. JSON.stringify recurses, so a

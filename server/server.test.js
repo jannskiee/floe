@@ -2681,6 +2681,37 @@ describe('request rooms: disconnect and sweep', () => {
         rooms.clear();
     });
 
+    it("a request room's keys never grow: visitors from distinct keys each signal and leave", () => {
+        // The room seal's key history is never read for a request room, and
+        // seat 1 frees on a visitor's own disconnect, so a digest per visitor
+        // would grow at the visitor's pace for the life of the reservation.
+        const token = newToken();
+        const id = roomIdFromToken(token);
+        const host = makePeer('host', '198.51.100.200');
+        hostJoin(host, token, RQ_T0);
+        for (let i = 0; i < 50; i++) {
+            const v = makePeer(`v${i}`, `203.0.113.${i}`);
+            handleRequestJoin(v, id, RQ_T0);
+            assert.equal(v.roomId, id, `visitor ${i} seated`);
+            handleSignal(v, { type: 'anything' }, null);
+            handleDisconnect(v);
+        }
+        const v = makePeer('last', '203.0.113.99');
+        handleRequestJoin(v, id, RQ_T0);
+        handleSignal(host, { type: 'offer' }, null);
+        assert.equal(roomMeta.get(id).keys.size, 0);
+
+        // Ordinary rooms still count signaling keys (P0-10).
+        const plain = randomUUID();
+        const a = makePeer('a', 'ka');
+        const b = makePeer('b', 'kb');
+        handleJoinRoom(a, plain);
+        handleJoinRoom(b, plain);
+        handleSignal(a, { type: 'offer' }, null);
+        handleSignal(b, { type: 'answer' }, null);
+        assert.equal(roomMeta.get(plain).keys.size, 2);
+    });
+
     it('memory returns to zero', () => {
         // Close.
         const a = pairedRequestRoom('ka', 'kav');
