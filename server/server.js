@@ -480,10 +480,12 @@ function handleJoinRoom(peer, roomId) {
     // before any file byte moves (handleSignal).
     //
     // Fails open, on purpose, for peers that share a key (one NAT, one IPv6
-    // /64, or loopback, which is how the e2e suite runs both peers): they never
-    // reach two keys, so a stranger behind the receiver's own address is not
-    // refused. Closing that needs a per-room token, and the released clients
-    // have no field to send one in.
+    // /64): they never reach two keys, so a stranger behind the receiver's own
+    // address is not refused. Closing that needs a per-room token, and the
+    // released clients have no field to send one in. The e2e suite runs every
+    // peer on one host, which can reach two keys on a dual-stack loopback
+    // (127.0.0.1 keys as itself, ::1 as its /64) but cannot present a third, so
+    // it is never refused.
     const meta = roomMeta.get(roomId);
     if (meta && meta.keys.size >= 2 && !meta.keys.has(sealDigest(peer.key))) {
         peer.send('room-full', {});
@@ -888,4 +890,5 @@ module.exports = {
     makeRateLimiter,
     codeRateLimits,
     selectMinimalIceUrls,
+    server,
 };

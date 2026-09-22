@@ -1,12 +1,15 @@
 'use strict';
 
-// Unit tests for pure server logic — no network I/O.
+// Unit tests for server logic, all in this process. Only 'room seal over both
+// transports' touches the network: it binds an ephemeral 127.0.0.1 port to
+// drive the real connection handlers, and closes it when it is done.
 // Uses Node's built-in test runner (node:test), available from Node 18+.
 // Run with: npm test
 
-const { describe, it, beforeEach, after } = require('node:test');
+const { describe, it, before, beforeEach, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { createHash } = require('node:crypto');
+const { createHash, randomUUID } = require('node:crypto');
+const WebSocket = require('ws');
 
 const {
     errorHandler,
@@ -34,6 +37,7 @@ const {
     heartbeatTick,
     handlePong,
     WS_SEND_BUFFER_CEILING,
+    server,
 } = require('./server');
 
 // ---------------------------------------------------------------------------
@@ -534,9 +538,8 @@ describe('room seal', () => {
     it('peers sharing one key are not sealed', () => {
         // The same-NAT fail-open, asserted because it is deliberate: two people
         // behind one address never reach two keys, so the seal cannot tell a
-        // stranger from the receiver there. The e2e suite runs both peers on
-        // loopback and depends on it. A per-room token is the only fix, and the
-        // released binaries have no field to carry one.
+        // stranger from the receiver there. A per-room token is the only fix,
+        // and the released binaries have no field to carry one.
         const [pA, pB, pC] = ['peer-A', 'peer-B', 'peer-C'].map(id => makePeer(id, 'nat'));
         handleJoinRoom(pA, ROOM_ID);
         handleJoinRoom(pB, ROOM_ID);
@@ -689,6 +692,177 @@ describe('room seal', () => {
         }
         // The secret stays inside server.js.
         assert.ok(!Object.values(require('./server')).some(v => v instanceof Uint8Array), 'an exported secret');
+    });
+
+    it('a peer with no key fails open instead of throwing', () => {
+        // What a transport that lost its key would hand the seal. Every such
+        // peer shares one key, so nobody is sealed out, and nothing throws on
+        // the join and signal paths, where a throw is a remote kill.
+        const [pA, pB, pC] = ['peer-A', 'peer-B', 'peer-C'].map((id) => {
+            const p = makePeer(id);
+            p.key = undefined;
+            return p;
+        });
+        handleJoinRoom(pA, ROOM_ID);
+        handleJoinRoom(pB, ROOM_ID);
+        assert.doesNotThrow(() => exchangeSignals(pA, pB));
+        handleDisconnect(pB);
+
+        assert.doesNotThrow(() => handleJoinRoom(pC, ROOM_ID));
+        assert.deepEqual(pC.msgs, [{ type: 'room-joined', data: { role: 'receiver' } }]);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Room seal through the real transports
+// ---------------------------------------------------------------------------
+
+describe('room seal over both transports', () => {
+    // The seal is only as good as the key each transport hands it, and a break
+    // in that wiring fails open (every peer of that transport shares one key),
+    // so no unit test above would notice. These drive the real io.use and /ws
+    // connection handlers on an ephemeral loopback port. Each peer names its
+    // own address in X-Forwarded-For, which getClientIp trusts for one hop by
+    // default. 198.51.100.0/24 is TEST-NET-2 (RFC 5737).
+    let port;
+    const sockets = new Set();
+
+    before(async () => {
+        await new Promise((resolve, reject) => {
+            server.once('error', reject);
+            server.listen(0, '127.0.0.1', () => { server.off('error', reject); resolve(); });
+        });
+        port = server.address().port;
+    });
+
+    after(async () => {
+        for (const ws of sockets) ws.terminate();
+        await new Promise((resolve) => server.close(resolve));
+    });
+
+    // Messages by type, in arrival order, whichever transport they came over.
+    function mailbox() {
+        const inbox = [];
+        const waiters = [];
+        return {
+            push(type, data) {
+                const i = waiters.findIndex(w => w.types.includes(type));
+                if (i === -1) { inbox.push({ type, data }); return; }
+                const [w] = waiters.splice(i, 1);
+                clearTimeout(w.timer);
+                w.resolve({ type, data });
+            },
+            next(types, ms = 3000) {
+                const i = inbox.findIndex(m => types.includes(m.type));
+                if (i !== -1) return Promise.resolve(inbox.splice(i, 1)[0]);
+                return new Promise((resolve, reject) => {
+                    const w = { types, resolve };
+                    w.timer = setTimeout(() => {
+                        waiters.splice(waiters.indexOf(w), 1);
+                        reject(new Error(`no ${types.join(' or ')} within ${ms} ms`));
+                    }, ms);
+                    waiters.push(w);
+                });
+            },
+        };
+    }
+
+    // A CLI peer: JSON frames on /ws.
+    function wsPeer(address) {
+        const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { 'X-Forwarded-For': address } });
+        sockets.add(ws);
+        const box = mailbox();
+        ws.on('message', (raw) => {
+            let msg;
+            try { msg = JSON.parse(raw); } catch { return; }
+            const { type, ...data } = msg;
+            box.push(type, data);
+        });
+        return new Promise((resolve, reject) => {
+            ws.once('error', reject);
+            ws.once('open', () => resolve({
+                join: (roomId) => ws.send(JSON.stringify({ type: 'join-room', roomId })),
+                signal: (signal) => ws.send(JSON.stringify({ type: 'signal', signal })),
+                next: box.next,
+                close: () => ws.close(),
+            }));
+        });
+    }
+
+    // A browser peer: Socket.IO v4 spoken over a bare engine.io websocket, so
+    // the test needs no client library. '0' is engine.io's open, answered by
+    // '40' (connect the default namespace); '2' is its ping; '40' back is the
+    // namespace ack, '44' a refusal from io.use; '42' carries an event.
+    function sioPeer(address) {
+        const ws = new WebSocket(`ws://127.0.0.1:${port}/socket.io/?EIO=4&transport=websocket`, {
+            headers: { 'X-Forwarded-For': address, Origin: 'http://localhost:3000' },
+        });
+        sockets.add(ws);
+        const box = mailbox();
+        const emit = (...args) => ws.send('42' + JSON.stringify(args));
+        return new Promise((resolve, reject) => {
+            ws.once('error', reject);
+            ws.on('message', (raw) => {
+                const text = raw.toString();
+                if (text.startsWith('0')) ws.send('40');
+                else if (text === '2') ws.send('3');
+                else if (text.startsWith('40')) resolve({
+                    join: (roomId) => emit('join-room', roomId),
+                    signal: (signal) => emit('signal', { signal }),
+                    next: box.next,
+                    close: () => ws.close(),
+                });
+                else if (text.startsWith('44')) reject(new Error(`io.use refused ${address}: ${text}`));
+                else if (text.startsWith('42')) {
+                    const [type, data] = JSON.parse(text.slice(2));
+                    box.push(type, data);
+                }
+            });
+        });
+    }
+
+    // A real pairing as the server sees it, then the receiver leaves. Each
+    // await is the server's own answer, so every step has been processed
+    // before the next one starts.
+    async function pairThenLeave(sender, receiver, roomId) {
+        sender.join(roomId);
+        assert.deepEqual((await sender.next(['room-joined', 'room-full'])).data, { role: 'sender' });
+        receiver.join(roomId);
+        assert.deepEqual((await receiver.next(['room-joined', 'room-full'])).data, { role: 'receiver' });
+        await sender.next(['user-connected']);
+        sender.signal({ type: 'offer' });
+        await receiver.next(['signal']);
+        receiver.signal({ type: 'answer' });
+        await sender.next(['signal']);
+        receiver.close();
+        await sender.next(['peer-disconnected']); // seat two is free again
+    }
+
+    async function joinOutcome(peer, roomId) {
+        peer.join(roomId);
+        return peer.next(['room-joined', 'room-full']);
+    }
+
+    it('/ws carries each connection its own key', async () => {
+        const roomId = randomUUID();
+        await pairThenLeave(await wsPeer('198.51.100.1'), await wsPeer('198.51.100.2'), roomId);
+
+        const third = await joinOutcome(await wsPeer('198.51.100.3'), roomId);
+        const back = await joinOutcome(await wsPeer('198.51.100.2'), roomId);
+
+        assert.deepEqual(third, { type: 'room-full', data: {} }, 'a third address after the pair');
+        assert.deepEqual(back, { type: 'room-joined', data: { role: 'receiver' } }, 'the receiver\'s own address');
+    });
+
+    it('Socket.IO carries each connection its own key', async () => {
+        const roomId = randomUUID();
+        await pairThenLeave(await sioPeer('198.51.100.11'), await sioPeer('198.51.100.12'), roomId);
+
+        const third = await joinOutcome(await sioPeer('198.51.100.13'), roomId);
+        const back = await joinOutcome(await sioPeer('198.51.100.12'), roomId);
+
+        assert.deepEqual(third, { type: 'room-full', data: {} }, 'a third address after the pair');
+        assert.deepEqual(back, { type: 'room-joined', data: { role: 'receiver' } }, 'the receiver\'s own address');
     });
 });
 
