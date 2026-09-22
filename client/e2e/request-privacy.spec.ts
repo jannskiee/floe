@@ -19,6 +19,19 @@ const LINK_ID = 'AAAAAAAAAAA';
 const ROOM_ID = '6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f';
 const LINK = `/r/${LINK_ID}#${ROOM_ID}`;
 
+/** `page.waitForFunction` as a boolean: did the condition hold in time? Used
+ *  where a timeout is an answer rather than a failure. */
+async function waitFor(
+    page: Page,
+    condition: () => boolean | Promise<boolean>,
+    timeout: number
+): Promise<boolean> {
+    return page
+        .waitForFunction(condition, null, { timeout })
+        .then(() => true)
+        .catch(() => false);
+}
+
 /** Every request that would mean the page reached for the network on load. */
 function watchSignaling(page: Page): string[] {
     const seen: string[] = [];
@@ -43,12 +56,17 @@ test.describe('request privacy', () => {
         // no Cache Storage at all. The assertions below are still true there,
         // just not informative, which is why the non-vacuity check at the end
         // runs only when a worker actually took control.
-        const controlled = await page
-            .waitForFunction(() => !!navigator.serviceWorker?.controller, null, {
-                timeout: 20_000,
-            })
-            .then(() => true)
-            .catch(() => false);
+        //
+        // Two waits rather than one long one: a dev run has no registration to
+        // find and gives up after three seconds, while a production run gets a
+        // generous window for install, activate and claim.
+        const registered = await waitFor(
+            page,
+            () => navigator.serviceWorker?.getRegistration().then((r) => !!r),
+            3_000
+        );
+        const controlled =
+            registered && (await waitFor(page, () => !!navigator.serviceWorker.controller, 20_000));
 
         // Twice: the first navigation is the one a worker could cache, the
         // second is the one it could serve from cache and re-store.
