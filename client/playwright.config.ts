@@ -80,6 +80,12 @@ export default defineConfig({
                 // 197 GB from production). Both keys non-empty, or dotenv refills them.
                 UPSTASH_REDIS_REST_URL: 'http://127.0.0.1:9',
                 UPSTASH_REDIS_REST_TOKEN: 'local-e2e-sentinel',
+                // Request links on for every spec (S1-ENG-09's policy fixture,
+                // test-only). Normal flows must not care (E2E-16); the
+                // request-link spec needs the server's request-join answers.
+                // No TURN variable is ever set here: the one local relay cell
+                // takes TURN from its own session environment (D-034).
+                POLICY_FILE: path.resolve(__dirname, 'e2e/fixtures/request-policy-on.json'),
             },
         },
         {

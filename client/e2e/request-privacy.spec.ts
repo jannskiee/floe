@@ -62,11 +62,6 @@ function watchSignaling(page: Page): string[] {
 }
 
 test.describe('request privacy', () => {
-    test.skip(
-        !!process.env.CI && process.env.FLOE_E2E_REQUEST_LINK !== '1',
-        'runs in the non-gating request-link job until S1-WEB-09'
-    );
-
     test('E2E-09 no /r entry in Cache Storage', async ({ page }) => {
         await page.goto('/');
 
