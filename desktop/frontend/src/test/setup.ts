@@ -170,7 +170,13 @@ function installDomShims() {
 
 if (typeof window !== 'undefined') {
     installDomShims();
-    beforeEach(installWails);
+    beforeEach(() => {
+        installWails();
+        // What Testing Library itself sets when test globals are on: the
+        // tests call React's act directly, and React warns on every such
+        // call unless the environment says act is supported.
+        (globalThis as {IS_REACT_ACT_ENVIRONMENT?: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
+    });
     afterEach(async () => {
         // Unmount every tree the test rendered before emptying the body.
         // Testing Library only registers this itself when test globals are
