@@ -1794,7 +1794,7 @@ function App() {
     // The Beta switch's state and its one line: locked with S5 while the lane
     // holds a link, a drop or its result, so turning the Beta off never
     // strands one.
-    const betaSwitch = requestLinksSwitch(requestFeature, settingsLocked(reqPhase));
+    const betaSwitch = requestLinksSwitch(requestFeature, settingsLocked(reqPhase), requestLinksOn);
 
     return (
         <div className="flex h-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100 selection:bg-ice/20">

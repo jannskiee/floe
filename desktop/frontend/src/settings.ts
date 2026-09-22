@@ -76,18 +76,19 @@ export interface RequestFeature {
  *
  *  An open link wins over everything: turning the Beta off must never strand a
  *  live link or a running drop, so the switch locks with S5 whatever the server
- *  says. Otherwise the switch works only against a server that listed request-1
- *  on the last probe; an unreachable server and one without the feature read
- *  the same (S4), because the app cannot tell a policy flip from an older
- *  self-hosted server. Before the first probe answers (null) the switch stays
- *  disabled but keeps the plain S3 line rather than claiming the server said
- *  no. */
+ *  says. Otherwise a switch that is on can always be turned off (D-115: a Beta
+ *  feature is never stuck on); only turning it on needs a server that listed
+ *  request-1 on the last probe. An unreachable server and one without the
+ *  feature read the same (S4), because the app cannot tell a policy flip from
+ *  an older self-hosted server. Before the first probe answers (null) the line
+ *  stays the plain S3 rather than claiming the server said no. */
 export function requestLinksSwitch(
     feature: RequestFeature | null,
     linkOpen: boolean,
+    on = false,
 ): {disabled: boolean; description: string} {
     if (linkOpen) return {disabled: true, description: REQUEST_LINKS_LINK_OPEN_LINE};
-    if (feature === null) return {disabled: true, description: REQUEST_LINKS_ON_LINE};
-    if (feature.reachable && feature.requestLinks) return {disabled: false, description: REQUEST_LINKS_ON_LINE};
-    return {disabled: true, description: REQUEST_LINKS_NO_SERVER_LINE};
+    const available = feature !== null && feature.reachable && feature.requestLinks;
+    const description = feature === null || available ? REQUEST_LINKS_ON_LINE : REQUEST_LINKS_NO_SERVER_LINE;
+    return {disabled: !on && !available, description};
 }

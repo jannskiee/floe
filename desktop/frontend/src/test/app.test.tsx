@@ -1131,3 +1131,26 @@ describe('snapshot order (D-115)', () => {
         expect(screen.queryByRole('group', {name: 'Someone wants to send you files.'})).toBeNull();
     });
 });
+
+describe('turning the Beta off', () => {
+    it('the switch turns off even when the server no longer lists request-1', async () => {
+        wails.go.GetSettings.mockImplementation(async () => ({
+            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false, requestLinks: true, migrated: true,
+        }));
+        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: false}));
+        wails.go.SetRequestLinks.mockImplementation(async () => {});
+        const user = userEvent.setup();
+        mount();
+        await waitFor(() => expect(wails.listeners.size).toBe(15));
+        await user.click(screen.getByRole('button', {name: 'Settings'}));
+        await screen.findByText('Not available on this server right now.');
+        const sw = () => screen.getByRole('checkbox', {name: /^Request links/}) as HTMLInputElement;
+        await waitFor(() => expect(sw().checked).toBe(true));
+        expect(sw().disabled).toBe(false);
+        await user.click(sw());
+        expect(wails.go.SetRequestLinks).toHaveBeenCalledWith(false);
+        await waitFor(() => expect(sw().checked).toBe(false));
+        // Off now, and the server still lacks request-1: it cannot go back on.
+        await waitFor(() => expect(sw().disabled).toBe(true));
+    });
+});

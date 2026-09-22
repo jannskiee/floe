@@ -136,6 +136,25 @@ describe('requestLinksSwitch', () => {
         }
     });
 
+    // D-115: a Beta feature can always be turned off. Only turning it on
+    // needs a server that lists request-1; the S5 lock for an open link stays.
+    it('request links switch can always be turned off, even without request-1', () => {
+        const on = true;
+        expect(requestLinksSwitch({reachable: true, requestLinks: false}, false, on)).toEqual({
+            disabled: false,
+            description: 'Not available on this server right now.',
+        });
+        expect(requestLinksSwitch({reachable: false, requestLinks: false}, false, on).disabled).toBe(false);
+        expect(requestLinksSwitch(null, false, on).disabled).toBe(false);
+        // Off, it still turns on only against request-1.
+        expect(requestLinksSwitch({reachable: true, requestLinks: false}, false, false).disabled).toBe(true);
+        // And an open link still locks it either way.
+        expect(requestLinksSwitch({reachable: true, requestLinks: true}, true, on)).toEqual({
+            disabled: true,
+            description: 'Close your request link first.',
+        });
+    });
+
     it('stays disabled without claiming anything before the first probe answers', () => {
         expect(requestLinksSwitch(null, false)).toEqual({
             disabled: true,
