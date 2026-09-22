@@ -98,8 +98,16 @@ describe('sender ack timeout', () => {
         );
     });
 
-    it('keeps the 120 s default without options', async () => {
+    it('ACK_TIMEOUT_MS is still 120000', () => {
+        // The deadline every file but the visitor's first one waits out, and
+        // the number the CLI sender mirrors. Pinned on its own, so a change to
+        // it cannot hide inside a behavior test.
         expect(ACK_TIMEOUT_MS).toBe(120_000);
+    });
+
+    // VR4-W06. The visitor's longer first-file wait is an option, so a send
+    // without options must still fail at 120 s and not a millisecond later.
+    it('a send without options keeps 120 s for the first file', async () => {
         vi.useFakeTimers();
         const { deps } = makeDeps();
         const onError = vi.fn();

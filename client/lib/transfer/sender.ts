@@ -12,6 +12,7 @@ import {
     checkCompat,
     compatErrorMessage,
     compatErrorFromIncompatible,
+    isAbortReason,
     refusalCodeOf,
     verifiedCountOf,
     PROTOCOL_VERSION,
@@ -25,6 +26,7 @@ import {
     type RefusalCode,
 } from './protocol';
 import { hashBlob as workerHashBlob } from './fileHash';
+import { sanitizeDisplayText } from '../download';
 
 // The digest wait's own escape: how often it asks whether the transfer is still
 // alive, and the token that says it is not. The token is a symbol so it can
@@ -42,19 +44,37 @@ export interface SenderCallbacks {
     isDestroyed?: () => boolean;
     // The receiver stopped the session with an incompatible frame. `code` is
     // an allowlisted RefusalCode or null; `saved` is the peer's count clamped
-    // to [0, files]. onError still carries today's wording.
-    onStopped?: (stop: { code: RefusalCode | null; saved: number }) => void;
+    // to [0, files]; `rangeOverlaps` is the same split compatErrorFromIncompatible
+    // makes, so false means a version mismatch and true a deliberate abort.
+    // Three derived values and no peer text: a caller that renders none of
+    // today's wording (the request link visitor) has everything it needs here.
+    // onError still carries today's wording for the ones that do.
+    onStopped?: (stop: { code: RefusalCode | null; saved: number; rangeOverlaps: boolean }) => void;
     // The receiver sent `received`. No field of the frame is read here.
     onReceived?: () => void;
     // The same frame's report: `files` is the local count, `verified` the
     // receiver's matched count when verifiedCountOf accepts it (else null), and
     // `allVerified` whether it equals `files`. The receiver's claim, not a proof.
     onDelivered?: (report: { files: number; verified: number | null; allVerified: boolean }) => void;
+    // The receiver acked this file: 1-based, once per matched ack, and the
+    // sender's own count. It carries no `saved`, which rides only the
+    // incompatible frame and never an ack (E-22).
+    onAck?: (index: number) => void;
+    // The typed twin of the three onError strings a send can end on, with the
+    // 1-based file it happened on (the last one for a close after the final
+    // end frame). onError keeps firing with today's wording.
+    onFailed?: (failure: { kind: 'ack-timeout' | 'closed' | 'unreadable'; index: number }) => void;
 }
 
 export interface FileEntry {
     id: string;
     file: File;
+    // The file's path inside the folder the sender picked, forward slashes, as
+    // the visitor's folder walk produces it. It rides the existing metadata
+    // name, so there is no wire change and no ProtocolVersion bump; Go
+    // receivers already sanitize a path per component (safeJoin). Absent for a
+    // flat pick, where the file's own name is the whole name.
+    relativePath?: string;
 }
 
 // Minimal buffering interface used by the sender.
@@ -110,13 +130,37 @@ interface ProgressView {
 }
 
 export interface SendOptions {
-    // How long each file waits for the receiver's ack. Defaults to
+    // How long the FIRST file waits for the receiver's ack. Defaults to
     // ACK_TIMEOUT_MS (120 s); a caller whose receiver may take longer to
-    // decide passes a longer value.
+    // decide passes a longer value. Later files keep ACK_TIMEOUT_MS: only the
+    // first metadata waits for a human to answer a prompt, and after that the
+    // receiver is already committed, so a long deadline there would only delay
+    // a dead transfer (spec 07 4.9).
     ackTimeoutMs?: number;
     // Whether each file's SHA-256 goes on its end frame. Defaults to
     // SEND_FILE_HASHES, the rollback lever.
     sendHashes?: boolean;
+    // Whether the send resolves only once the receiver says `received`.
+    // Without it the send resolves at the drain, which is what the main app
+    // has always done. With it the last end frame is not the end: the receiver
+    // may still be committing a large file or retrying a blocked rename, so
+    // the wait ends only on `received` (then onAllSent), on a refusal, or on
+    // the channel closing.
+    //
+    // Two rules for a caller that turns this on:
+    //
+    // Success is onAllSent and nothing else. Under this option onAllSent
+    // cannot fire before the last end frame, while a `received` frame is
+    // whatever the peer chose to send whenever it chose to send it: one during
+    // the first file latches delivery all the same. So onReceived and
+    // onDelivered report a claim and must not drive a page state transition,
+    // or one early frame from a hostile peer ends the transfer's UI mid-send.
+    //
+    // isDestroyed is mandatory. There is no deadline here on purpose (E-36):
+    // the receiver's own blocked-rename retry is what is bounded, so a host
+    // that simply stalls leaves this wait open, and Cancel, which is
+    // isDestroyed going true, is the only way out of it.
+    requireReceived?: boolean;
 }
 
 /**
@@ -188,7 +232,7 @@ export async function sendFiles(
             try {
                 ok = await sendSingleFile(
                     deps, entry, i + 1, files.length, totalBytes, cb, view, emitView,
-                    opts.ackTimeoutMs ?? ACK_TIMEOUT_MS, session,
+                    i === 0 ? (opts.ackTimeoutMs ?? ACK_TIMEOUT_MS) : ACK_TIMEOUT_MS, session,
                     { enabled: opts.sendHashes ?? SEND_FILE_HASHES, hashBlob: deps.hashBlob ?? workerHashBlob, signal: hashAbort.signal }
                 );
             } finally {
@@ -206,14 +250,29 @@ export async function sendFiles(
 
         emitView();
         cb.onSpeedReset?.();
+        if (opts.requireReceived) {
+            // The same window, awaited instead of left running: the send has
+            // not succeeded until the receiver says so. No second listener and
+            // no deadline (E-36); Cancel reaches it through destroyed().
+            lingering = true;
+            const ending = await session.lingerUntilDone(destroyed);
+            // A close before `received` is a lost transfer and not a finished
+            // one, so onAllSent belongs to `received` alone. A refusal has
+            // already been reported by reportStop, and a destroyed peer is
+            // this page tearing the transfer down, which has nothing to report.
+            if (ending === 'received') cb.onAllSent?.();
+            else if (ending === 'closed') cb.onFailed?.({ kind: 'closed', index: files.length });
+            return;
+        }
         cb.onAllSent?.();
-        // Fire and forget, never awaited: a CLI receiver's hash refusal lands
-        // about CONTROL_FLUSH_MS after the last byte, and closing here dropped
-        // it and left the page claiming success (F-SHA-4). Awaiting it instead
-        // would leave sendFiles pending for the life of the page whenever the
-        // peer answers nothing, which is every browser-to-browser transfer.
+        // Fire and forget, never awaited here: a CLI receiver's hash refusal
+        // lands about CONTROL_FLUSH_MS after the last byte, and closing here
+        // dropped it and left the page claiming success (F-SHA-4). Awaiting it
+        // without requireReceived would leave sendFiles pending for the life of
+        // the page whenever the peer answers nothing, which is every
+        // browser-to-browser transfer.
         lingering = true;
-        session.lingerUntilDone(destroyed);
+        void session.lingerUntilDone(destroyed);
     } finally {
         clearInterval(ticker);
         if (!lingering) session.close();
@@ -325,6 +384,10 @@ async function sendSingleFile(
     const { file, id } = entry;
     const { send, channel } = deps;
     const destroyed = cb.isDestroyed ?? (() => false);
+    // One name for the wire and for any message that names this file, so the
+    // person watching and the receiver writing it never see two different
+    // things. Identical to file.name for every caller that picks flat files.
+    const wireName = entry.relativePath ?? file.name;
 
     if (destroyed()) return true;
 
@@ -341,7 +404,7 @@ async function sendSingleFile(
 
     // 1. Send metadata with protocol version fields
     try {
-        send(metadataMessage(id, file.name, file.size, index, total, totalBytes));
+        send(metadataMessage(id, wireName, file.size, index, total, totalBytes));
     } catch {
         return false;
     }
@@ -361,6 +424,7 @@ async function sendSingleFile(
     const ackResult = await session.waitForAck(id, ackTimeoutMs);
     if (ackResult.type === 'timeout') {
         cb.onError?.('Transfer timed out waiting for receiver. Please try again.');
+        cb.onFailed?.({ kind: 'ack-timeout', index });
         return false;
     }
     if (ackResult.type === 'stopped') {
@@ -371,8 +435,12 @@ async function sendSingleFile(
         // The words the app already shows when the peer connection drops, so
         // no new copy is introduced.
         cb.onError?.('Connection lost. The other device may have closed the tab.');
+        cb.onFailed?.({ kind: 'closed', index });
         return false;
     }
+    // The receiver took this file. Reported before the checks below, which are
+    // about what it asked for and not about whether it answered.
+    cb.onAck?.(index);
 
     // Defense in depth: verify protocol compat from the receiver's pv fields on
     // the first file. The receiver already checked from its side; this catches
@@ -400,8 +468,15 @@ async function sendSingleFile(
     // end marker after zero bytes. Refuse it before the file is touched.
     const resumeAt: unknown = ackResult.offset;
     if (typeof resumeAt !== 'number' || !Number.isInteger(resumeAt) || resumeAt < 0 || resumeAt > file.size) {
+        // The refused value is quoted back so the person can see what was
+        // asked for, which makes it peer text on a screen: cleaned and capped
+        // like every other peer string that reaches this banner. A number needs
+        // no more than a few characters, and a hostile one is bounded by the
+        // frame alone, which is what let a bidi mark reorder the line for
+        // pv and pvMin (protocolNumber's comment records that fix).
         cb.onError?.(
-            `The receiver asked to resume "${file.name}" from byte ${String(resumeAt)} of ${file.size}, ` +
+            `The receiver asked to resume "${wireName}" from byte ` +
+            `${sanitizeDisplayText(String(resumeAt), 32)} of ${file.size}, ` +
             `which is not possible. Please try again.`
         );
         return false;
@@ -476,9 +551,10 @@ async function sendSingleFile(
             // as doing. No retry: a file that is genuinely gone will not come
             // back on a second read.
             cb.onError?.(
-                `Could not read "${file.name}". It may have been moved, renamed, ` +
+                `Could not read "${wireName}". It may have been moved, renamed, ` +
                 `or on a drive or folder that is no longer available. Nothing further was sent.`
             );
+            cb.onFailed?.({ kind: 'unreadable', index });
             return false;
         }
 
@@ -553,22 +629,28 @@ async function sendSingleFile(
     return true;
 }
 
+// Which of the four things ended the window after the last end frame. Only
+// `received` is a finished transfer; `destroyed` is this page tearing the
+// transfer down, so nothing is reported for it.
+type DoneReason = 'received' | 'stopped' | 'closed' | 'destroyed';
+
 interface Session {
     waitForAck(fileId: string, timeoutMs: number): Promise<AckResult>;
     // Reports the latched refusal once (onError with today's wording, then
     // onStopped) and returns true while the session is stopped.
     reportStop(): boolean;
     close(): void;
-    // After onAllSent the listener stays attached until the first of a
+    // After the last end frame the listener stays attached until the first of a
     // `received` frame, the channel close, or destroyed() polled at
     // DIGEST_STOP_POLL_MS. A CLI receiver's hash refusal lands about
     // CONTROL_FLUSH_MS after the last byte, which is after onAllSent, and
     // closing here dropped it and left the page claiming success (F-SHA-4).
     // The same window is what lets a `received` frame reach onDelivered at all.
-    // Synchronous and fire and forget: sendFiles must not await it, or a peer
-    // that never answers would never let the send resolve. It closes the
-    // session itself on every exit.
-    lingerUntilDone(destroyed: () => boolean): void;
+    // The promise is awaited only under requireReceived, where the send has not
+    // succeeded until the receiver says so; without it sendFiles must not await
+    // it, or a peer that never answers would never let the send resolve. It
+    // closes the session itself on every exit.
+    lingerUntilDone(destroyed: () => boolean): Promise<DoneReason>;
 }
 
 // The session's one control listener: acks for the current file, a stop latch
@@ -591,15 +673,16 @@ function openSession(deps: SenderDeps, cb: SenderCallbacks, fileCount: number): 
         resolve(r);
     };
 
-    // Set only while the post-onAllSent window is open (lingerUntilDone). One
-    // shot: whichever of a `received` frame, the channel close or a destroyed()
-    // poll arrives first runs it, and it clears itself first, so a second frame
-    // cannot re-enter teardown and close() calling it again is a no-op.
-    let lateDone: (() => void) | null = null;
-    const finishLate = () => {
+    // Set only while the window after the last end frame is open
+    // (lingerUntilDone). One shot: whichever of a `received` frame, a refusal,
+    // the channel close or a destroyed() poll arrives first runs it with its
+    // own reason, and it clears itself first, so a second frame cannot re-enter
+    // teardown and close() calling it again is a no-op.
+    let lateDone: ((why: DoneReason) => void) | null = null;
+    const finishLate = (why: DoneReason) => {
         const f = lateDone;
         lateDone = null;
-        f?.();
+        f?.(why);
     };
     // Whether the peer already confirmed delivery. Read only by
     // lingerUntilDone, so a `received` that arrived before the window opened
@@ -623,23 +706,23 @@ function openSession(deps: SenderDeps, cb: SenderCallbacks, fileCount: number): 
             // is what separates a version mismatch from a deliberate abort.
             if (!stopped) stopped = msg as Incompatible;
             settle({ type: 'stopped' });
-            // Last, so today's callbacks still run first. In the post-onAllSent
-            // window this is what reports the refusal and tears the session
-            // down; outside it, lateDone is null and this does nothing.
-            finishLate();
+            // Last, so today's callbacks still run first. In the window after
+            // the last end frame this is what reports the refusal and tears the
+            // session down; outside it, lateDone is null and this does nothing.
+            finishLate('stopped');
         } else if (msg.type === 'received') {
             cb.onReceived?.();
             const verified = verifiedCountOf(msg as Received, fileCount);
             cb.onDelivered?.({ files: fileCount, verified, allVerified: fileCount > 0 && verified === fileCount });
             delivered = true;
-            finishLate();
+            finishLate('received');
         }
     });
 
     const onClose = () => {
         closed = true;
         settle({ type: 'closed' });
-        finishLate();
+        finishLate('closed');
     };
     deps.channel.addEventListener('close', onClose);
 
@@ -663,7 +746,11 @@ function openSession(deps: SenderDeps, cb: SenderCallbacks, fileCount: number): 
             const saved = typeof raw === 'number' && Number.isInteger(raw)
                 ? Math.min(Math.max(raw, 0), fileCount)
                 : 0;
-            cb.onStopped?.({ code: refusalCodeOf(stopped), saved });
+            // The same split compatErrorFromIncompatible makes one line above,
+            // as a boolean rather than as wording: false is a version mismatch
+            // and true a deliberate abort. Derived from the frame's pv range,
+            // so it carries none of its text.
+            cb.onStopped?.({ code: refusalCodeOf(stopped), saved, rangeOverlaps: isAbortReason(stopped) });
         }
         return true;
     };
@@ -671,7 +758,7 @@ function openSession(deps: SenderDeps, cb: SenderCallbacks, fileCount: number): 
     const close = () => {
         // First, so a close from any other path can never strand the linger's
         // interval. lateDone is already null when the window was never opened.
-        finishLate();
+        finishLate('closed');
         off();
         deps.channel.removeEventListener('close', onClose);
         settle({ type: 'closed' });
@@ -690,23 +777,40 @@ function openSession(deps: SenderDeps, cb: SenderCallbacks, fileCount: number): 
         close,
         lingerUntilDone(destroyed) {
             // Everything that could already have ended the window: a refusal
-            // latched before onAllSent, a delivery already confirmed, a closed
-            // channel, a destroyed peer. Nothing to wait for, so close now.
-            if (reportStop() || delivered || closed || destroyed()) {
+            // latched before the last end frame, a delivery already confirmed,
+            // a closed channel, a destroyed peer. Nothing to wait for, so close
+            // now. The order is the reporting order: a refusal outranks a
+            // delivery, because a receiver that refused never got the file.
+            let already: DoneReason | null = null;
+            if (reportStop()) already = 'stopped';
+            else if (delivered) already = 'received';
+            else if (closed) already = 'closed';
+            else if (destroyed()) already = 'destroyed';
+            if (already) {
                 close();
-                return;
+                return Promise.resolve(already);
             }
             // destroyed() is a poll because a destroyed peer fires no event
-            // here; `received` and the channel close come through the listener
-            // itself and run lateDone directly.
-            const poll = setInterval(() => {
-                if (destroyed()) finishLate();
-            }, DIGEST_STOP_POLL_MS);
-            lateDone = () => {
-                clearInterval(poll);
-                reportStop();
-                close();
-            };
+            // here; `received`, a refusal and the channel close come through
+            // the listener itself and run lateDone directly.
+            return new Promise<DoneReason>((resolve) => {
+                const poll = setInterval(() => {
+                    if (destroyed()) finishLate('destroyed');
+                }, DIGEST_STOP_POLL_MS);
+                lateDone = (why) => {
+                    clearInterval(poll);
+                    // The teardown and the answer are owed whatever the page's
+                    // own handlers do: a throwing onStopped or onError used to
+                    // leave the listener attached, and with the wait awaited it
+                    // would leave the send pending for the life of the page too.
+                    try {
+                        reportStop();
+                    } finally {
+                        close();
+                        resolve(why);
+                    }
+                };
+            });
         },
     };
 }
