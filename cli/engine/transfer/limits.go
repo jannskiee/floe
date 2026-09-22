@@ -65,6 +65,11 @@ type ReceiveLimits struct {
 	// FreeReserve is the space that must still be free after each file, on
 	// top of the file itself. Negative counts as zero.
 	FreeReserve int64
+	// BlockShellTypes turns on the name hook (blockshell.go): a file Windows
+	// Explorer would parse on sight is saved as <name>.floe-blocked, and a
+	// class ID suffix is stripped from every path component. A rename, never
+	// a refusal.
+	BlockShellTypes bool
 }
 
 // The volume questions, as seams so a test can stand in any file system and

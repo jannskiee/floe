@@ -413,6 +413,12 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// whichever folder the claim lands in, which Decide may still
 				// change; the claim below joins the two.
 				currentRel = safeJoin("", info.FileName)
+				// The name hook, request links only: it renames the leaf and
+				// strips class IDs, so it runs before the depth and length
+				// checks, which then measure the name that will be claimed.
+				if opts.Limits != nil && opts.Limits.BlockShellTypes {
+					currentRel, _ = blockShellTypes(currentRel)
+				}
 				if code, reason := checkPathShape(info.FileName, currentRel); code != "" {
 					return refuseLimit(dc, localVer, code, reason, filesReceived)
 				}

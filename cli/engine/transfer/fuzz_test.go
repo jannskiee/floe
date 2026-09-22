@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -316,6 +317,89 @@ func FuzzSafeJoin(f *testing.F) {
 		}
 		if code != "" && reason != reasonPathNotRelative && reason != CodePathTooLong.WireReason() {
 			t.Fatalf("checkPathShape(%q) reason %q is neither fixed sentence", name, reason)
+		}
+	})
+}
+
+const seedCLSID = "{ED7BA470-8E54-465E-825C-99712043E01C}"
+
+func nameHookSeeds() []fuzzSeed {
+	return []fuzzSeed{
+		{name: "lnk", text: "evil.lnk"},
+		{name: "lnk-upper", text: "EVIL.LNK"},
+		{name: "url", text: "a/b/evil.url"},
+		{name: "library-ms", text: "x.library-ms"},
+		{name: "searchconnector-ms", text: "x.searchConnector-ms"},
+		{name: "scf", text: "x.scf"},
+		{name: "theme", text: "x.theme"},
+		{name: "themepack", text: "x.themepack"},
+		{name: "website", text: "x.website"},
+		{name: "search-ms", text: "x.search-ms"},
+		{name: "desktop-ini-nested", text: "a/b/c/desktop.ini"},
+		{name: "lnk-trailing-dot-space", text: "evil.lnk. . "},
+		{name: "lnk-kelvin", text: "evil.ln" + ch(0x212a)},
+		{name: "scf-long-s", text: "evil." + ch(0x17f) + "cf"},
+		{name: "lnk-in-middle", text: "a.lnk.txt"},
+		{name: "clsid-folder", text: "Folder." + seedCLSID + "/x.txt"},
+		{name: "clsid-leaf", text: "x." + seedCLSID},
+		{name: "clsid-after-lnk", text: "x.lnk." + seedCLSID},
+		{name: "clsid-twice", text: "x." + seedCLSID + "." + seedCLSID},
+		{name: "clsid-only", text: "." + seedCLSID},
+		{name: "clsid-leaves-dotdot", text: "..." + seedCLSID + "/a.txt"},
+		{name: "clsid-leaves-reserved", text: "CON." + seedCLSID},
+		{name: "clsid-leaves-space", text: "Folder ." + seedCLSID + "/x.txt"},
+		{name: "already-blocked", text: "x.lnk.floe-blocked"},
+		{name: "empty", text: ""},
+	}
+}
+
+// FuzzNameHook: whatever name a sender picks, the hook's output is still a
+// path safeJoin could have produced (inside the folder, no empty, "." or ".."
+// component, every component already in its sanitized form), carries no class
+// ID suffix, never ends in a shell-parsed type, is never deeper than its
+// input, ends in .floe-blocked whenever the hook says it renamed, and does
+// nothing on a second pass.
+func FuzzNameHook(f *testing.F) {
+	addSeeds(f, "FuzzNameHook", nameHookSeeds(), false)
+	outputDir := filepath.Join(f.TempDir(), "out")
+	f.Fuzz(func(t *testing.T, name string) {
+		rel := safeJoin("", name)
+		out, renamed := blockShellTypes(rel)
+		full := filepath.Join(outputDir, out)
+		inside, err := filepath.Rel(outputDir, full)
+		if err != nil || inside != out || filepath.IsAbs(out) || filepath.VolumeName(out) != "" {
+			t.Fatalf("blockShellTypes(%q) = %q, not a relative path inside the folder", rel, out)
+		}
+		parts := strings.Split(out, string(filepath.Separator))
+		for _, p := range parts {
+			if p == "" || p == "." || p == ".." {
+				t.Fatalf("blockShellTypes(%q) = %q has a %q component", rel, out, p)
+			}
+			if sanitizeComponent(p, runtime.GOOS) != p {
+				t.Fatalf("blockShellTypes(%q) = %q has an unsanitized component %q", rel, out, p)
+			}
+			if clsidSuffix.MatchString(p) {
+				t.Fatalf("blockShellTypes(%q) = %q keeps a class ID suffix in %q", rel, out, p)
+			}
+		}
+		if len(parts) > len(strings.Split(rel, string(filepath.Separator))) {
+			t.Fatalf("blockShellTypes(%q) = %q is deeper than its input", rel, out)
+		}
+		leaf := strings.TrimRight(parts[len(parts)-1], " .")
+		ext := filepath.Ext(leaf)
+		for _, e := range blockedExtensions {
+			if strings.EqualFold(ext, e) || strings.ToUpper(ext) == strings.ToUpper(e) {
+				t.Fatalf("blockShellTypes(%q) = %q still ends in %s", rel, out, e)
+			}
+		}
+		if strings.EqualFold(leaf, "desktop.ini") || strings.ToUpper(leaf) == "DESKTOP.INI" {
+			t.Fatalf("blockShellTypes(%q) = %q is still desktop.ini", rel, out)
+		}
+		if renamed && !strings.HasSuffix(out, blockedSuffix) {
+			t.Fatalf("blockShellTypes(%q) = %q says renamed but does not end in %s", rel, out, blockedSuffix)
+		}
+		if again, renamedAgain := blockShellTypes(out); again != out || renamedAgain {
+			t.Fatalf("a second pass over %q gave %q, %v", out, again, renamedAgain)
 		}
 	})
 }
