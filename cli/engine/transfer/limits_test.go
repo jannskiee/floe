@@ -369,6 +369,9 @@ func TestLimitsTotalMustStayConstantAndIndexInOrder(t *testing.T) {
 		{"total bytes grows", metaFor("b.txt", 4, 2, 2, 9), false, 2},
 		{"index skips", metaFor("b.txt", 4, 3, 2, 8), false, 3},
 		{"index repeats", metaFor("b.txt", 4, 1, 2, 8), false, 1},
+		// Nested, so a check that ran after MkdirAll would leave the folders
+		// behind (WP-A1 review L1).
+		{"index repeats nested", metaFor("t1/a/b/c.txt", 4, 1, 2, 8), false, 1},
 	}
 	for _, row := range rows {
 		t.Run(row.name, func(t *testing.T) {
@@ -466,13 +469,23 @@ func TestLimitsBytesReceivedPastApprovedRefusedMidFileNoPart(t *testing.T) {
 // TestLimitsFreeSpaceBelowReserveRefusesBeforeAck: the free-space check needs
 // the folder the owner accepted, so it runs after Decide, against that folder,
 // and before the claim and the ack. One byte short of the file plus the 2 GiB
-// reserve refuses disk-full; exactly enough is acked.
+// reserve refuses disk-full; exactly enough is acked. The nested name makes a
+// check that ran after MkdirAll visible: its folders would stay behind (WP-A1
+// review L1).
 func TestLimitsFreeSpaceBelowReserveRefusesBeforeAck(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping ICE loopback transfer in -short mode")
 	}
-	for _, free := range []int64{(2 << 30) + 3, (2 << 30) + 4} {
-		t.Run(fmt.Sprint(free), func(t *testing.T) {
+	for _, c := range []struct {
+		free int64
+		name string
+	}{
+		{(2 << 30) + 3, "a.txt"},
+		{(2 << 30) + 4, "a.txt"},
+		{(2 << 30) + 3, "sub/deeper/a.txt"},
+	} {
+		free, name := c.free, c.name
+		t.Run(fmt.Sprint(free, " ", name), func(t *testing.T) {
 			disk := stubDisk(t, 0, free)
 			dir := t.TempDir()
 			drop := filepath.Join(dir, "drop")
@@ -487,7 +500,7 @@ func TestLimitsFreeSpaceBelowReserveRefusesBeforeAck(t *testing.T) {
 					return Decision{Kind: DecisionAccept, OutputDir: drop}
 				},
 			}
-			run := runHostileIn(t, dir, metaFor("a.txt", 4, 1, 1, 4), nil, opts)
+			run := runHostileIn(t, dir, metaFor(name, 4, 1, 1, 4), nil, opts)
 			if askedBeforeDecide != 0 {
 				t.Fatalf("free space was asked %d times before Decide", askedBeforeDecide)
 			}
