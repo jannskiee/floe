@@ -748,3 +748,139 @@ test('host lifecycle churn 200 times leaves the server healthy', { timeout: 1200
     }
     await assertSurvived(srv, '200 host create, terminate, reclaim and close cycles');
 });
+
+// --- request rooms: the visitor join ------------------------------------------
+
+function waitForAny(ws, types, ms = 5000) {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => { ws.off('message', onMessage); reject(new Error(`timed out waiting for ${types.join(' or ')}`)); }, ms);
+        function onMessage(raw) {
+            let msg;
+            try { msg = JSON.parse(raw); } catch { return; }
+            if (!msg || !types.includes(msg.type)) return;
+            clearTimeout(timer);
+            ws.off('message', onMessage);
+            resolve(msg);
+        }
+        ws.on('message', onMessage);
+    });
+}
+
+function hostileRoomIds() {
+    const depth = stringifyOverflowDepth();
+    assert.ok(depth, 'JSON.stringify no longer overflows at any depth this test can build');
+    return [
+        'null',
+        '1',
+        '{}',
+        '['.repeat(depth * 2) + ']'.repeat(depth * 2),
+        JSON.stringify('a'.repeat(900 * 1024)),
+    ];
+}
+
+test('request-join fuzz over /ws never reaches the backstop', async (t) => {
+    const srv = await startServer({ POLICY_FILE: policyFileSaying(t, true) });
+    t.after(() => srv.stop());
+
+    // Seven frames plus a ping on one socket, under the 30-a-minute budget by
+    // design: a fuzz extension past 30 frames needs a second socket.
+    const frames = [
+        ...hostileRoomIds().map((v) => `{"type":"request-join","roomId":${v}}`),
+        '{"type":"request-join"}',
+        `{"type":"request-join","roomId":["${randomUUID()}"]}`,
+        `{"type":"request-join","roomId":"${randomUUID()}"}`,
+    ];
+    assert.ok(frames.length <= 30);
+    for (const f of frames) assert.ok(f.length < 1e6, `frame of ${f.length} bytes is over maxPayload`);
+
+    const ws = await open(srv);
+    const replies = repliesUntilPong(ws);
+    for (const f of frames) ws.send(f);
+    ws.send(JSON.stringify({ type: 'ping' }));
+    const got = await orBackstop(srv, replies, 'request-join fuzz over /ws');
+
+    assert.equal(got.length, frames.length, JSON.stringify(got));
+    for (const m of got.slice(0, -1)) assert.deepEqual(m, { type: 'error', message: 'Invalid room ID' });
+    assert.deepEqual(got[got.length - 1], { type: 'host-absent' });
+    await assertSurvived(srv, 'request-join fuzz over /ws');
+});
+
+test('request-join fuzz over Socket.IO never reaches the backstop', async (t) => {
+    const srv = await startServer({ POLICY_FILE: policyFileSaying(t, true) });
+    t.after(() => srv.stop());
+
+    // Socket.IO v4 over a bare engine.io websocket, no client library: '0' is
+    // engine.io's open, '40' connects the default namespace (and is acked with
+    // '40'), '2' is a ping answered with '3', '42' carries an event.
+    const ws = track(new WebSocket(`ws://127.0.0.1:${srv.port}/socket.io/?EIO=4&transport=websocket`, {
+        headers: { Origin: 'http://localhost:3000' },
+    }));
+    ws.on('error', () => {});
+    const events = [];
+    const waiters = [];
+    const connected = new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('no namespace ack')), 5000);
+        ws.on('message', (raw) => {
+            const text = raw.toString();
+            if (text.startsWith('0')) ws.send('40');
+            else if (text === '2') ws.send('3');
+            else if (text.startsWith('40')) { clearTimeout(timer); resolve(); }
+            else if (text.startsWith('42')) {
+                events.push(text);
+                for (const w of waiters.splice(0)) w();
+            }
+        });
+    });
+    await connected;
+
+    const payloads = hostileRoomIds();
+    const frames = payloads.map((p) => `42["request-join",${p}]`);
+    for (const f of frames) assert.ok(f.length < 1e6, `frame of ${f.length} bytes is over maxHttpBufferSize`);
+    for (const f of frames) ws.send(f);
+    ws.send(`42["request-join","${randomUUID()}"]`);
+
+    const deadline = Date.now() + 5000;
+    while (events.length < frames.length + 1 && Date.now() < deadline) {
+        await new Promise((r) => { waiters.push(r); setTimeout(r, 200); });
+    }
+    if (events.length !== frames.length + 1) await assertSurvived(srv, 'request-join fuzz over Socket.IO');
+    assert.equal(events.length, frames.length + 1, events.join('\n').slice(0, 2000));
+    for (const e of events.slice(0, -1)) assert.equal(e, '42["error",{"message":"Invalid room ID"}]');
+    const last = events[events.length - 1];
+    t.diagnostic(`final frame: ${last}`);
+    assert.ok(last === '42["host-absent",{}]' || last === '42["disabled",{}]', last);
+    await assertSurvived(srv, 'request-join fuzz over Socket.IO');
+});
+
+test('full lifecycle churn 200 times', { timeout: 180000 }, async (t) => {
+    // Every connection from its own TEST-NET address, and each iteration a
+    // fresh visitor socket, so no limiter or budget is what this measures.
+    const srv = await startServer({ POLICY_FILE: policyFileSaying(t, true), MAX_CONNECTIONS_PER_IP: '1000' });
+    t.after(() => srv.stop());
+
+    for (let i = 0; i < 200; i++) {
+        const hostAddress = `203.0.113.${i}`;
+        const token = newToken();
+        const id = roomIdFromToken(token);
+        const a = await openAs(srv, hostAddress);
+        assert.deepEqual(await hostJoin(a, token), { type: 'room-joined', role: 'host' }, `create ${i}`);
+
+        const v = await openAs(srv, `198.51.100.${i}`);
+        const sawVisitor = waitFor(a, 'user-connected');
+        const joined = waitForAny(v, ['request-joined', 'host-absent', 'room-full', 'disabled', 'error']);
+        v.send(JSON.stringify({ type: 'request-join', roomId: id }));
+        assert.deepEqual(await orBackstop(srv, joined, `visitor ${i}`), { type: 'request-joined', role: 'visitor' }, `visitor ${i}`);
+        await sawVisitor;
+
+        // The host drops mid-pair; the visitor hears about it.
+        const heard = waitForAny(v, ['peer-disconnected', 'host-absent']);
+        a.terminate();
+        await heard;
+        v.close();
+
+        const b = await openAs(srv, hostAddress);
+        assert.deepEqual(await hostJoin(b, token), { type: 'room-joined', role: 'host' }, `reclaim ${i}`);
+        b.close();
+    }
+    await assertSurvived(srv, '200 create, visitor join, host drop, visitor leave, reclaim and close cycles');
+});

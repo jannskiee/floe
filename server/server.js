@@ -479,6 +479,10 @@ const REQUEST_CREATES_PER_DAY = 20;
 const REQUEST_CREATE_WINDOW_MS = 24 * 60 * 60 * 1000;
 // A constant, not an env var (D-088 G6).
 const MAX_REQUEST_ROOMS = 5000;
+// Per socket, per rolling 60 s (D-023). The window lives on the peer object,
+// so it dies with the socket and needs no map and no sweep.
+const REQUEST_JOINS_PER_MINUTE = 30;
+const REQUEST_JOIN_WINDOW_MS = 60 * 1000;
 
 // sealDigest(rateKey) -> timestamps of successful creates inside the window, at
 // most REQUEST_CREATES_PER_DAY each. Written only on a successful create, which
@@ -544,6 +548,77 @@ function reclaimHostSeat(peer, roomId, meta) {
     meta.hostPeerId = peer.id;
     meta.hostAbsentSince = null;
     peer.send('room-joined', { role: 'host' });
+}
+
+// The per-socket request-join budget. A frame past it is dropped before any
+// lookup: no reply, no room change, no log line, so a flooder gets nothing to
+// tune against and one socket can make the server do at most 30 lookups and
+// 30 small replies a minute.
+function requestJoinAllowed(peer, now = Date.now()) {
+    const budget = peer.joinBudget;
+    if (!budget || now - budget.windowStart >= REQUEST_JOIN_WINDOW_MS) {
+        peer.joinBudget = { windowStart: now, count: 1 };
+        return true;
+    }
+    if (budget.count >= REQUEST_JOINS_PER_MINUTE) return false;
+    budget.count++;
+    return true;
+}
+
+// request-join over Socket.IO (the /r page) or /ws (a CLI visitor). Never
+// creates a room and never takes seat 0. Precedence (spec 04 5.6.4): the
+// budget, the id's shape, the kill switch (which wins over every other
+// answer), then host-absent for an unknown or ordinary id alike (no existence
+// oracle), an idempotent re-join, room-full for a sealed link (the truthful
+// answer while its host is briefly away), host-absent for an empty seat 0,
+// room-full for a full room, and only then the seat. The two-key room seal
+// is not applied here: seat 0 is token-held and seat 1 is closed by
+// request-seal, so a visitor sharing the host's address is seated.
+function handleRequestJoin(peer, roomId, now = Date.now()) {
+    if (!requestJoinAllowed(peer, now)) return;
+    if (typeof roomId !== 'string' || !UUID_REGEX.test(roomId)) {
+        peer.send('error', { message: 'Invalid room ID' });
+        return;
+    }
+    if (!policyStore.requestLinks()) {
+        peer.send('disabled', {});
+        return;
+    }
+    const id = roomId.toLowerCase();
+    const meta = roomMeta.get(id);
+    if (!meta || meta.kind !== 'request') {
+        peer.send('host-absent', {});
+        return;
+    }
+    if (peer.roomId === id) return; // already seated here: no second user-connected
+    if (meta.sealed) {
+        peer.send('room-full', {});
+        return;
+    }
+    if (meta.hostPeerId === null) {
+        peer.send('host-absent', {});
+        return;
+    }
+    const room = rooms.get(id);
+    if (!room || room.length >= 2) {
+        peer.send('room-full', {});
+        return;
+    }
+    const host = room.find(p => p.id === meta.hostPeerId);
+    if (!host) {
+        peer.send('host-absent', {}); // defensive: a seated host is always in the array
+        return;
+    }
+
+    leaveCurrentRoom(peer);
+    room.push(peer);
+    peer.roomId = id;
+    peer.send('request-joined', { role: 'visitor' });
+    try {
+        host.send('user-connected', { id: peer.id });
+    } catch {
+        // Undeliverable; the host times out on its own.
+    }
 }
 
 // join-room {roomId, hostToken} over /ws. The check order is a security
@@ -880,6 +955,12 @@ io.on('connection', (socket) => {
         handleJoinRoom(peer, roomId);
     });
 
+    // The visitor's only way in; the host is always on /ws (no Socket.IO host
+    // path). handleRequestJoin checks the budget, then the type, first.
+    socket.on('request-join', (roomId) => {
+        handleRequestJoin(peer, roomId);
+    });
+
     socket.on('signal', (data) => {
         if (!data || typeof data !== 'object' || !data.signal) return;
         handleSignal(peer, data.signal, data.target || null);
@@ -1022,6 +1103,9 @@ wss.on('connection', (ws, req) => {
                 // which is why the host insists on role 'host' in the reply.
                 if (msg.hostToken !== undefined) handleHostJoin(peer, msg.roomId, msg.hostToken);
                 else handleJoinRoom(peer, msg.roomId);
+                break;
+            case 'request-join':
+                handleRequestJoin(peer, msg.roomId);
                 break;
             case 'signal':
                 handleSignal(peer, msg.signal, msg.target || null);
@@ -1173,4 +1257,7 @@ module.exports = {
     REQUEST_CREATES_PER_DAY,
     REQUEST_CREATE_WINDOW_MS,
     MAX_REQUEST_ROOMS,
+    handleRequestJoin,
+    requestJoinAllowed,
+    REQUEST_JOINS_PER_MINUTE,
 };

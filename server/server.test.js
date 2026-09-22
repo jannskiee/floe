@@ -70,6 +70,9 @@ const {
     REQUEST_CREATES_PER_DAY,
     REQUEST_CREATE_WINDOW_MS,
     MAX_REQUEST_ROOMS,
+    handleRequestJoin,
+    requestJoinAllowed,
+    REQUEST_JOINS_PER_MINUTE,
 } = require('./server');
 
 // ---------------------------------------------------------------------------
@@ -2145,5 +2148,232 @@ describe('handleHostJoin', () => {
     it('a malformed requestCreates entry never escapes cleanupTick', () => {
         requestCreates.set('planted', null);
         assert.doesNotThrow(() => cleanupTick(T0));
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Request rooms: visitor join (handleRequestJoin)
+// ---------------------------------------------------------------------------
+
+describe('handleRequestJoin', () => {
+    const T0 = 1_800_000_000_000;
+
+    beforeEach(() => resetRequestState(true));
+    after(() => resetRequestState(false));
+
+    // A host seated in a fresh request room; returns the host and the id.
+    function waitingHost(key = 'host-key') {
+        const token = newToken();
+        const host = makePeer(`host-${randomUUID()}`, key);
+        hostJoin(host, token, T0);
+        host.msgs.length = 0;
+        return { host, id: roomIdFromToken(token), token };
+    }
+
+    it('a visitor never gets seat 0: request-join on an unknown UUID answers host-absent and creates nothing', () => {
+        const v = makePeer('v', 'k-v');
+        handleRequestJoin(v, randomUUID(), T0);
+        assert.deepEqual(v.msgs, [{ type: 'host-absent', data: {} }]);
+        assert.equal(rooms.size, 0);
+        assert.equal(roomMeta.size, 0);
+        assert.equal(v.roomId, null);
+
+        // Nor in a reservation whose host is away: the visitor can wait, never sit first.
+        const { host, id } = waitingHost();
+        handleDisconnect(host);
+        roomMeta.get(id).hostPeerId = null;
+        roomMeta.get(id).hostAbsentSince = T0;
+        handleRequestJoin(v, id, T0);
+        assert.deepEqual(v.msgs.pop(), { type: 'host-absent', data: {} });
+        assert.equal(rooms.has(id), false);
+        assert.equal(v.roomId, null);
+    });
+
+    it('request-join on an ordinary room id answers host-absent and leaves it unchanged', () => {
+        const a = makePeer('a', 'k-a');
+        const plain = randomUUID();
+        handleJoinRoom(a, plain);
+        const v = makePeer('v', 'k-v');
+        handleRequestJoin(v, plain, T0);
+        assert.deepEqual(v.msgs, [{ type: 'host-absent', data: {} }]);
+        assert.deepEqual(rooms.get(plain), [a]);
+        assert.equal(a.msgs.length, 1, 'the ordinary room hears nothing');
+        assert.equal(v.roomId, null);
+    });
+
+    it('the visitor is seated and the host gets user-connected exactly once', () => {
+        const { host, id } = waitingHost();
+        const v = makePeer('v', 'k-v');
+        handleRequestJoin(v, id, T0);
+        assert.deepEqual(v.msgs, [{ type: 'request-joined', data: { role: 'visitor' } }]);
+        assert.deepEqual(host.msgs, [{ type: 'user-connected', data: { id: 'v' } }]);
+        assert.deepEqual(rooms.get(id), [host, v]);
+        assert.equal(v.roomId, id);
+        assert.equal(roomMeta.get(id).hostPeerId, host.id, 'seat 0 is still the token holder');
+        assert.equal(roomMeta.get(id).keys.size, 0, 'a join never counts toward the seal');
+    });
+
+    it('a second visitor while seat 1 is filled gets room-full', () => {
+        const { host, id } = waitingHost();
+        const v1 = makePeer('v1', 'k1');
+        const v2 = makePeer('v2', 'k2');
+        handleRequestJoin(v1, id, T0);
+        handleRequestJoin(v2, id, T0);
+        assert.deepEqual(v2.msgs, [{ type: 'room-full', data: {} }]);
+        assert.equal(v2.roomId, null);
+        assert.deepEqual(rooms.get(id), [host, v1]);
+        assert.equal(v1.msgs.length, 1);
+        assert.equal(host.msgs.length, 1);
+    });
+
+    it('disabled wins over every other answer while the policy is off', () => {
+        const { host, id } = waitingHost();
+        const sealedRoom = waitingHost('k-s');
+        roomMeta.get(sealedRoom.id).sealed = true;
+        const plain = randomUUID();
+        handleJoinRoom(makePeer('a', 'k-a'), plain);
+
+        // Turned off with the file, the way an operator does it; the sealed
+        // room survives the purge and still answers disabled.
+        fs.writeFileSync(POLICY_PATH, '{"requestLinks":false}');
+        policyStore.apply({ requestLinks: false });
+        const v = makePeer('v', 'k-v');
+        for (const target of [randomUUID(), plain, id, sealedRoom.id]) {
+            handleRequestJoin(v, target, T0);
+            assert.deepEqual(v.msgs.pop(), { type: 'disabled', data: {} }, target);
+        }
+        assert.equal(v.roomId, null);
+        assert.equal(rooms.has(id), false, 'the unsealed room was purged');
+        assert.deepEqual(host.msgs.pop(), { type: 'refused', data: { code: 'disabled' } });
+
+        // A malformed id still gets its own fixed answer first.
+        handleRequestJoin(v, 'nope', T0);
+        assert.deepEqual(v.msgs.pop(), { type: 'error', data: { message: 'Invalid room ID' } });
+    });
+
+    it('a repeated request-join from the seated visitor is idempotent', () => {
+        const { host, id } = waitingHost();
+        const v = makePeer('v', 'k-v');
+        handleRequestJoin(v, id, T0);
+        handleRequestJoin(v, id, T0);
+        handleRequestJoin(v, id.toUpperCase(), T0);
+        assert.deepEqual(v.msgs, [{ type: 'request-joined', data: { role: 'visitor' } }]);
+        assert.deepEqual(host.msgs, [{ type: 'user-connected', data: { id: 'v' } }]);
+        assert.deepEqual(rooms.get(id), [host, v]);
+    });
+
+    it('malformed roomId on request-join never throws', () => {
+        const { host, id } = waitingHost();
+        const v = makePeer('v', 'k-v');
+        const bad = [undefined, null, 1, [], {}, [id], 'zzzzzzzz-zzzz-4zzz-8zzz-zzzzzzzzzzzz', 'a'.repeat(1024 * 1024), `${id} `];
+        for (const roomId of bad) {
+            assert.doesNotThrow(() => handleRequestJoin(v, roomId, T0));
+            assert.deepEqual(v.msgs.pop(), { type: 'error', data: { message: 'Invalid room ID' } });
+        }
+        assert.equal(v.msgs.length, 0);
+        assert.equal(v.roomId, null);
+        assert.deepEqual(rooms.get(id), [host]);
+        assert.equal(host.msgs.length, 0);
+    });
+
+    it('signals route inside a request room and nobody outside can inject', () => {
+        const { host, id } = waitingHost();
+        const v = makePeer('v', 'k-v');
+        handleRequestJoin(v, id, T0);
+        host.msgs.length = 0;
+        v.msgs.length = 0;
+
+        handleSignal(host, { type: 'offer' }, 'v');
+        assert.deepEqual(v.msgs, [{ type: 'signal', data: { signal: { type: 'offer' }, sender: host.id } }]);
+        handleSignal(v, { type: 'answer' }, null);
+        assert.deepEqual(host.msgs, [{ type: 'signal', data: { signal: { type: 'answer' }, sender: 'v' } }]);
+
+        // Outsiders: a peer in another room, and a peer in no room, naming either seat.
+        const other = makePeer('other', 'k-o');
+        handleJoinRoom(other, randomUUID());
+        const loose = makePeer('loose', 'k-l');
+        for (const p of [other, loose]) {
+            handleSignal(p, { type: 'offer' }, host.id);
+            handleSignal(p, { type: 'offer' }, 'v');
+        }
+        assert.equal(host.msgs.length, 1);
+        assert.equal(v.msgs.length, 1);
+    });
+
+    it("a visitor sharing the host's rateKey is seated", () => {
+        const { host, id } = waitingHost('203.0.113.9');
+        const v = makePeer('v', '203.0.113.9');
+        handleRequestJoin(v, id, T0);
+        assert.deepEqual(v.msgs, [{ type: 'request-joined', data: { role: 'visitor' } }]);
+        assert.deepEqual(rooms.get(id), [host, v]);
+        // And the room seal, once two keys have signaled, never refuses a request-join.
+        handleSignal(host, { type: 'offer' }, null);
+        handleSignal(v, { type: 'answer' }, null);
+        handleDisconnect(v);
+        const v2 = makePeer('v2', '198.51.100.99');
+        handleRequestJoin(v2, id, T0);
+        assert.deepEqual(v2.msgs, [{ type: 'request-joined', data: { role: 'visitor' } }]);
+    });
+
+    it('host-absent while the host is in grace', () => {
+        const { host, id } = waitingHost();
+        handleDisconnect(host);
+        roomMeta.get(id).hostPeerId = null;
+        roomMeta.get(id).hostAbsentSince = T0;
+        const v = makePeer('v', 'k-v');
+        handleRequestJoin(v, id, T0 + 60_000);
+        assert.deepEqual(v.msgs, [{ type: 'host-absent', data: {} }]);
+        assert.equal(v.roomId, null);
+        assert.equal(rooms.has(id), false);
+        assert.ok(roomMeta.has(id), 'the reservation is untouched');
+    });
+
+    it('the 31st request-join on one socket inside 60 s gets no reply and changes nothing; the window resets after 60 s; a second socket is unaffected', () => {
+        assert.equal(REQUEST_JOINS_PER_MINUTE, 30);
+        // Straight at the budget first.
+        const p = makePeer('p', 'k');
+        for (let i = 0; i < 30; i++) assert.equal(requestJoinAllowed(p, T0 + i), true, `frame ${i + 1}`);
+        assert.equal(requestJoinAllowed(p, T0 + 100), false);
+        assert.equal(requestJoinAllowed(p, T0 + 59_999), false);
+        assert.equal(requestJoinAllowed(p, T0 + 60_000), true, 'a new window');
+
+        // Then through the handler: 30 answered frames on an unknown id (so
+        // nothing is seated), the 31st silent, even for a real waiting room.
+        const { host, id } = waitingHost();
+        const v = makePeer('v', 'k-v');
+        for (let i = 0; i < 30; i++) handleRequestJoin(v, randomUUID(), T0 + i);
+        assert.equal(v.msgs.length, 30);
+        assert.ok(v.msgs.every(m => m.type === 'host-absent'));
+        handleRequestJoin(v, id, T0 + 1000);
+        assert.equal(v.msgs.length, 30, 'no reply to the 31st');
+        assert.equal(v.roomId, null);
+        assert.deepEqual(rooms.get(id), [host]);
+        assert.equal(host.msgs.length, 0);
+        handleRequestJoin(v, 'not-a-uuid', T0 + 1001);
+        assert.equal(v.msgs.length, 30, 'a malformed frame is bounded the same way');
+
+        // A second socket has its own budget.
+        const w = makePeer('w', 'k-v');
+        handleRequestJoin(w, id, T0 + 1002);
+        assert.deepEqual(w.msgs, [{ type: 'request-joined', data: { role: 'visitor' } }]);
+
+        // After the window, v is answered again (room-full now: w sits there).
+        handleRequestJoin(v, id, T0 + 60_000);
+        assert.deepEqual(v.msgs.pop(), { type: 'room-full', data: {} });
+
+        // The default clock path: Date.now() drives the same window.
+        const d = makePeer('d', 'k-d');
+        const realNow = Date.now;
+        let fake = T0;
+        Date.now = () => fake;
+        try {
+            for (let i = 0; i < 31; i++) handleRequestJoin(d, randomUUID());
+            assert.equal(d.msgs.length, 30);
+            fake = T0 + 60_000;
+            handleRequestJoin(d, randomUUID());
+            assert.equal(d.msgs.length, 31);
+        } finally {
+            Date.now = realNow;
+        }
     });
 });
