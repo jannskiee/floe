@@ -81,6 +81,27 @@ describe('the mount effect', () => {
             expect(wails.go[name], name).not.toHaveBeenCalled();
         }
         expect([...wails.listeners.keys()].filter((k) => k.startsWith('request:'))).toEqual([]);
+        // Nor does it write anything of its own to storage (review F4).
+        expect(Object.keys(localStorage).filter((k) => k.startsWith('floe:request'))).toEqual([]);
+    });
+
+    it('remembers the request save folder only when the owner chooses one', async () => {
+        wails.go.GetSettings.mockImplementation(async () => ({
+            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false, requestLinks: true, migrated: true,
+        }));
+        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: true}));
+        wails.go.SelectFolder.mockImplementation(async () => 'D:\Footage\Floe requests');
+        const user = userEvent.setup();
+        mount();
+        await waitFor(() => expect(wails.listeners.size).toBe(15));
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
+        await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
+        expect(localStorage.getItem('floe:requestSaveDir')).toBeNull();
+        await user.click(screen.getByRole('button', {name: /Browse/}));
+        await waitFor(() => expect(localStorage.getItem('floe:requestSaveDir')).toBe('D:\Footage\Floe requests'));
+        // Emptying the field forgets it.
+        await user.clear(screen.getByLabelText('Save to'));
+        expect(localStorage.getItem('floe:requestSaveDir')).toBeNull();
     });
 
     it('asks for pending files only after files:open is listening', async () => {

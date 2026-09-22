@@ -881,9 +881,6 @@ function App() {
             }
         } catch { /* storage unavailable */ }
     }, [reqUI.snap.state, reqUI.snap.expiresAt, reqUI.snap.gen]);
-    useEffect(() => {
-        try { localStorage.setItem('floe:requestSaveDir', requestSaveDir); } catch { /* storage unavailable */ }
-    }, [requestSaveDir]);
 
     // One History row per finished drop (S1-DSK-09): the first time a lane
     // generation reaches done, or stopped with files saved. Go may re-emit a
@@ -1714,10 +1711,20 @@ function App() {
     function answerRequest(promptGen: number, answer: 'accept' | 'decline' | 'keep-waiting') {
         AnswerRequest(promptGen, answer).then((s) => dispatchReq({type: 'SNAPSHOT', snap: normalizeSnapshot(s)})).catch(() => {});
     }
+    // The base folder is remembered when the owner types or picks one, and
+    // only then: nothing of the feature writes to storage at launch (review
+    // F4). An emptied field forgets it, so the default applies again.
+    function changeRequestSaveDir(dir: string) {
+        setRequestSaveDir(dir);
+        try {
+            if (dir.trim()) localStorage.setItem('floe:requestSaveDir', dir);
+            else localStorage.removeItem('floe:requestSaveDir');
+        } catch { /* storage unavailable */ }
+    }
     async function pickRequestFolder() {
         try {
             const dir = await SelectFolder();
-            if (dir) setRequestSaveDir(dir);
+            if (dir) changeRequestSaveDir(dir);
         } catch {
             // dialog cancelled
         }
@@ -2463,7 +2470,7 @@ function App() {
                                             progress={reqProgress}
                                             hideIP={hideIP}
                                             saveDir={requestSaveDir}
-                                            onSaveDirChange={setRequestSaveDir}
+                                            onSaveDirChange={changeRequestSaveDir}
                                             onMake={makeRequestLink}
                                             onClose={() => { CloseRequestLink().catch(() => {}); }}
                                             onAnswer={answerRequest}
