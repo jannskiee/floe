@@ -556,8 +556,12 @@ jobs:
     name: E2E (browser + CLI interop, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
-    # Requires both Go (CLI binary) and Node (server + client + Playwright)
-    needs: [cli, build-and-lint, server]
+    # Starts with the other code jobs instead of after them: this job sets up
+    # its own Go and Node, Playwright's globalSetup builds the CLI binary it
+    # uses, and no artifact passes between jobs, so there is nothing to wait
+    # for. CI green still needs both this job and the ones it used to follow.
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     strategy:
       # One OS failing must not hide results from the others
       fail-fast: false
@@ -631,9 +635,13 @@ jobs:
         working-directory: server
 
       - name: Install Playwright Chromium
-        # Always run: on a browser-cache hit the download is skipped anyway,
-        # but the Linux system dependencies (--with-deps) still need installing.
-        run: pnpm exec playwright install --with-deps chromium
+        # Always run: on a browser-cache hit the download is skipped anyway.
+        # --with-deps only on Linux, the one runner whose browser needs apt
+        # system libraries. On Windows the flag shells out to
+        # Install-WindowsFeature for Media Foundation and costs about 3 minutes
+        # even on an exact cache hit (174 to 211 s measured), and on macOS it
+        # does nothing. No spec here plays media, so neither runner needs it.
+        run: pnpm exec playwright install ${{ runner.os == 'Linux' && '--with-deps ' || '' }}chromium
         working-directory: client
 
       - name: Build client (production)
@@ -678,9 +686,12 @@ jobs:
     name: Back-compat (HEAD vs latest release)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Same toolchain needs as e2e; ubuntu-only because the wire protocol under
-    # test is OS-independent and one leg keeps the release download cheap.
-    needs: [cli, build-and-lint, server]
+    # Starts with the other code jobs, like e2e: it sets up its own Go and
+    # Node, downloads the released CLI itself, and takes no artifact from
+    # another job. Ubuntu-only because the wire protocol under test is
+    # OS-independent and one leg keeps the release download cheap.
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
 
     steps:
       - name: Checkout
