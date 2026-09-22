@@ -123,9 +123,7 @@ binaries) is `.claude/skills/transfer-audit/SKILL.md`.
 maintainers run one in WSL). Set two variables in the same PowerShell call
 as `start`, each assigned straight from the command that reads it, so
 neither value is ever echoed: `FLOE_LOCAL_TURN_DOMAIN` (the address coturn
-listens on) and `FLOE_LOCAL_TURN_SECRET` (its shared auth secret). The
-maintainers' exact reads are in the Request link build plan, part 01,
-section 01.3.8 step 3.
+listens on) and `FLOE_LOCAL_TURN_SECRET` (its shared auth secret).
 
 The switch hands the pair to the server as `TURN_DOMAIN` and `TURN_SECRET`
 and to nothing else: no child sees the `FLOE_LOCAL_TURN_*` names, next dev
