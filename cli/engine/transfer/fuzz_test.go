@@ -262,17 +262,23 @@ func safeJoinSeeds() []fuzzSeed {
 		{name: "space-before-drive", text: ` C:\x.txt`},
 		{name: "drive-mid-path", text: "a/C:/b.txt"},
 		{name: "traversal-40-deep", text: strings.Repeat("../", 40) + "x.txt"},
+		{name: "mac-finder-slash-name", text: "P:L 2025.xlsx"},
+		{name: "drive-anchored-forward", text: "c:/evil"},
 	}
 }
 
 // anchoredOracle is startsAtDriveOrRoot written a second way: a separator of
-// either kind first, or an ASCII letter and a colon.
+// either kind first, or an ASCII letter and a colon that end the name or come
+// before a separator (D-117: "P:L 2025.xlsx" is a name, not a drive).
 func anchoredOracle(name string) bool {
 	if strings.HasPrefix(name, "/") || strings.HasPrefix(name, `\`) {
 		return true
 	}
-	return len(name) >= 2 && name[1] == ':' &&
-		strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", rune(name[0]))
+	if len(name) < 2 || name[1] != ':' ||
+		!strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", rune(name[0])) {
+		return false
+	}
+	return len(name) == 2 || name[2] == '/' || name[2] == '\\'
 }
 
 // FuzzSafeJoin: safeJoin never panics, the path it returns stays under the

@@ -481,7 +481,9 @@ func TestUniversalAbsoluteAndDriveLetterPathsRefused(t *testing.T) {
 		`C:\Windows\System32\evil.dll`,
 		`\\server\share\x`,
 		`/etc/x`,
-		`c:evil`,
+		`c:\evil`,
+		`c:/evil`,
+		`C:`,
 		`C:/Windows/evil.dll`,
 		`//server/share/x`,
 		`\\?\C:\x`,
@@ -501,6 +503,28 @@ func TestUniversalAbsoluteAndDriveLetterPathsRefused(t *testing.T) {
 		run := runHostile(t, fx.meta, fx.data, ReceiveOptions{})
 		wantRefused(t, run, CodePathTooLong, reasonPathNotRelative, "evil", "Windows")
 	})
+}
+
+// TestUniversalDriveRelativeNameIsContained (D-117): a letter and a colon with
+// no separator after them is a name, not a drive: macOS stores a Finder name
+// "P/L 2025.xlsx" as P:L 2025.xlsx, and Linux allows such names. Layer 1 lets
+// it through and safeJoin contains it as it always did: on Windows the "P:"
+// volume prefix is stripped before cleaning (the colon never reaches the file
+// system; a colon anywhere else in a name becomes "_"), elsewhere the name is
+// saved as sent.
+func TestUniversalDriveRelativeNameIsContained(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ICE loopback transfer in -short mode")
+	}
+	for _, name := range []string{"P:L 2025.xlsx", "c:evil"} {
+		t.Run(name, func(t *testing.T) {
+			run := runHostile(t, metaFor(name, 4, 1, 1, 4), []byte("keep"), ReceiveOptions{})
+			if run.incoming != 1 {
+				t.Fatalf("OnIncoming fired %d times, want the name asked about once", run.incoming)
+			}
+			wantSaved(t, run, filepath.ToSlash(safeJoin("", name)))
+		})
+	}
 }
 
 // TestUniversalPath241UnitsRefusedBeforeThePrompt: a relative path whose

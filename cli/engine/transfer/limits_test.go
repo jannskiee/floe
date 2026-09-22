@@ -47,9 +47,14 @@ func TestCheckPathShape(t *testing.T) {
 		{strings.Repeat("../", 40) + "x.txt", "", ""},
 		{`C:\Windows\System32\evil.dll`, notRelative.code, notRelative.reason},
 		{`C:/Windows/evil.dll`, notRelative.code, notRelative.reason},
-		{"c:evil", notRelative.code, notRelative.reason},
+		{"c:/evil", notRelative.code, notRelative.reason},
 		{"C:", notRelative.code, notRelative.reason},
 		{"z:", notRelative.code, notRelative.reason},
+		// A letter and a colon with no separator after them is how macOS
+		// stores a Finder name "P/L 2025.xlsx", and Linux allows it too: a
+		// name, not a drive. safeJoin contains it (D-117).
+		{"P:L 2025.xlsx", "", ""},
+		{"c:evil", "", ""},
 		{`\\server\share\x`, notRelative.code, notRelative.reason},
 		{"//server/share/x", notRelative.code, notRelative.reason},
 		{`\\?\C:\x`, notRelative.code, notRelative.reason},

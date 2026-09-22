@@ -35,7 +35,9 @@ const (
 	// maxPathUnits bounds that relative path in UTF-16 code units, counting
 	// the ".part" suffix the staging file carries. It keeps every component
 	// under the 255-unit NTFS limit with room for a " (n)" de-collision suffix;
-	// the spike's F6 hit that limit with a raw OS error.
+	// the spike's F6 hit that limit with a raw OS error. Linux and macOS count
+	// a component's 255 in bytes, so a long CJK leaf can still pass here and
+	// fail at the claim, with the coded write-failed refusal.
 	maxPathUnits = 240
 )
 
@@ -102,12 +104,20 @@ func depthBelow(rel string) int {
 
 // startsAtDriveOrRoot reports whether a sender's name, as sent, is anchored
 // somewhere other than the save folder: a root ("/etc", "\Windows", a UNC
-// "\\server" or a "\\?\" device path, either separator) or a drive letter in
-// any spelling ("C:\x", "c:x", "C:"). It reads the raw name on purpose:
+// "\\server" or a "\\?\" device path, either separator) or an anchored
+// drive ("C:\x", "C:/x" or a bare "C:"). It reads the raw name on purpose:
 // safeJoin strips volume names and leading separators, which is exactly how
 // the spike's F4b turned C:\Windows\System32\evil.dll into a folder tree under
 // the save folder. The rule is the same on every GOOS, so a Linux receiver
 // refuses a Windows drive path as well.
+//
+// A letter and a colon followed by anything but a separator is a name, not a
+// drive (D-117): macOS stores a Finder name "P/L 2025.xlsx" as "P:L 2025.xlsx"
+// and Linux allows it. It falls through to safeJoin, which on Windows strips
+// the "P:" volume prefix before cleaning, so the colon never reaches the file
+// system, and elsewhere saves the name as sent. Only the first bytes are read:
+// a drive or a root later in the name ("a/C:/x", " C:\x") is an ordinary
+// component, and safeJoin is what contains it.
 func startsAtDriveOrRoot(name string) bool {
 	if name == "" {
 		return false
@@ -116,7 +126,10 @@ func startsAtDriveOrRoot(name string) bool {
 		return true
 	}
 	c := name[0] | 0x20 // ASCII lower case; only letters survive the range test
-	return len(name) >= 2 && c >= 'a' && c <= 'z' && name[1] == ':'
+	if len(name) < 2 || c < 'a' || c > 'z' || name[1] != ':' {
+		return false
+	}
+	return len(name) == 2 || name[2] == '/' || name[2] == '\\'
 }
 
 // checkPathShape is layer 1's path check. name is the sender's fileName as it
