@@ -136,6 +136,10 @@ const policyStore = createPolicyStore({
     path: process.env.POLICY_FILE || '',
     onChange: applyPolicyChange,
 });
+// The first read can only go from off to on or stay off, and applyPolicyChange
+// returns before touching rooms or roomMeta unless the flag goes from on to
+// off, so it never reaches the registry below before its declaration. A purge
+// that runs on any change would have to move this read below the registry.
 try { policyStore.reload(); } catch { /* fails closed: the store starts off */ }
 
 // ---------------------------------------------------------------------------
@@ -377,28 +381,25 @@ function cleanupTick(now = Date.now()) {
     // Last, and in its own try/catch: a throw inside a setInterval callback
     // reaches the process backstop (crashguard.test.js fails on that line).
     try { policyStore.reload(); } catch { /* keep the last good policy */ }
-    // A reservation whose host has been gone for longer than the grace ends
-    // here, so the effective grace is 10 to 11 minutes (exactly 10 on a reclaim
-    // attempt, the lazy check in handleHostJoin).
-    try {
-        for (const [roomId, meta] of roomMeta) {
-            if (meta.kind === 'request' && meta.hostPeerId === null && now - meta.hostAbsentSince > REQUEST_GRACE_MS) {
-                endReservation(roomId);
-            }
-        }
-    } catch { /* the next tick sweeps again */ }
-    try {
-        for (const [roomId, meta] of roomMeta) {
-            if (meta.kind === 'request' && now - meta.createdAt > REQUEST_MAX_AGE_MS) endReservation(roomId);
-        }
-    } catch { /* the next tick sweeps again */ }
-    try {
-        for (const [key, ts] of requestCreates) {
+    // A reservation ends here when its host has been gone for longer than the
+    // grace, so the effective grace is 10 to 11 minutes (exactly 10 on a
+    // reclaim attempt, the lazy check in handleHostJoin), or when it is older
+    // than the age ceiling, sealed or not. Each entry in its own try/catch, so
+    // one bad entry can never stop the sweep of the rest.
+    for (const [roomId, meta] of roomMeta) {
+        try {
+            if (meta.kind !== 'request') continue;
+            const graceOver = meta.hostPeerId === null && now - meta.hostAbsentSince > REQUEST_GRACE_MS;
+            if (graceOver || now - meta.createdAt > REQUEST_MAX_AGE_MS) endReservation(roomId);
+        } catch { /* the next tick tries this entry again */ }
+    }
+    for (const [key, ts] of requestCreates) {
+        try {
             const valid = ts.filter(t => now - t < REQUEST_CREATE_WINDOW_MS);
             if (valid.length === 0) requestCreates.delete(key);
             else requestCreates.set(key, valid);
-        }
-    } catch { /* the next tick trims again */ }
+        } catch { /* the next tick tries this entry again */ }
+    }
 }
 
 // .unref() so the interval doesn't prevent the process from exiting (e.g. in tests).
@@ -492,7 +493,9 @@ const REQUEST_CREATES_PER_DAY = 20;
 const REQUEST_CREATE_WINDOW_MS = 24 * 60 * 60 * 1000;
 // A constant, not an env var (D-088 G6).
 const MAX_REQUEST_ROOMS = 5000;
-// Per socket, per rolling 60 s (D-023). The window lives on the peer object,
+// Per socket, per 60 s window opened by the first frame (D-023): a fixed
+// window, so at most 60 can land across one boundary, still at most 60 in any
+// minute. The window lives on the peer object,
 // so it dies with the socket and needs no map and no sweep.
 const REQUEST_JOINS_PER_MINUTE = 30;
 const REQUEST_JOIN_WINDOW_MS = 60 * 1000;
@@ -611,11 +614,11 @@ function leaveRequestRoom(peer, meta, now = Date.now()) {
 }
 
 // The leave-first step of a join, for the request handlers.
-function leaveCurrentRoom(peer) {
+function leaveCurrentRoom(peer, now = Date.now()) {
     if (!peer.roomId) return;
     const current = roomMeta.get(peer.roomId);
     if (current && current.kind === 'request') {
-        leaveRequestRoom(peer, current);
+        leaveRequestRoom(peer, current, now);
         return;
     }
     const oldRoom = rooms.get(peer.roomId);
@@ -742,7 +745,7 @@ function handleRequestJoin(peer, roomId, now = Date.now()) {
         return;
     }
 
-    leaveCurrentRoom(peer);
+    leaveCurrentRoom(peer, now);
     room.push(peer);
     peer.roomId = id;
     meta.signaled.clear(); // a new pairing: both seats must signal again
@@ -858,13 +861,12 @@ function handleHostJoin(peer, roomId, hostToken, now = Date.now()) {
         return;
     }
 
-    leaveCurrentRoom(peer);
+    leaveCurrentRoom(peer, now);
     roomMeta.set(id, {
         keys: new Set(), // the room seal's field; a join never counts (handleSignal)
         kind: 'request',
         hostTokenHash: presented,
         hostPeerId: peer.id,
-        hostKey: sealDigest(peer.key),
         sealed: false,
         signaled: new Set(), // peer ids, not keys: who has signaled in this pairing (noteRequestSignal)
         createdAt: now,

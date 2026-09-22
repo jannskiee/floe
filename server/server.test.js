@@ -2883,6 +2883,25 @@ describe('request rooms: disconnect and sweep', () => {
         assert.equal(same.visitor.msgs.length, 0);
     });
 
+    it('a malformed reservation does not stop the sweep of a good one', () => {
+        // First in the Map, a planted entry that makes endReservation throw;
+        // after it, a real reservation past its grace and one past the age
+        // ceiling. Both real ones must still end on this tick.
+        roomMeta.set('planted-bad', { keys: new Set(), kind: 'request', hostPeerId: null, hostAbsentSince: 0, createdAt: RQ_T0, sealed: false });
+        rooms.set('planted-bad', [null]);
+        const graceToken = newToken();
+        const g = makePeer('g', 'kg');
+        hostJoin(g, graceToken, RQ_T0);
+        handleDisconnect(g, RQ_T0);
+        const ageToken = newToken();
+        hostJoin(makePeer('old', 'ko'), ageToken, RQ_T0 - REQUEST_MAX_AGE_MS);
+        cleanupTick(RQ_T0 + REQUEST_GRACE_MS + 1);
+        assert.equal(roomMeta.has(roomIdFromToken(graceToken)), false, 'the grace sweep went on past the bad entry');
+        assert.equal(roomMeta.has(roomIdFromToken(ageToken)), false, 'the age ceiling went on past the bad entry');
+        roomMeta.delete('planted-bad');
+        rooms.delete('planted-bad');
+    });
+
     it('memory returns to zero', () => {
         // Close.
         const a = pairedRequestRoom('ka', 'kav');
