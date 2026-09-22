@@ -161,6 +161,18 @@ describe('the /r page boundaries', () => {
         expect(visitor.match(/new SimplePeer[(]/g)).toHaveLength(1);
     });
 
+    it('a reload waits for the Cancel reason to reach the host', () => {
+        // WP-W1 review R2-3: the Cancel flush is added to the tracker, and the reload the
+        // reducer asks for on a fragment change runs only once it settled.
+        const visitor = read('components/RequestVisitor.tsx');
+        const cancel = visitor.slice(visitor.indexOf('function cancelWithReason()'));
+        expect(cancel.slice(0, cancel.indexOf('VISITOR_CANCEL_REASON'))).toContain('flushes.add(');
+        const reload = visitor.slice(visitor.indexOf("case 'reload':"));
+        const body = reload.slice(0, reload.indexOf('return;'));
+        expect(body).toContain('flushes.settled(');
+        expect(body.indexOf('flushes.settled(')).toBeLessThan(body.indexOf('window.location.reload()'));
+    });
+
     it('every socket emit on /r is request-join or signal', () => {
         const sources = requestSources();
         const events: string[] = [];

@@ -22,7 +22,7 @@ import { useRequestFiles } from '@/hooks/useRequestFiles';
 import { useVisitorGuards } from '@/hooks/useVisitorGuards';
 import { resolveSocketUrl } from '@/lib/socketUrl';
 import { evaluateRelayGate, probeIsRelay, RELAY_SIZE_LIMIT } from '@/lib/relay';
-import { sendFiles, sendAbortReason } from '@/lib/transfer/sender';
+import { sendFiles, sendAbortReason, CONTROL_FLUSH_MS } from '@/lib/transfer/sender';
 import { createReconnectBackoff } from '@/lib/reconnectBackoff';
 import { parseRequestLink } from '@/lib/request/requestLink';
 import {
@@ -44,6 +44,7 @@ import {
     type VisitorModel,
 } from '@/lib/request/visitorState';
 import { createAttemptGate } from '@/lib/request/attempt';
+import { createFlushTracker } from '@/lib/request/flushes';
 import { deliveredBytes, dropEtaSeconds, dropPercent, etaAdvice } from '@/lib/request/eta';
 import { reportMailtoFromLocation } from '@/lib/request/report';
 import { afterSettle, firstStringFrame, watchSend } from '@/lib/request/sendOutcome';
@@ -120,6 +121,8 @@ function createVisitorController(deps: ControllerDeps) {
     let lastEndedAt: number | null = null;
     const backoff = createReconnectBackoff();
     const timers = new Map<TimerName, ReturnType<typeof setTimeout>>();
+    // Cancel reasons still on their way to the host; a reload waits for them.
+    const flushes = createFlushTracker();
 
     function arm(name: TimerName, ms: number, fire: () => void) {
         clearTimer(name);
@@ -231,7 +234,10 @@ function createVisitorController(deps: ControllerDeps) {
                 deps.wake.release();
                 return;
             case 'reload':
-                window.location.reload();
+                // A new fragment reloads the page, but only once a Cancel
+                // reason still flushing has reached the host, or its bound
+                // has passed (WP-W1 review R2-3).
+                void flushes.settled(CONTROL_FLUSH_MS + 1_000).then(() => window.location.reload());
                 return;
         }
     }
@@ -465,15 +471,17 @@ function createVisitorController(deps: ControllerDeps) {
         deps.badge.stop();
         if (!p) return;
         closedByUs = p;
-        void (async () => {
-            await sendAbortReason(
-                (d) => p.send(d),
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (p as any)._channel as RTCDataChannel | undefined,
-                VISITOR_CANCEL_REASON
-            );
-            p.destroy();
-        })();
+        flushes.add(
+            (async () => {
+                await sendAbortReason(
+                    (d) => p.send(d),
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    (p as any)._channel as RTCDataChannel | undefined,
+                    VISITOR_CANCEL_REASON
+                );
+                p.destroy();
+            })()
+        );
     }
 
     function destroyPeer() {
