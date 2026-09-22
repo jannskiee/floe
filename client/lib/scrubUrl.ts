@@ -6,7 +6,28 @@
 // fragment) so error reports, breadcrumbs, and request URLs sent to Sentry can
 // never be replayed to hijack a transfer.
 //
+// A request link (/r/<linkId>) carries an id in the PATH as well, and the two
+// exclude flags that keep a room id out of telemetry only cover the query and
+// the fragment. That id is not a secret and cannot be replayed into a transfer,
+// but it names one link and one person's request, and telemetry has no use for
+// it, so it is redacted here beside the room id.
+//
 // Accepts absolute or relative URLs and never throws.
+
+// One request-link path segment, matched case-insensitively and only where a
+// path segment can begin (string start, or after a slash). The captured
+// boundary is put back, so "/r/x" and "r/x" each stay their own shape, and it
+// is what keeps /rx/abc and /robots.txt out of the match. A bare /r has no id
+// to redact and is left alone.
+const REQUEST_PATH = /(^|\/)r\/[^/]+/gi;
+
+function redactRequestPath(path: string): string {
+    // lastIndex is reset per call: the regex is module-level and /g is stateful,
+    // so a shared one would skip the next caller's match.
+    REQUEST_PATH.lastIndex = 0;
+    return path.replace(REQUEST_PATH, '$1r/redacted');
+}
+
 export function scrubUrl(url: string | undefined | null): string | undefined {
     if (!url) return url ?? undefined;
 
@@ -16,6 +37,7 @@ export function scrubUrl(url: string | undefined | null): string | undefined {
     try {
         const u = new URL(url, BASE);
         if (u.searchParams.has('room')) u.searchParams.set('room', 'redacted');
+        u.pathname = redactRequestPath(u.pathname);
         u.hash = '';
         const out = u.toString();
         // Match BASE plus the path separator, not BASE as a bare prefix: a
@@ -26,9 +48,17 @@ export function scrubUrl(url: string | undefined | null): string | undefined {
         return out.startsWith(BASE + '/') ? out.slice(BASE.length) || '/' : out;
     } catch {
         // Parsing failed (unusual breadcrumb value); fall back to a plain strip.
-        return url
-            .replace(/#.*$/, '')
-            .replace(/([?&])room=[^&]*/i, '$1room=redacted');
+        // The path is split off by hand here because there is no parsed URL to
+        // ask: the room redaction must stay on the query side and the request
+        // redaction on the path side, or a ?room= value containing "/r/" would
+        // rewrite itself.
+        const withoutHash = url.replace(/#.*$/, '');
+        const q = withoutHash.indexOf('?');
+        const path = q >= 0 ? withoutHash.slice(0, q) : withoutHash;
+        const query = q >= 0 ? withoutHash.slice(q) : '';
+        return (
+            redactRequestPath(path) + query.replace(/([?&])room=[^&]*/i, '$1room=redacted')
+        );
     }
 }
 

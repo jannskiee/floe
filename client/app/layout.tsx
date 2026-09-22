@@ -96,8 +96,11 @@ export default function RootLayout({
             >
                 <ServiceWorkerRegistration />
                 {children}
-                {/* The tracker and its rules live in components/UmamiScript.tsx.
-                    The empty-id check moved in with it. */}
+                {/* The tracker, and the paths it may not load on, live together
+                    in components/UmamiScript.tsx. The exclude flags strip the
+                    fragment and the query but not the path, and a request link
+                    (/r/<linkId>) keeps its id in the path, so knowing the path
+                    is what decides whether the script renders at all. */}
                 <UmamiScript websiteId={process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID} />
                 {/* JSON-LD structured data: tells Google this is a free web application */}
                 <script

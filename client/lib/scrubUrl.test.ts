@@ -49,6 +49,117 @@ describe('scrubUrl', () => {
     });
 });
 
+describe('scrubUrl on a request link', () => {
+    // A request link is /r/<linkId>#<roomId>. The room id in the fragment is a
+    // capability and goes with every other fragment; the link id in the path is
+    // not a secret, but it names one link and one person's request and has no
+    // place in telemetry.
+    const LINK_ID = 'Ab3dE_f9-xY';
+    const ROOM_ID = '6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f';
+    const REQUEST_LINK = `https://floe.one/r/${LINK_ID}#${ROOM_ID}`;
+
+    it('redacts an absolute /r/<linkId> URL and drops its fragment', () => {
+        const out = scrubUrl(REQUEST_LINK);
+        expect(out).toBe('https://floe.one/r/redacted');
+        expect(out).not.toContain(LINK_ID);
+        expect(out).not.toContain(ROOM_ID);
+        expect(out).not.toContain('#');
+    });
+
+    it('redacts a relative /r/<linkId> path', () => {
+        expect(scrubUrl(`/r/${LINK_ID}`)).toBe('/r/redacted');
+        expect(scrubUrl(`/r/${LINK_ID}/`)).toBe('/r/redacted/');
+        expect(scrubUrl(`/r/${LINK_ID}#${ROOM_ID}`)).toBe('/r/redacted');
+    });
+
+    it('redacts /R/<linkId> case-insensitively', () => {
+        // Next routes are case-sensitive, so this URL never reaches the page.
+        // The scrub still folds case: it runs over strings that arrived from
+        // somewhere else, and a redaction that a capital letter defeats is not
+        // a redaction.
+        expect(scrubUrl(`https://floe.one/R/${LINK_ID}`)).toBe('https://floe.one/r/redacted');
+    });
+
+    it('leaves /r alone', () => {
+        // There is no id in a bare /r to redact, and rewriting it would make
+        // two different pages look like one in telemetry.
+        expect(scrubUrl('https://floe.one/r')).toBe('https://floe.one/r');
+        expect(scrubUrl('/r')).toBe('/r');
+        expect(scrubUrl('/r/')).toBe('/r/');
+    });
+
+    it('leaves /rx/abc and /robots.txt alone', () => {
+        expect(scrubUrl('https://floe.one/rx/abc')).toBe('https://floe.one/rx/abc');
+        expect(scrubUrl('/rx/abc')).toBe('/rx/abc');
+        expect(scrubUrl('/robots.txt')).toBe('/robots.txt');
+        expect(scrubUrl('/relay')).toBe('/relay');
+        expect(scrubUrl('/r-archive')).toBe('/r-archive');
+    });
+
+    it('still redacts ?room=', () => {
+        // The path redaction must not have displaced the one that was already
+        // here: both run, on their own halves of the URL.
+        expect(scrubUrl(`/r/${LINK_ID}?room=${ROOM_ID}`)).toBe('/r/redacted?room=redacted');
+        expect(scrubUrl(`https://floe.one/?room=${ROOM_ID}`)).toBe(
+            'https://floe.one/?room=redacted'
+        );
+    });
+
+    it('the fallback branch redacts /r/<linkId>', () => {
+        // An unterminated IPv6 host makes `new URL` throw even with a base, so
+        // this input can only come out of the catch arm. The room redaction has
+        // to stay on the query side there and the path redaction on the path
+        // side, because that branch has no parsed URL to ask.
+        const broken = `https://[/r/${LINK_ID}?room=${ROOM_ID}#${ROOM_ID}`;
+        expect(() => new URL(broken, 'http://scrub.invalid')).toThrow();
+        const out = scrubUrl(broken);
+        expect(out).toBe('https://[/r/redacted?room=redacted');
+        expect(out).not.toContain(LINK_ID);
+        expect(out).not.toContain(ROOM_ID);
+    });
+
+    it('span url.full and http.url on /r are redacted', () => {
+        // The browser SDK's HttpContext integration stamps location.href onto
+        // the segment span's url.full, so on a visitor page that is the whole
+        // request link.
+        const event = {
+            request: { url: REQUEST_LINK },
+            contexts: { trace: { data: { 'url.full': REQUEST_LINK } } },
+            spans: [{ data: { 'url.full': REQUEST_LINK, 'http.url': REQUEST_LINK } }],
+        };
+        const out = scrubTransactionEvent(event);
+        const json = JSON.stringify(out);
+        expect(json).not.toContain(LINK_ID);
+        expect(json).not.toContain(ROOM_ID);
+        expect(out.request.url).toBe('https://floe.one/r/redacted');
+        expect(out.contexts.trace.data['url.full']).toBe('https://floe.one/r/redacted');
+        expect(out.spans[0].data['url.full']).toBe('https://floe.one/r/redacted');
+        expect(out.spans[0].data['http.url']).toBe('https://floe.one/r/redacted');
+        // The standalone-span path reaches the same scrub.
+        const span = { data: { 'url.full': REQUEST_LINK } };
+        expect(scrubSpanJson(span).data['url.full']).toBe('https://floe.one/r/redacted');
+    });
+
+    it('breadcrumb from and to on /r are redacted', () => {
+        // beforeBreadcrumb in sentry.client.config.ts runs scrubUrl over
+        // data.url, data.to and data.from; navigation breadcrumbs carry the
+        // last two as paths rather than absolute URLs.
+        const data: Record<string, string> = {
+            from: `/r/${LINK_ID}`,
+            to: `/r/${LINK_ID}#${ROOM_ID}`,
+            url: REQUEST_LINK,
+        };
+        for (const key of ['from', 'to', 'url'] as const) {
+            data[key] = scrubUrl(data[key]) ?? '';
+        }
+        expect(data.from).toBe('/r/redacted');
+        expect(data.to).toBe('/r/redacted');
+        expect(data.url).toBe('https://floe.one/r/redacted');
+        expect(JSON.stringify(data)).not.toContain(LINK_ID);
+        expect(JSON.stringify(data)).not.toContain(ROOM_ID);
+    });
+});
+
 describe('scrubTransactionEvent', () => {
     const LINK = 'https://www.floe.one/?s=abcd1234#room=secret-uuid';
 

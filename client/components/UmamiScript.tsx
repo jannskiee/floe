@@ -1,4 +1,8 @@
+'use client';
+
 import Script from 'next/script';
+import { usePathname } from 'next/navigation';
+import { loadsUmami } from '@/lib/analyticsPath';
 
 interface Props {
     /** NEXT_PUBLIC_UMAMI_WEBSITE_ID, read in the root layout. It is inlined at
@@ -8,15 +12,24 @@ interface Props {
 }
 
 /**
- * The Umami tracker.
+ * The Umami tracker, and the paths it may not load on.
  *
- * Lifted out of app/layout.tsx with its attributes and its comments unchanged,
- * so the layout reads as page structure and the tracker's own rules live in one
- * file. The empty-id check came with it: an absent website id still renders
- * nothing at all.
+ * This is a client component for one reason: the tracker reports
+ * location.href, and data-exclude-hash and data-exclude-search strip the
+ * fragment and the query but NOT the path. A request link carries its link id
+ * in the path, so on /r the tracker is not reconfigured, it is not loaded at
+ * all. usePathname() is the only way to know the path, and that is a client
+ * hook.
+ *
+ * usePathname does not make a route dynamic: components/layout/Navbar.tsx has
+ * used it on every statically prerendered page for as long as those pages have
+ * existed, so this costs the site nothing in rendering mode.
  */
 export function UmamiScript({ websiteId }: Props) {
+    const pathname = usePathname();
+
     if (!websiteId) return null;
+    if (!loadsUmami(pathname)) return null;
 
     return (
         <Script
