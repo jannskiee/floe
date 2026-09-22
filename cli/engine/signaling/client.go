@@ -194,11 +194,17 @@ var replyTimeout = 10 * time.Second
 // ErrOldServer comes with HostOldServer: the server seated this socket by
 // join order (room-joined with a role other than host), which only a server
 // that predates request links does with a token join (E-59). That seat is
-// not a reserved room, and the caller must never use it.
+// not a reserved room, and the caller must never use it: Close the Client and
+// never retry on this socket, because the old server still holds it as the
+// first seat of an ordinary room named by the link's room id.
 var ErrOldServer = errors.New("the signaling server does not support request links: it seated the host by join order")
 
 // The errors the reserved-room calls return for a failure of the exchange
 // itself. Fixed strings: no token, room id or server text is ever in them.
+// The one other error, a failed write of the join frame, wraps gorilla's
+// write error behind a fixed prefix; that can carry the local network's own
+// text (a socket address) but never a payload, so still no token, room id or
+// server text.
 var (
 	errHostTokenShape = errors.New("the host token is not 43 base64url characters")
 	errRoomNotDerived = errors.New("the room id is not the one the host token derives")
