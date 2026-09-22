@@ -131,11 +131,21 @@ describe('sender teardown', () => {
     // session apart from its two ends.
     function countingDeps() {
         const listeners = new Map<string, number>();
+        // Kept as well as counted, so a test can close the channel from the
+        // peer's side the way a shut tab does.
+        const closeHandlers: Array<() => void> = [];
         const channel = {
             bufferedAmount: 0,
             bufferedAmountLowThreshold: 0,
-            addEventListener: (type: string) => { listeners.set(type, (listeners.get(type) ?? 0) + 1); },
-            removeEventListener: (type: string) => { listeners.set(type, (listeners.get(type) ?? 0) - 1); },
+            addEventListener: (type: string, h: () => void) => {
+                listeners.set(type, (listeners.get(type) ?? 0) + 1);
+                if (type === 'close') closeHandlers.push(h);
+            },
+            removeEventListener: (type: string, h: () => void) => {
+                listeners.set(type, (listeners.get(type) ?? 0) - 1);
+                const i = closeHandlers.indexOf(h);
+                if (type === 'close' && i >= 0) closeHandlers.splice(i, 1);
+            },
         };
         const made = makeDeps(channel);
         let subscribed = 0;
@@ -145,7 +155,12 @@ describe('sender teardown', () => {
             const off = onData(h);
             return () => { subscribed -= 1; off(); };
         };
-        return { ...made, listeners, subscribed: () => subscribed };
+        return {
+            ...made,
+            listeners,
+            subscribed: () => subscribed,
+            close: () => closeHandlers.slice().forEach((h) => h()),
+        };
     }
 
     // The session registers one data listener and one channel close listener
@@ -226,5 +241,38 @@ describe('sender teardown', () => {
         expect(subscribed()).toBe(0);
         expect(listeners.get('close')).toBe(0);
         expect(vi.getTimerCount()).toBe(0);
+    });
+
+    // requireReceived keeps the same one listener open past the last end frame
+    // instead of handing it to the fire-and-forget window, so the three ways
+    // that window can end are also the three ways the send resolves. Each must
+    // leave nothing subscribed and no timer armed: the wait has no deadline of
+    // its own (E-36), so a leak here would outlive the page.
+    it('the control listener is removed after requireReceived resolves, refuses or closes', async () => {
+        const file = () => [{ id: 'id-visitor', file: new File([new Uint8Array(8)], 'x.bin') }];
+
+        for (const ending of ['received', 'refused', 'closed'] as const) {
+            vi.useFakeTimers();
+            const c = countingDeps();
+
+            const p = sendFiles(c.deps, file(), { onError: () => {} }, { requireReceived: true });
+            await vi.advanceTimersByTimeAsync(0);
+            c.deliverAck('id-visitor');
+            await vi.advanceTimersByTimeAsync(0);
+            expect(c.subscribed()).toBe(1);
+
+            if (ending === 'received') c.deliverFrame('{"type":"received"}');
+            if (ending === 'refused') {
+                c.deliverFrame(JSON.stringify({ type: 'incompatible', reason: 'receiver stopped', pv: 1, pvMin: 1 }));
+            }
+            if (ending === 'closed') c.close();
+            await vi.advanceTimersByTimeAsync(0);
+            await p;
+
+            expect(c.subscribed()).toBe(0);
+            expect(c.listeners.get('close')).toBe(0);
+            expect(vi.getTimerCount()).toBe(0);
+            vi.useRealTimers();
+        }
     });
 });

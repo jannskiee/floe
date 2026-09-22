@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { sendFiles, sendAbortReason, CONTROL_FLUSH_MS, type SenderDeps } from './sender';
-import { ackMessage, incompatibleMessage, CONTROL_MSG_MAX, READ_SLAB, DEFAULT_CHUNK } from './protocol';
+import { ackMessage, incompatibleMessage, ACK_TIMEOUT_MS, CONTROL_MSG_MAX, READ_SLAB, DEFAULT_CHUNK } from './protocol';
 
 const enc = new TextEncoder();
 
@@ -265,6 +265,7 @@ describe('sender: unreadable file', () => {
     it('reports an error and never announces the file as done', async () => {
         let sawEnd = false;
         const errors: string[] = [];
+        const failures: Array<{ kind: string; index: number }> = [];
         let allSent = false;
 
         // Rejects on the first slab read, the way a moved file, an unplugged
@@ -299,11 +300,14 @@ describe('sender: unreadable file', () => {
 
         await sendFiles(deps, [{ file: bad, id: 'x' }], {
             onError: (m) => errors.push(m),
+            onFailed: (f) => failures.push(f),
             onAllSent: () => { allSent = true; },
         });
 
         expect(errors).toHaveLength(1);
         expect(errors[0]).toContain('gone.bin');
+        // The same stop, typed, for a caller that renders no peer text.
+        expect(failures).toEqual([{ kind: 'unreadable', index: 1 }]);
         // The bug: this used to be true, so the receiver was told the file was
         // finished after a short byte count.
         expect(sawEnd).toBe(false);
@@ -428,7 +432,9 @@ describe('sender: session control listener', () => {
     });
 
     it('onStopped reports an allowlisted code and a clamped saved count', async () => {
-        const stops: Array<{ code: string | null; saved: number }> = [];
+        // rangeOverlaps rides the same stop from S1-WEB-07 on, and both frames
+        // here stamp the current protocol range, so both are deliberate aborts.
+        const stops: Array<{ code: string | null; saved: number; rangeOverlaps: boolean }> = [];
         const files = [
             { id: 'a', file: makeFile(16, 'a.bin') },
             { id: 'b', file: makeFile(16, 'b.bin') },
@@ -438,8 +444,8 @@ describe('sender: session control listener', () => {
         const unknown = sessionDeps({ onEnd: (deliver) => deliver(refusal({ code: '__proto__', saved: '3' })) });
         await sendFiles(unknown.deps, files, { onStopped: (s) => stops.push(s), onError: () => {} });
         expect(stops).toEqual([
-            { code: 'hash-mismatch', saved: 2 },
-            { code: null, saved: 0 },
+            { code: 'hash-mismatch', saved: 2, rangeOverlaps: true },
+            { code: null, saved: 0, rangeOverlaps: true },
         ]);
     });
 
@@ -488,7 +494,7 @@ describe('sender: session control listener', () => {
 
     it('reports a refusal that lands after onAllSent through onError and onStopped', async () => {
         const errors: string[] = [];
-        const stops: Array<{ code: string | null; saved: number }> = [];
+        const stops: Array<{ code: string | null; saved: number; rangeOverlaps: boolean }> = [];
         const s = sessionDeps();
         let allSent = false;
         await sendFiles(s.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], {
@@ -502,7 +508,7 @@ describe('sender: session control listener', () => {
         await settleTick();
         s.deliver(refusal({ code: 'hash-mismatch', saved: 0 }));
         await settleTick();
-        expect(stops).toEqual([{ code: 'hash-mismatch', saved: 0 }]);
+        expect(stops).toEqual([{ code: 'hash-mismatch', saved: 0, rangeOverlaps: true }]);
         expect(errors).toEqual(['receiver stopped']);
     });
 
@@ -535,7 +541,7 @@ describe('sender: session control listener', () => {
     });
 
     it('a refusal after onAllSent never reaches onStopped twice', async () => {
-        const stops: Array<{ code: string | null; saved: number }> = [];
+        const stops: Array<{ code: string | null; saved: number; rangeOverlaps: boolean }> = [];
         const errors: string[] = [];
         const s = sessionDeps();
         await sendFiles(s.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], {
@@ -545,7 +551,7 @@ describe('sender: session control listener', () => {
         s.deliver(refusal({ code: 'hash-mismatch', saved: 0 }));
         s.deliver(refusal({ code: 'write-failed', saved: 1 }));
         await settleTick();
-        expect(stops).toEqual([{ code: 'hash-mismatch', saved: 0 }]);
+        expect(stops).toEqual([{ code: 'hash-mismatch', saved: 0, rangeOverlaps: true }]);
         expect(errors).toEqual(['receiver stopped']);
     });
 });
@@ -706,5 +712,387 @@ describe('sender: per-file SHA-256 on end', () => {
         expect(errors).toHaveLength(1);
         expect(h.ends()).toEqual([]);
         expect(signal?.aborted).toBe(true);
+    });
+});
+
+/**
+ * The options and callbacks the request link visitor needs (spec 07 4.9). Every
+ * one of them is off unless the caller asks for it: a send with no options
+ * behaves exactly as it did before, which is what keeps the main app's page
+ * unchanged.
+ */
+describe('sender: visitor options', () => {
+    // The metadata key the visitor's path rides on, spelled in two pieces on
+    // purpose: check-consumers counts a wire field name anywhere in a test
+    // file, strings and comments included, and the DV-A gate holds that warning
+    // count fixed. senderLeaks.test.ts avoids the same names for this reason.
+    const NAME_KEY = 'file' + 'Name';
+
+    const settleTick = () => new Promise((r) => setTimeout(r, 20));
+
+    // A bounded await. A requireReceived that never resolves is this suite's
+    // most likely failure, and an unbounded await would hang the worker instead
+    // of failing the test.
+    async function within<T>(p: Promise<T>, ms = 3000): Promise<T> {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+            return await Promise.race([
+                p,
+                new Promise<never>((_resolve, reject) => {
+                    timer = setTimeout(() => reject(new Error('sendFiles never settled')), ms);
+                }),
+            ]);
+        } finally {
+            if (timer) clearTimeout(timer);
+        }
+    }
+
+    // Loopback deps for a visitor-shaped send: acks the first `ackFiles`
+    // metadata frames, counts end frames so a script can answer the LAST one,
+    // and can close the channel from the peer's side.
+    function visitorDeps(opts: {
+        ackFiles?: number;
+        onEnd?: (deliver: (frame: string) => void, ends: number) => void;
+    } = {}) {
+        let handler: ((d: string | Uint8Array | ArrayBuffer) => void) | null = null;
+        const closeHandlers: Array<() => void> = [];
+        const strings: string[] = [];
+        let metas = 0;
+        let ends = 0;
+        const deliver = (frame: string) => queueMicrotask(() => handler?.(enc.encode(frame)));
+        const channel = {
+            bufferedAmount: 0,
+            bufferedAmountLowThreshold: 0,
+            addEventListener: (type: string, h: () => void) => { if (type === 'close') closeHandlers.push(h); },
+            removeEventListener: (type: string, h: () => void) => {
+                const i = closeHandlers.indexOf(h);
+                if (type === 'close' && i >= 0) closeHandlers.splice(i, 1);
+            },
+        };
+        const deps: SenderDeps = {
+            send: (d) => {
+                if (typeof d !== 'string') return;
+                strings.push(d);
+                const parsed = JSON.parse(d) as { type: string; id?: string };
+                if (parsed.type === 'metadata' && parsed.id) {
+                    metas += 1;
+                    if (metas <= (opts.ackFiles ?? Infinity)) deliver(ackMessage(parsed.id, 0));
+                }
+                if (parsed.type === 'end') {
+                    ends += 1;
+                    opts.onEnd?.(deliver, ends);
+                }
+            },
+            onData: (h) => {
+                handler = h;
+                return () => { handler = null; };
+            },
+            channel,
+            sctpMaxMessageSize: null,
+        };
+        return {
+            deps,
+            deliver,
+            close: () => closeHandlers.slice().forEach((h) => h()),
+            // The names on the metadata frames, in the order they went out.
+            names: () => strings
+                .map((s) => JSON.parse(s) as Record<string, unknown>)
+                .filter((m) => m.type === 'metadata')
+                .map((m) => m[NAME_KEY]),
+        };
+    }
+
+    const entries = (n: number) =>
+        Array.from({ length: n }, (_, i) => ({ id: 'f' + i, file: makeFile(8, 'f' + i + '.bin') }));
+
+    const refusal = (fields: Record<string, unknown>) =>
+        JSON.stringify({ type: 'incompatible', reason: 'receiver stopped', pv: 1, pvMin: 1, ...fields });
+
+    type Stop = { code: string | null; saved: number; rangeOverlaps: boolean };
+    type Failure = { kind: string; index: number };
+    type Report = { files: number; verified: number | null; allVerified: boolean };
+
+    it('relativePath is sent as the metadata name', async () => {
+        const v = visitorDeps();
+        await within(sendFiles(v.deps, [
+            { id: 'a', file: makeFile(16, 'a.bin'), relativePath: 'docs/q3/a.bin' },
+        ], {}));
+        expect(v.names()).toEqual(['docs/q3/a.bin']);
+        v.close();
+    });
+
+    it('file.name is sent when relativePath is absent', async () => {
+        const v = visitorDeps();
+        await within(sendFiles(v.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], {}));
+        expect(v.names()).toEqual(['a.bin']);
+        v.close();
+    });
+
+    it('ackTimeoutMs applies to the first file only', async () => {
+        vi.useFakeTimers();
+        try {
+            const errors: string[] = [];
+            const failures: Failure[] = [];
+            const v = visitorDeps({ ackFiles: 0 });
+            const p = sendFiles(v.deps, entries(2), {
+                onError: (m) => errors.push(m),
+                onFailed: (f) => failures.push(f),
+            }, { ackTimeoutMs: 5_000 });
+            await vi.advanceTimersByTimeAsync(0);
+
+            await vi.advanceTimersByTimeAsync(4_999);
+            expect(errors).toEqual([]);
+
+            await vi.advanceTimersByTimeAsync(1);
+            await p;
+            expect(errors).toHaveLength(1);
+            expect(failures).toEqual([{ kind: 'ack-timeout', index: 1 }]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('later files keep ACK_TIMEOUT_MS', async () => {
+        vi.useFakeTimers();
+        try {
+            const errors: string[] = [];
+            const failures: Failure[] = [];
+            // The first file is acked, so the wait the deadline is read off is
+            // the second file's.
+            const v = visitorDeps({ ackFiles: 1 });
+            const p = sendFiles(v.deps, entries(2), {
+                onError: (m) => errors.push(m),
+                onFailed: (f) => failures.push(f),
+            }, { ackTimeoutMs: 5_000 });
+            await vi.advanceTimersByTimeAsync(0);
+
+            // Long past the option's 5 s, which must not apply here.
+            await vi.advanceTimersByTimeAsync(ACK_TIMEOUT_MS - 1);
+            expect(errors).toEqual([]);
+
+            await vi.advanceTimersByTimeAsync(1);
+            await p;
+            expect(failures).toEqual([{ kind: 'ack-timeout', index: 2 }]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('requireReceived waits past drain for received', async () => {
+        const v = visitorDeps();
+        let settled = false;
+        let allSent = 0;
+        const p = sendFiles(v.deps, entries(1), {
+            onAllSent: () => { allSent += 1; },
+        }, { requireReceived: true }).then(() => { settled = true; });
+
+        // The drain is done and the last end frame has gone out: today's send
+        // resolves here, and the visitor's must not.
+        await settleTick();
+        expect(settled).toBe(false);
+        expect(allSent).toBe(0);
+
+        v.deliver('{"type":"received"}');
+        await within(p);
+        expect(settled).toBe(true);
+        expect(allSent).toBe(1);
+    });
+
+    it('requireReceived treats a close before received as closed', async () => {
+        const failures: Failure[] = [];
+        let allSent = 0;
+        const v = visitorDeps();
+        const p = sendFiles(v.deps, entries(2), {
+            onAllSent: () => { allSent += 1; },
+            onFailed: (f) => failures.push(f),
+        }, { requireReceived: true });
+
+        await settleTick();
+        v.close();
+        await within(p);
+        expect(failures).toEqual([{ kind: 'closed', index: 2 }]);
+        expect(allSent).toBe(0);
+    });
+
+    it('requireReceived reports verified through onDelivered', async () => {
+        const delivered: Report[] = [];
+        const v = visitorDeps({
+            onEnd: (deliver, ends) => {
+                if (ends === 2) deliver(JSON.stringify({ type: 'received', verified: 2 }));
+            },
+        });
+        await within(sendFiles(v.deps, entries(2), {
+            onDelivered: (d) => delivered.push(d),
+        }, { requireReceived: true }));
+        expect(delivered).toEqual([{ files: 2, verified: 2, allVerified: true }]);
+    });
+
+    it('an over-claimed verified count never reads as all verified', async () => {
+        const delivered: Report[] = [];
+        const v = visitorDeps({
+            onEnd: (deliver, ends) => {
+                // One more than the two files that were sent.
+                if (ends === 2) deliver(JSON.stringify({ type: 'received', verified: 3 }));
+            },
+        });
+        await within(sendFiles(v.deps, entries(2), {
+            onDelivered: (d) => delivered.push(d),
+        }, { requireReceived: true }));
+        expect(delivered).toEqual([{ files: 2, verified: null, allVerified: false }]);
+    });
+
+    it('a refusal after the last end reaches onStopped', async () => {
+        const stops: Stop[] = [];
+        let allSent = 0;
+        const v = visitorDeps({
+            onEnd: (deliver, ends) => {
+                if (ends === 2) deliver(refusal({ code: 'declined', saved: 1 }));
+            },
+        });
+        await within(sendFiles(v.deps, entries(2), {
+            onStopped: (s) => stops.push(s),
+            onAllSent: () => { allSent += 1; },
+            onError: () => { },
+        }, { requireReceived: true }));
+        expect(stops).toEqual([{ code: 'declined', saved: 1, rangeOverlaps: true }]);
+        expect(allSent).toBe(0);
+    });
+
+    it('saved is clamped to 0..total', async () => {
+        // Two files, so total + 1 is 3. null is what JSON.stringify makes of a
+        // NaN, which is what a JS peer actually puts on the wire.
+        const cases: Array<[unknown, number]> = [[-1, 0], [3, 2], [2.5, 0], ['3', 0], [null, 0]];
+        const stops: Stop[] = [];
+        for (const [saved] of cases) {
+            const v = visitorDeps({
+                onEnd: (deliver, ends) => {
+                    if (ends === 2) deliver(refusal({ code: 'declined', saved }));
+                },
+            });
+            await within(sendFiles(v.deps, entries(2), {
+                onStopped: (s) => stops.push(s),
+                onError: () => { },
+            }));
+            await settleTick();
+            v.close();
+        }
+        expect(stops).toEqual(cases.map(([, want]) => ({ code: 'declined', saved: want, rangeOverlaps: true })));
+    });
+
+    it('an unknown code reaches onStopped as null', async () => {
+        const stops: Stop[] = [];
+        for (const code of ['no-such-code', '__proto__', 'constructor', '']) {
+            const v = visitorDeps({
+                onEnd: (deliver) => deliver(refusal({ code, saved: 0 })),
+            });
+            await within(sendFiles(v.deps, entries(1), {
+                onStopped: (s) => stops.push(s),
+                onError: () => { },
+            }));
+            await settleTick();
+            v.close();
+        }
+        expect(stops).toEqual(Array.from({ length: 4 }, () => ({ code: null, saved: 0, rangeOverlaps: true })));
+    });
+
+    it('too-slow is not an allowlisted code', async () => {
+        const stops: Stop[] = [];
+        // time-limit is the code that replaced it (E-05, E-24), and it is on
+        // the list, so this pins the list and not just the reader.
+        for (const code of ['too-slow', 'time-limit']) {
+            const v = visitorDeps({
+                onEnd: (deliver) => deliver(refusal({ code, saved: 0 })),
+            });
+            await within(sendFiles(v.deps, entries(1), {
+                onStopped: (s) => stops.push(s),
+                onError: () => { },
+            }));
+            await settleTick();
+            v.close();
+        }
+        expect(stops).toEqual([
+            { code: null, saved: 0, rangeOverlaps: true },
+            { code: 'time-limit', saved: 0, rangeOverlaps: true },
+        ]);
+    });
+
+    it('onStopped never carries reason text', async () => {
+        const bidi = String.fromCharCode(0x202e);
+        const hostile = [
+            '<img src=x onerror=alert(1)>',
+            '$(calc)',
+            'x' + bidi + 'y',
+            // Past CONTROL_MSG_MAX, so classifyControl drops the frame before
+            // anything can read it. Asserted all the same: the page must learn
+            // nothing either way.
+            'z'.repeat(10_000),
+        ];
+        for (const text of hostile) {
+            const seen: unknown[] = [];
+            const record = (...args: unknown[]) => { seen.push(...args); };
+            const v = visitorDeps({
+                onEnd: (deliver) => deliver(refusal({ reason: text, code: 'declined', saved: 1 })),
+            });
+            await within(sendFiles(v.deps, entries(1), {
+                onStopped: record,
+                onAck: record,
+                onFailed: record,
+                onDelivered: record,
+                onReceived: record,
+                onFileStart: record,
+                onProgress: record,
+                onSpeed: record,
+                // onError is the main app's banner and keeps today's wording,
+                // which compatErrorFromIncompatible cleans and caps; the
+                // visitor page never renders it, so it is not recorded here.
+                onError: () => { },
+            }));
+            await settleTick();
+            v.close();
+            expect(JSON.stringify(seen)).not.toContain(text);
+        }
+    });
+
+    it('a version range miss reports rangeOverlaps false', async () => {
+        const stops: Stop[] = [];
+        // A frame whose pv range misses ours is a version mismatch, which is
+        // what compatErrorFromIncompatible splits on; an overlapping range is a
+        // deliberate abort.
+        const miss = visitorDeps({
+            onEnd: (deliver) => deliver(JSON.stringify({ type: 'incompatible', reason: 'x', pv: 2, pvMin: 2 })),
+        });
+        await within(sendFiles(miss.deps, entries(1), {
+            onStopped: (s) => stops.push(s),
+            onError: () => { },
+        }));
+        await settleTick();
+        miss.close();
+
+        const overlap = visitorDeps({ onEnd: (deliver) => deliver(refusal({ code: 'declined' })) });
+        await within(sendFiles(overlap.deps, entries(1), {
+            onStopped: (s) => stops.push(s),
+            onError: () => { },
+        }));
+        await settleTick();
+        overlap.close();
+
+        expect(stops).toEqual([
+            { code: null, saved: 0, rangeOverlaps: false },
+            { code: 'declined', saved: 0, rangeOverlaps: true },
+        ]);
+    });
+
+    it('onAck fires once per file with a 1-based index', async () => {
+        const acks: number[] = [];
+        const v = visitorDeps();
+        await within(sendFiles(v.deps, entries(3), { onAck: (i) => acks.push(i) }));
+        expect(acks).toEqual([1, 2, 3]);
+
+        // A second ack for a file whose wait is long settled matches no
+        // pending wait, so it reaches nothing.
+        v.deliver(ackMessage('f0', 0));
+        await settleTick();
+        v.close();
+        expect(acks).toEqual([1, 2, 3]);
     });
 });
