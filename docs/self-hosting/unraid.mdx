@@ -114,6 +114,11 @@ client and server separately, and enable WebSocket forwarding for the server.
 4. Set Floe-Server **Trusted Proxy Count** to the number of proxy hops.
 5. Set Floe-Client **Signaling Server URL** to the complete public HTTPS server
    origin.
+6. Keep the host name in the `Host` header when proxying the signaling hostname.
+   Nginx Proxy Manager and SWAG do by default. The CLI and Floe Desktop connect to
+   the signaling hostname, which is not your Client URL, so the server matches
+   their `Origin` against `Host`, and a proxy that rewrites `Host` to the
+   container address refuses them with a `403`.
 
 For example:
 

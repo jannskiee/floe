@@ -192,13 +192,11 @@ The test deliberately does not follow redirects, so a proxy that answers
 `/health` with a 301 is reported as "may be the web app rather than the
 signaling server" rather than passing.
 
-Keep the `Host` header as the client sent it. Both apps send your server's own
-address as their `Origin`, and the server lets a WebSocket in when that matches
-the `Host` it receives. Caddy passes `Host` through by default, and the nginx
-example sets it with `proxy_set_header Host $host`. A proxy that rewrites `Host`
-to the upstream address (`localhost:3001`) gets every CLI and desktop connection
-refused with a `403`, and so does a server address that spells out the default
-port (`http://floe.example.com:80`), so leave the port off.
+Both apps send the address you give them as their `Origin`. Here that address is
+your `CLIENT_URL`, which the server always accepts, so nothing about the `Host`
+header affects them on this layout. `Host` matters only when the apps use an
+address that is not exactly your `CLIENT_URL`, as on the
+[two-hostname layout](/self-hosting/production).
 
 ## TURN does not go through the proxy
 
