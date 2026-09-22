@@ -308,6 +308,14 @@ type SendOptions struct {
 	// UpdateHint replaces the CLI-only local update instruction in protocol
 	// compatibility errors. Leave empty for the default CLI wording.
 	UpdateHint string
+	// AckTimeout bounds the wait for each file's first ack. Zero keeps
+	// defaultAckTimeout, which is sized for a person at this machine's own
+	// "Accept? [Y/n]" prompt. A request-link visitor passes
+	// VisitorAckTimeout + VisitorAckGrace instead, because the person deciding
+	// is on the other side of a link and the deciding side answers on their
+	// behalf one grace earlier. Nothing else in this sender is armed while it
+	// waits, so a longer value costs one timer and changes no other behavior.
+	AckTimeout time.Duration
 	// Messages and Closed come from peer.Connection.Early(), which wires the data
 	// channel the instant it exists. Pass BOTH whenever the channel came from
 	// peer.SetupAsSender. The sender has never been observed losing this race,
@@ -442,7 +450,7 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 
 	var sentSoFar int64
 	for i, entry := range files {
-		if err := sendFile(dc, ackCh, sendMore, done, entry, i+1, len(files), totalBytes, localVer, onProgress, opts.UpdateHint, sentSoFar, chunk); err != nil {
+		if err := sendFile(dc, ackCh, sendMore, done, entry, i+1, len(files), totalBytes, localVer, onProgress, opts.UpdateHint, ackTimeoutOrDefault(opts.AckTimeout), sentSoFar, chunk); err != nil {
 			// A refusal the PEER sent is returned as it came. The wrap named
 			// entry.displayName, which is the file the sender had already moved
 			// on to: a receiver refuses file N after its end marker, and the
@@ -577,7 +585,7 @@ drainLoop:
 }
 
 // sendFile handles the full send sequence for a single file.
-func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, done <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onProgress ProgressFunc, updateHint string, baseTotal int64, chunk int) error {
+func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, done <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onProgress ProgressFunc, updateHint string, ackTimeout time.Duration, baseTotal int64, chunk int) error {
 	f, err := os.Open(entry.absPath)
 	if err != nil {
 		return err
@@ -610,14 +618,21 @@ func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struc
 		return fmt.Errorf("failed to send metadata: %w", err)
 	}
 
-	// Step 2: Wait for this file's ack (with 120-second timeout).
+	// Step 2: Wait for this file's ack, bounded by ackTimeout.
 	// Discard any stray or stale message until we see the ack whose ID matches
 	// this file — otherwise an out-of-order message could be misread as the ack
 	// (sending from offset 0) or leak into the next file's handshake.
-	// 120 s lets a human at the interactive [Y/n] receiver prompt accept without
-	// triggering a spurious timeout on the sender.
+	// The default, defaultAckTimeout in deadlines.go, is 120 s: enough for a
+	// human at the interactive [Y/n] receiver prompt to accept without
+	// triggering a spurious timeout on the sender. A request-link visitor
+	// passes a much longer one through SendOptions.AckTimeout, because the
+	// person deciding is not at this keyboard. That is safe to lengthen
+	// because this wait arms nothing else: the delivery stall timer and the
+	// drain ticker are created after every file's ack, and the backpressure
+	// wait below is created inside the chunk loop this loop breaks into.
+	// TestSenderAckWaitArmsNothingElse pins that shape.
 	var offset int64
-	ackDeadline := time.After(120 * time.Second)
+	ackDeadline := time.After(ackTimeout)
 ackLoop:
 	for {
 		select {
