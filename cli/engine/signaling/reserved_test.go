@@ -466,10 +466,61 @@ func TestLivenessReadDeadlineDetectsSilentServer(t *testing.T) {
 	}
 }
 
+// readLoopOrder finds, in client.go's readLoop, the position of the
+// close(c.Down) call and of the first send on c.PeerLeft.
+func readLoopOrder(t *testing.T) (closeDown, sendPeerLeft token.Pos) {
+	t.Helper()
+	f, err := parser.ParseFile(token.NewFileSet(), "client.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	isField := func(e ast.Expr, name string) bool {
+		sel, ok := e.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != name {
+			return false
+		}
+		id, ok := sel.X.(*ast.Ident)
+		return ok && id.Name == "c"
+	}
+	for _, d := range f.Decls {
+		fn, ok := d.(*ast.FuncDecl)
+		if !ok || fn.Recv == nil || fn.Name.Name != "readLoop" {
+			continue
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.CallExpr:
+				if id, ok := x.Fun.(*ast.Ident); ok && id.Name == "close" && len(x.Args) == 1 && isField(x.Args[0], "Down") && !closeDown.IsValid() {
+					closeDown = x.Pos()
+				}
+			case *ast.SendStmt:
+				if isField(x.Chan, "PeerLeft") && !sendPeerLeft.IsValid() {
+					sendPeerLeft = x.Pos()
+				}
+			}
+			return true
+		})
+	}
+	return closeDown, sendPeerLeft
+}
+
 // Down is a close, not a value: every reader sees it, as often as it looks.
 // PeerLeft still gets its one push for the callers that predate Down, and it
 // comes after Down, so a reader woken by PeerLeft already sees Down closed.
+//
+// The order is checked in the source first: the window between the two
+// statements is nanoseconds wide, so the behavioral half below catches a
+// swapped order only now and then (1 to 3 runs in 50, review L1), while the
+// source check fails every run.
 func TestDownClosesOnceAndPeerLeftStillPushes(t *testing.T) {
+	closeDown, sendPeerLeft := readLoopOrder(t)
+	if !closeDown.IsValid() || !sendPeerLeft.IsValid() {
+		t.Fatalf("readLoop: close(c.Down) found %v, c.PeerLeft send found %v; want both", closeDown.IsValid(), sendPeerLeft.IsValid())
+	}
+	if closeDown > sendPeerLeft {
+		t.Fatal("readLoop pushes PeerLeft before it closes Down")
+	}
+
 	srv := fakeServer(t, func(conn *websocket.Conn) { _ = conn.Close() })
 	c := dial(t, srv)
 
