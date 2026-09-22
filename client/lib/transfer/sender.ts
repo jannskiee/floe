@@ -720,9 +720,21 @@ function openSession(deps: SenderDeps, cb: SenderCallbacks, fileCount: number): 
     });
 
     const onClose = () => {
-        closed = true;
-        settle({ type: 'closed' });
-        finishLate('closed');
+        // A refusal latched before the close is reported first. A receiver that
+        // refuses mid-file sends its incompatible frame and then closes, and
+        // the latch is otherwise read only at the send loop's checkpoints: a
+        // frame that landed while the loop waited for buffer space lost to the
+        // close, and the page reported a lost connection instead of the
+        // refusal (WP-W1 review F1; spec 07 4.7's wire-code rule). Reported
+        // once, like every other path; the teardown below runs whatever the
+        // page's handlers do.
+        try {
+            reportStop();
+        } finally {
+            closed = true;
+            settle({ type: 'closed' });
+            finishLate('closed');
+        }
     };
     deps.channel.addEventListener('close', onClose);
 
