@@ -56,6 +56,7 @@ import {
     defaultConfigPath,
     editDesktopJson,
     identityVersion,
+    isRoomLink,
     listDesktopProcesses,
     parseTag,
     parseTasklist,
@@ -590,6 +591,21 @@ function scriptedDriver(state) {
             calls.push(['stage', paths, cwd]);
             if (state.onStage) state.onStage(paths);
             return { target: 1, chars: 1, cbData: 1, activates: true };
+        },
+        // The wailsdev pieces: GetSettings over the dev bridge and one
+        // Settings switch. state.settings is the app's persisted record, so
+        // a toggle that claims to have landed has to show up in it.
+        async settings() {
+            calls.push(['settings']);
+            return state.settings ?? null;
+        },
+        async setToggle(name, value) {
+            calls.push(['set-toggle', String(name), value]);
+            const before = Boolean(state.settings && state.settings.hideIP);
+            if (state.toggleStuck)
+                return { before, after: before, changed: false };
+            if (state.settings) state.settings.hideIP = value;
+            return { before, after: value, changed: before !== value };
         },
     };
 }
@@ -2556,5 +2572,225 @@ test('wailsdev sender: the leg stages its files before waiting for the send butt
     );
     await p.leg.start();
     assert.ok(!p.driver.calls.some((c) => c[0] === 'stage'));
+    await p.leg.stop('test');
+});
+
+// ------------------------------------- reading the share panel, and relay
+
+/** The SharePanel shape App.tsx renders, as far as readText can see it. */
+function fakeShareDom({ code, link }) {
+    const node = (tag, text, kids = []) => ({
+        tag,
+        kids,
+        get textContent() {
+            return this.kids.length
+                ? this.kids.map((k) => k.textContent).join('')
+                : text;
+        },
+        contains(o) {
+            return (
+                o === this ||
+                this.kids.some((k) => k === o || (k.contains && k.contains(o)))
+            );
+        },
+    });
+    const codeSpan = node('span', code);
+    const linkCode = node('code', link);
+    const panel = node('div', '', [
+        node('span', 'Room code'),
+        codeSpan,
+        node('span', 'Share link'),
+        linkCode,
+    ]);
+    const root = node('div', '', [
+        node('h2', 'Send anything, peer to peer.'),
+        panel,
+        node('p', 'Waiting for the receiver...'),
+    ]);
+    const all = [];
+    const walk = (n) => {
+        all.push(n);
+        n.kids.forEach(walk);
+    };
+    walk(root);
+    return {
+        querySelectorAll: (sel) =>
+            all.filter((n) => sel.split(', ').includes(n.tag)),
+    };
+}
+
+test('isRoomLink takes a share link and refuses the page around it', () => {
+    const link = 'http://localhost:3000/?s=a7ac39a8#room=7d6d89b2-0742-4f75';
+    assert.equal(isRoomLink(link), true);
+    assert.equal(isRoomLink('https://www.floe.one/#room=abc'), true);
+    // What the wailsdev read actually handed the web receiver on 2026-09-22.
+    assert.equal(
+        isRoomLink(
+            'FloedesktopPeer to peerSend anything,peer to peer.Room codestung-step-tamerShare linkhttp://localhost:3000/?s=a#room=b'
+        ),
+        false
+    );
+    assert.equal(isRoomLink('stung-step-tamer'), false);
+    assert.equal(isRoomLink('http://localhost:3000/'), false);
+    assert.equal(isRoomLink('http://localhost:3000/#room='), false);
+    assert.equal(isRoomLink('file:///c:/x#room=abc'), false);
+    assert.equal(isRoomLink(null), false);
+});
+
+test('PlaywrightDriver.readText answers with the innermost matches, so a share link is the link and not the page', async () => {
+    const code = 'stung-step-tamer';
+    const link = 'http://localhost:3000/?s=a7ac39a8#room=7d6d89b2-0742-4f75';
+    const dom = fakeShareDom({ code, link });
+    const page = {
+        async evaluate(fn, arg) {
+            const had = 'document' in globalThis;
+            const prev = globalThis.document;
+            globalThis.document = dom;
+            try {
+                return await fn(arg);
+            } finally {
+                if (had) globalThis.document = prev;
+                else delete globalThis.document;
+            }
+        },
+    };
+    const d = new PlaywrightDriver(page, null, {});
+
+    // Every ancestor of the link matches RE.link too, and document order
+    // puts the page root first, which is what used to be read.
+    const links = await d.readText(RE.link, { controlType: 'any' });
+    assert.deepEqual(links, [link]);
+    assert.ok(links.every((l) => isRoomLink(l)));
+
+    // The anchored code pattern never matched a container, but it still has
+    // to answer with the code span.
+    const codes = await d.readText(RE.code, { controlType: 'Text' });
+    assert.deepEqual(codes, [code]);
+});
+
+test('wailsdev sender: the room code and the share link are read together, not whichever renders first', async () => {
+    const code = 'stung-step-tamer';
+    const link = 'http://localhost:3000/?s=a7ac39a8#room=7d6d89b2-0742-4f75';
+    let reads = 0;
+    const state = {
+        values: {},
+        buttons: ['SEND', 'RECEIVE', 'Send'],
+        // App.tsx renders both from one send:code event, but the leg reads
+        // them one after the other: this script puts a render between the
+        // two reads of the first poll, which is what the live run hit (13 ms
+        // from click to link, code still unread).
+        get texts() {
+            reads += 1;
+            return reads <= 2 ? ['ACTIVE', link] : ['ACTIVE', code, link];
+        },
+    };
+    state.onStage = () => state.buttons.push('Send 1 item');
+    const { leg } = legWith(
+        {
+            role: 'sender',
+            files: ['C:\\fx\\a.bin'],
+            build: { launch: 'wailsdev' },
+        },
+        state
+    );
+    await leg.start();
+    assert.equal(await leg.link(), link, 'the link is the link');
+    assert.equal(
+        await leg.code(),
+        code,
+        'the code is read even though the link won the first poll'
+    );
+    await leg.stop('test');
+});
+
+test('wailsdev relay cell: Hide my IP is set through Settings, proved by GetSettings, and put back on stop', async () => {
+    const code = 'stung-step-tamer';
+    const link = 'http://localhost:3000/?s=a7ac39a8#room=7d6d89b2-0742-4f75';
+    const state = {
+        values: {},
+        texts: ['ACTIVE', code, link],
+        buttons: ['SEND', 'RECEIVE', 'Send'],
+        settings: {
+            server: 'http://localhost:3001',
+            reportStats: false,
+            migrated: true,
+            hideIP: false,
+        },
+    };
+    state.onStage = () => state.buttons.push('Send 1 item');
+    const { leg, driver } = legWith(
+        {
+            role: 'sender',
+            files: ['C:\\fx\\a.bin'],
+            relayOnly: true,
+            build: { launch: 'wailsdev' },
+        },
+        state
+    );
+    await leg.start();
+    const toggles = driver.calls.filter((c) => c[0] === 'set-toggle');
+    assert.deepEqual(
+        toggles.map((c) => c[2]),
+        [true],
+        'the cell forces relay exactly once'
+    );
+    assert.equal(state.settings.hideIP, true, 'and the app agrees it is on');
+    // Settings is opened and closed around it, and the files are staged
+    // afterwards, because addFiles closes Settings.
+    const order = driver.calls.map((c) => c[0]);
+    assert.ok(order.indexOf('set-toggle') < order.indexOf('stage'));
+    assert.equal(
+        driver.calls.filter(
+            (c) => c[0] === 'click' && sameText(c[1], STRINGS.settings)
+        ).length,
+        2,
+        'the gear toggles Settings open and shut'
+    );
+    await leg.stop('test');
+    assert.equal(
+        state.settings.hideIP,
+        false,
+        'and it is put back when the cell ends'
+    );
+
+    // A switch that will not move is a precondition failure, never a relay
+    // cell quietly recorded as direct.
+    const stuck = {
+        values: {},
+        texts: ['ACTIVE', code, link],
+        buttons: ['SEND', 'RECEIVE', 'Send 1 item'],
+        settings: { server: 'http://localhost:3001', hideIP: false },
+        toggleStuck: true,
+    };
+    const s = legWith(
+        {
+            role: 'sender',
+            files: ['C:\\fx\\a.bin'],
+            relayOnly: true,
+            build: { launch: 'wailsdev' },
+        },
+        stuck
+    );
+    await assert.rejects(() => s.leg.start(), PreconditionError);
+    await s.leg.stop('test');
+
+    // A direct cell on the same lane never touches the switch.
+    const plain = {
+        values: {},
+        texts: ['ACTIVE', code, link],
+        buttons: ['SEND', 'RECEIVE', 'Send'],
+        settings: { server: 'http://localhost:3001', hideIP: false },
+    };
+    plain.onStage = () => plain.buttons.push('Send 1 item');
+    const p = legWith(
+        {
+            role: 'sender',
+            files: ['C:\\fx\\a.bin'],
+            build: { launch: 'wailsdev' },
+        },
+        plain
+    );
+    await p.leg.start();
+    assert.ok(!p.driver.calls.some((c) => c[0] === 'set-toggle'));
     await p.leg.stop('test');
 });

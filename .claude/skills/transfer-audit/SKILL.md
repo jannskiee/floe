@@ -382,8 +382,8 @@ at the audit server and `reportStats:false`. A wailsdev receiver is refused
 (exit 3) unless `GetSettings()` shows `reportStats:false`, `migrated:true`
 and the audit server.
 
-The lane first ran on 2026-09-22 (DV-MATRIX-DSK). Two things the lane needs
-that no other lane does, both learned from that run:
+The lane first ran on 2026-09-22 (DV-MATRIX-DSK). Four things the lane needs
+that no other lane does, every one of them learned from that run:
 
 - **The sender's files.** `planLaunch` starts no process for `wailsdev`
   (`filesStaged: false`), so nothing carries the files on argv and the page
@@ -397,6 +397,23 @@ that no other lane does, both learned from that run:
   field groups rather than of the code input, so it is reached by document
   order after the code input (the tab row is in the card header above the
   body), never by sibling position.
+- **The room code and the share link.** They render together, from one
+  `send:code` event, but the leg reads them one after the other, so it
+  waits for both rather than returning on whichever read wins. `readText`
+  answers with the innermost matching elements, because an element's
+  textContent carries its descendants' and the page root would otherwise
+  answer every loose pattern first, and a share link is parsed as a URL
+  with a `#room=` fragment before the receiver is driven with it.
+- **The relay forcer.** Every other mode takes `hideIP` from the
+  desktop.json it launches with, but the operator starts this one and the
+  audit never writes its config, so an `H-REL-*` cell with a desktop side
+  sets Hide my IP through the Settings switch and puts it back on stop.
+  The switch, not the bound `SetSettings` call: App.tsx passes its own
+  React `hideIP` to `StartSend` and `ReceiveByCode`, and that state is read
+  from `GetSettings` once at mount, so writing the file under a running
+  page would persist a value the transfer never uses. `GetSettings` is read
+  back as the proof, and a switch that will not move is a precondition
+  failure rather than a relay cell quietly recorded as direct.
 
 `wails dev` serves the page over its own websocket bridge, so the runtime's
 `window.WailsInvoke("runtime:ready")` reaches the dev server's dispatcher,

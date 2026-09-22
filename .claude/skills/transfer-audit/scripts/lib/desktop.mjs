@@ -130,6 +130,7 @@ export const STRINGS = Object.freeze({
     busyFooter: 'Keep this window open. Closing it cancels the transfer.',
     relayCap: 'relay connections are capped', // errors.ts PASSTHROUGH
     settingUp: 'Setting up...',
+    hideIpRow: 'Hide my IP address', // Settings > Privacy SettingRow label
 });
 
 // UIA Names carry the rendered CSS case (measured 2026-08-29: tabs SEND and
@@ -151,6 +152,10 @@ export const RE = Object.freeze({
     peerConnected: /^Peer connected\. Sending\.\.\.$/i,
     checkForUpdates: /^Check for updates$/i,
     protocolRow: /^Version (\d+)$/i,
+    // The Settings switch takes its accessible name from the label that
+    // wraps it, which carries the row description too, so this matches a
+    // part of that name rather than all of it.
+    hideIpRow: /Hide my IP address/i,
 });
 
 export const sameText = (a, b) =>
@@ -165,6 +170,12 @@ export const FIND_WINDOW_MS = 30_000;
 export const TREE_MS = 20_000;
 export const STAGE_MS = 20_000;
 export const CODE_MS = 30_000;
+/**
+ * How long a sender waits for the room code once the share link is up.
+ * They render together, so this only covers the gap between two reads; a
+ * sender that really registered none spends it once and then reports.
+ */
+export const CODE_AFTER_LINK_MS = 3_000;
 export const STATUS_MS = 10_000;
 export const CANCEL_MS = 10_000;
 export const EXIT_MS = 15_000;
@@ -243,6 +254,27 @@ export function sendButtonName(n) {
  * escape sequence, so a value carrying both quote characters can only be
  * written as concat() of its pieces.
  */
+/**
+ * A share link the receiver can be driven with: an http(s) URL carrying a
+ * `#room=` fragment. The wailsdev page's read used to hand the whole page
+ * text to the web receiver, which failed as
+ * `page.goto: Cannot navigate to invalid URL` (H-DIR-D2W, 2026-09-22), so
+ * what the driver reads is parsed before it is believed.
+ */
+export function isRoomLink(value) {
+    let url;
+    try {
+        url = new URL(String(value).trim());
+    } catch {
+        return false;
+    }
+    return (
+        (url.protocol === 'http:' || url.protocol === 'https:') &&
+        url.hash.startsWith('#room=') &&
+        url.hash.length > '#room='.length
+    );
+}
+
 export function xpathLiteral(value) {
     const v = String(value);
     if (!v.includes("'")) return `'${v}'`;
@@ -1152,19 +1184,58 @@ export class PlaywrightDriver {
         }
         return all.first();
     }
-    /** join is accepted and moot here: textContent already joins the leaves. */
+    /**
+     * join is accepted and moot here: textContent already joins the leaves.
+     *
+     * The match runs in the page so containment can be used. An element's
+     * textContent includes every descendant's, so a loose pattern matches
+     * each ancestor of a hit as well, and querySelectorAll returns document
+     * order, which put the page root first: `RE.link` used to answer with
+     * the whole page text, and the web receiver was handed that as a URL
+     * (H-DIR-D2W, 2026-09-22). UIA names one control at a time, which is
+     * what the RE table was written against, so keep the innermost hits
+     * only and this reads the same way on both drivers.
+     */
     async readText(re, { controlType = 'Text', join = false } = {}) {
         void join;
-        const texts = await this.page.evaluate(
-            (selector) => {
-                return [...document.querySelectorAll(selector)]
+        const rx = re instanceof RegExp ? re : new RegExp(String(re), 'i');
+        return this.page.evaluate(
+            ({ selector, source, flags }) => {
+                const test = new RegExp(source, flags);
+                const hit = [...document.querySelectorAll(selector)].filter(
+                    (e) => test.test((e.textContent || '').trim())
+                );
+                return hit
+                    .filter((e) => !hit.some((o) => o !== e && e.contains(o)))
                     .map((e) => (e.textContent || '').trim())
                     .filter(Boolean);
             },
-            controlType === 'Button' ? 'button' : 'p, span, code, h2, div'
+            {
+                selector:
+                    controlType === 'Button'
+                        ? 'button'
+                        : 'p, span, code, h2, div',
+                source: rx.source,
+                // A sticky or global flag would carry lastIndex across the
+                // filter above and drop every other match.
+                flags: rx.flags.replace(/[gy]/g, ''),
+            }
         );
-        const rx = re instanceof RegExp ? re : new RegExp(String(re), 'i');
-        return texts.filter((t) => rx.test(t));
+    }
+    /**
+     * Set one Settings switch (SettingsPrimitives.tsx Switch: a real
+     * checkbox, visually hidden, inside the label that names it). The label
+     * is clicked rather than the input, because the input is `sr-only` and
+     * a click at its own box is not what a person does. Returns what the
+     * control read before and after, never a claim that it changed.
+     */
+    async setToggle(name, value) {
+        const box = this.page.getByRole('checkbox', { name });
+        const before = await box.isChecked();
+        if (before !== value)
+            await box.locator('xpath=ancestor::label[1]').click();
+        const after = await box.isChecked();
+        return { before, after, changed: after !== before };
     }
     async capture(file) {
         await this.page.screenshot({ path: file });
@@ -1632,6 +1703,9 @@ export class DesktopLeg extends Leg {
             );
         const want = sendButtonName(files.length);
         await this.launch(files);
+        // Before anything is staged: addFiles closes Settings, and the
+        // forcer has to be in the page's state before StartSend reads it.
+        await this.applyRelayForcer();
         // The wailsdev lane launches no process, so nothing carried the
         // files on argv (planLaunch sets filesStaged false for it) and the
         // page starts on an empty drop zone. Hand them over before spending
@@ -1688,6 +1762,23 @@ export class DesktopLeg extends Leg {
         await this.driver.click(want, { controlType: 'Button' });
         this.marks.clicked = Date.now();
         const until = Date.now() + this.budget(CODE_MS);
+        // The code and the link land in ONE render: App.tsx sets sendCode
+        // and sendLink from the same send:code event. The two reads below
+        // are two round trips, so a render between them used to leave the
+        // code unread while the link was already on screen, and the cell
+        // failed code-registration-failed with the code visible in its own
+        // capture (H-DIR-D2C, 2026-09-22: 13 ms from click to link). So
+        // wait for both, and settle for a link alone only after a grace
+        // window, which is what a sender that really registered no code
+        // (a 429 from POST /api/code) looks like.
+        let link = null;
+        let code = null;
+        let linkSeenAt = 0;
+        const settle = () => {
+            this._link = link;
+            this._code = code ? code.toLowerCase() : null;
+            this.marks.link = Date.now();
+        };
         while (Date.now() < until) {
             const codes = await this.driver.readText(RE.code, {
                 controlType: 'Text',
@@ -1695,13 +1786,26 @@ export class DesktopLeg extends Leg {
             const links = await this.driver.readText(RE.link, {
                 controlType: 'any',
             });
-            const code = codes.find(
-                (c) => !sameText(c, STRINGS.codePlaceholder)
-            );
-            if (links.length) {
-                this._link = links[0];
-                this._code = code ? code.toLowerCase() : null;
-                this.marks.link = Date.now();
+            code =
+                codes.find((c) => !sameText(c, STRINGS.codePlaceholder)) ??
+                code;
+            // Never believe a read that is not a share link: the page's own
+            // container text matches a loose pattern too, and the receiver
+            // is driven with whatever this returns.
+            const shareLink = links.find((l) => isRoomLink(l));
+            if (shareLink && !link) {
+                link = shareLink;
+                linkSeenAt = Date.now();
+            }
+            if (
+                link &&
+                (code || Date.now() - linkSeenAt >= CODE_AFTER_LINK_MS)
+            ) {
+                if (!code)
+                    this.note(
+                        `share link is up but no room code appeared within ${CODE_AFTER_LINK_MS} ms`
+                    );
+                settle();
                 await this.capture('link');
                 return;
             }
@@ -1713,6 +1817,11 @@ export class DesktopLeg extends Leg {
                 throw new PhaseError('start', `desktop sender: ${status.text}`);
             }
             await sleep(500);
+        }
+        if (link) {
+            settle();
+            await this.capture('link');
+            return;
         }
         throw new PhaseError(
             'start',
@@ -1743,6 +1852,7 @@ export class DesktopLeg extends Leg {
                 'desktop receiver: opts.outDir is required'
             );
         await this.launch([]);
+        await this.applyRelayForcer();
         await this.driver.click(STRINGS.tabReceive, { index: 0 });
         const orig = await this.driver.getValue(STRINGS.saveDirPlaceholder, {
             scope: 'receive',
@@ -2210,6 +2320,70 @@ export class DesktopLeg extends Leg {
         }
     }
 
+    /**
+     * Force the desktop side onto the relay on the wailsdev lane.
+     *
+     * Every other mode gets `hideIP` from the desktop.json it launches with
+     * (edit(), applied by the config guard or seedRedirectedConfig), but
+     * the wailsdev app is started by the operator and the audit never
+     * writes its config, so H-REL-*2D and H-REL-D2* observed `direct` and
+     * failed forcer-ineffective (2026-09-22).
+     *
+     * The Settings switch is the mechanism, not the bound SetSettings call,
+     * because App.tsx passes its own React `hideIP` to StartSend and
+     * ReceiveByCode. That state is read from GetSettings once at mount, so
+     * writing the file under a running page would persist a value the
+     * transfer never uses. The switch's onChange sets the state AND saves
+     * through the app's own saveSettings, which carries reportStats and the
+     * addresses over untouched, and GetSettings then proves it landed.
+     */
+    async applyRelayForcer() {
+        if (!this.opts.relayOnly || this.mode !== 'wailsdev') return;
+        if (typeof this.driver.setToggle !== 'function')
+            throw new PreconditionError(
+                'desktop wailsdev: no way to force relay without a settings toggle',
+                { reason: 'wailsdev-config' }
+            );
+        const r = await this.withSettings(() =>
+            this.driver.setToggle(RE.hideIpRow, true)
+        );
+        const after = await this.driver.settings();
+        if (after?.hideIP !== true)
+            throw new PreconditionError(
+                `desktop wailsdev: Hide my IP did not take (toggle ${r.before} -> ${r.after}, GetSettings hideIP=${after?.hideIP}); refusing to record a relay cell that ran direct`,
+                { reason: 'wailsdev-config' }
+            );
+        this.hideIpForced = r.changed;
+        this.note(`relay forced through Hide my IP (was ${r.before})`);
+    }
+
+    /** Put Hide my IP back, whatever happened to the cell. */
+    async restoreRelayForcer() {
+        if (!this.hideIpForced || !this.driver) return;
+        this.hideIpForced = false;
+        try {
+            const r = await this.withSettings(() =>
+                this.driver.setToggle(RE.hideIpRow, false)
+            );
+            this.note(`Hide my IP restored to ${r.after}`);
+        } catch (err) {
+            this.note(`Hide my IP restore failed: ${err.message}`);
+        }
+    }
+
+    /** Open Settings, run one action against it, close Settings. */
+    async withSettings(fn) {
+        await this.driver.click(STRINGS.settings, { controlType: 'Button' });
+        try {
+            return await fn();
+        } finally {
+            // TitleBar's gear toggles, so the same click closes it.
+            await this.driver.click(STRINGS.settings, {
+                controlType: 'Button',
+            });
+        }
+    }
+
     async restoreSaveDir() {
         if (!this.saveDir.changed || !this.driver) return;
         try {
@@ -2266,6 +2440,7 @@ export class DesktopLeg extends Leg {
                 } catch (err) {
                     this.note(`cancel: ${err.message}`);
                 }
+                await this.restoreRelayForcer();
                 await this.restoreSaveDir();
                 await this.capture('stop');
                 closeResult = await closeAndWait(this.driver, this.pid, {
