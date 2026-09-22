@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -110,7 +111,9 @@ func probeHealth(base string) (ProbeResult, []string) {
 		Status   string          `json:"status"`
 		Features json.RawMessage `json:"features"`
 	}
-	if json.NewDecoder(resp.Body).Decode(&body) != nil || body.Status != "healthy" {
+	// Bounded: the feature list is the only open-ended field, and nothing a
+	// Floe server sends here comes near 64 KiB.
+	if json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&body) != nil || body.Status != "healthy" {
 		return ProbeResult{Message: "Something answered at that address, but it is not a Floe signaling server."}, nil
 	}
 	var features []string

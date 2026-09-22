@@ -173,6 +173,23 @@ describe('the Accept guard', () => {
         expect(p.onAnswer).not.toHaveBeenCalled();
     });
 
+    it('ignores a press that began inside the guard and was released after it', () => {
+        // Review N4: a press held across the end of the guard is still a
+        // press the guard was there to stop.
+        const p = at('deciding');
+        render(<RequestLinkView {...p}/>);
+        const accept = screen.getByRole('button', {name: 'Accept'});
+        act(() => { vi.advanceTimersByTime(900); });
+        fireEvent.pointerDown(accept);
+        act(() => { vi.advanceTimersByTime(300); });
+        expect(accept.getAttribute('aria-disabled')).toBe('false');
+        fireEvent.click(accept, {detail: 1});
+        expect(p.onAnswer).not.toHaveBeenCalled();
+        // A fresh press after the guard counts.
+        mouseClick(accept);
+        expect(p.onAnswer).toHaveBeenCalledTimes(1);
+    });
+
     it('a click at the old Dismiss position during the mount frame sends no decision', () => {
         // Done has Dismiss on the right rail; the next prompt mounts with
         // Decline on the right. Whatever a click lands on in the frame the
@@ -348,13 +365,18 @@ describe('every state', () => {
     });
 
     it('Browse is disabled from deciding through done', () => {
-        for (const phase of ['deciding', 'declined', 'receiving', 'done', 'stopped', 'making'] as const) {
+        // From deciding through done there is no Browse to press at all: the
+        // destination the owner approved cannot change (review N3: say so,
+        // rather than loop over nothing).
+        for (const phase of ['deciding', 'declined', 'receiving', 'done', 'stopped'] as const) {
             const {unmount} = render(<RequestLinkView {...at(phase, {progress: progress('a.mov')})}/>);
-            for (const b of screen.queryAllByRole('button', {name: /Browse/})) {
-                expect((b as HTMLButtonElement).disabled, phase).toBe(true);
-            }
+            expect(screen.queryAllByRole('button', {name: /Browse/}), phase).toEqual([]);
             unmount();
         }
+        // While the link is being made it is shown, and disabled.
+        const making = render(<RequestLinkView {...at('making')}/>);
+        expect((screen.getByRole('button', {name: /Browse/}) as HTMLButtonElement).disabled).toBe(true);
+        making.unmount();
         render(<RequestLinkView {...at('ready')}/>);
         expect((screen.getByRole('button', {name: /Browse/}) as HTMLButtonElement).disabled).toBe(false);
     });

@@ -326,8 +326,14 @@ function Prompt({snap, onAnswer, onGuardLift, onPromptVisible}: RequestLinkViewP
 
     const answer = (a: 'accept' | 'decline') => (e: MouseEvent<HTMLButtonElement>) => {
         if (guardActive(Date.now(), mountedAt.current, focusAt.current)) return;
-        // detail > 0 is a pointer activation; Enter and Space arrive as 0.
-        if (e.detail > 0 && (downAt.current === null || downAt.current < mountedAt.current)) return;
+        // detail > 0 is a pointer activation; Enter and Space arrive as 0. A
+        // pointer activation counts only when its press began after the
+        // prompt rendered and outside the guard (a press held across the end
+        // of the guard is one the guard was there to stop).
+        if (e.detail > 0) {
+            const down = downAt.current;
+            if (down === null || down < mountedAt.current || guardActive(down, mountedAt.current, focusAt.current)) return;
+        }
         onAnswer(snap.promptGen, a);
     };
     const onDown = () => { downAt.current = Date.now(); };

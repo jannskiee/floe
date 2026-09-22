@@ -11,7 +11,7 @@ import "testing"
 // liveStates are the snapshot states that would mean a link or a drop exists.
 var liveStates = map[string]bool{
 	"making": true, "waiting": true, "reconnecting": true, "connecting": true,
-	"deciding": true, "declined": true, "receiving": true, "done": true,
+	"deciding": true, "declined": true, "receiving": true, "done": true, "stopped": true,
 }
 
 func TestRequestLaneStubsNeverSucceed(t *testing.T) {
