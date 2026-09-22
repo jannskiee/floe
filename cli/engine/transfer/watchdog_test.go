@@ -6,6 +6,7 @@ package transfer
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"os"
 	"path/filepath"
 	"strings"
@@ -226,6 +227,105 @@ func TestSenderAckTimeoutHonored(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("SendFilesWithOptions never returned; AckTimeout did not reach the ack wait")
 	}
+}
+
+// runDecideHold stages the visitor's metadata in the host's pump, then runs
+// the host's receive with a Decide that blocks for hold before accepting, and
+// requires the transfer to complete. Staging first means a shrunk idle timer
+// cannot fire on the few milliseconds the sender needs to produce its
+// metadata. A zero ackTimeout leaves the sender's default.
+//
+// The blocking Decide is heldDecide.accept (decide_test.go), the same shape
+// both variants below hold the loop with.
+func runDecideHold(t *testing.T, hold, ackTimeout time.Duration) {
+	t.Helper()
+
+	p := newOffererPair(t, nil)
+
+	srcDir := t.TempDir()
+	sum := writeRandom(t, srcDir, "decided.bin", 64*1024)
+
+	sendErr := make(chan error, 1)
+	go func() {
+		sendErr <- SendFilesWithOptions(p.visitor, []string{filepath.Join(srcDir, "decided.bin")}, "", SendOptions{
+			OnProgress: func(Progress) {},
+			AckTimeout: ackTimeout,
+			Messages:   p.visitorMsgs,
+			Closed:     p.visitorClosed,
+		})
+	}()
+	waitQueued(t, p.hostMsgs)
+
+	outDir := t.TempDir()
+	decide := &heldDecide{hold: hold}
+	recvErr := make(chan error, 1)
+	go func() {
+		recvErr <- ReceiveFilesWithOptions(p.host, outDir, true, "", "", ReceiveOptions{
+			OnProgress: func(Progress) {},
+			Decide:     decide.accept,
+			Messages:   p.hostMsgs,
+			Closed:     p.hostClosed,
+		})
+	}()
+
+	p.finish(t, sendErr, recvErr, hold+60*time.Second)
+
+	if decide.calls != 1 {
+		t.Fatalf("Decide was asked %d times, want 1", decide.calls)
+	}
+	if decide.held < hold {
+		t.Fatalf("Decide held %s, want at least %s", decide.held, hold)
+	}
+	data, err := os.ReadFile(filepath.Join(outDir, "decided.bin"))
+	if err != nil {
+		t.Fatalf("read decided.bin: %v", err)
+	}
+	if sha256.Sum256(data) != sum {
+		t.Fatal("decided.bin: SHA-256 differs from the source")
+	}
+	if got := listDir(t, outDir); len(got) != 1 {
+		t.Fatalf("output tree %v, want only decided.bin", got)
+	}
+}
+
+// TestDecideBlockingDoesNotTripWatchdog is TestLoopbackOffererHoldsAck for the
+// accept decision: neither receive watchdog is armed while Decide runs (they
+// are armed only around an empty message queue), so a person may take as long
+// as they like without the transfer being killed under them.
+//
+// The fast variant proves the arming rule in two seconds by shrinking both
+// watchdogs below the hold. The long variant is the real thing on the real
+// numbers, which takes about ten minutes of wall clock and holds real timers
+// the whole way: it is opt-in through FLOE_LONG_TESTS, read only here, on the
+// FLOE_WRITE_FUZZ_SEEDS precedent in fuzz_test.go. CI, DV-A and the Docker
+// runs never pay for it; a person verifying the window runs it by hand with an
+// explicit -timeout, because 9 min 45 s sits within seconds of the 10 minute
+// default.
+func TestDecideBlockingDoesNotTripWatchdog(t *testing.T) {
+	t.Run("fast", func(t *testing.T) {
+		if testing.Short() {
+			t.Skip("skipping ICE loopback transfer in -short mode")
+		}
+		oldIdle, oldStall := receiveIdleTimeout, receiveStallTimeout
+		receiveIdleTimeout = 200 * time.Millisecond
+		receiveStallTimeout = 200 * time.Millisecond
+		t.Cleanup(func() { receiveIdleTimeout = oldIdle; receiveStallTimeout = oldStall })
+
+		runDecideHold(t, 2*time.Second, 0)
+	})
+
+	t.Run("long", func(t *testing.T) {
+		if testing.Short() {
+			t.Skip("skipping ICE loopback transfer in -short mode")
+		}
+		if os.Getenv("FLOE_LONG_TESTS") != "1" {
+			t.Skip("set FLOE_LONG_TESTS=1 to hold the real decision window, which takes about ten minutes")
+		}
+		// The whole clock pair, unshrunk: the visitor waits one grace past its
+		// own deadline and the deciding side answers one grace early, so the
+		// hold has to fit between them for the transfer to survive it.
+		runDecideHold(t, HostDecisionWindow, VisitorAckTimeout+VisitorAckGrace)
+	})
 }
 
 // timersIn lists every timer construction in a region of source text.
