@@ -114,8 +114,16 @@ export function ShareLinkPanel({
 
             {/* A sibling of the status line, not part of it: the audit anchors
                 on the sender's completion status as its own text, and that
-                string must stay byte for byte what it is. */}
-            {verifiedLine && (
+                string must stay byte for byte what it is.
+
+                Gated on the same isComplete the status line reads. onDelivered
+                fires on ANY received frame, and the session's received arm runs
+                whenever one arrives, so a peer that confirms delivery early
+                could otherwise paint this line while the page still says
+                'Sending: x', and it would then sit over a freshly created link
+                until the next peer joined. The peer picks the moment, so the
+                moment is not something to render on. */}
+            {verifiedLine && isComplete && (
                 <p className="mt-1 text-center text-xs text-zinc-500">{verifiedLine}</p>
             )}
         </div>

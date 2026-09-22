@@ -196,4 +196,35 @@ describe('sender teardown', () => {
         expect(listeners.get('close')).toBe(0);
         expect(vi.getTimerCount()).toBe(0);
     });
+
+    // The `delivered` guard in openSession, pinned by the one ordering that
+    // exercises it. A peer that confirms delivery BEFORE onAllSent runs that
+    // arm while lateDone is still null, so finishLate does nothing; without the
+    // guard lingerUntilDone would then arm a 200 ms interval that only a
+    // channel close or a destroyed peer could ever clear. Deleting the flag
+    // turns the timer count and the subscription count below red.
+    it('arms no poll when the peer confirms delivery before onAllSent', async () => {
+        vi.useFakeTimers();
+        const { deps, deliverAck, deliverFrame, listeners, subscribed } = countingDeps();
+        let deliveries = 0;
+
+        const p = sendFiles(deps, [{ id: 'id-early', file: new File([new Uint8Array(8)], 'x.bin') }], {
+            onDelivered: () => { deliveries += 1; },
+        });
+        await vi.advanceTimersByTimeAsync(0);
+
+        // Both synchronous, so the confirmation lands while the file's ack wait
+        // is still the only thing running. That ordering is reachable from a
+        // fast or hostile peer, because drainBelow resolves on the LOCAL
+        // buffer and not on anything the peer has to do.
+        deliverAck('id-early');
+        deliverFrame('{"type":"received"}');
+        await vi.advanceTimersByTimeAsync(0);
+        await p;
+
+        expect(deliveries).toBe(1);
+        expect(subscribed()).toBe(0);
+        expect(listeners.get('close')).toBe(0);
+        expect(vi.getTimerCount()).toBe(0);
+    });
 });

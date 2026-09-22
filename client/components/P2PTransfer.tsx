@@ -259,10 +259,24 @@ export function P2PTransfer() {
                 });
                 return;
             }
-            if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
-                setStatus(receiveOutcome());
-            } else {
-                setStatus('Peer disconnected. Waiting for reconnection');
+            // A wire reason wins. The peer told us why it stopped, and the
+            // signaling socket it drops about two seconds later is a
+            // consequence of that, not a second opinion: a CLI receiver
+            // flushes its refusal for controlFlushTimeout, closes the channel,
+            // then exits. receiveOutcome() returns the literal 'Transfer
+            // complete' whenever expectedFilesRef is 0, and on the sender that
+            // ref is never written, so without this the status flipped from
+            // 'Transfer failed' back to 'Transfer complete' under a banner
+            // saying a file was discarded. The receiver arrives here with the
+            // same latch set by its own onError and wants the same answer: a
+            // discarded file is not a completed receive. Only the status write
+            // is guarded; the teardown below still runs on every path.
+            if (!wireReasonRef.current) {
+                if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
+                    setStatus(receiveOutcome());
+                } else {
+                    setStatus('Peer disconnected. Waiting for reconnection');
+                }
             }
             // Set before destroy, so the close handler this triggers sees it.
             closedByUsRef.current = peerRef.current;
@@ -270,6 +284,9 @@ export function P2PTransfer() {
             releaseWakeLock();
         },
         onDisconnect: () => {
+            // The same latch as onPeerDisconnected: this side's own socket
+            // going away is not news that overrides the peer's account.
+            if (wireReasonRef.current) return;
             if (receivedFilesRef.current.length > 0 || transferCompleteRef.current) {
                 setStatus(receiveOutcome());
             }

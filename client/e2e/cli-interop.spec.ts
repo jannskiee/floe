@@ -96,11 +96,16 @@ test('Direction 2: browser send → CLI receive (SHA-256 integrity)', async ({ b
         // receiver matched it against the bytes it wrote.
         expect(stdout).toMatch(/Verified\s+SHA-256 matched/);
 
+        // Either string is the success status: onPeerDisconnected moves the
+        // sender from 'All Files Sent!' to 'Transfer complete' the moment the
+        // CLI receiver exits and drops its socket, which is always before the
+        // SHA-256 line below has had 15 s to appear. Asserted first, because by
+        // this point one of the two is already on the page.
+        await expect(page.locator('body')).toContainText(/All Files Sent!|Transfer complete/);
         // The CLI receiver's `received` frame carries verified=1 and now
         // reaches the page, because the session listener outlives onAllSent
         // (F-SHA-4). Before this the finally closed the channel first.
         await expect(page.locator('body')).toContainText('SHA-256 matched', { timeout: 15_000 });
-        await expect(page.locator('body')).toContainText('All Files Sent!');
 
         // Verify the file landed on disk with correct content.
         const expectedName = basename(fixturePath);
