@@ -308,7 +308,9 @@ function createSocketIOPeer(socket) {
 // output is not reading, and everything further aimed at it accumulates in this
 // process's heap. Measured before this bound: one attacker pair, the flooder and
 // a partner that paused its socket, grew the server's working set by 157 MB in
-// about 3.2 seconds and was still climbing when the probe stopped itself.
+// about 3.2 seconds and was still climbing when the probe stopped itself. With
+// the bound in place the same probe ran its full 30 seconds instead of stopping
+// itself: 2600 frames offered, 94 MB peak, 30 MB above where it started.
 const WS_SEND_BUFFER_CEILING = 1e6;
 
 function createWSPeer(ws) {
@@ -318,12 +320,20 @@ function createWSPeer(ws) {
         roomId: null,
         send(type, data) {
             if (ws.readyState !== WebSocket.OPEN) return;
-            // Checked before every send, so a socket holds at most the ceiling
-            // plus the one frame in flight, about 2 MB. Terminate rather than
-            // drop: a peer this far behind has already stopped being a peer, and
-            // dropping alone would leave the queued megabyte held for the life of
-            // the socket. Silent on purpose, like handleSignal's catch: a log
-            // line per attempt is a flood lever at a rate the caller picks.
+            // Checked before every send, so what one peer can aim at another
+            // through this path is bounded at the ceiling plus the one frame in
+            // flight, about 2 MB. That is the bound on this path alone: the
+            // app-level ping reply further down answers on the socket's own
+            // behalf without coming through here, so a socket's total is that
+            // reply's backlog on top of this. Terminate rather than drop: a peer
+            // this far behind has already stopped being a peer, and dropping
+            // alone would leave the queued megabyte held for the life of the
+            // socket. Silent, though not for a rate reason: terminate() moves
+            // readyState to CLOSING synchronously, so the guard above swallows
+            // every later send and this branch can fire at most once per socket,
+            // which connection creation already bounds. It stays silent because
+            // this change is scoped to the bound itself, which leaves the path
+            // with no counter and no log line for an operator to see.
             if (ws.bufferedAmount > WS_SEND_BUFFER_CEILING) {
                 ws.terminate();
                 return;
@@ -476,7 +486,16 @@ const wss = new WebSocketServer({ noServer: true, maxPayload: 1e6 });
 // Heartbeat period. A test knob, not an operator setting: production and every
 // self-host leave it unset and run at 30 s. server/crashguard.test.js sets it so
 // the reap it asserts happens in under two seconds instead of 86.
-const HEARTBEAT_MS = parseInt(process.env.HEARTBEAT_MS, 10) || 30000;
+// Clamped, because setInterval takes a 32-bit signed delay and turns anything
+// below 1 or above that range into 1 ms: an unset or unparsable value is 30 s,
+// but HEARTBEAT_MS=1, a negative number or one past the 32-bit range would
+// otherwise ping and reap every peer within milliseconds of it connecting, and
+// by design neither kill path says so. The floor is 100 ms; the crash-guard
+// tests run at 300.
+const HEARTBEAT_MS = Math.min(
+    2147483647,
+    Math.max(100, parseInt(process.env.HEARTBEAT_MS, 10) || 30000)
+);
 
 // Answer an upgrade we will not complete, then close. Same shape as ws's own
 // abortHandshake. A bare destroy would also work; a reason on the wire is what
@@ -607,7 +626,9 @@ wss.on('connection', (ws, req) => {
 // unpredictable to a peer that is not listening. RFC 6455 requires a pong to
 // carry the ping's payload, and every shipped Floe client answers through its
 // library's default handler (gorilla/websocket for the CLI and the desktop app,
-// ws for Node), so honest peers keep their seats unchanged.
+// ws for Node), so honest peers keep their seats unchanged. A reap writes no log
+// line and moves no counter, so a deploy check that greps for unhandled errors
+// is silent whether or not this fires; only a live probe sees it.
 function heartbeatTick(clients) {
     clients.forEach((ws) => {
         if (ws.isAlive === false) { ws.terminate(); return; }
