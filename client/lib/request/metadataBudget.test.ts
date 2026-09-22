@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { metadataFrameBytes, checkPick, type PickCandidate } from './metadataBudget';
-import { CONTROL_MSG_MAX } from '../transfer/protocol';
+import { CONTROL_MSG_MAX, metadataMessage } from '../transfer/protocol';
+import { CONTROL_FRAME_WORST_CASE_ID, CONTROL_FRAME_WORST_CASE_VER } from './constants';
 
 /** An ASCII path whose metadata frame measures exactly `target` bytes, for a
  *  selection of `total` files whose sizes sum to `sumOfSizes`.
@@ -26,6 +27,34 @@ function candidate(relativePath: string, size = 0): PickCandidate {
 }
 
 describe('metadataFrameBytes and checkPick', () => {
+    it('measures a frame that carries ver, which the sender does not send yet', () => {
+        // The guarantee is that a frame which fits here fits on the wire. That
+        // holds today only because the sender omits `ver`; the moment one is
+        // sent, an exact measurement would be an undercount and a pick at the
+        // cap would be accepted here and refused mid-transfer. So the room is
+        // reserved now, and this pins it.
+        const withoutVer = new TextEncoder().encode(
+            metadataMessage(CONTROL_FRAME_WORST_CASE_ID, 'a', 0, 1, 1, 0)
+        ).byteLength;
+        const measured = metadataFrameBytes('a', 0, 1, 0);
+
+        // The frame really carries the field, and the reserve is exactly the
+        // key, its punctuation and the worst-case value.
+        expect(
+            metadataMessage(CONTROL_FRAME_WORST_CASE_ID, 'a', 0, 1, 1, 0, CONTROL_FRAME_WORST_CASE_VER)
+        ).toContain(`"ver":"${CONTROL_FRAME_WORST_CASE_VER}"`);
+        expect(measured - withoutVer).toBe(`,"ver":"${CONTROL_FRAME_WORST_CASE_VER}"`.length);
+        expect(measured).toBeGreaterThan(withoutVer);
+
+        // All ASCII, so the reserve costs its own length and nothing more: a
+        // value needing JSON escapes would make this measurement wrong in the
+        // one direction that matters.
+        expect(CONTROL_FRAME_WORST_CASE_VER).toMatch(/^[\x20-\x7e]+$/);
+        expect(JSON.stringify(CONTROL_FRAME_WORST_CASE_VER)).toHaveLength(
+            CONTROL_FRAME_WORST_CASE_VER.length + 2
+        );
+    });
+
     it('accepts 1000 bytes and refuses 1001 bytes', () => {
         // The cap is on the ENCODED frame, and it is exact: at 1000 the browser
         // receiver accepts and at 1001 it aborts the transfer.

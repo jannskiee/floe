@@ -13,16 +13,27 @@
 // count, and the numeric fields grow with their digits. A hand-rolled estimate
 // is wrong in at least four directions at once.
 //
-// It is measured at WORST CASE per file: a full-length uuid, and `index` equal
-// to `total`, which is the most digits that field will ever hold.
+// It is measured at WORST CASE per file: a full-length uuid, `index` equal to
+// `total` (the most digits that field will ever hold), and a release string in
+// `ver`, which the sender does not send today. That last one makes the number an
+// upper bound rather than an exact match, deliberately: see constants.ts.
 
 import { metadataMessage, CONTROL_MSG_MAX } from '../transfer/protocol';
-import { CONTROL_FRAME_WORST_CASE_ID, MAX_REQUEST_FILES } from './constants';
+import {
+    CONTROL_FRAME_WORST_CASE_ID,
+    CONTROL_FRAME_WORST_CASE_VER,
+    MAX_REQUEST_FILES,
+} from './constants';
 
 const encoder = new TextEncoder();
 
 /** The encoded byte length of the largest metadata frame this file can produce
- *  in a selection of `total` files totalling `totalBytes`. */
+ *  in a selection of `total` files totalling `totalBytes`.
+ *
+ *  Every argument that is not the path is at its widest: a full-length uuid,
+ *  `index` equal to `total`, and a release string the sender does not send
+ *  today. The last one is the only one that costs anything real, and
+ *  constants.ts says why it is reserved anyway. */
 export function metadataFrameBytes(
     relativePath: string,
     size: number,
@@ -37,7 +48,8 @@ export function metadataFrameBytes(
             // index at its widest: the last file of the batch.
             total,
             total,
-            totalBytes
+            totalBytes,
+            CONTROL_FRAME_WORST_CASE_VER
         )
     ).byteLength;
 }

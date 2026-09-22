@@ -92,6 +92,14 @@ export function useRequestFiles() {
      *  C-30 says. */
     const ingestPlainFiles = useCallback(
         async (list: File[]) => {
+            // The same stop the walk has, for the same reason. Without it a
+            // drop of 200,000 files would run 200,000 sequential reads before
+            // checkPick ever got to refuse on count, and the tab would sit
+            // there doing it. Refuse on count first, then do per-file work.
+            if (list.length > MAX_REQUEST_FILES) {
+                setNotice(visitorCopy.tooManyFiles);
+                return;
+            }
             for (const file of list) {
                 if (!(await firstByteReadable(file))) {
                     setNotice(visitorCopy.foldersUnsupported);
