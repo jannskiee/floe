@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf16"
 	"unicode/utf8"
 )
 
@@ -132,8 +133,8 @@ func metadataSeeds() []fuzzSeed {
 // FuzzParseMetadata: parseMetadata never panics, and whatever it accepts has
 // numbers the rest of the receiver can trust (metadataInvariant in
 // control_test.go). The S1-ENG-03 limits (depth, path units, file count) are
-// not properties yet: today's parser accepts those inputs by design, and the
-// seeds that will prove the limits are already here.
+// not properties of the parser, which accepts those inputs by design: the
+// receive loop applies them after it, and FuzzSafeJoin carries the path rules.
 func FuzzParseMetadata(f *testing.F) {
 	addSeeds(f, "FuzzParseMetadata", metadataSeeds(), false)
 	f.Fuzz(func(t *testing.T, text string) {
@@ -247,11 +248,39 @@ func safeJoinSeeds() []fuzzSeed {
 		{name: "component-255-bytes", text: strings.Repeat("c", 255)},
 		{name: "ads-colon", text: "file.txt:stream"},
 		{name: "c1-next-line", text: "a" + ch(0x85) + "b"},
+		// Layer 1's edges (S1-ENG-03): depth 32 and 33, 240 and 241 units with
+		// ".part", a two-unit character at the edge, and names that only look
+		// anchored.
+		{name: "depth-32", text: strings.Repeat("d/", 31) + "f.txt"},
+		{name: "depth-33", text: strings.Repeat("d/", 32) + "f.txt"},
+		{name: "units-240-with-part", text: strings.Repeat("u", 240-len(partSuffix))},
+		{name: "units-241-with-part", text: strings.Repeat("u", 241-len(partSuffix))},
+		{name: "astral-241-units", text: strings.Repeat(ch(0x1F600), 118)},
+		{name: "drive-lower-relative", text: "z:evil"},
+		{name: "digit-colon", text: "1:x.txt"},
+		{name: "space-before-drive", text: ` C:\x.txt`},
+		{name: "drive-mid-path", text: "a/C:/b.txt"},
+		{name: "traversal-40-deep", text: strings.Repeat("../", 40) + "x.txt"},
 	}
+}
+
+// anchoredOracle is startsAtDriveOrRoot written a second way: a separator of
+// either kind first, or an ASCII letter and a colon.
+func anchoredOracle(name string) bool {
+	if strings.HasPrefix(name, "/") || strings.HasPrefix(name, `\`) {
+		return true
+	}
+	return len(name) >= 2 && name[1] == ':' &&
+		strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", rune(name[0]))
 }
 
 // FuzzSafeJoin: safeJoin never panics, the path it returns stays under the
 // output directory, and no component of what it adds is empty, "." or "..".
+// Since S1-ENG-03 it also carries layer 1: the receive loop builds the
+// relative path with safeJoin("", name) and joins it to the output folder at
+// the claim, which must give exactly safeJoin(outputDir, name); and
+// checkPathShape refuses exactly the anchored names and the relative paths
+// past 32 components or 240 units, with path-too-long either way.
 func FuzzSafeJoin(f *testing.F) {
 	addSeeds(f, "FuzzSafeJoin", safeJoinSeeds(), false)
 	// Never created: safeJoin only builds a string.
@@ -265,10 +294,28 @@ func FuzzSafeJoin(f *testing.F) {
 		if rel == "." || filepath.IsAbs(rel) || filepath.VolumeName(rel) != "" {
 			t.Fatalf("safeJoin(%q) = %q, which is not strictly inside the output dir (rel %q)", name, got, rel)
 		}
-		for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		parts := strings.Split(rel, string(filepath.Separator))
+		for _, part := range parts {
 			if part == "" || part == "." || part == ".." {
 				t.Fatalf("safeJoin(%q) = %q has a %q component (rel %q)", name, got, part, rel)
 			}
+		}
+
+		loopRel := safeJoin("", name)
+		if joined := filepath.Join(outputDir, loopRel); joined != got {
+			t.Fatalf("filepath.Join(outputDir, safeJoin(\"\", %q)) = %q, but safeJoin(outputDir, %q) = %q", name, joined, name, got)
+		}
+		units := len(utf16.Encode([]rune(loopRel + partSuffix)))
+		wantRefused := anchoredOracle(name) || len(parts) > maxPathDepth || units > maxPathUnits
+		code, reason := checkPathShape(name, loopRel)
+		if (code != "") != wantRefused {
+			t.Fatalf("checkPathShape(%q, %q) = %q; anchored %v, depth %d, units %d", name, loopRel, code, anchoredOracle(name), len(parts), units)
+		}
+		if code != "" && code != CodePathTooLong {
+			t.Fatalf("checkPathShape(%q) refused with %q, want %q", name, code, CodePathTooLong)
+		}
+		if code != "" && reason != reasonPathNotRelative && reason != CodePathTooLong.WireReason() {
+			t.Fatalf("checkPathShape(%q) reason %q is neither fixed sentence", name, reason)
 		}
 	})
 }

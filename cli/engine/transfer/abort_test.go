@@ -789,8 +789,10 @@ func TestReceiverWriteErrorClassifiesDiskFull(t *testing.T) {
 // metadata, the receiver returns a *RefusedError, and nothing is left on
 // disk. The first two cases fail the claim through the openPart seam with
 // the errors a long name and a full drive produce, so they do not depend on
-// the temp volume's limits; the last sends the real 704-byte name and skips
-// only if this filesystem accepts it.
+// the temp volume's limits. The last sends the real 704-byte name, which
+// since S1-ENG-03 never reaches the claim: layer 1 refuses it as
+// path-too-long before OnIncoming, which is the stronger outcome the row now
+// pins (the fixture crossed a layer 1 limit, so its expectation moved).
 func TestReceiverCreateErrorSendsWriteFailedFrame(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -801,7 +803,7 @@ func TestReceiverCreateErrorSendsWriteFailedFrame(t *testing.T) {
 	}{
 		{"name too long", &os.PathError{Op: "open", Path: "long.part", Err: syscall.ENAMETOOLONG}, "deep.bin", CodeWriteFailed, "receiver could not create a file"},
 		{"drive full at claim", &os.PathError{Op: "open", Path: "x.part", Err: syscall.ENOSPC}, "deep.bin", CodeDiskFull, CodeDiskFull.WireReason()},
-		{"real 704-byte name", nil, strings.Repeat("n", 700) + ".bin", CodeWriteFailed, "receiver could not create a file"},
+		{"real 704-byte name", nil, strings.Repeat("n", 700) + ".bin", CodePathTooLong, CodePathTooLong.WireReason()},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -847,7 +849,7 @@ func TestReceiverCreateErrorSendsWriteFailedFrame(t *testing.T) {
 			if incompat.Reason != tc.wantReason {
 				t.Fatalf("reason = %q, want %q", incompat.Reason, tc.wantReason)
 			}
-			if strings.Contains(incompat.Reason, "nnn") || strings.Contains(incompat.Reason, "deep") {
+			if strings.Contains(incompat.Reason, "nnn") || strings.Contains(incompat.Reason, "deep.bin") {
 				t.Fatalf("the file name reached the wire reason: %q", incompat.Reason)
 			}
 			var refused *RefusedError
