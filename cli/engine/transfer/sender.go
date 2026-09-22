@@ -19,6 +19,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash"
 	"io"
@@ -135,29 +136,100 @@ type endMsg struct {
 	SHA256 string `json:"sha256,omitempty"`
 }
 
-// abortFromPeer reports the peer's reason when raw is an "incompatible"
-// frame, and "" otherwise.
+// controlFields reads a receiver's frame as a JSON object and its "type" by
+// EXACT key, the way parseReceived does and the browser's classifyControl
+// does. A struct tag would match "TYPE" too, so a frame the browser ignores
+// used to be honored here. An absent key is a nil RawMessage, which fails to
+// decode, so absent and mistyped both read as "not this frame"; a duplicate
+// key keeps its last value on both sides. Over the control cap is never
+// parsed: that is file data or prose where a control message belongs.
+func controlFields(raw []byte) (fields map[string]json.RawMessage, typ string, ok bool) {
+	if len(raw) > controlMsgMax {
+		return nil, "", false
+	}
+	if json.Unmarshal(raw, &fields) != nil || json.Unmarshal(fields["type"], &typ) != nil {
+		return nil, "", false
+	}
+	return fields, typ, true
+}
+
+// abortFromPeer reads the receiver's "incompatible" frame and returns the
+// error the send ends with, or nil when raw is not that frame.
+//
+// A known code makes it a *PeerStoppedError: the code after ParseRefusalCode
+// and saved clamped to [0, total], and nothing else from the frame. The peer's
+// prose stops here. A known code wins over the pv range, because a current
+// peer always sends an overlapping range and the browser's refusalCodeOf
+// ignores pv the same way. Without a known code the frame reads as it always
+// has: compatErrorFromIncompatible rebuilds a version mismatch from pv/pvMin,
+// or prints the reason through displayText for a peer that predates code.
+//
+// code and saved are read from the raw map, by exact key, not from the
+// struct: a struct tag would accept {"CODE":"declined"}, which the browser
+// rejects. The struct decode is kept for the display fields and tolerates a
+// *json.UnmarshalTypeError, because encoding/json fills every well-typed
+// field before reporting the first mistyped one, so a hostile "saved":"x"
+// must not drop the frame and leave the sender waiting (the FND-4 class).
 //
 // The per-file ack loop already handles this frame, but it only runs while a
 // NEXT file is coming. A receiver that refuses the LAST file, which is every
 // single-file transfer, sends its reason into the drain loop instead, and the
 // drain loop used to discard it and print a success summary over a receiver
 // that kept nothing.
-func abortFromPeer(raw []byte, localVer, updateHint string) string {
-	if len(raw) > controlMsgMax {
-		return ""
-	}
-	var base struct {
-		Type string `json:"type"`
-	}
-	if err := json.Unmarshal(raw, &base); err != nil || base.Type != "incompatible" {
-		return ""
+func abortFromPeer(raw []byte, localVer, updateHint string, total int) error {
+	fields, typ, ok := controlFields(raw)
+	if !ok || typ != "incompatible" {
+		return nil
 	}
 	var incompat incompatibleMsg
-	if err := json.Unmarshal(raw, &incompat); err != nil {
-		return ""
+	var typeErr *json.UnmarshalTypeError
+	if err := json.Unmarshal(raw, &incompat); err != nil && !errors.As(err, &typeErr) {
+		return nil
 	}
-	return compatErrorFromIncompatible(localVer, updateHint, incompat)
+	if code, known := refusalCodeIn(fields); known {
+		return &PeerStoppedError{Code: code, Saved: savedCountIn(fields, total)}
+	}
+	return errors.New(compatErrorFromIncompatible(localVer, updateHint, incompat))
+}
+
+// refusalCodeIn is the one reader of a peer's code: a JSON string that
+// ParseRefusalCode knows, else nothing. Not a string (a number, null, an
+// object) is nothing, never an error, because the field is optional.
+func refusalCodeIn(fields map[string]json.RawMessage) (RefusalCode, bool) {
+	lit := fields["code"]
+	if len(lit) == 0 || lit[0] != '"' {
+		return "", false
+	}
+	var s string
+	if json.Unmarshal(lit, &s) != nil {
+		return "", false
+	}
+	return ParseRefusalCode(s)
+}
+
+// savedCountIn reads the peer's count of committed files the way the browser
+// sender does: an integer-valued JSON number, clamped to [0, total]; anything
+// else (absent, a string, null, a fraction, out of float64 range) is 0. 3.0
+// is 3 and 1e300 clamps to total on both sides, because JSON.parse makes
+// them numbers first and Number.isInteger accepts both.
+func savedCountIn(fields map[string]json.RawMessage, total int) int {
+	lit := fields["saved"]
+	// A number starts with a digit or a minus. The byte test comes first because
+	// null decodes into a float64 without an error.
+	if len(lit) == 0 || (lit[0] != '-' && (lit[0] < '0' || lit[0] > '9')) {
+		return 0
+	}
+	var n float64
+	if json.Unmarshal(lit, &n) != nil || n != math.Trunc(n) {
+		return 0
+	}
+	switch {
+	case n < 0:
+		return 0
+	case n > float64(total):
+		return total
+	}
+	return int(n)
 }
 
 // parseReceived reports whether raw is the receiver's delivery confirmation
@@ -389,8 +461,8 @@ drainLoop:
 			if len(raw) > controlMsgMax {
 				continue // same bound as the ack loop in sendFile
 			}
-			if reason := abortFromPeer(raw, localVer, opts.UpdateHint); reason != "" {
-				return fmt.Errorf("%s", reason)
+			if err := abortFromPeer(raw, localVer, opts.UpdateHint, len(files)); err != nil {
+				return err
 			}
 			if ok, v, has := parseReceived(raw, len(files)); ok {
 				verified, hasVerified = v, has
@@ -414,8 +486,8 @@ drainLoop:
 					if len(raw) > controlMsgMax {
 						continue
 					}
-					if reason := abortFromPeer(raw, localVer, opts.UpdateHint); reason != "" {
-						return fmt.Errorf("%s", reason)
+					if err := abortFromPeer(raw, localVer, opts.UpdateHint, len(files)); err != nil {
+						return err
 					}
 					if ok, v, has := parseReceived(raw, len(files)); ok {
 						verified, hasVerified = v, has
@@ -512,23 +584,17 @@ ackLoop:
 			if len(raw) > controlMsgMax {
 				continue
 			}
-			var base struct {
-				Type string `json:"type"`
+			// A receiver that refuses sends an "incompatible" instead of an
+			// ack: a version mismatch, or a refusal from its metadata arm that
+			// lands during this wait. The same reader as the drain loop, so a
+			// known code returns the same *PeerStoppedError wherever it lands.
+			if err := abortFromPeer(raw, localVer, updateHint, total); err != nil {
+				return err
 			}
-			if json.Unmarshal(raw, &base) != nil {
-				continue
-			}
-			// If the receiver found the protocol ranges incompatible it sends
-			// an "incompatible" message instead of an ack.
-			if base.Type == "incompatible" {
-				var incompat incompatibleMsg
-				json.Unmarshal(raw, &incompat) //nolint:errcheck
-				// Current peers include their protocol range, so rebuild the
-				// message from this sender's perspective and surface-specific
-				// update hint. Reason remains the fallback for legacy peers.
-				return fmt.Errorf("%s", compatErrorFromIncompatible(localVer, updateHint, incompat))
-			}
-			if base.Type == "ack" {
+			// The type by exact key, as everywhere else the sender reads the
+			// receiver's frames, so {"TYPE":"ack"} is ignored here as the
+			// browser ignores it.
+			if _, typ, ok := controlFields(raw); ok && typ == "ack" {
 				var ack ackMsg
 				if err := json.Unmarshal(raw, &ack); err == nil && ack.ID == fileID {
 					// Defense in depth: verify protocol compat from the receiver's
@@ -658,8 +724,8 @@ ackLoop:
 			// Non-blocking, so a quiet peer costs nothing.
 			select {
 			case raw := <-ackCh:
-				if reason := abortFromPeer(raw, localVer, updateHint); reason != "" {
-					return fmt.Errorf("%s", reason)
+				if err := abortFromPeer(raw, localVer, updateHint, total); err != nil {
+					return err
 				}
 			default:
 			}

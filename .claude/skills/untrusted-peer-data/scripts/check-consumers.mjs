@@ -59,6 +59,7 @@ export const FIELDS = {
             'IncomingInfo',
             'FileInfo',
             'RefusalCode',
+            'PeerStoppedError',
             'SHA256',
             'parseEnd',
             'parseReceived',
@@ -107,6 +108,7 @@ export const TOKEN_FREE = new Set([
     'desktop/frontend/src/history.ts',
     'desktop/frontend/src/components/HistoryView.tsx',
     'cli/engine/peer/connection.go',
+    'cli/engine/peer/setuperror.go',
     'desktop/app.go',
 ]);
 const tokenRegex = (f) =>

@@ -14,6 +14,8 @@ import {
     compatErrorFromIncompatible,
     refusalCodeOf,
     REFUSAL_CODES,
+    REQUEST_ACK_TIMEOUT_MS,
+    REQUEST_ACK_GRACE_MS,
     normalizeSha256,
     verifiedCountOf,
     SEND_FILE_HASHES,
@@ -46,6 +48,16 @@ describe('constants', () => {
     it('CONTROL_MSG_MAX is 1000', () => expect(CONTROL_MSG_MAX).toBe(1000));
     it('HIGH_WATER is 8 MB', () => expect(HIGH_WATER).toBe(8 * 1024 * 1024));
     it('LOW_WATER is 4 MB', () => expect(LOW_WATER).toBe(4 * 1024 * 1024));
+    // Pinned to VisitorAckTimeout and VisitorAckGrace in
+    // cli/engine/transfer/deadlines.go, where TestDeadlineConstantsMatchTS
+    // holds the same numbers. The deciding side's window is their difference
+    // and the waiting side's timer their sum, so moving one side alone would
+    // let the "expired" frame race the waiting side's own timeout.
+    it('REQUEST_ACK_TIMEOUT_MS and REQUEST_ACK_GRACE_MS match VisitorAckTimeout and VisitorAckGrace', () => {
+        expect(REQUEST_ACK_TIMEOUT_MS).toBe(600000);
+        expect(REQUEST_ACK_GRACE_MS).toBe(15000);
+        expect(REQUEST_ACK_TIMEOUT_MS - REQUEST_ACK_GRACE_MS).toBe(585000);
+    });
 });
 
 describe('chunkSize', () => {
@@ -221,14 +233,36 @@ describe('refusalCodeOf', () => {
         return classifyControl(toUint8(text)) as Incompatible;
     }
 
-    it('refusalCodeOf accepts only allowlisted codes', () => {
-        // The Phase 0 set, pinned to RefusalCode in cli/engine/transfer/control.go.
-        expect([...REFUSAL_CODES].sort()).toEqual(['hash-mismatch', 'write-failed']);
-        expect(refusalCodeOf(frame('write-failed'))).toBe('write-failed');
-        expect(refusalCodeOf(frame('hash-mismatch'))).toBe('hash-mismatch');
+    // The literal RefusalCodes pins in cli/engine/transfer/refusal.go
+    // (TestRefusalCodeListMatchesTS), in the byte order of the wire values, so
+    // the two lists are compared whole and in order, never sorted first.
+    const TWELVE = [
+        'declined',
+        'disk-full',
+        'expired',
+        'file-too-large-for-folder',
+        'hash-mismatch',
+        'over-approved',
+        'path-too-long',
+        'relay-cap',
+        'save-blocked',
+        'stopped',
+        'time-limit',
+        'write-failed',
+    ];
+
+    it('REFUSAL_CODES pins the twelve codes in the same order as refusal.go', () => {
+        expect([...REFUSAL_CODES]).toEqual(TWELVE);
+        expect([...TWELVE].sort()).toEqual(TWELVE);
+    });
+
+    it('refusalCodeOf allowlists and returns null for anything else', () => {
+        for (const code of TWELVE) {
+            expect(refusalCodeOf(frame(code))).toBe(code);
+        }
 
         const hostile: unknown[] = [
-            'too-slow', // a real Stage 1 code, still unknown to this build
+            'too-slow', // never a code: the throughput floor it named was cut
             'WRITE-FAILED',
             'write-failed ',
             '',

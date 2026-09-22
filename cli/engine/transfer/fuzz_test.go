@@ -17,6 +17,7 @@ package transfer
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -286,8 +287,14 @@ func abortSeeds() []fuzzSeed {
 	return []fuzzSeed{
 		{name: "code-write-failed", data: refusalFrame(`"reason":"receiver could not finish writing a file","pv":1,"pvMin":1,"code":"write-failed","saved":1`)},
 		{name: "code-hash-mismatch", data: refusalFrame(`"reason":"a file did not match","pv":1,"pvMin":1,"code":"hash-mismatch","saved":0`)},
+		{name: "code-declined-pv-disjoint", data: refusalFrame(`"reason":"x","pv":9,"pvMin":9,"code":"declined"`)},
+		{name: "code-time-limit-hostile-reason", data: refusalFrame(reason + `,"pv":1,"pvMin":1,"code":"time-limit","saved":2`)},
 		{name: "code-unknown", data: refusalFrame(`"reason":"stopped","pv":1,"pvMin":1,"code":"too-slow","saved":3`)},
 		{name: "code-number", data: refusalFrame(`"reason":"stopped","pv":1,"pvMin":1,"code":7`)},
+		{name: "code-key-case", data: refusalFrame(`"reason":"stopped","pv":1,"pvMin":1,"CODE":"write-failed"`)},
+		{name: "type-key-case", data: []byte(`{"TYPE":"incompatible","reason":"stopped","pv":1,"pvMin":1,"code":"write-failed"}`)},
+		{name: "pv-string-with-code", data: refusalFrame(`"reason":"stopped","pv":"1","pvMin":1,"code":"write-failed"`)},
+		{name: "duplicate-code-bad-then-good", data: refusalFrame(`"reason":"stopped","pv":1,"pvMin":1,"code":"nope","code":"write-failed"`)},
 		{name: "saved-minus-1", data: refusalFrame(`"reason":"stopped","pv":1,"pvMin":1,"code":"write-failed","saved":-1`)},
 		{name: "saved-10000", data: refusalFrame(`"reason":"stopped","pv":1,"pvMin":1,"code":"write-failed","saved":10000`)},
 		{name: "saved-1e300", data: refusalFrame(`"reason":"stopped","pv":1,"pvMin":1,"code":"write-failed","saved":1e300`)},
@@ -318,19 +325,36 @@ func forbiddenRune(r rune) bool {
 }
 
 // FuzzAbortFromPeer: the Go sender's reader of a receiver's incompatible
-// frame. Properties for the P0-17 slice (code and saved exist, nothing reads
-// them yet): never panics; a frame over controlMsgMax returns nothing; the
-// text it returns carries no control or bidi rune from the peer and stays
-// within the 300-rune reason cap. The one control rune allowed is the line
-// break in the LOCAL version-mismatch template (compatErrorMessage), which a
-// peer cannot reach: displayText turns a peer's own line break into "_".
-// The PeerStoppedError properties arrive with S1-ENG-01.
+// frame. Properties: never panics; a frame over controlMsgMax returns nil; a
+// *PeerStoppedError carries a code from RefusalCodes, a Saved within
+// [0, total] and a text that depends on the code alone; any other error text
+// carries no control or bidi rune from the peer and stays within the 300-rune
+// reason cap. The one control rune allowed is the line break in the LOCAL
+// version-mismatch template (compatErrorMessage), which a peer cannot reach:
+// displayText turns a peer's own line break into "_".
 func FuzzAbortFromPeer(f *testing.F) {
 	addSeeds(f, "FuzzAbortFromPeer", abortSeeds(), true)
 	f.Fuzz(func(t *testing.T, raw []byte) {
-		got := abortFromPeer(raw, "v1.10.10", "")
-		if len(raw) > controlMsgMax && got != "" {
-			t.Fatalf("a %d-byte frame (over the %d cap) returned %q", len(raw), controlMsgMax, got)
+		const total = 3
+		err := abortFromPeer(raw, "v1.10.10", "", total)
+		if len(raw) > controlMsgMax && err != nil {
+			t.Fatalf("a %d-byte frame (over the %d cap) returned %q", len(raw), controlMsgMax, err)
+		}
+		if err == nil {
+			return
+		}
+		got := err.Error()
+		var stopped *PeerStoppedError
+		if errors.As(err, &stopped) {
+			if _, ok := ParseRefusalCode(string(stopped.Code)); !ok {
+				t.Fatalf("abortFromPeer(%q) returned a PeerStoppedError with code %q outside RefusalCodes", raw, stopped.Code)
+			}
+			if stopped.Saved < 0 || stopped.Saved > total {
+				t.Fatalf("abortFromPeer(%q) returned Saved %d, outside [0, %d]", raw, stopped.Saved, total)
+			}
+			if want := (&PeerStoppedError{Code: stopped.Code}).Error(); got != want {
+				t.Fatalf("abortFromPeer(%q) text %q depends on more than the code (want %q)", raw, got, want)
+			}
 		}
 		if !utf8.ValidString(got) {
 			t.Fatalf("abortFromPeer(%q) returned invalid UTF-8 %q", raw, got)

@@ -41,6 +41,14 @@ var (
 // bridge) cannot be produced on demand, so tests swap in one that fails.
 var syncPart = func(f *os.File) error { return f.Sync() }
 
+// writePart puts a chunk into the open .part and openPart claims one. Seams
+// like syncPart: a full drive, or a name the filesystem refuses at claim
+// time, cannot be produced on demand either, so tests swap in ones that fail.
+var (
+	writePart = func(f *os.File, b []byte) (int, error) { return f.Write(b) }
+	openPart  = claimPart
+)
+
 // FileInfo describes an incoming file (parsed from metadata message).
 type FileInfo struct {
 	ID         string
@@ -418,13 +426,17 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// staging file; the final name is taken only by the rename in
 				// the "end" handler, so a kill at any moment leaves nothing on
 				// disk that looks complete.
+				// A failure here, or on the handle just below, is this side's
+				// own disk refusing after the sender was accepted. It used to
+				// return the raw OS error and send nothing, so the sender waited
+				// out its ack deadline; refuseWrite names it on the wire.
 				currentBase = safeJoin(outputDir, info.FileName)
 				if err := os.MkdirAll(filepath.Dir(currentBase), 0755); err != nil {
-					return fmt.Errorf("cannot create directory: %w", err)
+					return refuseWrite(dc, localVer, filesReceived, true, fmt.Errorf("cannot create directory: %w", err))
 				}
-				currentFile, currentDest, err = claimPart(currentBase, hints)
+				currentFile, currentDest, err = openPart(currentBase, hints)
 				if err != nil {
-					return fmt.Errorf("cannot create file %s: %w", currentBase, err)
+					return refuseWrite(dc, localVer, filesReceived, true, fmt.Errorf("cannot create file %s: %w", currentBase, err))
 				}
 				registerPartial(currentFile)
 				currentHash = sha256.New()
@@ -441,8 +453,8 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					name := currentFile.Name()
 					discardPart(currentFile)
 					currentFile = nil
-					return fmt.Errorf("refusing to write %s: not a regular file (%s)",
-						name, st.Mode())
+					return refuseWrite(dc, localVer, filesReceived, true,
+						fmt.Errorf("refusing to write %s: not a regular file (%s)", name, st.Mode()))
 				}
 				// The FINAL name claimed for this file, which differs from the
 				// sender's whenever claimPart de-collided or safeJoin sanitized.
@@ -517,15 +529,15 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					// used to share the abandon branch, which left the .part on
 					// disk forever and told the sender nothing. Remove it (best
 					// effort: a sharing lock leaves a .part, never a final name)
-					// and say why. The reason names no surface and no path.
+					// and say why. The reason names no surface and no path, and
+					// a full drive is named as such (a Sync can fail with it too).
 					if syncErr != nil || closeErr != nil {
 						_ = os.Remove(partPath)
-						AbortWithCode(dc, localVer, CodeWriteFailed, "receiver could not finish writing a file", filesReceived)
 						cause := syncErr
 						if cause == nil {
 							cause = closeErr
 						}
-						return &RefusedError{Code: CodeWriteFailed, Saved: filesReceived, Err: cause}
+						return refuseWrite(dc, localVer, filesReceived, false, cause)
 					}
 
 					// Integrity guard: a short byte count means the transfer was
@@ -687,9 +699,12 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 			abortReason(dc, localVer, "receiver stopped the transfer: "+detail, false)
 			return fmt.Errorf("%s", detail)
 		}
-		n, err := currentFile.Write(msg.Data)
+		// A failed write used to return the raw OS error with nothing on the
+		// wire. The .part stays open here: the deferred discard removes it once
+		// the refusal has been flushed to the sender.
+		n, err := writePart(currentFile, msg.Data)
 		if err != nil {
-			return fmt.Errorf("write error: %w", err)
+			return refuseWrite(dc, localVer, filesReceived, false, err)
 		}
 		currentHash.Write(msg.Data[:n]) // only what reached the file
 		bytesReceived += int64(n)

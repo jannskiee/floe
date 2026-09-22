@@ -95,6 +95,15 @@ func truncateName(name string, maxLen int) string {
 // sanitizeSegment so both surfaces agree on what counts as an extension.
 const displayExtMax = 16
 
+// DisplayText is displayText for other packages that print a string a peer
+// had a hand in: the peer package's SetupError wraps the SDP token pion quotes
+// in its error, and a command that prints a RefusedError's cause line goes
+// through here too. Same treatment, same caps; callers pass maxDisplayReason's
+// value (300) for an error string.
+func DisplayText(s string, maxRunes int) string {
+	return displayText(s, maxRunes)
+}
+
 // displayText makes a peer-supplied string safe to print to a terminal, hand
 // to a GUI callback, or embed in an error: C0/C1 controls, DEL and the Unicode
 // bidi controls become "_" through the same sanitizeRune the on-disk sanitizer
