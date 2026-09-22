@@ -626,6 +626,41 @@ test.describe('request-link policy file', { concurrency: true }, () => {
             'no log line may carry the file content or its path');
     });
 
+    test('a grace expiry landing on a deleted room is not fatal', { timeout: 150000 }, async (t) => {
+        // A zero grace makes every departed host's reservation due at the first
+        // real cleanup tick, about 60 s after startup. Hosts create, drop,
+        // reclaim (the lazy expiry ends and re-creates) and close without
+        // pause across that tick, so the sweep runs while reservations are
+        // being ended and re-made under it; every other one is left in grace
+        // for the sweep to end. Each iteration uses a fresh address, so no
+        // limiter or create budget is what this measures.
+        const srv = await startServer({
+            POLICY_FILE: policyFileSaying(t, true),
+            FLOE_TEST_REQUEST_GRACE_MS: '0',
+            MAX_CONNECTIONS_PER_IP: '1000',
+        });
+        t.after(() => srv.stop());
+        const until = Date.now() + 66000;
+        let i = 0;
+        while (Date.now() < until) {
+            const address = `10.${(i >> 16) & 255}.${(i >> 8) & 255}.${i & 255}`;
+            const token = newToken();
+            const a = await openAs(srv, address);
+            assert.deepEqual(await orBackstop(srv, hostJoin(a, token), `create ${i}`), { type: 'room-joined', role: 'host' });
+            a.terminate();
+            if (i % 2 === 0) {
+                const b = await openAs(srv, address);
+                assert.deepEqual(await orBackstop(srv, hostJoin(b, token), `reclaim ${i}`), { type: 'room-joined', role: 'host' });
+                b.send(JSON.stringify({ type: 'request-close', roomId: roomIdFromToken(token) }));
+                b.close();
+            }
+            i++;
+            await new Promise((r) => setTimeout(r, 50));
+        }
+        t.diagnostic(`${i} host cycles across the first sweep`);
+        await assertSurvived(srv, 'reservations ended by the sweep while hosts drop, reclaim and close');
+    });
+
     test('policy flip within 60 s without restart', { timeout: 180000 }, async (t) => {
         const file = policyDir(t);
         writePolicy(file, '{"requestLinks":false}');
@@ -883,4 +918,116 @@ test('full lifecycle churn 200 times', { timeout: 180000 }, async (t) => {
         b.close();
     }
     await assertSurvived(srv, '200 create, visitor join, host drop, visitor leave, reclaim and close cycles');
+});
+
+// --- request rooms: seal, reopen, close and the grace sweep --------------------
+
+const CONTROL_TYPES = ['request-seal', 'request-reopen', 'request-close'];
+
+test('control messages for unknown rooms never reach the backstop', { timeout: 60000 }, async (t) => {
+    const srv = await startServer({ POLICY_FILE: policyFileSaying(t, true) });
+    t.after(() => srv.stop());
+
+    const depth = stringifyOverflowDepth();
+    assert.ok(depth, 'JSON.stringify no longer overflows at any depth this test can build');
+    const deep = '['.repeat(depth * 2) + ']'.repeat(depth * 2);
+    const hostileIds = ['null', '1', '{}', deep, JSON.stringify('a'.repeat(900 * 1024)), `["${randomUUID()}"]`];
+
+    // Before any join, from a socket in no room.
+    const loose = await open(srv);
+    for (const type of CONTROL_TYPES) {
+        loose.send(`{"type":"${type}"}`);
+        for (const v of hostileIds) loose.send(`{"type":"${type}","roomId":${v}}`);
+    }
+    // An unknown, well-formed room, 1,000 times.
+    for (let i = 0; i < 1000; i++) {
+        loose.send(JSON.stringify({ type: CONTROL_TYPES[i % 3], roomId: randomUUID() }));
+    }
+
+    // From a seated visitor, and from the host after its close.
+    const token = newToken();
+    const id = roomIdFromToken(token);
+    const host = await open(srv);
+    assert.deepEqual(await hostJoin(host, token), { type: 'room-joined', role: 'host' });
+    const visitor = await open(srv);
+    const seated = waitFor(visitor, 'request-joined');
+    visitor.send(JSON.stringify({ type: 'request-join', roomId: id }));
+    await orBackstop(srv, seated, 'a visitor join');
+    for (const type of CONTROL_TYPES) visitor.send(JSON.stringify({ type, roomId: id }));
+    host.send(JSON.stringify({ type: 'request-close', roomId: id }));
+    for (const type of CONTROL_TYPES) host.send(JSON.stringify({ type, roomId: id }));
+
+    // Every socket still answers; nothing was said to any of them.
+    for (const ws of [loose, visitor, host]) {
+        const replies = repliesUntilPong(ws);
+        ws.send(JSON.stringify({ type: 'ping' }));
+        const got = await orBackstop(srv, replies, 'control messages for unknown rooms');
+        assert.ok(got.every((m) => m.type === 'host-absent'), JSON.stringify(got));
+    }
+    await assertSurvived(srv, 'control messages for unknown rooms, malformed ids, a visitor and a closed room');
+});
+
+test('same-tick join and close, and a disconnect during seal, are not fatal', async (t) => {
+    // Ten creates from one address: under the 20-a-day budget. Twenty
+    // connections: over the default 30-a-minute limiter only with a retry.
+    const srv = await startServer({ POLICY_FILE: policyFileSaying(t, true), MAX_CONNECTIONS_PER_IP: '1000' });
+    t.after(() => srv.stop());
+
+    for (let i = 0; i < 5; i++) {
+        const token = newToken();
+        const id = roomIdFromToken(token);
+        const host = await open(srv);
+        assert.deepEqual(await hostJoin(host, token), { type: 'room-joined', role: 'host' });
+        const visitor = await open(srv);
+        // Sent back to back from two sockets: the server takes them in either order.
+        visitor.send(JSON.stringify({ type: 'request-join', roomId: id }));
+        host.send(JSON.stringify({ type: 'request-close', roomId: id }));
+        const replies = repliesUntilPong(visitor);
+        visitor.send(JSON.stringify({ type: 'ping' }));
+        await orBackstop(srv, replies, 'a same-tick request-join and request-close');
+
+        // A seal, then the host socket gone in the same breath.
+        const token2 = newToken();
+        const id2 = roomIdFromToken(token2);
+        const host2 = await open(srv);
+        assert.deepEqual(await hostJoin(host2, token2), { type: 'room-joined', role: 'host' });
+        const v2 = await open(srv);
+        const seated = waitFor(v2, 'request-joined');
+        v2.send(JSON.stringify({ type: 'request-join', roomId: id2 }));
+        await orBackstop(srv, seated, 'a visitor join');
+        host2.send(JSON.stringify({ type: 'request-seal', roomId: id2 }));
+        host2.terminate();
+        v2.send(JSON.stringify({ type: 'request-join', roomId: id2 }));
+        v2.close();
+        host.close();
+    }
+    await assertSurvived(srv, 'same-tick join and close, and disconnects during seal');
+});
+
+test('a new message type on a rate-limited socket is not fatal', async (t) => {
+    const srv = await startServer({ POLICY_FILE: policyFileSaying(t, true), MAX_CONNECTIONS_PER_IP: '1' });
+    t.after(() => srv.stop());
+
+    await open(srv);
+    // The second connection is accepted at the HTTP layer and refused by the
+    // handler with 1008; frames sent before the close lands must not matter.
+    const { head, socket } = await rawUpgrade(srv, '/ws');
+    assert.match(head, /^HTTP\/1\.1 101 /);
+    const frame = (text) => {
+        const payload = Buffer.from(text);
+        const mask = Buffer.from([1, 2, 3, 4]);
+        const masked = Buffer.from(payload.map((b, i) => b ^ mask[i % 4]));
+        return Buffer.concat([Buffer.from([0x81, 0x80 | payload.length]), mask, masked]);
+    };
+    for (const text of [
+        `{"type":"request-join","roomId":"${randomUUID()}"}`,
+        `{"type":"request-seal","roomId":null}`,
+        `{"type":"request-close","roomId":{}}`,
+    ]) {
+        assert.ok(Buffer.byteLength(text) < 126);
+        try { socket.write(frame(text)); } catch { /* the server may already have closed it */ }
+    }
+    // And the unmasked frame the pre-existing test sends, after a new type.
+    try { socket.write(Buffer.from([0x81, 0x02, 0x41, 0x42])); } catch { /* closed */ }
+    await assertSurvived(srv, 'request frames on a rate-limited connection');
 });

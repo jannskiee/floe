@@ -388,6 +388,11 @@ function cleanupTick(now = Date.now()) {
         }
     } catch { /* the next tick sweeps again */ }
     try {
+        for (const [roomId, meta] of roomMeta) {
+            if (meta.kind === 'request' && now - meta.createdAt > REQUEST_MAX_AGE_MS) endReservation(roomId);
+        }
+    } catch { /* the next tick sweeps again */ }
+    try {
         for (const [key, ts] of requestCreates) {
             const valid = ts.filter(t => now - t < REQUEST_CREATE_WINDOW_MS);
             if (valid.length === 0) requestCreates.delete(key);
@@ -474,7 +479,15 @@ function destroyRoom(roomId) {
 // line (a flood lever).
 // ---------------------------------------------------------------------------
 
-const REQUEST_GRACE_MS = 10 * 60 * 1000;
+// FLOE_TEST_REQUEST_GRACE_MS is a test knob like HEARTBEAT_MS, not an
+// operator setting: server/crashguard.test.js shortens the grace so a spawned
+// server's real sweep ends reservations on its first cleanup tick. It can only
+// shorten the grace, never lengthen it; production leaves it unset.
+const REQUEST_GRACE_FULL_MS = 10 * 60 * 1000;
+const REQUEST_GRACE_MS = (() => {
+    const n = parseInt(process.env.FLOE_TEST_REQUEST_GRACE_MS, 10);
+    return Number.isSafeInteger(n) && n >= 0 && n < REQUEST_GRACE_FULL_MS ? n : REQUEST_GRACE_FULL_MS;
+})();
 const REQUEST_CREATES_PER_DAY = 20;
 const REQUEST_CREATE_WINDOW_MS = 24 * 60 * 60 * 1000;
 // A constant, not an env var (D-088 G6).
@@ -483,6 +496,10 @@ const MAX_REQUEST_ROOMS = 5000;
 // so it dies with the socket and needs no map and no sweep.
 const REQUEST_JOINS_PER_MINUTE = 30;
 const REQUEST_JOIN_WINDOW_MS = 60 * 1000;
+// A reservation older than the longest link life (7 days) plus the grace ends
+// at the next sweep, sealed or not (D-021): a drop is capped at 24 h, and a
+// modified desktop could otherwise hold one for as long as its socket lives.
+const REQUEST_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000 + 10 * 60 * 1000;
 
 // sealDigest(rateKey) -> timestamps of successful creates inside the window, at
 // most REQUEST_CREATES_PER_DAY each. Written only on a successful create, which
@@ -518,9 +535,57 @@ function endReservation(roomId) {
     roomMeta.delete(roomId);
 }
 
+// A member of a request room leaves it: its socket closed (handleDisconnect)
+// or it joined somewhere else. Spec 04 5.6.8.
+//
+// The host leaving starts the grace: hostPeerId is cleared and
+// hostAbsentSince stamped, and the reservation stays. An unsealed visitor is
+// sent back to Host absent and loses its seat, because the host's Go client
+// never reconnects within a session and a reclaiming host is a new peer that an
+// old half-negotiated visitor could not answer; its Try again pairs cleanly. A
+// sealed visitor keeps its seat and hears peer-disconnected: its drop runs on
+// the data channel, which needs nothing from this server.
+//
+// The visitor leaving frees seat 1 and tells the host peer-disconnected. A
+// sealed room stays sealed, so a later request-join answers room-full until the
+// host reopens.
+function leaveRequestRoom(peer, meta, now = Date.now()) {
+    const roomId = peer.roomId;
+    const remaining = (rooms.get(roomId) || []).filter(p => p.id !== peer.id);
+    if (peer.id === meta.hostPeerId) {
+        meta.hostPeerId = null;
+        meta.hostAbsentSince = now;
+        if (!meta.sealed) {
+            for (const v of remaining) {
+                v.roomId = null;
+                try { v.send('host-absent', {}); } catch { /* undeliverable */ }
+            }
+            rooms.delete(roomId);
+        } else {
+            for (const v of remaining) {
+                try { v.send('peer-disconnected', {}); } catch { /* undeliverable */ }
+            }
+            if (remaining.length) rooms.set(roomId, remaining);
+            else rooms.delete(roomId);
+        }
+    } else {
+        for (const h of remaining) {
+            try { h.send('peer-disconnected', {}); } catch { /* undeliverable */ }
+        }
+        if (remaining.length) rooms.set(roomId, remaining);
+        else rooms.delete(roomId);
+    }
+    peer.roomId = null;
+}
+
 // The leave-first step of a join, for the request handlers.
 function leaveCurrentRoom(peer) {
     if (!peer.roomId) return;
+    const current = roomMeta.get(peer.roomId);
+    if (current && current.kind === 'request') {
+        leaveRequestRoom(peer, current);
+        return;
+    }
     const oldRoom = rooms.get(peer.roomId);
     if (oldRoom) {
         const remaining = oldRoom.filter(p => p.id !== peer.id);
@@ -618,6 +683,54 @@ function handleRequestJoin(peer, roomId, now = Date.now()) {
         host.send('user-connected', { id: peer.id });
     } catch {
         // Undeliverable; the host times out on its own.
+    }
+}
+
+// request-seal, request-reopen and request-close over /ws, from the host only
+// (spec 04 5.6.6). Silent on any mismatch, like handleSignal: no oracle and no
+// reply to amplify. The length check keeps a 1 MB id from being lowercased.
+// The reservation is looked up before the membership check, so the lookup's
+// null check is the guard between an unknown room and a property read.
+//
+// seal: the data channel is open; a later request-join answers room-full.
+// A no-op without a seated visitor.
+// reopen: after a Decline the owner chose to keep waiting on, or a failed
+// setup. A seated visitor (a squatter, or a declined page that never leaves:
+// there is no leave message) is evicted with room-full, and the room unseals.
+// close: the room and its reservation are gone; a later request-join answers
+// host-absent. An unsealed visitor hears host-absent; a sealed one is left to
+// its data channel.
+function handleRequestControl(peer, type, roomId) {
+    if (typeof roomId !== 'string' || roomId.length !== 36) return;
+    const id = roomId.toLowerCase();
+    const meta = roomMeta.get(id);
+    if (!meta || meta.kind !== 'request' || meta.hostPeerId !== peer.id || peer.roomId !== id) return;
+    const room = rooms.get(id) || [];
+    const visitor = room.find(p => p.id !== peer.id);
+
+    if (type === 'request-seal') {
+        if (visitor) meta.sealed = true;
+        return;
+    }
+    if (type === 'request-reopen') {
+        if (visitor) {
+            room.splice(room.indexOf(visitor), 1);
+            visitor.roomId = null;
+            try { visitor.send('room-full', {}); } catch { /* undeliverable */ }
+        }
+        meta.sealed = false;
+        return;
+    }
+    if (type === 'request-close') {
+        if (visitor) {
+            visitor.roomId = null;
+            if (!meta.sealed) {
+                try { visitor.send('host-absent', {}); } catch { /* undeliverable */ }
+            }
+        }
+        rooms.delete(id);
+        roomMeta.delete(id);
+        peer.roomId = null;
     }
 }
 
@@ -794,6 +907,14 @@ function handleJoinRoom(peer, roomId) {
         return;
     }
 
+    // A request-room member leaves through the request rules (a host's
+    // departure starts the grace); that clears peer.roomId, so the ordinary
+    // block below is skipped.
+    if (peer.roomId) {
+        const current = roomMeta.get(peer.roomId);
+        if (current && current.kind === 'request') leaveRequestRoom(peer, current);
+    }
+
     // If already in a room, leave it first
     if (peer.roomId) {
         const oldRoom = rooms.get(peer.roomId);
@@ -899,8 +1020,15 @@ function handleSignal(senderPeer, signal, targetId) {
     }
 }
 
-function handleDisconnect(peer) {
+function handleDisconnect(peer, now = Date.now()) {
+    // Also covers a ghost host that newest-host-wins replaced: its roomId was
+    // cleared, so its late close changes nothing.
     if (!peer.roomId) return;
+    const meta = roomMeta.get(peer.roomId);
+    if (meta && meta.kind === 'request') {
+        leaveRequestRoom(peer, meta, now);
+        return;
+    }
     const room = rooms.get(peer.roomId);
     if (!room) return;
 
@@ -1107,6 +1235,11 @@ wss.on('connection', (ws, req) => {
             case 'request-join':
                 handleRequestJoin(peer, msg.roomId);
                 break;
+            case 'request-seal':
+            case 'request-reopen':
+            case 'request-close':
+                handleRequestControl(peer, msg.type, msg.roomId);
+                break;
             case 'signal':
                 handleSignal(peer, msg.signal, msg.target || null);
                 break;
@@ -1260,4 +1393,6 @@ module.exports = {
     handleRequestJoin,
     requestJoinAllowed,
     REQUEST_JOINS_PER_MINUTE,
+    handleRequestControl,
+    REQUEST_MAX_AGE_MS,
 };
