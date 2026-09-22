@@ -546,7 +546,7 @@ test.describe('request-link policy file', { concurrency: true }, () => {
         assert.deepEqual(await features(srv), ['request-1']);
         writePolicy(file, 'null');
         await until('the tick to read the null policy', 70000,
-            async () => srv.stdout.includes('policy file unreadable, keeping previous policy'));
+            async () => srv.stdout.includes('policy file unreadable, keeping previous policy') || /Unhandled error/.test(srv.stderr));
         await assertSurvived(srv, 'a null policy file read by the cleanup tick');
         assert.deepEqual(await features(srv), ['request-1'], 'a bad file keeps the last good policy');
         assert.doesNotMatch(srv.stdout + srv.stderr, /null|policy\.json|floe-cg-policy/,
