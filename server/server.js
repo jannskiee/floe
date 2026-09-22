@@ -103,13 +103,16 @@ function isAllowedOrigin(origin, host) {
 // rewrites Host learns why every CLI is refused, and a page that retries
 // forever gets no flood lever. A Set rather than one flag, or the first path
 // refused would silence the other; it holds at most the two literal paths.
-// The origin is quoted and cut so a newline in it cannot forge a log line.
+// It names the Host the Origin was compared with, because a proxy that rewrites
+// Host shows up as the server's own address being refused, and only the Host
+// says why. Both are quoted and cut so a newline in either cannot forge a line.
 const warnedOriginPaths = new Set();
-function warnRejectedOrigin(path, origin) {
+function warnRejectedOrigin(path, origin, host) {
     if (warnedOriginPaths.has(path)) return;
     warnedOriginPaths.add(path);
+    const quoted = (value) => JSON.stringify(String(value).slice(0, 200));
     console.warn(
-        `Refused a connection on ${path} from Origin ${JSON.stringify(String(origin).slice(0, 200))}: ` +
+        `Refused a connection on ${path} from Origin ${quoted(origin)} (Host ${quoted(host)}): ` +
         `not CLIENT_URL, a floe.one origin, or this server's own host. Further refusals on ${path} are not logged.`
     );
 }
@@ -651,7 +654,7 @@ const io = new Server(server, {
     // as it is: it only decides which answers a browser may read.
     allowRequest: (req, callback) => {
         if (isAllowedOrigin(req.headers.origin, req.headers.host)) return callback(null, true);
-        warnRejectedOrigin('/socket.io', req.headers.origin);
+        warnRejectedOrigin('/socket.io', req.headers.origin, req.headers.host);
         callback('Origin not allowed', false);
     },
     maxHttpBufferSize: 1e6, // Signaling only: SDP/ICE < 10 KB
@@ -771,7 +774,7 @@ function handleUpgradeRequest(req, socket, head) {
     // allowRequest option, not this. No ws verifyClient and no check in the
     // connection handler: both run after this point and would only repeat it.
     if (!isAllowedOrigin(req.headers.origin, req.headers.host)) {
-        warnRejectedOrigin('/ws', req.headers.origin);
+        warnRejectedOrigin('/ws', req.headers.origin, req.headers.host);
         refuseUpgrade(socket, 403);
         return;
     }

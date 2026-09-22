@@ -270,7 +270,9 @@ describe('handleUpgradeRequest order', () => {
             "if (pathname !== '/ws') return;",
             "if (req.url.startsWith(io.path() + '/')) return;",
             'if (!isAllowedOrigin(req.headers.origin, req.headers.host)) {',
-            'refuseUpgrade(socket, 403);',
+            // The warn call rather than refuseUpgrade(socket, 403), which later
+            // checks in this handler may also use; this call is the origin check's own.
+            "warnRejectedOrigin('/ws', req.headers.origin, req.headers.host);",
             'wss.handleUpgrade(',
         ].map(at);
         for (let i = 1; i < order.length; i++) {

@@ -525,6 +525,9 @@ test('/ws with a foreign Origin gets 403 and the server survives', async (t) => 
     // Logged once per path however many arrive: a line per refusal would hand
     // any web page a log flood at a rate it picks.
     assert.equal((srv.stderr.match(REFUSED_WS) || []).length, 1, `stderr:\n${srv.stderr}`);
+    // The Host it was compared with, so an operator whose proxy rewrites or
+    // strips Host can see why the server's own address was refused.
+    assert.ok(srv.stderr.includes(`from Origin "https://evil.example" (Host "127.0.0.1:${srv.port}")`), `stderr:\n${srv.stderr}`);
 });
 
 test('no Origin reaches open', async (t) => {
@@ -615,6 +618,7 @@ test('a foreign Origin on a Socket.IO target is refused by Socket.IO alone', asy
     }
     await assertSurvived(srv, 'two Socket.IO targets from a foreign Origin');
     assert.equal((srv.stderr.match(REFUSED_SIO) || []).length, 1, `stderr:\n${srv.stderr}`);
+    assert.ok(srv.stderr.includes(`on /socket.io from Origin "https://evil.example" (Host "127.0.0.1:${srv.port}")`), `stderr:\n${srv.stderr}`);
     assert.equal((srv.stderr.match(REFUSED_WS) || []).length, 0, `the /ws check ran for a Socket.IO target:\n${srv.stderr}`);
 });
 
