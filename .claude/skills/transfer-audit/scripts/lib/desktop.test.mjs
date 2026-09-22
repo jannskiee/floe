@@ -36,6 +36,7 @@ import {
     FAST_SAMPLE_WINDOW_MS,
     LAUNCH_MODES,
     PROBE_NAMES,
+    PlaywrightDriver,
     PreconditionError,
     RE,
     READY_AFTER_DECISIVE_MS,
@@ -76,6 +77,7 @@ import {
     versionForIdentity,
     withDesktopConfig,
     writeShellMenu,
+    xpathLiteral,
 } from './desktop.mjs';
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), 'desktop-test-'));
@@ -2367,4 +2369,192 @@ test('buildHead refuses a mode it does not know', async () => {
     // store is a launch mode the adapter knows; it is just not a head build.
     assert.ok(LAUNCH_MODES.includes('store'));
     assert.ok(LAUNCH_MODES.includes('wailsdev'));
+});
+
+// -------------------------------------------------- the wailsdev driver
+
+/**
+ * A page that records the locator chain instead of touching a browser, so
+ * the shape of a selector is testable without Playwright or a DOM. evaluate
+ * runs the real page function against a stub window, which is what pins the
+ * event name and payload rather than the source text.
+ */
+function fakePage({ runtime } = {}) {
+    const chain = [];
+    const node = () => ({
+        locator(sel) {
+            chain.push(['locator', sel]);
+            return node();
+        },
+        getByRole(role, o) {
+            chain.push(['getByRole', role, o]);
+            return node();
+        },
+        nth(i) {
+            chain.push(['nth', i]);
+            return node();
+        },
+        async click() {
+            chain.push(['click']);
+        },
+    });
+    return {
+        chain,
+        locator(sel) {
+            chain.push(['locator', sel]);
+            return node();
+        },
+        getByRole(role, o) {
+            chain.push(['getByRole', role, o]);
+            return node();
+        },
+        async evaluate(fn, arg) {
+            const had = 'window' in globalThis;
+            const prev = globalThis.window;
+            globalThis.window = { runtime };
+            try {
+                return await fn(arg);
+            } finally {
+                if (had) globalThis.window = prev;
+                else delete globalThis.window;
+            }
+        },
+    };
+}
+
+test('xpathLiteral quotes a value XPath 1.0 has no escape for', () => {
+    assert.equal(xpathLiteral('Receive'), "'Receive'");
+    assert.equal(xpathLiteral(STRINGS.cancel), "'Cancel'");
+    assert.equal(xpathLiteral('say "hi"'), '\'say "hi"\'');
+    assert.equal(xpathLiteral("it's"), '"it\'s"');
+    // Both quote characters: only concat() can express it.
+    assert.equal(xpathLiteral('it\'s "x"'), "concat('it',\"'\",'s \"x\"')");
+});
+
+test("PlaywrightDriver.click reaches the receive view's primary button by document order, not by sibling position", async () => {
+    const page = fakePage();
+    const d = new PlaywrightDriver(page, null, {});
+
+    // The tab carries the same accessible name and is clicked by index.
+    await d.click(STRINGS.tabReceive, { index: 0 });
+    assert.deepEqual(page.chain, [
+        ['getByRole', 'button', { name: 'Receive', exact: true }],
+        ['nth', 0],
+        ['click'],
+    ]);
+
+    page.chain.length = 0;
+    await d.click(STRINGS.receiveButton, {
+        after: STRINGS.codePlaceholder,
+        controlType: 'Button',
+    });
+    assert.deepEqual(page.chain, [
+        ['locator', 'input[placeholder="amber-otter-cloud"]'],
+        ['locator', "xpath=following::button[normalize-space(.)='Receive']"],
+        ['nth', 0],
+        ['click'],
+    ]);
+    const selectors = page.chain
+        .filter((c) => c[0] === 'locator')
+        .map((c) => c[1]);
+    // The shape that failed every live *2D cell on 2026-09-22: the button
+    // is a sibling of the field group, so `~ *` matched it and getByRole
+    // then searched inside it. Nothing may chain a role query onto a
+    // container here, and no sibling combinator may appear.
+    assert.ok(!selectors.some((s) => s.includes('~ *')), selectors.join(' | '));
+    assert.ok(
+        !page.chain.some((c, i) => c[0] === 'getByRole' && i > 0),
+        'the button is taken by the anchored XPath, not by a nested role query'
+    );
+});
+
+test('PlaywrightDriver.stage hands the app its files through the files:open event', async () => {
+    const emitted = [];
+    const page = fakePage({
+        runtime: { EventsEmit: (...a) => emitted.push(a) },
+    });
+    const d = new PlaywrightDriver(page, null, {});
+    const files = ['C:\\fx\\a.bin', 'C:\\fx\\b.bin'];
+    const out = await d.stage(files);
+    // App.tsx's mount effect: EventsOn('files:open', (paths) => addFiles(paths)),
+    // so the payload is one array argument, not one argument per path.
+    assert.deepEqual(emitted, [['files:open', files]]);
+    assert.deepEqual(out, { staged: 2, via: 'files:open' });
+
+    // A page without the Wails runtime is a start-phase fault, never a
+    // silent no-op that would look like an empty drop zone.
+    const bare = new PlaywrightDriver(fakePage(), null, {});
+    await assert.rejects(() => bare.stage(files), PhaseError);
+});
+
+test('wailsdev sender: the leg stages its files before waiting for the send button', async () => {
+    const state = {
+        values: {},
+        texts: ['READY', 'Select or drag files, then click Send.'],
+        buttons: ['SEND', 'RECEIVE', 'Send'],
+    };
+    // Staging is what makes the button appear, exactly as addFiles does.
+    state.onStage = () => state.buttons.push('Send 1 item');
+    state.onClick = (name) => {
+        if (sameText(name, 'Send 1 item'))
+            state.texts = [
+                'ACTIVE',
+                'olive-tiger-castle',
+                'https://floe.one/#room=abc',
+                STRINGS.waitingForReceiver,
+            ];
+    };
+    const { leg, driver } = legWith(
+        {
+            role: 'sender',
+            files: ['C:\\fx\\a.bin'],
+            build: { launch: 'wailsdev' },
+        },
+        state
+    );
+    await leg.start();
+    const order = driver.calls.map((c) => c[0]);
+    assert.ok(order.includes('stage'), driver.calls.map(String).join(' | '));
+    assert.ok(
+        order.indexOf('stage') < order.indexOf('click'),
+        'the files are staged before the send button is clicked'
+    );
+    assert.deepEqual(driver.calls.find((c) => c[0] === 'stage').slice(0, 2), [
+        'stage',
+        ['C:\\fx\\a.bin'],
+    ]);
+    assert.deepEqual(
+        driver.calls.find((c) => c[0] === 'click').slice(0, 2),
+        ['click', 'Send 1 item'],
+        'the cell still exercises the button, not a direct StartSend'
+    );
+    assert.ok(
+        leg.notes.some((n) =>
+            /staged 1 file\(s\) through the files:open event/.test(n)
+        ),
+        leg.notes.join(' | ')
+    );
+    await leg.stop('test');
+
+    // Every other mode stages at launch, so none of them calls stage.
+    const pstate = {
+        values: {},
+        texts: ['READY'],
+        buttons: ['SEND', 'RECEIVE', 'Send 1 item'],
+    };
+    pstate.onClick = (name) => {
+        if (sameText(name, 'Send 1 item'))
+            pstate.texts = ['ACTIVE', 'https://floe.one/#room=abc'];
+    };
+    const p = legWith(
+        {
+            role: 'sender',
+            files: ['C:\\fx\\a.bin'],
+            build: { launch: 'portable', path: 'x' },
+        },
+        pstate
+    );
+    await p.leg.start();
+    assert.ok(!p.driver.calls.some((c) => c[0] === 'stage'));
+    await p.leg.stop('test');
 });

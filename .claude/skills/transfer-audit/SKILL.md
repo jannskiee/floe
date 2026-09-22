@@ -378,9 +378,34 @@ with `COREPACK_ENABLE_AUTO_PIN=0` (from the repo root corepack resolves
 after `npm run build` in `desktop/frontend`; it proves HEAD, not the shipped
 exe, and the report labels it. The lane expects `wails dev` to be started by
 the operator from that checkout's `desktop/` with its `desktop.json` pointed
-at the audit server and `reportStats:false`; it was not exercised in the
-first round. A wailsdev receiver is refused (exit 3) unless `GetSettings()`
-shows `reportStats:false`, `migrated:true` and the audit server.
+at the audit server and `reportStats:false`. A wailsdev receiver is refused
+(exit 3) unless `GetSettings()` shows `reportStats:false`, `migrated:true`
+and the audit server.
+
+The lane first ran on 2026-09-22 (DV-MATRIX-DSK). Two things the lane needs
+that no other lane does, both learned from that run:
+
+- **The sender's files.** `planLaunch` starts no process for `wailsdev`
+  (`filesStaged: false`), so nothing carries the files on argv and the page
+  opens on an empty drop zone. The leg hands them over first, through the
+  `files:open` event `App.tsx` listens on, which is the same entry point
+  Explorer's verb and a second instance use. The native picker behind the
+  Files button (`SelectFiles()`) cannot be driven from a browser page, and
+  `StartSend()` would skip the button the cell exists to exercise.
+- **The receive view's primary button.** It carries the same accessible
+  name as the RECEIVE tab, and the calm redesign left it a sibling of the
+  field groups rather than of the code input, so it is reached by document
+  order after the code input (the tab row is in the card header above the
+  body), never by sibling position.
+
+`wails dev` serves the page over its own websocket bridge, so the runtime's
+`window.WailsInvoke("runtime:ready")` reaches the dev server's dispatcher,
+which does not know that message and logs `ERR | Unknown message from front
+end: runtime:ready`, once per page connect. Only the WebView2 frontend
+handles it, and all it does there is set the CSS drag and drop property
+names. It is noise for an external browser page: bound method calls (`C`)
+and events (`EE`, `EX`) take different dispatcher branches, so nothing the
+driver relies on is dropped.
 
 Both head desktop lanes are built by `lib/desktop.mjs` `buildHead` from
 `lib/release.mjs` `headDesktopCommands`. On `wailsdev` it runs no build step:

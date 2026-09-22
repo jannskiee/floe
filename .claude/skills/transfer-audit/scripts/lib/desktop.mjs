@@ -238,6 +238,21 @@ export function sendButtonName(n) {
     return `Send ${n} ${n === 1 ? 'item' : 'items'}`;
 }
 
+/**
+ * An XPath 1.0 string literal for an arbitrary value. XPath 1.0 has no
+ * escape sequence, so a value carrying both quote characters can only be
+ * written as concat() of its pieces.
+ */
+export function xpathLiteral(value) {
+    const v = String(value);
+    if (!v.includes("'")) return `'${v}'`;
+    if (!v.includes('"')) return `"${v}"`;
+    return `concat(${v
+        .split("'")
+        .map((part) => `'${part}'`)
+        .join(`,"'",`)})`;
+}
+
 export function sha256(buf) {
     return createHash('sha256').update(buf).digest('hex');
 }
@@ -1047,18 +1062,67 @@ export class PlaywrightDriver {
         });
     }
     async click(name, { index = 0, after } = {}) {
-        let loc = this.page.getByRole('button', { name, exact: true });
         if (after === STRINGS.codePlaceholder) {
-            // The primary Receive button sits below the code input.
-            loc = this.page
+            // The receive view's primary button, told apart from the
+            // RECEIVE tab, which carries the same accessible name.
+            //
+            // The sibling shape this replaced could not reach it and cost
+            // the first live wailsdev run every *2D cell (2026-09-22,
+            // `locator.click: Timeout 30000ms exceeded`). App.tsx renders
+            // the view as <div.space-y-4> holding one field group per
+            // <div.space-y-2> and then the button, so the button is a
+            // sibling of the GROUP that holds the code input, not of the
+            // input, and not a descendant of any of those siblings:
+            // `... ~ *` matched it and `.getByRole()` then searched
+            // INSIDE it, where there is no button.
+            //
+            // Document order is the relationship that actually holds and
+            // survives a layout change: the tab row lives in the card
+            // header above the body, so the first button after the code
+            // input carrying this exact label is the primary one.
+            await this.page
+                .locator(`input[placeholder="${STRINGS.codePlaceholder}"]`)
                 .locator(
-                    'input[placeholder="amber-otter-cloud"] ~ *, div:has(> input[placeholder="amber-otter-cloud"]) ~ *'
+                    `xpath=following::button[normalize-space(.)=${xpathLiteral(name)}]`
                 )
-                .getByRole('button', { name, exact: true });
-            index = 0;
+                .nth(0)
+                .click();
+            return { via: 'playwright', index: 0 };
         }
-        await loc.nth(index).click();
+        await this.page
+            .getByRole('button', { name, exact: true })
+            .nth(index)
+            .click();
         return { via: 'playwright', index };
+    }
+    /**
+     * Hand the app files the way Explorer and a second instance do: the
+     * `files:open` event App.tsx listens on (its mount effect,
+     * `EventsOn('files:open', (paths) => addFiles(paths))`), which is the
+     * one entry point that does not need a native window.
+     *
+     * The picker the Files button opens is Go's SelectFiles(), a native
+     * dialog no browser page can drive, and StartSend() would skip the
+     * very button the cell exists to exercise, so neither is usable here.
+     * Wails v2 EventsEmit notifies this page's own listeners before it
+     * forwards anything to Go (runtime/desktop/events.js: notifyListeners,
+     * then WailsInvoke 'EE'), so the paths reach addFiles in this page
+     * with no round trip and no dependence on the dev bridge.
+     */
+    async stage(files) {
+        const paths = (files || []).map(String);
+        const ok = await this.page.evaluate((p) => {
+            const rt = window.runtime;
+            if (!rt || typeof rt.EventsEmit !== 'function') return false;
+            rt.EventsEmit('files:open', p);
+            return true;
+        }, paths);
+        if (!ok)
+            throw new PhaseError(
+                'start',
+                'desktop wailsdev: window.runtime.EventsEmit is missing on the dev server page'
+            );
+        return { staged: paths.length, via: 'files:open' };
     }
     async setValue(placeholder, value, { scope } = {}) {
         const loc = this._edit(placeholder, scope);
@@ -1568,6 +1632,24 @@ export class DesktopLeg extends Leg {
             );
         const want = sendButtonName(files.length);
         await this.launch(files);
+        // The wailsdev lane launches no process, so nothing carried the
+        // files on argv (planLaunch sets filesStaged false for it) and the
+        // page starts on an empty drop zone. Hand them over before spending
+        // the staging budget on a wait that cannot pass: the first live run
+        // burned 21 s per D2* cell to reach `no button named "Send 1 item"`
+        // (2026-09-22). Every other mode stages at launch, and the store
+        // fallback below stays the only way to stage a running app, because
+        // it activates the window.
+        if (
+            this.mode === 'wailsdev' &&
+            !this.plan?.filesStaged &&
+            typeof this.driver.stage === 'function'
+        ) {
+            await this.driver.stage(files);
+            this.note(
+                `staged ${files.length} file(s) through the files:open event`
+            );
+        }
         let staged = await this.waitForButton(want, this.budget(STAGE_MS));
         if (!staged && this.mode === 'store') {
             if (!this.userAway) {
