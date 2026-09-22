@@ -217,6 +217,7 @@ describe('isAllowedOrigin', () => {
             ['http://192.168.1.50', '192.168.1.50:3001', false, 'Host carries a port the Origin lacks'],
             ['https://floe.example.com', 'floe.example.com:8443', false, 'Host carries a port the Origin lacks'],
             ['https://floe.example.com:8443', 'localhost:3001', false, 'Host rewritten to the upstream'],
+            ['https://floe.example.com', 'localhost:3001', false, 'Host rewritten to the upstream, default port'],
             ['null', HOST, false, 'null origin'],
             ['null', 'null', false, 'null origin and Host'],
             ['https://floe.one, https://evil.example', HOST, false, 'joined duplicate'],
