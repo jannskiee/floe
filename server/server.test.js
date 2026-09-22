@@ -76,6 +76,7 @@ const {
     handleRequestControl,
     REQUEST_MAX_AGE_MS,
     REQUEST_CREATE_KEYS_MAX,
+    requestRoomIds,
 } = require('./server');
 
 // ---------------------------------------------------------------------------
@@ -1763,6 +1764,7 @@ function newToken() {
 function resetRequestState(on = true) {
     rooms.clear();
     roomMeta.clear();
+    if (requestRoomIds) requestRoomIds.clear();
     requestCreates.clear();
     roomToCode.clear();
     codeToRoom.clear();
@@ -2027,6 +2029,7 @@ describe('handleHostJoin', () => {
     it('MAX_REQUEST_ROOMS refuses the next create with limited', () => {
         for (let i = 0; i < MAX_REQUEST_ROOMS; i++) {
             roomMeta.set(`fill-${i}`, { keys: new Set(), kind: 'request', hostPeerId: null, hostAbsentSince: T0, sealed: false });
+            requestRoomIds.add(`fill-${i}`);
         }
         assert.equal(countRequestRooms(), MAX_REQUEST_ROOMS);
         const host = makePeer('host', 'k1');
@@ -2039,6 +2042,65 @@ describe('handleHostJoin', () => {
         const a = makePeer('a', 'x');
         handleJoinRoom(a, randomUUID());
         assert.deepEqual(a.msgs.pop(), { type: 'room-joined', data: { role: 'sender' } });
+    });
+
+    it('a refused create at a full cap does not walk roomMeta', () => {
+        for (let i = 0; i < MAX_REQUEST_ROOMS; i++) {
+            roomMeta.set(`fill-${i}`, { keys: new Set(), kind: 'request', hostPeerId: null, hostAbsentSince: T0, sealed: false });
+            requestRoomIds.add(`fill-${i}`);
+        }
+        let walks = 0;
+        const counted = (name) => function (...args) { walks++; return Map.prototype[name].apply(this, args); };
+        roomMeta.values = counted('values');
+        roomMeta.entries = counted('entries');
+        roomMeta.keys = counted('keys');
+        roomMeta.forEach = counted('forEach');
+        roomMeta[Symbol.iterator] = counted(Symbol.iterator);
+        try {
+            const host = makePeer('host', '203.0.113.77');
+            for (let i = 0; i < 3; i++) {
+                assert.deepEqual(hostJoin(host, newToken(), T0), { type: 'refused', data: { code: 'limited' } });
+            }
+        } finally {
+            for (const k of ['values', 'entries', 'keys', 'forEach']) delete roomMeta[k];
+            delete roomMeta[Symbol.iterator];
+        }
+        assert.equal(walks, 0);
+    });
+
+    it('the request-room count matches a walk after every kind of create and end', () => {
+        const check = (what) => assert.equal(requestRoomIds.size, countRequestRooms(), what);
+        const live = [];
+        for (let i = 0; i < 12; i++) {
+            const token = newToken();
+            const host = makePeer(`h${i}`, `k${i}`);
+            hostJoin(host, token, T0);
+            live.push({ token, id: roomIdFromToken(token), host });
+            check(`create ${i}`);
+        }
+        const plain = makePeer('plain', 'kp');
+        handleJoinRoom(plain, randomUUID());
+        check('an ordinary room');
+        handleRequestControl(live[0].host, 'request-close', live[0].id);
+        check('request-close');
+        endReservation(live[1].id);
+        check('endReservation');
+        handleDisconnect(live[2].host, T0);
+        check('host gone, reservation in grace');
+        cleanupTick(T0 + REQUEST_GRACE_MS + 1);
+        check('the grace sweep');
+        hostJoin(makePeer('back', 'k3'), live[3].token, T0 + 5);
+        check('a reclaim');
+        handleDisconnect(live[4].host, T0);
+        hostJoin(makePeer('late', 'k4'), live[4].token, T0 + REQUEST_GRACE_MS + 10);
+        check('a lazy expiry and re-create');
+        cleanupTick(live[5] && roomMeta.get(live[5].id).createdAt + REQUEST_MAX_AGE_MS + 1);
+        check('the age ceiling');
+        for (let i = 0; i < 3; i++) hostJoin(makePeer(`n${i}`, `kn${i}`), newToken(), T0);
+        fs.writeFileSync(POLICY_PATH, '{"requestLinks":false}');
+        policyStore.apply({ requestLinks: false });
+        check('the policy purge');
+        assert.equal(requestRoomIds.size, 0);
     });
 
     it('malformed hostToken and roomId never throw and change nothing', () => {

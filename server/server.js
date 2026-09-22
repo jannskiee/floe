@@ -540,10 +540,23 @@ function recordCreate(key, now = Date.now()) {
     requestCreates.set(digest, ts);
 }
 
+// The live request-room ids, kept in step with roomMeta so the global cap in
+// handleHostJoin is one size read: a refused create at a full cap would
+// otherwise walk every room (ordinary ones too) on every frame, and it spends
+// no budget, so one socket could repeat it. A request meta enters roomMeta
+// only in handleHostJoin and leaves only through forgetReservation.
+const requestRoomIds = new Set();
+
+// A walk, kept as the test oracle for requestRoomIds.
 function countRequestRooms() {
     let n = 0;
     for (const meta of roomMeta.values()) if (meta.kind === 'request') n++;
     return n;
+}
+
+function forgetReservation(roomId) {
+    roomMeta.delete(roomId);
+    requestRoomIds.delete(roomId);
 }
 
 // Silent: a sealed visitor's drop runs on its data channel and needs nothing
@@ -551,7 +564,7 @@ function countRequestRooms() {
 function endReservation(roomId) {
     for (const p of rooms.get(roomId) || []) p.roomId = null;
     rooms.delete(roomId);
-    roomMeta.delete(roomId);
+    forgetReservation(roomId);
 }
 
 // A member of a request room leaves it: its socket closed (handleDisconnect)
@@ -785,7 +798,7 @@ function handleRequestControl(peer, type, roomId) {
             }
         }
         rooms.delete(id);
-        roomMeta.delete(id);
+        forgetReservation(id);
         peer.roomId = null;
     }
 }
@@ -840,7 +853,7 @@ function handleHostJoin(peer, roomId, hostToken, now = Date.now()) {
         peer.send('refused', { code: 'limited' });
         return;
     }
-    if (countRequestRooms() >= MAX_REQUEST_ROOMS) {
+    if (requestRoomIds.size >= MAX_REQUEST_ROOMS) {
         peer.send('refused', { code: 'limited' });
         return;
     }
@@ -857,6 +870,7 @@ function handleHostJoin(peer, roomId, hostToken, now = Date.now()) {
         createdAt: now,
         hostAbsentSince: null,
     });
+    requestRoomIds.add(id);
     rooms.set(id, [peer]);
     peer.roomId = id;
     recordCreate(peer.key, now);
@@ -883,7 +897,7 @@ function applyPolicyChange(prev, next) {
             }
         }
         rooms.delete(roomId);
-        roomMeta.delete(roomId);
+        forgetReservation(roomId);
     }
 }
 
@@ -1454,6 +1468,7 @@ module.exports = {
     REQUEST_CREATE_WINDOW_MS,
     MAX_REQUEST_ROOMS,
     REQUEST_CREATE_KEYS_MAX,
+    requestRoomIds,
     handleRequestJoin,
     requestJoinAllowed,
     REQUEST_JOINS_PER_MINUTE,
