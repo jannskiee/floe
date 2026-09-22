@@ -1,19 +1,58 @@
-// The two transient bars: the update banner and the undo bar after a Clear.
+// The transient bars: the notice stack (a pending request above the update
+// banner) and the undo bar after a Clear.
 
-import {Download, Undo2, X} from 'lucide-react';
+import type {ReactNode} from 'react';
+import {Download, Inbox, Undo2, X} from 'lucide-react';
 import {BrowserOpenURL} from '../../wailsjs/runtime/runtime';
 import {Button, cn} from './ui';
 import {DOWNLOAD_URL, bareVersion} from '../update';
+import {NOTICE_REVIEW, NOTICE_TEXT} from '../requestCopy';
+
+/** NoticeStack is the one fixed place the standing notices live (spec 06
+ *  5.4): top right under the title bar, stacked with a 12 px gap, never
+ *  overlapping and never reflowing the page. The request notice goes first,
+ *  the update notice under it. z-30, so tooltips (z-40) and dialogs (z-50)
+ *  still paint over it, the invariant UpdateNotice already kept on its own.
+ *  Renders nothing when it holds nothing. */
+export function NoticeStack({children}: {children: ReactNode}) {
+    const items = (Array.isArray(children) ? children : [children]).filter(Boolean);
+    if (!items.length) return null;
+    return <div className="fixed right-4 top-[52px] z-30 flex flex-col items-end gap-3">{children}</div>;
+}
+
+// The notices' shared glass: blurred zinc, an inset hairline, the layered
+// shadow and the ice rim (floe-notice-edge).
+const noticeClass = cn(
+    'floe-notice-edge isolate flex h-12 items-center gap-3 rounded-xl pl-4 pr-1.5',
+    'bg-zinc-900/80 ring-1 ring-inset ring-white/10 backdrop-blur-xl backdrop-saturate-150',
+    'shadow-[0_1px_1px_rgba(0,0,0,0.06),0_4px_8px_-4px_rgba(0,0,0,0.28),0_16px_32px_-12px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.07)]',
+    'animate-floe-notice-in motion-reduce:animate-none',
+);
+
+/** RequestNotice brings the owner back to a pending request from anywhere
+ *  (N1, N2). A constant sentence: never the label, a count, a size or a name
+ *  (the prompt shows those). No dismiss: the request answers itself when its
+ *  window ends. Review is the only automatic focus move in the feature, and it
+ *  happens only because the owner pressed it. */
+export function RequestNotice({onReview}: {onReview: () => void}) {
+    return (
+        <div role="group" aria-label={NOTICE_TEXT} className={noticeClass}>
+            <Inbox className="size-4 shrink-0 text-white" strokeWidth={2.5} aria-hidden/>
+            <h2 className="whitespace-nowrap text-[13px] font-semibold leading-none tracking-[-0.01em] text-zinc-50">{NOTICE_TEXT}</h2>
+            <Button className="h-7 text-xs" onClick={onReview}>{NOTICE_REVIEW}</Button>
+        </div>
+    );
+}
 
 /** UpdateNotice is the app's one toast, and a notice only: nothing downloads or
  *  installs here, so it carries a single action plus a dismiss (a "Later"
  *  button would just be a second X, and snooze semantics belong to
  *  auto-updaters with a payload waiting). It persists until acted on: an
  *  actionable notice that auto-hides is one most users never see, and there is
- *  no notification center to replay it. z-30 keeps tooltips (z-40) and the
- *  dialogs (z-50) painting over it, so the documented paint-order/Escape
- *  invariant is untouched; Escape closes it only while focus is inside the
- *  card, never from the global chain. It must not steal focus on appear.
+ *  no notification center to replay it. It sits in NoticeStack, whose z-30
+ *  keeps tooltips (z-40) and the dialogs (z-50) painting over it, so the
+ *  documented paint-order/Escape invariant is untouched; Escape closes it only
+ *  while focus is inside the card, never from the global chain. It must not steal focus on appear.
  *  Screen-reader announcement lives in the persistent sr-only region at the
  *  app root, not here: a live region that mounts with its content already
  *  inside announces nothing. */
@@ -23,12 +62,8 @@ export function UpdateNotice({version, onDismiss}: {version: string; onDismiss: 
             role="group"
             aria-label="Update available"
             onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onDismiss(); } }}
-            className={cn(
-                'floe-notice-edge fixed right-4 top-[52px] z-30 isolate flex h-12 items-center gap-3 rounded-xl pl-4 pr-1.5',
-                'bg-zinc-900/80 ring-1 ring-inset ring-white/10 backdrop-blur-xl backdrop-saturate-150',
-                'shadow-[0_1px_1px_rgba(0,0,0,0.06),0_4px_8px_-4px_rgba(0,0,0,0.28),0_16px_32px_-12px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.07)]',
-                'animate-floe-notice-in motion-reduce:animate-none',
-            )}
+            // Positioned by NoticeStack, which it shares with the request notice.
+            className={noticeClass}
         >
             {/* strokeWidth 3 on a 16px lucide renders a whole 2.0 device px, so
                 the glyph is true white and crisp; the default 2 draws 1.33px

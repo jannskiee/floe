@@ -644,3 +644,364 @@ describe('a request link pasted into CODE', () => {
         expect(screen.queryByText(cp2)).toBeNull();
     });
 });
+
+/**
+ * Receive > REQUEST LINK in the app (S1-DSK-06): the events' own effect, the
+ * row rules, the header marker, the close guard and Start over copy, and the
+ * next-launch line. Go's side is the mock: a test plays the lane by emitting
+ * request:state snapshots.
+ */
+describe('the request link in the app', () => {
+    const GB = 1024 ** 3;
+    const LINK = 'http://localhost:3000/r/Xk3p9Q0aB1c#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f';
+    const base = {
+        code: '', gen: 1, promptGen: 0, link: LINK, label: 'Acme footage', saveDir: 'D:\\Footage\\Floe requests',
+        expiresAt: Date.now() + 3600_000, route: '', suggestClose: false,
+    };
+    const lane = (state: string, over: Record<string, unknown> = {}) => ({...base, state, ...over});
+    const prompt = {files: 12, totalBytes: 38 * GB, folder: 'Floe requests\\Acme footage 2026-09-14 1405', freeBytes: 500 * GB, warnings: [], answerBy: Date.now() + 9 * 60000};
+
+    function switchOn(feature = true) {
+        wails.go.GetSettings.mockImplementation(async () => ({
+            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false, requestLinks: true, migrated: true,
+        }));
+        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: feature}));
+    }
+    const allOn = () => waitFor(() => expect(wails.listeners.size).toBe(15));
+    const push = (s: Record<string, unknown>) => act(() => { wails.emit('request:state', s); });
+    const receiveTab = () => screen.getAllByRole('button', {name: 'Receive'})[0];
+    const requestButton = () => screen.getByRole('button', {name: 'Request link, beta'});
+
+    it('registers every Go listener and tears down every one, the request events included', async () => {
+        switchOn();
+        const {unmount} = mount();
+        await allOn();
+        expect([...wails.listeners.keys()].sort()).toEqual([
+            'close:blocked', 'files:open', 'recv:file-done', 'recv:incoming', 'recv:progress', 'recv:route',
+            'request:progress', 'request:state',
+            'send:code', 'send:delivered', 'send:done', 'send:error', 'send:progress', 'send:route', 'send:status',
+        ]);
+        unmount();
+        expect([...wails.listeners.keys()]).toEqual([]);
+        const ons = wails.calls.filter((c) => c.startsWith('on:'));
+        const offs = wails.calls.filter((c) => c.startsWith('off:'));
+        expect(offs.length).toBe(ons.length);
+    });
+
+    it('the mount effect keeps its 11 listeners', async () => {
+        switchOn();
+        mount();
+        await allOn();
+        // Effects run in declaration order, so the first eleven registrations
+        // are the mount effect's, and they are exactly the original eleven;
+        // the verification pair and the request pair come after, each from
+        // its own effect.
+        const ons = wails.calls.filter((c) => c.startsWith('on:')).map((c) => c.slice(3));
+        expect(ons.slice(0, 11)).toEqual([
+            'send:code', 'send:status', 'send:progress', 'send:done', 'send:error', 'recv:incoming',
+            'recv:progress', 'send:route', 'recv:route', 'files:open', 'close:blocked',
+        ]);
+        expect(ons.slice(11, 13)).toEqual(['recv:file-done', 'send:delivered']);
+        expect(ons.indexOf('request:state')).toBeGreaterThan(12);
+        expect(wails.go.GetRequestLink).toHaveBeenCalled();
+    });
+
+    it('row hidden when the switch is off or the feature is missing', async () => {
+        // Off (the default): no row, and REQUEST LINK cannot be reached.
+        const first = mount();
+        await settled();
+        await userEvent.click(receiveTab());
+        expect(screen.queryByRole('button', {name: 'Request link, beta'})).toBeNull();
+        first.unmount();
+
+        // On, but the server lacks request-1.
+        switchOn(false);
+        mount();
+        await allOn();
+        await userEvent.click(receiveTab());
+        await waitFor(() => expect(wails.go.RequestLinkSupport).toHaveBeenCalled());
+        expect(screen.queryByRole('button', {name: 'Request link, beta'})).toBeNull();
+        expect(screen.getByPlaceholderText('amber-otter-cloud')).toBeTruthy();
+    });
+
+    it('row stays while a drop runs after request-1 disappears', async () => {
+        switchOn(true);
+        mount();
+        await allOn();
+        await userEvent.click(receiveTab());
+        await waitFor(() => expect(requestButton()).toBeTruthy());
+        push(lane('receiving', {gen: 2, route: 'direct'}));
+
+        // The kill switch flips on the server: the next probe says no.
+        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: false}));
+        const probes = wails.go.RequestLinkSupport.mock.calls.length;
+        await userEvent.click(screen.getByRole('button', {name: 'Send'}));
+        await userEvent.click(receiveTab());
+        await waitFor(() => expect(wails.go.RequestLinkSupport.mock.calls.length).toBeGreaterThan(probes));
+        await act(async () => { await Promise.resolve(); });
+        expect(requestButton()).toBeTruthy();
+        expect(screen.getByText(/RECEIVING/)).toBeTruthy();
+
+        // Once the drop is over and put away, the row goes.
+        push(lane('done', {gen: 2, result: {files: 1, saved: 1, bytes: 1, verified: 1, renamed: 0, folder: 'D:\\x', names: ['a']}}));
+        await userEvent.click(screen.getByRole('button', {name: 'Dismiss'}));
+        await waitFor(() => expect(screen.queryByRole('button', {name: 'Request link, beta'})).toBeNull());
+    });
+
+    it('CODE and REQUEST LINK use aria-pressed', async () => {
+        switchOn();
+        mount();
+        await allOn();
+        await userEvent.click(receiveTab());
+        const code = await screen.findByRole('button', {name: 'Code'});
+        expect(code.getAttribute('aria-pressed')).toBe('true');
+        expect(requestButton().getAttribute('aria-pressed')).toBe('false');
+        await userEvent.click(requestButton());
+        expect(screen.getByRole('button', {name: 'Code'}).getAttribute('aria-pressed')).toBe('false');
+        expect(requestButton().getAttribute('aria-pressed')).toBe('true');
+        expect(screen.getByRole('button', {name: 'Make link'})).toBeTruthy();
+        // The Beta chip sits outside the pair, and is silent (R3 already says beta).
+        const chip = screen.getByText('Beta', {selector: 'span'});
+        expect(chip.getAttribute('aria-hidden')).toBe('true');
+    });
+
+    it('inactive choice labels use zinc-400', async () => {
+        switchOn();
+        mount();
+        await allOn();
+        await userEvent.click(receiveTab());
+        const code = await screen.findByRole('button', {name: 'Code'});
+        expect(requestButton().className).toContain('text-zinc-400');
+        expect(requestButton().className).not.toContain('text-zinc-600');
+        expect(code.className).toContain('text-zinc-200');
+        await userEvent.click(screen.getByRole('button', {name: 'Send'}));
+        const text = screen.getByRole('button', {name: 'Text'});
+        expect(text.className).toContain('text-zinc-400');
+        expect(text.className).not.toContain('text-zinc-600');
+    });
+
+    it('drop state stays out of busy', async () => {
+        switchOn();
+        mount();
+        await allOn();
+        push(lane('receiving', {gen: 2, route: 'direct'}));
+        await userEvent.click(receiveTab());
+        await userEvent.click(await screen.findByRole('button', {name: 'Code'}));
+        // A running drop locks out neither code Receive nor Send.
+        const receive = screen.getAllByRole('button', {name: 'Receive'}).find((b) => b.className.includes('w-full')) as HTMLButtonElement;
+        expect(receive.disabled).toBe(false);
+        await userEvent.click(screen.getByRole('button', {name: 'Send'}));
+        expect(screen.getByRole('button', {name: 'Text'})).toBeTruthy(); // the idle Send view
+        // The header reads the drop's route, and the footer the busy line.
+        expect(screen.getByText('Direct')).toBeTruthy();
+        expect(screen.getByText('Keep this window open. Closing it cancels the transfer.')).toBeTruthy();
+    });
+
+    it('Ctrl+Enter does nothing on REQUEST LINK', async () => {
+        switchOn();
+        const user = userEvent.setup();
+        mount();
+        await allOn();
+        await user.click(receiveTab());
+        // A code typed on CODE stays in its field behind REQUEST LINK; the
+        // shortcut must not reach it from there.
+        await user.type(await screen.findByPlaceholderText('amber-otter-cloud'), 'amber-otter-cloud');
+        await user.click(requestButton());
+        act(() => { (document.activeElement as HTMLElement | null)?.blur(); });
+        await user.keyboard('{Control>}{Enter}{/Control}');
+        expect(wails.go.MakeRequestLink).not.toHaveBeenCalled();
+        expect(wails.go.ReceiveByCode).not.toHaveBeenCalled();
+        push(lane('deciding', {gen: 2, promptGen: 1, prompt}));
+        await act(async () => { await new Promise((r) => setTimeout(r, 1100)); });
+        act(() => { (document.activeElement as HTMLElement | null)?.blur(); });
+        await user.keyboard('{Control>}{Enter}{/Control}');
+        expect(wails.go.AnswerRequest).not.toHaveBeenCalled();
+        expect(wails.go.ReceiveByCode).not.toHaveBeenCalled();
+    });
+
+    it('close guard with an open link shows Keep Floe open and Close Floe', async () => {
+        switchOn();
+        const user = userEvent.setup();
+        mount();
+        await allOn();
+        push(lane('waiting'));
+        act(() => { wails.emit('close:blocked'); });
+        const dialog = await screen.findByRole('dialog');
+        expect(within(dialog).getByText('Close Floe?')).toBeTruthy();
+        expect(within(dialog).getByText('Your request link stops working until you make a new one.')).toBeTruthy();
+        const keep = within(dialog).getByRole('button', {name: 'Keep Floe open'});
+        expect(document.activeElement).toBe(keep);
+        await user.click(within(dialog).getByRole('button', {name: 'Close Floe'}));
+        expect(wails.go.ConfirmClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('close guard with a drop receiving shows the receiving sentence', async () => {
+        switchOn();
+        mount();
+        await allOn();
+        push(lane('receiving', {gen: 2, route: 'relay'}));
+        act(() => { wails.emit('close:blocked'); });
+        const dialog = await screen.findByRole('dialog');
+        expect(within(dialog).getByText("You're still receiving. If you close now, the transfer stops before the files finish.")).toBeTruthy();
+        expect(within(dialog).getByRole('button', {name: 'Keep going'})).toBeTruthy();
+        expect(within(dialog).getByRole('button', {name: 'Close anyway'})).toBeTruthy();
+    });
+
+    it('close guard with a send and a link adds the link sentence', async () => {
+        switchOn();
+        const user = userEvent.setup();
+        mount();
+        await allOn();
+        push(lane('waiting'));
+        await user.click(screen.getByRole('button', {name: 'Text'}));
+        await user.type(screen.getByPlaceholderText('Type or paste text to send'), 'hello');
+        await user.click(screen.getByRole('button', {name: /Send text/}));
+        act(() => { wails.emit('close:blocked'); });
+        const dialog = await screen.findByRole('dialog');
+        expect(dialog.textContent).toContain(
+            "You're still sending. If you close now, the transfer stops and the other side gets nothing. Your request link also stops working.",
+        );
+        expect(within(dialog).getByRole('button', {name: 'Keep going'})).toBeTruthy();
+    });
+
+    it('the Start over dialog says the link stays open', async () => {
+        switchOn();
+        const user = userEvent.setup();
+        mount();
+        await allOn();
+        push(lane('waiting'));
+        await user.click(screen.getByRole('button', {name: 'Text'}));
+        await user.type(screen.getByPlaceholderText('Type or paste text to send'), 'an unsent note');
+        act(() => { (document.activeElement as HTMLElement | null)?.blur(); });
+        await user.keyboard('{Control>}r{/Control}');
+        const dialog = await screen.findByRole('dialog');
+        expect(within(dialog).getByText('Your request link stays open.')).toBeTruthy();
+        // Start over never touches the lane.
+        await user.click(within(dialog).getByRole('button', {name: 'Start over'}));
+        expect(wails.go.CloseRequestLink).not.toHaveBeenCalled();
+    });
+
+    it('the header marker opens REQUEST LINK and never switches tabs by itself', async () => {
+        switchOn();
+        const user = userEvent.setup();
+        mount();
+        await allOn();
+        push(lane('waiting'));
+        // Still on Send: the marker appeared, the view did not move.
+        const marker = await screen.findByRole('button', {name: 'Request link is open'});
+        expect(marker.textContent).toBe('link open');
+        expect(screen.getByRole('button', {name: 'Text'})).toBeTruthy();
+        await user.click(marker);
+        expect(await screen.findByRole('button', {name: 'Close link'})).toBeTruthy();
+    });
+
+    it('a prompt raises the notice elsewhere, announces once, and Review opens it', async () => {
+        switchOn();
+        const user = userEvent.setup();
+        mount();
+        await allOn();
+        push(lane('deciding', {gen: 2, promptGen: 1, prompt}));
+        const notice = await screen.findByRole('group', {name: 'Someone wants to send you files.'});
+        const spans = [...document.querySelectorAll('span.sr-only[role="status"]')].map((s) => s.textContent);
+        expect(spans).toContain('Request link: someone wants to send you files.');
+        expect(wails.go.AnswerRequest).not.toHaveBeenCalled();
+        await user.click(within(notice).getByRole('button', {name: 'Review'}));
+        await waitFor(() => expect(document.activeElement?.id).toBe('floe-request-prompt-heading'));
+        expect(screen.getByText('ACME FOOTAGE WANTS TO SEND YOU FILES')).toBeTruthy();
+    });
+
+    it('the link stopped when Floe closed line shows once after relaunch', async () => {
+        switchOn();
+        localStorage.setItem('floe:requestLinkOpenUntil', String(Date.now() + 3600_000));
+        const first = mount();
+        await allOn();
+        await userEvent.click(receiveTab());
+        expect(await screen.findByText('This link stopped when Floe closed. Make a new one.')).toBeTruthy();
+        expect(localStorage.getItem('floe:requestLinkOpenUntil')).toBeNull();
+        first.unmount();
+
+        // The next launch has nothing to say.
+        mount();
+        await allOn();
+        await userEvent.click(receiveTab());
+        await waitFor(() => expect(requestButton()).toBeTruthy());
+        await userEvent.click(requestButton());
+        expect(screen.queryByText('This link stopped when Floe closed. Make a new one.')).toBeNull();
+        expect(screen.getByRole('button', {name: 'Make link'})).toBeTruthy();
+    });
+
+    it('keeps only the end time, never the link, and clears it when the link ends', async () => {
+        switchOn();
+        mount();
+        await allOn();
+        push(lane('waiting'));
+        await waitFor(() => expect(localStorage.getItem('floe:requestLinkOpenUntil')).toBe(String(base.expiresAt)));
+        for (let i = 0; i < localStorage.length; i++) {
+            const v = localStorage.getItem(localStorage.key(i)!) || '';
+            expect(v).not.toContain('Xk3p9Q0aB1c');
+            expect(v).not.toContain('6f1c2b9e');
+        }
+        push(lane('ended', {code: 'closed'}));
+        await waitFor(() => expect(localStorage.getItem('floe:requestLinkOpenUntil')).toBeNull());
+    });
+
+    it('Make link passes the remembered folder and shows the stub refusal as fixed copy', async () => {
+        switchOn();
+        localStorage.setItem('floe:requestSaveDir', 'D:\\Footage\\Floe requests');
+        const user = userEvent.setup();
+        mount();
+        await allOn();
+        await user.click(receiveTab());
+        await user.click(requestButton());
+        await user.type(screen.getByLabelText('Label'), 'Acme footage');
+        await user.click(screen.getByRole('button', {name: 'Make link'}));
+        expect(wails.go.MakeRequestLink).toHaveBeenCalledWith('Acme footage', 'D:\\Footage\\Floe requests', '24h');
+        // The stub refuses (FT-03): the disabled sentence, never a link.
+        expect(await screen.findByText('Request links are turned off on the Floe server right now. Nothing else is affected.')).toBeTruthy();
+        expect(screen.queryByRole('button', {name: 'Copy link'})).toBeNull();
+    });
+});
+
+describe('visitor names in the app', () => {
+    const HOSTILE = ['<img src=x onerror=alert(1)>', '$(calc)', ']]><', '\u202Eevil.exe'];
+
+    it('a hostile name is never passed to any Wails call', async () => {
+        wails.go.GetSettings.mockImplementation(async () => ({
+            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false, requestLinks: true, migrated: true,
+        }));
+        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: true}));
+        const user = userEvent.setup();
+        mount();
+        await waitFor(() => expect(wails.listeners.size).toBe(15));
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
+        await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
+        const base = {code: '', gen: 2, promptGen: 1, link: 'http://localhost:3000/r/Xk3p9Q0aB1c#x', label: 'Acme footage', saveDir: 'D:\\x', expiresAt: Date.now() + 3600_000, route: 'direct', suggestClose: false};
+        let gen = base.gen;
+        for (const name of HOSTILE) {
+            gen += 1; // each drop is a new link, so a new lane generation
+            act(() => {
+                wails.emit('request:state', {...base, gen, state: 'receiving'});
+                wails.emit('request:progress', {fileName: name, fileIndex: 1, fileCount: 2, fileBytes: 1, fileSize: 2, totalBytes: 1, grandTotal: 4, savedName: name});
+            });
+            expect(await screen.findByText(name, {exact: true})).toBeTruthy();
+            expect(document.querySelector('img')).toBeNull();
+            await user.click(screen.getByRole('button', {name: 'Cancel drop'}));
+            act(() => {
+                wails.emit('request:state', {...base, gen, state: 'done', result: {files: 2, saved: 2, bytes: 4, verified: 2, renamed: 1, folder: 'D:\\x\\Acme footage 2026-09-14 1405', names: [name, name]}});
+            });
+            await user.click(screen.getByRole('button', {name: 'Show in folder'}));
+            await user.click(within(screen.getByRole('dialog')).getByRole('button', {name: 'Show in folder'}));
+            await user.click(screen.getByRole('button', {name: 'Dismiss'}));
+        }
+        // Every binding call and every runtime call the app made, arguments
+        // included: none carries a visitor's file name.
+        const runtime = (window as unknown as {runtime: Record<string, unknown>}).runtime;
+        const recorded = JSON.stringify([
+            wails.calls,
+            ...Object.values(wails.go).map((f) => f.mock.calls),
+            ...Object.values(runtime).filter((f) => typeof f === 'function' && 'mock' in (f as object)).map((f) => (f as ReturnType<typeof vi.fn>).mock.calls),
+        ]);
+        expect(wails.go.OpenFolder).toHaveBeenCalledWith('D:\\x\\Acme footage 2026-09-14 1405');
+        for (const name of HOSTILE) expect(recorded.includes(JSON.stringify(name).slice(1, -1)), name).toBe(false);
+    });
+});
