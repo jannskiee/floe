@@ -57,6 +57,13 @@ func TestReceiverMidTransferOnlyPartOnDisk(t *testing.T) {
 		t.Fatalf("SendText end: %v", err)
 	}
 
+	// A raw sender has no SendFiles drain, so wait for the end frame to leave
+	// the buffer before closing, or the close would suppress it. Then close as
+	// the CLI's deferred conn.Close() does, instead of leaving the receiver to
+	// wait out its 5 s post-completion grace.
+	flushControl(sender)
+	_ = sender.Close()
+
 	select {
 	case err := <-recvErr:
 		if err != nil {
@@ -131,6 +138,12 @@ func TestReceiverRenameCollisionAtEnd(t *testing.T) {
 	if err := sender.SendText(`{"type":"end"}`); err != nil {
 		t.Fatalf("SendText end: %v", err)
 	}
+
+	// Flush the end frame out of the buffer before closing (see the note in
+	// TestReceiverMidTransferOnlyPartOnDisk), then close so this does not wait
+	// out the receiver's 5 s post-completion grace.
+	flushControl(sender)
+	_ = sender.Close()
 
 	select {
 	case err := <-recvErr:

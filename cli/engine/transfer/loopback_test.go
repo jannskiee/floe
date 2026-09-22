@@ -110,6 +110,13 @@ func runTransfer(t *testing.T, srcPaths []string) string {
 		t.Fatalf("SendFiles: %v", err)
 	}
 
+	// Close once the send returns, which is what the CLI does: send.go's
+	// deferred conn.Close() tears the connection down as soon as SendFiles is
+	// through. Left open, every caller of this helper sits out the receiver's
+	// 5 s post-completion grace wait (receiver.go) for a close that is coming
+	// anyway.
+	_ = sender.Close()
+
 	select {
 	case err := <-recvErr:
 		if err != nil {
@@ -385,6 +392,11 @@ func TestLoopbackProgressSavedName(t *testing.T) {
 	if err := SendFiles(sender, []string{pathA, pathB}, ""); err != nil {
 		t.Fatalf("SendFiles: %v", err)
 	}
+
+	// Close as runTransfer and the CLI do, so this does not wait out the
+	// receiver's 5 s post-completion grace.
+	_ = sender.Close()
+
 	select {
 	case err := <-recvErr:
 		if err != nil {
