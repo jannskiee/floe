@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"type\":\"signal\",\"signal\":{\"type\":\"offer\",\"sdp\":\"v=0\"}}")
