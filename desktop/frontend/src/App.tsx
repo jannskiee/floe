@@ -158,6 +158,10 @@ function App() {
     const [sending, setSending] = useState(false);
     const [sendProg, setSendProg] = useState<{pct: number; label: string} | null>(null);
     const [sendDone, setSendDone] = useState(false);
+    // Whether the receiver's delivery report said every file matched its
+    // SHA-256. Reduced to a boolean in the event handler; the counts never
+    // reach a render.
+    const [sendVerified, setSendVerified] = useState(false);
     const [sentCount, setSentCount] = useState(0);
     // The note the last COMPLETED send put on the wire, '' when that send was
     // files. Start over compares the box against it: send:done leaves the
@@ -214,6 +218,13 @@ function App() {
     const [recvProg, setRecvProg] = useState<{pct: number; label: string} | null>(null);
     const [recvDir, setRecvDir] = useState('');
     const [recvDone, setRecvDone] = useState(false);
+    // Whether every file this receive committed passed its SHA-256 check.
+    // Counted in refs, because the recv:file-done handler is registered once
+    // with [] deps, so a state value read inside it would be the first
+    // render's forever. Only the reduced boolean is state.
+    const [recvVerified, setRecvVerified] = useState(false);
+    const recvVerifiedRef = useRef(0);
+    const recvFilesRef = useRef(0);
     // The pre-transfer preview line ("Incoming: 3 files · 812 MB"), set by the
     // recv:incoming event before the first byte lands.
     const [incoming, setIncoming] = useState('');
@@ -610,6 +621,29 @@ function App() {
             EventsOff('files:open');
             EventsOff('close:blocked');
             OnFileDropOff();
+        };
+    }, []);
+
+    // The two verification events, in their own effect with their own teardown.
+    // Deliberately NOT folded into the mount effect above: that one is eleven
+    // listeners with a matching teardown and a first-render closure contract,
+    // and it stays exactly as it is.
+    useEffect(() => {
+        EventsOn('recv:file-done', (d: {verified: boolean}) => {
+            if (recvCancel.current) return;
+            recvFilesRef.current += 1;
+            if (d && d.verified) recvVerifiedRef.current += 1;
+            setRecvVerified(recvFilesRef.current > 0 && recvVerifiedRef.current === recvFilesRef.current);
+        });
+        EventsOn('send:delivered', (d: {files: number; verified: number; hasVerified: boolean}) => {
+            if (sendCancel.current) return;
+            // The receiver's claim, so only the equality is read: a count above
+            // the file count already arrives as hasVerified false.
+            setSendVerified(!!d && d.hasVerified && d.files > 0 && d.verified === d.files);
+        });
+        return () => {
+            EventsOff('recv:file-done');
+            EventsOff('send:delivered');
         };
     }, []);
 
@@ -1108,6 +1142,7 @@ function App() {
         sendCancel.current = false;
         setSending(true);
         setSendDone(false);
+        setSendVerified(false);
         setRoute('');
         if (sendKind === 'text') {
             setSentCount(1);
@@ -1146,6 +1181,9 @@ function App() {
         setRecvProg(null);
         setRecvDir('');
         setRecvDone(false);
+        setRecvVerified(false);
+        recvVerifiedRef.current = 0;
+        recvFilesRef.current = 0;
         setIncoming('');
         setRoute('');
         recvCancel.current = false;
@@ -1251,6 +1289,7 @@ function App() {
         setSending(false);
         setSendProg(null);
         setSendDone(false);
+        setSendVerified(false);
         setSentCount(0);
         setPeerConnected(false);
         setFilesOpen(false);
@@ -1265,6 +1304,9 @@ function App() {
         setRecvProg(null);
         setRecvDir('');
         setRecvDone(false);
+        setRecvVerified(false);
+        recvVerifiedRef.current = 0;
+        recvFilesRef.current = 0;
         setIncoming('');
         recvStart.current = null;
         recvNamesRef.current = new Map();
@@ -2038,6 +2080,11 @@ function App() {
                                                 <span>Sent {sentCount} {sentCount === 1 ? 'item' : 'items'}</span>
                                             </div>
                                         )}
+                                        {/* Its own line under the done row, never inside it. The
+                                            plain words only, never a digest value (D-101). */}
+                                        {sendDone && !sending && sendVerified && (
+                                            <p className="animate-floe-in text-center text-xs text-zinc-500">SHA-256 matched</p>
+                                        )}
                                         <StatusLine text={sendStatus} busy={sending}/>
                                     </div>
 
@@ -2092,6 +2139,9 @@ function App() {
                                                 <Check className="size-4 shrink-0 text-green-500"/>
                                                 <span className="truncate">Saved to {recvDir}</span>
                                             </div>
+                                        )}
+                                        {recvDone && !receiving && recvVerified && (
+                                            <p className="animate-floe-in text-xs text-zinc-500">SHA-256 matched</p>
                                         )}
                                         {recvDir && !receiving && (() => {
                                             // recvNamesRef is a ref, but recvDir is set (setRecvDir) only after

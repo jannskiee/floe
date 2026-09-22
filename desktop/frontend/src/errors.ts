@@ -36,6 +36,20 @@ const RULES: Array<[pattern: string, friendly: string]> = [
     ['connection closed while waiting for the receiver', 'The receiver left or declined before the transfer started.'],
     ['no data arrived from the sender', 'Connected, but the sender never started sending. Ask them to try again.'],
     ['transfer stalled', 'The transfer stalled and gave up. Start it again.'],
+    // A hash refusal named as one, above 'receiver discarded a file': that rule
+    // says a file arrived incomplete, which is the wrong cause here. Three
+    // inputs reach a desktop SENDER for the same event: a current peer's coded
+    // refusal, whose text is PeerStoppedError.Error() for CodeHashMismatch in
+    // cli/engine/transfer/refusal.go, and the two wire reasons a peer that
+    // predates `code` sends (RefusalCode.WireReason and the browser's
+    // HASH_UNREADABLE_REASON). The RECEIVER's own two sentences (". . . so it
+    // was not kept") are deliberately NOT matched: that is this side's file,
+    // and they keep passing through, which refusal.go's comment relies on. A
+    // bare 'SHA-256' pattern would catch them and tell a person whose own drive
+    // failed that the other side discarded a file.
+    ['their Floe deleted it', 'The other side discarded a file that did not match what was sent. Try sending again.'],
+    ['its SHA-256 did not match', 'The other side discarded a file that did not match what was sent. Try sending again.'],
+    ["sender's SHA-256 was not readable", 'The other side discarded a file that did not match what was sent. Try sending again.'],
     // Both carry a reason the RECEIVER wrote about its own side, so they must
     // sit above the receiver-voiced buckets below or a sender would be told a
     // file it sent arrived incomplete, in the wrong voice.
