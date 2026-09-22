@@ -388,6 +388,15 @@ export function statusCopy(model: VisitorModel, ctx: StatusContext): StatusCopy 
         case 'V9':
             return card('ended', visitorCopy.relayBlocked, [], 'back-to-files', { learnMore: true });
         case 'V11': {
+            // An unreadable local file (C-130): the visitor's own path, and the
+            // saved line from the visitor's own count, since no host count
+            // came with it.
+            const unreadable = model.unreadableIndex > 0 ? ctx.pathAt(model.unreadableIndex) : undefined;
+            if (model.stop === null && unreadable !== undefined) {
+                return card('ended', unreadableTitle(unreadable), [savedLine(arrived, total)], null, {
+                    showArrived: arrived > 0,
+                });
+            }
             const r = refusalCopy(model.stop?.refusal ?? null, model.stop?.savedCount ?? 0, total);
             return card('ended', r.title, r.lines, null, { showArrived: r.showArrived });
         }
@@ -398,9 +407,7 @@ export function statusCopy(model: VisitorModel, ctx: StatusContext): StatusCopy 
         case 'V11b':
             return card('ended', visitorCopy.needsUpdate);
         case 'V12': {
-            const path = model.lost === 'unreadable' ? ctx.pathAt(model.unreadableIndex) : undefined;
-            const title = path !== undefined ? unreadableTitle(path) : visitorCopy.lostTitle;
-            return card('ended', title, [lostLine(arrived, total)], null, { showArrived: arrived > 0 });
+            return card('ended', visitorCopy.lostTitle, [lostLine(arrived, total)], null, { showArrived: arrived > 0 });
         }
         case 'V12a':
             return card('ended', visitorCopy.lostBeforeAccept, [], 'try-again');

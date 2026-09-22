@@ -203,12 +203,27 @@ describe('visitor copy: server answers and the attempt states', () => {
             lines: ['2 of 12 files were saved.'],
         });
 
-        const unreadable = model('V12', { ackIndex: 2, lost: 'unreadable', unreadableIndex: 2 });
-        const copy = statusCopy(unreadable, CTX);
+    });
+
+    it('an unreadable file shows C-130 as a stop, and the screen reader hears the same', () => {
+        // WP-W1 review F3: the frozen C-130 row maps an unreadable file to V11
+        // after the first ack, with the saved line from the visitor's own
+        // count, and SR-05 announces the title that is on screen.
+        const sending = model('V10', { ackIndex: 2, channelOpen: true, sendStarted: true, acceptedAt: 0 });
+        const m = reduce(sending, { type: 'UNREADABLE', index: 2 }).model;
+        const copy = statusCopy(m, CTX);
         expect(copy?.title).toBe(
             'Could not read "shoot/A001_C003.mov". It may have been moved, renamed, or on a drive or folder that is no longer available. Nothing further was sent.'
         );
-        expect(copy?.lines).toEqual(['1 of 12 files arrived. Ask them for a new link to send the other 11.']);
+        expect(copy?.lines).toEqual(['1 of 12 files were saved.']);
+        expect(copy?.showArrived).toBe(true);
+        expect(announcement(m, CTX)).toBe(copy?.title);
+        // The first file itself unreadable: nothing was saved.
+        const first = reduce(model('V10', { ackIndex: 1, channelOpen: true, sendStarted: true }), {
+            type: 'UNREADABLE', index: 1,
+        }).model;
+        expect(statusCopy(first, CTX)?.lines).toEqual(['Nothing was sent.']);
+        expect(announcement(first, CTX)).toBe(statusCopy(first, CTX)?.title);
     });
 
     it('the SHA-256 line appears only when verified equals N', () => {

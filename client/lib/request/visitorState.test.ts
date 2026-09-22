@@ -429,11 +429,14 @@ describe('visitor state: Sending rows', () => {
     it('V10 + E27 goes to V10', () => {
         expect(step(modelIn('V10'), { type: 'PEER_DISCONNECTED' }).model.state).toBe('V10');
     });
-    it('V10 + an unreadable file goes to V12 with the visitor\'s own index', () => {
+    it('V10 + an unreadable file goes to V11 with the visitor\'s own index (the frozen C-130 mapping)', () => {
+        // approved-copy-web.md C-130: "maps to V11 after the first ack". The
+        // sender reads a file only after its ack, so this is always the case.
         const r = step(modelIn('V10', { ackIndex: 2 }), { type: 'UNREADABLE', index: 2 });
-        expect(r.model.state).toBe('V12');
-        expect(r.model.lost).toBe('unreadable');
+        expect(r.model.state).toBe('V11');
+        expect(r.model.stop).toBeNull();
         expect(r.model.unreadableIndex).toBe(2);
+        expect(r.effects).toContain('disconnectSocket');
     });
 });
 

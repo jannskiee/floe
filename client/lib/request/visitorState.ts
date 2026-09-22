@@ -148,7 +148,9 @@ export interface VisitorModel {
     /** V11: the allowlisted refusal (or null) and the clamped saved count. */
     stop: { refusal: RefusalCode | null; savedCount: number } | null;
     /** V12: how the drop was lost. */
-    lost: 'closed' | 'ack-timeout' | 'silent' | 'unreadable' | null;
+    lost: 'closed' | 'ack-timeout' | 'silent' | null;
+    /** V11 by an unreadable local file (C-130): the file's own 1-based index;
+     *  0 otherwise. */
     unreadableIndex: number;
     /** The host's verified claim, display only (C-122). */
     verifiedCount: number | null;
@@ -468,7 +470,10 @@ function waiting(model: VisitorModel, event: VisitorEvent): Step {
         case 'SEND_SETTLED_SILENT':
             return end(model, 'V12', { lost: 'silent' });
         case 'UNREADABLE':
-            return end(model, 'V12', { lost: 'unreadable', unreadableIndex: event.index });
+            // The frozen C-130 row: an unreadable file maps to V11 after the
+            // first ack, which is every case the sender can report, since it
+            // reads a file only after that file's ack.
+            return end(model, 'V11', { stop: null, unreadableIndex: event.index });
         case 'CANCEL':
             return to(model, 'V6d', {}, [...CANCEL_TEARDOWN]);
         case 'VERIFIED_COUNT':
@@ -511,7 +516,10 @@ function sending(model: VisitorModel, event: VisitorEvent): Step {
         case 'SEND_SETTLED_SILENT':
             return end(model, 'V12', { lost: 'silent' });
         case 'UNREADABLE':
-            return end(model, 'V12', { lost: 'unreadable', unreadableIndex: event.index });
+            // The frozen C-130 row: an unreadable file maps to V11 after the
+            // first ack, which is every case the sender can report, since it
+            // reads a file only after that file's ack.
+            return end(model, 'V11', { stop: null, unreadableIndex: event.index });
         case 'CANCEL':
             return to(model, 'V11a', {}, [...CANCEL_TEARDOWN]);
         case 'VERIFIED_COUNT':
