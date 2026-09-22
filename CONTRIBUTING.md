@@ -141,6 +141,7 @@ Even with the overlay this is a production build with no hot reload, so use it t
 | `MAX_CODE_REQUESTS_PER_IP` | No | Rate limit for the `/api/code` endpoints per IP per 60 seconds (default: `60`), shared across registering and resolving codes. Raise in CI or staging. |
 | `MAX_FAILED_CODE_RESOLVES` | No | Failed lookups on `GET /api/code/:code` allowed per IP per 60 seconds (default: `10`). Only misses count, and the budget is checked before the lookup, so a receiver holding a real code is never turned away. |
 | `MAX_ACTIVE_CODES` | No | Maximum number of simultaneously-live room codes (default: `10000`). `POST /api/code` returns `503` when the cap is reached. |
+| `POLICY_FILE` | No | Absolute path to the request-link policy file, a JSON object such as `{"requestLinks": true}`. Unset means request links are off. The path is read at startup; the content is re-read every 60 seconds, so turning the feature on or off needs no restart. |
 | `MAX_TURN_REQUESTS_PER_IP` | No | Rate limit for `GET /api/turn-credentials` per IP per 60 seconds (default: `20`). Raise in CI or staging. |
 | `CLOUDFLARE_TURN_KEY_ID` | No | Turn Token ID of a Cloudflare Realtime TURN key. With the API token below, enables managed TURN with no extra infrastructure. Takes precedence over the coturn variables. |
 | `CLOUDFLARE_TURN_KEY_API_TOKEN` | No | API token that pairs with `CLOUDFLARE_TURN_KEY_ID`. Keep it secret. |

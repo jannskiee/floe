@@ -79,6 +79,7 @@ TRUSTED_PROXY_COUNT=         # optional, proxy hops for client-IP parsing (defau
 MAX_CONNECTIONS_PER_IP=      # optional, plus MAX_CODE_REQUESTS_PER_IP, MAX_TURN_REQUESTS_PER_IP,
 MAX_FAILED_CODE_RESOLVES=    #   MAX_ACTIVE_CODES: see server/.env.example for the full
 MAX_ACTIVE_CODES=            #   annotated list
+POLICY_FILE=                 # optional, request-link policy file path (unset = request links off; re-read every 60s)
 ```
 
 **Client** - copy `client/.env.example` to `client/.env.local`:
@@ -106,6 +107,9 @@ The data-channel transfer protocol carries its own version, independent of the r
 
 ### Relay Size Limit
 Relayed (TURN) transfers are capped at 2 GB per session; direct transfers are unlimited. The cap is a sender-side, pre-transfer gate: once the connection is established the sender inspects the selected ICE candidate pair, and only a confirmed relay path with more than the limit queued blocks (strictly greater-than, so exactly 2 GB is allowed). Detection failures fail open so a probe hiccup never blocks a legitimate transfer. Constants: `RELAY_SIZE_LIMIT` in `client/lib/relay.ts` (browser) and `RelaySizeLimit` in `cli/engine/transfer/relay.go` (CLI and desktop); keep the two in sync. The gate is local policy on the sender, not part of the wire protocol, so changing it needs no `ProtocolVersion` bump; the receiver runs the same check only on a request-link drop where the host confirms a relay on its own side.
+
+### Request links (server)
+The request-link handlers are behind a kill switch: a JSON policy file named by `POLICY_FILE` (`server/policy.js`), read at startup and re-read on every tick of the 60s cleanup interval, so a flip needs no restart. Only `{"requestLinks": true}` turns them on; an unset path, a missing file or a server that never read a good file means off, and a file that cannot be read or parsed keeps the last good policy. `/health` always carries `features`: `["request-1"]` while on, `[]` while off. Turning it off ends every unsealed request room; a sealed one is left to finish on its data channel.
 
 ### Room Codes
 `POST /api/code` registers a short human-readable phrase (e.g. `olive-tiger-castle`) mapping to a room ID with a 10-min TTL. `GET /api/code/:code` resolves it (`resolveCodeHandler`). Words come from `server/words.json`. The TTL is the outside limit, not the lifetime: `codeToRoom` has a reverse index `roomToCode`, and `forgetCode(roomId)` retires a room's code when the second seat is taken in `handleJoinRoom` (burn at pairing), when `destroyRoom(roomId)` runs at either `rooms.delete` site (the leave-first block and `handleDisconnect`), and at the top of `POST /api/code` so a room never has two working phrases. `dropCode(code, roomId)` is the delete that keeps both maps in step, and is what the 60s sweeper calls. Resolving is deliberately the one thing that does NOT retire a code: a receiver can fail after the lookup and before it takes its seat (a 429 on ICE credentials, an unwritable `-o`, `--relay-only` against a relay-less server, desktop Hide my IP), so every pre-join failure must be able to retry the same phrase. Never burn on the first GET.

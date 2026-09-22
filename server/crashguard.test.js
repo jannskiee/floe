@@ -21,6 +21,9 @@ const assert = require('node:assert');
 const net = require('node:net');
 const { spawn } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const WebSocket = require('ws');
 
 const SERVER = require.resolve('./server.js');
@@ -76,13 +79,15 @@ async function startServer(extraEnv = {}) {
     });
     children.add(child);
     let stderr = '';
+    let stdout = '';
     child.stderr.on('data', (d) => { stderr += d.toString(); });
-    child.stdout.resume();
+    child.stdout.on('data', (d) => { stdout += d.toString(); });
 
     const srv = {
         child,
         port,
         get stderr() { return stderr; },
+        get stdout() { return stdout; },
         stop() { children.delete(child); child.kill('SIGKILL'); },
     };
 
@@ -472,4 +477,103 @@ test('a peer flooding a non-reading peer is cut off, not buffered', async (t) =>
     await pong;
 
     await assertSurvived(srv, 'a flood aimed at a peer that is not reading');
+});
+
+// --- the request-link policy file (POLICY_FILE) ------------------------------
+//
+// The file is read at startup and on every tick of the real 60 s cleanup
+// interval. A tick cannot be driven from outside the child, so the two tests
+// that need one wait for it, and they run side by side so the file costs about
+// two minutes of wall time rather than three.
+
+function policyDir(t) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'floe-cg-policy-'));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    return path.join(dir, 'policy.json');
+}
+
+// The runbook's edit: a temp file renamed over the real one.
+function writePolicy(file, content) {
+    const tmp = `${file}.tmp`;
+    fs.writeFileSync(tmp, content);
+    fs.renameSync(tmp, file);
+}
+
+async function features(srv) {
+    const resp = await fetch(`http://127.0.0.1:${srv.port}/health`);
+    assert.equal(resp.status, 200);
+    return (await resp.json()).features;
+}
+
+async function until(what, ms, check) {
+    const deadline = Date.now() + ms;
+    for (;;) {
+        if (await check()) return;
+        if (Date.now() > deadline) throw new Error(`timed out after ${ms} ms waiting for ${what}`);
+        await new Promise((r) => setTimeout(r, 1000));
+    }
+}
+
+const HOSTILE_POLICIES = [
+    ['binary garbage', Buffer.from([0x00, 0xff, 0xfe, 0x7b, 0x22, 0x80, 0xc3, 0x28, 0x5b, 0x0a, 0xef, 0xbb, 0xbf])],
+    ['2 MB of JSON', JSON.stringify({ requestLinks: true, pad: 'x'.repeat(2 * 1024 * 1024) })],
+    ['[ nested 100,000 deep', '['.repeat(100000)],
+    ['null', 'null'],
+    ['"string"', '"string"'],
+];
+
+test.describe('request-link policy file', { concurrency: true }, () => {
+    test('hostile policy file contents never reach the backstop', { timeout: 150000 }, async (t) => {
+        const file = policyDir(t);
+
+        // Startup: each variant is the file a fresh server finds at boot. The
+        // read runs at module load, before the backstop is even installed, so a
+        // throw there would end the process during startServer.
+        for (const [name, content] of HOSTILE_POLICIES) {
+            writePolicy(file, content);
+            const srv = await startServer({ POLICY_FILE: file });
+            await assertSurvived(srv, `a policy file of ${name} at startup`);
+            assert.deepEqual(await features(srv), [], `${name} at boot must fail closed`);
+            srv.stop();
+        }
+
+        // A real tick: a good file turns the feature on, then the null variant
+        // lands and the next tick reads it. The one fixed stdout line is how
+        // the test knows the tick ran; the last good policy must stand.
+        writePolicy(file, '{"requestLinks":true}');
+        const srv = await startServer({ POLICY_FILE: file });
+        t.after(() => srv.stop());
+        assert.deepEqual(await features(srv), ['request-1']);
+        writePolicy(file, 'null');
+        await until('the tick to read the null policy', 70000,
+            async () => srv.stdout.includes('policy file unreadable, keeping previous policy'));
+        await assertSurvived(srv, 'a null policy file read by the cleanup tick');
+        assert.deepEqual(await features(srv), ['request-1'], 'a bad file keeps the last good policy');
+        assert.doesNotMatch(srv.stdout + srv.stderr, /null|policy\.json|floe-cg-policy/,
+            'no log line may carry the file content or its path');
+    });
+
+    test('policy flip within 60 s without restart', { timeout: 180000 }, async (t) => {
+        const file = policyDir(t);
+        writePolicy(file, '{"requestLinks":false}');
+        const srv = await startServer({ POLICY_FILE: file });
+        t.after(() => srv.stop());
+        const pid = srv.child.pid;
+        assert.deepEqual(await features(srv), []);
+
+        writePolicy(file, '{"requestLinks":true}');
+        const onAt = Date.now();
+        await until('request-1 in /health', 65000, async () => (await features(srv)).includes('request-1'));
+        const onAfter = Date.now() - onAt;
+
+        writePolicy(file, '{"requestLinks":false}');
+        const offAt = Date.now();
+        await until('request-1 to leave /health', 65000, async () => !(await features(srv)).includes('request-1'));
+        const offAfter = Date.now() - offAt;
+
+        assert.equal(srv.child.pid, pid);
+        assert.equal(srv.child.exitCode, null, 'the flip must not cost a restart');
+        t.diagnostic(`on after ${onAfter} ms, off after ${offAfter} ms, pid ${pid} throughout`);
+        await assertSurvived(srv, 'two policy flips');
+    });
 });

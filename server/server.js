@@ -71,7 +71,18 @@ app.use(
 app.use(express.json());
 
 app.get('/', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
-app.get('/health', (_req, res) => res.json({ status: 'healthy', uptime: process.uptime() }));
+// `features` is read from the policy store on every request, never cached, so
+// it flips in the same cleanup tick as the handlers the store gates. Always
+// present: [] tells a client "new server, request links off" apart from an old
+// server, which has no key at all.
+function healthHandler(_req, res) {
+    res.json({
+        status: 'healthy',
+        uptime: process.uptime(),
+        features: policyStore.requestLinks() ? ['request-1'] : [],
+    });
+}
+app.get('/health', healthHandler);
 
 // ---------------------------------------------------------------------------
 // TURN credential generation (server/turn.js)
@@ -107,6 +118,24 @@ const {
 
 app.get('/api/stats', statsHandler);
 app.post('/api/stats/report', statsReportHandler);
+
+// ---------------------------------------------------------------------------
+// Request-link policy (server/policy.js)
+//
+// The kill switch for request links. POLICY_FILE is an absolute path read from
+// the environment once, here; the file's CONTENT is re-read on every cleanup
+// tick, so flipping the feature needs no restart. Unset or empty means no file,
+// which means request links are off. Read once now, before server.listen, so
+// /health is right from the first request.
+// ---------------------------------------------------------------------------
+
+const { createPolicyStore } = require('./policy');
+
+const policyStore = createPolicyStore({
+    path: process.env.POLICY_FILE || '',
+    onChange: applyPolicyChange,
+});
+try { policyStore.reload(); } catch { /* fails closed: the store starts off */ }
 
 // ---------------------------------------------------------------------------
 // Code phrase API  (/api/code)
@@ -338,6 +367,9 @@ function cleanupTick(now = Date.now()) {
     for (const [code, entry] of codeToRoom.entries()) {
         if (now > entry.expires) dropCode(code, entry.roomId);
     }
+    // Last, and in its own try/catch: a throw inside a setInterval callback
+    // reaches the process backstop (crashguard.test.js fails on that line).
+    try { policyStore.reload(); } catch { /* keep the last good policy */ }
 }
 
 // .unref() so the interval doesn't prevent the process from exiting (e.g. in tests).
@@ -388,6 +420,30 @@ function destroyRoom(roomId) {
     rooms.delete(roomId);
     roomMeta.delete(roomId);
     forgetCode(roomId);
+}
+
+// Runs after the policy store swapped in a new policy whose effective flag
+// changed. When request links go from on to off, every UNSEALED request room is
+// ended: the seated host is told refused {code:'disabled'}, a seated visitor
+// disabled, and both lose their seat. A sealed room is left alone, because its
+// drop runs on its data channel and needs nothing more from this server.
+// Nothing here logs: the store already wrote its one fixed line.
+function applyPolicyChange(prev, next) {
+    if (!(prev && prev.requestLinks === true) || (next && next.requestLinks === true)) return;
+    for (const [roomId, meta] of roomMeta) {
+        if (meta.kind !== 'request' || meta.sealed) continue;
+        for (const p of rooms.get(roomId) || []) {
+            p.roomId = null;
+            try {
+                if (p.id === meta.hostPeerId) p.send('refused', { code: 'disabled' });
+                else p.send('disabled', {});
+            } catch {
+                // Undeliverable; the peer times out on its own.
+            }
+        }
+        rooms.delete(roomId);
+        roomMeta.delete(roomId);
+    }
 }
 
 function createSocketIOPeer(socket, key) {
@@ -892,4 +948,8 @@ module.exports = {
     codeRateLimits,
     selectMinimalIceUrls,
     server,
+    healthHandler,
+    policyStore,
+    cleanupTick,
+    applyPolicyChange,
 };

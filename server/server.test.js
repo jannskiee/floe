@@ -10,6 +10,24 @@ const { describe, it, before, beforeEach, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { createHash, randomUUID } = require('node:crypto');
 const WebSocket = require('ws');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+// server.js reads POLICY_FILE once, at require time, so the path is set before
+// the require below. A per-run temp directory: the file does not exist until a
+// policy test writes it, and a missing file means request links are off.
+const POLICY_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'floe-policy-test-'));
+const POLICY_PATH = path.join(POLICY_DIR, 'policy.json');
+process.env.POLICY_FILE = POLICY_PATH;
+after(() => fs.rmSync(POLICY_DIR, { recursive: true, force: true }));
+
+const {
+    DEFAULT_POLICY,
+    POLICY_MAX_BYTES,
+    parsePolicy,
+    createPolicyStore,
+} = require('./policy');
 
 const {
     errorHandler,
@@ -38,6 +56,9 @@ const {
     handlePong,
     WS_SEND_BUFFER_CEILING,
     server,
+    healthHandler,
+    policyStore,
+    cleanupTick,
 } = require('./server');
 
 // ---------------------------------------------------------------------------
@@ -245,7 +266,7 @@ describe('words.json', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleJoinRoom', () => {
-    beforeEach(() => { rooms.clear(); roomMeta.clear(); roomToCode.clear(); codeFailures.clear(); });
+    beforeEach(() => { rooms.clear(); roomMeta.clear(); roomToCode.clear(); codeFailures.clear(); policyStore.apply(DEFAULT_POLICY); });
 
     it('assigns sender role to the first peer in a room', () => {
         const p = makePeer('peer-A');
@@ -300,7 +321,7 @@ describe('handleJoinRoom', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleSignal', () => {
-    beforeEach(() => { rooms.clear(); roomMeta.clear(); roomToCode.clear(); codeFailures.clear(); });
+    beforeEach(() => { rooms.clear(); roomMeta.clear(); roomToCode.clear(); codeFailures.clear(); policyStore.apply(DEFAULT_POLICY); });
 
     it('routes signal to the other peer when targeted by ID', () => {
         const pA = makePeer('peer-A');
@@ -383,7 +404,7 @@ describe('handleSignal', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleDisconnect', () => {
-    beforeEach(() => { rooms.clear(); roomMeta.clear(); roomToCode.clear(); codeFailures.clear(); });
+    beforeEach(() => { rooms.clear(); roomMeta.clear(); roomToCode.clear(); codeFailures.clear(); policyStore.apply(DEFAULT_POLICY); });
 
     it('removes only the disconnecting peer; the room survives with the remaining peer', () => {
         const pA = makePeer('peer-A');
@@ -463,7 +484,7 @@ describe('handleDisconnect', () => {
 // ---------------------------------------------------------------------------
 
 describe('room seal', () => {
-    beforeEach(() => { rooms.clear(); roomMeta.clear(); roomToCode.clear(); codeFailures.clear(); });
+    beforeEach(() => { rooms.clear(); roomMeta.clear(); roomToCode.clear(); codeFailures.clear(); policyStore.apply(DEFAULT_POLICY); });
 
     // What every real pair does before a single file byte can move: the sender
     // offers, the receiver answers. A key counts toward the seal only once its
@@ -877,6 +898,7 @@ describe('code lifecycle', () => {
         codeToRoom.clear();
         roomToCode.clear();
         codeFailures.clear();
+        policyStore.apply(DEFAULT_POLICY);
     });
 
     // Register through the shipped handler, never by hand, so every test starts
@@ -1522,5 +1544,189 @@ describe('createWSPeer backpressure', () => {
 
         const source = require('node:fs').readFileSync(require.resolve('./server.js'), 'utf8');
         assert.match(source, /maxPayload: 1e6/, 'maxPayload must still be the 1 MB the ceiling mirrors');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Request-link policy file (server/policy.js) and /health features
+// ---------------------------------------------------------------------------
+
+describe('policy', () => {
+    const FIXED_LINES = new Set([
+        'request links: on',
+        'request links: off',
+        'policy file unreadable, keeping previous policy',
+    ]);
+
+    // Written the way the runbook says to edit it: a temp file renamed over the
+    // real one, so a reader never sees half a file.
+    function writePolicy(file, text) {
+        const tmp = `${file}.tmp`;
+        fs.writeFileSync(tmp, text);
+        fs.renameSync(tmp, file);
+    }
+
+    // A store of its own on its own file, with the log lines captured.
+    function store(name) {
+        const file = path.join(POLICY_DIR, name);
+        const lines = [];
+        return { file, lines, s: createPolicyStore({ path: file, log: (l) => lines.push(l) }) };
+    }
+
+    function health() {
+        const res = fakeRes();
+        healthHandler({}, res);
+        return res.body;
+    }
+
+    beforeEach(() => {
+        rooms.clear();
+        roomMeta.clear();
+        fs.rmSync(POLICY_PATH, { force: true });
+        policyStore.apply(DEFAULT_POLICY);
+    });
+
+    after(() => {
+        fs.rmSync(POLICY_PATH, { force: true });
+        policyStore.apply(DEFAULT_POLICY);
+    });
+
+    it('missing file means off', () => {
+        const empty = createPolicyStore({ path: '', log: () => {} });
+        assert.equal(empty.reload(), 'missing');
+        assert.equal(empty.requestLinks(), false);
+
+        const { file, s } = store('missing.json');
+        assert.equal(s.reload(), 'missing');
+        assert.equal(s.requestLinks(), false);
+
+        // On, then the file goes away: off again, not the last good policy.
+        writePolicy(file, '{"requestLinks":true}');
+        assert.equal(s.reload(), 'ok');
+        assert.equal(s.requestLinks(), true);
+        fs.rmSync(file);
+        assert.equal(s.reload(), 'missing');
+        assert.equal(s.requestLinks(), false);
+    });
+
+    it('malformed JSON keeps the last good policy', () => {
+        const { file, lines, s } = store('malformed.json');
+        writePolicy(file, '{"requestLinks":true}');
+        assert.equal(s.reload(), 'ok');
+
+        const garbage = Buffer.from([0x00, 0xff, 0xfe, 0x7b, 0x80, 0x22]).toString('latin1');
+        for (const bad of ['{"requestLinks": tru', '', garbage, 'null', '"string"', '[true]', '['.repeat(100000)]) {
+            writePolicy(file, bad);
+            assert.equal(s.reload(), 'error', JSON.stringify(bad.slice(0, 20)));
+            assert.equal(s.requestLinks(), true, 'the last good policy must stand');
+        }
+        // One line for the whole failure streak, and only fixed text: never the
+        // content, never the path.
+        assert.deepEqual(lines, ['request links: on', 'policy file unreadable, keeping previous policy']);
+        for (const l of lines) assert.ok(FIXED_LINES.has(l), l);
+    });
+
+    it('a file over 64 KB keeps the last good policy', () => {
+        const { file, s } = store('big.json');
+        writePolicy(file, '{"requestLinks":true}');
+        assert.equal(s.reload(), 'ok');
+
+        const big = JSON.stringify({ requestLinks: false, pad: 'x'.repeat(POLICY_MAX_BYTES) });
+        assert.ok(Buffer.byteLength(big) > POLICY_MAX_BYTES);
+        writePolicy(file, big);
+        assert.equal(s.reload(), 'error');
+        assert.equal(s.requestLinks(), true);
+
+        // Exactly at the cap is still read.
+        const head = '{"requestLinks":false,"pad":"';
+        const exact = head + 'x'.repeat(POLICY_MAX_BYTES - head.length - 2) + '"}';
+        assert.equal(Buffer.byteLength(exact), POLICY_MAX_BYTES);
+        writePolicy(file, exact);
+        assert.equal(s.reload(), 'ok');
+        assert.equal(s.requestLinks(), false);
+    });
+
+    it('"requestLinks": "true" (a string) is off', () => {
+        for (const v of ['"true"', '1', '"yes"', '{}', '[true]', 'null']) {
+            const { policy } = parsePolicy(`{"requestLinks":${v}}`);
+            assert.equal(policy.requestLinks, false, v);
+        }
+        assert.equal(parsePolicy('{"requestLinks":true}').policy.requestLinks, true);
+        assert.equal(parsePolicy('{}').policy.requestLinks, false);
+    });
+
+    it('unknown keys are ignored', () => {
+        const text = '{"requestLinks":true,"denyRateKeys":["198.51.100.23"],"portalLinks":true,' +
+            '"__proto__":{"requestLinks":false},"nested":{"deep":[1,2,3]}}';
+        const { policy, error } = parsePolicy(text);
+        assert.equal(error, null);
+        assert.deepEqual(Object.keys(policy), ['requestLinks']);
+        assert.equal(policy.requestLinks, true);
+        assert.ok(Object.isFrozen(policy));
+        assert.ok(Object.isFrozen(DEFAULT_POLICY));
+        assert.equal(DEFAULT_POLICY.requestLinks, false);
+    });
+
+    it('unchanged mtime and size are not re-parsed', () => {
+        const { file, s } = store('stamp.json');
+        writePolicy(file, '{"requestLinks":true}');
+        const real = fs.readFileSync;
+        let reads = 0;
+        fs.readFileSync = function (...args) {
+            if (args[0] === file) reads++;
+            return real.apply(this, args);
+        };
+        try {
+            assert.equal(s.reload(), 'ok');
+            assert.equal(s.reload(), 'unchanged');
+            assert.equal(s.reload(), 'unchanged');
+            assert.equal(reads, 1);
+            writePolicy(file, '{"requestLinks":false}');
+            assert.equal(s.reload(), 'ok');
+            assert.equal(reads, 2);
+            assert.equal(s.requestLinks(), false);
+        } finally {
+            fs.readFileSync = real;
+        }
+    });
+
+    it('a flip is visible within one cleanupTick without restart', () => {
+        // The module's own store, the one /health and the request handlers
+        // consult, pointed at POLICY_PATH before server.js was required.
+        assert.equal(policyStore.requestLinks(), false);
+        assert.deepEqual(health().features, []);
+
+        writePolicy(POLICY_PATH, '{"requestLinks":true}');
+        cleanupTick();
+        assert.equal(policyStore.requestLinks(), true);
+        assert.deepEqual(health().features, ['request-1']);
+
+        writePolicy(POLICY_PATH, '{"requestLinks":false}');
+        cleanupTick();
+        assert.equal(policyStore.requestLinks(), false);
+        assert.deepEqual(health().features, []);
+
+        writePolicy(POLICY_PATH, '{"requestLinks":true}');
+        cleanupTick();
+        fs.rmSync(POLICY_PATH);
+        cleanupTick();
+        assert.equal(policyStore.requestLinks(), false, 'a deleted file fails closed');
+        assert.deepEqual(health().features, []);
+    });
+
+    it("/health carries features [] while off and ['request-1'] while on", () => {
+        policyStore.apply({ requestLinks: false });
+        assert.deepEqual(health().features, []);
+        policyStore.apply({ requestLinks: true });
+        assert.deepEqual(health().features, ['request-1']);
+        policyStore.apply({ requestLinks: 'true' });
+        assert.deepEqual(health().features, []);
+    });
+
+    it('every existing /health field is unchanged', () => {
+        const body = health();
+        assert.equal(body.status, 'healthy');
+        assert.equal(typeof body.uptime, 'number');
+        assert.deepEqual(Object.keys(body), ['status', 'uptime', 'features']);
     });
 });
