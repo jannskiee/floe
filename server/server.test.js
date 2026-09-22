@@ -16,8 +16,12 @@ const {
     handleJoinRoom,
     handleSignal,
     handleDisconnect,
+    registerCodeHandler,
+    resolveCodeHandler,
     rooms,
     codeToRoom,
+    roomToCode,
+    codeFailures,
     connectionCounts,
     validateReportBytes,
     statsRateLimits,
@@ -43,6 +47,17 @@ function makePeer(id) {
         roomId: null,
         msgs,
         send(type, data) { msgs.push({ type, data }); },
+    };
+}
+
+// Minimal Express response stub: records the status and the JSON body so a
+// handler can be called directly, with no network I/O.
+function fakeRes() {
+    return {
+        statusCode: 200,
+        body: null,
+        status(code) { this.statusCode = code; return this; },
+        json(payload) { this.body = payload; return this; },
     };
 }
 
@@ -159,7 +174,7 @@ describe('rateKey', () => {
 // ---------------------------------------------------------------------------
 
 describe('generateCode', () => {
-    beforeEach(() => { codeToRoom.clear(); });
+    beforeEach(() => { codeToRoom.clear(); roomToCode.clear(); codeFailures.clear(); });
 
     it('returns a three-word hyphen-delimited code', () => {
         const code = generateCode();
@@ -433,6 +448,123 @@ describe('handleDisconnect', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Code lifecycle and the per-key failed-resolve budget
+// ---------------------------------------------------------------------------
+
+describe('code lifecycle', () => {
+    beforeEach(() => {
+        rooms.clear();
+        codeToRoom.clear();
+        roomToCode.clear();
+        codeFailures.clear();
+    });
+
+    // Register through the shipped handler, never by hand, so every test starts
+    // from the reverse index production actually builds.
+    function register(roomId) {
+        const res = fakeRes();
+        registerCodeHandler({ body: { roomId } }, res);
+        assert.equal(res.statusCode, 200, 'registration should succeed');
+        return res.body.code;
+    }
+
+    function resolve(code, ip = '1.2.3.4') {
+        const res = fakeRes();
+        resolveCodeHandler({ params: { code }, ip }, res);
+        return res;
+    }
+
+    it('a paired room retires its code', () => {
+        const code = register(ROOM_ID);
+        const pA = makePeer('peer-A');
+        const pB = makePeer('peer-B');
+
+        handleJoinRoom(pA, ROOM_ID);
+        assert.equal(codeToRoom.has(code), true, 'the first seat must not retire the code');
+
+        handleJoinRoom(pB, ROOM_ID);
+
+        assert.equal(codeToRoom.has(code), false, 'both maps should have dropped it');
+        assert.equal(roomToCode.has(ROOM_ID), false);
+        assert.equal(resolve(code).statusCode, 404);
+    });
+
+    it('pre-join retry survives', () => {
+        // A receiver resolves, fails before it can take a seat (a 429 on ICE
+        // credentials, an output path it cannot write, --relay-only against a
+        // relay-less server) and resolves again. Both answers are the same 200,
+        // and neither is charged against the budget.
+        const code = register(ROOM_ID);
+
+        const first = resolve(code);
+        const second = resolve(code);
+
+        assert.equal(first.statusCode, 200);
+        assert.equal(second.statusCode, 200);
+        assert.equal(first.body.roomId, ROOM_ID);
+        assert.equal(second.body.roomId, ROOM_ID);
+        assert.equal(codeFailures.size, 0, 'a hit must cost nothing');
+    });
+
+    it('an emptied room forgets its code', () => {
+        const code = register(ROOM_ID);
+        const pA = makePeer('peer-A');
+        handleJoinRoom(pA, ROOM_ID);
+
+        handleDisconnect(pA); // the sole peer leaving destroys the room
+
+        assert.equal(resolve(code).statusCode, 404);
+        assert.equal(codeToRoom.size, 0);
+        assert.equal(roomToCode.size, 0);
+    });
+
+    it('a second POST for the same room retires the first code', () => {
+        const first = register(ROOM_ID);
+        const second = register(ROOM_ID);
+
+        // generateCode may in principle re-mint the phrase it just retired, so
+        // the collision-proof statement of "one live code per room" is the size
+        // of the table, not an inequality between the two phrases.
+        assert.equal(codeToRoom.size, 1, 'one live code per room');
+        assert.equal(roomToCode.get(ROOM_ID), second);
+        assert.equal(resolve(second).statusCode, 200);
+        if (second !== first) {
+            assert.equal(resolve(first).statusCode, 404, 'the first code must be retired');
+        }
+    });
+
+    it('the failure budget precedes the lookup', () => {
+        const code = register(ROOM_ID);
+        for (let i = 0; i < 10; i++) {
+            assert.equal(resolve(`miss-${i}-code`).statusCode, 404, `miss ${i} should be a plain 404`);
+        }
+
+        // The code is live, so only an order bug can answer anything but 429.
+        const res = resolve(code);
+
+        assert.equal(res.statusCode, 429);
+        assert.deepEqual(res.body, { error: 'Too many requests' });
+        assert.equal('roomId' in res.body, false, 'the refusal must not carry a room id');
+        assert.equal(codeToRoom.has(code), true, 'a refused request must not consume the code');
+    });
+
+    it('a miss records one failure for the caller only and keeps the 404 body', () => {
+        const res = resolve('nope-nope-nope', '1.2.3.4');
+
+        assert.equal(res.statusCode, 404);
+        // Unchanged wording: cli/engine/code/client.go branches on this 404.
+        assert.deepEqual(res.body, { error: 'Code not found or expired' });
+        assert.equal(codeFailures.get(rateKey('1.2.3.4')).length, 1);
+
+        const other = resolve('nope-nope-nope', '5.6.7.8');
+
+        assert.equal(other.statusCode, 404, 'a different key keeps its own budget');
+        assert.equal(codeFailures.get(rateKey('1.2.3.4')).length, 1);
+        assert.equal(codeFailures.get(rateKey('5.6.7.8')).length, 1);
+    });
+});
+
+// ---------------------------------------------------------------------------
 // Stats reporting — validateReportBytes
 // ---------------------------------------------------------------------------
 
@@ -546,15 +678,6 @@ describe('checkRateLimit', () => {
 // ---------------------------------------------------------------------------
 
 describe('makeRateLimiter', () => {
-    function fakeRes() {
-        return {
-            statusCode: 200,
-            body: null,
-            status(code) { this.statusCode = code; return this; },
-            json(payload) { this.body = payload; return this; },
-        };
-    }
-
     it('allows up to max requests then returns 429', () => {
         const map = new Map();
         const limiter = makeRateLimiter(map, 60000, 3);

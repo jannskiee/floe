@@ -156,7 +156,8 @@ curl -X POST https://api.floe.one/api/code \
 ```
 
 <ResponseField name="code" type="string" required>
-  The phrase to share. It resolves for 10 minutes from this moment.
+  The phrase to share. It resolves for at most 10 minutes from this moment, and stops resolving
+  earlier once the room pairs or empties.
 </ResponseField>
 
 | Status | Body | When |
@@ -165,9 +166,14 @@ curl -X POST https://api.floe.one/api/code \
 | `429` | `{ "error": "Too many requests" }` | Over the per-IP code limit |
 | `503` | `{ "error": "Server busy, try again shortly" }` | `MAX_ACTIVE_CODES` live codes already registered |
 
-The `503` is a global guard, not a per-IP one. It bounds the memory the code registry can use.
-Only expiry frees a slot: resolving a code does not delete it, and a sweeper clears lapsed
-entries once a minute, so the count can briefly include codes that have already expired.
+A second `POST` for the same room retires that room's previous code, so a room only ever has one
+working phrase and a retrying sender does not widen its own exposure.
+
+The `503` is a global guard, not a per-IP one. It bounds the memory the code registry can use. A
+slot is freed as soon as its code is retired, which happens when the room pairs, when the room
+empties, when the same room registers again, or at expiry, whichever comes first. A sweeper clears
+whatever is left over once a minute, so the count can briefly include codes that have already
+expired.
 
 ### GET /api/code/:code
 
@@ -185,11 +191,21 @@ Resolves a code back to its room. Called by `floe receive` and by Floe Desktop's
 
 | Status | Body | When |
 |---|---|---|
-| `404` | `{ "error": "Code not found or expired" }` | Unknown code, or past its 10 minutes |
+| `404` | `{ "error": "Code not found or expired" }` | Unknown code, or one already retired: past its 10 minutes, or its room has paired or emptied |
 | `429` | `{ "error": "Too many requests" }` | Over the per-IP code limit |
+| `429` | `{ "error": "Too many requests" }` | Over the per-IP failed-lookup budget |
 
 **Rate limit:** 60 requests per IP per 60 seconds, shared with `POST /api/code` and configurable
 with `MAX_CODE_REQUESTS_PER_IP`.
+
+**Failed-lookup budget:** 10 misses per IP per 60 seconds, configurable with
+`MAX_FAILED_CODE_RESOLVES`. Only a `404` counts against it; a successful resolve costs nothing, so
+retrying a code that works is always safe. The budget is checked before the lookup, so the two
+`429`s above are indistinguishable from each other and from a refusal about a code that does not
+exist. Neither ever carries a room id.
+
+A resolve does not retire the code. A receiver that resolves and then fails before it can join,
+with no relay credentials or an output path it cannot write, can retry the same phrase.
 
 ## Global byte counter
 

@@ -110,7 +110,10 @@ the sender to send that file again.
 
 ### `code "olive-tiger-castle" not found or expired (codes expire after 10 minutes)`
 
-The code was mistyped, or it has passed its ten minutes.
+The code was mistyped, it has passed its ten minutes, or it has already been retired: a code stops
+resolving as soon as the transfer it was minted for pairs, as soon as the sender's room empties,
+and as soon as that sender registers a new one. Resolving a code does not use it up, so a receiver
+that resolved and then failed before it could join can retry the same phrase.
 
 Codes are lowercase words joined by hyphens, but capitalization does not matter: `floe receive`
 and Floe Desktop lowercase what you type before the lookup, so `Olive-Tiger-Castle` resolves the
@@ -255,8 +258,9 @@ Every failure in the app is shown with an `Error: ` prefix, so a message on scre
 
 ### "That code was not recognized. Check it for typos, or ask the sender for a new one."
 
-The same causes as the CLI's expired-code message: a typo, or more than ten minutes have passed.
-It also appears when the code belongs to a different server from the one the app is set to.
+The same causes as the CLI's expired-code message: a typo, more than ten minutes have passed, or
+the code has already been retired because its transfer paired or the sender's room emptied. It
+also appears when the code belongs to a different server from the one the app is set to.
 
 ### "Connected, but the sender never started sending. Ask them to try again."
 
@@ -381,20 +385,27 @@ slash, and it holds **one** origin. A comma-separated list matches nothing. `htt
 
 ### 429, or "Rate limit exceeded"
 
-Four independent per-IP limiters, each over a 60-second window: 30 connections shared across
+Five independent per-IP limits, each over a 60-second window: 30 connections shared across
 Socket.IO and WebSocket (`MAX_CONNECTIONS_PER_IP`), 20 TURN credential requests
-(`MAX_TURN_REQUESTS_PER_IP`), 60 room-code requests (`MAX_CODE_REQUESTS_PER_IP`), and 60 stats
-reports, which is the one limit with no environment override.
+(`MAX_TURN_REQUESTS_PER_IP`), 60 room-code requests (`MAX_CODE_REQUESTS_PER_IP`), 60 stats
+reports, which is the one limit with no environment override, and 10 **failed** room-code lookups
+(`MAX_FAILED_CODE_RESOLVES`).
 
-The three HTTP limiters answer `429` with `Too many requests`, or `Too many reports` for stats.
-The connection limiter is not HTTP: it refuses the Socket.IO handshake and closes the WebSocket
-with the reason `Rate limit exceeded`.
+The three HTTP limiters answer `429` with `Too many requests`, or `Too many reports` for stats,
+and so does the failed-lookup budget. The connection limiter is not HTTP: it refuses the Socket.IO
+handshake and closes the WebSocket with the reason `Rate limit exceeded`.
 
 Two things to know before raising a limit. **Only admitted connections count**: a refused
 connection attempt is not recorded, so a client that keeps retrying gets back in once its admitted
 connections age out of the 60-second window, the same way the three HTTP limiters recover after a
 `429`. And setting any `MAX_*` variable to `0` does not disable the limit; it silently restores the
 default.
+
+The failed-lookup budget is the one that counts the opposite way: it records only misses on `GET
+/api/code/:code`. A code that resolves costs nothing, so a receiver holding a working code never
+spends any of it, and only a run of wrong or expired phrases from one address can exhaust it. If
+your users share one address and genuinely mistype codes more than ten times a minute, raise
+`MAX_FAILED_CODE_RESOLVES`.
 
 **"Per IP" is per IPv6 `/64`, not per address.** The server normalizes the client address before
 every per-IP limiter. An IPv6 address keys on its `/64` prefix, so everyone sharing a `/64` shares
@@ -409,8 +420,10 @@ publishes ports directly and passes `0`, so a Compose deployment behind a proxy 
 ### 503 "Server busy, try again shortly"
 
 `POST /api/code` returns this once `MAX_ACTIVE_CODES` codes are live at once, regardless of source
-IP. It bounds the memory the code registry can use. Only expiry frees a slot: resolving a code
-does not delete it, so a code used immediately still holds its slot for the full ten minutes.
+IP. It bounds the memory the code registry can use. A slot is freed as soon as its code is
+retired, which happens when the room pairs, when the room empties, when the same room registers
+again, or at expiry, whichever comes first, so a code used straight away does not hold its slot
+for the full ten minutes.
 
 ### The TURN relay is not working
 
