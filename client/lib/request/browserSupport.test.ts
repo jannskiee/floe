@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canPickFolders, hasDataChannelSupport } from './browserSupport';
+import { canPickFolders, hasDataChannelSupport, isCoarsePointer, hasRelayUrl, parseIceServers } from './browserSupport';
 
 describe('hasDataChannelSupport', () => {
     it('no RTCPeerConnection is unsupported', () => {
@@ -90,5 +90,59 @@ describe('canPickFolders', () => {
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0'
             )
         ).toBe(true);
+    });
+});
+
+describe('isCoarsePointer', () => {
+    it('coarse pointer is detected from matchMedia', () => {
+        const asked: string[] = [];
+        const win = (matches: boolean) => ({
+            matchMedia: (q: string) => {
+                asked.push(q);
+                return { matches };
+            },
+        });
+        expect(isCoarsePointer(win(true))).toBe(true);
+        expect(isCoarsePointer(win(false))).toBe(false);
+        expect(asked).toEqual(['(pointer: coarse)', '(pointer: coarse)']);
+        // No matchMedia, a throwing one, or a truthy non-boolean all read as
+        // a fine pointer: the line is a courtesy, never a block.
+        expect(isCoarsePointer({})).toBe(false);
+        expect(isCoarsePointer(undefined)).toBe(false);
+        expect(isCoarsePointer({ matchMedia: () => { throw new Error('no'); } })).toBe(false);
+        expect(isCoarsePointer({ matchMedia: () => ({ matches: 'yes' as unknown as boolean }) })).toBe(false);
+    });
+});
+
+describe('hasRelayUrl and parseIceServers', () => {
+    it('hasRelayUrl finds turn and turns in string and array urls', () => {
+        expect(hasRelayUrl([{ urls: 'turn:t.example:3478' }])).toBe(true);
+        expect(hasRelayUrl([{ urls: 'turns:t.example:443?transport=tcp' }])).toBe(true);
+        expect(hasRelayUrl([{ urls: ['stun:s.example:3478', 'turn:t.example:3478'] }])).toBe(true);
+        expect(hasRelayUrl([{ urls: 'stun:stun.l.google.com:19302' }, { urls: ['stun:a', 'stun:b'] }])).toBe(false);
+        expect(hasRelayUrl([])).toBe(false);
+        // A scheme only counts at the start: a STUN host named turn is not a relay.
+        expect(hasRelayUrl([{ urls: 'stun:turn:3478' }])).toBe(false);
+        expect(hasRelayUrl([{ urls: 'TURN:t.example:3478' }])).toBe(true);
+    });
+
+    it('parseIceServers keeps well-formed entries and refuses anything else', () => {
+        const good = [
+            { urls: 'stun:s.example:3478' },
+            { urls: ['turn:t.example:3478'], username: 'u', credential: 'c' },
+        ];
+        expect(parseIceServers(good)).toEqual(good);
+        expect(parseIceServers([])).toBeNull();
+        expect(parseIceServers(null)).toBeNull();
+        expect(parseIceServers({ urls: 'stun:x' })).toBeNull();
+        expect(parseIceServers('stun:x')).toBeNull();
+        // One malformed entry and the whole answer is refused, so the page
+        // falls back to its own STUN list rather than half of a strange one.
+        expect(parseIceServers([{ urls: 'stun:x' }, { urls: 42 }])).toBeNull();
+        expect(parseIceServers([{ urls: [] }])).toBeNull();
+        expect(parseIceServers([{ urls: 'http://evil.example/' }])).toBeNull();
+        expect(parseIceServers([{ urls: 'stun:x', username: 7 }])).toBeNull();
+        // Extra keys are dropped rather than handed to the peer connection.
+        expect(parseIceServers([{ urls: 'stun:x', extra: 'y' }])).toEqual([{ urls: 'stun:x' }]);
     });
 });

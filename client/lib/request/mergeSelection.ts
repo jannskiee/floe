@@ -18,8 +18,9 @@ export interface RequestFile {
  * the key because two genuinely different files share a path only if one changed
  * on disk between picks, and then the visitor does mean both.
  *
- * Exported for the view and for a future test: client/vitest.config.ts collects
- * lib/ and app/ only, so nothing under hooks/ is covered today.
+ * It lives here rather than in hooks/useRequestFiles.ts so that
+ * mergeSelection.test.ts covers it: client/vitest.config.ts collects lib/ and
+ * app/ only.
  */
 export function mergeSelection(
     previous: RequestFile[],

@@ -12,7 +12,7 @@ import { createReconnectBackoff } from '@/lib/reconnectBackoff';
 // prerender, which the old top-level io() did on the build machine.
 let socketPromise: Promise<Socket> | null = null;
 
-function getSocket(): Promise<Socket> {
+export function getSocket(): Promise<Socket> {
     // Server-side: never connect, and never reject. Nothing awaits this on the
     // server, so an inert promise is the quietest possible no-op.
     if (typeof window === 'undefined') return new Promise<Socket>(() => {});

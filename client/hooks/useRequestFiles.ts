@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
 import { walkEntries, type EntryLike, type WalkedFile } from '@/lib/request/folderWalk';
 import { checkPick } from '@/lib/request/metadataBudget';
 import { MAX_REQUEST_FILES } from '@/lib/request/constants';
@@ -21,19 +21,41 @@ import { mergeSelection, type RequestFile } from '@/lib/request/mergeSelection';
  * state and the one thing that cannot move, which is the drop handler's
  * synchronous read of the item list.
  */
-export function useRequestFiles() {
+export interface RequestFileEvents {
+    /** A pick was added to the selection (the visitor state's E04). */
+    onPicked?: () => void;
+    /** A pick was refused and the notice now says why (E05). */
+    onRefused?: () => void;
+}
+
+export function useRequestFiles(events: RequestFileEvents = {}) {
     const [files, setFiles] = useState<RequestFile[]>([]);
     const [isDragging, setIsDragging] = useState(false);
     /** A refusal, in the approved copy, or null. Never a place for free text: no
      *  path, no name and no error string from the machine reaches it. */
     const [notice, setNotice] = useState<string | null>(null);
-    /** Folders the last accepted pick skipped, for the quiet C-35 line. */
+    /** Folders skipped by every pick since the last Clear, for the quiet C-35
+     *  line. Accumulated rather than replaced per pick (the S1-WEB-02 review's
+     *  open decision): the line is about the selection, and a second pick of
+     *  plain files must not make it vanish while the folder's files are still
+     *  in it. */
     const [emptyFolders, setEmptyFolders] = useState(0);
+    /** True while a dropped folder is being walked or a plain drop probed. A
+     *  large or slow walk is visible as pending, and Send stays off until it
+     *  settles, so a half-walked folder can never be sent. */
+    const [reading, setReading] = useState(false);
 
     // The selection as the LAST commit left it. A pick finishes after an await,
     // by which time the closure's `files` can be a render behind, and the check
     // below has to run against what is really selected.
     const selected = useRef<RequestFile[]>([]);
+
+    // The caller's callbacks, current at the time a pick settles. Updated in an
+    // effect rather than during render (react-hooks/refs).
+    const eventsRef = useRef(events);
+    useEffect(() => {
+        eventsRef.current = events;
+    });
 
     const totalBytes = files.reduce((sum, f) => sum + f.file.size, 0);
 
@@ -50,26 +72,35 @@ export function useRequestFiles() {
             setNotice(
                 verdict.cause === 'too-many' ? visitorCopy.tooManyFiles : visitorCopy.pathTooLong
             );
+            eventsRef.current.onRefused?.();
             return;
         }
         selected.current = merged;
         setFiles(merged);
         setNotice(null);
-        setEmptyFolders(skippedFolders);
+        setEmptyFolders((n) => n + skippedFolders);
+        eventsRef.current.onPicked?.();
     }, []);
 
     const ingestEntries = useCallback(
         async (entries: EntryLike[]) => {
-            const walked = await walkEntries(entries, { maxFiles: MAX_REQUEST_FILES });
-            if (walked.outcome === 'too-many') {
-                setNotice(visitorCopy.tooManyFiles);
-                return;
+            setReading(true);
+            try {
+                const walked = await walkEntries(entries, { maxFiles: MAX_REQUEST_FILES });
+                if (walked.outcome === 'too-many') {
+                    setNotice(visitorCopy.tooManyFiles);
+                    eventsRef.current.onRefused?.();
+                    return;
+                }
+                if (walked.outcome === 'unreadable') {
+                    setNotice(visitorCopy.folderUnreadable);
+                    eventsRef.current.onRefused?.();
+                    return;
+                }
+                commit(walked.files, walked.emptyFolders);
+            } finally {
+                setReading(false);
             }
-            if (walked.outcome === 'unreadable') {
-                setNotice(visitorCopy.folderUnreadable);
-                return;
-            }
-            commit(walked.files, walked.emptyFolders);
         },
         [commit]
     );
@@ -90,18 +121,25 @@ export function useRequestFiles() {
             // there doing it. Refuse on count first, then do per-file work.
             if (list.length > MAX_REQUEST_FILES) {
                 setNotice(visitorCopy.tooManyFiles);
+                eventsRef.current.onRefused?.();
                 return;
             }
-            for (const file of list) {
-                if (!(await firstByteReadable(file))) {
-                    setNotice(visitorCopy.foldersUnsupported);
-                    return;
+            setReading(true);
+            try {
+                for (const file of list) {
+                    if (!(await firstByteReadable(file))) {
+                        setNotice(visitorCopy.foldersUnsupported);
+                        eventsRef.current.onRefused?.();
+                        return;
+                    }
                 }
+                commit(
+                    list.map((file) => ({ file, relativePath: file.name })),
+                    0
+                );
+            } finally {
+                setReading(false);
             }
-            commit(
-                list.map((file) => ({ file, relativePath: file.name })),
-                0
-            );
         },
         [commit]
     );
@@ -186,6 +224,7 @@ export function useRequestFiles() {
         isDragging,
         notice,
         emptyFolders,
+        reading,
         totalBytes,
         handleDragOver,
         handleDragLeave,

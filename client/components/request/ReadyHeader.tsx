@@ -1,11 +1,13 @@
 import React from 'react';
 import { visitorCopy } from '@/lib/request/visitorCopy';
+import { REQUEST_LINK_DOCS_PATH } from '@/lib/request/constants';
 
-/** The Ready header: eyebrow with the Beta chip, the intro, and the support
- *  line. The controls below it arrive with S1-WEB-03. */
+/** The Ready header: eyebrow with the Beta chip, the intro, "What is a request
+ *  link?" under it on the right, and the support line. It opens the Ready
+ *  card; the controls follow it inside the same card. */
 export function ReadyHeader() {
     return (
-        <section className="w-full rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 sm:p-7">
+        <>
             <div className="flex items-baseline justify-between gap-4">
                 {/* The page's heading, drawn as the mono eyebrow the approved
                     frame shows. A heading element rather than a paragraph so
@@ -20,9 +22,21 @@ export function ReadyHeader() {
             <p className="mt-4 text-sm leading-relaxed text-zinc-300">
                 {visitorCopy.readyIntro}
             </p>
+            <p className="mt-1 text-right text-sm">
+                {/* rel="noreferrer" on top of the /r no-referrer header: the
+                    path carries the link id, and this is a same-origin link
+                    into the docs rewrite. */}
+                <a
+                    href={REQUEST_LINK_DOCS_PATH}
+                    rel="noreferrer"
+                    className="text-zinc-300 underline underline-offset-2 transition hover:text-white focus-visible:outline-2 focus-visible:outline-ice"
+                >
+                    {visitorCopy.whatIsRequestLink}
+                </a>
+            </p>
             <p className="mt-2 text-xs leading-relaxed text-zinc-500">
                 {visitorCopy.betaSupport}
             </p>
-        </section>
+        </>
     );
 }
