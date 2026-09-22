@@ -115,8 +115,12 @@ const LABEL_ESCAPE_FILES = ['changelog.mdx'];
 // self-hosting/overview.mdx entry hid 2 of #338's 14 defects and hides
 // nothing legitimate today (all ten Cards match their sidebarTitle).
 const LABEL_ESCAPE_CARDS = [];
-// Env keys read by code that are set by a build file, not by an operator.
-const INTERNAL = { FLOE_DISTRIBUTABLE_IMAGE: 'set by client/Dockerfile only' };
+// Env keys read by code that are set by a build file or a test harness, not by
+// an operator.
+const INTERNAL = {
+    FLOE_DISTRIBUTABLE_IMAGE: 'set by client/Dockerfile only',
+    HEARTBEAT_MS: 'test knob read by server/crashguard.test.js; not an operator setting',
+};
 // Documented keys the server never reads, and why that is fine.
 const NOT_READ = {
     NODE_ENV: 'Express app.get("env") only; Floe never reads it (#239)',
