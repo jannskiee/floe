@@ -203,15 +203,20 @@ type requestLane struct {
 	// never reach the frontend in the opposite order to the state changes.
 	emitMu sync.Mutex
 
+	// app is the App the lane belongs to: closeForQuit releases the wake
+	// hold through it.
+	app *App
+
 	// Seams, fixed at construction. Tests replace them on a fresh lane
 	// before any goroutine starts.
-	emitFn      func(event string, data any)
-	supportFn   func(server string) FeatureResult
-	relayFn     func(server string) (hasRelay, degraded bool, err error)
-	lifetimeFn  func(lifetime string) (time.Duration, bool)
-	backoffBase time.Duration
-	backoffCap  time.Duration
-	closeWait   time.Duration
+	emitFn       func(event string, data any)
+	closeFrameFn func(sc *signaling.Client) error // the request-close write
+	supportFn    func(server string) FeatureResult
+	relayFn      func(server string) (hasRelay, degraded bool, err error)
+	lifetimeFn   func(lifetime string) (time.Duration, bool)
+	backoffBase  time.Duration
+	backoffCap   time.Duration
+	closeWait    time.Duration
 
 	wg sync.WaitGroup // lane goroutines, so tests can wait them out
 }
@@ -220,13 +225,15 @@ type requestLane struct {
 // and emit.
 func newRequestLane(a *App) *requestLane {
 	l := &requestLane{
-		decision:    make(chan reqAnswer, 1),
-		supportFn:   requestLinkSupport,
-		relayFn:     fetchRelay,
-		lifetimeFn:  requestLifetime,
-		backoffBase: requestBackoffBase,
-		backoffCap:  requestBackoffCap,
-		closeWait:   requestCloseWait,
+		app:          a,
+		closeFrameFn: (*signaling.Client).RequestClose,
+		decision:     make(chan reqAnswer, 1),
+		supportFn:    requestLinkSupport,
+		relayFn:      fetchRelay,
+		lifetimeFn:   requestLifetime,
+		backoffBase:  requestBackoffBase,
+		backoffCap:   requestBackoffCap,
+		closeWait:    requestCloseWait,
 	}
 	l.pairFn = func(rg uint64, sc *signaling.Client) { a.pairStub(rg, sc) }
 	return l
@@ -914,22 +921,29 @@ func (a *App) pairStub(rg uint64, sc *signaling.Client) {
 	}
 }
 
+// sendCloseWithin writes request-close through closeFrame, waiting at most
+// wait for the write. The write goroutine is left to finish on its own: the
+// engine's 10 s write deadline bounds it.
+func sendCloseWithin(sc *signaling.Client, closeFrame func(*signaling.Client) error, wait time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		_ = closeFrame(sc)
+		close(done)
+	}()
+	t := time.NewTimer(wait)
+	select {
+	case <-done:
+	case <-t.C:
+	}
+	t.Stop()
+}
+
 // requestTeardown sends request-close best effort, waiting at most wait for
-// the write, then closes conn and then sc. The engine's own 10 s write
-// deadline bounds a stuck write; nothing user-facing waits on this.
-func requestTeardown(sc *signaling.Client, conn closer, wait time.Duration) {
+// the write, then closes conn and then sc. Nothing user-facing waits on the
+// write: Close link has already emitted its ended snapshot.
+func requestTeardown(sc *signaling.Client, conn closer, wait time.Duration, closeFrame func(*signaling.Client) error) {
 	if sc != nil {
-		done := make(chan struct{})
-		go func() {
-			_ = sc.RequestClose()
-			close(done)
-		}()
-		t := time.NewTimer(wait)
-		select {
-		case <-done:
-		case <-t.C:
-		}
-		t.Stop()
+		sendCloseWithin(sc, closeFrame, wait)
 	}
 	if conn != nil {
 		conn.Close()
@@ -952,10 +966,130 @@ func (a *App) CloseRequestLink() {
 	}
 	sc, conn := l.detachLocked()
 	l.endLocked("ended", "closed")
-	wait := l.closeWait
+	wait, closeFrame := l.closeWait, l.closeFrameFn
 	l.mu.Unlock()
 	a.emitCurrent()
-	requestTeardown(sc, conn, wait)
+	requestTeardown(sc, conn, wait, closeFrame)
+}
+
+// laneRequest is the request lane's name in the wake guard (wake.go); its
+// generations count apart from the transfer lane's.
+const laneRequest = "request"
+
+// requestQuitWait bounds the request-close write on a quit, which the quit
+// itself never waits for.
+const requestQuitWait = time.Second
+
+// requestWakeAcquire keeps the PC awake for drop generation rg: from Accept
+// only, never at Make link or while a link waits (BP QUESTIONS[28]).
+func (a *App) requestWakeAcquire(rg uint64) {
+	if a.wake != nil {
+		a.wake.acquire(laneRequest, rg)
+	}
+}
+
+// requestWakeRelease drops rg's hold; a no-op when rg does not hold it.
+func (a *App) requestWakeRelease(rg uint64) {
+	if a.wake != nil {
+		a.wake.release(laneRequest, rg)
+	}
+}
+
+// closeForQuit ends the lane for a quit (ConfirmClose and shutdown): the
+// generation ends, the wake hold goes, the peer connection closes at once, and
+// request-close is fired on its own goroutine with a 1 s wait before the
+// socket closes there. The quit never waits on the network: a lost
+// request-close only leaves the reservation for its 10-minute grace, and
+// visitors get host-absent (spec 06 4.9). The socket closes on that goroutine
+// rather than here because closing it first would drop the request-close,
+// and closing it after the write would make the quit wait for the write.
+// Idempotent, and safe on a lane that never made a link.
+func (l *requestLane) closeForQuit() {
+	l.mu.Lock()
+	old := l.gen
+	wasLive := liveState(l.state)
+	sc, conn := l.detachLocked()
+	if wasLive {
+		l.endLocked("ended", "app-closed")
+	}
+	closeFrame := l.closeFrameFn
+	app := l.app
+	l.mu.Unlock()
+	if app != nil {
+		app.requestWakeRelease(old)
+	}
+	if conn != nil {
+		conn.Close()
+	}
+	if sc != nil {
+		go func() {
+			sendCloseWithin(sc, closeFrame, requestQuitWait)
+			sc.Close()
+		}()
+	}
+}
+
+// withLaptopPower returns warnings with the laptop-power code once, last
+// (E-27): no power-state API is asked, so every prompt carries the generic
+// line. The display is never held on; the lane warns only (E-47, OD-31).
+func withLaptopPower(warnings []string) []string {
+	out := make([]string, 0, len(warnings)+1)
+	for _, w := range warnings {
+		if w != "laptop-power" {
+			out = append(out, w)
+		}
+	}
+	return append(out, "laptop-power")
+}
+
+// openPrompt moves generation rg to deciding with p, the prompt the Decide
+// callback computed (S1-DSK-03b), and returns its promptGen; 0 when rg no
+// longer owns the lane. A stale answer left in decision is drained first so
+// it can never answer this prompt.
+func (a *App) openPrompt(rg uint64, p RequestPrompt) uint64 {
+	var pg uint64
+	if !a.reqUpdate(rg, func(l *requestLane) {
+		select {
+		case <-l.decision:
+		default:
+		}
+		l.promptGen++
+		pg = l.promptGen
+		p.Warnings = withLaptopPower(p.Warnings)
+		l.prompt = &p
+		l.setStateLocked("deciding", "")
+	}) {
+		return 0
+	}
+	return pg
+}
+
+// acceptDrop is Accept's lane half, run by the Decide callback once the
+// exclusive subfolder exists: receiving, and the wake hold for
+// ("request", rg). False when rg no longer owns the lane (nothing held).
+func (a *App) acceptDrop(rg uint64) bool {
+	if !a.reqUpdate(rg, func(l *requestLane) {
+		l.prompt = nil
+		l.setStateLocked("receiving", "")
+	}) {
+		return false
+	}
+	a.requestWakeAcquire(rg)
+	return true
+}
+
+// endDrop is the one exit of an accepted drop: done, or stopped with its code
+// (the engine's, the owner's Cancel drop, a visitor leave, the time limit),
+// with the result, and the wake hold released. The release is not gated on
+// rg still owning the lane: a quit that moved the generation on must not
+// leave the PC held awake.
+func (a *App) endDrop(rg uint64, state, code string, res *RequestResult) {
+	a.requestWakeRelease(rg)
+	a.reqUpdate(rg, func(l *requestLane) {
+		l.result = res
+		l.dropCancel = nil
+		l.endLocked(state, code)
+	})
 }
 
 // AnswerRequest answers the prompt promptGen (spec 06 4.3). A stale promptGen

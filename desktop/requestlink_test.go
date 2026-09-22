@@ -1048,3 +1048,134 @@ func TestSetRequestLinksOnNeedsRequest1(t *testing.T) {
 		}
 	}
 }
+
+// forceGen gives a fresh lane generation g, as Make link would, so the drop
+// helpers S1-DSK-03b calls can run without a pairing.
+func forceGen(a *App, g uint64) {
+	l := a.lane()
+	l.mu.Lock()
+	l.gen = g
+	l.cancelled = false
+	l.mu.Unlock()
+}
+
+// countingWake is a wake guard whose platform hooks count.
+func countingWake() (*wakeGuard, *int, *int) {
+	var blocks, allows int
+	return &wakeGuard{onBlock: func() { blocks++ }, onAllow: func() { allows++ }}, &blocks, &allows
+}
+
+func requestHeld(w *wakeGuard) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	_, ok := w.owners[laneRequest]
+	return ok
+}
+
+// TestRequestWakeAcquiredOnAcceptReleasedOnEnd: the PC is held awake only
+// from Accept to the end of the drop, whichever way it ends.
+func TestRequestWakeAcquiredOnAcceptReleasedOnEnd(t *testing.T) {
+	ends := map[string]func(a *App, rg uint64){
+		"done": func(a *App, rg uint64) {
+			a.endDrop(rg, "done", "", &RequestResult{Files: 1, Saved: 1, Verified: 1})
+		},
+		"stopped": func(a *App, rg uint64) { a.endDrop(rg, "stopped", "write-failed", nil) },
+		"cancel": func(a *App, rg uint64) {
+			l := a.lane()
+			l.mu.Lock()
+			l.dropCancel = func() { a.endDrop(rg, "stopped", "stopped", nil) }
+			l.mu.Unlock()
+			a.CancelRequestDrop()
+		},
+		"visitor-left": func(a *App, rg uint64) { a.endDrop(rg, "stopped", "visitor-left", nil) },
+		"time-limit":   func(a *App, rg uint64) { a.endDrop(rg, "stopped", "time-limit", nil) },
+		"quit":         func(a *App, rg uint64) { a.lane().closeForQuit() },
+	}
+	for name, end := range ends {
+		t.Run(name, func(t *testing.T) {
+			w, blocks, allows := countingWake()
+			a := &App{wake: w}
+			a.lane().emitFn = func(string, any) {}
+			forceGen(a, 7)
+			if pg := a.openPrompt(7, RequestPrompt{Files: 1, TotalBytes: 1}); pg == 0 {
+				t.Fatal("the prompt did not open")
+			}
+			if requestHeld(w) || *blocks != 0 {
+				t.Fatal("a prompt holds the PC awake before Accept")
+			}
+			if !a.acceptDrop(7) {
+				t.Fatal("Accept refused the live generation")
+			}
+			if !requestHeld(w) || *blocks != 1 {
+				t.Fatal("Accept did not take the request hold")
+			}
+			end(a, 7)
+			if requestHeld(w) || *allows != 1 {
+				t.Fatalf("%s left the request hold (allows %d)", name, *allows)
+			}
+			if a.lane().liveNow() {
+				t.Fatalf("%s left the lane live", name)
+			}
+		})
+	}
+}
+
+// TestOpenIdleLinkHoldsNoWakeLock: an open link that nobody uses never keeps
+// a laptop from sleeping.
+func TestOpenIdleLinkHoldsNoWakeLock(t *testing.T) {
+	f := newFakeSignalServer(t)
+	a, _ := laneApp(t, f)
+	w, blocks, _ := countingWake()
+	a.wake = w
+	makeWaiting(t, a)
+	if requestHeld(w) || *blocks != 0 {
+		t.Fatal("an idle open link holds the PC awake")
+	}
+}
+
+// TestTransferReleaseDoesNotReleaseRequestHold: the lanes own their shares, so
+// a transfer's release, even with the same generation number, leaves a
+// running drop's hold alone.
+func TestTransferReleaseDoesNotReleaseRequestHold(t *testing.T) {
+	w, _, allows := countingWake()
+	a := &App{wake: w}
+	a.lane().emitFn = func(string, any) {}
+	forceGen(a, 3)
+	a.openPrompt(3, RequestPrompt{})
+	a.acceptDrop(3)
+	a.wake.release(laneTransfer, 3)
+	a.wake.acquire(laneTransfer, 1)
+	a.wake.release(laneTransfer, 1)
+	if !requestHeld(w) || *allows != 0 {
+		t.Fatal("a transfer release dropped the request hold")
+	}
+	a.endDrop(3, "done", "", nil)
+	if requestHeld(w) || *allows != 1 {
+		t.Fatal("the drop's end did not release its hold")
+	}
+}
+
+// TestPromptCarriesLaptopPowerWarning (E-27): every prompt carries the
+// generic laptop line exactly once, as a code.
+func TestPromptCarriesLaptopPowerWarning(t *testing.T) {
+	a := &App{}
+	a.lane().emitFn = func(string, any) {}
+	forceGen(a, 1)
+	pg := a.openPrompt(1, RequestPrompt{Files: 2, Warnings: []string{"low-space"}})
+	s := a.GetRequestLink()
+	if s.State != "deciding" || s.PromptGen != pg || s.Prompt == nil {
+		t.Fatalf("prompt snapshot %+v", s)
+	}
+	if got := strings.Join(s.Prompt.Warnings, ","); got != "low-space,laptop-power" {
+		t.Fatalf("warnings %q", got)
+	}
+	a.openPrompt(1, RequestPrompt{Warnings: []string{"laptop-power", "relay-over-cap"}})
+	if got := strings.Join(a.GetRequestLink().Prompt.Warnings, ","); got != "relay-over-cap,laptop-power" {
+		t.Fatalf("warnings %q, want laptop-power once and last", got)
+	}
+	a.openPrompt(1, RequestPrompt{})
+	if got := strings.Join(a.GetRequestLink().Prompt.Warnings, ","); got != "laptop-power" {
+		t.Fatalf("warnings %q on a prompt with none of its own", got)
+	}
+	forceState(a, "off", 0)
+}

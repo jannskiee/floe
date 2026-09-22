@@ -4,7 +4,12 @@ package main
 // a cancel reaches, what a superseded goroutine may no longer touch, and when
 // a close request may proceed.
 
-import "testing"
+import (
+	"testing"
+	"time"
+
+	"github.com/jannskiee/floe/cli/engine/signaling"
+)
 
 // TestCancelTransferIdle guards the Start-over path, which calls CancelTransfer
 // unconditionally: with no transfer in flight (nil curSC/curConn) it must be a
@@ -198,4 +203,109 @@ func TestConfirmCloseIdle(t *testing.T) {
 	if quits != 1 {
 		t.Fatalf("quit called %d times, want 1", quits)
 	}
+}
+
+// TestCloseBlockedWithOpenLink (VR3-G04): an idle open request link blocks a
+// silent quit exactly like a running transfer, until Close anyway.
+func TestCloseBlockedWithOpenLink(t *testing.T) {
+	f := newFakeSignalServer(t)
+	a, _ := laneApp(t, f)
+	if a.closeBlocked() {
+		t.Fatal("an idle lane blocks close")
+	}
+	makeWaiting(t, a)
+	if !a.closeBlocked() {
+		t.Fatal("an open request link does not block close")
+	}
+	a.mu.Lock()
+	a.allowClose = true
+	a.mu.Unlock()
+	if a.closeBlocked() {
+		t.Fatal("Close anyway did not win over an open link")
+	}
+}
+
+// TestCloseBlockedWithDropReceiving: a running drop blocks a silent quit.
+func TestCloseBlockedWithDropReceiving(t *testing.T) {
+	a := &App{}
+	forceState(a, "receiving", 1)
+	if !a.closeBlocked() {
+		t.Fatal("a drop receiving does not block close")
+	}
+}
+
+// TestCloseBlockedFalseWhenLinkEnded: with nothing live on any lane the
+// window always closes, so it can never become unclosable.
+func TestCloseBlockedFalseWhenLinkEnded(t *testing.T) {
+	a := &App{}
+	for _, st := range []string{"off", "ready", "error", "done", "stopped", "ended"} {
+		forceState(a, st, 0)
+		if a.closeBlocked() {
+			t.Errorf("state %s blocks close", st)
+		}
+	}
+	f := newFakeSignalServer(t)
+	b, _ := laneApp(t, f)
+	makeWaiting(t, b)
+	b.CloseRequestLink()
+	if b.closeBlocked() {
+		t.Fatal("a closed link still blocks close")
+	}
+}
+
+// TestCloseBlockedDoesNotWaitOnLaneMutex: the close hook runs on the Windows
+// message-pump thread, so it reads the lane's atomic and never its mutex.
+func TestCloseBlockedDoesNotWaitOnLaneMutex(t *testing.T) {
+	a := &App{}
+	forceState(a, "waiting", 0)
+	l := a.lane()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	done := make(chan bool, 1)
+	go func() { done <- a.closeBlocked() }()
+	select {
+	case blocked := <-done:
+		if !blocked {
+			t.Fatal("an open link does not block close")
+		}
+	case <-time.After(50 * time.Millisecond):
+		t.Fatal("closeBlocked waited on the lane mutex")
+	}
+}
+
+// TestConfirmCloseClosesRequestLane: Close anyway ends the lane and quits at
+// once, without waiting for the request-close write, which here never ends.
+func TestConfirmCloseClosesRequestLane(t *testing.T) {
+	f := newFakeSignalServer(t)
+	a, _ := laneApp(t, f)
+	makeWaiting(t, a)
+	block := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+	l := a.lane()
+	l.mu.Lock()
+	l.closeFrameFn = func(*signaling.Client) error { <-block; return nil }
+	l.mu.Unlock()
+	quits := make(chan struct{}, 2)
+	a.quitFn = func() { quits <- struct{}{} }
+
+	start := time.Now()
+	a.ConfirmClose()
+	if d := time.Since(start); d > 500*time.Millisecond {
+		t.Fatalf("ConfirmClose took %v: it waited on the network", d)
+	}
+	if len(quits) != 1 {
+		t.Fatalf("quit called %d times, want 1", len(quits))
+	}
+	if s := stateOf(a); s.State != "ended" || s.Code != "app-closed" || s.Link != "" {
+		t.Fatalf("lane after ConfirmClose: %+v", s)
+	}
+	if a.closeBlocked() || l.liveNow() {
+		t.Fatal("the lane is still live after ConfirmClose")
+	}
+	waitFor(t, 5*time.Second, "the socket to close", func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.closedCnt == 1
+	})
+	a.ConfirmClose() // idempotent
 }

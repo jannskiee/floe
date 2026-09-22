@@ -150,6 +150,9 @@ func (a *App) startup(ctx context.Context) {
 // that path, so nothing that finished can be touched.
 func (a *App) shutdown(ctx context.Context) {
 	transfer.AbandonPartials()
+	// A quit that did not come through ConfirmClose (no link was live when it
+	// started) still ends the lane; idempotent after ConfirmClose.
+	a.lane().closeForQuit()
 }
 
 // onSecondInstanceLaunch fires when Floe is launched again while already running.
