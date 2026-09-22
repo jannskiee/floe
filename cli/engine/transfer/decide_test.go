@@ -484,6 +484,56 @@ func TestDecideRunsBeforeThePrompt(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the receiver never told the sender why it stopped")
 	}
+
+	// The other half of the same guard, and the only row that exercises it.
+	// The decline above returns before R16 is reached at all, so on its own it
+	// passes even with the guard reverted to "if !autoAccept". An Accept runs
+	// straight through R16 with a no waiting on stdin, so a guard that reads
+	// stdin turns this transfer into a decline.
+	t.Run("an accept runs past the prompt without reading it", func(t *testing.T) {
+		sender, recvCh, closeFn := newConnectedPair(t)
+		defer closeFn()
+
+		swapStdin(t, "n\n")
+		printed := captureStdout(t)
+
+		outDir := t.TempDir()
+		recvErr := make(chan error, 1)
+		go func() {
+			dc := <-recvCh
+			recvErr <- ReceiveFilesWithOptions(dc, outDir, false, "test-ver", "", ReceiveOptions{
+				Decide: func(IncomingInfo) Decision { return Decision{Kind: DecisionAccept} },
+			})
+		}()
+
+		time.Sleep(300 * time.Millisecond)
+		if err := sender.SendText(`{"type":"metadata","id":"d-acc","fileName":"a.txt","fileSize":4,"index":1,"total":1,"totalBytes":4}`); err != nil {
+			t.Fatalf("SendText metadata: %v", err)
+		}
+		if err := sender.Send([]byte("abcd")); err != nil {
+			t.Fatalf("Send chunk: %v", err)
+		}
+		if err := sender.SendText(`{"type":"end"}`); err != nil {
+			t.Fatalf("SendText end: %v", err)
+		}
+		time.Sleep(300 * time.Millisecond)
+		_ = sender.Close()
+
+		select {
+		case err := <-recvErr:
+			if err != nil {
+				t.Fatalf("the accepted transfer did not finish, so something answered the prompt: %v", err)
+			}
+		case <-time.After(20 * time.Second):
+			t.Fatal("the receive did not return")
+		}
+		if out := printed(); strings.Contains(out, "Accept?") {
+			t.Fatalf("the accept prompt was printed although a Decide had accepted:\n%s", out)
+		}
+		if got := listDir(t, outDir); len(got) != 1 || got[0] != "a.txt" {
+			t.Fatalf("output tree %v, want only a.txt", got)
+		}
+	})
 }
 
 // TestNilDecideIsUnchanged: with Decide nil the prompt is still the decision,

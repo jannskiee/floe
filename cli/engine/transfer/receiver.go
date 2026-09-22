@@ -442,6 +442,12 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 						// directory and a staging file and acks, and doing that
 						// for a peer that is gone leaves all three behind and
 						// reports a mid-transfer close that never happened.
+						// Best effort by construction: a close that lands
+						// between this check and openPart still claims a
+						// .part and still reports closedError, the same race
+						// every receive has always had. What changed is its
+						// size, from the whole decision window down to a few
+						// instructions.
 						select {
 						case <-done:
 							return ErrSenderLeft
@@ -462,13 +468,16 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 								code = CodeStopped
 							}
 							// The frame first and the close second, in that
-							// order: AbortWithCode flushes for up to 10 ms and a
-							// refusal reaches a Go sender one tick later, while a
-							// bare close leaves it with generic
-							// closed-while-waiting text and no reason at all. The
-							// saved count is the constant 0, not filesReceived:
-							// this is the first metadata, so nothing has been
-							// committed and the constant says so at a glance.
+							// order: AbortWithCode flushes until the frame is
+							// out, polling at 10 ms and bounded by
+							// controlFlushTimeout (2 s), and a refusal reaches a
+							// Go sender one tick later (measured 1.0 ms, with the
+							// buffer already empty), while a bare close leaves it
+							// with generic closed-while-waiting text and no
+							// reason at all. The saved count is the constant 0,
+							// not filesReceived: this is the first metadata, so
+							// nothing has been committed and the constant says so
+							// at a glance.
 							AbortWithCode(dc, localVer, code, code.WireReason(), 0)
 							dc.Close()
 							return &RefusedError{Code: code}

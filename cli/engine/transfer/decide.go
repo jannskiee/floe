@@ -52,5 +52,6 @@ type Decision struct {
 // decision that arrived after the sender gave up claimed a staging file and
 // acked a channel nobody was reading.
 //
-// Nothing was created and nothing was sent when this is returned.
+// Nothing was created by the receive and nothing was sent. A folder the
+// caller's own Decide created before answering is the caller's to remove.
 var ErrSenderLeft = errors.New("the sender left before the transfer was accepted")
