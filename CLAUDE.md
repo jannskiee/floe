@@ -226,6 +226,10 @@ quirk or a prohibition. A comment that restates the line beneath it does not.
 
 Tests follow the same rules, plus these conventions:
 
+- A Go test that holds real timers for minutes is opt-in through
+  `FLOE_LONG_TESTS`, read only in its `_test.go` file. CI and the local gates
+  run `go test ./...` without `-short`, and a package's default timeout is 10
+  minutes.
 - Test files are named by the concern they exercise, and the Go and
   TypeScript halves mirror each other: `hash_test.go` is the receiver's side
   of the per-file digest and `senderhash_test.go` the sender's, and
