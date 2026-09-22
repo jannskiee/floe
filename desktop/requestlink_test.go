@@ -199,6 +199,19 @@ func (f *fakeSignalServer) userConnected() {
 	}
 }
 
+// peerDisconnected tells the newest socket its visitor left.
+func (f *fakeSignalServer) peerDisconnected() {
+	f.mu.Lock()
+	var fc *fakeConn
+	if n := len(f.conns); n > 0 {
+		fc = f.conns[n-1]
+	}
+	f.mu.Unlock()
+	if fc != nil {
+		fc.send(map[string]string{"type": "peer-disconnected"})
+	}
+}
+
 // pushRefused sends a seated host a refused frame (policy turned off).
 func (f *fakeSignalServer) pushRefused(code string) {
 	f.mu.Lock()
@@ -1608,4 +1621,28 @@ func TestRequestSnapshotSeqUniqueUnderConcurrency(t *testing.T) {
 		t.Fatalf("only %d emitted and %d returned snapshots", rec.len(), len(returned))
 	}
 	forceState(a, "off", 0)
+}
+
+// TestPeerLeftBeforeChannelReopens (D-116, B1 review 2a L1): a
+// peer-disconnected that reaches a waiting link before any data channel
+// exists reopens the room, so a visitor coming back on a new socket is not
+// answered room-full, and the link stays waiting on the same socket.
+func TestPeerLeftBeforeChannelReopens(t *testing.T) {
+	f := newFakeSignalServer(t)
+	a, _ := laneApp(t, f)
+	s := makeWaiting(t, a)
+	_, _, sc := laneHandles(a)
+	f.peerDisconnected()
+	waitFor(t, 5*time.Second, "request-reopen", func() bool { return f.count("request-reopen") == 1 })
+	time.Sleep(50 * time.Millisecond)
+	now := stateOf(a)
+	if now.State != "waiting" || now.Link != s.Link || now.Gen != s.Gen {
+		t.Fatalf("after the visitor left: %+v", now)
+	}
+	if _, _, sc2 := laneHandles(a); sc2 != sc {
+		t.Fatal("the lane swapped its socket")
+	}
+	if n := len(f.tokenJoins()); n != 1 {
+		t.Fatalf("%d token joins, want 1 (no reconnect)", n)
+	}
 }

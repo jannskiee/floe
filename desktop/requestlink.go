@@ -858,8 +858,19 @@ func (a *App) waitRequest(rg uint64, stop <-chan struct{}, sc *signaling.Client,
 		case <-sc.Down:
 			return waitDown
 		case <-sc.PeerLeft:
-			// A visitor who left before pairing, or the push that follows
-			// Down, which the Down case decides on.
+			// Down closes before the read loop's own PeerLeft push, so an
+			// open Down means the server reported the visitor gone. Before any
+			// data channel exists that visitor may come back on a new socket,
+			// and a room the server sealed once both seats signaled (D-116)
+			// would answer it room-full: reopen it, and keep the link waiting.
+			// A PeerLeft that follows Down is the Down case's to decide.
+			select {
+			case <-sc.Down:
+			default:
+				if a.requestActive(rg) {
+					_ = sc.RequestReopen()
+				}
+			}
 		}
 	}
 }
