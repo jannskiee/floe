@@ -1062,6 +1062,16 @@ describe('request drops in History', () => {
 
         await user.click(screen.getByRole('button', {name: 'History'}));
         expect(screen.getAllByText('Acme footage')).toHaveLength(2);
+
+        // The once-per-generation guard on its own: a result with no folder
+        // (nothing for the folder check to match) re-emitted twice still adds
+        // one row.
+        const bare = {...base, gen: 6, state: 'done', label: 'No folder', result: {...done.result, folder: ''}};
+        act(() => { wails.emit('request:state', bare); });
+        act(() => { wails.emit('request:state', {...bare}); });
+        await waitFor(() => expect(JSON.parse(localStorage.getItem('floe:history') || '[]')).toHaveLength(3));
+        await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+        expect(JSON.parse(localStorage.getItem('floe:history') || '[]')).toHaveLength(3);
     });
 });
 
