@@ -229,6 +229,22 @@ describe('the request lane reducer', () => {
         expect(acceptStale(snap({gen: 5}), snap({gen: 6}))).toBe(true);
     });
 
+    it('a same-gen answer older than an adopted event is ignored', () => {
+        // D-115: AnswerRequest(accept) returns the snapshot as it stood when
+        // the answer was queued (deciding) while the lane emits receiving; if
+        // the event lands first, the late reply must not bring the prompt back.
+        const r = reduce(deciding, {type: 'SNAPSHOT', snap: snap({state: 'receiving', gen: 1, seq: 6})});
+        const late = reduce(r, {type: 'SNAPSHOT', snap: snap({state: 'deciding', gen: 1, seq: 5, promptGen: 1, prompt: deciding.snap.prompt})});
+        expect(late).toBe(r);
+        expect(phase(late)).toBe('receiving');
+        // A later snapshot of the same gen is adopted; the same one again is
+        // a re-delivery and changes nothing that matters.
+        expect(phase(reduce(r, {type: 'SNAPSHOT', snap: snap({state: 'done', gen: 1, seq: 7, result})}))).toBe('done');
+        expect(phase(reduce(r, {type: 'SNAPSHOT', snap: snap({state: 'receiving', gen: 1, seq: 6})}))).toBe('receiving');
+        expect(acceptStale(snap({gen: 1, seq: 6}), snap({gen: 1, seq: 5}))).toBe(false);
+        expect(acceptStale(snap({gen: 1, seq: 6}), snap({gen: 2, seq: 0}))).toBe(true);
+    });
+
     it('T28 dismiss returns to Ready', () => {
         const done = at('done', {result})(receiving);
         const dismissed = reduce(done, {type: 'DISMISS'});

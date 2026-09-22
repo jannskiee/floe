@@ -26,6 +26,15 @@ type RequestLinkSnapshot struct {
 	// Gen is the lane generation; the frontend ignores a snapshot whose Gen is
 	// lower than the last one it adopted.
 	Gen uint64 `json:"gen"`
+	// Seq orders snapshots within and across generations (D-115): a
+	// per-process counter the lane increments for every snapshot it emits on
+	// request:state or returns from a bound method, stamped under the lane
+	// lock. (Gen, Seq) is a total order, and the frontend never adopts a
+	// snapshot older than the last one it adopted, so a binding's reply that
+	// loses the race to a later event (an AnswerRequest reply that still says
+	// deciding after receiving was emitted) cannot bring an old state back.
+	// The stubs return 0: they never report anything worth ordering.
+	Seq uint64 `json:"seq"`
 	// PromptGen identifies the prompt an AnswerRequest answers.
 	PromptGen uint64 `json:"promptGen"`
 	// Link is web + "/r/" + linkId + "#" + roomId; "" until waiting. It lives

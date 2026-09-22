@@ -1096,3 +1096,38 @@ describe('reset all settings with a link open', () => {
         expect(wails.go.SetRequestLinks).toHaveBeenCalledWith(false);
     });
 });
+
+describe('snapshot order (D-115)', () => {
+    it('a deciding reply that arrives after a receiving event never brings the prompt back', async () => {
+        wails.go.GetSettings.mockImplementation(async () => ({
+            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false, requestLinks: true, migrated: true,
+        }));
+        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: true}));
+        let reply!: (s: unknown) => void;
+        wails.go.AnswerRequest.mockImplementation(() => new Promise((r) => { reply = r; }));
+        const user = userEvent.setup();
+        mount();
+        await waitFor(() => expect(wails.listeners.size).toBe(15));
+        const base = {
+            code: '', gen: 2, promptGen: 1, link: 'http://localhost:3000/r/Xk3p9Q0aB1c#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f',
+            label: 'Acme footage', saveDir: 'D:\\x', expiresAt: Date.now() + 3600_000, route: '', suggestClose: false,
+        };
+        const prompt = {files: 2, totalBytes: 2048, folder: 'Floe requests\\Acme footage 2026-09-14 1405', freeBytes: 1 << 30, warnings: [], answerBy: Date.now() + 9 * 60000};
+        act(() => { wails.emit('request:state', {...base, seq: 3, state: 'deciding', prompt}); });
+        await user.click(screen.getByRole('button', {name: 'Request link is open'}));
+        const accept = await screen.findByRole('button', {name: 'Accept'});
+        await act(async () => { await new Promise((r) => setTimeout(r, 1100)); });
+        await user.click(accept);
+        expect(wails.go.AnswerRequest).toHaveBeenCalledWith(1, 'accept');
+
+        // The lane emits receiving before the answer's own reply lands...
+        act(() => { wails.emit('request:state', {...base, seq: 5, state: 'receiving', route: 'direct'}); });
+        expect(await screen.findByRole('button', {name: 'Cancel drop'})).toBeTruthy();
+        // ...and the reply, stamped before it, says deciding.
+        await act(async () => { reply({...base, seq: 4, state: 'deciding', prompt}); await Promise.resolve(); });
+
+        expect(screen.queryByRole('button', {name: 'Accept'})).toBeNull();
+        expect(screen.getByRole('button', {name: 'Cancel drop'})).toBeTruthy();
+        expect(screen.queryByRole('group', {name: 'Someone wants to send you files.'})).toBeNull();
+    });
+});

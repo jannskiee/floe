@@ -80,6 +80,7 @@ export namespace main {
 	    state: string;
 	    code: string;
 	    gen: number;
+	    seq: number;
 	    promptGen: number;
 	    link: string;
 	    label: string;
@@ -101,6 +102,7 @@ export namespace main {
 	        this.state = source["state"];
 	        this.code = source["code"];
 	        this.gen = source["gen"];
+	        this.seq = source["seq"];
 	        this.promptGen = source["promptGen"];
 	        this.link = source["link"];
 	        this.label = source["label"];

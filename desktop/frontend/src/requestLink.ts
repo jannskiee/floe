@@ -49,6 +49,9 @@ export interface RequestLinkSnapshot {
     state: string;
     code: string;
     gen: number;
+    /** Orders snapshots with gen (D-115): the lane stamps every snapshot it
+     *  emits or returns from one per-process counter. */
+    seq: number;
     promptGen: number;
     link: string;
     label: string;
@@ -92,7 +95,7 @@ export type Phase =
     | 'deciding' | 'declined' | 'receiving' | 'done' | 'stopped' | 'ended';
 
 export const OFF_SNAPSHOT: RequestLinkSnapshot = {
-    state: 'off', code: '', gen: 0, promptGen: 0, link: '', label: '', saveDir: '',
+    state: 'off', code: '', gen: 0, seq: 0, promptGen: 0, link: '', label: '', saveDir: '',
     expiresAt: 0, route: '', suggestClose: false,
 };
 
@@ -164,10 +167,17 @@ function keyOf(s: RequestLinkSnapshot): string {
 }
 
 /** acceptStale says whether a snapshot may be adopted over the current one:
- *  never one with a lower gen (T27; the frontend twin of the lane generation,
- *  like recvAttempt in App.tsx). */
+ *  only one that is not older by (gen, seq) (T27 and D-115). Events and
+ *  binding replies both pass through here, so a reply the lane stamped before
+ *  a later event (an AnswerRequest reply saying deciding after receiving was
+ *  emitted, the GetRequestLink pull, MakeRequestLink's making) can never bring
+ *  an older state back. An equal (gen, seq) is the same snapshot delivered
+ *  twice, since the lane never stamps two alike; adopting it changes nothing
+ *  (and lets the stubs, which stamp every answer 0, still show their refusal).
+ *  The frontend twin of the lane generation, like recvAttempt in App.tsx. */
 export function acceptStale(prev: RequestLinkSnapshot, next: RequestLinkSnapshot): boolean {
-    return next.gen >= prev.gen;
+    if (next.gen !== prev.gen) return next.gen > prev.gen;
+    return next.seq >= prev.seq;
 }
 
 /** normalizeSnapshot coerces a snapshot from the bridge into the shape the
@@ -182,6 +192,7 @@ export function normalizeSnapshot(raw: unknown): RequestLinkSnapshot {
         state: PHASES.has(state) ? state : 'off',
         code: str(r.code),
         gen: num(r.gen),
+        seq: num(r.seq),
         promptGen: num(r.promptGen),
         link: str(r.link),
         label: str(r.label),
