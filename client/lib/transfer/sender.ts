@@ -719,11 +719,17 @@ function openSession(deps: SenderDeps, cb: SenderCallbacks, fileCount: number): 
             // page reported a lost connection instead (WP-W1 review F1 and
             // R2-1; spec 07 4.7's wire-code rule). reportStop reports once;
             // every checkpoint still sees the latch and stops the send. A
-            // throwing page handler must not break the data stream this runs in.
+            // throwing page handler must not break the data stream this runs
+            // in, and must not vanish either: it is rethrown in a microtask,
+            // where the page's global error handler (Sentry) reports it
+            // (WP-W1 review R3-2). The latch is already set, so nothing is
+            // reported twice.
             try {
                 reportStop();
-            } catch {
-                // Already marked reported; the latch still stops the send.
+            } catch (err) {
+                queueMicrotask(() => {
+                    throw err;
+                });
             }
         } else if (msg.type === 'received') {
             cb.onReceived?.();

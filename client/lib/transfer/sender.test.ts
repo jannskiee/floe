@@ -1250,6 +1250,41 @@ describe('sender: a refusal wins over the close that follows it', () => {
         expect(seen).toEqual(['ack1', 'stopped:disk-full']);
     });
 
+    it('a page handler that throws while a refusal is reported at receipt is rethrown, not swallowed', async () => {
+        // WP-W1 review R3-2. The throw must not break the data stream the
+        // listener runs in, and it must not vanish either: it is rethrown in
+        // a microtask, where the page's global error handler (Sentry) sees
+        // it. The refusal is still reported exactly once.
+        const real = globalThis.queueMicrotask;
+        const rethrown: unknown[] = [];
+        const spy = vi.spyOn(globalThis, 'queueMicrotask').mockImplementation((fn) =>
+            real(() => {
+                try {
+                    fn();
+                } catch (err) {
+                    rethrown.push(err);
+                }
+            })
+        );
+        try {
+            const { deps, isDestroyed } = refusingMidFile();
+            const bug = new Error('page handler bug');
+            let stops = 0;
+            await sendFiles(deps, [{ id: 'f1', file: makeFile(1024 * 1024, 'a.bin') }], {
+                isDestroyed,
+                onStopped: () => {
+                    stops++;
+                    throw bug;
+                },
+            }, { requireReceived: true, sendHashes: false });
+            await new Promise((r) => setTimeout(r, 10));
+            expect(stops).toBe(1);
+            expect(rethrown).toEqual([bug]);
+        } finally {
+            spy.mockRestore();
+        }
+    });
+
     it('a close with no refusal latched still reports nothing but the close', async () => {
         const { deps, isDestroyed } = refusingMidFile(() => {});
         const seen: string[] = [];
