@@ -947,6 +947,47 @@ test('bytesMoved per attempt: the fixture on a completed transfer, what landed o
     );
 });
 
+test('Safety denominator: a CLI receiver leg that fails in the connect phase still counts in cliReceiversOptedOut', async () => {
+    // Harness fix 12: the baseline default run launched 6 CLI receiver legs
+    // and its Safety table read 5/5, because the count happened at verify,
+    // which a connect-phase failure never reaches.
+    const w = fakeWorld();
+    w.setScript('S-DIR-W2C', 'connect-timeout');
+    const ctx = makeCtx(w, { retry: { used: 3, cap: 3 } });
+    const r = await runCell(pick('S-DIR-W2C'), ctx);
+    assert.equal(r.verdict, 'FAIL');
+    assert.equal(r.attempts.length, 1);
+    assert.equal(r.attempts[0].failedPhase, 'connect');
+    assert.deepEqual(ctx.safety.cliReceiversOptedOut, { ok: 1, total: 1 });
+    // A leg that reaches verify is counted once, not twice.
+    const ok = makeCtx(fakeWorld());
+    const pass = await runCell(pick('S-DIR-W2C'), ok);
+    assert.equal(pass.verdict, 'PASS', pass.note);
+    assert.deepEqual(ok.safety.cliReceiversOptedOut, { ok: 1, total: 1 });
+});
+
+test('Safety denominator: a CLI receiver spawned without its opt-out counts in the total and not in ok', async () => {
+    const w = fakeWorld();
+    w.setScript('S-DIR-W2C', 'connect-timeout');
+    const ctx = makeCtx(w, { retry: { used: 3, cap: 3 } }, (adapters) => {
+        wrapLeg(adapters, 'cli', (leg, opts) => {
+            if (opts.role !== 'receiver') return;
+            const orig = leg.evidence.bind(leg);
+            leg.evidence = () => ({
+                ...orig(),
+                statsProof: {
+                    kind: 'argv+env',
+                    noReport: false,
+                    floeNoStats: null,
+                },
+            });
+        });
+        return adapters;
+    });
+    await runCell(pick('S-DIR-W2C'), ctx);
+    assert.deepEqual(ctx.safety.cliReceiversOptedOut, { ok: 0, total: 1 });
+});
+
 test('turn-fetch-rejected: a refused TURN fetch on a relay-forced web leg outranks connect-timeout', () => {
     const legOf = (ev) => ({ evidence: () => ev });
     const legs = {
