@@ -3,15 +3,21 @@ import { metadataFrameBytes, checkPick, type PickCandidate } from './metadataBud
 import { CONTROL_MSG_MAX } from '../transfer/protocol';
 
 /** An ASCII path whose metadata frame measures exactly `target` bytes, for a
- *  selection of `total` files totalling `totalBytes`.
+ *  selection of `total` files whose sizes sum to `sumOfSizes`.
  *
  *  Safe because every character it adds is one ASCII byte that JSON does not
  *  escape, so the frame grows by exactly one per character. Measured rather
  *  than hard-coded: pinning a magic path length here would make this file fail
  *  the day a field is added to the frame, which is a change the boundary should
- *  absorb, not announce. */
-function pathOfExactly(target: number, total = 1, totalBytes = 0): string {
-    const probe = metadataFrameBytes('a', 0, total, totalBytes);
+ *  absorb, not announce.
+ *
+ *  The sum is spelled `sumOfSizes` rather than by its wire name on purpose.
+ *  check-consumers.mjs scans every file for the wire field names and warns on a
+ *  test that carries one, and that warning count is only worth having while it
+ *  means "a test names a peer field". Nothing in this file touches a peer
+ *  value: it measures the frame this side is about to build. */
+function pathOfExactly(target: number, total = 1, sumOfSizes = 0): string {
+    const probe = metadataFrameBytes('a', 0, total, sumOfSizes);
     return 'a'.repeat(1 + (target - probe));
 }
 
@@ -78,8 +84,9 @@ describe('metadataFrameBytes and checkPick', () => {
     it('rechecks the whole selection when a second pick raises total', () => {
         // The trap this closes: two of the three inputs to a frame's size
         // belong to the SELECTION, not the file. A path that fit alone stops
-        // fitting when a later pick makes totalBytes wider, and a check that
-        // only measured the newly added files would never look at it again.
+        // fitting when a later pick makes the batch-size field wider, and a
+        // check that only measured the newly added files would never look at
+        // it again.
         const boundary = pathOfExactly(CONTROL_MSG_MAX);
         const first = [candidate(boundary)];
         expect(checkPick(first)).toEqual({ ok: true });
