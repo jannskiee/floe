@@ -43,6 +43,12 @@ type fakeJoin struct {
 	roomID, token string
 }
 
+// fakeControl is one request-seal, request-reopen or request-close frame, with
+// the room id it named.
+type fakeControl struct {
+	typ, roomID string
+}
+
 // fakeSignalServer is the local /ws server of newFakeSignalServer.
 type fakeSignalServer struct {
 	t   *testing.T
@@ -58,7 +64,8 @@ type fakeSignalServer struct {
 	block     chan struct{}
 	upgrades  int
 	joins     []fakeJoin
-	frames    []string // frame types from clients, in order
+	frames    []string      // frame types from clients, in order
+	controls  []fakeControl // request-* frames from clients, in order
 	conns     []*fakeConn
 	closedCnt int
 }
@@ -141,6 +148,10 @@ func (f *fakeSignalServer) read(fc *fakeConn) {
 		typ, _ := m["type"].(string)
 		f.mu.Lock()
 		f.frames = append(f.frames, typ)
+		if strings.HasPrefix(typ, "request-") {
+			room, _ := m["roomId"].(string)
+			f.controls = append(f.controls, fakeControl{typ: typ, roomID: room})
+		}
 		role, refuse, silent := f.role, f.refuse, f.silent
 		f.mu.Unlock()
 		switch typ {
@@ -1894,6 +1905,70 @@ func TestPeerLeftBeforeChannelReopens(t *testing.T) {
 	}
 	if n := len(f.tokenJoins()); n != 1 {
 		t.Fatalf("%d token joins, want 1 (no reconnect)", n)
+	}
+}
+
+// TestCloseDuringHostJoinSendsNoRoomlessClose (review 1a F4): a Close link
+// that lands while the host join is still being written leaves the socket to
+// the goroutine joining with it. No request-close is written before the join
+// (none names room ""), nothing reads the engine's room id while the join
+// writes it, and once the join answers the goroutine frees the reservation
+// itself with one request-close for the joined room and closes the socket.
+func TestCloseDuringHostJoinSendsNoRoomlessClose(t *testing.T) {
+	f := newFakeSignalServer(t)
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once, releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+	setJoin(t, func(sc *signaling.Client, room, tok string) (signaling.HostJoinResult, error) {
+		once.Do(func() { close(entered) })
+		<-release
+		return sc.JoinRoomWithToken(room, tok)
+	})
+	a, _ := laneApp(t, f)
+	a.MakeRequestLink("x", t.TempDir(), "24h")
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the host join never started")
+	}
+	a.CloseRequestLink()
+	if s := stateOf(a); s.State != "ended" || s.Code != "closed" {
+		t.Fatalf("after Close link during the join: %q %q", s.State, s.Code)
+	}
+	time.Sleep(300 * time.Millisecond) // longer than the lane's closeWait here
+	unblock()
+	waitFor(t, 5*time.Second, "the socket to close", func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.closedCnt == 1
+	})
+	f.mu.Lock()
+	controls := append([]fakeControl(nil), f.controls...)
+	f.mu.Unlock()
+	for _, c := range controls {
+		if c.roomID == "" {
+			t.Fatalf("%s written with no room id: the teardown raced the join", c.typ)
+		}
+	}
+	joins := f.tokenJoins()
+	if len(joins) != 1 {
+		t.Fatalf("%d token joins, want 1", len(joins))
+	}
+	closes := 0
+	for _, c := range controls {
+		if c.typ == "request-close" {
+			closes++
+			if c.roomID != joins[0].roomID {
+				t.Fatal("the request-close names another room than the join")
+			}
+		}
+	}
+	if closes != 1 {
+		t.Fatalf("%d request-close frames, want 1 for the joined room", closes)
+	}
+	if _, _, sc := laneHandles(a); sc != nil {
+		t.Fatal("the closed link's lane holds a socket")
 	}
 }
 

@@ -798,9 +798,15 @@ func (a *App) runRequestLink(rg uint64, stop <-chan struct{}, hideIP bool, lifet
 	}
 }
 
-// hostJoin connects with liveness, registers the socket with the lane and
-// makes the token join. A nil sc with result 0 means rg was superseded; a nil
+// hostJoin connects with liveness, makes the token join, then registers the
+// socket with the lane. A nil sc with result 0 means rg was superseded; a nil
 // sc with HostDown means the connect itself failed.
+//
+// The socket is registered only once its join has returned, so until then
+// this goroutine alone touches it. Registered first, a Close link or a quit
+// during the join would write request-close while the join was still writing
+// the engine's room id: a data race, and a close frame naming no room that
+// leaves the reservation the join then takes for its grace (review 1a F4).
 func (a *App) hostJoin(rg uint64, server, roomID, hostToken string) (*signaling.Client, signaling.HostJoinResult) {
 	sc, err := signaling.Connect(server, signaling.WithLiveness(requestPing, requestReadDeadline))
 	if err != nil {
@@ -809,13 +815,22 @@ func (a *App) hostJoin(rg uint64, server, roomID, hostToken string) (*signaling.
 		}
 		return nil, signaling.HostDown
 	}
-	if !a.setRequestSignaling(rg, sc) {
+	if !a.requestActive(rg) {
 		sc.Close()
 		return nil, 0
 	}
 	res, _ := joinWithTokenFn(sc, roomID, hostToken)
-	if !a.requestActive(rg) {
-		a.releaseRequestSocket(sc, false)
+	if !a.setRequestSignaling(rg, sc) {
+		// rg ended during the join, which left the socket to this goroutine:
+		// free the reservation the join may have taken, then close it.
+		if res == signaling.HostJoined {
+			l := a.lane()
+			l.mu.Lock()
+			wait, closeFrame := l.closeWait, l.closeFrameFn
+			l.mu.Unlock()
+			sendCloseWithin(sc, closeFrame, wait)
+		}
+		sc.Close()
 		return nil, 0
 	}
 	return sc, res
