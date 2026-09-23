@@ -158,6 +158,51 @@ export const RE = Object.freeze({
     hideIpRow: /Hide my IP address/i,
 });
 
+/**
+ * The request link host's fixed UI strings, quoted from the frozen copy
+ * (work/16-design/cp-3/approved-copy-desktop.md, the row id beside each).
+ * The components that render them are not on this base yet, so the roles
+ * are INFERRED (buttons, as every other action in App.tsx) and settle when
+ * the desktop lane lands; the names are the contract.
+ */
+export const REQUEST_STRINGS = Object.freeze({
+    choice: 'Request link, beta', // R3, the row choice's accessible name
+    lifetime24h: 'In 24 hours', // R12, the default
+    lifetime7d: 'In 7 days', // R13
+    makeLink: 'Make link', // R14
+    copyLink: 'Copy link', // W2, shown while the link waits
+    closeLink: 'Close link', // W4
+    accept: 'Accept', // P9
+    decline: 'Decline', // P9
+    keepWaiting: 'Keep waiting', // D3
+    makeAnother: 'Make another link', // X3, after Close link
+});
+
+/**
+ * The prompt's buttons ignore input for 1 s after it appears (spec 06 P9,
+ * E-44). The audit waits at least ACCEPT_WAIT_MS from the moment it first
+ * SAW the prompt, which is never earlier than the moment it mounted, so the
+ * click always lands after the guard.
+ */
+export const ACCEPT_GUARD_MS = 1_000;
+export const ACCEPT_WAIT_MS = 1_200;
+export const REQUEST_POLL_MS = 50;
+
+/**
+ * A request link (spec 06 4.4 Link: web + "/r/" + linkId + "#" + roomId).
+ * The room id after `#` is a secret for the life of the link: it goes to
+ * the visitor leg and nowhere else (never a log line, audit.md or run.json).
+ */
+export const REQUEST_LINK_RE =
+    /^https?:\/\/[^\s/#]+\/r\/[A-Za-z0-9_-]+#[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The link with its room fragment removed, for any line a person reads. */
+export function redactRequestLink(link) {
+    const s = String(link ?? '');
+    const i = s.indexOf('#');
+    return i < 0 ? s : `${s.slice(0, i)}#<room>`;
+}
+
 export const sameText = (a, b) =>
     String(a ?? '')
         .trim()
@@ -1237,6 +1282,184 @@ export class PlaywrightDriver {
         const after = await box.isChecked();
         return { before, after, changed: after !== before };
     }
+
+    // ------------------------------------------- request link verbs
+    //
+    // The wailsdev DOM mirror of the UIA verbs (S1-REL-03a step 5). Every
+    // verb clicks a button by its frozen accessible name and then reads back
+    // that the view moved, so a click that did not take is an error and
+    // never a silent pass. The clock and the nap are injectable so the 1 s
+    // guard wait is provable on a fake clock (desktop.test.mjs).
+
+    _button(name) {
+        return this.page.getByRole('button', { name, exact: true });
+    }
+    async _visible(name) {
+        try {
+            return await this._button(name).first().isVisible();
+        } catch {
+            return false;
+        }
+    }
+    /** Poll until the named button shows; resolves the time it was seen. */
+    async _waitShown(name, timeoutMs, { now = Date.now, nap = sleep } = {}) {
+        const start = now();
+        for (;;) {
+            if (await this._visible(name)) return now();
+            if (now() - start >= timeoutMs)
+                throw new PhaseError(
+                    'request',
+                    `desktop wailsdev: "${name}" did not appear within ${timeoutMs} ms`
+                );
+            await nap(REQUEST_POLL_MS);
+        }
+    }
+    async _waitGone(name, timeoutMs, { now = Date.now, nap = sleep } = {}) {
+        const start = now();
+        for (;;) {
+            if (!(await this._visible(name))) return now();
+            if (now() - start >= timeoutMs)
+                throw new PhaseError(
+                    'request',
+                    `desktop wailsdev: "${name}" was still showing ${timeoutMs} ms after the click; the view did not leave that state`
+                );
+            await nap(REQUEST_POLL_MS);
+        }
+    }
+    /** The host-authoritative snapshot (GetRequestLink), or null. */
+    async requestSnapshot() {
+        return this.page.evaluate(async () => {
+            const app = window.go && window.go.main && window.go.main.App;
+            if (!app || typeof app.GetRequestLink !== 'function') return null;
+            return app.GetRequestLink();
+        });
+    }
+
+    /**
+     * Make link: the Receive view, the CODE / REQUEST LINK row's request
+     * choice, the lifetime (24h is the default), Make link, then wait for
+     * the waiting view (Copy link). Never types a label: the owner's label
+     * is optional (R7) and a cell has no reason to put text on screen.
+     */
+    async makeRequestLink({
+        lifetime = '24h',
+        timeoutMs = 30_000,
+        now = Date.now,
+        nap = sleep,
+    } = {}) {
+        if (lifetime !== '24h' && lifetime !== '7d')
+            throw new PhaseError(
+                'request',
+                `desktop wailsdev: MakeLink takes 24h or 7d, not ${lifetime}`
+            );
+        await this._button(STRINGS.tabReceive).first().click();
+        await this._button(REQUEST_STRINGS.choice).first().click();
+        if (lifetime === '7d') {
+            const text = REQUEST_STRINGS.lifetime7d;
+            const select = this.page
+                .locator('select')
+                .filter({ has: this.page.locator('option', { hasText: text }) });
+            if ((await select.count()) > 0)
+                await select.first().selectOption({ label: text });
+            else await this.page.getByText(text, { exact: true }).click();
+        }
+        await this._button(REQUEST_STRINGS.makeLink).first().click();
+        const waitingAt = await this._waitShown(
+            REQUEST_STRINGS.copyLink,
+            timeoutMs,
+            { now, nap }
+        );
+        return { made: true, lifetime, waitingAt };
+    }
+
+    /**
+     * Read link: the full link from GetRequestLink, checked against what
+     * the waiting view shows when the view shows it. The value is returned
+     * to the caller for the visitor leg only; `shown` is the redacted form.
+     */
+    async readRequestLink() {
+        const snap = await this.requestSnapshot();
+        const link = snap && typeof snap.link === 'string' ? snap.link : '';
+        if (!REQUEST_LINK_RE.test(link))
+            throw new PhaseError(
+                'request',
+                `desktop wailsdev: no request link to read (state ${snap ? snap.state : 'unknown'})`
+            );
+        // The view may drop the scheme (the mock shows floe.one/r/...), so
+        // the check is that the host's link ends with what is on screen.
+        const bare = link.replace(/^https?:\/\//i, '');
+        const onScreen = (
+            await this.readText(/\/r\/[A-Za-z0-9_-]+#[0-9a-f-]{36}$/i)
+        ).filter((t) => /^(https?:\/\/)?[^\s/#]+\/r\//i.test(t));
+        if (onScreen.length && !onScreen.some((t) => link.endsWith(t) || t === bare))
+            throw new PhaseError(
+                'request',
+                'desktop wailsdev: the link on screen is not the link the host holds'
+            );
+        return {
+            link,
+            via: 'GetRequestLink',
+            onScreen: onScreen.length > 0,
+            shown: redactRequestLink(link),
+        };
+    }
+
+    /**
+     * Answer the prompt with Accept or Decline, never earlier than
+     * ACCEPT_WAIT_MS after the prompt was first seen (the 1 s guard), then
+     * read back that the prompt left.
+     */
+    async _answer(name, { timeoutMs = 60_000, now = Date.now, nap = sleep } = {}) {
+        const seenAt = await this._waitShown(name, timeoutMs, { now, nap });
+        for (;;) {
+            const left = ACCEPT_WAIT_MS - (now() - seenAt);
+            if (left <= 0) break;
+            await nap(left);
+        }
+        const clickedAt = now();
+        await this._button(name).first().click();
+        const leftAt = await this._waitGone(name, 10_000, { now, nap });
+        return { answered: name, seenAt, clickedAt, waitedMs: clickedAt - seenAt, leftAt };
+    }
+    async acceptRequest(o = {}) {
+        return this._answer(REQUEST_STRINGS.accept, o);
+    }
+    /** Decline, then the declined view's Keep waiting must show (D3). */
+    async declineRequest(o = {}) {
+        const r = await this._answer(REQUEST_STRINGS.decline, o);
+        await this._waitShown(REQUEST_STRINGS.keepWaiting, 10_000, o);
+        return r;
+    }
+    /**
+     * Keep waiting (sends request-reopen, E-03): only from the declined
+     * view, and the waiting view (Copy link) must come back.
+     */
+    async keepWaiting({ now = Date.now, nap = sleep } = {}) {
+        if (!(await this._visible(REQUEST_STRINGS.keepWaiting)))
+            throw new PhaseError(
+                'request',
+                'desktop wailsdev: Keep waiting is not showing; decline first'
+            );
+        await this._button(REQUEST_STRINGS.keepWaiting).first().click();
+        await this._waitGone(REQUEST_STRINGS.keepWaiting, 10_000, { now, nap });
+        const waitingAt = await this._waitShown(
+            REQUEST_STRINGS.copyLink,
+            10_000,
+            { now, nap }
+        );
+        return { reopened: true, waitingAt };
+    }
+    /** Close link, then the ended view's Make another link must show (X3). */
+    async closeRequestLink({ now = Date.now, nap = sleep } = {}) {
+        await this._button(REQUEST_STRINGS.closeLink).first().click();
+        const endedAt = await this._waitShown(
+            REQUEST_STRINGS.makeAnother,
+            10_000,
+            { now, nap }
+        );
+        return { closed: true, endedAt };
+    }
+
     async capture(file) {
         await this.page.screenshot({ path: file });
         return { path: file };

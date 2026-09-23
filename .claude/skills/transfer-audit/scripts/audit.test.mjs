@@ -25,9 +25,12 @@ import {
     parseWslList,
     prepareHarnessBuild,
     prepareWslBuild,
+    probeServerFeatures,
     probeWsl,
     profileLine,
     purgeRunData,
+    serverFeaturesRow,
+    serverFor,
     webHeadLabel,
 } from './audit.mjs';
 import { fakeWorld, makeFakeAdapters } from './lib/tests/fake-legs.mjs';
@@ -1018,6 +1021,102 @@ test('probe subcommand on fake adapters: one line per desktop probe, the aggrega
         !JSON.stringify(probe).includes('secret-credential'),
         'TURN bodies never reach probe.json'
     );
+});
+
+test('probe P10 reads /health features: request-1, absent, malformed, an error status and unreachable', async () => {
+    const answer = (status, body) => async () =>
+        new Response(JSON.stringify(body), {
+            status,
+            headers: { 'content-type': 'application/json' },
+        });
+    const on = await probeServerFeatures('http://localhost:3001', {
+        fetchImpl: answer(200, { status: 'healthy', features: ['request-1'] }),
+    });
+    assert.deepEqual(on.features, ['request-1']);
+    assert.equal(on.requestLinks, true);
+    assert.equal(on.detail, 'request-1');
+    const off = await probeServerFeatures('http://localhost:3001', {
+        fetchImpl: answer(200, { status: 'healthy' }),
+    });
+    assert.equal(off.features, null);
+    assert.equal(off.requestLinks, false);
+    assert.equal(off.detail, 'no features field');
+    const junk = await probeServerFeatures('http://localhost:3001', {
+        fetchImpl: answer(200, {
+            features: ['request-1', 'x'.repeat(41), { a: 1 }, 'Has Space', 7],
+        }),
+    });
+    assert.deepEqual(junk.features, ['request-1'], 'only short tokens are kept');
+    const down = await probeServerFeatures('http://localhost:3001', {
+        fetchImpl: answer(503, { features: ['request-1'] }),
+    });
+    assert.equal(down.features, null, 'an error status is never read as features');
+    assert.equal(down.detail, 'HTTP 503');
+    const gone = await probeServerFeatures('http://localhost:3001', {
+        fetchImpl: async () => {
+            throw new Error('connect ECONNREFUSED');
+        },
+    });
+    assert.equal(gone.features, null);
+    assert.match(gone.detail, /^unreachable: /);
+    assert.deepEqual(serverFeaturesRow(on), {
+        surface: 'Server features',
+        installed: 'request-1',
+        latest: '-',
+        oracle: 'GET /health features (probe P10)',
+        status: 'INFO',
+        gate: false,
+    });
+    assert.equal(serverFor('head'), 'http://localhost:3001');
+    assert.equal(serverFor('shipped'), 'https://api.floe.one');
+});
+
+test('probe subcommand: P10 prints the features line, keeps them in probe.json and adds a Versions INFO row', async () => {
+    const json = (body) =>
+        new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        });
+    const seen = [];
+    const fetchImpl = async (url) => {
+        const u = String(url);
+        seen.push(u);
+        if (u.endsWith('/health'))
+            return json({ status: 'healthy', features: ['request-1'] });
+        if (u.endsWith('/api/turn-credentials'))
+            return json({ iceServers: [{ urls: ['stun:x:3478'] }] });
+        return new Response('nope', { status: 404 });
+    };
+    const i = io(fakeWorld(), { fetchImpl });
+    const outDir = out('probe-p10');
+    const code = await main(
+        [
+            'probe',
+            '--profile',
+            'head',
+            '--desktop',
+            'none',
+            '--root',
+            root,
+            '--out',
+            outDir,
+        ],
+        i
+    );
+    assert.ok([0, 3].includes(code), i.lines.concat(i.errors).join('\n'));
+    assert.match(i.lines.join('\n'), /^probe P10 server features: request-1$/m);
+    assert.ok(
+        seen.includes('http://localhost:3001/health'),
+        'a head probe asks the local server, never production, for features'
+    );
+    const probe = JSON.parse(
+        readFileSync(path.join(outDir, 'probe.json'), 'utf8')
+    );
+    assert.deepEqual(probe.server.features, ['request-1']);
+    assert.equal(probe.server.requestLinks, true);
+    const row = probe.versions.rows.find((r) => r.surface === 'Server features');
+    assert.equal(row.status, 'INFO');
+    assert.equal(row.installed, 'request-1');
 });
 
 test('parseWslList', () => {

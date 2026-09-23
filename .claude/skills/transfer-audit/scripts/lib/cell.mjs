@@ -363,6 +363,24 @@ export function bytesReportedCount(raw) {
     return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
+/**
+ * Harness fix 12: a CLI receiver leg counts into the Safety denominator when
+ * it is spawned, with `ok` decided from the argv and environment the leg was
+ * started with. Counting at verify dropped every leg whose cell failed in
+ * the connect phase (the baseline default run launched 6 CLI receiver legs
+ * and reported 5/5; its rerun 2 reported 0/0). Once per attempt record.
+ */
+export function countCliReceiverAtSpawn(cell, leg, rec, ctx) {
+    const surface = cell.receiver.surface;
+    if (!ctx.safety || rec.cliReceiverCounted) return;
+    if (surface !== 'cli' && surface !== 'wsl') return;
+    const proof = safeEvidence(leg)?.statsProof || null;
+    rec.cliReceiverCounted = true;
+    ctx.safety.cliReceiversOptedOut.total += 1;
+    if (proof?.noReport && proof?.floeNoStats === '1')
+        ctx.safety.cliReceiversOptedOut.ok += 1;
+}
+
 function statsProofCheck(cell, ev, rec, ctx) {
     const proof = ev?.statsProof || null;
     const surface = cell.receiver.surface;
@@ -422,7 +440,10 @@ function statsProofCheck(cell, ev, rec, ctx) {
     } else if (surface === 'cli' || surface === 'wsl') {
         out.proof.argvNoReport = Boolean(proof?.noReport);
         out.proof.envNoStats = proof?.floeNoStats === '1';
-        if (ctx.safety) {
+        // Counted at spawn (countCliReceiverAtSpawn); this is only the
+        // fallback for a leg that reached verify without passing there.
+        if (ctx.safety && !rec.cliReceiverCounted) {
+            rec.cliReceiverCounted = true;
             ctx.safety.cliReceiversOptedOut.total += 1;
             if (out.proof.argvNoReport && out.proof.envNoStats)
                 ctx.safety.cliReceiversOptedOut.ok += 1;
@@ -1038,6 +1059,7 @@ export async function runAttempt(
                 })
             );
             await legs.receiver.start();
+            countCliReceiverAtSpawn(cell, legs.receiver, rec, ctx);
             if (ctx.onPid)
                 ctx.onPid(legPid(legs.receiver), `${cell.id}:receiver`);
         });
@@ -1473,6 +1495,20 @@ export async function runCell(cell, ctx) {
         return result;
     }
     assertStatsOff(cell);
+    // The request flow (Make link, the visitor on /r, Accept, the drop
+    // subfolder oracles) is not wired into the runner yet: the web visitor
+    // page is not on this base. Run as a plain cell, a request cell would
+    // move a normal room's bytes and PASS without proving anything about
+    // request links, so it ends ERROR before any leg starts.
+    if (cell.request) {
+        result.verdict = 'ERROR';
+        result.reason = 'request-runner-pending';
+        result.note =
+            'request link cells are planned, and the runner wires them with the web visitor page (CP-QA)';
+        result.countsForExit = true;
+        result.durationS = 0;
+        return result;
+    }
     const sleep = ctx.sleep || defaultSleep;
     ctx.retry = ctx.retry || { used: 0, cap: RETRY_CAP };
     const attempts = [];

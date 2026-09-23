@@ -189,6 +189,19 @@ export const STDERR_CLASSES = Object.freeze([
     ['code-unreachable', /could not reach signaling server/],
     // send.go runSend
     ['peer-left-early', /peer disconnected before connecting/],
+    // The three setup stops (ee973fe): cli/cmd/floe/main.go setupFailureLine
+    // prints the sentinel's own sentence from cli/engine/peer/setuperror.go
+    // with no "WebRTC setup failed: " prefix, so a peer that left during
+    // setup ends in seconds on one of these instead of connect-timeout.
+    [
+        'setup-peer-left',
+        /the other side left before the connection was established/,
+    ],
+    [
+        'setup-signaling-lost',
+        /the connection to the server was lost before the peer connected/,
+    ],
+    ['setup-closed', /^Error: closed before the connection was established/m],
 ]);
 
 /** Pure: { code, kind, class }. kind is 'killed' for a null code. */
