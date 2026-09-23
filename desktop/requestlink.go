@@ -902,12 +902,15 @@ func (a *App) waitRequest(rg uint64, stop <-chan struct{}, sc *signaling.Client,
 			// would answer it room-full: reopen it, and keep the link waiting.
 			// Only in waiting: a visitor leaving a declined link is the
 			// declined one going, and only the owner's Keep waiting reopens
-			// that room (T17). A PeerLeft that follows Down is the Down case's
-			// to decide.
+			// that room (T17). Not when a user-connected is already waiting:
+			// then this leave is the previous visitor's, a reopen would evict
+			// the new one with room-full, and the next pass hands them to
+			// pairFn, which drains the stale leave (review 1a N3, 1b N5). A
+			// PeerLeft that follows Down is the Down case's to decide.
 			select {
 			case <-sc.Down:
 			default:
-				if a.requestInState(rg, "waiting") {
+				if len(sc.PeerConnected) == 0 && a.requestInState(rg, "waiting") {
 					_ = sc.RequestReopen()
 				}
 			}

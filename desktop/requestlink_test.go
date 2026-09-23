@@ -7,6 +7,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -18,6 +19,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -2111,6 +2113,42 @@ func TestMakeLinkDefaultFolderOutsideLaneLock(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Make link did not return")
+	}
+}
+
+// TestStalePeerLeftDoesNotReopenOverANewVisitor (review 1a N3, 1b N5): the
+// leave of a visitor who already went and the user-connected of a new one can
+// both be waiting when the loop looks. The old leave must never be answered
+// with a reopen, which the server turns into room-full for the newcomer. 50
+// runs, so both select orders occur.
+func TestStalePeerLeftDoesNotReopenOverANewVisitor(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		t.Run(fmt.Sprint(i), func(t *testing.T) {
+			f := newFakeSignalServer(t)
+			a, _ := laneApp(t, f)
+			release := make(chan struct{})
+			var calls atomic.Int32
+			a.lane().pairFn = func(_ uint64, sc *signaling.Client) {
+				if calls.Add(1) == 1 {
+					<-release // hold the loop while both frames queue up
+					return
+				}
+				drainSignals(sc) // what runRequestDrop does first
+			}
+			makeWaiting(t, a)
+			f.userConnected()
+			waitFor(t, 5*time.Second, "the first visitor", func() bool { return calls.Load() == 1 })
+			f.peerDisconnected()
+			f.userConnected()
+			_, _, sc := laneHandles(a)
+			waitFor(t, 5*time.Second, "both frames", func() bool { return len(sc.PeerLeft) == 1 && len(sc.PeerConnected) == 1 })
+			close(release)
+			waitFor(t, 5*time.Second, "the second visitor", func() bool { return calls.Load() == 2 })
+			time.Sleep(20 * time.Millisecond)
+			if n := f.count("request-reopen"); n != 0 {
+				t.Fatalf("the old visitor's leave reopened the room under the new one (%d)", n)
+			}
+		})
 	}
 }
 
