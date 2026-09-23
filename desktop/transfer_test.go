@@ -204,6 +204,7 @@ type testVisitor struct {
 	early     *peer.Early
 	sendText  func(string) error
 	sendBin   func([]byte) error
+	closeDC   func() error
 	sendFiles func(paths []string, o transfer.SendOptions) error
 }
 
@@ -241,6 +242,7 @@ func (v *testVisitor) connectAsync(t *testing.T) <-chan error {
 		v.early = conn.Early()
 		v.sendText = dc.SendText
 		v.sendBin = dc.Send
+		v.closeDC = dc.Close
 		v.sendFiles = func(paths []string, o transfer.SendOptions) error {
 			o.Messages, o.Closed = v.early.Msgs, v.early.Closed
 			return transfer.SendFilesWithOptions(dc, paths, "visitor", o)
@@ -263,8 +265,33 @@ func (v *testVisitor) connect(t *testing.T) {
 	}
 }
 
-// leave closes the visitor's peer connection, then its socket.
+// leave ends the visitor's side the way a closing page does, in an order the
+// host is sure to hear: the data channel is closed first and that close is
+// awaited, and only then do the peer connection and the socket go.
+//
+// Why (CI run 35824709026, desktop on windows-latest): pion's
+// PeerConnection.Close tells the peer only on a best-effort basis. It stops
+// SCTP with an ABORT that it waits at most 200 ms to send (sctp
+// Association.Abort), then closes DTLS, and pion fires OnClose only on a close
+// it hears. On the starved runner the host twice heard nothing: it sat in the
+// pre-metadata window until its own E-35 timer (3 s in one test) plus the 2 s
+// flush of the stop frame to a gone peer, just past these tests' 5 s waits.
+// A host that hears no close is held by the product's own bounds (E-35's 30 s
+// before metadata, the answer window while deciding, the 60 s stall watchdog
+// while receiving), which other tests cover. These tests are about the lane's
+// reaction to a leave it does hear, so the close has to reach it: a data
+// channel close is an SCTP stream reset, which SCTP retransmits until the host
+// answers, and the visitor's own close fires only once the host has answered.
+// The 5 s waits after a leave are then honest, and the 2 s product
+// assertions stand as they were.
 func (v *testVisitor) leave() {
+	if v.closeDC != nil {
+		_ = v.closeDC()
+		select {
+		case <-v.early.Closed:
+		case <-time.After(10 * time.Second):
+		}
+	}
 	if v.conn != nil {
 		v.conn.Close()
 	}
@@ -470,6 +497,9 @@ func TestRunRequestDropVisitorLeftDuringSetupReopensAtOnce(t *testing.T) {
 	waitFor(t, 10*time.Second, "the host's offer", func() bool { return len(v.sc.Signal) > 0 })
 	start := time.Now()
 	v.sc.Close()
+	// No channel exists yet: the leave reaches the host as the server's
+	// peer-disconnected over TCP, never through pion's close (see leave), so
+	// the 5 s wait is honest.
 	waitSnap(t, a, 5*time.Second, "waiting", "visitor-left")
 	if d := time.Since(start); d > 2*time.Second {
 		t.Fatalf("the link waited again after %v, want under 2 s", d)
@@ -580,6 +610,8 @@ func TestRunRequestDropLeaveDuringFetchReopensBeforeOffer(t *testing.T) {
 	_, _, sc := laneHandles(a)
 	waitFor(t, 5*time.Second, "the leave to queue", func() bool { return len(sc.PeerLeft) == 1 })
 	unblock()
+	// The leave is already queued as the server's peer-disconnected (TCP),
+	// not pion's close (see leave), so the 5 s wait is honest.
 	waitSnap(t, a, 5*time.Second, "waiting", "visitor-left")
 	waitFor(t, 5*time.Second, "request-reopen", func() bool { return f.count("request-reopen") >= 1 })
 	f.mu.Lock()
