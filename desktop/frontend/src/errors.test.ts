@@ -217,6 +217,111 @@ describe('friendlyError', () => {
     });
 });
 
+describe('a code receive this side stopped (D-123)', () => {
+    // The engine's own sentences for a receive this side stopped on purpose,
+    // or could not finish saving: RefusedError.Error() and CommitError.Error()
+    // in cli/engine/transfer/refusal.go (approved-copy-cli.txt RX-01 to RX-10),
+    // quoted because Go cannot be imported here. ReceiveByCode wraps each in
+    // 'transfer failed: ' (desktop/transfer.go). The second column is the
+    // approved desktop row (RX1 to RX10), which approvedCopy.test.ts ties to
+    // the frozen table.
+    const RX: Array<[engine: string, shown: string]> = [
+        ["receive stopped: a file's path is too deep or too long to save in this folder", "A file's path is too deep or too long to save in this folder."],
+        ['receive stopped: a file is larger than the save drive can hold', 'A file is larger than the save drive can hold.'],
+        ['receive stopped: more data arrived than this transfer announced', 'More data arrived than this transfer announced.'],
+        ['receive stopped: relayed transfers are capped at 2 GB', 'Relayed transfers are capped at 2 GB.'],
+        ['receive stopped: the transfer reached its 24-hour limit', 'The transfer reached its 24-hour limit.'],
+        ['receive stopped: nobody answered in time', 'Nobody answered in time.'],
+        ['receive stopped: the transfer was declined', 'The transfer was declined.'],
+        ['receive stopped: the transfer was stopped on this computer', 'The transfer was stopped on this computer.'],
+        ['receive stopped: a finished file could not be moved into place', 'A finished file could not be moved into place.'],
+        [
+            'received a file in full but could not finish saving it; the complete file was kept in the save folder with a .part ending',
+            'Received a file in full but could not finish saving it. The complete file was kept in the save folder with a .part ending.',
+        ],
+    ];
+    const SHOWN = new Set(RX.map(([, shown]) => 'Error: ' + shown));
+
+    it('maps each engine sentence, as ReceiveByCode wraps it, to its own line', () => {
+        for (const [engine, shown] of RX) {
+            expect(friendlyError('transfer failed: ' + engine), engine).toBe('Error: ' + shown);
+            // Bare, and behind the Error: prefix a rejected promise can carry.
+            expect(friendlyError(engine), engine).toBe('Error: ' + shown);
+            expect(friendlyError('Error: transfer failed: ' + engine), engine).toBe('Error: ' + shown);
+        }
+        // Ten sentences, ten different lines.
+        expect(SHOWN.size).toBe(RX.length);
+    });
+
+    it('keeps the receive sentences D-123 left alone where they were', () => {
+        // write-failed and disk-full keep the save-folder sentence their
+        // "write error" prefix has always mapped to.
+        const saveFolder = 'Error: Could not write to the save folder. Check that it exists and has free space.';
+        expect(friendlyError('transfer failed: write error: could not finish writing a file, so it was not kept')).toBe(saveFolder);
+        expect(friendlyError('transfer failed: write error: the drive ran out of space, so the file was not kept')).toBe(saveFolder);
+        // The receiver's two hash sentences, the bare stop of an empty code,
+        // and a stop worded by some other build all pass through whole.
+        for (const s of [
+            'a file did not match the SHA-256 the sender computed, so it was not kept',
+            "the sender's SHA-256 for a file could not be read, so the file was not kept",
+            'receive stopped',
+            'receive stopped: path-too-long',
+            'receive stopped: something a later build says',
+        ]) {
+            expect(friendlyError('transfer failed: ' + s), s).toBe('Error: transfer failed: ' + s);
+        }
+    });
+
+    it('never gives a sender-side sentence a receive line', () => {
+        // What a desktop SENDER can be handed for the same events, quoted from
+        // Go and the browser: PeerStoppedError.Error() for all twelve codes
+        // and its fallback, and every reason a receiver puts on the wire
+        // (RefusalCode.WireReason, the receive loop's own reasons, the
+        // browser's HASH_*_REASON). All are written about the other side, so
+        // none may come out as this side's receive line. Wrapped both ways a
+        // send error reaches the status line.
+        const senderSide = [
+            'They declined. Nothing was sent.',
+            'Their computer ran out of space.',
+            'They did not answer in time. Nothing was sent.',
+            'A file is too large for the drive they save to.',
+            'A file changed or was damaged on the way, so their Floe deleted it.',
+            'More data arrived than they accepted. If files changed after you chose them, ask them for a new link.',
+            'A folder path is too long for their computer. Zip deeply nested folders first.',
+            'Relayed drops are capped at 2 GB.',
+            'A file arrived but their computer blocked saving it.',
+            'They stopped this drop.',
+            'This drop reached the 24-hour limit, so their Floe stopped it.',
+            'Their computer could not save a file.',
+            'The drop stopped on their computer.',
+            'receiver declined the transfer',
+            'receiver ran out of disk space',
+            'receiver did not answer in time',
+            'receiver cannot store a file this large on its drive',
+            'receiver discarded a file because its SHA-256 did not match',
+            'receiver got more data than it approved',
+            'receiver cannot store a file path this deep or long',
+            "receiver's relay connection is capped at 2 GB",
+            'receiver could not move a finished file into place',
+            'receiver stopped the transfer',
+            'receiver stopped the transfer at the 24-hour limit',
+            'receiver could not finish writing a file',
+            'receiver could not create a file',
+            'receiver cannot store a file path that is not relative to its save folder',
+            "receiver discarded a file because the sender's SHA-256 was not readable",
+            'receiver rejected the file description: control message is 2000 bytes, over the 1000-byte cap',
+            'receiver stopped the transfer: sender exceeded the announced size of "a.bin"',
+            'receiver discarded a file: incomplete file "a.bin": received 40 of 100 bytes',
+            'transfer blocked: relay connections are capped at 2 GB (selected 2.5 GB)',
+        ];
+        for (const s of senderSide) {
+            for (const wrapped of ['transfer failed: ' + s, 'transfer failed: error sending a.bin: ' + s]) {
+                expect(SHOWN.has(friendlyError(wrapped)), wrapped).toBe(false);
+            }
+        }
+    });
+});
+
 describe('a pasted request link', () => {
     const cp2 = 'That is a request link for sending files to someone. Open it in a web browser.';
 
