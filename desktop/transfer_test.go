@@ -1054,10 +1054,15 @@ func TestRequestDropCancelReturnsAtOnce(t *testing.T) {
 		started <- code
 		<-block
 	}}
-	start := time.Now()
-	d.cancelFunc()()
-	if el := time.Since(start); el > 200*time.Millisecond {
-		t.Fatalf("Cancel drop waited %v on its stop", el)
+	returned := make(chan struct{})
+	go func() {
+		d.cancelFunc()()
+		close(returned)
+	}()
+	select {
+	case <-returned:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("Cancel drop waited on its stop")
 	}
 	if !d.ownerCancel.Load() {
 		t.Fatal("Cancel drop did not record the owner's stop")
