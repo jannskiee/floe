@@ -48,13 +48,13 @@ The map names where a value is stated; grep the old literal repo-wide before fin
 
 ## Rate limits and caps
 
-- server/server.js: `MAX_CONNECTIONS_PER_IP`, `CODE_MAX_REQUESTS`, `MAX_ACTIVE_CODES`; windows `RATE_LIMIT_WINDOW`, `CODE_RATE_WINDOW`. server/stats.js: `STATS_MAX_REPORTS` (fixed, no env var), `MAX_REPORT_BYTES`; window `STATS_RATE_WINDOW`. server/turn.js: `TURN_MAX_REQUESTS`, `TURN_RATE_WINDOW`.
+- server/server.js: `MAX_CONNECTIONS_PER_IP`, `CODE_MAX_REQUESTS`, `CODE_FAIL_MAX` (the failed-resolve budget in `resolveCodeHandler`, spent before the lookup), `MAX_ACTIVE_CODES`; windows `RATE_LIMIT_WINDOW`, `CODE_RATE_WINDOW` (the budget shares the code window). server/stats.js: `STATS_MAX_REPORTS` (fixed, no env var), `MAX_REPORT_BYTES`; window `STATS_RATE_WINDOW`. server/turn.js: `TURN_MAX_REQUESTS`, `TURN_RATE_WINDOW`.
 - Docs: docs/self-hosting/configuration.mdx table and "Two things about the limits" (script: server rows), CONTRIBUTING.md server table (script), docs/reference/architecture.mdx "Rate limiting" table, docs/reference/http-api.mdx "Rate limit" line under each endpoint, docs/troubleshooting.mdx "429" and "503" sections, CLAUDE.md "Rate Limiting", server/.env.example comments (script, NOTE).
 
-## Room code TTL
+## Room code TTL and retirement
 
-- server/server.js: the `expires:` expression in the `codeToRoom.set(...)` call under `POST /api/code`.
-- Docs: docs/reference/http-api.mdx "Room codes" (stated twice), docs/cli/send.mdx "Output", docs/troubleshooting.mdx (the "codes expire after" heading), docs/self-hosting/configuration.mdx `MAX_ACTIVE_CODES` row, CLAUDE.md "Room Codes".
+- server/server.js: the `expires:` expression in the `codeToRoom.set(...)` call under `POST /api/code` (the outside limit), and the three `forgetCode(roomId)` call sites that retire a code earlier: `registerCodeHandler`, the second-seat branch of `handleJoinRoom`, and `destroyRoom`. Resolving never retires a code: the pre-join retry depends on it.
+- Docs: docs/reference/http-api.mdx "Room codes" (stated twice), docs/cli/send.mdx "Output", docs/troubleshooting.mdx (the "codes expire after" heading and the "503" section), docs/reference/architecture.mdx "Room codes", docs/self-hosting/configuration.mdx `MAX_ACTIVE_CODES` row, CLAUDE.md "Room Codes".
 
 ## TURN credential lifetimes
 

@@ -39,8 +39,9 @@ stopping the process ends it. [Receiving files](/web-app/receiving#the-sender-ha
 ### Are my files stored anywhere?
 
 No. Nothing is stored on any server at any point, and once the session closes the server keeps no
-record of it. The one thing that outlives a session is a short code's mapping to a random room id,
-which expires ten minutes after the code was made. [Security and privacy](/security-privacy)
+record of it, including the short code, which is dropped along with the room it pointed at. A code
+nobody uses lapses on its own ten minutes after it was made, and even then it maps to nothing but
+a random room id. [Security and privacy](/security-privacy)
 
 ### Why did a file not arrive?
 

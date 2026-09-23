@@ -141,6 +141,7 @@ const CURATED = {
         'MAX_CONNECTIONS_PER_IP',
         'MAX_TURN_REQUESTS_PER_IP',
         'MAX_CODE_REQUESTS_PER_IP',
+        'MAX_FAILED_CODE_RESOLVES',
         'MAX_ACTIVE_CODES',
         'MAX_REPORT_BYTES',
         'UPSTASH_REDIS_REST_URL',
@@ -150,6 +151,7 @@ const CURATED = {
         'PORT',
         'MAX_TURN_REQUESTS_PER_IP',
         'MAX_CODE_REQUESTS_PER_IP',
+        'MAX_FAILED_CODE_RESOLVES',
         'MAX_ACTIVE_CODES',
         'MAX_REPORT_BYTES',
     ],
@@ -163,13 +165,13 @@ const ENV_IGNORE_CLIENT = new Set([
     'CI',
     'VERCEL_GIT_COMMIT_SHA',
 ]);
-// The server modules read exactly 14 keys between them today. Fewer means the
+// The server modules read exactly 16 keys between them today. Fewer means the
 // extractor regex broke, not that the server lost a setting; raise this when a
 // key is added. Counting across the directory rather than one file is what
 // keeps a module extraction from tripping this: the five TURN keys moving to
 // server/turn.js left server.js holding nine, and the hard fail below returns
 // early, taking every downstream env comparison with it.
-const SERVER_KEY_FLOOR = 14;
+const SERVER_KEY_FLOOR = 16;
 
 // ---------------------------------------------------------------------------
 // Helpers
