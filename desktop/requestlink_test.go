@@ -1459,7 +1459,8 @@ func TestRequestToastsAreConstant(t *testing.T) {
 // platform: build constraints are not applied), and every REFERENCE to
 // notify, notifyFn, notifyTransferFailed or SendNotification, called or not
 // (a method value, a package-level alias, an interface method, a helper in a
-// new file), must sit in a declaration on the allowlist below; an allowlist
+// new file), and every identifier naming a Wails notification symbol (review
+// 2b L1), must sit in a declaration on the allowlist below; an allowlist
 // entry nothing uses any more fails too, so the list stays tight. The
 // request lane's only way to a notification is notifyRequest: its one notify
 // call passes exactly the title and body requestToastText returned, every
@@ -1473,6 +1474,8 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 		{"notify", "app.go:(*App).notify"}:                             false,
 		{"notifyFn", "app.go:(*App).notify"}:                           false,
 		{"SendNotification", "app.go:(*App).notify"}:                   false,
+		{"NotificationOptions", "app.go:(*App).notify"}:                false,
+		{"InitializeNotifications", "app.go:(*App).startup"}:           false,
 		{"notifyFn", "app.go:App"}:                                     false,
 		{"notify", "app.go:(*App).notifyTransferFailed"}:               false,
 		{"notifyTransferFailed", "app.go:(*App).notifyTransferFailed"}: false,
@@ -1482,7 +1485,11 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 		{"notify", "transfer.go:(*App).receiveByCode"}:                 false,
 		{"notify", "requestlink.go:(*App).notifyRequest"}:              false,
 	}
-	watched := map[string]bool{"notify": true, "notifyFn": true, "notifyTransferFailed": true, "SendNotification": true}
+	// The app's own names, and every identifier naming a Wails notification
+	// symbol: SendNotificationWithActions and RegisterNotificationCategory
+	// reach go-toast too, and so would any later one (review 2b L1).
+	named := map[string]bool{"notify": true, "notifyFn": true, "notifyTransferFailed": true}
+	watched := func(name string) bool { return named[name] || strings.Contains(name, "Notification") }
 	keys := map[string]bool{"toastRequestArrived": true, "toastDropDone": true, "toastDropFailed": true}
 	const laneOwner = "requestlink.go:(*App).notifyRequest"
 
@@ -1541,7 +1548,7 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 					case "requestToastText":
 						sawTable = true
 					}
-					if watched[id.Name] {
+					if watched(id.Name) {
 						u := use{id.Name, owner}
 						if _, ok := allowed[u]; !ok {
 							t.Errorf("%v: %s declares %s", at, owner, id.Name)
@@ -1553,7 +1560,7 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 				}
 				call := callOf[id]
 				switch {
-				case watched[id.Name]:
+				case watched(id.Name):
 					u := use{id.Name, owner}
 					if _, ok := allowed[u]; !ok {
 						t.Errorf("%v: %s references %s; only the allowlisted declarations may reach a notification", at, owner, id.Name)
