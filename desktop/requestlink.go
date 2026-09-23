@@ -863,11 +863,14 @@ func (a *App) waitRequest(rg uint64, stop <-chan struct{}, sc *signaling.Client,
 			// data channel exists that visitor may come back on a new socket,
 			// and a room the server sealed once both seats signaled (D-116)
 			// would answer it room-full: reopen it, and keep the link waiting.
-			// A PeerLeft that follows Down is the Down case's to decide.
+			// Only in waiting: a visitor leaving a declined link is the
+			// declined one going, and only the owner's Keep waiting reopens
+			// that room (T17). A PeerLeft that follows Down is the Down case's
+			// to decide.
 			select {
 			case <-sc.Down:
 			default:
-				if a.requestActive(rg) {
+				if a.requestInState(rg, "waiting") {
 					_ = sc.RequestReopen()
 				}
 			}
@@ -883,6 +886,15 @@ func (a *App) waitRequest(rg uint64, stop <-chan struct{}, sc *signaling.Client,
 // race their request-close write and drop it (the 20x stress caught that).
 func (a *App) finishRequestSocket(sc *signaling.Client) {
 	a.releaseRequestSocket(sc, true)
+}
+
+// requestInState reports whether generation rg still owns the lane and the
+// lane is in state.
+func (a *App) requestInState(rg uint64, state string) bool {
+	l := a.lane()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return rg == l.gen && !l.cancelled && l.state == state
 }
 
 // requestWaiting reports whether rg's lane still has a link that waits for a
@@ -905,11 +917,18 @@ func (a *App) expireRequest(rg uint64, sc *signaling.Client) {
 
 // reconnect retries the connect and the token join with full-jitter backoff
 // until the link's own end time (E-34). A re-join after a server restart
-// re-creates the reservation silently (E-06). It returns the new socket, or
-// nil when the link ended.
+// re-creates the reservation silently (E-06). The state the socket loss
+// interrupted comes back after the re-join: a declined link stays declined,
+// because the server kept its room sealed (spec 04 5.7) and only the owner's
+// Keep waiting reopens it (T17); anything else waits again. It returns the
+// new socket, or nil when the link ended.
 func (a *App) reconnect(rg uint64, stop <-chan struct{}, server, roomID, hostToken string, expiresAt time.Time, attempt int) (*signaling.Client, int) {
 	l := a.lane()
+	back, backCode := "waiting", ""
 	if !a.reqUpdate(rg, func(l *requestLane) {
+		if l.state == "declined" {
+			back, backCode = l.state, l.code
+		}
 		l.setStateLocked("reconnecting", "")
 		l.reconnectUntil = l.expiresAt
 	}) {
@@ -951,7 +970,7 @@ func (a *App) reconnect(rg uint64, stop <-chan struct{}, server, roomID, hostTok
 		switch res {
 		case signaling.HostJoined:
 			if !a.reqUpdate(rg, func(l *requestLane) {
-				l.setStateLocked("waiting", "")
+				l.setStateLocked(back, backCode)
 				l.reconnectUntil = time.Time{}
 			}) {
 				a.releaseRequestSocket(sc, false)

@@ -1646,3 +1646,54 @@ func TestPeerLeftBeforeChannelReopens(t *testing.T) {
 		t.Fatalf("%d token joins, want 1 (no reconnect)", n)
 	}
 }
+
+// TestPeerLeftWhileDeclinedDoesNotReopen (review 1a F1, probe P1): the
+// declined visitor leaving is expected, and only the owner's Keep waiting
+// reopens that room (T17), so the lane sends no request-reopen of its own and
+// stays declined; Keep waiting then reopens once.
+func TestPeerLeftWhileDeclinedDoesNotReopen(t *testing.T) {
+	f := newFakeSignalServer(t)
+	a, _ := laneApp(t, f)
+	s := makeWaiting(t, a)
+	forceState(a, "declined", 5)
+	f.peerDisconnected()
+	time.Sleep(200 * time.Millisecond)
+	if n := f.count("request-reopen"); n != 0 {
+		t.Fatalf("%d request-reopen sent while declined (the owner never chose Keep waiting)", n)
+	}
+	if now := stateOf(a); now.State != "declined" || now.Link != s.Link {
+		t.Fatalf("after the declined visitor left: %+v", now)
+	}
+	a.AnswerRequest(5, "keep-waiting")
+	waitFor(t, 5*time.Second, "request-reopen", func() bool { return f.count("request-reopen") == 1 })
+}
+
+// TestSocketLossWhileDeclinedKeepsDeclined (review 1a F1, probe P4): a socket
+// loss while declined reconnects to the link's end time as in waiting, but the
+// re-join brings declined back rather than waiting: the server kept the room
+// sealed (spec 04 5.7, Grace-sealed reclaims to Vacant-sealed or Active), so a
+// link shown as waiting would turn every visitor away room-full. The owner's
+// Keep waiting then reopens it on the new socket.
+func TestSocketLossWhileDeclinedKeepsDeclined(t *testing.T) {
+	f := newFakeSignalServer(t)
+	a, _ := laneApp(t, f)
+	l := a.lane()
+	l.backoffBase, l.backoffCap = 20*time.Millisecond, 80*time.Millisecond
+	s := makeWaiting(t, a)
+	forceState(a, "declined", 5)
+	f.dropAll()
+	waitFor(t, 5*time.Second, "the re-join to settle", func() bool {
+		return len(f.tokenJoins()) == 2 && stateOf(a).State != "reconnecting"
+	})
+	now := stateOf(a)
+	if now.State != "declined" || now.PromptGen != 5 || now.Link != s.Link || now.Gen != s.Gen {
+		t.Fatalf("a reconnect from declined ended in %q (promptGen %d, same link %v, same gen %v)", now.State, now.PromptGen, now.Link == s.Link, now.Gen == s.Gen)
+	}
+	if n := f.count("request-reopen"); n != 0 {
+		t.Fatalf("%d request-reopen sent by the reconnect from declined", n)
+	}
+	if out := a.AnswerRequest(5, "keep-waiting"); out.State != "waiting" {
+		t.Fatalf("keep-waiting after the reconnect: %+v", out)
+	}
+	waitFor(t, 5*time.Second, "request-reopen on the new socket", func() bool { return f.count("request-reopen") == 1 })
+}
