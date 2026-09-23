@@ -21,6 +21,7 @@ package main
 // token is never printed; the stats URL is always empty.
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -163,6 +164,10 @@ type requestConfig struct {
 	// after this long, so a spec can load the link while the host is absent
 	// (S1-WEB-05 test 1). The token still never leaves this process.
 	joinAfter time.Duration
+	// joinOnStdin prints the link first and claims the room only when one
+	// line arrives on stdin, so the spec releases the join after it has seen
+	// the host-absent state, with no fixed window in either direction.
+	joinOnStdin bool
 	// holdAfterFile, when set, blocks the receive loop this long after the
 	// first committed file, so the visitor stays in Sending with its data
 	// channel open for as long as a spec needs (S1-WEB-05 test 9).
@@ -193,6 +198,7 @@ func parseRequestFlags(args []string) (requestConfig, error) {
 	maxFiles := fs.Int("max-files", 0, "cap the files a drop may announce (turns the request limits on)")
 	blockShell := fs.Bool("block-shell-types", false, "save shell-parsed types as .floe-blocked (turns the request limits on)")
 	joinAfter := fs.Int("join-after", 0, "print the link, then join the room this many milliseconds later")
+	joinOnStdin := fs.Bool("join-on-stdin", false, "print the link, then join the room when one line arrives on stdin")
 	holdAfterFile := fs.Int("hold-after-file", 0, "after the first committed file, hold the receive loop this many milliseconds")
 	if err := fs.Parse(args); err != nil {
 		return requestConfig{}, err
@@ -216,8 +222,16 @@ func parseRequestFlags(args []string) (requestConfig, error) {
 	if fs.NArg() != 0 || *out == "" || *timeout <= 0 || *joinAfter < 0 || *holdAfterFile < 0 {
 		return requestConfig{}, errors.New("request: usage")
 	}
+	if *joinOnStdin && *joinAfter > 0 {
+		return requestConfig{}, errors.New("request: -join-on-stdin and -join-after are exclusive")
+	}
 	if *blip != "" && !blipEvents[*blip] {
 		return requestConfig{}, fmt.Errorf("request: -blip-after names no event: %q", *blip)
+	}
+	// A late join prints the link before any socket exists, so a blip there
+	// would close a client that is not there yet.
+	if *blip == "link" && (*joinOnStdin || *joinAfter > 0) {
+		return requestConfig{}, errors.New("request: -blip-after link needs the host joined first")
 	}
 	steps, err := parseDecideScript(*decide)
 	if err != nil {
@@ -232,6 +246,7 @@ func parseRequestFlags(args []string) (requestConfig, error) {
 		decideWindow: window, keepWaiting: *keep, corruptHash: *corrupt,
 		blipAfter: *blip, timeout: *timeout, limits: limits,
 		joinAfter:     time.Duration(*joinAfter) * time.Millisecond,
+		joinOnStdin:   *joinOnStdin,
 		holdAfterFile: time.Duration(*holdAfterFile) * time.Millisecond,
 	}, nil
 }
@@ -512,8 +527,9 @@ func (h *requestHost) stall(step decideStep) visitOutcome {
 	return visitRefused
 }
 
-// runRequest is request mode's entry.
-func runRequest(ev *events, args []string) {
+// runRequest is request mode's entry. stdin is read only under -join-on-stdin,
+// and only for the one line that releases the join; its content is ignored.
+func runRequest(ev *events, stdin io.Reader, args []string) {
 	cfg, err := parseRequestFlags(args)
 	if err != nil {
 		ev.usage()
@@ -531,12 +547,21 @@ func runRequest(ev *events, args []string) {
 	watchdog := time.AfterFunc(cfg.timeout, func() { ev.fail("timeout") })
 
 	link := cfg.web + "/r/" + linkID + "#" + h.room
-	if cfg.joinAfter > 0 {
+	if cfg.joinAfter > 0 || cfg.joinOnStdin {
 		// The link first, then the room: until the join the server answers
 		// the visitor host-absent. The room id is the token's derivation, so
 		// it is known before any join; the token itself is never printed.
 		h.emit("link", map[string]interface{}{"link": link})
-		time.Sleep(cfg.joinAfter)
+		if cfg.joinOnStdin {
+			// End of input before a line means the spec went away: fail
+			// rather than join a room nobody will visit.
+			if _, err := bufio.NewReader(stdin).ReadString('\n'); err != nil {
+				watchdog.Stop()
+				ev.fail("stdin")
+			}
+		} else {
+			time.Sleep(cfg.joinAfter)
+		}
 		h.sc = h.connect()
 		h.emit("joined", map[string]interface{}{"role": "host", "roomId": h.room})
 	} else {

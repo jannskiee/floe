@@ -14,6 +14,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -396,13 +397,18 @@ type harnessRun struct {
 	code chan int
 	seen []map[string]interface{}
 	raws []string
+	// stdin is the harness's standard input, for -join-on-stdin.
+	stdin *io.PipeWriter
 }
 
 func startRequest(t *testing.T, args ...string) *harnessRun {
 	t.Helper()
+	stdinR, stdinW := io.Pipe()
+	t.Cleanup(func() { stdinW.Close() })
 	h := &harnessRun{
-		sink: &lineSink{raw: make(chan string, 256), lines: make(chan map[string]interface{}, 256)},
-		code: make(chan int, 1),
+		sink:  &lineSink{raw: make(chan string, 256), lines: make(chan map[string]interface{}, 256)},
+		code:  make(chan int, 1),
+		stdin: stdinW,
 	}
 	ev := &events{enc: json.NewEncoder(h.sink), exit: func(code int) { panic(exitPanic(code)) }}
 	go func() {
@@ -415,7 +421,7 @@ func startRequest(t *testing.T, args ...string) *harnessRun {
 				panic(r)
 			}
 		}()
-		runRequest(ev, args)
+		runRequest(ev, stdinR, args)
 	}()
 	return h
 }
@@ -704,6 +710,102 @@ func TestJoinAfterFlag(t *testing.T) {
 	}
 	if _, err := parseRequestFlags([]string{"-out", t.TempDir(), "-join-after", "-1"}); err == nil {
 		t.Fatal("a negative -join-after was accepted")
+	}
+}
+
+// -join-on-stdin is off unless given, excludes -join-after, and neither late
+// join combines with -blip-after link, whose blip would run before any socket
+// exists (review 1, N2).
+func TestJoinOnStdinFlag(t *testing.T) {
+	plain, err := parseRequestFlags([]string{"-out", t.TempDir()})
+	if err != nil || plain.joinOnStdin {
+		t.Fatalf("default joinOnStdin %v, err %v; want false", plain.joinOnStdin, err)
+	}
+	set, err := parseRequestFlags([]string{"-out", t.TempDir(), "-join-on-stdin"})
+	if err != nil || !set.joinOnStdin {
+		t.Fatalf("joinOnStdin %v, err %v; want true", set.joinOnStdin, err)
+	}
+	if _, err := parseRequestFlags([]string{"-out", t.TempDir(), "-blip-after", "link"}); err != nil {
+		t.Fatalf("-blip-after link alone was refused: %v", err)
+	}
+	dir := t.TempDir()
+	for name, args := range map[string][]string{
+		"both late joins":            {"-out", dir, "-join-on-stdin", "-join-after", "5"},
+		"blip at link, stdin join":   {"-out", dir, "-join-on-stdin", "-blip-after", "link"},
+		"blip at link, timed join":   {"-out", dir, "-join-after", "5", "-blip-after", "link"},
+		"stdin join with a value":    {"-out", dir, "-join-on-stdin=maybe"},
+		"blip at link, timed join 1": {"-out", dir, "-join-after", "1", "-blip-after", "link"},
+	} {
+		if _, err := parseRequestFlags(args); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+// -join-on-stdin: the link is printed, the host stays out of the room (a
+// visitor meanwhile is answered host-absent) until one line arrives on stdin,
+// and then the same link delivers (S1-WEB-05 test 1, deterministic in both
+// directions). The token is still never printed.
+func TestRequestModeJoinOnStdinWaitsForALine(t *testing.T) {
+	srv := newFakeRequestServer(t)
+	out := t.TempDir()
+	path, _ := payload(t, 64*1024)
+	h := startRequest(t, "-server", srv.url, "-out", out, "-join-on-stdin", "-timeout", "60s")
+
+	room := roomFromLink(t, h.until(t, "link")["link"].(string))
+	early, err := signaling.Connect(srv.url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := early.RequestJoin(room)
+	early.Close()
+	if err != nil || res != signaling.VisitorHostAbsent {
+		t.Fatalf("a visitor before the line got %v (err %v), want host-absent", res, err)
+	}
+	// No timer releases the join: well past any delay, still no host.
+	time.Sleep(500 * time.Millisecond)
+	if tokens, _, _ := srv.snapshot(); len(tokens) != 0 {
+		t.Fatal("the host joined before a line arrived on stdin")
+	}
+	if _, err := io.WriteString(h.stdin, "\n"); err != nil {
+		t.Fatal(err)
+	}
+	h.until(t, "joined")
+	if err := visit(srv.url, room, path); err != nil {
+		t.Fatalf("visitor after the join: %v", err)
+	}
+	if d := h.until(t, "done"); d["files"] != float64(1) {
+		t.Fatalf("done = %v", d)
+	}
+	if code := h.exitCode(t); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	want := []string{"link", "joined", "user-connected", "offer-sent", "sealed", "deciding", "accepted", "file-committed", "closed", "done"}
+	if got := h.names(); !equalNames(got, want) {
+		t.Fatalf("events %v, want %v", got, want)
+	}
+	tokens, badRoom, _ := srv.snapshot()
+	checkNoToken(t, h, tokens)
+	if badRoom || len(tokens) != 1 {
+		t.Fatalf("host joins %d, badRoom %v", len(tokens), badRoom)
+	}
+}
+
+// -join-on-stdin with stdin closed before any line (the spec went away): the
+// harness fails at the stdin stage and never joins.
+func TestRequestModeJoinOnStdinEOFJoinsNothing(t *testing.T) {
+	srv := newFakeRequestServer(t)
+	h := startRequest(t, "-server", srv.url, "-out", t.TempDir(), "-join-on-stdin", "-timeout", "60s")
+	h.until(t, "link")
+	h.stdin.Close()
+	if e := h.until(t, "error"); e["stage"] != "stdin" {
+		t.Fatalf("error = %v, want stage stdin", e)
+	}
+	if code := h.exitCode(t); code != 1 {
+		t.Fatalf("exit %d, want 1", code)
+	}
+	if tokens, _, _ := srv.snapshot(); len(tokens) != 0 {
+		t.Fatalf("%d host joins after stdin closed, want 0", len(tokens))
 	}
 }
 
