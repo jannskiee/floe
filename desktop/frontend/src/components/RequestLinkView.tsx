@@ -18,7 +18,7 @@ import {fmtEta, fmtSpeed, type Prog} from '../progress';
 /** The link block and the activity slot below it: the phases in which a link
  *  exists on screen. Close link keeps one box across all of them (spec 06 5.5:
  *  the prompt mounts below, and nothing above it ever moves). */
-const LINK_PHASES = new Set<Phase>(['waiting', 'reconnecting', 'connecting', 'deciding', 'declined']);
+export const LINK_PHASES = new Set<Phase>(['waiting', 'reconnecting', 'connecting', 'deciding', 'declined']);
 
 export const PROMPT_HEADING_ID = 'floe-request-prompt-heading';
 export const LABEL_INPUT_ID = 'floe-request-label';
