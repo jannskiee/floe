@@ -290,6 +290,42 @@ func TestModeFromFlags(t *testing.T) {
 	}
 }
 
+// The default -timeout outlasts the visitor's own ack clock, so a held Accept
+// is never killed as a timeout before the host decides (review Q7).
+func TestDefaultTimeoutOutlastsTheAckClock(t *testing.T) {
+	cfg, err := parseFlags([]string{"-room", "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f", "-send", "a.bin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.timeout <= visitorAckTimeout {
+		t.Fatalf("default timeout %v must outlast the ack clock %v", cfg.timeout, visitorAckTimeout)
+	}
+}
+
+// A relay mode refuses when the fetched ICE list cannot carry a relay: the
+// STUN-only fallback (degraded) or a relay-less list. A real relay, not
+// degraded, is usable (review Q6).
+func TestRelayModesRefuseWithoutARelay(t *testing.T) {
+	stun := []webrtc.ICEServer{{URLs: []string{"stun:stun.l.google.com:19302"}}}
+	relay := []webrtc.ICEServer{{URLs: []string{"turn:turn.example.test:3478"}}}
+	cases := []struct {
+		name     string
+		servers  []webrtc.ICEServer
+		degraded bool
+		want     bool
+	}{
+		{"stun only, answered", stun, false, false},
+		{"relay, degraded fallback", relay, true, false},
+		{"nothing, degraded", nil, true, false},
+		{"relay, answered", relay, false, true},
+	}
+	for _, c := range cases {
+		if got := usableRelay(c.servers, c.degraded); got != c.want {
+			t.Errorf("%s: usableRelay = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 func TestRelayOnlyAndSkipGateParse(t *testing.T) {
 	const room = "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
 	cfg, err := parseFlags([]string{"-room", room, "-relay-only", "-send", "a.bin,b.bin"})

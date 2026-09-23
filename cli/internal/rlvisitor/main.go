@@ -143,7 +143,10 @@ func parseFlags(args []string) (config, error) {
 	badSDP := fs.Bool("bad-sdp", false, "answer with a malformed SDP instead of a real one")
 	hostileMeta := fs.String("hostile-meta", "", "send one D-033 metadata fixture: f2, f4b, f5 or f6")
 	skipGate := fs.Bool("skip-relay-gate", false, "skip the visitor's own relay-cap gate and announce an oversize file")
-	timeout := fs.Duration("timeout", 2*time.Minute, "overall deadline for the run")
+	// Default past the visitor's own ack clock (10 min 15 s) so a -send whose
+	// Accept is held for the full window is never killed as a timeout before the
+	// host's decision window closes; CELL-05's idle hold relies on it (review Q7).
+	timeout := fs.Duration("timeout", visitorAckTimeout+2*time.Minute, "overall deadline for the run")
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
 	}

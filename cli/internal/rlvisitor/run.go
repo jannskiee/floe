@@ -103,9 +103,15 @@ func run(cfg config) int {
 	if cfg.relayOnly || m == modeSkipGate {
 		// A relay path needs the server's ICE list; a direct drop uses none,
 		// as the loopback tests do. The credentials are never printed.
-		s, _, ferr := ice.FetchDetail(cfg.server)
+		s, degraded, ferr := ice.FetchDetail(cfg.server)
 		if ferr != nil {
 			return fail("ice")
+		}
+		// Refuse now if the list cannot carry a relay, as the desktop's
+		// requireRelay does, rather than letting the run die at the connect
+		// timeout, which reads like a host defect (review Q6).
+		if !usableRelay(s, degraded) {
+			return fail("no-relay")
 		}
 		servers = s
 	}
@@ -138,6 +144,13 @@ func run(cfg config) int {
 		return runJunkFlood(dc, early)
 	}
 	return fail("mode")
+}
+
+// usableRelay reports whether a fetched ICE list can carry a relay-only run:
+// it is the server's own list (not the STUN-only fallback, degraded) and
+// offers a TURN relay. The relay modes need one.
+func usableRelay(servers []webrtc.ICEServer, degraded bool) bool {
+	return !degraded && ice.HasRelay(servers)
 }
 
 // routeWord is the selected ICE path, "relay" or "direct", read from the
