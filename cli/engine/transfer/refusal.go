@@ -234,6 +234,10 @@ type RefusedError struct {
 	Err   error
 }
 
+// Error is one approved sentence per code (D-123: approved-copy-cli.txt RX-01
+// to RX-09, printed behind cobra's "Error: "). The desktop's friendlyError
+// matches each "receive stopped: " sentence whole to pick its own wording, so
+// a change here is a change there too (desktop/frontend/src/errors.ts).
 func (e *RefusedError) Error() string {
 	switch e.Code {
 	case CodeWriteFailed:
@@ -251,11 +255,28 @@ func (e *RefusedError) Error() string {
 			return "the sender's SHA-256 for a file could not be read, so the file was not kept"
 		}
 		return "a file did not match the SHA-256 the sender computed, so it was not kept"
-	case "":
-		return "receive stopped"
+	case CodePathTooLong:
+		return "receive stopped: a file's path is too deep or too long to save in this folder"
+	case CodeFileTooLargeForFolder:
+		return "receive stopped: a file is larger than the save drive can hold"
+	case CodeOverApproved:
+		return "receive stopped: more data arrived than this transfer announced"
+	case CodeRelayCap:
+		return "receive stopped: relayed transfers are capped at 2 GB"
+	case CodeTimeLimit:
+		return "receive stopped: the transfer reached its 24-hour limit"
+	case CodeExpired:
+		return "receive stopped: nobody answered in time"
+	case CodeDeclined:
+		return "receive stopped: the transfer was declined"
+	case CodeStopped:
+		return "receive stopped: the transfer was stopped on this computer"
+	case CodeSaveBlocked:
+		return "receive stopped: a finished file could not be moved into place"
 	}
-	// Only ever a constant this side chose, so it is safe to print.
-	return "receive stopped: " + string(e.Code)
+	// An empty code, and a code this build does not know, which only a
+	// hand-built value can carry: the bare sentence, never the value.
+	return "receive stopped"
 }
 
 func (e *RefusedError) Unwrap() error { return e.Err }
@@ -324,8 +345,10 @@ type CommitError struct {
 	Err      error
 }
 
+// Error is RX-10 of the approved CLI copy (D-123): it says the complete file
+// was kept as a .part, and where in general terms, without naming it.
 func (e *CommitError) Error() string {
-	return "received a file in full but could not finish saving it"
+	return "received a file in full but could not finish saving it; the complete file was kept in the save folder with a .part ending"
 }
 
 func (e *CommitError) Unwrap() error { return e.Err }
