@@ -190,8 +190,11 @@ type requestLane struct {
 
 	// Attention (S1-DSK-05): whether the flash and the "(1) Floe" title are
 	// on, and when prompts on this link ended without Accept (E-40).
-	attention  bool
-	promptEnds []time.Time
+	// attentionSeq counts attention changes, so applyAttention can tell when
+	// another change came in while it applied one.
+	attention    bool
+	attentionSeq uint64
+	promptEnds   []time.Time
 
 	stop  chan struct{} // closed when this link's generation ends
 	retry chan struct{} // buffered 1; Retry now
@@ -1318,13 +1321,13 @@ func (a *App) onPrompt(rg uint64, quiet bool) {
 	active := rg == l.gen && !l.cancelled
 	if active {
 		l.attention = true
+		l.attentionSeq++
 	}
 	l.mu.Unlock()
 	if !active {
 		return
 	}
-	a.flash(true)
-	a.setTitle(titlePrompt)
+	a.applyAttention()
 	if !quiet {
 		a.notifyRequest(rg, toastRequestArrived)
 	}
@@ -1337,12 +1340,44 @@ func (a *App) attentionOff() {
 	l.mu.Lock()
 	on := l.attention
 	l.attention = false
-	l.mu.Unlock()
-	if !on {
-		return
+	if on {
+		l.attentionSeq++
 	}
-	a.flash(false)
-	a.setTitle(titleIdle)
+	l.mu.Unlock()
+	if on {
+		a.applyAttention()
+	}
+}
+
+// applyAttention puts the flash and the title where the lane says they
+// should be. The calls run with no lock held: from a goroutine the title is
+// a cross-thread SendMessage that waits for the UI thread, and shutdown runs
+// on that thread after its message loop has stopped, so a lock held across
+// them could hang a quit. Two changes can therefore interleave their calls
+// (a Close link racing a prompt left "(1) Floe" on a closed link, review 1a
+// F3), so each caller reads the lane again after applying and applies again
+// while another change came in meanwhile: the last call to land is always
+// for the lane's latest state.
+func (a *App) applyAttention() {
+	l := a.lane()
+	for {
+		l.mu.Lock()
+		on, seq := l.attention, l.attentionSeq
+		l.mu.Unlock()
+		if on {
+			a.flash(true)
+			a.setTitle(titlePrompt)
+		} else {
+			a.flash(false)
+			a.setTitle(titleIdle)
+		}
+		l.mu.Lock()
+		settled := l.attentionSeq == seq
+		l.mu.Unlock()
+		if settled {
+			return
+		}
+	}
 }
 
 // AnswerRequest answers the prompt promptGen (spec 06 4.3). A stale promptGen

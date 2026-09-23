@@ -1684,6 +1684,52 @@ func TestRequestTitleSetAndRestored(t *testing.T) {
 	}
 }
 
+// TestPromptRacingCloseLinkLeavesTitleIdle (review 1a F3, probe P2): a Close
+// link that lands while onPrompt is still applying the flash and the title
+// leaves the window titled Floe with the flash off, never "(1) Floe" for a
+// link that is closed.
+func TestPromptRacingCloseLinkLeavesTitleIdle(t *testing.T) {
+	a := &App{notifyFn: func(string, string) {}, wake: &wakeGuard{onBlock: func() {}, onAllow: func() {}}}
+	l := a.lane()
+	l.emitFn = func(string, any) {}
+	var mu sync.Mutex
+	var titles []string
+	var flashes []bool
+	gate, entered := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	l.setTitleFn = func(s string) { mu.Lock(); titles = append(titles, s); mu.Unlock() }
+	l.flashFn = func(on bool) {
+		mu.Lock()
+		flashes = append(flashes, on)
+		mu.Unlock()
+		if on {
+			once.Do(func() { close(entered) })
+			<-gate
+		}
+	}
+	forceGen(a, 1)
+	forceState(a, "waiting", 0)
+	done := make(chan struct{})
+	go func() { a.openPrompt(1, RequestPrompt{}); close(done) }()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("onPrompt never flashed")
+	}
+	a.CloseRequestLink()
+	close(gate)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("onPrompt did not return")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(titles) == 0 || titles[len(titles)-1] != "Floe" || flashes[len(flashes)-1] {
+		t.Fatalf("titles %q, flashes %v: the closed link left the prompt's attention on", titles, flashes)
+	}
+}
+
 // TestRequestFlashStartsOnPromptStopsOnAnswer: the flash is on exactly while
 // a prompt waits.
 func TestRequestFlashStartsOnPromptStopsOnAnswer(t *testing.T) {
