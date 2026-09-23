@@ -211,6 +211,24 @@ func TestDeliveryWaitReceivedStillWins(t *testing.T) {
 	}
 }
 
+// An empty buffer is progress, never a stall. With the stall window far below
+// the 50 ms tick, the stall arm reads the drained buffer many times before the
+// tick arm ends the wait, and it must not report a timeout: since FT-GO-TICK the
+// tick arm is the wait's only exit on a drained buffer.
+func TestDeliveryWaitEmptyBufferIsNeverAStall(t *testing.T) {
+	useDelivery(t, &fakeDrain{}, time.Millisecond)
+
+	sendErr := sendOneAndReachDeliveryWait(t, false)
+	select {
+	case err := <-sendErr:
+		if err != nil {
+			t.Fatalf("an empty buffer must end the wait with success, got: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the delivery wait never ended")
+	}
+}
+
 // A refusal that is queued by the time the tick arm finds the buffer empty is
 // reported, not a success (FT-GO-TICK; FT-GO-REFUSAL review 1, F2 part b). The
 // tick arm's buffer read is held until the refusal has reached ackCh, which is
