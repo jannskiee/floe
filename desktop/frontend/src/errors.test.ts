@@ -216,3 +216,25 @@ describe('friendlyError', () => {
         expect(friendlyError('Error: some novel failure')).toBe('Error: some novel failure');
     });
 });
+
+describe('a pasted request link', () => {
+    const cp2 = 'That is a request link for sending files to someone. Open it in a web browser.';
+
+    it('a request link error maps to the request link sentence before the code rule', () => {
+        // The bare sentinel a current desktop returns (transfer.go returns
+        // code.ErrRequestLink unwrapped), and the wrapped form an older build
+        // produced, where 'could not resolve' comes first in the string and
+        // used to win: "That code was not recognized" is the wrong advice for
+        // a link that resolved perfectly well to "not a room link".
+        expect(friendlyError(cp2)).toBe('Error: ' + cp2);
+        expect(
+            friendlyError('could not resolve "https://floe.one/r/Xk3p9Q0aB1c#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f": ' + cp2),
+        ).toBe('Error: ' + cp2);
+    });
+
+    it('never echoes the pasted link, room id included', () => {
+        const out = friendlyError('could not resolve "https://floe.one/r/Xk3p9Q0aB1c#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f": ' + cp2);
+        expect(out).not.toContain('Xk3p9Q0aB1c');
+        expect(out).not.toContain('6f1c2b9e');
+    });
+});

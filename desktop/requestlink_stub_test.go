@@ -1,16 +1,17 @@
 package main
 
-// Pins the bindings contract's one promise: no stub can report a success, so
-// the Beta switch cannot appear to work before the real lane exists. Each test
-// goes when the code it covers is replaced: the lane test with the six lane
-// stubs, the settings test with SetRequestLinks and RequestLinkSupport.
+// Pins the bindings contract's one promise: no lane stub can report a success,
+// so a link cannot appear to work before the real lane exists. The test goes
+// with the six lane stubs when the lane replaces them. (The settings half of
+// the contract is real since S1-DSK-02 and tested in config_test.go and
+// serverprobe_test.go.)
 
 import "testing"
 
 // liveStates are the snapshot states that would mean a link or a drop exists.
 var liveStates = map[string]bool{
 	"making": true, "waiting": true, "reconnecting": true, "connecting": true,
-	"deciding": true, "declined": true, "receiving": true, "done": true,
+	"deciding": true, "declined": true, "receiving": true, "done": true, "stopped": true,
 }
 
 func TestRequestLaneStubsNeverSucceed(t *testing.T) {
@@ -44,17 +45,4 @@ func TestRequestLaneStubsNeverSucceed(t *testing.T) {
 	a.CloseRequestLink()
 	a.CancelRequestDrop()
 	a.RetryRequestLink()
-}
-
-func TestSettingsStubsNeverSucceed(t *testing.T) {
-	a := &App{}
-	if err := a.SetRequestLinks(true); err == nil {
-		t.Error("SetRequestLinks(true) succeeded; the switch would appear to turn on")
-	}
-	if err := a.SetRequestLinks(false); err != nil {
-		t.Errorf("SetRequestLinks(false) = %v; off is the only true answer", err)
-	}
-	if got := a.RequestLinkSupport(); got.Reachable || got.RequestLinks {
-		t.Errorf("RequestLinkSupport = %+v, want not reachable and no request-1", got)
-	}
 }

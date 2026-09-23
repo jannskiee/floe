@@ -10,6 +10,7 @@ export const offSnapshot = {
     state: 'off',
     code: '',
     gen: 0,
+    seq: 0,
     promptGen: 0,
     link: '',
     label: '',

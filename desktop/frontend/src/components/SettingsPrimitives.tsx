@@ -9,12 +9,16 @@ import {cn, rowDescClass, rowLabelClass} from './ui';
  *  desktop proportions rather than the chunkier mobile 36x20. Deliberately no
  *  group-hover coupling: the primitive stays context-free, and the row's own
  *  hover fill already signals interactivity. */
-export function Switch({checked, onChange}: {checked: boolean; onChange: (v: boolean) => void}) {
+export function Switch({checked, onChange, disabled}: {checked: boolean; onChange: (v: boolean) => void; disabled?: boolean}) {
     return (
         <span className="relative inline-flex shrink-0">
             <input
                 type="checkbox"
                 checked={checked}
+                // Native disabled, not aria-disabled: a disabled checkbox cannot
+                // be toggled by a click on its label, by Space, or by a screen
+                // reader, which is the whole guarantee the Beta switch needs.
+                disabled={disabled}
                 onChange={(e) => onChange(e.target.checked)}
                 className="peer sr-only"
             />
@@ -37,20 +41,32 @@ export function Switch({checked, onChange}: {checked: boolean; onChange: (v: boo
 
 /** SettingRow is one settings entry: stacked label and one-line description with
  *  a trailing switch. The hover fill is the row's interactivity signal (the card
- *  clips it to the rounded corners); the whole row stays one click target. */
-export function SettingRow({checked, onChange, label, description}: {
+ *  clips it to the rounded corners); the whole row stays one click target.
+ *
+ *  disabled keeps the row's words and dims the whole row (the approved Beta
+ *  look, DS-03 and DS-04): no hover fill, a not-allowed cursor, aria-disabled on
+ *  the label and native disabled on the checkbox. The description is where a
+ *  disabled row says why, so callers swap it rather than hide it. */
+export function SettingRow({checked, onChange, label, description, disabled}: {
     checked: boolean;
     onChange: (v: boolean) => void;
     label: string;
     description?: string;
+    disabled?: boolean;
 }) {
     return (
-        <label className="flex cursor-pointer select-none items-center justify-between gap-4 px-3.5 py-2.5 transition-colors hover:bg-white/[0.04]">
+        <label
+            aria-disabled={disabled || undefined}
+            className={cn(
+                'flex select-none items-center justify-between gap-4 px-3.5 py-2.5 transition-colors',
+                disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-white/[0.04]',
+            )}
+        >
             <span className="min-w-0">
                 <span className={rowLabelClass}>{label}</span>
                 {description && <span className={rowDescClass}>{description}</span>}
             </span>
-            <Switch checked={checked} onChange={onChange}/>
+            <Switch checked={checked} onChange={onChange} disabled={disabled}/>
         </label>
     );
 }

@@ -1,6 +1,9 @@
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useReducer, useRef, useState} from 'react';
 import {
+    AnswerRequest,
+    CancelRequestDrop,
     CancelTransfer,
+    CloseRequestLink,
     ConfirmClose,
     CheckForUpdate,
     ContextMenuEnabled,
@@ -8,17 +11,22 @@ import {
     EnableContextMenu,
     EngineProtocolVersion,
     GetPendingFiles,
+    GetRequestLink,
     GetSettings,
     GetVersion,
     IsPackaged,
+    MakeRequestLink,
     OpenFile,
     OpenFolder,
     PasteFiles,
     ReceiveByCode,
+    RequestLinkSupport,
+    RetryRequestLink,
     RevealFile,
     SelectFiles,
     SelectFolder,
     SetCheckUpdates,
+    SetRequestLinks,
     SetSettings,
     StartSend,
     StartSendText,
@@ -38,22 +46,57 @@ import {
     X,
 } from 'lucide-react';
 import {BoltMark, Button, cn, Eyebrow, Input, rowDescClass, rowLabelClass, StatusDot} from './components/ui';
-import {advancedSummary, hostOf, webPlaceholder} from './settings';
+import {BETA_HEADING, REQUEST_LINKS_LABEL, advancedSummary, hostOf, requestLinksSwitch, webPlaceholder, type RequestFeature} from './settings';
 import {UNDO_WINDOW_MS, clearLabel, clearedAnnouncement, clearedLabel, restorable, restoredAnnouncement, stagedSnapshot, supersededBy, undoLabel, type Cleared} from './clear';
 import {resetWarning} from './reset';
 import {friendlyError} from './errors';
+import {
+    errorCode as requestErrorCode,
+    initialRequestUI,
+    linkOpen,
+    markerVisible,
+    noticeVisible,
+    normalizeSnapshot,
+    parsePastedLink,
+    phase as requestPhase,
+    reduce as reduceRequest,
+    settingsLocked,
+    showRow,
+    viewSnapshot,
+} from './requestLink';
+import {
+    ANNOUNCE_GUARD_LIFTED,
+    ANNOUNCE_REQUEST,
+    BETA_CHIP,
+    CLOSE_DROP_RECEIVING_LINE,
+    CLOSE_FLOE,
+    CLOSE_LINK_ALSO_LINE,
+    CLOSE_LINK_OPEN_LINE,
+    CODE_PASTE_LINE,
+    CODE_TAB,
+    KEEP_FLOE_OPEN,
+    MARKER_NAME,
+    MARKER_TEXT,
+    OPEN_IN_BROWSER,
+    RELAY_DROP_DIRECT_SEND_TOOLTIP,
+    RELAY_DROP_TOOLTIP,
+    REQUEST_TAB,
+    REQUEST_TAB_NAME,
+    START_OVER_LINK_LINE,
+} from './requestCopy';
 import {formatIncoming, type IncomingPreview} from './incoming';
 import {track, type Marker, type Prog} from './progress';
 import {baseName, mergePaths, normPath} from './paths';
-import {HISTORY_CAP, loadHistory, type HistEntry} from './history';
+import {HISTORY_CAP, loadHistory, requestHistoryEntry, type HistEntry} from './history';
 import {DOWNLOAD_URL, bareVersion, isNewerDesktopVersion} from './update';
 import TitleBar from './components/TitleBar';
 import {Tooltip} from './components/Tooltip';
-import {UNDO_ANCHOR_ID, UpdateNotice, UndoToast} from './components/Toasts';
+import {NoticeStack, RequestNotice, UNDO_ANCHOR_ID, UpdateNotice, UndoToast} from './components/Toasts';
 import {SettingRow, SettingField} from './components/SettingsPrimitives';
 import {ProgressRow, StatusLine, FooterNote, Dropzone, FileList, FileSummary} from './components/TransferBits';
 import SharePanel from './components/SharePanel';
 import HistoryView from './components/HistoryView';
+import RequestLinkView, {LABEL_INPUT_ID, PROMPT_HEADING_ID} from './components/RequestLinkView';
 
 type Mode = 'send' | 'receive' | 'history';
 
@@ -207,6 +250,10 @@ function App() {
 
     // Receive state
     const [code, setCode] = useState('');
+    // A request or drop link the owner pasted into CODE, as the parsed http(s)
+    // href Open in browser may hand to the default browser; '' when none. Set
+    // only by receive()'s pre-check, cleared by any edit of the field.
+    const [pastedRequestLink, setPastedRequestLink] = useState('');
     const [output, setOutput] = useState(() => localStorage.getItem('floe:saveDir') || '');
     // Opt-OUT model like the browser: report unless explicitly disabled. Seeded
     // from localStorage, then replaced by the Go-owned record on mount.
@@ -281,6 +328,31 @@ function App() {
     const [updateDismissed, setUpdateDismissed] = useState(false);
     const [checkUpdates, setCheckUpdates] = useState(true);
 
+    // Settings > Beta > Request links. Go owns the value (desktop.json, off by
+    // default) and the probe (the webview's CSP blocks the fetch). null means
+    // the server has not been asked yet this launch.
+    const [requestLinksOn, setRequestLinksOn] = useState(false);
+    const [requestFeature, setRequestFeature] = useState<RequestFeature | null>(null);
+
+    // The Request link lane as this window sees it (requestLink.ts). Go is
+    // authoritative; the reducer adopts its snapshots and keeps only what Go
+    // never sees. None of it feeds `busy`: an open link must never lock out
+    // Send or code Receive (spec 06 5.1).
+    const [reqUI, dispatchReq] = useReducer(reduceRequest, initialRequestUI);
+    const [reqProgress, setReqProgress] = useState<Prog | null>(null);
+    // Which half of Receive shows. Not persisted: entering Receive shows
+    // REQUEST LINK while the lane has something to say, CODE otherwise.
+    const [receiveKind, setReceiveKind] = useState<'code' | 'request'>('code');
+    // Whether the prompt block is on screen (the notice hides while it is).
+    const [promptInView, setPromptInView] = useState(false);
+    // The request lane's own screen-reader channel (A1, A2): a fourth
+    // persistent span, for the reason the update and undo spans give.
+    const [reqAnnounce, setReqAnnounce] = useState('');
+    // The base folder for request links, remembered like floe:saveDir.
+    const [requestSaveDir, setRequestSaveDir] = useState(() => {
+        try { return localStorage.getItem('floe:requestSaveDir') || ''; } catch { return ''; }
+    });
+
     // addFiles merges incoming paths into the send selection. Shared by OS
     // drops, second-instance launches, and cold-start args; safe to call from
     // once-registered closures (functional updates + stable setters only).
@@ -314,6 +386,17 @@ function App() {
             await SetCheckUpdates(v);
         } catch {
             setCheckUpdates(!v); // revert on failure, the toggleCtxMenu pattern
+        }
+    }
+
+    // Owned by its own Go setter, like the update check, so a whole-record
+    // Settings save can never clobber it (settingsFromArgs carries it over).
+    async function toggleRequestLinks(v: boolean) {
+        setRequestLinksOn(v);
+        try {
+            await SetRequestLinks(v);
+        } catch {
+            setRequestLinksOn(!v); // revert on failure, the toggleCtxMenu pattern
         }
     }
 
@@ -431,9 +514,17 @@ function App() {
     // Do not "fix" this by wiring the context menu in.
     async function resetAllSettings() {
         setResetErr('');
+        // While the lane holds a link, a drop or its result, the Beta switch is
+        // locked (S5), and Reset honors the lock like the switch does: turning
+        // it off here would tear down the request listeners and strand the link
+        // with no way to reach or close it. Everything else still resets.
+        const keepRequestLinks = settingsLocked(requestPhase(reqUI));
         try {
             await SetSettings('', '', false, true);
             await SetCheckUpdates(true);
+            // Off is the shipped default (F-05). Its own setter, so the reset
+            // cannot rely on SetSettings, which carries the switch over.
+            if (!keepRequestLinks) await SetRequestLinks(false);
         } catch (e) {
             // Two persists means a partial failure is possible: re-pull what
             // actually landed on disk so the screen never diverges from it.
@@ -444,6 +535,7 @@ function App() {
                 setHideIP(c.hideIP);
                 setReportStats(c.reportStats);
                 setCheckUpdates(!c.noUpdateCheck);
+                setRequestLinksOn(!!c.requestLinks);
                 serverAddrRef.current = c.server || '';
                 webAddrRef.current = c.web || '';
             } catch { /* unreadable config: leave the screen as is */ }
@@ -455,6 +547,7 @@ function App() {
         setHideIP(false);
         setReportStats(true);
         setCheckUpdates(true);
+        if (!keepRequestLinks) setRequestLinksOn(false);
         setOutput('');
         setTestStatus('');
         serverAddrRef.current = '';
@@ -647,6 +740,42 @@ function App() {
         };
     }, []);
 
+    // The Request link's two events, in their own effect with their own
+    // teardown (KL-3): the mount effect above keeps exactly its eleven
+    // listeners. Registered only while the Beta switch is on, so a launch with
+    // the switch off (the default) registers nothing and asks Go for nothing
+    // (FT-03). The switch cannot turn off while the lane holds a link or a
+    // drop (S5), so these never go away under one. GetRequestLink is pulled
+    // after both listeners exist, the GetPendingFiles ordering: a snapshot
+    // emitted in between would otherwise be lost.
+    useEffect(() => {
+        if (!requestLinksOn) return;
+        EventsOn('request:state', (s: unknown) => dispatchReq({type: 'SNAPSHOT', snap: normalizeSnapshot(s)}));
+        EventsOn('request:progress', (p: Prog) => setReqProgress(p));
+        GetRequestLink().then((s) => dispatchReq({type: 'SNAPSHOT', snap: normalizeSnapshot(s)})).catch(() => {});
+        return () => {
+            EventsOff('request:state');
+            EventsOff('request:progress');
+        };
+    }, [requestLinksOn]);
+
+    // The switch and the probe feed the lane's Off and Ready (T1, T2).
+    useEffect(() => {
+        dispatchReq({type: 'FEATURE', switchOn: requestLinksOn, requestLinks: !!requestFeature?.reachable && !!requestFeature?.requestLinks});
+    }, [requestLinksOn, requestFeature]);
+
+    // X5: Floe closed last time with a link open (O7). The marker holds only
+    // the link's end time, never the link. Read once and cleared at once; a
+    // link that would have ended anyway by now needs no sentence.
+    useEffect(() => {
+        let until = 0;
+        try {
+            until = Number(localStorage.getItem('floe:requestLinkOpenUntil')) || 0;
+            localStorage.removeItem('floe:requestLinkOpenUntil');
+        } catch { /* storage unavailable: no sentence */ }
+        if (until > Date.now()) dispatchReq({type: 'RELAUNCH'});
+    }, []);
+
     // About data: fetched once; failures just leave the placeholders.
     useEffect(() => {
         GetVersion().then(setAppVer).catch(() => {});
@@ -681,6 +810,8 @@ function App() {
                 // Not part of the migration below: the field never lived in
                 // localStorage, and its zero value is the shipped default.
                 setCheckUpdates(!c.noUpdateCheck);
+                // Same: Go-owned from the start, and false (off) is the default.
+                setRequestLinksOn(!!c.requestLinks);
                 if (c.migrated) {
                     setHideIP(c.hideIP);
                     setReportStats(c.reportStats);
@@ -698,6 +829,93 @@ function App() {
             })
             .catch(() => {});
     }, []);
+
+    // The request-1 probe, in its own small effect (never the mount effect).
+    // It runs where its answer is used: whenever Settings opens (the Beta
+    // switch's state and line) and while the switch is on. With the switch off
+    // and Settings closed it never runs, so a launch with the Beta off (the
+    // default) sends nothing of the feature anywhere (FT-03). The live flag
+    // drops an answer that lands after the screen moved on.
+    useEffect(() => {
+        if (!settingsOpen && !requestLinksOn) return;
+        let live = true;
+        RequestLinkSupport()
+            .then((f) => { if (live) setRequestFeature({reachable: !!f?.reachable, requestLinks: !!f?.requestLinks}); })
+            .catch(() => { if (live) setRequestFeature({reachable: false, requestLinks: false}); });
+        return () => { live = false; };
+    }, [settingsOpen, requestLinksOn]);
+
+    // The probe again on entering Receive, and every 60 s while the row can
+    // show there, so a kill switch flipped on the server reaches the row within
+    // a minute (spec 06 4.18). Only with the switch on.
+    useEffect(() => {
+        if (!requestLinksOn || mode !== 'receive' || settingsOpen) return;
+        let live = true;
+        const probe = () => {
+            RequestLinkSupport()
+                .then((f) => { if (live) setRequestFeature({reachable: !!f?.reachable, requestLinks: !!f?.requestLinks}); })
+                .catch(() => { if (live) setRequestFeature({reachable: false, requestLinks: false}); });
+        };
+        probe();
+        const id = window.setInterval(probe, 60_000);
+        return () => { live = false; clearInterval(id); };
+    }, [requestLinksOn, mode, settingsOpen]);
+
+    // Entering Receive shows REQUEST LINK while the lane has something to say
+    // (a link, a drop, a result, an error or the X5 line), CODE otherwise.
+    const reqPhaseRef = useRef('off');
+    useEffect(() => {
+        if (mode !== 'receive') return;
+        setReceiveKind(reqPhaseRef.current === 'off' || reqPhaseRef.current === 'ready' ? 'code' : 'request');
+    }, [mode]);
+
+    // The next-launch marker: set to the link's end time while a link is
+    // open, cleared once it is not (closed, expired, done, stopped, refused).
+    // Gen 0 is the launch state, which must not clear what the launch read.
+    useEffect(() => {
+        try {
+            if (linkOpen(reqUI.snap.state) && reqUI.snap.expiresAt) {
+                localStorage.setItem('floe:requestLinkOpenUntil', String(reqUI.snap.expiresAt));
+            } else if (reqUI.snap.gen > 0) {
+                localStorage.removeItem('floe:requestLinkOpenUntil');
+            }
+        } catch { /* storage unavailable */ }
+    }, [reqUI.snap.state, reqUI.snap.expiresAt, reqUI.snap.gen]);
+
+    // One History row per finished drop (S1-DSK-09): the first time a lane
+    // generation reaches done, or stopped with files saved. Go may re-emit a
+    // terminal snapshot (a GetRequestLink pull, a later event of the same
+    // gen), so the gens already recorded are remembered and a copy adds
+    // nothing. The row keeps no link and no room id (requestHistoryEntry).
+    const recordedGens = useRef(new Set<number>());
+    useEffect(() => {
+        const s = reqUI.snap;
+        if ((s.state !== 'done' && s.state !== 'stopped') || recordedGens.current.has(s.gen)) return;
+        recordedGens.current.add(s.gen);
+        const row = requestHistoryEntry(s);
+        // The row is keyed by its exclusive subfolder too: a webview reload
+        // empties recordedGens and re-pulls a still-done lane, and the folder
+        // that drop was saved into is already on a stored row (review F7).
+        if (row) {
+            setHistory((prev) => (row.dir && prev.some((h) => h.via === 'request' && h.dir === row.dir)
+                ? prev
+                : [row, ...prev].slice(0, HISTORY_CAP)));
+        }
+    }, [reqUI.snap]);
+
+    // A1 once per prompt, and the channel emptied between prompts so the next
+    // one is a change the screen reader speaks. A2 comes from the view.
+    const lastPromptGen = useRef(0);
+    useEffect(() => {
+        if (reqUI.snap.state !== 'deciding') {
+            setReqAnnounce('');
+            return;
+        }
+        if (reqUI.snap.promptGen !== lastPromptGen.current) {
+            lastPromptGen.current = reqUI.snap.promptGen;
+            setReqAnnounce(ANNOUNCE_REQUEST);
+        }
+    }, [reqUI.snap.state, reqUI.snap.promptGen]);
 
     // Persist only the transfer tabs; relaunching into History would be odd.
     useEffect(() => { if (mode !== 'history') localStorage.setItem('floe:mode', mode); }, [mode]);
@@ -751,7 +969,10 @@ function App() {
     // The close dialog's premise is "a transfer is running". If it finishes or
     // is canceled while the dialog is up, dismiss: the Go hook no longer blocks
     // a close anyway, so the next X just closes, and stale copy would lie.
-    useEffect(() => { if (!sending && !receiving) setCloseGuard(false); }, [sending, receiving]);
+    // The lane joins in: with a link still open the Go hook keeps blocking, so
+    // the dialog stays until nothing is live on any lane.
+    const laneLive = linkOpen(reqUI.snap.state);
+    useEffect(() => { if (!sending && !receiving && !laneLive) setCloseGuard(false); }, [sending, receiving, laneLive]);
 
     // Leaving the history view abandons a pending Clear confirmation.
     useEffect(() => { if (mode !== 'history') setConfirmClear(false); }, [mode]);
@@ -1176,6 +1397,17 @@ function App() {
             setRecvStatus('Please enter a code or link.');
             return;
         }
+        // A request or drop link is for a web browser: say so and offer to
+        // open it, and never call ReceiveByCode, which claims a transfer
+        // generation before it resolves and toasts on failure (S1-DSK-07).
+        // Works whether or not the Beta switch is on: anyone can be sent
+        // somebody else's request link.
+        const pasted = parsePastedLink(code);
+        if (pasted) {
+            setPastedRequestLink(pasted.href);
+            setRecvStatus('');
+            return;
+        }
         const attempt = ++recvAttempt.current;
         setReceiving(true);
         setRecvProg(null);
@@ -1299,6 +1531,7 @@ function App() {
 
         // Receive
         setCode('');
+        setPastedRequestLink('');
         setRecvStatus(INITIAL_RECV_STATUS);
         setReceiving(false);
         setRecvProg(null);
@@ -1361,6 +1594,17 @@ function App() {
 
     const busy = sending || receiving;
 
+    // The lane, derived for display only; never part of `busy`.
+    const reqPhase = requestPhase(reqUI);
+    reqPhaseRef.current = reqPhase;
+    const dropMoving = reqUI.snap.state === 'receiving';
+    const dropRelay = dropMoving && reqUI.snap.route === 'relay';
+    const dropDirect = dropMoving && reqUI.snap.route === 'direct';
+    // Read on the displayed phase, so a result the owner has put away no
+    // longer holds the row open once request-1 is gone.
+    const rowVisible = showRow(requestLinksOn, reqUI.featurePresent, reqPhase);
+    const onRequestView = !settingsOpen && mode === 'receive' && rowVisible && receiveKind === 'request';
+
     // What the send tab is holding, or null when it is empty. One rule, read by
     // three places: whether Send is enabled, whether Clear is offered at all, and
     // what an undo would have to put back.
@@ -1372,7 +1616,11 @@ function App() {
     // dismissed. The isNewer re-check is defense in depth (Go already compared)
     // and keeps the card from flashing before GetVersion resolves.
     const updateAvailable = updateVer !== '' && isNewerDesktopVersion(updateVer, appVer);
-    const showUpdate = updateAvailable && !updateDismissed && !busy && !confirmReset && !confirmDefaults;
+    const showUpdate = updateAvailable && !updateDismissed && !busy && !dropMoving && !confirmReset && !confirmDefaults;
+    // The request notice keeps the update notice's manners: never behind a
+    // dialog's scrim. It stands on every screen, Settings included, except
+    // REQUEST LINK with the prompt in view.
+    const showRequestNotice = noticeVisible(reqUI.snap, onRequestView, promptInView) && !closeGuard && !confirmReset && !confirmDefaults;
     // What Start over would destroy, phrased for its own dialog, so the decision
     // to interrupt and the sentence explaining why can never drift apart. Empty
     // means nothing worth a prompt and the reset runs on the first click or
@@ -1388,7 +1636,21 @@ function App() {
     });
     // Amber marks anything relay-flavored: a known relayed route, or (before
     // the route is known / while idle) the Hide-my-IP preference forcing one.
-    const relayTone = route ? route === 'relay' : hideIP;
+    // A relayed drop is relay-flavored too; a direct one is not, even with
+    // Hide my IP on (the route is known).
+    const relayTone = dropRelay || (route ? route === 'relay' : dropDirect ? false : hideIP);
+    // Status word precedence (spec 06 5.3), display only: relay wins if either
+    // lane relays, then direct, then Active while anything moves.
+    const moving = busy || dropMoving;
+    const statusWord = !moving ? 'Ready'
+        : (busy && route === 'relay') || dropRelay ? 'Relay'
+        : (busy && route === 'direct') || dropDirect ? 'Direct'
+        : 'Active';
+    const statusTip = !moving
+        ? (hideIP ? 'Hide my IP is on. Transfers go through the relay (capped at 2 GB).' : 'Ready for a transfer')
+        : dropRelay ? (sending && route === 'direct' ? RELAY_DROP_DIRECT_SEND_TOOLTIP : RELAY_DROP_TOOLTIP)
+        : busy ? (route === 'relay' ? 'Relay connection' : route === 'direct' ? 'Direct peer connection' : 'Connecting')
+        : dropDirect ? 'Direct peer connection' : 'Connecting';
 
     // The header clock toggles the history view; leaving returns to the tab it
     // covered. The ref never holds 'history' (only set when entering from a tab).
@@ -1432,6 +1694,9 @@ function App() {
     // already here.)
     function primaryAction() {
         if (busy || settingsOpen || confirmReset || confirmDefaults) return;
+        // No keyboard path to Accept but a focused native button (spec 06
+        // 5.2 item 6), so Ctrl+Enter does nothing on REQUEST LINK at all.
+        if (onRequestView) return;
         if (mode === 'send') {
             if (sendKind === 'text' ? sendText.trim() : files.length) send();
         } else if (mode === 'receive') {
@@ -1440,6 +1705,56 @@ function App() {
     }
     const primaryActionRef = useRef(primaryAction);
     primaryActionRef.current = primaryAction;
+
+    // The REQUEST LINK view's actions. Each binding call answers with a
+    // snapshot or is followed by request:state; nothing here decides a state.
+    function makeRequestLink(label: string, lifetime: '24h' | '7d') {
+        dispatchReq({type: 'MAKE'});
+        MakeRequestLink(label, requestSaveDir.trim(), lifetime)
+            .then((s) => dispatchReq({type: 'SNAPSHOT', snap: normalizeSnapshot(s)}))
+            .catch(() => dispatchReq({type: 'MAKE_FAILED'}))
+            .finally(() => dispatchReq({type: 'MAKE_DONE'}));
+    }
+    function answerRequest(promptGen: number, answer: 'accept' | 'decline' | 'keep-waiting') {
+        AnswerRequest(promptGen, answer).then((s) => dispatchReq({type: 'SNAPSHOT', snap: normalizeSnapshot(s)})).catch(() => {});
+    }
+    // The base folder is remembered when the owner types or picks one, and
+    // only then: nothing of the feature writes to storage at launch (review
+    // F4). An emptied field forgets it, so the default applies again.
+    function changeRequestSaveDir(dir: string) {
+        setRequestSaveDir(dir);
+        try {
+            if (dir.trim()) localStorage.setItem('floe:requestSaveDir', dir);
+            else localStorage.removeItem('floe:requestSaveDir');
+        } catch { /* storage unavailable */ }
+    }
+    async function pickRequestFolder() {
+        try {
+            const dir = await SelectFolder();
+            if (dir) changeRequestSaveDir(dir);
+        } catch {
+            // dialog cancelled
+        }
+    }
+    // Make another link is one of the three focus moves the owner asks for.
+    function makeAnotherLink() {
+        dispatchReq({type: 'MAKE_ANOTHER'});
+        requestAnimationFrame(() => document.getElementById(LABEL_INPUT_ID)?.focus());
+    }
+    // The marker and Review both open Receive > REQUEST LINK. Review also
+    // brings the prompt into view and focuses its heading: the only automatic
+    // focus move, and one the owner pressed a button for.
+    function openRequestView(toPrompt: boolean) {
+        setSettingsOpen(false);
+        setMode('receive');
+        setReceiveKind('request');
+        if (!toPrompt) return;
+        requestAnimationFrame(() => {
+            const h = document.getElementById(PROMPT_HEADING_ID);
+            h?.scrollIntoView?.({block: 'center'});
+            h?.focus();
+        });
+    }
 
     const modeBtn = (m: Mode, label: string) => (
         <button
@@ -1451,6 +1766,31 @@ function App() {
         >
             {label}
         </button>
+    );
+
+    // Receive > CODE | REQUEST LINK (R1 to R3): two aria-pressed words like the
+    // History toggle, and the Beta chip outside them. The chip is hidden from
+    // the accessibility tree because the second button's name already says
+    // "beta" (R3). A plain element, not a component, so nothing remounts.
+    const receiveRow = (
+        <div className="flex items-center gap-4 px-0.5">
+            {(['code', 'request'] as const).map((k) => (
+                <button
+                    key={k}
+                    type="button"
+                    aria-pressed={receiveKind === k}
+                    aria-label={k === 'request' ? REQUEST_TAB_NAME : undefined}
+                    onClick={() => setReceiveKind(k)}
+                    className={cn(
+                        'border-b pb-0.5 font-mono text-[10px] uppercase tracking-[0.2em] transition-colors',
+                        receiveKind === k ? 'border-white text-zinc-200' : 'border-transparent text-zinc-400 hover:text-zinc-300',
+                    )}
+                >
+                    {k === 'code' ? CODE_TAB : REQUEST_TAB}
+                </button>
+            ))}
+            <span aria-hidden className="ml-1 rounded bg-white/[0.07] px-1.5 py-[3px] font-mono text-[10px] uppercase leading-none tracking-[0.15em] text-zinc-400">{BETA_CHIP}</span>
+        </div>
     );
 
     // Advanced is open when the user says so, and otherwise whenever a non-default
@@ -1465,6 +1805,11 @@ function App() {
     // Three states, not two. See settings.ts and its test.
     const advSummary = advancedSummary(serverAddr, webAddr);
 
+    // The Beta switch's state and its one line: locked with S5 while the lane
+    // holds a link, a drop or its result, so turning the Beta off never
+    // strands one.
+    const betaSwitch = requestLinksSwitch(requestFeature, settingsLocked(reqPhase), requestLinksOn);
+
     return (
         <div className="flex h-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100 selection:bg-ice/20">
             <TitleBar onSettings={() => setSettingsOpen((o) => !o)} settingsActive={settingsOpen} onStartOver={startOver}/>
@@ -1478,7 +1823,14 @@ function App() {
             <span className="sr-only" role="status" aria-live="polite">
                 {updateAvailable ? `Update available: Floe ${bareVersion(updateVer)}. See Settings.` : ''}
             </span>
-            {showUpdate && <UpdateNotice version={updateVer} onDismiss={() => setUpdateDismissed(true)}/>}
+            <NoticeStack>
+                {showRequestNotice && <RequestNotice onReview={() => openRequestView(true)}/>}
+                {showUpdate && <UpdateNotice version={updateVer} onDismiss={() => setUpdateDismissed(true)}/>}
+            </NoticeStack>
+            {/* The request lane's announcements (A1 on a new prompt, A2 when
+                the Accept guard lifts): their own persistent span, so neither
+                the update line nor the undo line can erase them. */}
+            <span className="sr-only" role="status" aria-live="polite">{reqAnnounce}</span>
 
             {/* The undo offer's own announcement, a separate span from the
                 update one above rather than a shared channel: the two can stand
@@ -1639,6 +1991,22 @@ function App() {
                                         </div>
                                     </section>
                                 )}
+
+                                {/* After Windows and before Advanced (F-10, OD-31 O8); in
+                                    the Store build, where Windows is absent, directly after
+                                    Privacy. One row, off by default. */}
+                                <section className="space-y-2">
+                                    <Eyebrow as="h3">{BETA_HEADING}</Eyebrow>
+                                    <div className={cardClass}>
+                                        <SettingRow
+                                            checked={requestLinksOn}
+                                            onChange={(v) => void toggleRequestLinks(v)}
+                                            label={REQUEST_LINKS_LABEL}
+                                            description={betaSwitch.description}
+                                            disabled={betaSwitch.disabled}
+                                        />
+                                    </div>
+                                </section>
 
                                 <section className="space-y-2">
                                     <Eyebrow as="h3">Advanced</Eyebrow>
@@ -1824,7 +2192,7 @@ function App() {
                             </div>
                         </div>
                     </div>
-                    {busy && (
+                    {(busy || dropMoving) && (
                         <div className="border-t border-white/[0.06] px-5 py-3">
                             <FooterNote busy/>
                         </div>
@@ -1906,18 +2274,28 @@ function App() {
                                 <div className="flex items-center gap-5">
                                     {modeBtn('send', 'Send')}
                                     {modeBtn('receive', 'Receive')}
+                                    {/* "link open" (H1): words and a neutral dot, never a new
+                                        colour. A button: it opens Receive > REQUEST LINK when
+                                        pressed and never switches tabs on its own. */}
+                                    {markerVisible(reqUI.snap) && (
+                                        <button
+                                            type="button"
+                                            aria-label={MARKER_NAME}
+                                            onClick={() => openRequestView(false)}
+                                            className="flex items-center gap-1.5 whitespace-nowrap pb-1 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500 transition-colors hover:text-zinc-300"
+                                        >
+                                            <span aria-hidden className="size-1.5 rounded-full bg-zinc-500"/>
+                                            {MARKER_TEXT}
+                                        </button>
+                                    )}
                                 </div>
                                 <div className="flex items-center gap-3">
                                     {/* one-word status; the dot color carries the route (site parity:
                                         green = direct, amber = relay), details live in the tooltip */}
-                                    <Tooltip
-                                        label={busy
-                                            ? (route === 'relay' ? 'Relay connection' : route === 'direct' ? 'Direct peer connection' : 'Connecting')
-                                            : hideIP ? 'Hide my IP is on. Transfers go through the relay (capped at 2 GB).' : 'Ready for a transfer'}
-                                    >
+                                    <Tooltip label={statusTip}>
                                         <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                                            <StatusDot className={cn('transition-colors duration-500', relayTone ? 'bg-amber-500' : 'bg-green-500')} pulse={busy}/>
-                                            {busy ? (route ? (route === 'relay' ? 'Relay' : 'Direct') : 'Active') : 'Ready'}
+                                            <StatusDot className={cn('transition-colors duration-500', relayTone ? 'bg-amber-500' : 'bg-green-500')} pulse={moving}/>
+                                            {statusWord}
                                         </span>
                                     </Tooltip>
                                     <Tooltip label="History" keys={isMac ? '⌘Y' : 'Ctrl+H'} align="end">
@@ -1959,7 +2337,7 @@ function App() {
                                                         onClick={() => setSendKind(k)}
                                                         className={cn(
                                                             'border-b pb-0.5 font-mono text-[10px] uppercase tracking-[0.2em] transition-colors',
-                                                            sendKind === k ? 'border-white text-zinc-200' : 'border-transparent text-zinc-600 hover:text-zinc-400',
+                                                            sendKind === k ? 'border-white text-zinc-200' : 'border-transparent text-zinc-400 hover:text-zinc-300',
                                                         )}
                                                     >
                                                         {k === 'files' ? 'Files' : 'Text'}
@@ -2088,15 +2466,43 @@ function App() {
                                         <StatusLine text={sendStatus} busy={sending}/>
                                     </div>
 
+                                ) : mode === 'receive' && onRequestView ? (
+                                /* ── RECEIVE > REQUEST LINK ───────────────────── */
+                                    <div className="space-y-4">
+                                        {receiveRow}
+                                        <RequestLinkView
+                                            phase={reqPhase}
+                                            snap={viewSnapshot(reqUI)}
+                                            errorCode={requestErrorCode(reqUI)}
+                                            progress={reqProgress}
+                                            hideIP={hideIP}
+                                            saveDir={requestSaveDir}
+                                            onSaveDirChange={changeRequestSaveDir}
+                                            onMake={makeRequestLink}
+                                            onClose={() => { CloseRequestLink().catch(() => {}); }}
+                                            onAnswer={answerRequest}
+                                            onCancelDrop={() => { CancelRequestDrop().catch(() => {}); }}
+                                            onRetry={() => { RetryRequestLink().catch(() => {}); }}
+                                            onShowInFolder={(dir) => { OpenFolder(dir).catch(() => {}); }}
+                                            onDismiss={() => dispatchReq({type: 'DISMISS'})}
+                                            onMakeAnother={makeAnotherLink}
+                                            onBrowse={pickRequestFolder}
+                                            onEdit={() => dispatchReq({type: 'ACK_ERROR'})}
+                                            onGuardLift={() => setReqAnnounce(ANNOUNCE_GUARD_LIFTED)}
+                                            onPromptVisible={setPromptInView}
+                                        />
+                                    </div>
+
                                 ) : mode === 'receive' ? (
                                 /* ── RECEIVE VIEW ─────────────────────────────── */
                                     <div className="space-y-4">
+                                        {rowVisible && receiveRow}
                                         <div className="space-y-2">
                                             <Eyebrow>Code or link</Eyebrow>
                                             <Input
                                                 placeholder="amber-otter-cloud"
                                                 value={code}
-                                                onChange={(e) => setCode(e.target.value)}
+                                                onChange={(e) => { setCode(e.target.value); setPastedRequestLink(''); }}
                                                 onKeyDown={(e) => { if (e.key === 'Enter' && !busy && code.trim()) receive(); }}
                                                 disabled={receiving}
                                                 autoFocus
@@ -2128,6 +2534,20 @@ function App() {
                                             <Button className="w-full" onClick={receive} disabled={busy}>
                                                 <Download/> Receive
                                             </Button>
+                                        )}
+
+                                        {/* A pasted request link (DK-01): the sentence, then Open in
+                                            browser on the right rail. BrowserOpenURL only ever gets
+                                            the http(s) href parsePastedLink produced. */}
+                                        {pastedRequestLink && !receiving && (
+                                            <div className="animate-floe-in space-y-2">
+                                                <p className="text-xs leading-relaxed text-zinc-400">{CODE_PASTE_LINE}</p>
+                                                <div className="flex justify-end">
+                                                    <Button variant="outline" onClick={() => BrowserOpenURL(pastedRequestLink)}>
+                                                        {OPEN_IN_BROWSER}
+                                                    </Button>
+                                                </div>
+                                            </div>
                                         )}
 
                                         {receiving && incoming && (
@@ -2180,7 +2600,7 @@ function App() {
 
                             {/* footer note */}
                             <div className="border-t border-white/[0.06] px-5 py-3">
-                                <FooterNote busy={busy}/>
+                                <FooterNote busy={busy || dropMoving}/>
                             </div>
                         </div>
                     </div>
@@ -2251,6 +2671,9 @@ function App() {
                             the copy cannot disagree about why you were stopped.
                             Captured at open time, not read live: see startOver. */}
                         <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">{resetMsg}</p>
+                        {/* Start over never touches the lane, so an open link
+                            is worth saying out loud here (SO1). */}
+                        {laneLive && <p className="mt-2 text-xs leading-relaxed text-zinc-400">{START_OVER_LINK_LINE}</p>}
                         <div className="mt-4 flex justify-end gap-2">
                             {/* The safe choice takes focus. Without it the dialog
                                 opens with focus wherever it was, which after a
@@ -2281,14 +2704,25 @@ function App() {
                                 ? "You're still sending. If you close now, the transfer stops and the other side gets nothing."
                                 : receiving
                                     ? "You're still receiving. If you close now, the transfer stops before the files finish."
-                                    : 'A transfer is still running. Closing Floe will stop it.'}
+                                    : dropMoving
+                                        ? CLOSE_DROP_RECEIVING_LINE
+                                        : laneLive
+                                            ? CLOSE_LINK_OPEN_LINE
+                                            : 'A transfer is still running. Closing Floe will stop it.'}
+                            {/* A Send or code Receive plus an open link: the
+                                transfer sentence and its buttons, then CL5. */}
+                            {busy && laneLive && ` ${CLOSE_LINK_ALSO_LINE}`}
                         </p>
                         <div className="mt-4 flex justify-end gap-2">
-                            <Button variant="outline" autoFocus onClick={() => { setCloseGuard(false); focusLockup(); }}>Keep going</Button>
+                            <Button variant="outline" autoFocus onClick={() => { setCloseGuard(false); focusLockup(); }}>
+                                {!busy && !dropMoving && laneLive ? KEEP_FLOE_OPEN : 'Keep going'}
+                            </Button>
                             {/* No local dismiss on purpose: the app is about to
                                 exit, and clearing the dialog first would flash
                                 the live UI during teardown. */}
-                            <Button onClick={() => { ConfirmClose().catch(() => {}); }}>Close anyway</Button>
+                            <Button onClick={() => { ConfirmClose().catch(() => {}); }}>
+                                {!busy && !dropMoving && laneLive ? CLOSE_FLOE : 'Close anyway'}
+                            </Button>
                         </div>
                     </div>
                 </div>

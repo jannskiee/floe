@@ -80,6 +80,7 @@ export namespace main {
 	    state: string;
 	    code: string;
 	    gen: number;
+	    seq: number;
 	    promptGen: number;
 	    link: string;
 	    label: string;
@@ -101,6 +102,7 @@ export namespace main {
 	        this.state = source["state"];
 	        this.code = source["code"];
 	        this.gen = source["gen"];
+	        this.seq = source["seq"];
 	        this.promptGen = source["promptGen"];
 	        this.link = source["link"];
 	        this.label = source["label"];
@@ -152,6 +154,7 @@ export namespace main {
 	    hideIP: boolean;
 	    reportStats: boolean;
 	    noUpdateCheck: boolean;
+	    requestLinks: boolean;
 	    migrated: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -165,6 +168,7 @@ export namespace main {
 	        this.hideIP = source["hideIP"];
 	        this.reportStats = source["reportStats"];
 	        this.noUpdateCheck = source["noUpdateCheck"];
+	        this.requestLinks = source["requestLinks"];
 	        this.migrated = source["migrated"];
 	    }
 	}

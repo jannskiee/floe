@@ -2,6 +2,8 @@
 // tested without a DOM or the Wails runtime bindings, which do not exist
 // outside the WebView (the same arrangement as settings.ts).
 
+import type {RequestLinkSnapshot} from './requestLink';
+
 /** One completed transfer, persisted locally in localStorage['floe:history']. */
 export interface HistEntry {
     kind: 'send' | 'recv';
@@ -10,6 +12,17 @@ export interface HistEntry {
     dir?: string;
     at: number;
     bytes?: number; // total transferred size; absent on entries from older builds
+
+    // A request drop (spec 06 4.11). Every field optional, so rows written by
+    // older builds load unchanged. Nothing link-shaped is ever stored: no link,
+    // link id or room id, because this store outlives the link and sits in the
+    // WebView2 profile.
+    via?: 'request';
+    label?: string; // the owner's own label, which never left this PC
+    verified?: number; // files whose SHA-256 matched
+    renamed?: number; // files renamed to .floe-blocked; keeps the Show in folder question alive
+    stopped?: string; // the stop code, when the drop ended early with files saved
+    offered?: number; // files the visitor offered, for the stop sentence's "4 of 12"
 }
 
 export const HISTORY_CAP = 50;
@@ -58,4 +71,36 @@ export function fmtWhen(ts: number, now: Date = new Date()): string {
  *  entries still collide; that is accepted for a 50-entry local list. */
 export function histKey(h: {at: number; names: string[]; count: number}): string {
     return `${h.at}-${h.names[0] ?? ''}-${h.count}`;
+}
+
+/** REQUEST_NAMES_CAP bounds the names one request row stores: a drop can hold
+ *  10,000 files, and this store is one localStorage value shared by the whole
+ *  profile. count keeps the real number. */
+export const REQUEST_NAMES_CAP = 200;
+
+/** requestHistoryEntry is the one History row a finished request drop adds
+ *  (S1-DSK-09): a done drop, or a stopped one that saved at least one file
+ *  (OD-31 O4: the files exist on disk). Anything else adds nothing. Built only
+ *  from the snapshot's result, the owner's label and the stop code; the link
+ *  and the room id never reach it. The names are the engine's display-safe
+ *  saved names. */
+export function requestHistoryEntry(snap: RequestLinkSnapshot, now: number = Date.now()): HistEntry | null {
+    const r = snap.result;
+    if (!r) return null;
+    if (snap.state !== 'done' && !(snap.state === 'stopped' && r.saved > 0)) return null;
+    const entry: HistEntry = {
+        kind: 'recv',
+        names: r.names.slice(0, REQUEST_NAMES_CAP),
+        count: r.saved,
+        at: now,
+        via: 'request',
+        verified: r.verified,
+        renamed: r.renamed,
+        offered: r.files,
+    };
+    if (r.folder) entry.dir = r.folder;
+    if (r.bytes > 0) entry.bytes = r.bytes;
+    if (snap.label) entry.label = snap.label;
+    if (snap.state === 'stopped') entry.stopped = snap.code || 'unknown';
+    return entry;
 }
