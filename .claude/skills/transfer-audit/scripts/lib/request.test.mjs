@@ -173,7 +173,7 @@ test('TA-10 H-DIR-W2D-req: Make link into the run folder, Accept after 1.2 s, th
     assert.equal(r.integrity.ok, true);
     assert.equal(r.integrity.subfolder, 'Floe request 1');
     assert.equal(r.route.observed, 'direct');
-    assert.equal(r.completion.sender.text, 'ALL 1 FILES ARRIVED');
+    assert.equal(r.completion.sender.text, '1 FILE ARRIVED');
     assert.equal(r.completion.receiver.text, 'RECEIVED 1 FILE, 0.0 MB');
     // Safety: the host counted as an opted-out receiver, no visitor tried
     // to report, and the link is shown only without its room.
@@ -263,7 +263,7 @@ test('TA-13 H-DIR-W2D-reqblip: the host goes through the blip, a visitor in the 
     });
     const titles = attemptJson(a).evidence.visitors[0].titles.map((t) => t.titles);
     assert.ok(titles.includes('Their computer is not connected right now'));
-    assert.equal(titles.at(-1), 'ALL 1 FILES ARRIVED', 'the same visitor delivered after Try again');
+    assert.equal(titles.at(-1), '1 FILE ARRIVED', 'the same visitor delivered after Try again');
     assert.deepEqual(a.request.addresses, { swapped: true, restored: true });
     assert.equal(w.dom.settings.server, LOCAL);
     assert.equal(w.dom.settings.web, '');
