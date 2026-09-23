@@ -931,6 +931,64 @@ describe('the request link in the app', () => {
         expect(screen.getByText('ACME FOOTAGE WANTS TO SEND YOU FILES')).toBeTruthy();
     });
 
+    it('the card keeps its top when a request mounts on REQUEST LINK', async () => {
+        // Spec 06 5.5 and VR3-D03: Close link does not move when a request
+        // mounts. m-auto centers the card, so a prompt that grows it would
+        // re-center it and carry Close link up by half the growth (65 px at
+        // 1000 x 640 in Chromium). jsdom has no layout, so this rect stands in
+        // for m-auto: the card's top is wherever centering puts it for what
+        // it holds right now, and the pin must keep the one read on entry.
+        let centered = 163.5;
+        vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+            const top = this.classList.contains('m-auto') ? centered : 0;
+            return {top, bottom: top, left: 0, right: 0, x: 0, y: top, width: 0, height: 0, toJSON: () => ({})} as DOMRect;
+        });
+        switchOn();
+        const user = userEvent.setup();
+        mount();
+        await allOn();
+        const card = () => document.querySelector<HTMLElement>('main .m-auto')!;
+
+        // A link open behind the Send view pins nothing there.
+        push(lane('waiting', {seq: 1}));
+        expect(card().style.marginTop).toBe('');
+        await user.click(await screen.findByRole('button', {name: 'Request link is open'}));
+        expect(await screen.findByRole('button', {name: 'Close link'})).toBeTruthy();
+        expect(card().style.marginTop).toBe('163.5px');
+        expect(card().style.marginBottom).toBe('auto');
+
+        // The prompt mounts and would re-center the card 65 px higher.
+        centered = 98.1;
+        push(lane('deciding', {seq: 2, promptGen: 1, prompt}));
+        expect(screen.getByRole('button', {name: 'Accept'})).toBeTruthy();
+        expect(card().style.marginTop).toBe('163.5px');
+
+        // Declined and back to waiting: the card shrinks, and still holds.
+        centered = 163.5;
+        push(lane('declined', {seq: 3, promptGen: 1}));
+        push(lane('waiting', {seq: 4}));
+        centered = 150;
+        expect(card().style.marginTop).toBe('163.5px');
+
+        // A resize re-centers and pins again.
+        act(() => { window.dispatchEvent(new Event('resize')); });
+        expect(card().style.marginTop).toBe('150px');
+
+        // Another tab centers as before; coming back re-reads the spot.
+        await user.click(screen.getByRole('button', {name: 'Send'}));
+        expect(card().style.marginTop).toBe('');
+        centered = 140;
+        await user.click(receiveTab());
+        expect(screen.getByRole('button', {name: 'Close link'})).toBeTruthy();
+        expect(card().style.marginTop).toBe('140px');
+
+        // Leaving the link phases hands the card back to m-auto.
+        push(lane('receiving', {seq: 5, route: 'direct'}));
+        expect(card().style.marginTop).toBe('');
+        expect(card().style.marginBottom).toBe('');
+        expect(card().className).toContain('m-auto');
+    });
+
     it('the link stopped when Floe closed line shows once after relaunch', async () => {
         switchOn();
         localStorage.setItem('floe:requestLinkOpenUntil', String(Date.now() + 3600_000));

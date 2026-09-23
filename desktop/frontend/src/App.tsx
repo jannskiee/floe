@@ -96,7 +96,8 @@ import {SettingRow, SettingField} from './components/SettingsPrimitives';
 import {ProgressRow, StatusLine, FooterNote, Dropzone, FileList, FileSummary} from './components/TransferBits';
 import SharePanel from './components/SharePanel';
 import HistoryView from './components/HistoryView';
-import RequestLinkView, {LABEL_INPUT_ID, PROMPT_HEADING_ID} from './components/RequestLinkView';
+import RequestLinkView, {LABEL_INPUT_ID, LINK_PHASES, PROMPT_HEADING_ID} from './components/RequestLinkView';
+import {useCardPin} from './cardPin';
 
 type Mode = 'send' | 'receive' | 'history';
 
@@ -1604,6 +1605,10 @@ function App() {
     // longer holds the row open once request-1 is gone.
     const rowVisible = showRow(requestLinksOn, reqUI.featurePresent, reqPhase);
     const onRequestView = !settingsOpen && mode === 'receive' && rowVisible && receiveKind === 'request';
+    // While REQUEST LINK shows a link, the card holds the top m-auto gave it,
+    // so a prompt mounting below cannot re-center it and move Close link
+    // (VR3-D03). cardPin.ts has the why.
+    const cardPin = useCardPin(onRequestView && LINK_PHASES.has(reqPhase));
 
     // What the send tab is holding, or null when it is empty. One rule, read by
     // three places: whether Send is enabled, whether Clear is offered at all, and
@@ -2267,7 +2272,7 @@ function App() {
                 {/* ── RIGHT CONSOLE: the "instrument" card ────────────────────── */}
                 <main className="custom-scrollbar flex-1 overflow-y-auto">
                     <div className="mx-auto flex min-h-full w-full max-w-lg px-8 py-8">
-                        <div className="m-auto w-full rounded-xl border border-white/10 bg-zinc-900/60 shadow-2xl ring-1 ring-white/5 backdrop-blur-xl">
+                        <div ref={cardPin.ref} style={cardPin.style} className="m-auto w-full rounded-xl border border-white/10 bg-zinc-900/60 shadow-2xl ring-1 ring-white/5 backdrop-blur-xl">
 
                             {/* header: mode toggle + status badge */}
                             <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-3.5">
