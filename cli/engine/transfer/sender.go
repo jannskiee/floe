@@ -399,7 +399,35 @@ type SendOptions struct {
 	// silent, permanent drop. See peer.Early.
 	Messages <-chan webrtc.DataChannelMessage
 	Closed   <-chan struct{}
+	// RequireReceived makes the receiver's word the only success, the Go twin
+	// of requireReceived in client/lib/transfer/sender.ts. Without it the
+	// delivery wait after the last file ends in success on the first tick
+	// that reads a drained send buffer, which can come before a refusal the
+	// receiver sends once its fsync, hash compare or commit is done
+	// (FT-GO-CONFIRMS). With it the wait ends only on "received" (success),
+	// on a refusal (the *PeerStoppedError), or on the close, which returns
+	// ErrClosedBeforeReceived unless a "received" was already queued.
+	//
+	// Set it only against a receiver that always answers "received" or a
+	// refusal. Every current Go receiver does: receiver.go sends "received"
+	// after its last commit. A browser receiver never sends "received", so a
+	// plain send must never set this, or it waits until the browser closes.
+	//
+	// There is no deadline of its own (E-36, as in the browser): the
+	// receiver's blocked-rename retry is what is bounded (CommitRetry), and a
+	// caller cancels by closing the connection. An ungraceful peer death (kill
+	// -9, network loss, no close) leaves this wait open, because with the
+	// buffer drained there is nothing for the stall window to stall on, so the
+	// caller owns a bound: rlvisitor's -timeout watchdog, or the host's close
+	// for the e2ehost test visitor.
+	RequireReceived bool
 }
+
+// ErrClosedBeforeReceived is what a send under RequireReceived returns when
+// the channel closed after the last file before the receiver said "received"
+// or refused. The receiver may or may not have kept the files; nothing on this
+// side can tell, so it is never a success.
+var ErrClosedBeforeReceived = errors.New("the connection closed before the receiver confirmed delivery")
 
 // SendFiles sends all given file paths over the open data channel, rendering a
 // terminal progress bar. Folders are walked recursively. localVer is the human
@@ -594,6 +622,12 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 	// it, and a host that must bound a session cancels in its own layer.
 	// Only the stall arm updates lastBuffered: a sample from the 50 ms tick arm
 	// would compare two reads 50 ms apart and abort a slow but live drain.
+	//
+	// Under opts.RequireReceived neither a drained buffer nor a close is
+	// success, only "received" is: the tick arm still reads what is queued but
+	// keeps waiting, the close returns ErrClosedBeforeReceived, and the stall
+	// arm is unchanged.
+	//
 	// What the receiver's received frame reported, read by the summary below.
 	var verified int
 	var hasVerified bool
@@ -629,8 +663,14 @@ drainLoop:
 				}
 				if got {
 					verified, hasVerified = v, has
+					break drainLoop
 				}
-				break drainLoop
+				// The bytes have left, which is not the receiver's word: it
+				// may still be syncing, comparing or committing the last
+				// file, and its refusal would come after this tick.
+				if !opts.RequireReceived {
+					break drainLoop
+				}
 			}
 		case <-done:
 			// Success must win this race. pion delivers OnMessage before
@@ -649,6 +689,9 @@ drainLoop:
 			if got {
 				verified, hasVerified = v, has
 				break drainLoop
+			}
+			if opts.RequireReceived {
+				return ErrClosedBeforeReceived
 			}
 			if left := deliveryBuffered(dc); left != 0 {
 				return fmt.Errorf("connection closed before delivery was confirmed (%d bytes unacknowledged)", left)
