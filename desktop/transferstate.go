@@ -77,8 +77,11 @@ func (a *App) transferActive(g uint64) bool {
 // generation cancelled (suppressing its failure toast and late events) and
 // closes its signaling and peer connections. Closing the signaling client
 // unblocks a sender waiting for a receiver (via PeerLeft); closing the peer
-// connection unblocks a stuck WebRTC setup (via the connection-state error).
-// Safe to call when nothing is running.
+// connection ends a WebRTC setup at whichever wait it is in (via the
+// connection's done, peer.ErrClosed, since S1-ENG-11; the closed signaling
+// socket can win the race and end it as peer.ErrSignalingLost instead).
+// Either failure is suppressed by the cancelled generation. Safe to call when
+// nothing is running.
 //
 // Ordering contract: it cancels whatever attempt is live when it EXECUTES, so
 // a caller must not dispatch a new StartSend/ReceiveByCode until this call has
