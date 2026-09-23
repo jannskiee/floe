@@ -130,19 +130,28 @@ proxy therefore needs an idle read timeout longer than 30 seconds, or it cuts he
 | Connections | 30 per IP per 60 s (`MAX_CONNECTIONS_PER_IP`) | Socket.IO and `/ws`, shared |
 | TURN credentials | 20 per IP per 60 s (`MAX_TURN_REQUESTS_PER_IP`) | `GET /api/turn-credentials` |
 | Room codes | 60 per IP per 60 s (`MAX_CODE_REQUESTS_PER_IP`) | `POST /api/code` and `GET /api/code/:code`, shared |
+| Failed code lookups | 10 per IP per 60 s (`MAX_FAILED_CODE_RESOLVES`) | `GET /api/code/:code`, misses only |
 | Stats reports | 60 per IP per 60 s, **not configurable** | `POST /api/stats/report` |
 | Active codes | 10000 held in memory (`MAX_ACTIVE_CODES`) | `POST /api/code`, returns `503` when full |
 
-Counters live in plain `Map`s and are swept every 60 seconds. The three HTTP limiters answer
-`429`. The connection limiter is not an HTTP response: a Socket.IO handshake over the limit is
-rejected in middleware, which the browser sees as a `connect_error`, and a WebSocket over the
-limit is closed with code `1008`.
+Counters live in plain `Map`s and are swept every 60 seconds. The three HTTP limiters and the
+failed-lookup budget answer `429`. The connection limiter is not an HTTP response: a Socket.IO
+handshake over the limit is rejected in middleware, which the browser sees as a `connect_error`,
+and a WebSocket over the limit is closed with code `1008`.
 
 Every limiter records only what it admits. A refused connection attempt leaves no timestamp, just
 as the three HTTP limiters return the `429` before recording anything, so a client that keeps
 retrying gets back in as soon as its admitted connections age out of the 60-second window. One
 behavior does surprise people: setting any `MAX_*` variable to `0` does not disable a limit; it
 silently restores the default.
+
+The failed-lookup budget counts the other way around, on purpose: only a miss is recorded, a
+lookup that finds a live code costs nothing, and the budget is spent before the lookup runs, so a
+caller that has run out gets the same `429` whether the phrase it asked about is live, expired, or
+was never registered. It exists because the shared code limiter is a volume control rather than a
+guessing control: sixty requests a minute is sixty guesses a minute, indefinitely. Ten failures a
+minute is far more than a real receiver needs, since a receiver whose code works never spends any
+of the budget at all.
 
 The active-code cap is global rather than per-IP, because it guards the size of the in-memory
 registry. It counts stored entries rather than genuinely live ones, so the number can briefly
@@ -153,8 +162,8 @@ Every per-IP limiter normalizes the client address before it counts. An IPv6 add
 past a limit by rotating the low 64 bits of its address. An IPv4-mapped IPv6 address
 (`::ffff:1.2.3.4`) unwraps to plain IPv4, so the same client reached through a dual-stack
 listener counts once rather than twice. Plain IPv4 is unchanged. On dual-stack deployments, size
-`MAX_CONNECTIONS_PER_IP`, `MAX_TURN_REQUESTS_PER_IP`, and `MAX_CODE_REQUESTS_PER_IP` for a whole
-IPv6 `/64` rather than a single address.
+`MAX_CONNECTIONS_PER_IP`, `MAX_TURN_REQUESTS_PER_IP`, `MAX_CODE_REQUESTS_PER_IP`, and
+`MAX_FAILED_CODE_RESOLVES` for a whole IPv6 `/64` rather than a single address.
 
 ## Room codes
 
@@ -164,8 +173,14 @@ using `crypto.randomInt`, a cryptographically secure source rather than `Math.ra
 because the phrase is the only secret guarding the transfer.
 
 On a collision with a code that is still live, the server draws again, up to ten times, and only
-if all ten collide does it fall back to a four-word phrase. An expired code counts as free. Codes
-expire ten minutes after registration, and resolving one does not delete it.
+if all ten collide does it fall back to a four-word phrase. An expired code counts as free.
+
+Ten minutes is the outside limit rather than the usual lifetime. A code is retired the moment its
+room pairs, the moment the room empties, and the moment the same room registers a new one, so a
+room never has two working phrases and a phrase stops working as soon as the transfer it was
+minted for is under way. Resolving a code is the one thing that does not retire it, which is what
+lets a receiver that fails after the lookup but before it takes its seat, with no relay
+credentials or an output path it cannot write, retry the same phrase.
 
 ## Global statistics counter
 

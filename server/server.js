@@ -124,6 +124,14 @@ const CODE_MAX_REQUESTS = parseInt(process.env.MAX_CODE_REQUESTS_PER_IP, 10) || 
 // Hard ceiling on simultaneously-live codes, bounding memory regardless of how
 // requests are spread across IPs.
 const MAX_ACTIVE_CODES = parseInt(process.env.MAX_ACTIVE_CODES, 10) || 10000;
+// A second, much tighter budget for FAILED resolves only, on the same 60 s
+// window and the same key as the limiter above. The shared 60/min ceiling is a
+// volume control, not a guessing control: it lets one address try 60 phrases a
+// minute forever. A real receiver never misses more than a handful of times (a
+// typo, a stale code), so charging only misses costs legitimate use nothing
+// while cutting an address's guessing rate by six.
+const codeFailures = new Map(); // rate key → [timestamps of failed resolves]
+const CODE_FAIL_MAX = parseInt(process.env.MAX_FAILED_CODE_RESOLVES, 10) || 10;
 
 // Generic per-IP sliding-window limiter as Express middleware. req.ip resolves
 // correctly via the `trust proxy` setting above, matching the turn/stats logic.
@@ -144,6 +152,30 @@ const codeRateLimiter = makeRateLimiter(codeRateLimits, CODE_RATE_WINDOW, CODE_M
 
 const words = require('./words.json');
 const codeToRoom = new Map(); // code → { roomId, expires }
+// Reverse index, so a room can retire its own code without scanning codeToRoom.
+// It holds only room ids the server already knows; it is never serialized into a
+// response, so it cannot leak a room id to a caller.
+const roomToCode = new Map(); // roomId → code
+
+// Both directions verify the other side before deleting. generateCode reuses a
+// code whose entry has expired but has not been swept yet, so for up to a
+// cleanup interval the same phrase can be the live code of a new room while it
+// is still the stale reverse entry of an old one. Without these checks,
+// retiring the old room would delete the new room's working code.
+function dropCode(code, roomId) {
+    codeToRoom.delete(code);
+    if (roomToCode.get(roomId) === code) roomToCode.delete(roomId);
+}
+
+// Retire whatever code a room currently owns. Idempotent, and a no-op for a
+// room that never registered one (a browser-to-browser link transfer).
+function forgetCode(roomId) {
+    const code = roomToCode.get(roomId);
+    if (code === undefined) return;
+    roomToCode.delete(roomId);
+    const entry = codeToRoom.get(code);
+    if (entry && entry.roomId === roomId) codeToRoom.delete(code);
+}
 
 // `pick` is injectable so tests can force deterministic collisions; production
 // uses crypto.randomInt (a CSPRNG, and free of modulo bias) because the code
@@ -159,28 +191,59 @@ function generateCode(pick = () => words[crypto.randomInt(words.length)]) {
 }
 
 // POST /api/code — register a code for a room ID (called by CLI sender)
-app.post('/api/code', codeRateLimiter, (req, res) => {
+//
+// One live code per room. A sender that registers twice (a retry, a restart)
+// used to leave both phrases working, so a guess against either opened the same
+// room and the room's exposure grew with every retry. Retiring first also frees
+// the room's own MAX_ACTIVE_CODES slot, so a re-registration can never be the
+// request that pushes the table over its ceiling.
+function registerCodeHandler(req, res) {
     const { roomId } = req.body || {};
     if (!roomId || !UUID_REGEX.test(roomId)) {
         return res.status(400).json({ error: 'Invalid room ID' });
     }
+    forgetCode(roomId);
     if (codeToRoom.size >= MAX_ACTIVE_CODES) {
         return res.status(503).json({ error: 'Server busy, try again shortly' });
     }
     const code = generateCode();
     codeToRoom.set(code, { roomId, expires: Date.now() + 600000 }); // 10 min TTL
+    roomToCode.set(roomId, code);
     res.json({ code });
-});
+}
+app.post('/api/code', codeRateLimiter, registerCodeHandler);
 
 // GET /api/code/:code — resolve a code to a room ID (called by CLI receiver)
-app.get('/api/code/:code', codeRateLimiter, (req, res) => {
+//
+// The budget is spent before the lookup, never after, so a caller that has run
+// out learns nothing from the answer: the 429 is byte-identical whether the
+// phrase it asked about is live, expired or was never registered, and it never
+// carries a room id. A hit costs nothing, so a receiver holding a real code is
+// never turned away by its own retries. A miss costs one.
+//
+// No log line when the budget runs out: the key is derived from a client
+// address, so logging it logs addresses, and logging without it hands an
+// anonymous caller a line-per-request flood lever.
+function resolveCodeHandler(req, res) {
+    const now = Date.now();
+    const key = rateKey(req.ip);
+    const failures = (codeFailures.get(key) || []).filter(t => now - t < CODE_RATE_WINDOW);
+    if (failures.length >= CODE_FAIL_MAX) {
+        return res.status(429).json({ error: 'Too many requests' });
+    }
     const entry = codeToRoom.get(req.params.code);
-    if (!entry || Date.now() > entry.expires) {
-        codeToRoom.delete(req.params.code);
+    if (!entry || now > entry.expires) {
+        // Sweep an expired entry through dropCode so the reverse index cannot
+        // outlive the forward one.
+        if (entry) dropCode(req.params.code, entry.roomId);
+        failures.push(now);
+        codeFailures.set(key, failures);
+        // Body unchanged: cli/engine/code/client.go branches on this 404.
         return res.status(404).json({ error: 'Code not found or expired' });
     }
     res.json({ roomId: entry.roomId });
-});
+}
+app.get('/api/code/:code', codeRateLimiter, resolveCodeHandler);
 
 // ---------------------------------------------------------------------------
 // Error handling
@@ -268,8 +331,14 @@ const cleanupInterval = setInterval(() => {
         if (valid.length === 0) codeRateLimits.delete(ip);
         else codeRateLimits.set(ip, valid);
     }
+    for (const [key, timestamps] of codeFailures.entries()) {
+        const valid = timestamps.filter(t => now - t < CODE_RATE_WINDOW);
+        if (valid.length === 0) codeFailures.delete(key);
+        else codeFailures.set(key, valid);
+    }
+    // dropCode, not codeToRoom.delete: the reverse index has to go in step.
     for (const [code, entry] of codeToRoom.entries()) {
-        if (now > entry.expires) codeToRoom.delete(code);
+        if (now > entry.expires) dropCode(code, entry.roomId);
     }
 }, 60000).unref();
 
@@ -285,6 +354,15 @@ const cleanupInterval = setInterval(() => {
 // ---------------------------------------------------------------------------
 
 const rooms = new Map(); // roomId → [peer, peer]
+
+// The single way a room stops existing. A room that is gone must not leave a
+// working code behind it: the phrase is the whole secret, and a code outliving
+// its room is a phrase an attacker can still guess for whatever is created at
+// that id next. Every rooms.delete goes through here.
+function destroyRoom(roomId) {
+    rooms.delete(roomId);
+    forgetCode(roomId);
+}
 
 function createSocketIOPeer(socket) {
     return {
@@ -355,7 +433,7 @@ function handleJoinRoom(peer, roomId) {
         const oldRoom = rooms.get(peer.roomId);
         if (oldRoom) {
             const remaining = oldRoom.filter(p => p.id !== peer.id);
-            if (remaining.length === 0) rooms.delete(peer.roomId);
+            if (remaining.length === 0) destroyRoom(peer.roomId);
             else rooms.set(peer.roomId, remaining);
         }
         peer.roomId = null;
@@ -372,6 +450,13 @@ function handleJoinRoom(peer, roomId) {
         room.push(peer);
         rooms.set(roomId, room);
         peer.roomId = roomId;
+        // The code has done its job: both seats are taken, so retire it. Burning
+        // here rather than on the first GET is what keeps a pre-join failure
+        // recoverable. A receiver that resolves the code and then cannot reach
+        // the room (a 429 on ICE credentials, an output path it cannot write,
+        // --relay-only against a relay-less server, desktop Hide my IP) never
+        // took a seat, so it must be able to retry the same code.
+        forgetCode(roomId);
         peer.send('room-joined', { role: 'receiver' });
         // Tell the first peer that a second peer has joined
         room[0].send('user-connected', { id: peer.id });
@@ -423,7 +508,7 @@ function handleDisconnect(peer) {
     // tearing down a room the same user has already rejoined.
     const remaining = room.filter(p => p.id !== peer.id);
     remaining.forEach(p => p.send('peer-disconnected', {}));
-    if (remaining.length === 0) rooms.delete(peer.roomId);
+    if (remaining.length === 0) destroyRoom(peer.roomId);
     else rooms.set(peer.roomId, remaining);
     peer.roomId = null;
 }
@@ -716,6 +801,8 @@ module.exports = {
     getClientIp,
     rateKey,
     generateCode,
+    registerCodeHandler,
+    resolveCodeHandler,
     checkRateLimit,
     handleJoinRoom,
     handleSignal,
@@ -726,6 +813,8 @@ module.exports = {
     WS_SEND_BUFFER_CEILING,
     rooms,
     codeToRoom,
+    roomToCode,
+    codeFailures,
     connectionCounts,
     turnRateLimits,
     validateReportBytes,

@@ -25,14 +25,16 @@ It does:
 - Hand out relay credentials, valid for 24 hours, when a relay is configured. They are not tied to
   you or to an account: on floe.one one credential set is minted from Cloudflare and served to
   every client until the cached copy is refreshed.
-- Map a three-word code to a room id for ten minutes, when a sender asks for one.
+- Map a three-word code to a room id, when a sender asks for one, until the transfer starts or ten
+  minutes pass, whichever comes first.
 - Keep a single running total of bytes transferred, for the counter on the homepage.
 
 It never:
 
 - Receive, store, or inspect file data.
-- Keep room or peer information past the session. The only thing that outlives it is a short
-  code's mapping to a random room id, which stops working ten minutes after the code was made.
+- Keep room or peer information past the session. A short code is dropped along with the room it
+  points at, so it does not outlive the session either. A code nobody uses lapses on its own ten
+  minutes after it was made, and even then it maps to nothing but a random id.
 - Log what you transfer, your file names, or who you sent to.
 
 Once the data channel is open, the server plays no further part.
