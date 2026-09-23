@@ -109,3 +109,68 @@ export function canPickFolders(
 
     return true;
 }
+
+/** The slice of `window` the pointer probe reads. */
+export interface PointerWindow {
+    matchMedia?: (query: string) => { matches: unknown };
+}
+
+/**
+ * True on a touch-first device: a phone or a tablet, where the page shows
+ * "Keep this page open and your screen on." above Send and hides the drop copy
+ * (E-45, D-091 Q-C11: a line, never a block).
+ *
+ * Only a real `true` counts. A missing or throwing matchMedia reads as a fine
+ * pointer, because the line is a courtesy and a desktop visitor who is shown
+ * it loses nothing, while a probe error must never stop a send.
+ */
+export function isCoarsePointer(win: PointerWindow | undefined | null): boolean {
+    try {
+        return win?.matchMedia?.('(pointer: coarse)').matches === true;
+    } catch {
+        return false;
+    }
+}
+
+const RELAY_SCHEME = /^turns?:/i;
+const ICE_SCHEME = /^(stun|stuns|turn|turns):/i;
+
+function urlsOf(server: RTCIceServer): string[] {
+    return Array.isArray(server.urls) ? server.urls : [server.urls];
+}
+
+/** True when the list offers any TURN relay (a `turn:` or `turns:` URL, in a
+ *  string or an array). Hide my IP needs one: with none, the page stops
+ *  before it joins rather than failing ICE with the switch on (V6b). */
+export function hasRelayUrl(iceServers: readonly RTCIceServer[]): boolean {
+    return iceServers.some((s) => urlsOf(s).some((u) => typeof u === 'string' && RELAY_SCHEME.test(u)));
+}
+
+/**
+ * The ICE server list from a `/api/turn-credentials` answer, or null.
+ *
+ * The answer is a server's word, not a peer's, but it still goes straight
+ * into an RTCPeerConnection, so it is checked for shape: an array of entries
+ * whose `urls` is a non-empty string or string array of ICE schemes, with
+ * optional string `username` and `credential`. Anything else refuses the whole
+ * answer and the page keeps its own STUN list. Only those three keys are kept.
+ * Nothing here logs or returns the credential anywhere but the peer config.
+ */
+export function parseIceServers(body: unknown): RTCIceServer[] | null {
+    if (!Array.isArray(body) || body.length === 0) return null;
+    const out: RTCIceServer[] = [];
+    for (const entry of body) {
+        if (typeof entry !== 'object' || entry === null) return null;
+        const { urls, username, credential } = entry as Record<string, unknown>;
+        const list = Array.isArray(urls) ? urls : [urls];
+        if (list.length === 0) return null;
+        if (!list.every((u) => typeof u === 'string' && ICE_SCHEME.test(u))) return null;
+        if (username !== undefined && typeof username !== 'string') return null;
+        if (credential !== undefined && typeof credential !== 'string') return null;
+        const server: RTCIceServer = { urls: urls as string | string[] };
+        if (username !== undefined) server.username = username;
+        if (credential !== undefined) server.credential = credential;
+        out.push(server);
+    }
+    return out;
+}

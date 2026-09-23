@@ -1150,3 +1150,149 @@ describe('sender: visitor options', () => {
         expect(acks).toEqual([1, 2, 3]);
     });
 });
+
+/**
+ * WP-W1 review F1. A receiver that refuses mid-file sends its incompatible
+ * frame and then tears the channel down (the Go host flushes the refusal and
+ * closes). The sender only reports a latched refusal at its loop checkpoints,
+ * so a frame that lands while it is parked waiting for buffer space used to
+ * lose to the close: the page saw a lost connection and never the refusal,
+ * and the request link visitor read "Connection lost" for a full disk. The
+ * close now reports a latched refusal first.
+ */
+describe('sender: a refusal wins over the close that follows it', () => {
+    function refusingMidFile(
+        onFrames: (deliver: () => void) => void = (deliver) => deliver(),
+        closeEvent = true
+    ) {
+        let handler: ((d: string | Uint8Array | ArrayBuffer) => void) | null = null;
+        let buffered = 0;
+        let destroyed = false;
+        let armed = false;
+        const closeListeners: Array<() => void> = [];
+        const channel = {
+            get bufferedAmount() {
+                return buffered;
+            },
+            bufferedAmountLowThreshold: 0,
+            addEventListener: (type: string, fn: () => void) => {
+                if (type === 'close') closeListeners.push(fn);
+                // The sender is now parked in its buffer wait: the refusal
+                // lands, then the channel closes, before any checkpoint runs.
+                if (type === 'bufferedamountlow' && !armed) {
+                    armed = true;
+                    setTimeout(() => {
+                        onFrames(() => handler?.(enc.encode(incompatibleMessage('x', 'disk-full', 0))));
+                        destroyed = true;
+                        if (closeEvent) for (const f of closeListeners) f();
+                    }, 20);
+                }
+            },
+            removeEventListener: (type: string, fn: () => void) => {
+                const i = closeListeners.indexOf(fn);
+                if (type === 'close' && i >= 0) closeListeners.splice(i, 1);
+            },
+        };
+        const deps: SenderDeps = {
+            send: (d) => {
+                if (typeof d === 'string') {
+                    const parsed = JSON.parse(d) as { type: string; id?: string };
+                    if (parsed.type === 'metadata' && parsed.id) {
+                        const id = parsed.id;
+                        queueMicrotask(() => handler?.(enc.encode(ackMessage(id, 0))));
+                    }
+                } else {
+                    // The first chunk fills the buffer, so the sender waits.
+                    buffered = 1e9;
+                }
+            },
+            onData: (h) => {
+                handler = h;
+                return () => {
+                    handler = null;
+                };
+            },
+            channel,
+            hashBlob: async () => null,
+        };
+        return { deps, isDestroyed: () => destroyed };
+    }
+
+    it('a refusal that lands while the sender waits for buffer space is reported when the channel closes', async () => {
+        const { deps, isDestroyed } = refusingMidFile();
+        const seen: string[] = [];
+        const errors: string[] = [];
+        await sendFiles(deps, [{ id: 'f1', file: makeFile(1024 * 1024, 'a.bin'), relativePath: 'dir/a.bin' }], {
+            isDestroyed,
+            onError: (m) => errors.push(m),
+            onAck: (i) => seen.push(`ack${i}`),
+            onStopped: ({ code, saved }) => seen.push(`stopped:${code}:${saved}`),
+            onFailed: ({ kind }) => seen.push(`failed:${kind}`),
+        }, { requireReceived: true, sendHashes: false });
+        expect(seen).toEqual(['ack1', 'stopped:disk-full:0']);
+        // The main page hears it too, through today's wording for an abort.
+        expect(errors).toEqual(['x']);
+    });
+
+    it('a refusal is reported when it arrives, even if no close event follows', async () => {
+        // WP-W1 review R2-1: teardowns that do not start with the channel's own
+        // close event (ICE failure, a channel error, simple-peer's stuck-closing
+        // timer) only make the page's peer destroyed. The refusal must already
+        // be reported by then.
+        const { deps, isDestroyed } = refusingMidFile(undefined, false);
+        const seen: string[] = [];
+        await sendFiles(deps, [{ id: 'f1', file: makeFile(1024 * 1024, 'a.bin') }], {
+            isDestroyed,
+            onAck: (i) => seen.push(`ack${i}`),
+            onStopped: ({ code }) => seen.push(`stopped:${code}`),
+            onFailed: ({ kind }) => seen.push(`failed:${kind}`),
+        }, { requireReceived: true, sendHashes: false });
+        expect(seen).toEqual(['ack1', 'stopped:disk-full']);
+    });
+
+    it('a page handler that throws while a refusal is reported at receipt is rethrown, not swallowed', async () => {
+        // WP-W1 review R3-2. The throw must not break the data stream the
+        // listener runs in, and it must not vanish either: it is rethrown in
+        // a microtask, where the page's global error handler (Sentry) sees
+        // it. The refusal is still reported exactly once.
+        const real = globalThis.queueMicrotask;
+        const rethrown: unknown[] = [];
+        const spy = vi.spyOn(globalThis, 'queueMicrotask').mockImplementation((fn) =>
+            real(() => {
+                try {
+                    fn();
+                } catch (err) {
+                    rethrown.push(err);
+                }
+            })
+        );
+        try {
+            const { deps, isDestroyed } = refusingMidFile();
+            const bug = new Error('page handler bug');
+            let stops = 0;
+            await sendFiles(deps, [{ id: 'f1', file: makeFile(1024 * 1024, 'a.bin') }], {
+                isDestroyed,
+                onStopped: () => {
+                    stops++;
+                    throw bug;
+                },
+            }, { requireReceived: true, sendHashes: false });
+            await new Promise((r) => setTimeout(r, 10));
+            expect(stops).toBe(1);
+            expect(rethrown).toEqual([bug]);
+        } finally {
+            spy.mockRestore();
+        }
+    });
+
+    it('a close with no refusal latched still reports nothing but the close', async () => {
+        const { deps, isDestroyed } = refusingMidFile(() => {});
+        const seen: string[] = [];
+        await sendFiles(deps, [{ id: 'f1', file: makeFile(1024 * 1024, 'a.bin') }], {
+            isDestroyed,
+            onAck: (i) => seen.push(`ack${i}`),
+            onStopped: () => seen.push('stopped'),
+        }, { sendHashes: false });
+        expect(seen).toEqual(['ack1']);
+    });
+});

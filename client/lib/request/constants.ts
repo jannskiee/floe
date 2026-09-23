@@ -9,6 +9,8 @@
 // Catching those two here turns a mid-transfer refusal into a pick that simply
 // does not start.
 
+import { REQUEST_ACK_TIMEOUT_MS, REQUEST_ACK_GRACE_MS } from '../transfer/protocol';
+
 /** Files per drop. Over this the pick is refused and Send stays off. */
 export const MAX_REQUEST_FILES = 10_000;
 
@@ -49,3 +51,79 @@ export const CONTROL_FRAME_WORST_CASE_ID = '00000000-0000-4000-8000-000000000000
  * has waited for an accept.
  */
 export const CONTROL_FRAME_WORST_CASE_VER = 'desktop-v99.99.99-beta.99';
+
+// ---------------------------------------------------------------------------
+// Connection timing and fixed wire text for the visitor (S1-WEB-03).
+// ---------------------------------------------------------------------------
+
+/** After request-join, an answer (request-joined, host-absent, room-full,
+ *  disabled) must arrive within this. Silence means a server that predates
+ *  request links, so the page says "not available on this Floe server". */
+export const JOIN_NO_ANSWER_MS = 10_000;
+
+/** From request-joined to an open data channel. The host fetches its ICE
+ *  list, offers, then waits 30 s for the answer and 30 s to connect before it
+ *  gives up and reopens the link, so 75 s covers its whole budget. */
+export const SETUP_TIMEOUT_MS = 75_000;
+
+/** No Socket.IO connect at all within this ends the attempt (errata row R4).
+ *  An unreachable server otherwise leaves socket.io-client retrying quietly
+ *  forever. */
+export const SOCKET_CONNECT_TIMEOUT_MS = 20_000;
+
+/** How long the FIRST file waits for the host's answer. One clock with the CLI
+ *  and the host: the host answers "expired" at the difference of these two,
+ *  so its answer normally arrives before this timer fires, and both paths show
+ *  the same Timed out copy. Derived, never restated as a literal. */
+export const FIRST_ACK_TIMEOUT_MS = REQUEST_ACK_TIMEOUT_MS + REQUEST_ACK_GRACE_MS;
+
+/** The host's own decision window (HostDecisionWindow on the Go side). The
+ *  countdown on the Waiting screen counts this down, because it is when THEY
+ *  must answer, not when this page stops waiting. */
+export const ANSWER_WINDOW_MS = REQUEST_ACK_TIMEOUT_MS - REQUEST_ACK_GRACE_MS;
+
+/** How long after the channel opens the relay probe reads the selected ICE
+ *  pair. The same delay the main page's sender uses. */
+export const RELAY_PROBE_DELAY_MS = 2_000;
+
+/** A room-full answer this soon after this page's previous attempt ended is
+ *  most likely this page's own old seat, not yet released; one retry after a
+ *  short wait tells the two apart (spec 07 G1, errata row R2). */
+export const ROOM_FULL_RETRY_WINDOW_MS = 15_000;
+export const ROOM_FULL_RETRY_DELAY_MS = 3_000;
+
+/** The server seals a request room once both seats have signaled (D-116), so
+ *  a page whose socket went after it answered, but before its channel opened,
+ *  meets room-full on its next join until the host reopens the link. The host
+ *  waits 30 s for the channel after the answer (connectTimeout in
+ *  cli/engine/peer/connection.go) and then reopens, so that room-full is
+ *  retried for this long after the previous attempt ended, every
+ *  ROOM_FULL_RETRY_DELAY_MS, and never more often than the count below
+ *  (review 2a L1). */
+export const ROOM_FULL_SEALED_WINDOW_MS = 45_000;
+export const ROOM_FULL_SEALED_RETRIES = Math.ceil(ROOM_FULL_SEALED_WINDOW_MS / ROOM_FULL_RETRY_DELAY_MS);
+
+/** The STUN servers the page keeps when the TURN answer is missing or
+ *  malformed: the same two the main page starts from. */
+export const DEFAULT_STUN_SERVERS: readonly RTCIceServer[] = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+];
+
+/** The abort text the visitor sends when the route turns out to be a relay and
+ *  the drop is over the cap. Byte for byte the main page's relay block text,
+ *  which that page builds from two concatenated literals; lib/relay.test.ts
+ *  joins them and compares, so the two can never drift apart. The host never
+ *  shows it: it maps the abort to fixed copy of its own. */
+export const RELAY_BLOCK_REASON =
+    'Transfer blocked: relay connections are capped at 2 GB. ' +
+    'Ask the sender to remove files, or to try a network that allows a direct connection.';
+
+/** The abort text for the visitor's own Cancel. Fixed, like every string this
+ *  page puts on the wire. */
+export const VISITOR_CANCEL_REASON = 'The sender stopped.';
+
+/** Where "What is a request link?" goes: the request-link docs page the docs
+ *  plan names (DOC-S1-27, docs/desktop/request-links.mdx), served under the
+ *  site's /docs rewrite. */
+export const REQUEST_LINK_DOCS_PATH = '/docs/desktop/request-links';

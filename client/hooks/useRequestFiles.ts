@@ -1,17 +1,10 @@
-import { useCallback, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
-import { v4 as uuidv4 } from 'uuid';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
 import { walkEntries, type EntryLike, type WalkedFile } from '@/lib/request/folderWalk';
 import { checkPick } from '@/lib/request/metadataBudget';
 import { MAX_REQUEST_FILES } from '@/lib/request/constants';
 import { visitorCopy } from '@/lib/request/visitorCopy';
-
-export interface RequestFile {
-    id: string;
-    file: File;
-    /** What goes on the wire as `fileName`. The host treats it as untrusted and
-     *  sanitizes every component before it creates anything. */
-    relativePath: string;
-}
+import { mergeSelection, type RequestFile } from '@/lib/request/mergeSelection';
+import { createPickTracker } from '@/lib/request/pickTracker';
 
 /**
  * The visitor's file selection.
@@ -29,19 +22,44 @@ export interface RequestFile {
  * state and the one thing that cannot move, which is the drop handler's
  * synchronous read of the item list.
  */
-export function useRequestFiles() {
+export interface RequestFileEvents {
+    /** A pick was added to the selection (the visitor state's E04). */
+    onPicked?: () => void;
+    /** A pick was refused and the notice now says why (E05). */
+    onRefused?: () => void;
+}
+
+export function useRequestFiles(events: RequestFileEvents = {}) {
     const [files, setFiles] = useState<RequestFile[]>([]);
     const [isDragging, setIsDragging] = useState(false);
     /** A refusal, in the approved copy, or null. Never a place for free text: no
      *  path, no name and no error string from the machine reaches it. */
     const [notice, setNotice] = useState<string | null>(null);
-    /** Folders the last accepted pick skipped, for the quiet C-35 line. */
+    /** Folders skipped by every pick since the last Clear, for the quiet C-35
+     *  line. Accumulated rather than replaced per pick (the S1-WEB-02 review's
+     *  open decision): the line is about the selection, and a second pick of
+     *  plain files must not make it vanish while the folder's files are still
+     *  in it. */
     const [emptyFolders, setEmptyFolders] = useState(0);
+    /** True while a dropped folder is being walked or a plain drop probed. A
+     *  large or slow walk is visible as pending, and Send stays off until it
+     *  settles, so a half-walked folder can never be sent. Counted by the
+     *  tracker, so two overlapping drops keep it on until the last settles,
+     *  and a walk that began before Clear drops its result (review F5). */
+    const [reading, setReading] = useState(false);
+    const [tracker] = useState(createPickTracker);
 
     // The selection as the LAST commit left it. A pick finishes after an await,
     // by which time the closure's `files` can be a render behind, and the check
     // below has to run against what is really selected.
     const selected = useRef<RequestFile[]>([]);
+
+    // The caller's callbacks, current at the time a pick settles. Updated in an
+    // effect rather than during render (react-hooks/refs).
+    const eventsRef = useRef(events);
+    useEffect(() => {
+        eventsRef.current = events;
+    });
 
     const totalBytes = files.reduce((sum, f) => sum + f.file.size, 0);
 
@@ -58,28 +76,40 @@ export function useRequestFiles() {
             setNotice(
                 verdict.cause === 'too-many' ? visitorCopy.tooManyFiles : visitorCopy.pathTooLong
             );
+            eventsRef.current.onRefused?.();
             return;
         }
         selected.current = merged;
         setFiles(merged);
         setNotice(null);
-        setEmptyFolders(skippedFolders);
+        setEmptyFolders((n) => n + skippedFolders);
+        eventsRef.current.onPicked?.();
     }, []);
 
     const ingestEntries = useCallback(
         async (entries: EntryLike[]) => {
-            const walked = await walkEntries(entries, { maxFiles: MAX_REQUEST_FILES });
-            if (walked.outcome === 'too-many') {
-                setNotice(visitorCopy.tooManyFiles);
-                return;
+            const token = tracker.begin();
+            setReading(true);
+            try {
+                const walked = await walkEntries(entries, { maxFiles: MAX_REQUEST_FILES });
+                if (!tracker.current(token)) return;
+                if (walked.outcome === 'too-many') {
+                    setNotice(visitorCopy.tooManyFiles);
+                    eventsRef.current.onRefused?.();
+                    return;
+                }
+                if (walked.outcome === 'unreadable') {
+                    setNotice(visitorCopy.folderUnreadable);
+                    eventsRef.current.onRefused?.();
+                    return;
+                }
+                commit(walked.files, walked.emptyFolders);
+            } finally {
+                tracker.end();
+                setReading(tracker.reading());
             }
-            if (walked.outcome === 'unreadable') {
-                setNotice(visitorCopy.folderUnreadable);
-                return;
-            }
-            commit(walked.files, walked.emptyFolders);
         },
-        [commit]
+        [commit, tracker]
     );
 
     /** The fallback path, for a browser with no entries API.
@@ -98,20 +128,31 @@ export function useRequestFiles() {
             // there doing it. Refuse on count first, then do per-file work.
             if (list.length > MAX_REQUEST_FILES) {
                 setNotice(visitorCopy.tooManyFiles);
+                eventsRef.current.onRefused?.();
                 return;
             }
-            for (const file of list) {
-                if (!(await firstByteReadable(file))) {
-                    setNotice(visitorCopy.foldersUnsupported);
-                    return;
+            const token = tracker.begin();
+            setReading(true);
+            try {
+                for (const file of list) {
+                    const readable = await firstByteReadable(file);
+                    if (!tracker.current(token)) return;
+                    if (!readable) {
+                        setNotice(visitorCopy.foldersUnsupported);
+                        eventsRef.current.onRefused?.();
+                        return;
+                    }
                 }
+                commit(
+                    list.map((file) => ({ file, relativePath: file.name })),
+                    0
+                );
+            } finally {
+                tracker.end();
+                setReading(tracker.reading());
             }
-            commit(
-                list.map((file) => ({ file, relativePath: file.name })),
-                0
-            );
         },
-        [commit]
+        [commit, tracker]
     );
 
     const handleDragOver = (e: DragEvent) => {
@@ -183,6 +224,8 @@ export function useRequestFiles() {
     };
 
     const clear = () => {
+        // A walk still in flight belongs to the selection being cleared.
+        tracker.clear();
         selected.current = [];
         setFiles([]);
         setNotice(null);
@@ -194,6 +237,7 @@ export function useRequestFiles() {
         isDragging,
         notice,
         emptyFolders,
+        reading,
         totalBytes,
         handleDragOver,
         handleDragLeave,
@@ -203,36 +247,6 @@ export function useRequestFiles() {
         handleDeleteFile,
         clear,
     };
-}
-
-/**
- * Merge new files into a selection, keeping the first of any repeat.
- *
- * Two picks of the same folder, or a folder and then a file inside it, produce
- * the same relative path twice. Keeping the first is the answer that matches
- * what the host does with them: it never overwrites, so a duplicate would arrive
- * as a second numbered copy of a file the visitor picked once. Size is part of
- * the key because two genuinely different files share a path only if one changed
- * on disk between picks, and then the visitor does mean both.
- *
- * Exported for the view and for a future test: client/vitest.config.ts collects
- * lib/ and app/ only, so nothing under hooks/ is covered today.
- */
-export function mergeSelection(
-    previous: RequestFile[],
-    incoming: { file: File; relativePath: string }[]
-): RequestFile[] {
-    const key = (relativePath: string, size: number) => `${size}\u0000${relativePath}`;
-    const seen = new Set(previous.map((f) => key(f.relativePath, f.file.size)));
-    const merged = [...previous];
-
-    for (const candidate of incoming) {
-        const k = key(candidate.relativePath, candidate.file.size);
-        if (seen.has(k)) continue;
-        seen.add(k);
-        merged.push({ id: uuidv4(), file: candidate.file, relativePath: candidate.relativePath });
-    }
-    return merged;
 }
 
 /** True when the first byte of this File can actually be read. A directory
