@@ -530,6 +530,31 @@ func TestRunRequestDropReloadDuringSetupKeepsNewVisitor(t *testing.T) {
 	waitState(t, a, 5*time.Second, "declined")
 }
 
+// TestRunRequestDropSetupLeaveKeepsQueuedSeat (review 3a N1): the visitor
+// leaves after the host's offer went out, while a new seat is already queued.
+// That seat never saw the offer and the room was not sealed, so the lane goes
+// back to waiting with no reopen (a reopen would evict the new visitor with
+// room-full) and its next pairing offers to the new seat. SetupAsSender never
+// reads PeerConnected, so delivering the new seat first and the leave second
+// cannot race.
+func TestRunRequestDropSetupLeaveKeepsQueuedSeat(t *testing.T) {
+	a, _, f, room, _ := dropApp(t, nil)
+	v1 := joinVisitor(t, f, room)
+	waitFor(t, 10*time.Second, "the host's offer", func() bool { return len(v1.sc.Signal) > 0 })
+	_, _, sc := laneHandles(a)
+	f.userConnected()
+	waitFor(t, 5*time.Second, "the queued seat", func() bool { return len(sc.PeerConnected) == 1 })
+	f.peerDisconnected()
+	waitFor(t, 5*time.Second, "the next pairing", func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.turnHits == 2
+	})
+	if n := f.count("request-reopen"); n != 0 {
+		t.Fatalf("%d request-reopen frames evicted the queued seat", n)
+	}
+}
+
 // TestRunRequestDropLeaveDuringFetchReopensBeforeOffer (review 2a F1): a
 // visitor who leaves while the host fetches ICE, with nobody taking the seat,
 // reopens the room at once, before any offer goes to nobody.
