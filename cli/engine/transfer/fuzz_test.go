@@ -21,9 +21,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf16"
 	"unicode/utf8"
 )
 
@@ -132,8 +134,8 @@ func metadataSeeds() []fuzzSeed {
 // FuzzParseMetadata: parseMetadata never panics, and whatever it accepts has
 // numbers the rest of the receiver can trust (metadataInvariant in
 // control_test.go). The S1-ENG-03 limits (depth, path units, file count) are
-// not properties yet: today's parser accepts those inputs by design, and the
-// seeds that will prove the limits are already here.
+// not properties of the parser, which accepts those inputs by design: the
+// receive loop applies them after it, and FuzzSafeJoin carries the path rules.
 func FuzzParseMetadata(f *testing.F) {
 	addSeeds(f, "FuzzParseMetadata", metadataSeeds(), false)
 	f.Fuzz(func(t *testing.T, text string) {
@@ -247,11 +249,45 @@ func safeJoinSeeds() []fuzzSeed {
 		{name: "component-255-bytes", text: strings.Repeat("c", 255)},
 		{name: "ads-colon", text: "file.txt:stream"},
 		{name: "c1-next-line", text: "a" + ch(0x85) + "b"},
+		// Layer 1's edges (S1-ENG-03): depth 32 and 33, 240 and 241 units with
+		// ".part", a two-unit character at the edge, and names that only look
+		// anchored.
+		{name: "depth-32", text: strings.Repeat("d/", 31) + "f.txt"},
+		{name: "depth-33", text: strings.Repeat("d/", 32) + "f.txt"},
+		{name: "units-240-with-part", text: strings.Repeat("u", 240-len(partSuffix))},
+		{name: "units-241-with-part", text: strings.Repeat("u", 241-len(partSuffix))},
+		{name: "astral-241-units", text: strings.Repeat(ch(0x1F600), 118)},
+		{name: "drive-lower-relative", text: "z:evil"},
+		{name: "digit-colon", text: "1:x.txt"},
+		{name: "space-before-drive", text: ` C:\x.txt`},
+		{name: "drive-mid-path", text: "a/C:/b.txt"},
+		{name: "traversal-40-deep", text: strings.Repeat("../", 40) + "x.txt"},
+		{name: "mac-finder-slash-name", text: "P:L 2025.xlsx"},
+		{name: "drive-anchored-forward", text: "c:/evil"},
 	}
+}
+
+// anchoredOracle is startsAtDriveOrRoot written a second way: a separator of
+// either kind first, or an ASCII letter and a colon that end the name or come
+// before a separator (D-117: "P:L 2025.xlsx" is a name, not a drive).
+func anchoredOracle(name string) bool {
+	if strings.HasPrefix(name, "/") || strings.HasPrefix(name, `\`) {
+		return true
+	}
+	if len(name) < 2 || name[1] != ':' ||
+		!strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", rune(name[0])) {
+		return false
+	}
+	return len(name) == 2 || name[2] == '/' || name[2] == '\\'
 }
 
 // FuzzSafeJoin: safeJoin never panics, the path it returns stays under the
 // output directory, and no component of what it adds is empty, "." or "..".
+// Since S1-ENG-03 it also carries layer 1: the receive loop builds the
+// relative path with safeJoin("", name) and joins it to the output folder at
+// the claim, which must give exactly safeJoin(outputDir, name); and
+// checkPathShape refuses exactly the anchored names and the relative paths
+// past 32 components or 240 units, with path-too-long either way.
 func FuzzSafeJoin(f *testing.F) {
 	addSeeds(f, "FuzzSafeJoin", safeJoinSeeds(), false)
 	// Never created: safeJoin only builds a string.
@@ -265,10 +301,112 @@ func FuzzSafeJoin(f *testing.F) {
 		if rel == "." || filepath.IsAbs(rel) || filepath.VolumeName(rel) != "" {
 			t.Fatalf("safeJoin(%q) = %q, which is not strictly inside the output dir (rel %q)", name, got, rel)
 		}
-		for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		parts := strings.Split(rel, string(filepath.Separator))
+		for _, part := range parts {
 			if part == "" || part == "." || part == ".." {
 				t.Fatalf("safeJoin(%q) = %q has a %q component (rel %q)", name, got, part, rel)
 			}
+		}
+
+		loopRel := safeJoin("", name)
+		if joined := filepath.Join(outputDir, loopRel); joined != got {
+			t.Fatalf("filepath.Join(outputDir, safeJoin(\"\", %q)) = %q, but safeJoin(outputDir, %q) = %q", name, joined, name, got)
+		}
+		units := len(utf16.Encode([]rune(loopRel + partSuffix)))
+		wantRefused := anchoredOracle(name) || len(parts) > maxPathDepth || units > maxPathUnits
+		code, reason := checkPathShape(name, loopRel)
+		if (code != "") != wantRefused {
+			t.Fatalf("checkPathShape(%q, %q) = %q; anchored %v, depth %d, units %d", name, loopRel, code, anchoredOracle(name), len(parts), units)
+		}
+		if code != "" && code != CodePathTooLong {
+			t.Fatalf("checkPathShape(%q) refused with %q, want %q", name, code, CodePathTooLong)
+		}
+		if code != "" && reason != reasonPathNotRelative && reason != CodePathTooLong.WireReason() {
+			t.Fatalf("checkPathShape(%q) reason %q is neither fixed sentence", name, reason)
+		}
+	})
+}
+
+const seedCLSID = "{ED7BA470-8E54-465E-825C-99712043E01C}"
+
+func nameHookSeeds() []fuzzSeed {
+	return []fuzzSeed{
+		{name: "lnk", text: "evil.lnk"},
+		{name: "lnk-upper", text: "EVIL.LNK"},
+		{name: "url", text: "a/b/evil.url"},
+		{name: "library-ms", text: "x.library-ms"},
+		{name: "searchconnector-ms", text: "x.searchConnector-ms"},
+		{name: "scf", text: "x.scf"},
+		{name: "theme", text: "x.theme"},
+		{name: "themepack", text: "x.themepack"},
+		{name: "deskthemepack", text: "x.deskthemepack"},
+		{name: "website", text: "x.website"},
+		{name: "search-ms", text: "x.search-ms"},
+		{name: "desktop-ini-nested", text: "a/b/c/desktop.ini"},
+		{name: "lnk-trailing-dot-space", text: "evil.lnk. . "},
+		{name: "lnk-kelvin", text: "evil.ln" + ch(0x212a)},
+		{name: "scf-long-s", text: "evil." + ch(0x17f) + "cf"},
+		{name: "lnk-in-middle", text: "a.lnk.txt"},
+		{name: "clsid-folder", text: "Folder." + seedCLSID + "/x.txt"},
+		{name: "clsid-leaf", text: "x." + seedCLSID},
+		{name: "clsid-after-lnk", text: "x.lnk." + seedCLSID},
+		{name: "clsid-twice", text: "x." + seedCLSID + "." + seedCLSID},
+		{name: "clsid-only", text: "." + seedCLSID},
+		{name: "clsid-leaves-dotdot", text: "..." + seedCLSID + "/a.txt"},
+		{name: "clsid-leaves-reserved", text: "CON." + seedCLSID},
+		{name: "clsid-leaves-space", text: "Folder ." + seedCLSID + "/x.txt"},
+		{name: "already-blocked", text: "x.lnk.floe-blocked"},
+		{name: "empty", text: ""},
+	}
+}
+
+// FuzzNameHook: whatever name a sender picks, the hook's output is still a
+// path safeJoin could have produced (inside the folder, no empty, "." or ".."
+// component, every component already in its sanitized form), carries no class
+// ID suffix, never ends in a shell-parsed type, is never deeper than its
+// input, ends in .floe-blocked whenever the hook says it renamed, and does
+// nothing on a second pass.
+func FuzzNameHook(f *testing.F) {
+	addSeeds(f, "FuzzNameHook", nameHookSeeds(), false)
+	outputDir := filepath.Join(f.TempDir(), "out")
+	f.Fuzz(func(t *testing.T, name string) {
+		rel := safeJoin("", name)
+		out, renamed := blockShellTypes(rel)
+		full := filepath.Join(outputDir, out)
+		inside, err := filepath.Rel(outputDir, full)
+		if err != nil || inside != out || filepath.IsAbs(out) || filepath.VolumeName(out) != "" {
+			t.Fatalf("blockShellTypes(%q) = %q, not a relative path inside the folder", rel, out)
+		}
+		parts := strings.Split(out, string(filepath.Separator))
+		for _, p := range parts {
+			if p == "" || p == "." || p == ".." {
+				t.Fatalf("blockShellTypes(%q) = %q has a %q component", rel, out, p)
+			}
+			if sanitizeComponent(p, runtime.GOOS) != p {
+				t.Fatalf("blockShellTypes(%q) = %q has an unsanitized component %q", rel, out, p)
+			}
+			if clsidSuffix.MatchString(p) {
+				t.Fatalf("blockShellTypes(%q) = %q keeps a class ID suffix in %q", rel, out, p)
+			}
+		}
+		if len(parts) > len(strings.Split(rel, string(filepath.Separator))) {
+			t.Fatalf("blockShellTypes(%q) = %q is deeper than its input", rel, out)
+		}
+		leaf := strings.TrimRight(parts[len(parts)-1], " .")
+		ext := filepath.Ext(leaf)
+		for _, e := range blockedExtensions {
+			if strings.EqualFold(ext, e) || strings.ToUpper(ext) == strings.ToUpper(e) {
+				t.Fatalf("blockShellTypes(%q) = %q still ends in %s", rel, out, e)
+			}
+		}
+		if strings.EqualFold(leaf, "desktop.ini") || strings.ToUpper(leaf) == "DESKTOP.INI" {
+			t.Fatalf("blockShellTypes(%q) = %q is still desktop.ini", rel, out)
+		}
+		if renamed && !strings.HasSuffix(out, blockedSuffix) {
+			t.Fatalf("blockShellTypes(%q) = %q says renamed but does not end in %s", rel, out, blockedSuffix)
+		}
+		if again, renamedAgain := blockShellTypes(out); again != out || renamedAgain {
+			t.Fatalf("a second pass over %q gave %q, %v", out, again, renamedAgain)
 		}
 	})
 }

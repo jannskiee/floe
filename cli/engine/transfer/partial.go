@@ -206,6 +206,14 @@ func claimPart(base string, hints *nameHints) (part *os.File, dest string, err e
 	return nil, "", fmt.Errorf("too many files named like %q", filepath.Base(base))
 }
 
+// renamePart is the rename commitPart retries. A seam: the lock an antivirus
+// scanner or an indexer holds on a just-closed .part cannot be produced on
+// demand, so a test swaps in one that fails the way the lock does.
+var renamePart = renameNoReplace
+
+// commitRetryInterval is how often a CommitRetry window tries the rename.
+const commitRetryInterval = time.Second
+
 // commitPart publishes a verified .part staging file at its final name,
 // never overwriting anything that is not ours.
 //
@@ -224,7 +232,12 @@ func claimPart(base string, hints *nameHints) (part *os.File, dest string, err e
 // On final failure the .part is deliberately LEFT IN PLACE: its bytes are
 // complete and verified, and deleting them over a transient lock would be
 // data loss.
-func commitPart(partPath, claimedDest, basePath string) (dest string, err error) {
+//
+// retry is ReceiveLimits.CommitRetry (E-36). Zero keeps the bounded retry
+// this function always had, five attempts 200 ms apart. A positive window
+// retries once a second until it has passed, so a lock that clears inside it
+// still commits and a last file still ends in "received".
+func commitPart(partPath, claimedDest, basePath string, retry time.Duration) (dest string, err error) {
 	for i := 0; i < maxDecollide; i++ {
 		candidate := candidatePath(basePath, i)
 		if i > 0 && candidate == claimedDest {
@@ -240,17 +253,28 @@ func commitPart(partPath, claimedDest, basePath string) (dest string, err error)
 			}
 		}
 		var rerr error
-		for attempt := 0; attempt < 5; attempt++ {
-			rerr = renameNoReplace(partPath, candidate)
+		deadline := time.Now().Add(retry)
+		for attempt := 1; ; attempt++ {
+			rerr = renamePart(partPath, candidate)
 			if rerr == nil {
 				return candidate, nil
 			}
 			if os.IsExist(rerr) {
 				break // name taken since the claim; advance to the next
 			}
-			if attempt < 4 {
-				time.Sleep(200 * time.Millisecond)
+			wait := 200 * time.Millisecond
+			if retry > 0 {
+				// Once a second, and one last attempt as the window closes,
+				// so a lock is given the whole window to clear.
+				remaining := time.Until(deadline)
+				if remaining <= 0 {
+					break
+				}
+				wait = min(commitRetryInterval, remaining)
+			} else if attempt >= 5 {
+				break
 			}
+			time.Sleep(wait)
 		}
 		if os.IsExist(rerr) {
 			continue

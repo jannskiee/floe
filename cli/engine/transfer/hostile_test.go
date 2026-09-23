@@ -292,8 +292,12 @@ func TestSenderSeesReceiverRejection(t *testing.T) {
 
 	select {
 	case err := <-sendErr:
-		if err == nil || !strings.Contains(err.Error(), "file description") {
-			t.Fatalf("expected the receiver's reason in the sender's error, got: %v", err)
+		// Since S1-ENG-03 the over-cap frame carries path-too-long, so a
+		// current sender prints that code's fixed sentence; the reason, which
+		// still names the file description, is for senders without code.
+		var stopped *PeerStoppedError
+		if !errors.As(err, &stopped) || stopped.Code != CodePathTooLong {
+			t.Fatalf("expected the receiver's path-too-long in the sender's error, got: %v (%T)", err, err)
 		}
 		if strings.Contains(err.Error(), "connection closed") {
 			t.Fatalf("sender reported the close instead of the reason: %v", err)
@@ -393,14 +397,15 @@ func TestReceiverIncomingIsDisplaySafe(t *testing.T) {
 		t.Errorf("a raw control or bidi character reached stdout:\n%q", out)
 	}
 
-	// More shapes, asserting FirstName only: the long name may fail at
-	// claimPart (the OS caps a component at 255), which is fine here because
-	// OnIncoming has already fired by then. The long name keeps its extension
-	// across the cut, so the prompt still says what the file is.
+	// More shapes, asserting FirstName only. The long name keeps its
+	// extension across the cut, so the prompt still says what the file is.
+	// It is 234 runes, past the 200-rune display cap and inside layer 1's 240
+	// units with ".part"; it was 404 before S1-ENG-03, which layer 1 now
+	// refuses before OnIncoming ever fires.
 	rows := []struct{ name, fileName, wantFirst string }{
 		{"escape sequence", "\x1b[2Kfake.txt", "_[2Kfake.txt"},
 		{"carriage return", "a\rb", "a_b"},
-		{"400 rune name", strings.Repeat("n", 400) + ".txt", strings.Repeat("n", 195) + "….txt"},
+		{"234 rune name", strings.Repeat("n", 230) + ".txt", strings.Repeat("n", 195) + "….txt"},
 	}
 	for _, row := range rows {
 		t.Run(row.name, func(t *testing.T) {

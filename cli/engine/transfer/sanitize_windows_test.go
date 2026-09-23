@@ -80,7 +80,7 @@ func TestSanitizedNamesLandOnRealFiles(t *testing.T) {
 			if err := applyMOTW(f.Name()); err != nil {
 				t.Fatalf("applyMOTW(%q): %v", f.Name(), err)
 			}
-			saved, err := commitPart(f.Name(), claimed, dest)
+			saved, err := commitPart(f.Name(), claimed, dest, 0)
 			if err != nil {
 				t.Fatalf("commitPart: %v", err)
 			}

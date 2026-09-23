@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -789,8 +790,10 @@ func TestReceiverWriteErrorClassifiesDiskFull(t *testing.T) {
 // metadata, the receiver returns a *RefusedError, and nothing is left on
 // disk. The first two cases fail the claim through the openPart seam with
 // the errors a long name and a full drive produce, so they do not depend on
-// the temp volume's limits; the last sends the real 704-byte name and skips
-// only if this filesystem accepts it.
+// the temp volume's limits. The last sends the real 704-byte name, which
+// since S1-ENG-03 never reaches the claim: layer 1 refuses it as
+// path-too-long before OnIncoming, which is the stronger outcome the row now
+// pins (the fixture crossed a layer 1 limit, so its expectation moved).
 func TestReceiverCreateErrorSendsWriteFailedFrame(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -801,7 +804,7 @@ func TestReceiverCreateErrorSendsWriteFailedFrame(t *testing.T) {
 	}{
 		{"name too long", &os.PathError{Op: "open", Path: "long.part", Err: syscall.ENAMETOOLONG}, "deep.bin", CodeWriteFailed, "receiver could not create a file"},
 		{"drive full at claim", &os.PathError{Op: "open", Path: "x.part", Err: syscall.ENOSPC}, "deep.bin", CodeDiskFull, CodeDiskFull.WireReason()},
-		{"real 704-byte name", nil, strings.Repeat("n", 700) + ".bin", CodeWriteFailed, "receiver could not create a file"},
+		{"real 704-byte name", nil, strings.Repeat("n", 700) + ".bin", CodePathTooLong, CodePathTooLong.WireReason()},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -847,7 +850,7 @@ func TestReceiverCreateErrorSendsWriteFailedFrame(t *testing.T) {
 			if incompat.Reason != tc.wantReason {
 				t.Fatalf("reason = %q, want %q", incompat.Reason, tc.wantReason)
 			}
-			if strings.Contains(incompat.Reason, "nnn") || strings.Contains(incompat.Reason, "deep") {
+			if strings.Contains(incompat.Reason, "nnn") || strings.Contains(incompat.Reason, "deep.bin") {
 				t.Fatalf("the file name reached the wire reason: %q", incompat.Reason)
 			}
 			var refused *RefusedError
@@ -1192,5 +1195,87 @@ delivered:
 		}
 	case <-time.After(20 * time.Second):
 		t.Fatal("SendFiles did not return")
+	}
+}
+
+// TestAbortWithCodeFromSecondGoroutine: the desktop lane stops a drop from its
+// own goroutine (Cancel, the 24-hour cap, the open-channel deadline) while the
+// receive loop is mid-file on another. pion's DataChannel.Send being safe for
+// that was inferred (spec 05 Q8), not documented, so this runs the real thing
+// and is meant for -race: a real Go sender streams a large file, and at the
+// first progress callback a second goroutine sends stopped and closes the
+// channel. The sender reads stopped within 2 s, the receive returns, and the
+// deferred cleanup leaves no .part.
+func TestAbortWithCodeFromSecondGoroutine(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ICE loopback transfer in -short mode")
+	}
+	sender, recvCh, msgs, closed, closeFn := newPumpedPair(t)
+	t.Cleanup(closeFn)
+	var rdc *webrtc.DataChannel
+	select {
+	case rdc = <-recvCh:
+	case <-time.After(20 * time.Second):
+		t.Fatal("receiver data channel never opened")
+	}
+	srcDir := t.TempDir()
+	writeRandom(t, srcDir, "big.bin", 64<<20)
+	// Both sides print progress to stdout; keep it out of the test log.
+	restore := captureStdout(t)
+	defer restore()
+
+	outDir := t.TempDir()
+	midFile := make(chan struct{})
+	var once sync.Once
+	recvErr := make(chan error, 1)
+	go func() {
+		recvErr <- ReceiveFilesWithOptions(rdc, outDir, true, "", "", ReceiveOptions{
+			Messages: msgs,
+			Closed:   closed,
+			OnProgress: func(p Progress) {
+				if p.FileBytes > 0 {
+					once.Do(func() { close(midFile) })
+				}
+			},
+		})
+	}()
+	sendErr := make(chan error, 1)
+	go func() { sendErr <- SendFiles(sender, []string{filepath.Join(srcDir, "big.bin")}, "") }()
+
+	select {
+	case <-midFile:
+	case err := <-recvErr:
+		t.Fatalf("the receive returned before the file was under way: %v", err)
+	case <-time.After(30 * time.Second):
+		t.Fatal("no file bytes ever arrived")
+	}
+	stoppedAt := time.Now()
+	go func() {
+		AbortWithCode(rdc, "", CodeStopped, CodeStopped.WireReason(), 0)
+		_ = rdc.Close()
+	}()
+
+	select {
+	case err := <-sendErr:
+		var stopped *PeerStoppedError
+		if !errors.As(err, &stopped) || stopped.Code != CodeStopped {
+			t.Fatalf("sender error = %v (%T), want *PeerStoppedError{stopped}", err, err)
+		}
+		if took := time.Since(stoppedAt); took > 2*time.Second {
+			t.Fatalf("the sender read stopped %v after the second goroutine sent it, want within 2 s", took)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("the sender never returned")
+	}
+	select {
+	case err := <-recvErr:
+		if err == nil {
+			t.Fatal("the receive reported success for a stopped drop")
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("the receive never returned after the channel closed")
+	}
+	if left := listDir(t, outDir); len(left) != 0 {
+		t.Fatalf("expected nothing on disk after the stop, found %v", left)
 	}
 }

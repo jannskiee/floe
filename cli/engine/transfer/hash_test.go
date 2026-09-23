@@ -42,6 +42,16 @@ type handSender struct {
 // captured and OnFileDone recorded.
 func newHandSender(t *testing.T) *handSender {
 	t.Helper()
+	return newHandSenderOpts(t, t.TempDir(), ReceiveOptions{})
+}
+
+// newHandSenderOpts is newHandSender receiving into dir with the caller's
+// options. Messages, Closed and OnFileDone are set here; a caller's own
+// OnFileDone still runs after the recording one. dir is a parameter rather
+// than read back from the result so a caller's Decide can name a folder
+// inside it without reaching across goroutines for h.dir.
+func newHandSenderOpts(t *testing.T, dir string, opts ReceiveOptions) *handSender {
+	t.Helper()
 	sender, recvCh, msgs, closed, closeFn := newPumpedPair(t)
 	t.Cleanup(closeFn)
 	var rdc *webrtc.DataChannel
@@ -50,7 +60,7 @@ func newHandSender(t *testing.T) *handSender {
 	case <-time.After(20 * time.Second):
 		t.Fatal("receiver data channel never opened")
 	}
-	h := &handSender{t: t, sender: sender, back: make(chan webrtc.DataChannelMessage, 32), recvErr: make(chan error, 1), dir: t.TempDir()}
+	h := &handSender{t: t, sender: sender, back: make(chan webrtc.DataChannelMessage, 32), recvErr: make(chan error, 1), dir: dir}
 	sender.OnMessage(func(m webrtc.DataChannelMessage) {
 		select {
 		case h.back <- m:
@@ -58,16 +68,18 @@ func newHandSender(t *testing.T) *handSender {
 		}
 	})
 	h.restore = captureStdout(t)
+	callerDone := opts.OnFileDone
+	opts.Messages, opts.Closed = msgs, closed
+	opts.OnFileDone = func(d FileDone) {
+		h.mu.Lock()
+		h.fileDone = append(h.fileDone, d)
+		h.mu.Unlock()
+		if callerDone != nil {
+			callerDone(d)
+		}
+	}
 	go func() {
-		h.recvErr <- ReceiveFilesWithOptions(rdc, h.dir, true, "test-ver", "", ReceiveOptions{
-			Messages: msgs,
-			Closed:   closed,
-			OnFileDone: func(d FileDone) {
-				h.mu.Lock()
-				h.fileDone = append(h.fileDone, d)
-				h.mu.Unlock()
-			},
-		})
+		h.recvErr <- ReceiveFilesWithOptions(rdc, h.dir, true, "test-ver", "", opts)
 	}()
 	return h
 }

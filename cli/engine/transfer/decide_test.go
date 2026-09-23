@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -244,7 +245,13 @@ func TestDecideRefuseSendsCode(t *testing.T) {
 
 // TestDecideAcceptAcksAfterDecision: the first ack is the sender's signal that
 // the files are wanted, so it may not leave before the decision that wanted
-// them. Decide holds, and the ack is timed against the instant it returned.
+// them. Decide holds, and the ack is ordered against the instant it returned.
+//
+// Ordered by one shared sequence, not by two time.Now readings: both can land
+// on the same clock tick on Windows, which made this fail about 1 run in 20
+// ("the ack left 0s before Decide returned", WP-A1 review N4). The sequence is
+// taken by Decide before it returns and by the sender's tap when the ack
+// arrives, so a correct loop always gives the ack the higher number.
 func TestDecideAcceptAcksAfterDecision(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping ICE loopback transfer in -short mode")
@@ -253,22 +260,23 @@ func TestDecideAcceptAcksAfterDecision(t *testing.T) {
 	sender, recvCh, closeFn := newConnectedPair(t)
 	defer closeFn()
 
-	acks := make(chan time.Time, 4)
+	var seq atomic.Int64
+	acks := make(chan int64, 4)
 	pumpChannel(sender, func(m webrtc.DataChannelMessage) {
 		if kind, ok := classifyControl(m.Data); ok && kind == "ack" {
-			acks <- time.Now()
+			acks <- seq.Add(1)
 		}
 	})
 
 	outDir := t.TempDir()
-	returned := make(chan time.Time, 1)
+	returned := make(chan int64, 1)
 	recvErr := make(chan error, 1)
 	go func() {
 		dc := <-recvCh
 		recvErr <- ReceiveFilesWithOptions(dc, outDir, true, "", "", ReceiveOptions{
 			Decide: func(IncomingInfo) Decision {
 				time.Sleep(300 * time.Millisecond)
-				returned <- time.Now()
+				returned <- seq.Add(1)
 				return Decision{Kind: DecisionAccept}
 			},
 		})
@@ -280,7 +288,7 @@ func TestDecideAcceptAcksAfterDecision(t *testing.T) {
 		t.Fatalf("SendText metadata: %v", err)
 	}
 
-	var returnedAt time.Time
+	var returnedAt int64
 	select {
 	case returnedAt = <-returned:
 	case <-time.After(20 * time.Second):
@@ -288,8 +296,8 @@ func TestDecideAcceptAcksAfterDecision(t *testing.T) {
 	}
 	select {
 	case ackAt := <-acks:
-		if !ackAt.After(returnedAt) {
-			t.Fatalf("the ack left %s before Decide returned, so the sender was told to send a transfer nobody had accepted", returnedAt.Sub(ackAt))
+		if ackAt < returnedAt {
+			t.Fatalf("the ack arrived as event %d, before Decide returned as event %d, so the sender was told to send a transfer nobody had accepted", ackAt, returnedAt)
 		}
 	case <-time.After(20 * time.Second):
 		t.Fatal("no ack ever reached the sender")

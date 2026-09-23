@@ -109,6 +109,7 @@ export const TOKEN_FREE = new Set([
     'desktop/frontend/src/components/HistoryView.tsx',
     'cli/engine/peer/connection.go',
     'cli/engine/peer/setuperror.go',
+    'cli/engine/transfer/relay.go',
     'desktop/app.go',
 ]);
 const tokenRegex = (f) =>
