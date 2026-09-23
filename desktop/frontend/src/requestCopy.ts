@@ -19,7 +19,6 @@ export const CODE_TAB = 'Code'; // R1, rendered in uppercase
 export const REQUEST_TAB = 'Request link'; // R1, rendered in uppercase
 export const BETA_CHIP = 'Beta'; // R2, rendered in uppercase
 export const REQUEST_TAB_NAME = 'Request link, beta'; // R3 (accessible name)
-export const READY_HELPER = 'A link someone can use to send files to this PC. You accept before anything saves.'; // R4
 export const LABEL_EYEBROW = 'Label'; // R6, rendered in uppercase
 export const LABEL_HINT = 'Optional. Only you see it.'; // R7
 export const SAVE_TO_EYEBROW = 'Save to'; // R8 and W7, rendered in uppercase

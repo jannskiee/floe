@@ -1774,27 +1774,34 @@ function App() {
     );
 
     // Receive > CODE | REQUEST LINK (R1 to R3): two aria-pressed words like the
-    // History toggle, and the Beta chip outside them. The chip is hidden from
-    // the accessibility tree because the second button's name already says
-    // "beta" (R3). A plain element, not a component, so nothing remounts.
+    // History toggle. The Beta chip is outside the second button but grouped
+    // with it, on the words' shared baseline with a 4 px gap (the owner's look,
+    // 2026-09-23: the chip belongs to its label, not to the row). Its right
+    // padding gives back the 0.15em that the letter spacing adds after the last
+    // letter, so the word sits centered in the chip. It is hidden from the
+    // accessibility tree because the second button's name already says "beta"
+    // (R3). Plain elements, not components, so nothing remounts.
+    const choiceButton = (k: 'code' | 'request') => (
+        <button
+            type="button"
+            aria-pressed={receiveKind === k}
+            aria-label={k === 'request' ? REQUEST_TAB_NAME : undefined}
+            onClick={() => setReceiveKind(k)}
+            className={cn(
+                'border-b pb-0.5 font-mono text-[10px] uppercase tracking-[0.2em] transition-colors',
+                receiveKind === k ? 'border-white text-zinc-200' : 'border-transparent text-zinc-400 hover:text-zinc-300',
+            )}
+        >
+            {k === 'code' ? CODE_TAB : REQUEST_TAB}
+        </button>
+    );
     const receiveRow = (
-        <div className="flex items-center gap-4 px-0.5">
-            {(['code', 'request'] as const).map((k) => (
-                <button
-                    key={k}
-                    type="button"
-                    aria-pressed={receiveKind === k}
-                    aria-label={k === 'request' ? REQUEST_TAB_NAME : undefined}
-                    onClick={() => setReceiveKind(k)}
-                    className={cn(
-                        'border-b pb-0.5 font-mono text-[10px] uppercase tracking-[0.2em] transition-colors',
-                        receiveKind === k ? 'border-white text-zinc-200' : 'border-transparent text-zinc-400 hover:text-zinc-300',
-                    )}
-                >
-                    {k === 'code' ? CODE_TAB : REQUEST_TAB}
-                </button>
-            ))}
-            <span aria-hidden className="ml-1 rounded bg-white/[0.07] px-1.5 py-[3px] font-mono text-[10px] uppercase leading-none tracking-[0.15em] text-zinc-400">{BETA_CHIP}</span>
+        <div className="flex items-baseline gap-4 px-0.5">
+            {choiceButton('code')}
+            <span className="flex items-baseline gap-1">
+                {choiceButton('request')}
+                <span aria-hidden className="rounded bg-white/[0.07] py-[3px] pl-1.5 pr-[calc(0.375rem_-_0.15em)] font-mono text-[10px] uppercase leading-none tracking-[0.15em] text-zinc-400">{BETA_CHIP}</span>
+            </span>
         </div>
     );
 

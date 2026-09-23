@@ -95,7 +95,6 @@ function ReadyForm({phase, errorCode, hideIP, saveDir, onSaveDirChange, onMake, 
     const edited = () => { if (phase === 'error') onEdit(); };
     return (
         <div className="space-y-4">
-            <p className={t2Class}>{copy.READY_HELPER}</p>
             <div className="space-y-2">
                 <div className="flex items-baseline justify-between px-0.5">
                     <Eyebrow><label htmlFor={LABEL_INPUT_ID}>{copy.LABEL_EYEBROW}</label></Eyebrow>
