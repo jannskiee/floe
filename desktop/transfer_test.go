@@ -1294,3 +1294,30 @@ func TestRequestPromptDriveLimitWarnsForFirstFileOnly(t *testing.T) {
 		t.Error("a volume with no known maximum warns")
 	}
 }
+
+// TestRequestDecideWindowStartsAtThePrompt (review 2a N3): the answer window
+// runs from the moment the prompt's answer-by time was taken, not from after
+// the flash, the title and the toast: a slow toast must not move the
+// expired answer later, which would eat the margin before the visitor's own
+// ack timer.
+func TestRequestDecideWindowStartsAtThePrompt(t *testing.T) {
+	const window, toast = 400 * time.Millisecond, 300 * time.Millisecond
+	setVar(t, &requestDecideWindow, window)
+	a := &App{notifyFn: func(string, string) { time.Sleep(toast) }, wake: &wakeGuard{onBlock: func() {}, onAllow: func() {}}}
+	l := a.lane()
+	l.flashFn, l.setTitleFn = func(bool) {}, func(string) {}
+	l.emitFn = func(string, any) {}
+	forceGen(a, 1)
+	forceState(a, "connecting", 0)
+	d := &requestDrop{closed: make(chan struct{}), abort: func(transfer.RefusalCode) {}}
+	p := requestPairing{saveDir: filepath.Join(t.TempDir(), "Floe requests"), label: "x", stop: make(chan struct{})}
+	start := time.Now()
+	dec := a.requestDecide(1, p, d, transfer.IncomingInfo{Files: 1, TotalBytes: 4, FirstSize: 4})
+	elapsed := time.Since(start)
+	if dec.Kind != transfer.DecisionRefuse || dec.Code != transfer.CodeExpired {
+		t.Fatalf("decision %+v, want the expired refusal", dec)
+	}
+	if elapsed >= window+toast-50*time.Millisecond {
+		t.Fatalf("expired came %v after the prompt, want about %v: the toast's time came out of the window's margin", elapsed, window)
+	}
+}
