@@ -39,11 +39,21 @@ type scriptedSend struct {
 // receiver.
 func startScriptedSend(t *testing.T, opts SendOptions) *scriptedSend {
 	t.Helper()
+	return startScriptedSendWiring(t, opts, true)
+}
+
+// startScriptedSendWiring is startScriptedSend with the sender's wiring
+// chosen: pumped, or with Messages and Closed left nil so the sender installs
+// its own OnMessage and OnClose, as SendFiles does.
+func startScriptedSendWiring(t *testing.T, opts SendOptions, pumped bool) *scriptedSend {
+	t.Helper()
 	sender, recvCh, msgs, _, closeFn := newPumpedPair(t)
 	t.Cleanup(closeFn)
-	// Installed before the receiver can say anything: it sends nothing until
-	// it acks the metadata below.
-	opts.Messages, opts.Closed = pumpChannel(sender, nil)
+	if pumped {
+		// Installed before the receiver can say anything: it sends nothing
+		// until it acks the metadata below.
+		opts.Messages, opts.Closed = pumpChannel(sender, nil)
+	}
 	if opts.OnProgress == nil {
 		opts.OnProgress = func(Progress) {}
 	}
@@ -204,28 +214,72 @@ func TestRequireReceivedEndsOnReceivedWithItsVerifiedCount(t *testing.T) {
 	}
 }
 
+// RequireReceived without the pump: Messages and Closed nil, so the sender
+// installs its own OnMessage and OnClose, as SendFiles does. flushed is closed
+// at once there and pion runs OnMessage before OnClose on one goroutine, so
+// the two outcomes are the pumped ones: "received" is success, and a close
+// before it is ErrClosedBeforeReceived, here with the buffer pinned empty
+// (FT-GO-REQRECV review 1, F5).
+func TestRequireReceivedWithoutThePump(t *testing.T) {
+	t.Run("received", func(t *testing.T) {
+		var got []Delivered
+		s := startScriptedSendWiring(t, SendOptions{
+			RequireReceived: true,
+			OnDelivered:     func(d Delivered) { got = append(got, d) },
+		}, false)
+		if returned, err := s.waitOrReturn(300 * time.Millisecond); returned {
+			t.Fatalf("the send returned %v %v after the end frame, before the receiver's received", err, s.sinceEnd())
+		}
+		if err := s.rdc.Send([]byte(`{"type":"received","verified":1}`)); err != nil {
+			t.Fatalf("received: %v", err)
+		}
+		if err := s.result(t); err != nil {
+			t.Fatalf("a received frame must end the wait with success, got: %v", err)
+		}
+		if len(got) != 1 || got[0] != (Delivered{Files: 1, Verified: 1, HasVerified: true}) {
+			t.Fatalf("OnDelivered = %+v, want exactly one {Files:1 Verified:1 HasVerified:true}", got)
+		}
+	})
+	t.Run("close before received", func(t *testing.T) {
+		useDelivery(t, &fakeDrain{}, 0)
+		s := startScriptedSendWiring(t, SendOptions{RequireReceived: true}, false)
+		if returned, err := s.waitOrReturn(300 * time.Millisecond); returned {
+			t.Fatalf("the send returned %v %v after the end frame with the receiver silent and open", err, s.sinceEnd())
+		}
+		if err := s.rdc.Close(); err != nil {
+			t.Fatalf("close the receiver's channel: %v", err)
+		}
+		if err := s.result(t); !errors.Is(err, ErrClosedBeforeReceived) {
+			t.Fatalf("the send returned %v; want ErrClosedBeforeReceived", err)
+		}
+	})
+}
+
 // TestKnownGapPlainSendEndsAtDrainBeforeALateRefusal pins a KNOWN GAP, not a
 // desired property. Without RequireReceived the delivery wait still ends in
-// success on the first tick that reads a drained buffer, so a refusal the
-// receiver sends 300 ms after the end frame is never seen and the plain send
-// reports success over a file the receiver discarded. That is the Phase F
-// plain-send gap of FT-GO-CONFIRMS (triage Q5), left open on purpose: a
-// browser receiver never sends "received", so a plain send cannot wait for it.
-// This test FLIPS when the capability-ack card lands (a Go receiver that
-// announces it always answers makes a plain send wait too): then rewrite it
-// against a receiver that does not announce it, the browser case.
+// success on a tick that reads a drained buffer while the receiver has said
+// nothing and kept its channel open, so a refusal the receiver sends later
+// (300 ms after the end frame in the FT-GO-CONFIRMS probe) is never seen and
+// the plain send reports success over a file the receiver discarded. That is
+// the Phase F plain-send gap of FT-GO-CONFIRMS (triage Q5), left open on
+// purpose: a browser receiver never sends "received", so a plain send cannot
+// wait for it. This test FLIPS when the capability-ack card lands (a Go
+// receiver that announces it always answers makes a plain send wait too):
+// then rewrite it against a receiver that does not announce it, the browser
+// case.
+//
+// It asserts the outcome, not the timing: the receiver stays silent and open,
+// and the send must end in success within the file's 10 s ceiling. An upper
+// bound of one tick flakes under load (FT-GO-REQRECV review 1, F1).
 func TestKnownGapPlainSendEndsAtDrainBeforeALateRefusal(t *testing.T) {
 	s := startScriptedSend(t, SendOptions{})
-	returned, err := s.waitOrReturn(300 * time.Millisecond)
-	if !returned {
-		if sendErr := s.rdc.Send([]byte(hashRefusal)); sendErr != nil {
-			t.Fatalf("refusal: %v", sendErr)
+	select {
+	case err := <-s.errc:
+		if err != nil {
+			t.Fatalf("the plain send returned %v at the drain; want success, the known gap", err)
 		}
-		err = s.result(t)
-		t.Fatalf("the plain send waited past the drain and returned %v after the late refusal; if the capability ack has landed, this test is due to flip (see its comment)", err)
+		t.Logf("plain send ended in success %v after the end frame, with the receiver silent and open", s.sinceEnd())
+	case <-time.After(10 * time.Second):
+		t.Fatal("the plain send waited 10s past the drain with the receiver silent and open; if the capability ack has landed, this test is due to flip (see its comment)")
 	}
-	if err != nil {
-		t.Fatalf("the plain send returned %v at the drain; want success, the known gap", err)
-	}
-	t.Logf("plain send ended in success %v after the end frame, before the refusal was sent", s.sinceEnd())
 }
