@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -478,6 +479,91 @@ func TestRunRequestDropVisitorLeftDuringSetupReopensAtOnce(t *testing.T) {
 	waitFor(t, 5*time.Second, "request-reopen", func() bool { return f.count("request-reopen") >= 1 })
 	if n := f.count("request-seal"); n != 0 {
 		t.Fatalf("%d request-seal frames for a setup that never opened a channel", n)
+	}
+}
+
+// TestRunRequestDropReloadDuringSetupKeepsNewVisitor (review 2a F1, probe
+// R1): the visitor reloads the /r page while the host fetches ICE, so the old
+// socket's leave and the reloaded page's user-connected are both queued when
+// the fetch returns. The new visitor keeps its seat: no reopen evicts it with
+// room-full, it gets the host's offer, and its request reaches the prompt.
+func TestRunRequestDropReloadDuringSetupKeepsNewVisitor(t *testing.T) {
+	a, _, f, room, _ := dropApp(t, nil)
+	block := make(chan struct{})
+	var once sync.Once
+	unblock := func() {
+		once.Do(func() {
+			f.set(func(f *fakeSignalServer) { f.block = nil })
+			close(block)
+		})
+	}
+	t.Cleanup(unblock)
+	f.set(func(f *fakeSignalServer) { f.block = block })
+	v1 := joinVisitor(t, f, room)
+	waitFor(t, 5*time.Second, "the host's ICE fetch", func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.turnHits == 1
+	})
+	v1.sc.Close() // the reload: the old page's socket goes
+	waitFor(t, 5*time.Second, "the seat to free", func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.visitor == nil
+	})
+	v2 := joinVisitor(t, f, room) // the reloaded page takes the seat
+	_, _, sc := laneHandles(a)
+	waitFor(t, 5*time.Second, "the leave and the new seat, both queued", func() bool {
+		return len(sc.PeerLeft) == 1 && len(sc.PeerConnected) == 1
+	})
+	unblock()
+	v2.connect(t)
+	v2.sendText(metaFrame(1, 1, "a.txt", 4, 4))
+	s := deciding(t, a)
+	select {
+	case <-v2.sc.RoomFull:
+		t.Fatal("the reloaded visitor was evicted with room-full")
+	default:
+	}
+	if n := f.count("request-reopen"); n != 0 {
+		t.Fatalf("%d request-reopen frames while the new visitor held the seat", n)
+	}
+	a.AnswerRequest(s.PromptGen, "decline")
+	waitState(t, a, 5*time.Second, "declined")
+}
+
+// TestRunRequestDropLeaveDuringFetchReopensBeforeOffer (review 2a F1): a
+// visitor who leaves while the host fetches ICE, with nobody taking the seat,
+// reopens the room at once, before any offer goes to nobody.
+func TestRunRequestDropLeaveDuringFetchReopensBeforeOffer(t *testing.T) {
+	a, _, f, room, _ := dropApp(t, nil)
+	block := make(chan struct{})
+	var once sync.Once
+	unblock := func() {
+		once.Do(func() {
+			f.set(func(f *fakeSignalServer) { f.block = nil })
+			close(block)
+		})
+	}
+	t.Cleanup(unblock)
+	f.set(func(f *fakeSignalServer) { f.block = block })
+	v := joinVisitor(t, f, room)
+	waitFor(t, 5*time.Second, "the host's ICE fetch", func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.turnHits == 1
+	})
+	v.sc.Close()
+	_, _, sc := laneHandles(a)
+	waitFor(t, 5*time.Second, "the leave to queue", func() bool { return len(sc.PeerLeft) == 1 })
+	unblock()
+	waitSnap(t, a, 5*time.Second, "waiting", "visitor-left")
+	waitFor(t, 5*time.Second, "request-reopen", func() bool { return f.count("request-reopen") >= 1 })
+	f.mu.Lock()
+	offers := f.hostSignals
+	f.mu.Unlock()
+	if offers != 0 {
+		t.Fatalf("%d signals left the host for a visitor who was gone", offers)
 	}
 }
 

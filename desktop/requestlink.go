@@ -1126,13 +1126,20 @@ func (a *App) reopenRequest(rg uint64, sc *signaling.Client, code string, cause 
 		return cause
 	}
 	_ = sc.RequestReopen()
+	a.waitAgain(rg, code)
+	return cause
+}
+
+// waitAgain puts generation rg back in waiting with code after a pairing that
+// made no drop, without touching the room: for reopenRequest, and for a
+// pairing whose seat a new visitor already holds.
+func (a *App) waitAgain(rg uint64, code string) {
 	a.reqUpdate(rg, func(l *requestLane) {
 		l.prompt = nil
 		l.route = ""
 		l.dropCancel = nil
 		l.setStateLocked("waiting", code)
 	})
-	return cause
 }
 
 // sendCloseWithin writes request-close through closeFrame, waiting at most

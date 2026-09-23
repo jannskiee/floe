@@ -513,6 +513,23 @@ func (a *App) runRequestDrop(rg uint64, sc *signaling.Client, p requestPairing) 
 		return a.reopenRequest(rg, sc, code, err)
 	}
 
+	// The visitor may have left during the fetch, and a reload of the /r page
+	// takes the free seat again at once (review 2a F1). A leave with a new
+	// seat already queued is the old page going: this pairing offers to the
+	// new one, and no reopen evicts it. A leave with nobody new reopens now,
+	// before an offer goes to nobody. Candidates the old page trickled during
+	// the fetch never reach peer.New (E-39).
+	select {
+	case <-sc.PeerLeft:
+		select {
+		case <-sc.PeerConnected:
+		default:
+			return a.reopenRequest(rg, sc, "visitor-left", nil)
+		}
+	default:
+	}
+	dropSignals(sc)
+
 	// c. The offer. A visitor who leaves during setup (after the offer, too,
 	// once the server sealed the room for two signaling seats, D-116) is
 	// reported at once by the engine (S1-ENG-11), not after 30 s.
@@ -533,6 +550,14 @@ func (a *App) runRequestDrop(rg uint64, sc *signaling.Client, p requestPairing) 
 		code := "setup-failed"
 		if errors.Is(err, peer.ErrPeerLeft) {
 			code = "visitor-left" // nobody is there, so W11 would be wrong
+			if len(sc.PeerConnected) > 0 {
+				// A new visitor sat down after the offer left, so it never saw
+				// one; the next pairing offers to it, and a reopen now would
+				// evict it with room-full, the waiting loop's rule (review 2a
+				// F1, 1b N5).
+				a.waitAgain(rg, code)
+				return err
+			}
 		}
 		return a.reopenRequest(rg, sc, code, err)
 	}
@@ -852,21 +877,28 @@ func channelClosed(ch <-chan struct{}) bool {
 }
 
 // drainSignals empties sc.Signal without blocking and takes one PeerLeft push,
-// before each peer.New: a previous visitor's trickled candidates must never
-// reach this visitor's connection (E-39), and a previous visitor's leave must
-// not end this visitor's setup at once now that setup watches PeerLeft
+// at the start of each pairing: a previous visitor's trickled candidates must
+// never reach this visitor's connection (E-39), and a previous visitor's leave
+// must not end this visitor's setup at once now that setup watches PeerLeft
 // (S1-ENG-11). It returns how many signals it dropped.
 func drainSignals(sc *signaling.Client) int {
+	n := dropSignals(sc)
+	select {
+	case <-sc.PeerLeft:
+	default:
+	}
+	return n
+}
+
+// dropSignals empties sc.Signal without blocking and returns how many it
+// dropped; it leaves PeerLeft alone.
+func dropSignals(sc *signaling.Client) int {
 	n := 0
 	for {
 		select {
 		case <-sc.Signal:
 			n++
 		default:
-			select {
-			case <-sc.PeerLeft:
-			default:
-			}
 			return n
 		}
 	}
