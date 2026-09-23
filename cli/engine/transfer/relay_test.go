@@ -204,6 +204,25 @@ func TestHostRelayCheckRefusesOverCapOnRelay(t *testing.T) {
 			t.Fatalf("the pair was probed %d times for a two-file drop, want once", probe.count())
 		}
 	})
+	// The relay refusal comes before MkdirAll: a nested second file that
+	// would cross the cap leaves no folder behind (WP-A2 review L1).
+	t.Run("nested second file crosses", func(t *testing.T) {
+		stubDisk(t, 0, 1<<40)
+		stubRelayProbe(t, "relay", nil)
+		total := RelaySizeLimit + 1
+		run := runScripted(t, t.TempDir(), metaFor("a.bin", 4, 1, 2, total), ReceiveOptions{Limits: relayLimits(true)},
+			func(h *handSender, n int) {
+				if n == 1 {
+					h.bytes([]byte("abcd"))
+					h.text(`{"type":"end"}`)
+					h.text(metaFor("deep/er/b.bin", RelaySizeLimit-3, 2, 2, total))
+				}
+			})
+		wantFrame(t, run, CodeRelayCap, CodeRelayCap.WireReason(), 1)
+		if got := strings.Join(run.tree, "|"); got != "a.bin" {
+			t.Fatalf("output tree %q, want only a.bin: the relay refusal created folders", got)
+		}
+	})
 }
 
 // TestHostRelayCheckExactly2GBAllowed: strictly greater-than, as the sender
