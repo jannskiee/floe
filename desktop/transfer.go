@@ -4,12 +4,17 @@ package main
 // events the frontend listens for.
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jannskiee/floe/cli/engine/code"
@@ -475,6 +480,691 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 		a.notify("Floe", "Files received.")
 	}
 	return absOutput, nil
+}
+
+// runRequestDrop is one visitor on a request link, from user-connected to the
+// end of its drop (S1-DSK-03b; spec 06 4.5 steps 4 to 16, spec 05 8.12). It
+// runs as the lane's pairFn, on the goroutine that owns sc, and returns with
+// the lane in waiting (the visitor left, setup failed, the request was
+// missed), declined, done or stopped, or with rg gone. The error is for tests;
+// nothing shows it, and no engine or OS text reaches a snapshot (E-42).
+//
+// It sits beside receiveByCode on purpose (OD-30): the same engine calls in
+// the other direction, since the host offers and then receives.
+func (a *App) runRequestDrop(rg uint64, sc *signaling.Client, p requestPairing) error {
+	// a. A previous visitor's trickled candidates never reach this one (E-39),
+	// and a previous visitor's leave never ends this one's setup at once.
+	drainSignals(sc)
+
+	// b. ICE now, never at Make link (L13); the list lives for this pairing.
+	iceServers, degraded, err := iceFetchFn(p.server)
+	if err != nil {
+		code := "setup-failed"
+		if p.hideIP {
+			code = "relay-unknown"
+		}
+		return a.reopenRequest(rg, sc, code, err)
+	}
+	if err := requireRelay(p.hideIP, ice.HasRelay(iceServers), degraded); err != nil {
+		code := "no-relay"
+		if errors.Is(err, errRelayUnknown) {
+			code = "relay-unknown"
+		}
+		return a.reopenRequest(rg, sc, code, err)
+	}
+
+	// The visitor may have left during the fetch, and a reload of the /r page
+	// takes the free seat again at once (review 2a F1). A leave with a new
+	// seat already queued is the old page going: this pairing offers to the
+	// new one, and no reopen evicts it. A leave with nobody new reopens now,
+	// before an offer goes to nobody. Candidates the old page trickled during
+	// the fetch never reach peer.New (E-39).
+	select {
+	case <-sc.PeerLeft:
+		select {
+		case <-sc.PeerConnected:
+		default:
+			return a.reopenRequest(rg, sc, "visitor-left", nil)
+		}
+	default:
+	}
+	dropSignals(sc)
+
+	// c. The offer. A visitor who leaves during setup (after the offer, too,
+	// once the server sealed the room for two signaling seats, D-116) is
+	// reported at once by the engine (S1-ENG-11), not after 30 s.
+	if !a.reqUpdate(rg, func(l *requestLane) { l.setStateLocked("connecting", "") }) {
+		return nil
+	}
+	conn, err := peer.New(iceServers, sc, relayOpts(p.hideIP)...)
+	if err != nil {
+		return a.reopenRequest(rg, sc, "setup-failed", err)
+	}
+	defer conn.Close()
+	if !a.setRequestConn(rg, conn) {
+		return nil
+	}
+	defer a.clearRequestConn(conn)
+	dc, err := conn.SetupAsSender()
+	if err != nil {
+		code := "setup-failed"
+		if errors.Is(err, peer.ErrPeerLeft) {
+			code = "visitor-left" // nobody is there, so W11 would be wrong
+			if len(sc.PeerConnected) > 0 {
+				// A new visitor sat down after the offer left, so it never saw
+				// one; the next pairing offers to it, and a reopen now would
+				// evict it with room-full, the waiting loop's rule (review 2a
+				// F1, 1b N5).
+				a.waitAgain(rg, code)
+				return err
+			}
+		}
+		return a.reopenRequest(rg, sc, code, err)
+	}
+
+	d := &requestDrop{closed: conn.Early().Closed}
+	d.abort = func(code transfer.RefusalCode) {
+		transfer.AbortWithCode(dc, version, code, code.WireReason(), d.tally.savedCount())
+		conn.Close()
+	}
+
+	// d. The channel is open: seal the room, so a later request-join gets
+	// room-full, and give the visitor until the E-35 timer to send its first
+	// metadata. The timer is cancelled at OnIncoming and again when the
+	// receive returns (WP-A2 review L3a): a first metadata that the limits
+	// refuse never reaches OnIncoming.
+	_ = sc.RequestSeal()
+	cancelOpen := transfer.StartIncomingDeadline(requestOpenChannelTimeout, func() {
+		d.openExpired.Store(true)
+		requestOpenChannelExpired()
+		d.abort(transfer.CodeStopped)
+	})
+	defer cancelOpen()
+
+	// e. The route, best effort.
+	if ct, ctErr := conn.ConnectionType(); ctErr == nil {
+		d.route = ct
+		a.reqUpdate(rg, func(l *requestLane) { l.route = ct })
+	}
+
+	// f. The global stats report follows the owner's switch, read at pairing
+	// (E-32): the engine skips it when statsURL is empty.
+	statsURL := ""
+	if p.reportStats {
+		statsURL = p.server
+	}
+
+	// g. The receive, into the base folder until Decide accepts with the drop's
+	// own. While it runs the lane never reads sc.PeerLeft: only the channel
+	// closing or the receive returning ends the drop (spec 06 4.17).
+	quit := make(chan struct{})
+	defer close(quit)
+	early := conn.Early()
+	msgs, closed := watchAbortFrames(early.Msgs, early.Closed, quit, &d.peerAbort)
+	opts := transfer.ReceiveOptions{
+		OnIncoming: func(transfer.IncomingInfo) {
+			d.incoming.Store(true)
+			cancelOpen()
+		},
+		Decide: func(in transfer.IncomingInfo) transfer.Decision { return a.requestDecide(rg, p, d, in) },
+		Limits: requestLimits(),
+		OnProgress: throttleProgress(requestProgressEvery, time.Now, func(pr transfer.Progress) {
+			if a.requestActive(rg) {
+				a.emitRequest("request:progress", pr)
+			}
+		}),
+		OnFileDone: d.tally.add,
+		UpdateHint: desktopUpdateHint,
+		Messages:   msgs,
+		Closed:     closed,
+	}
+	err = transfer.ReceiveFilesWithOptions(dc, p.saveDir, true, version, statsURL, opts)
+	cancelOpen()
+	if d.cap != nil {
+		d.cap.Stop()
+	}
+	return a.endRequestDrop(rg, sc, d, err)
+}
+
+// The request drop's clocks and limits, package vars only so a test can
+// shrink a clock. requestDecideWindow is derived from the engine's constant
+// and never assigned a literal (M-04): the visitor's ack wait is
+// VisitorAckTimeout plus VisitorAckGrace, so this side always answers first.
+var (
+	// requestOpenChannelTimeout is E-35's wall clock from channel open to the
+	// first metadata: a visitor that holds the channel open with frames that
+	// are not a metadata keeps the engine's idle watchdog blind, so this one
+	// stops it.
+	requestOpenChannelTimeout = 30 * time.Second
+	// requestDecideWindow is how long the owner has to answer a prompt.
+	requestDecideWindow = transfer.HostDecisionWindow
+	// requestDropCap is the most time one accepted drop may take (E-05).
+	requestDropCap = transfer.DropTimeLimit
+	// iceFetchFn fetches the pairing's ICE list, at user-connected only (L13).
+	iceFetchFn = ice.FetchDetail
+	// requestOpenChannelExpired runs when the E-35 timer fires; tests count it.
+	requestOpenChannelExpired = func() {}
+	// requestVolumeMaxFn is the save volume's largest file, for the prompt's
+	// drive-limit warning; a test stands in a FAT32 volume.
+	requestVolumeMaxFn = transfer.VolumeMaxFileSize
+)
+
+// The request link's receive policy (layer 2, spec 06 4.6): at most 10,000
+// files, and 2 GiB left free after every file.
+const (
+	requestMaxFiles    = 10000
+	requestFreeReserve = int64(2) << 30
+	// requestCommitRetry is E-36's window for a finished file whose move into
+	// place a scanner is holding: retried once a second, then save-blocked,
+	// with the verified .part kept either way.
+	requestCommitRetry = 5 * time.Minute
+	// requestResultNames caps the saved names a result keeps; Files keeps the
+	// real count.
+	requestResultNames = 200
+	// requestProgressEvery throttles request:progress like recv:progress.
+	requestProgressEvery = 100 * time.Millisecond
+)
+
+// requestDrop is one pairing's own state, from channel open to its end. The
+// fields without a lock are written and read on the receive loop's goroutine
+// only (Decide and OnFileDone run on it); the flags are set from the timers,
+// the cancel and the message watcher.
+type requestDrop struct {
+	abort  func(code transfer.RefusalCode) // the coded frame, then the connection closed
+	closed <-chan struct{}                 // the data channel's own close (peer.Early)
+	route  string
+	tally  dropTally
+	cap    *time.Timer // the 24 h cap, armed at Accept
+
+	files   int    // the visitor's announced count, for the result
+	folder  string // the drop's own folder, "" until Accept
+	outcome string // how a prompt ended without a drop: declined, expired, left
+
+	incoming    atomic.Bool // the first metadata reached OnIncoming
+	accepted    atomic.Bool // Accept found the channel open and made the folder
+	openExpired atomic.Bool // the E-35 timer fired
+	peerAbort   atomic.Bool // the visitor sent an incompatible frame
+	capHit      atomic.Bool // the 24 h cap fired
+	ownerCancel atomic.Bool // the owner's Cancel drop
+}
+
+// cancelFunc is the drop's Cancel drop: it records that the owner stopped it,
+// then sends stopped and closes on its own goroutine, so the bound call never
+// waits on a flush, a close, or a receive held in a commit retry of up to 5
+// minutes (WP-A2 review L3b). The receive returns on its own and ends the drop.
+func (d *requestDrop) cancelFunc() func() {
+	return func() {
+		d.ownerCancel.Store(true)
+		go d.abort(transfer.CodeStopped)
+	}
+}
+
+// requestDecide is the drop's Decide (step 3): the prompt from numbers and
+// host values only, then the owner's answer, the window, the visitor leaving,
+// or the link ending, whichever comes first. The engine consults it before any
+// folder, staging file or ack exists, and it never returns Accept for a
+// channel that already closed (implication 8).
+func (a *App) requestDecide(rg uint64, p requestPairing, d *requestDrop, in transfer.IncomingInfo) transfer.Decision {
+	refuse := func(code transfer.RefusalCode) transfer.Decision {
+		return transfer.Decision{Kind: transfer.DecisionRefuse, Code: code}
+	}
+	d.files = in.Files
+	l := a.lane()
+	l.mu.Lock()
+	now := l.now
+	l.mu.Unlock()
+	at := now()
+	// The window runs from here, where answerBy is taken, not from after
+	// openPrompt's flash, title and toast (go-toast can fall back to a
+	// PowerShell run), so their time never comes out of the margin before the
+	// visitor's own ack timer (review 2a N3). The wall clock, not the lane's
+	// clock seam, times it.
+	opened := time.Now()
+	pg := a.openPrompt(rg, requestPromptFor(p, in, d.route, at))
+	if pg == 0 {
+		return refuse(transfer.CodeStopped)
+	}
+	window := time.NewTimer(time.Until(opened.Add(requestDecideWindow)))
+	defer window.Stop()
+	for {
+		select {
+		case ans := <-l.decision:
+			if ans.promptGen != pg {
+				continue
+			}
+			if ans.answer == "accept" {
+				return a.acceptRequestDrop(rg, p, d, at)
+			}
+			d.outcome = "declined"
+			a.endPrompt(rg)
+			a.reqUpdate(rg, func(l *requestLane) {
+				l.prompt = nil
+				l.setStateLocked("declined", "")
+			})
+			return transfer.Decision{Kind: transfer.DecisionDecline}
+		case <-window.C:
+			d.outcome = "expired"
+			a.endPrompt(rg)
+			a.reqUpdate(rg, func(l *requestLane) { l.missedAt = now() })
+			return refuse(transfer.CodeExpired)
+		case <-d.closed:
+			// The visitor left while the owner decided. The engine hears the
+			// close only once this returns (F-18), so Decide watches it itself.
+			d.outcome = "left"
+			a.endPrompt(rg)
+			return refuse(transfer.CodeStopped)
+		case <-p.stop:
+			return refuse(transfer.CodeStopped)
+		}
+	}
+}
+
+// acceptRequestDrop is Accept's half of requestDecide: the channel must still
+// be open, then the drop's own folder is made, the 24 h cap is armed, Cancel
+// drop is wired, and the lane goes to receiving with the wake hold. Nothing
+// exists on disk for an Accept that met a closed channel.
+func (a *App) acceptRequestDrop(rg uint64, p requestPairing, d *requestDrop, at time.Time) transfer.Decision {
+	stopped := transfer.Decision{Kind: transfer.DecisionRefuse, Code: transfer.CodeStopped}
+	select {
+	case <-d.closed:
+		d.outcome = "left"
+		a.endPrompt(rg)
+		return stopped
+	default:
+	}
+	folder, err := makeDropFolder(p.saveDir, p.label, at)
+	if err != nil {
+		a.attentionOff()
+		return transfer.Decision{Kind: transfer.DecisionRefuse, Code: transfer.CodeWriteFailed}
+	}
+	if !a.setDropCancel(rg, d.cancelFunc()) || !a.acceptDrop(rg) {
+		_ = os.Remove(folder)
+		return stopped
+	}
+	d.folder = folder
+	d.accepted.Store(true)
+	d.cap = time.AfterFunc(requestDropCap, func() {
+		d.capHit.Store(true)
+		d.abort(transfer.CodeTimeLimit)
+	})
+	return transfer.Decision{Kind: transfer.DecisionAccept, OutputDir: folder}
+}
+
+// endRequestDrop maps how the receive ended to the lane's state (step 4). A
+// drop that was accepted ends through endDrop, whatever rg is now: done, or
+// stopped with a fixed code, and its folder removed when nothing was saved in
+// it. A pairing that made no drop reopens the room and waits again, stays
+// declined, or stops on a refusal this side sent.
+func (a *App) endRequestDrop(rg uint64, sc *signaling.Client, d *requestDrop, err error) error {
+	if d.accepted.Load() && errors.Is(err, transfer.ErrSenderLeft) {
+		// The visitor left between Accept's own open check and the engine's:
+		// nothing was claimed or acked. The empty folder goes, the wake hold
+		// Accept took is released here (no endDrop: the link was not used),
+		// and the link waits again as for any leave before a drop.
+		_ = os.Remove(d.folder)
+		a.requestWakeRelease(rg)
+		d.accepted.Store(false)
+		d.outcome = "left"
+	}
+	if d.accepted.Load() {
+		state, code := "done", ""
+		if err != nil {
+			state, code = "stopped", d.stopCode(err)
+		}
+		res := d.tally.result(d.files, d.folder)
+		if state == "stopped" && res.Saved == 0 {
+			_ = os.Remove(d.folder) // an empty folder only; anything in it stays
+		}
+		a.endDrop(rg, state, code, &res)
+		return err
+	}
+	if !a.requestActive(rg) {
+		return err
+	}
+	var refused *transfer.RefusedError
+	switch {
+	case d.outcome == "declined":
+		return err // the owner picks Keep waiting or Close link
+	case d.outcome == "expired":
+		return a.reopenRequest(rg, sc, "", err) // missedAt is set (W10)
+	case d.outcome == "left", errors.Is(err, transfer.ErrSenderLeft):
+		return a.reopenRequest(rg, sc, "visitor-left", err)
+	case d.openExpired.Load():
+		return a.reopenRequest(rg, sc, "setup-failed", err) // E-35
+	case errors.As(err, &refused) && refused.Code != "":
+		// This side refused before anything was accepted (the limits, or a
+		// drop folder that could not be made): the link is used up.
+		res := d.tally.result(d.files, "")
+		a.endDrop(rg, "stopped", string(refused.Code), &res)
+		return err
+	case d.peerAbort.Load(), channelClosed(d.closed):
+		// The visitor stopped before anything was accepted, in its own words
+		// or with a bare close: nothing was agreed, so the link waits again.
+		return a.reopenRequest(rg, sc, "visitor-left", err)
+	case !d.incoming.Load():
+		// No first metadata ever arrived (the idle watchdog), or the visitor
+		// speaks a protocol this side cannot: the sender could not connect.
+		return a.reopenRequest(rg, sc, "setup-failed", err)
+	}
+	res := d.tally.result(d.files, "")
+	a.endDrop(rg, "stopped", "unknown", &res)
+	return err
+}
+
+// stopCode is the fixed code for an accepted drop that ended in err: the
+// owner's Cancel drop, the 24 h cap, a file that could not be moved into
+// place, a refusal this side sent, an abort the visitor sent in its own words
+// (the only code that blames the sender, E-42), or unknown (ST14) for every
+// engine error that no peer frame explains. The visitor's own code, if it sent
+// one, never picks the owner's copy.
+func (d *requestDrop) stopCode(err error) string {
+	var commit *transfer.CommitError
+	var refused *transfer.RefusedError
+	switch {
+	case d.ownerCancel.Load():
+		return string(transfer.CodeStopped)
+	case d.capHit.Load():
+		return string(transfer.CodeTimeLimit)
+	case errors.As(err, &commit):
+		return string(transfer.CodeSaveBlocked)
+	case errors.As(err, &refused) && refused.Code != "":
+		return string(refused.Code)
+	case d.peerAbort.Load():
+		return "peer-abort"
+	}
+	return "unknown"
+}
+
+// channelClosed reports whether ch has closed, without waiting.
+func channelClosed(ch <-chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
+// drainSignals empties sc.Signal without blocking and takes one PeerLeft push,
+// at the start of each pairing: a previous visitor's trickled candidates must
+// never reach this visitor's connection (E-39), and a previous visitor's leave
+// must not end this visitor's setup at once now that setup watches PeerLeft
+// (S1-ENG-11). It returns how many signals it dropped.
+func drainSignals(sc *signaling.Client) int {
+	n := dropSignals(sc)
+	select {
+	case <-sc.PeerLeft:
+	default:
+	}
+	return n
+}
+
+// dropSignals empties sc.Signal without blocking and returns how many it
+// dropped; it leaves PeerLeft alone.
+func dropSignals(sc *signaling.Client) int {
+	n := 0
+	for {
+		select {
+		case <-sc.Signal:
+			n++
+		default:
+			return n
+		}
+	}
+}
+
+// requestLimits is the drop's ReceiveLimits: the request link's layer 2
+// (10,000 files, the 2 GiB reserve, the name hook, the host relay check) and
+// E-36's five-minute commit retry.
+func requestLimits() *transfer.ReceiveLimits {
+	return &transfer.ReceiveLimits{
+		MaxFiles:        requestMaxFiles,
+		FreeReserve:     requestFreeReserve,
+		BlockShellTypes: true,
+		HostRelayCheck:  true,
+		CommitRetry:     requestCommitRetry,
+	}
+}
+
+// requestPromptFor builds the Accept prompt from numbers and host values only
+// (OD-04, Q-C7): the visitor's counts, this PC's folder, clock and free space,
+// and warning codes. in.FirstName is never read.
+func requestPromptFor(p requestPairing, in transfer.IncomingInfo, route string, now time.Time) RequestPrompt {
+	pr := RequestPrompt{
+		Files:      in.Files,
+		TotalBytes: in.TotalBytes,
+		Folder:     filepath.Join(filepath.Base(p.saveDir), dropFolderName(p.label, now)),
+		AnswerBy:   now.Add(requestDecideWindow).UnixMilli(),
+	}
+	// The drop folder does not exist yet, so the volume is asked through the
+	// nearest folder that does.
+	if dir := nearestDir(p.saveDir); dir != "" {
+		if free, err := transfer.DiskFree(dir); err == nil && free >= 0 {
+			pr.FreeBytes = free
+			if free-in.TotalBytes < requestFreeReserve {
+				pr.Warnings = append(pr.Warnings, "low-space")
+			}
+		}
+		// The first file only, the one known before Accept (spec 05 8.3,
+		// D-118); a later file over the limit is refused at its own metadata.
+		if limit, err := requestVolumeMaxFn(dir); err == nil && limit > 0 && in.FirstSize > limit {
+			pr.Warnings = append(pr.Warnings, "file-too-large-for-drive")
+		}
+	}
+	if (route == "relay" || p.hideIP) && in.TotalBytes > transfer.RelaySizeLimit {
+		pr.Warnings = append(pr.Warnings, "relay-over-cap")
+	}
+	return pr
+}
+
+// nearestDir is dir, or its nearest parent that exists, or "".
+func nearestDir(dir string) string {
+	for d := filepath.Clean(dir); ; {
+		if dirExists(d) {
+			return d
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return ""
+		}
+		d = parent
+	}
+}
+
+// dropFolderStamp is the time part of a drop folder's name, and
+// dropFolderMaxBytes the most its label part may take: the whole name, with
+// the stamp and a " (99)", stays within the 255-byte component limit of ext4
+// and APFS, and UTF-8 never takes fewer bytes than UTF-16 takes units, so
+// NTFS's 255 units hold as well (review 1b N2).
+const (
+	dropFolderStamp    = "2006-01-02 1504"
+	dropFolderMaxBytes = 255 - len(" "+dropFolderStamp) - len(" (99)")
+)
+
+// dropFolderName is "<label> YYYY-MM-DD HHMM" from this PC's clock (spec 06
+// 4.7): the label through sanitizeRequestLabel, cut on a rune boundary to
+// dropFolderMaxBytes.
+func dropFolderName(label string, now time.Time) string {
+	l := sanitizeRequestLabel(label)
+	for len(l) > dropFolderMaxBytes {
+		_, size := utf8.DecodeLastRuneInString(l)
+		l = l[:len(l)-size]
+	}
+	if l = strings.TrimRight(l, " ."); l == "" {
+		l = "Request"
+	}
+	return l + " " + now.Format(dropFolderStamp)
+}
+
+// makeDropFolder creates the drop's own folder under base, only now that the
+// owner accepted with the channel open (spec 06 4.7): MkdirAll on the base,
+// then an exclusive Mkdir on the leaf, trying " (2)" to " (99)" when the name
+// is taken. It never reuses, and never writes into, a folder that exists.
+func makeDropFolder(base, label string, now time.Time) (string, error) {
+	abs, err := filepath.Abs(base)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(abs, 0o755); err != nil {
+		return "", err
+	}
+	name := dropFolderName(label, now)
+	for i := 1; i <= 99; i++ {
+		leaf := name
+		if i > 1 {
+			leaf = fmt.Sprintf("%s (%d)", name, i)
+		}
+		p := filepath.Join(abs, leaf)
+		err := os.Mkdir(p, 0o755)
+		if err == nil {
+			return p, nil
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("no free drop folder name under the save folder")
+}
+
+// dropTally counts an accepted drop's committed files for its result.
+// OnFileDone feeds it on the receive loop; the cancel and the 24 h cap read
+// the saved count from their own goroutines, hence the lock.
+type dropTally struct {
+	mu       sync.Mutex
+	saved    int
+	bytes    int64
+	verified int
+	renamed  int
+	names    []string
+}
+
+// add records one committed file. SavedName is the engine's on-disk name,
+// relative to the drop folder; a name the hook renamed ends in .floe-blocked.
+func (t *dropTally) add(d transfer.FileDone) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.saved++
+	t.bytes += d.Bytes
+	if d.Verified {
+		t.verified++
+	}
+	if strings.HasSuffix(d.SavedName, ".floe-blocked") {
+		t.renamed++
+	}
+	if len(t.names) < requestResultNames {
+		t.names = append(t.names, d.SavedName)
+	}
+}
+
+func (t *dropTally) savedCount() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.saved
+}
+
+// result is the drop's RequestResult: files is the visitor's announced count,
+// folder the drop's own folder.
+func (t *dropTally) result(files int, folder string) RequestResult {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return RequestResult{
+		Files: files, Saved: t.saved, Bytes: t.bytes, Verified: t.verified, Renamed: t.renamed,
+		Folder: folder, Names: append([]string{}, t.names...),
+	}
+}
+
+// throttleProgress forwards progress at most once per every, and always a
+// file's final update, like recv:progress in receiveByCode.
+func throttleProgress(every time.Duration, now func() time.Time, emit func(transfer.Progress)) func(transfer.Progress) {
+	var last time.Time
+	return func(p transfer.Progress) {
+		t := now()
+		if !last.IsZero() && t.Sub(last) < every && p.FileBytes < p.FileSize {
+			return
+		}
+		last = t
+		emit(p)
+	}
+}
+
+// dataMessage is pion's DataChannelMessage by shape; see watchAbortFrames.
+type dataMessage = struct {
+	IsString bool
+	Data     []byte
+}
+
+// controlFrameMax is the engine's control-frame cap (transfer's
+// controlMsgMax): a longer string is prose to the engine, never an abort.
+const controlFrameMax = 1000
+
+// watchAbortFrames sits between the data channel's pump (peer.Early) and the
+// receive loop and hands every message on, in order, noting in saw whether the
+// visitor sent an incompatible frame: an abort in its own words, the one peer
+// frame that makes a stop the sender's (peer-abort, ST11, E-42). Only the
+// frame's type is read; the reason it carries never leaves isAbortFrame. The
+// closed channel it returns closes once the data channel has closed AND every
+// message queued before the close was handed on, so the receive loop, which
+// prefers queued messages to a close, still sees them all. quit stops it once
+// the receive has returned.
+//
+// Generic over the message type because naming pion's type here would make
+// pion a direct requirement of desktop/go.mod, which reaches the released
+// floe binary through the workspace (see requireRelay); the constraint still
+// pins the shape at compile time.
+func watchAbortFrames[M ~dataMessage](in <-chan M, closed, quit <-chan struct{}, saw *atomic.Bool) (<-chan M, <-chan struct{}) {
+	out := make(chan M, cap(in))
+	outClosed := make(chan struct{})
+	pass := func(m M) bool {
+		if dm := dataMessage(m); dm.IsString && isAbortFrame(dm.Data) {
+			saw.Store(true)
+		}
+		select {
+		case out <- m:
+			return true
+		case <-quit:
+			return false
+		}
+	}
+	go func() {
+		for {
+			select {
+			case m := <-in:
+				if !pass(m) {
+					return
+				}
+			case <-closed:
+				for {
+					select {
+					case m := <-in:
+						if !pass(m) {
+							return
+						}
+					default:
+						close(outClosed)
+						return
+					}
+				}
+			case <-quit:
+				return
+			}
+		}
+	}()
+	return out, outClosed
+}
+
+// isAbortFrame reports whether a text frame from the visitor is an
+// incompatible frame, the way the engine classifies control frames: at most
+// controlFrameMax bytes, a JSON object, "type" read by its exact key.
+func isAbortFrame(data []byte) bool {
+	if len(data) > controlFrameMax {
+		return false
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(data, &fields) != nil {
+		return false
+	}
+	var typ string
+	return json.Unmarshal(fields["type"], &typ) == nil && typ == "incompatible"
 }
 
 // isRequestLinkPaste reports whether a receive failed because the input was a

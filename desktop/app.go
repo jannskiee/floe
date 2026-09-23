@@ -87,6 +87,12 @@ type App struct {
 	// quitFn is the test seam for quitting; nil means runtime.Quit, which
 	// log.Fatals on the nil context a bare test App carries.
 	quitFn func()
+
+	// req is the Request link lane (requestlink.go): its own mutex,
+	// generation and handles, never the transfer slot above. Created by
+	// NewApp; lane() creates it on first use for a bare test App.
+	req     *requestLane
+	reqOnce sync.Once
 }
 
 // NewApp creates a new App application struct
@@ -94,7 +100,9 @@ func NewApp() *App {
 	// Loaded here rather than in startup: startup runs on a goroutine after the
 	// window exists, which would leave a window where a transfer could begin
 	// against the wrong server. Failures fall back to the Floe defaults.
-	return &App{wake: newWakeGuard(), cfg: loadConfig()}
+	a := &App{wake: newWakeGuard(), cfg: loadConfig()}
+	a.req = newRequestLane(a)
+	return a
 }
 
 // startup is called when the app starts. The context is saved so we can call the
@@ -142,6 +150,9 @@ func (a *App) startup(ctx context.Context) {
 // that path, so nothing that finished can be touched.
 func (a *App) shutdown(ctx context.Context) {
 	transfer.AbandonPartials()
+	// A quit that did not come through ConfirmClose (no link was live when it
+	// started) still ends the lane; idempotent after ConfirmClose.
+	a.lane().closeForQuit()
 }
 
 // onSecondInstanceLaunch fires when Floe is launched again while already running.

@@ -214,3 +214,45 @@ func TestSanitizeRuneSharedByBothSanitizers(t *testing.T) {
 		}
 	}
 }
+
+// TestSafeFolderName pins the exported single-component wrapper: whatever the
+// input, the result is one component (no separator of either kind), never "."
+// or "..", and on this OS it follows sanitizeComponent's rules exactly.
+func TestSafeFolderName(t *testing.T) {
+	win := runtime.GOOS == "windows"
+	pick := func(onWindows, elsewhere string) string {
+		if win {
+			return onWindows
+		}
+		return elsewhere
+	}
+	cases := []struct{ in, want string }{
+		{"Acme footage", "Acme footage"},
+		{"a/b\\c", "a_b_c"},
+		{"../../Windows", pick(".._.._Windows", ".._.._Windows")},
+		{"..", ""},
+		{".", ""},
+		{"", ""},
+		{"x\x00y\x1b", "x_y_"},
+		{"photo‮gnp", "photo_gnp"},
+		{"a⁦b", "a_b"},
+		{`a<b>c:d"e|f?g*h`, pick("a_b_c_d_e_f_g_h", `a<b>c:d"e|f?g*h`)},
+		{"CON", pick("_CON", "CON")},
+		{"com1", pick("_com1", "com1")},
+		{"name. ", pick("name", "name. ")},
+		{" . ", pick("", " . ")},
+		{"تقرير", "تقرير"},
+	}
+	for _, c := range cases {
+		got := SafeFolderName(c.in)
+		if got != c.want {
+			t.Errorf("SafeFolderName(%q) = %q, want %q", c.in, got, c.want)
+		}
+		if strings.ContainsAny(got, `/\`) {
+			t.Errorf("SafeFolderName(%q) = %q keeps a separator", c.in, got)
+		}
+		if got == "." || got == ".." {
+			t.Errorf("SafeFolderName(%q) = %q, a traversal component", c.in, got)
+		}
+	}
+}

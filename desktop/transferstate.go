@@ -104,12 +104,18 @@ func (a *App) CancelTransfer() {
 }
 
 // closeBlocked reports whether quitting must be intercepted: a live,
-// uncancelled transfer is in flight and the user has not yet said
-// "Close anyway". Pure state, testable on a bare &App{}.
+// uncancelled transfer is in flight, or a request link is being made, is open
+// or is receiving a drop, and the user has not yet said "Close anyway". Pure
+// state, testable on a bare &App{}. The lane is read through its atomic only,
+// never its mutex, and never while a.mu is held: this runs on the Windows
+// message-pump thread. With nothing live on any lane it returns false, which
+// keeps an unclosable window impossible.
 func (a *App) closeBlocked() bool {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.busy && !a.cancelled && !a.allowClose
+	transfer := a.busy && !a.cancelled
+	allow := a.allowClose
+	a.mu.Unlock()
+	return !allow && (transfer || a.lane().liveNow())
 }
 
 // onBeforeClose is the Wails close hook, covering every close path (the
@@ -135,12 +141,14 @@ func (a *App) onBeforeClose(ctx context.Context) bool {
 // the failure toast, since a user-ordered close is not a failure) and quit.
 // Deliberately no wait for the transfer goroutine's cleanup: a leftover
 // .part staging file is the accepted cost of an instant close, and the
-// shutdown hook tidies it.
+// shutdown hook tidies it. The request lane closes last, without waiting on
+// the network (closeForQuit).
 func (a *App) ConfirmClose() {
 	a.mu.Lock()
 	a.allowClose = true
 	a.mu.Unlock()
 	a.CancelTransfer()
+	a.lane().closeForQuit()
 	if a.quitFn != nil {
 		a.quitFn()
 		return

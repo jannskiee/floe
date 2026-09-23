@@ -4,6 +4,8 @@ package main
 // it. endpoints_test.go already tested this seam before the file existed.
 
 import (
+	"errors"
+
 	"github.com/jannskiee/floe/cli/engine/serverurl"
 )
 
@@ -121,11 +123,44 @@ func withRequestLinks(cfg appConfig, enabled bool) appConfig {
 	return cfg
 }
 
+// The two refusals of the Beta switch (D-115). Not user-facing copy: the
+// Settings switch reverts on any error, the toggleCheckUpdates pattern.
+var (
+	errRequestLinksLive        = errors.New("a request link is open; close it before turning request links off")
+	errRequestLinksUnsupported = errors.New("this server does not offer request links")
+)
+
+// requestLinksChange is the D-115 rule for flipping the switch: turning it
+// off is refused while a link is live (made, open, deciding or receiving), so
+// the Beta can never strand a link, and otherwise always allowed, even when
+// the server no longer lists request-1; turning it on needs request-1 right
+// now. support is called only for turning it on.
+func requestLinksChange(enabled, live bool, support func() FeatureResult) error {
+	if !enabled {
+		if live {
+			return errRequestLinksLive
+		}
+		return nil
+	}
+	if !support().RequestLinks {
+		return errRequestLinksUnsupported
+	}
+	return nil
+}
+
 // SetRequestLinks persists the Settings > Beta > Request links switch alone,
 // leaving every other setting untouched. Holds the lock across the whole
 // read-modify-write for the same reason SetCheckUpdates does: the setters race
 // on quick toggle flips, and a stale snapshot would resurrect an old record.
+// The request-1 probe for turning it on runs first, outside the lock (it is
+// network I/O); the lane is read through its atomic, never its mutex.
 func (a *App) SetRequestLinks(enabled bool) error {
+	if err := requestLinksChange(enabled, a.lane().liveNow(), func() FeatureResult {
+		server, _ := a.endpoints()
+		return requestLinkSupport(server)
+	}); err != nil {
+		return err
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	cfg := withRequestLinks(a.cfg, enabled)
