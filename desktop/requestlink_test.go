@@ -2116,6 +2116,49 @@ func TestMakeLinkDefaultFolderOutsideLaneLock(t *testing.T) {
 	}
 }
 
+// signalCloser records its Close for a test on another goroutine.
+type signalCloser struct {
+	once   sync.Once
+	closed chan struct{}
+}
+
+func newSignalCloser() *signalCloser { return &signalCloser{closed: make(chan struct{})} }
+
+func (c *signalCloser) Close() { c.once.Do(func() { close(c.closed) }) }
+
+// TestMakeLinkTakesLeftoverConn (review 1a N4): a peer connection and a drop
+// cancel an ended link still holds are taken by the next Make link, which
+// closes the connection, so a later Close link can never reach a dead drop's
+// handles, and the new link starts with none.
+func TestMakeLinkTakesLeftoverConn(t *testing.T) {
+	f := newFakeSignalServer(t)
+	a, _ := laneApp(t, f)
+	makeWaiting(t, a)
+	a.CloseRequestLink()
+	conn := newSignalCloser()
+	var cancelled atomic.Bool
+	l := a.lane()
+	l.mu.Lock()
+	l.conn = conn
+	l.dropCancel = func() { cancelled.Store(true) }
+	l.mu.Unlock()
+	makeWaiting(t, a)
+	select {
+	case <-conn.closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Make link left the ended link's peer connection open")
+	}
+	l.mu.Lock()
+	leftConn, leftCancel := l.conn, l.dropCancel
+	l.mu.Unlock()
+	if leftConn != nil || leftCancel != nil {
+		t.Fatal("the new link holds the ended link's handles")
+	}
+	if cancelled.Load() {
+		t.Fatal("Make link ran a dead drop's cancel")
+	}
+}
+
 // TestStalePeerLeftDoesNotReopenOverANewVisitor (review 1a N3, 1b N5): the
 // leave of a visitor who already went and the user-connected of a new one can
 // both be waiting when the loop looks. The old leave must never be answered

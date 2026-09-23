@@ -664,6 +664,11 @@ func (a *App) MakeRequestLink(label string, saveDir string, lifetime string) Req
 	// it (finishRequestSocket leaves a socket it no longer owns alone).
 	leftover := l.sc
 	l.sc = nil
+	// The same for a peer connection and a drop cancel an ended drop did not
+	// clear: the connection is closed with the socket, and the cancel, which
+	// belongs to a drop that is over, is dropped unrun (review 1a N4).
+	leftConn := l.conn
+	l.conn, l.dropCancel = nil, nil
 	leftWait, leftClose := l.closeWait, l.closeFrameFn
 	l.gen++
 	rg := l.gen
@@ -674,11 +679,11 @@ func (a *App) MakeRequestLink(label string, saveDir string, lifetime string) Req
 	l.promptEnds, l.ownerStop = nil, false
 	l.label = displayLabel(label)
 	l.saveDir = saveDir
-	if leftover != nil {
+	if leftover != nil || leftConn != nil {
 		l.wg.Add(1)
 		go func() {
 			defer l.wg.Done()
-			requestTeardown(leftover, nil, leftWait, leftClose)
+			requestTeardown(leftover, leftConn, leftWait, leftClose)
 		}()
 	}
 	if !on {
