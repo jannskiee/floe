@@ -356,12 +356,28 @@ test.describe('request-link', () => {
     test('request-link: Hide my IP without a relay stops before joining', async ({ page, context }) => {
         const stats = await guard(context);
         const frames = await forwardSocketFrames(page);
+        // The design never opens a socket here: ICE comes first, and V6b ends
+        // the attempt before connectSocket. So the proof is "no socket at
+        // all", not only "no request-join", which a join riding a socket
+        // opened in parallel could slip past.
+        const signaling: string[] = [];
+        page.on('request', (r) => {
+            if (/socket\.io/.test(r.url())) signaling.push(r.url());
+        });
+        page.on('websocket', (ws) => {
+            if (/socket\.io/.test(ws.url())) signaling.push(ws.url());
+        });
         makeFiles({ 'a.bin': 1024 });
         await page.goto(strayLink());
         await pickFiles(page, ['a.bin']);
         await page.getByLabel(visitorCopy.hideIp).check();
         await send(page);
         await expect(page.getByText(visitorCopy.hideIpNeedsRelay)).toBeVisible();
+        // A socket started beside the ICE fetch would show within this window
+        // (the privacy spec's settle).
+        await page.waitForTimeout(1_000);
+        expect(signaling).toEqual([]);
+        expect(frames.socketsOpened()).toBe(0);
         expect(framesFor(frames.outgoing, 'request-join')).toHaveLength(0);
         expect(await stats([page])).toBe(0);
     });
@@ -431,6 +447,9 @@ test.describe('request-link', () => {
             page.getByText(visitorCopy.hideIpNeedsRelay),
             'no turn: URL was served; check the SETUP-04 coturn and its session variables'
         ).toHaveCount(0);
+        // Every signal the page sent, over both transports, so a candidate
+        // sent before the WebSocket upgrade is read too.
+        expect(framesFor(frames.outgoing, 'signal').length).toBeGreaterThan(0);
         const types = outgoingCandidateTypes(frames.outgoing);
         expect(types.length).toBeGreaterThan(0);
         expect(types.every((t) => t === 'relay')).toBe(true);

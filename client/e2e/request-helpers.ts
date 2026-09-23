@@ -9,9 +9,9 @@
  *
  * Privacy helpers: every request-link test counts stats attempts (they must be
  * 0), serves a STUN-only ICE list unless it is the local relay cell, and can
- * forward the page's Socket.IO frames to count `request-join` and read the ICE
- * candidate types the page sent. None of them reads, logs or attaches a TURN
- * response.
+ * record the page's Socket.IO packets on both transports to count
+ * `request-join` and read the ICE candidate types the page sent. None of them
+ * reads, logs or attaches a TURN response.
  */
 
 import type { BrowserContext, Page, WebSocketRoute } from '@playwright/test';
@@ -239,19 +239,34 @@ export async function stunOnlyIce(context: BrowserContext): Promise<void> {
 }
 
 export interface SocketFrames {
-    /** Every text frame the page sent to the signaling server. */
+    /** Every Socket.IO packet the page sent to the signaling server, over
+     *  either transport: WebSocket text frames and each packet of a polling
+     *  POST body. */
     outgoing: string[];
+    /** How many socket.io WebSockets the page has opened so far. */
+    socketsOpened(): number;
     /** Close the page's side of every forwarded socket (a signaling blip). */
     closePageSockets(): Promise<void>;
 }
 
 /**
- * Forward the page's Socket.IO WebSocket frames both ways while recording the
- * outgoing ones. Install before the first navigation.
+ * Record every Socket.IO packet the page sends, over both transports, and
+ * forward its WebSocket frames both ways. Install before the first navigation.
+ *
+ * Both transports, because Socket.IO starts on HTTP long-polling and upgrades
+ * later, and the visitor emits request-join on its first connect, before the
+ * upgrade: the first local run's trace showed it in a polling POST while the
+ * WebSocket probe was still going (WP-W2 review 1, F2). Engine.io v4 joins the
+ * packets of one polling body with U+001E.
  */
 export async function forwardSocketFrames(page: Page): Promise<SocketFrames> {
     const outgoing: string[] = [];
     const routes: WebSocketRoute[] = [];
+    page.on('request', (r) => {
+        if (r.method() === 'POST' && /\/socket\.io\/\?.*transport=polling/.test(r.url())) {
+            outgoing.push(...(r.postData() ?? '').split('\x1e'));
+        }
+    });
     await page.routeWebSocket(/socket\.io/, (ws) => {
         routes.push(ws);
         const server = ws.connectToServer();
@@ -263,8 +278,15 @@ export async function forwardSocketFrames(page: Page): Promise<SocketFrames> {
     });
     return {
         outgoing,
+        socketsOpened: () => routes.length,
         async closePageSockets() {
-            for (const ws of routes) await ws.close();
+            for (const ws of routes) {
+                try {
+                    await ws.close();
+                } catch {
+                    // Already closed by an earlier blip or by the page.
+                }
+            }
         },
     };
 }
