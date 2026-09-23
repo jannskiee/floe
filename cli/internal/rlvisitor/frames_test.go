@@ -173,8 +173,13 @@ func TestBadSDPSignalIsAWellFormedEnvelopeWithBadSDP(t *testing.T) {
 		t.Fatalf("bad-sdp type = %v, want answer", sig["type"])
 	}
 	sdp, _ := sig["sdp"].(string)
-	if strings.HasPrefix(sdp, "v=0") || sdp == "" {
-		t.Fatalf("bad-sdp sdp %q should not be a real SDP", sdp)
+	// The SDP carries the hostile marker on its m= line (a shell substitution,
+	// markup and a bidi override), so a host that leaked the parse error would
+	// put it on screen.
+	for _, sub := range []string{"$(calc)]]><img", "<img src=x>", "‮"} {
+		if !strings.Contains(sdp, sub) {
+			t.Errorf("bad-sdp SDP missing marker %q", sub)
+		}
 	}
 }
 

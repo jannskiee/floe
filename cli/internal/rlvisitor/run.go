@@ -74,15 +74,25 @@ func run(cfg config) int {
 	})
 	defer watchdog.Stop()
 
-	// -bad-sdp answers before any peer is built: a malformed signal in place of
-	// a real SDP answer, then the run ends. The host's SetRemoteDescription
-	// refuses it and the host reports its own fixed setup error.
+	// -bad-sdp answers before any peer is built: it waits for the host's offer,
+	// sends a malformed answer in its place, and holds the socket open so the
+	// host's SetRemoteDescription runs against it and reports its own fixed
+	// setup error. Sending before the offer let the host's E-39 signal drain
+	// swallow the answer, so the host reached SetRemoteDescription only some of
+	// the time (review Q4).
 	if m == modeBadSDP {
-		if err := sc.SendSignal(badSDPSignal()); err != nil {
+		ended, sent, err := badSDPExchange(sc.Signal, func() error { return sc.SendSignal(badSDPSignal()) }, sc.PeerLeft, craftedWait, craftedWait)
+		if err != nil {
 			return fail("signal")
 		}
-		emit(map[string]interface{}{"event": "bad-sdp-sent"})
-		return 0
+		emit(map[string]interface{}{"event": "bad-sdp-sent", "ended": ended, "sent": sent})
+		switch ended {
+		case "no-offer":
+			return exitFailed
+		case "host-left":
+			return exitHostClosed
+		}
+		return exitBound
 	}
 
 	var opts []peer.Option
@@ -290,4 +300,50 @@ func hostRefusalCode(raw []byte) (string, bool) {
 		}
 	}
 	return "other", true
+}
+
+// badSDPExchange is the -bad-sdp flow: wait for the host's offer (bounded by
+// wait, ignoring candidates and anything that is not an offer), send the
+// malformed answer once, then hold the socket open until the host leaves or
+// hold passes. Factored from run so the ordering is a unit test: nothing is
+// sent before an offer, exactly one send follows it, and the exchange returns
+// only on the host leaving or the hold timer. It reports how it ended, whether
+// the answer was sent, and any send error.
+func badSDPExchange(signals <-chan json.RawMessage, send func() error, peerLeft <-chan struct{}, wait, hold time.Duration) (ended string, sent bool, err error) {
+	waitTimer := time.NewTimer(wait)
+	defer waitTimer.Stop()
+Wait:
+	for {
+		select {
+		case raw := <-signals:
+			if !isOffer(raw) {
+				continue // a candidate, or anything that is not the offer
+			}
+			if e := send(); e != nil {
+				return "send-failed", false, e
+			}
+			break Wait
+		case <-peerLeft:
+			return "host-left", false, nil
+		case <-waitTimer.C:
+			return "no-offer", false, nil
+		}
+	}
+	holdTimer := time.NewTimer(hold)
+	defer holdTimer.Stop()
+	select {
+	case <-peerLeft:
+		return "host-left", true, nil
+	case <-holdTimer.C:
+		return "held", true, nil
+	}
+}
+
+// isOffer reports whether a raw signal payload is the host's SDP offer. Only
+// the type is read; a candidate has none, and neither is ever printed.
+func isOffer(raw json.RawMessage) bool {
+	var p struct {
+		Type string `json:"type"`
+	}
+	return json.Unmarshal(raw, &p) == nil && p.Type == "offer"
 }

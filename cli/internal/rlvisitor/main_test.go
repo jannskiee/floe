@@ -205,6 +205,68 @@ func TestParseFlagsRefusesNonLocalServer(t *testing.T) {
 	}
 }
 
+// -bad-sdp holds no answer until the host's offer arrives, sends exactly one
+// answer after it, and returns only when the host leaves or the hold passes
+// (review Q4: sending before the offer let the host's drain swallow it).
+func TestBadSDPWaitsForOfferAndHolds(t *testing.T) {
+	offer := json.RawMessage(`{"type":"offer","sdp":"v=0"}`)
+	candidate := json.RawMessage(`{"candidate":{"candidate":"x"}}`)
+
+	// A candidate alone is not an offer: nothing is sent, and the exchange ends
+	// on the wait bound.
+	sent := 0
+	signals := make(chan json.RawMessage, 1)
+	signals <- candidate
+	ended, was, err := badSDPExchange(signals, func() error { sent++; return nil }, make(chan struct{}), 40*time.Millisecond, time.Second)
+	if err != nil || ended != "no-offer" || was || sent != 0 {
+		t.Fatalf("candidate only: ended %q sent(bool) %v sends %d err %v", ended, was, sent, err)
+	}
+
+	// The offer draws exactly one send, then the exchange holds until peerLeft.
+	sent = 0
+	signals = make(chan json.RawMessage, 2)
+	signals <- candidate
+	signals <- offer
+	peerLeft := make(chan struct{})
+	done := make(chan struct{})
+	var gotEnded string
+	var gotSent bool
+	go func() {
+		gotEnded, gotSent, _ = badSDPExchange(signals, func() error { sent++; return nil }, peerLeft, time.Second, time.Second)
+		close(done)
+	}()
+	select {
+	case <-done:
+		t.Fatal("returned before the host left or the hold passed")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(peerLeft)
+	<-done
+	if gotEnded != "host-left" || !gotSent || sent != 1 {
+		t.Fatalf("offer then leave: ended %q sent(bool) %v sends %d", gotEnded, gotSent, sent)
+	}
+
+	// With no peerLeft, the exchange returns on the hold timer, still one send.
+	sent = 0
+	signals = make(chan json.RawMessage, 1)
+	signals <- offer
+	ended, was, err = badSDPExchange(signals, func() error { sent++; return nil }, make(chan struct{}), time.Second, 40*time.Millisecond)
+	if err != nil || ended != "held" || !was || sent != 1 {
+		t.Fatalf("offer then hold: ended %q sent(bool) %v sends %d err %v", ended, was, sent, err)
+	}
+}
+
+// The malformed answer's SDP is refused by pion, and the error quotes the
+// hostile marker, so a host that rendered it raw would show "$(calc)".
+func TestBadSDPIsRefusedByPionWithTheMarker(t *testing.T) {
+	desc := webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: badSDP}
+	if _, err := desc.Unmarshal(); err == nil {
+		t.Fatal("pion accepted the malformed SDP")
+	} else if !strings.Contains(err.Error(), "$(calc)") {
+		t.Fatalf("pion error %q does not quote the marker", err.Error())
+	}
+}
+
 func TestModeFromFlags(t *testing.T) {
 	const room = "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
 	cases := map[mode][]string{

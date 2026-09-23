@@ -162,10 +162,22 @@ func junkFrames(n int) [][]byte {
 	return frames
 }
 
-// badSDPSignal is the malformed answer a -bad-sdp visitor sends in place of a
-// real SDP answer: a well-formed signal envelope whose sdp is not an SDP, so
-// the host's SetRemoteDescription refuses it and the host reports a fixed
-// setup error, never the text.
+// badSDP is the malformed SDP a -bad-sdp visitor answers with: a well-formed
+// session header followed by an m= line whose value is a hostile marker. pion's
+// parser refuses the media line and quotes the offending token, so the host's
+// SetRemoteDescription error carries "$(calc)]]><img"; a host that rendered the
+// raw parse error verbatim would put that on screen, which the CELL-07 UIA scan
+// then catches. The marker is markup, a shell substitution and a bidi override,
+// none of which the host must ever show unescaped (08 11.3, S8). It is not a
+// real SDP, so the host never reaches a working connection.
+const badSDP = "v=0\r\n" +
+	"o=- 0 0 IN IP4 127.0.0.1\r\n" +
+	"s=-\r\n" +
+	"t=0 0\r\n" +
+	"m=$(calc)]]><img src=x>" + rlo + "\r\n"
+
+// badSDPSignal is the signal envelope a -bad-sdp visitor sends in place of a
+// real answer.
 func badSDPSignal() map[string]interface{} {
-	return map[string]interface{}{"type": "answer", "sdp": "not-an-sdp\r\n"}
+	return map[string]interface{}{"type": "answer", "sdp": badSDP}
 }
