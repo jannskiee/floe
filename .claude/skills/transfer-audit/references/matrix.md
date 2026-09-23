@@ -82,14 +82,22 @@ outside `DEFAULT_IDS` and `DEEP_IDS`: a run reaches them through `--cells`.
 Every one SKIPs `server-no-request-1` until probe P10 (`GET <server>/health`)
 finds `request-1` in the server's `features`; an absent, malformed or
 unreachable answer counts as absent. The host is always the desktop (D), so
-`--desktop none` drops them all, TA-17's W2W included.
+`--desktop none` drops them all, TA-17's W2W included, and every lane but
+`--desktop wailsdev` SKIPs them `request-host-uia-pending` (the UIA verbs
+are Phase F prep; a shipped run cannot take wailsdev, so every shipped
+request cell SKIPs today). `scripts/lib/request.mjs` runs them: each attempt
+makes its own link into its own folder, and a failed step is FAIL
+`request-flow` or `request-manifest`, never retried.
 
 The visitor (W) opens `<web>/r/<linkId>#<roomId>` in a fresh Chromium
-context. The link comes from the host's `GetRequestLink` on the wailsdev
-lane (`PlaywrightDriver.readRequestLink`, checked against what the waiting
-view shows) and goes to the visitor leg only: `redactRequestLink` replaces
-the room fragment with `<room>` in every line a person reads, and neither
-audit.md nor run.json carries it. The visitor seeds
+context, picks the files through the hidden "Choose files" input, clicks
+`Send N files` and reads the page's status card (`lib/visitor.mjs`). The
+link comes from the host's `GetRequestLink` on the wailsdev lane
+(`PlaywrightDriver.readRequestLink`, checked against the link block's
+input) and goes to the visitor's `page.goto` only: `redactRequestLinks`
+replaces the room with `<room>` in every message, note, log line and
+evidence file, the report applies the same net to audit.md and run.json,
+and the host's captures sit under the attempt's `private/host/` folder. The visitor seeds
 `localStorage['floe:report-stats']` to `false` and aborts and counts every
 `**/api/stats/report` request: attempts must be 0 in every cell. Accept and
 Decline are clicked no earlier than 1.2 s after the prompt was first seen
@@ -105,9 +113,9 @@ variant token, so TA-12 is `reqhideip` (spec 09 writes `req-hideip`).
 
 | Cell                   | TA        | Snd | Rcv | Path | Forcer         | Input        | Size        | Required oracles |
 | ---------------------- | --------- | --- | --- | ---- | -------------- | ------------ | ----------- | ---------------- |
-| S-DIR-W2D-req          | TA-10     | W   | D   | DIR  | none           | request-link | 64 MiB      | on-disk sha256 inside the exclusive drop subfolder; visitor arrived line, its SHA line only when verified equals N; desktop `Received N files` and the SHA sentence; D pill `Direct` and W `direct`; desktop.json proof; visitor stats attempts 0; the link reads used up afterwards |
+| S-DIR-W2D-req          | TA-10     | W   | D   | DIR  | none           | request-link | 64 MiB      | the prompt shows the visitor's own count and bytes and no relay-over-cap line; on-disk sha256 inside the exclusive drop subfolder, nothing loose beside it; visitor arrived line, its SHA line only when verified equals N; desktop `Received N files` and the SHA sentence; D pill `Direct` and W `direct`; desktop.json proof; visitor stats attempts 0; the link reads used up afterwards |
 | S-REL-W2D-req          | TA-11     | W   | D   | REL  | W sender       | request-link | 4 MiB       | as TA-10 with W `local=relay` and D pill `Relay` |
-| S-REL-W2D-reqhideip    | TA-12     | W   | D   | REL  | D hideIP       | request-link | 4 MiB       | as TA-11 with the relay forced by the host; the over 2 GB prompt warning read from prompt text only (no bytes moved); optional |
+| S-REL-W2D-reqhideip    | TA-12     | W   | D   | REL  | D hideIP       | request-link | 4 MiB       | as TA-11 with the relay forced by the host (D pill `Relay`, the visitor unforced); optional. The over 2 GB prompt line is not reachable from a web visitor, which blocks a relayed drop over the cap before its metadata (a spec gap) |
 | H-DIR-W2D-reqblip      | TA-13     | W   | D   | DIR  | none           | request-link | 64 MiB      | the host's `/ws` cut 5 s through the blip proxy while the link waits: a visitor in the gap gets the not-connected copy; the desktop shows Reconnecting then Waiting; after the reclaim the visitor's Try again delivers and hashes match; head only, loopback only |
 | H-DIR-W2D-reqdecline   | TA-15     | W   | D   | DIR  | none           | request-link | 1 MiB       | Decline: the visitor reads the declined copy; Keep waiting sends `request-reopen`; a second visitor context delivers and hashes match |
 | S-DIR-W2W-reqopen      | TA-17     | W   | W   | DIR  | none           | link         | 12 MiB      | the S-DIR-W2W oracles with a link open on the desktop; the link still waits afterwards |
@@ -131,12 +139,21 @@ The host verbs on the wailsdev lane (`scripts/lib/desktop.mjs`
 
 | Verb              | Clicks                                                  | Reads back                               |
 | ----------------- | ------------------------------------------------------- | ---------------------------------------- |
-| makeRequestLink   | `Receive`, `Request link, beta`, `In 7 days` (7d only), `Make link` | `Copy link` shows (waiting)   |
-| readRequestLink   | nothing                                                 | `GetRequestLink` link, matched to the screen |
+| makeRequestLink   | `Receive`, `Request link, beta`, `Make another link` (from the ended view), the Save to field (the run's own folder, required), `In 7 days` (7d only), `Make link` | the field's value, `Copy link` shows (waiting) or the lane's error code, the link's folder in `GetRequestLink` |
+| readRequestLink   | nothing                                                 | `GetRequestLink` link, matched to the link block's input |
 | acceptRequest     | `Accept`, at least 1200 ms after the prompt was seen    | `Accept` gone (the prompt left)          |
 | declineRequest    | `Decline`, at least 1200 ms after the prompt was seen   | `Keep waiting` shows (declined)          |
 | keepWaiting       | `Keep waiting` (only from the declined view)            | `Copy link` shows again (waiting)        |
 | closeRequestLink  | `Close link`                                            | `Make another link` shows (ended)        |
+| readRequestResult | nothing                                                 | the done heading `RECEIVED N FILES, ...` and whether the SHA sentence shows |
+| dismissRequestResult | `Dismiss`                                          | `Dismiss` gone (the lane back to Ready, the Beta switch unlocked) |
+| cancelRequestDrop | `Cancel drop` (teardown of a drop still receiving)     | `Cancel drop` gone                       |
+| setAddresses      | nothing (the app's own `SetSettings`, TA-13 only)       | `GetSettings` server and web             |
+
+The runner also flips Settings > Beta > `Request links` on (and back off
+at teardown when it turned it on), through the same label click as Hide my
+IP, retried for 10 s while the app's own feature probe keeps the switch
+disabled.
 
 ## What each surface can do
 

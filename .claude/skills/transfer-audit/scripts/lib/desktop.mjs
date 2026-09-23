@@ -156,14 +156,19 @@ export const RE = Object.freeze({
     // wraps it, which carries the row description too, so this matches a
     // part of that name rather than all of it.
     hideIpRow: /Hide my IP address/i,
+    // Settings > Beta > Request links (S2), named the same way.
+    requestLinksRow: /^Request links/i,
+    // A request drop's done heading (DN1): RECEIVED 12 FILES, 38.0 GB.
+    requestDone: /^RECEIVED (\d+) FILES?, .+$/i,
 });
 
 /**
  * The request link host's fixed UI strings, quoted from the frozen copy
- * (work/16-design/cp-3/approved-copy-desktop.md, the row id beside each).
- * The components that render them are not on this base yet, so the roles
- * are INFERRED (buttons, as every other action in App.tsx) and settle when
- * the desktop lane lands; the names are the contract.
+ * (work/16-design/cp-3/approved-copy-desktop.md, the row id beside each;
+ * desktop/frontend/src/requestCopy.ts and settings.ts carry the same bytes,
+ * approvedCopy.test.ts checks them). Every action is a button in
+ * RequestLinkView.tsx, the Beta row is a SettingRow switch and the save
+ * folder is an input found by its placeholder.
  */
 export const REQUEST_STRINGS = Object.freeze({
     choice: 'Request link, beta', // R3, the row choice's accessible name
@@ -176,7 +181,30 @@ export const REQUEST_STRINGS = Object.freeze({
     decline: 'Decline', // P9
     keepWaiting: 'Keep waiting', // D3
     makeAnother: 'Make another link', // X3, after Close link
+    betaSwitch: 'Request links', // S2, Settings > Beta
+    saveToPlaceholder: 'Downloads\\Floe requests', // R9, the Save to field
+    dismiss: 'Dismiss', // DN2, puts a result away
+    cancelDrop: 'Cancel drop', // V4
+    verifiedLine: "Every file arrived intact: its SHA-256 matched the sender's.", // DN3
 });
+
+/**
+ * A lane code as the host sent it (a key into requestCopy.ts, never text),
+ * or `?` for anything that is not one: it is quoted into messages.
+ */
+export function safeCode(code) {
+    const s = String(code ?? '');
+    return /^[a-z0-9-]{1,40}$/.test(s) ? s : '?';
+}
+
+/** Two paths name the same folder (Windows compares without case). */
+export function samePath(a, b) {
+    if (typeof a !== 'string' || typeof b !== 'string' || !a || !b)
+        return false;
+    const norm = (p) =>
+        path.resolve(p).replace(/[\\/]+$/, '').toLowerCase();
+    return norm(a) === norm(b);
+}
 
 /**
  * The prompt's buttons ignore input for 1 s after it appears (spec 06 P9,
@@ -1337,12 +1365,20 @@ export class PlaywrightDriver {
 
     /**
      * Make link: the Receive view, the CODE / REQUEST LINK row's request
-     * choice, the lifetime (24h is the default), Make link, then wait for
-     * the waiting view (Copy link). Never types a label: the owner's label
-     * is optional (R7) and a cell has no reason to put text on screen.
+     * choice, the Save to folder, the lifetime (24h is the default), Make
+     * link, then wait for the waiting view (Copy link). Never types a
+     * label: the owner's label is optional (R7) and a cell has no reason to
+     * put text on screen.
+     *
+     * saveDir is required and must read back: an empty Save to field means
+     * the owner's own Downloads\Floe requests (R9), and an audit drop never
+     * lands there, the same rule as the Receive view's desktop-savedir SKIP.
+     * The folder the host reports for the link is checked too, since Go
+     * trims and owns the value.
      */
     async makeRequestLink({
         lifetime = '24h',
+        saveDir = null,
         timeoutMs = 30_000,
         now = Date.now,
         nap = sleep,
@@ -1352,8 +1388,30 @@ export class PlaywrightDriver {
                 'request',
                 `desktop wailsdev: MakeLink takes 24h or 7d, not ${lifetime}`
             );
+        if (typeof saveDir !== 'string' || !path.isAbsolute(saveDir))
+            throw new PhaseError(
+                'request',
+                'desktop wailsdev: MakeLink needs the run\'s own save folder (an absolute path); an empty Save to field means the owner\'s Downloads\\Floe requests',
+                { harness: true, reason: 'request-savedir' }
+            );
         await this._button(STRINGS.tabReceive).first().click();
         await this._button(REQUEST_STRINGS.choice).first().click();
+        // A link the last cell closed leaves the ended view (X2 and X3),
+        // which offers Make another link instead of the form.
+        if (await this._visible(REQUEST_STRINGS.makeAnother))
+            await this._button(REQUEST_STRINGS.makeAnother).first().click();
+        const field = this.page.getByPlaceholder(
+            REQUEST_STRINGS.saveToPlaceholder,
+            { exact: true }
+        );
+        await field.fill(saveDir);
+        const typed = await field.inputValue();
+        if (typed !== saveDir)
+            throw new PhaseError(
+                'request',
+                `desktop wailsdev: the Save to field reads "${typed}", not the run's folder; no link is made`,
+                { verdict: 'SKIP', reason: 'desktop-savedir' }
+            );
         if (lifetime === '7d') {
             const text = REQUEST_STRINGS.lifetime7d;
             const select = this.page
@@ -1364,18 +1422,46 @@ export class PlaywrightDriver {
             else await this.page.getByText(text, { exact: true }).click();
         }
         await this._button(REQUEST_STRINGS.makeLink).first().click();
-        const waitingAt = await this._waitShown(
-            REQUEST_STRINGS.copyLink,
-            timeoutMs,
-            { now, nap }
-        );
-        return { made: true, lifetime, waitingAt };
+        // The waiting view, or the error the lane answered with (E1 to E8:
+        // request-1 gone, the network limit, no relay for Hide my IP...),
+        // which would otherwise cost the whole timeout.
+        const start = now();
+        let waitingAt = null;
+        for (;;) {
+            if (await this._visible(REQUEST_STRINGS.copyLink)) {
+                waitingAt = now();
+                break;
+            }
+            const s = await this.requestSnapshot();
+            if (s && s.state === 'error')
+                throw new PhaseError(
+                    'request',
+                    `request-flow: Make link ended in error (${safeCode(s.code)})`,
+                    { signatureKey: 'request-flow', code: safeCode(s.code) }
+                );
+            if (now() - start >= timeoutMs)
+                throw new PhaseError(
+                    'request',
+                    `desktop wailsdev: "${REQUEST_STRINGS.copyLink}" did not appear within ${timeoutMs} ms`
+                );
+            await nap(REQUEST_POLL_MS);
+        }
+        const snap = await this.requestSnapshot();
+        if (snap && !samePath(snap.saveDir, saveDir))
+            throw new PhaseError(
+                'request',
+                'desktop wailsdev: the host holds the link with a save folder that is not the run\'s',
+                { verdict: 'SKIP', reason: 'desktop-savedir' }
+            );
+        return { made: true, lifetime, saveDir, waitingAt };
     }
 
     /**
      * Read link: the full link from GetRequestLink, checked against what
-     * the waiting view shows when the view shows it. The value is returned
-     * to the caller for the visitor leg only; `shown` is the redacted form.
+     * the waiting view shows when the view shows it (a read-only input in
+     * RequestLinkView.tsx LinkBlock, so its value, plus any text node). The
+     * value is returned to the caller for the visitor leg only; `shown` is
+     * the redacted form.
      */
     async readRequestLink() {
         const snap = await this.requestSnapshot();
@@ -1388,9 +1474,19 @@ export class PlaywrightDriver {
         // The view may drop the scheme (the mock shows floe.one/r/...), so
         // the check is that the host's link ends with what is on screen.
         const bare = link.replace(/^https?:\/\//i, '');
-        const onScreen = (
-            await this.readText(/\/r\/[A-Za-z0-9_-]+#[0-9a-f-]{36}$/i)
-        ).filter((t) => /^(https?:\/\/)?[^\s/#]+\/r\//i.test(t));
+        const values = await this.page.evaluate(() =>
+            [...document.querySelectorAll('input')]
+                .map((e) => String(e.value || '').trim())
+                .filter(Boolean)
+        );
+        const onScreen = [
+            ...values,
+            ...(await this.readText(/\/r\/[A-Za-z0-9_-]+#[0-9a-f-]{36}$/i)),
+        ].filter(
+            (t) =>
+                /\/r\/[A-Za-z0-9_-]+#[0-9a-f-]{36}$/i.test(t) &&
+                /^(https?:\/\/)?[^\s/#]+\/r\//i.test(t)
+        );
         if (onScreen.length && !onScreen.some((t) => link.endsWith(t) || t === bare))
             throw new PhaseError(
                 'request',
@@ -1458,6 +1554,76 @@ export class PlaywrightDriver {
             { now, nap }
         );
         return { closed: true, endedAt };
+    }
+
+    /**
+     * Put a done or stopped result away (DN2 Dismiss). The Beta switch stays
+     * locked while the lane holds a result (settingsLocked in
+     * requestLink.ts), so this comes before any switch restore.
+     */
+    async dismissRequestResult({ now = Date.now, nap = sleep } = {}) {
+        await this._button(REQUEST_STRINGS.dismiss).first().click();
+        const at = await this._waitGone(REQUEST_STRINGS.dismiss, 10_000, {
+            now,
+            nap,
+        });
+        return { dismissed: true, at };
+    }
+
+    /** Stop a drop that is still receiving (V4 Cancel drop). */
+    async cancelRequestDrop({ now = Date.now, nap = sleep } = {}) {
+        await this._button(REQUEST_STRINGS.cancelDrop).first().click();
+        const at = await this._waitGone(REQUEST_STRINGS.cancelDrop, 10_000, {
+            now,
+            nap,
+        });
+        return { canceled: true, at };
+    }
+
+    /**
+     * The done view as the owner reads it: the DN1 heading's file count and
+     * whether the DN3 SHA sentence shows. Both are fixed copy; the file
+     * names the view lists are never read here.
+     */
+    async readRequestResult() {
+        const heading = (await this.readText(RE.requestDone))[0] ?? null;
+        const m = heading ? RE.requestDone.exec(heading) : null;
+        const verified = await this.readText(
+            new RegExp(
+                `^${REQUEST_STRINGS.verifiedLine.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`
+            )
+        );
+        return {
+            heading,
+            files: m ? Number(m[1]) : null,
+            verifiedLine: verified.length > 0,
+        };
+    }
+
+    /**
+     * Point the host at another signaling and web origin through the app's
+     * own SetSettings, keeping Hide my IP and reportStats as they are, and
+     * return what GetSettings reads afterwards. Go reads the addresses when
+     * a link is made (MakeRequestLink, endpoints in endpoints.go), so this
+     * lands before Make link; only the TA-13 blip uses it, and the runner
+     * puts the old values back the same way.
+     */
+    async setAddresses(server, web) {
+        return this.page.evaluate(
+            async ([s, w]) => {
+                const app = window.go && window.go.main && window.go.main.App;
+                if (
+                    !app ||
+                    typeof app.GetSettings !== 'function' ||
+                    typeof app.SetSettings !== 'function'
+                )
+                    return null;
+                const cur = await app.GetSettings();
+                await app.SetSettings(s, w, cur.hideIP, cur.reportStats);
+                return app.GetSettings();
+            },
+            [String(server ?? ''), String(web ?? '')]
+        );
     }
 
     async capture(file) {
@@ -1637,6 +1803,8 @@ export class DesktopLeg extends Leg {
         this.openDriver = opts.openDriver ?? PlaywrightDriver.open;
         this.shellMenu = opts.shellMenu ?? shellMenuGuard;
         this.shellMenuArmed = false;
+        // Set by lib/request.mjs on a request link host; run by stop().
+        this.beforeClose = opts.beforeClose ?? null;
         this._code = null;
         this._link = null;
         this._sampler = null;
@@ -2662,6 +2830,16 @@ export class DesktopLeg extends Leg {
                     }
                 } catch (err) {
                     this.note(`cancel: ${err.message}`);
+                }
+                // A request link host closes its link and puts its switches
+                // back here (lib/request.mjs releaseHost), so an interrupt's
+                // shutdown() leaves no link open in the dev app either.
+                if (typeof this.beforeClose === 'function') {
+                    try {
+                        await this.beforeClose(this);
+                    } catch (err) {
+                        this.note(`before close: ${err.message}`);
+                    }
                 }
                 await this.restoreRelayForcer();
                 await this.restoreSaveDir();

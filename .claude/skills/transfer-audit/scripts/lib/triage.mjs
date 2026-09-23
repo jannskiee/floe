@@ -16,6 +16,12 @@ export const SIGNATURES = Object.freeze([
     ['route-disagree', /route-disagree/, false, 'route-disagree'],
     ['forcer-ineffective', /forcer-ineffective/, false, 'forcer-ineffective'],
     ['stats-attempt', /stats-attempt/, false, 'stats-attempt'],
+    // A request link cell's own failures (lib/request.mjs): a flow step the
+    // host or the visitor did not reach, and a drop that did not land as
+    // exactly the manifest inside its subfolder. Never retried: a retry
+    // that passes would make a lane or visitor defect read as luck.
+    ['request-flow', /request-flow/, false, 'request-flow'],
+    ['request-manifest', /request-manifest/, false, 'request-manifest'],
     // A .part left behind by a receiver that exited clean is a product
     // defect (the staged write was never committed or abandoned), never a
     // harness fault.
@@ -179,6 +185,8 @@ export const TRIAGE_KEYS = new Set([
     'hash-not-refused',
     'hash-refusal-code',
     'wsl-host-ip',
+    'request-flow',
+    'request-manifest',
 ]);
 
 export const INFRA_KEYS = new Set([

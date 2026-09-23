@@ -966,7 +966,11 @@ test('Safety denominator: a CLI receiver leg that fails in the connect phase sti
     assert.deepEqual(ok.safety.cliReceiversOptedOut, { ok: 1, total: 1 });
 });
 
-test('a request link cell never runs as a plain cell: ERROR request-runner-pending before any leg starts', async () => {
+test('a request link cell never runs as a plain cell: runCell hands it to the request runner, and no plain leg starts', async () => {
+    // lib/request.mjs owns these cells (request.test.mjs drives each one on
+    // the request fake world). Here the desktop adapter is the plain fake,
+    // which is no wailsdev host, so the runner SKIPs before anything starts:
+    // the point is that neither cell falls through to the plain legs.
     const reqPlan = cellPlan({
         profile: 'head',
         cells: ['H-DIR-W2D-req', 'H-DIR-C2D-reqopen'],
@@ -975,21 +979,27 @@ test('a request link cell never runs as a plain cell: ERROR request-runner-pendi
             desktop: { available: true },
         },
         server: 'http://localhost:3001',
+        desktopMode: 'wailsdev',
     }).filter((c) => c.request);
     assert.equal(reqPlan.length, 2);
     for (const cell of reqPlan) {
         assert.equal(cell.verdict, null, `${cell.id} is executable in the plan`);
-        let legs = 0;
+        let started = 0;
         const ctx = makeCtx(fakeWorld(), {}, (adapters) => {
             for (const s of ['web', 'cli', 'desktop'])
-                wrapLeg(adapters, s, () => (legs += 1));
+                wrapLeg(adapters, s, (leg) => {
+                    const start = leg.start.bind(leg);
+                    leg.start = async () => {
+                        started += 1;
+                        return start();
+                    };
+                });
             return adapters;
         });
         const r = await runCell(small(structuredClone(cell)), ctx);
-        assert.equal(r.verdict, 'ERROR', cell.id);
-        assert.equal(r.reason, 'request-runner-pending');
-        assert.equal(r.countsForExit, true);
-        assert.equal(legs, 0, `${cell.id} started no leg`);
+        assert.equal(r.verdict, 'SKIP', cell.id);
+        assert.equal(r.reason, 'request-host-uia-pending');
+        assert.equal(started, 0, `${cell.id} started no leg`);
     }
 });
 
