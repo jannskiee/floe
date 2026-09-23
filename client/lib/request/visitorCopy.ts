@@ -215,8 +215,10 @@ export function clampCount(n: unknown, total: number): number {
     return typeof n === 'number' && Number.isInteger(n) ? Math.min(Math.max(n, 0), Math.max(0, total)) : 0;
 }
 
+/** 4.15.2's saved line; singular when N is 1 (D-123). */
 function savedLine(saved: number, total: number): string {
-    return saved === 0 ? visitorCopy.nothingSent : `${saved} of ${total} files were saved.`;
+    if (saved === 0) return visitorCopy.nothingSent;
+    return total === 1 ? `${saved} of 1 file was saved.` : `${saved} of ${total} files were saved.`;
 }
 
 export interface RefusalCopy {
@@ -308,9 +310,15 @@ export function displayPath(path: string, max = 56): string {
 }
 
 /** C-111. The flow form ("to send the rest.") when nothing is left or the
- *  count is unknown. */
+ *  count is unknown. Singular when N is 1 (D-123), where the one file left
+ *  is "it". */
 function lostLine(arrived: number, total: number): string {
     const left = total - arrived;
+    if (total === 1) {
+        return left > 0
+            ? `${arrived} of 1 file arrived. Ask them for a new link to send it.`
+            : `${arrived} of 1 file arrived. ${visitorCopy.askForTheRest}`;
+    }
     return left > 0
         ? `${arrived} of ${total} files arrived. Ask them for a new link to send the other ${left}.`
         : `${arrived} of ${total} files arrived. ${visitorCopy.askForTheRest}`;
@@ -422,7 +430,8 @@ export function statusCopy(model: VisitorModel, ctx: StatusContext): StatusCopy 
             if (typeof v === 'number' && Number.isInteger(v) && total > 0 && v === total) {
                 line += ` ${visitorCopy.shaMatched}`;
             }
-            return card('done', `ALL ${total} FILES ARRIVED`, [line]);
+            // C-120, singular when N is 1 (D-123).
+            return card('done', total === 1 ? '1 FILE ARRIVED' : `ALL ${total} FILES ARRIVED`, [line]);
         }
         default:
             return null;
@@ -431,8 +440,10 @@ export function statusCopy(model: VisitorModel, ctx: StatusContext): StatusCopy 
 
 /** The sentence for the persistent role="status" span on entering a state
  *  (4.15.3), or '' where the table has none. The countdown and the ARRIVED
- *  list stay out of it. */
+ *  list stay out of it. SR-03, SR-04 and SR-06 are singular when N is 1
+ *  (D-123). */
 export function announcement(model: VisitorModel, ctx: StatusContext): string {
+    const one = model.total === 1;
     switch (model.state) {
         case 'V6':
         case 'V6c':
@@ -440,11 +451,13 @@ export function announcement(model: VisitorModel, ctx: StatusContext): string {
         case 'V7':
             return visitorCopy.srWaiting;
         case 'V10':
-            return `They accepted. Sending ${model.total} files.`;
+            return one ? 'They accepted. Sending 1 file.' : `They accepted. Sending ${model.total} files.`;
         case 'V13':
-            return `All ${model.total} files arrived.`;
+            return one ? '1 file arrived.' : `All ${model.total} files arrived.`;
         case 'V12':
-            return `Connection lost. ${arrivedCount(model)} of ${model.total} files arrived.`;
+            return one
+                ? `Connection lost. ${arrivedCount(model)} of 1 file arrived.`
+                : `Connection lost. ${arrivedCount(model)} of ${model.total} files arrived.`;
         case 'V4':
         case 'V5a':
         case 'V5b':

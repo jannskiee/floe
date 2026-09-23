@@ -243,6 +243,75 @@ describe('visitor copy: server answers and the attempt states', () => {
     });
 });
 
+describe('visitor copy: a drop of one file says file (D-123)', () => {
+    // The singular rows of the frozen table as amended by D-123 (C-111, C-120,
+    // SR-03, SR-04, SR-06 and the 4.15.2 saved line), each beside its nearest
+    // plural neighbor, N = 2, which keeps the plural form.
+    const one = (state: VisitorModel['state'], patch: Partial<VisitorModel> = {}) => model(state, { total: 1, ...patch });
+    const two = (state: VisitorModel['state'], patch: Partial<VisitorModel> = {}) => model(state, { total: 2, ...patch });
+    const DELIVERED = { acceptedAt: 0, deliveredAt: 1000 };
+
+    it('C-120 and SR-04: the delivered title and its announcement', () => {
+        expect(statusCopy(one('V13', DELIVERED), CTX)?.title).toBe('1 FILE ARRIVED');
+        expect(announcement(one('V13', DELIVERED), CTX)).toBe('1 file arrived.');
+        expect(statusCopy(two('V13', DELIVERED), CTX)?.title).toBe('ALL 2 FILES ARRIVED');
+        expect(announcement(two('V13', DELIVERED), CTX)).toBe('All 2 files arrived.');
+    });
+
+    it('SR-03: the accepted announcement', () => {
+        expect(announcement(one('V10', { ackIndex: 1 }), CTX)).toBe('They accepted. Sending 1 file.');
+        expect(announcement(two('V10', { ackIndex: 1 }), CTX)).toBe('They accepted. Sending 2 files.');
+    });
+
+    it('C-111 and SR-06: connection lost, its line and its announcement', () => {
+        const lost = one('V12', { ackIndex: 1, lost: 'closed' });
+        expect(statusCopy(lost, CTX)).toMatchObject({
+            title: 'Connection lost',
+            lines: ['0 of 1 file arrived. Ask them for a new link to send it.'],
+            showArrived: false,
+        });
+        expect(announcement(lost, CTX)).toBe('Connection lost. 0 of 1 file arrived.');
+        const lostTwo = two('V12', { ackIndex: 1, lost: 'closed' });
+        expect(statusCopy(lostTwo, CTX)?.lines).toEqual([
+            '0 of 2 files arrived. Ask them for a new link to send the other 2.',
+        ]);
+        expect(announcement(lostTwo, CTX)).toBe('Connection lost. 0 of 2 files arrived.');
+        // The one file acked but the delivery never confirmed: nothing is left
+        // to send, so C-111's flow R6 tail, with the singular noun.
+        const acked = one('V12', { ackIndex: 2, lost: 'closed' });
+        expect(statusCopy(acked, CTX)?.lines).toEqual([
+            '1 of 1 file arrived. Ask them for a new link to send the rest.',
+        ]);
+        expect(announcement(acked, CTX)).toBe('Connection lost. 1 of 1 file arrived.');
+    });
+
+    it('the 4.15.2 saved line: 1 of 1 file was saved.', () => {
+        expect(refusalCopy('disk-full', 1, 1).lines).toEqual(['1 of 1 file was saved.']);
+        expect(refusalCopy('hash-mismatch', 1, 1).lines).toEqual([
+            '1 of 1 file was saved.',
+            'Ask them for a new link to send the rest.',
+        ]);
+        expect(refusalCopy('relay-cap', 1, 1).lines).toEqual(['1 of 1 file was saved.']);
+        // Clamped to N, and at 0 the line is the same for every N.
+        expect(refusalCopy('disk-full', 7, 1).lines).toEqual(['1 of 1 file was saved.']);
+        expect(refusalCopy('disk-full', 0, 1).lines).toEqual(['Nothing was sent.']);
+        expect(refusalCopy('disk-full', 1, 2).lines).toEqual(['1 of 2 files were saved.']);
+        // The same line after the visitor's own Cancel (C-100).
+        expect(statusCopy(one('V11a', { ackIndex: 2 }), CTX)?.lines).toEqual(['1 of 1 file was saved.']);
+        expect(statusCopy(two('V11a', { ackIndex: 2 }), CTX)?.lines).toEqual(['1 of 2 files were saved.']);
+    });
+
+    it('no one-file string contains an em or en dash', () => {
+        const dash = new RegExp('[' + String.fromCharCode(0x2013, 0x2014) + ']');
+        for (const s of ['V10', 'V11', 'V11a', 'V12', 'V13'] as const) {
+            for (const ackIndex of [1, 2]) {
+                const m = one(s, { ackIndex, ...DELIVERED, stop: { refusal: 'disk-full', savedCount: ackIndex - 1 } });
+                expect(everythingShown(m)).not.toMatch(dash);
+            }
+        }
+    });
+});
+
 describe('visitor copy: hostile peers', () => {
     const HOSTILE = ['<img src=x onerror=alert(1)>', '$(calc)', String.fromCharCode(0x202e), 'x'.repeat(10_000)];
 
