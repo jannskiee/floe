@@ -23,7 +23,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createHash, randomBytes, randomUUID } from 'crypto';
-import { visitorCopy, refusalCopy } from '../lib/request/visitorCopy';
+import { visitorCopy, refusalCopy, sendingHeader } from '../lib/request/visitorCopy';
 import { metadataFrameBytes } from '../lib/request/metadataBudget';
 import { CONTROL_MSG_MAX, REQUEST_ACK_TIMEOUT_MS, REQUEST_ACK_GRACE_MS } from '../lib/transfer/protocol';
 import {
@@ -276,15 +276,37 @@ test.describe('request-link', () => {
     test('request-link: socket loss after the channel opens causes no teardown', async ({ page, context }) => {
         const stats = await guard(context);
         const frames = await forwardSocketFrames(page);
-        const sent = makeFiles({ 'big.bin': 16 * 1024 * 1024 });
-        const h = host({ decide: 'accept', blipAfter: 'accepted' });
+        const sent = makeFiles({ 'a.bin': 256 * 1024, 'b.bin': 256 * 1024 });
+        // Timed off the harness, never off a heading a fast machine skips
+        // (the first run's failure): the host's own socket blips at file 1's
+        // commit (FM6), and then the harness holds its receive loop for 10 s,
+        // so the page sits in Sending with the channel open on any machine.
+        const h = host({ decide: 'accept', blipAfter: 'file-committed', holdAfterFile: 10_000 });
         await page.goto(await requestLink(h));
-        await pickFiles(page, ['big.bin']);
+        await pickFiles(page, ['a.bin', 'b.bin']);
         await send(page);
-        await expect(page.getByRole('heading', { name: /^SENDING \d+ OF \d+$/ })).toBeVisible();
+        await waitForHostEvent(h, 'holding', 60_000);
+        const names = h.events.map((e) => e.event);
+        expect(names.indexOf('rejoined')).toBeGreaterThan(-1);
+        expect(names.indexOf('rejoined')).toBeLessThan(names.indexOf('holding'));
+        const sending = page.getByRole('heading', {
+            name: new RegExp(`^(${sendingHeader(1, 2)}|${sendingHeader(2, 2)})$`),
+        });
+        await expect(sending).toBeVisible({ timeout: 5_000 });
+
+        const opened = frames.socketsOpened();
+        expect(opened).toBeGreaterThan(0);
         await frames.closePageSockets();
-        await waitForHostEvent(h, 'blip', 30_000);
+        // Non-vacuity: the page really lost its socket and opened a new one
+        // (reconnectionDelay 500 ms, at most 3 s), all inside the hold.
+        await expect.poll(() => frames.socketsOpened(), { timeout: 8_000 }).toBeGreaterThan(opened);
+        await expect(sending).toBeVisible();
+        expect(h.events.some((e) => e.event === 'released')).toBe(false);
+
+        await waitForHostEvent(h, 'released', 20_000);
         await expectDelivered(page, h, sent);
+        // Both transports: the join rode polling, and the reconnect re-joined
+        // nothing.
         expect(framesFor(frames.outgoing, 'request-join')).toHaveLength(1);
         expect(await stats([page])).toBe(0);
     });
