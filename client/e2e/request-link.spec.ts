@@ -37,6 +37,7 @@ import {
     sha256Manifest,
     startRequestHost,
     stunOnlyIce,
+    traceRecords,
     waitForHostEvent,
     type RequestHost,
     type RequestHostOptions,
@@ -120,9 +121,10 @@ test.describe('request-link', () => {
     test('request-link: host absent, then back', async ({ page, context }) => {
         const stats = await guard(context);
         const sent = makeFiles({ 'a.bin': 64 * 1024 });
-        // The harness prints the link and claims the room 20 s later, long
-        // enough for a dev-server compile of /r, a pick and a Send.
-        const h = host({ decide: 'accept', joinAfter: 20_000 });
+        // The harness prints the link and claims the room only when this
+        // side says so, after the page has shown host-absent: no fixed window
+        // that a cold compile of /r could outrun (review 1, F3).
+        const h = host({ decide: 'accept', joinOnStdin: true });
         await page.goto(await requestLink(h));
         await pickFiles(page, ['a.bin']);
         await send(page);
@@ -132,16 +134,20 @@ test.describe('request-link', () => {
         await expect(tryAgain).toBeVisible();
         expect(h.events.some((e) => e.event === 'joined')).toBe(false);
 
+        h.join();
         await waitForHostEvent(h, 'joined', 30_000);
         await tryAgain.click();
         await expectDelivered(page, h, sent);
-        expect(await stats([page])).toBe(0);
+        expect(await stats()).toBe(0);
     });
 
     test('request-link: used link answers room-full while sealed and host-absent after close', async ({ page, context, browser }) => {
         const stats = await guard(context);
         const sent = makeFiles({ 'a.bin': 64 * 1024 });
-        const h = host({ decide: 'delay:15000' });
+        // A's hold must outlast B's whole visit (a new context, a load, a
+        // pick, a Send and the room-full answer). 30 s, not 15 s, leaves
+        // about 25 s of margin on a loaded CI leg (review 1, F4).
+        const h = host({ decide: 'delay:30000' });
         const link = await requestLink(h);
 
         await page.goto(link);
@@ -171,9 +177,9 @@ test.describe('request-link', () => {
         await send(pageC);
         await expect(pageC.getByRole('heading', { name: visitorCopy.hostAbsentTitle })).toBeVisible();
 
-        expect(await stats([page])).toBe(0);
-        expect(await statsB([pageB])).toBe(0);
-        expect(await statsC([pageC])).toBe(0);
+        expect(await stats()).toBe(0);
+        expect(await statsB()).toBe(0);
+        expect(await statsC()).toBe(0);
         await b.close();
         await c.close();
     });
@@ -194,7 +200,7 @@ test.describe('request-link', () => {
         await page.getByRole('button', { name: visitorCopy.backToFiles }).click();
         await send(page);
         await expectDelivered(page, h, sent);
-        expect(await stats([page])).toBe(0);
+        expect(await stats()).toBe(0);
     });
 
     test('request-link: host expired answer times out with nothing sent', async ({ page, context }) => {
@@ -208,7 +214,7 @@ test.describe('request-link', () => {
         await send(page);
         await expect(page.getByRole('heading', { name: visitorCopy.timedOut })).toBeVisible({ timeout: 30_000 });
         expect(Object.keys(sha256Manifest(scratch.outDir))).toEqual([]);
-        expect(await stats([page])).toBe(0);
+        expect(await stats()).toBe(0);
     });
 
     test('request-link: local first-ack timer times out under clock control', async ({ page, context }) => {
@@ -225,7 +231,7 @@ test.describe('request-link', () => {
         // derived from the pair rather than a literal (critic M-04).
         await page.clock.fastForward(REQUEST_ACK_TIMEOUT_MS + REQUEST_ACK_GRACE_MS + 5_000);
         await expect(page.getByRole('heading', { name: visitorCopy.timedOut })).toBeVisible({ timeout: 30_000 });
-        expect(await stats([page])).toBe(0);
+        expect(await stats()).toBe(0);
     });
 
     test('request-link: a 20 s held ack still delivers', async ({ page, context }) => {
@@ -238,11 +244,19 @@ test.describe('request-link', () => {
         await send(page);
         const waiting = page.getByRole('heading', { name: visitorCopy.waitingTitle });
         await expect(waiting).toBeVisible();
-        await waitForHostEvent(h, 'deciding', 30_000);
-        await page.waitForTimeout(19_000);
+        const deciding = await waitForHostEvent(h, 'deciding', 30_000);
+        // Waiting is checked 15 s into the hold, not 19 s: 5 s of margin
+        // before the 20 s accept may end it on a loaded runner (review 1,
+        // F4). The full 20 s is proven by the harness's own gap below.
+        await page.waitForTimeout(Math.max(0, (deciding.receivedAt ?? 0) + 15_000 - Date.now()));
         await expect(waiting).toBeVisible();
+        const accepted = await waitForHostEvent(h, 'accepted', 30_000);
+        // Both lines cross the same pipe; 250 ms covers this side's event
+        // loop reading them late.
+        expect((accepted.receivedAt ?? 0) - (deciding.receivedAt ?? 0)).toBeGreaterThanOrEqual(20_000 - 250);
+        // A terminal state before the accept could not end in a delivery.
         await expectDelivered(page, h, sent);
-        expect(await stats([page])).toBe(0);
+        expect(await stats()).toBe(0);
     });
 
     test('request-link: over-approved refusal shows fixed copy and never the reason', async () => {
@@ -270,7 +284,7 @@ test.describe('request-link', () => {
         await send(page);
         await expectDelivered(page, h, sent);
         expect(directoriesUnder(scratch.outDir).some((d) => d.endsWith('empty'))).toBe(false);
-        expect(await stats([page])).toBe(0);
+        expect(await stats()).toBe(0);
     });
 
     test('request-link: socket loss after the channel opens causes no teardown', async ({ page, context }) => {
@@ -308,7 +322,7 @@ test.describe('request-link', () => {
         // Both transports: the join rode polling, and the reconnect re-joined
         // nothing.
         expect(framesFor(frames.outgoing, 'request-join')).toHaveLength(1);
-        expect(await stats([page])).toBe(0);
+        expect(await stats()).toBe(0);
     });
 
     test('request-link: reopen evicts a stalled visitor and the next visit delivers', async ({ page, context }) => {
@@ -327,7 +341,7 @@ test.describe('request-link', () => {
         await waitForHostEvent(h, 'reopened', 5_000);
         await page.getByRole('button', { name: visitorCopy.tryAgain }).click();
         await expectDelivered(page, h, sent);
-        expect(await stats([page])).toBe(0);
+        expect(await stats()).toBe(0);
     });
 
     test('request-link: hash lines follow verified, and a corrupt hash deletes the file', async ({ page, context }) => {
@@ -354,7 +368,7 @@ test.describe('request-link', () => {
         });
         await expect(page.getByText(visitorCopy.shaMatched)).toHaveCount(0);
         expect(Object.keys(sha256Manifest(scratch.outDir))).toEqual([]);
-        expect(await stats([page])).toBe(0);
+        expect(await stats()).toBe(0);
     });
 
     test('request-link: no socket and no turn-credentials request before Send', async ({ page, context }) => {
@@ -372,7 +386,7 @@ test.describe('request-link', () => {
         await pickFiles(page, ['a.bin']);
         await expect(page.getByRole('button', { name: SEND })).toBeEnabled();
         expect(seen).toEqual([]);
-        expect(await stats([page])).toBe(0);
+        expect(await stats()).toBe(0);
     });
 
     test('request-link: Hide my IP without a relay stops before joining', async ({ page, context }) => {
@@ -401,7 +415,7 @@ test.describe('request-link', () => {
         expect(signaling).toEqual([]);
         expect(frames.socketsOpened()).toBe(0);
         expect(framesFor(frames.outgoing, 'request-join')).toHaveLength(0);
-        expect(await stats([page])).toBe(0);
+        expect(await stats()).toBe(0);
     });
 
     test('request-link: metadata over the cap is refused at pick time', async ({ page, context }) => {
@@ -418,7 +432,7 @@ test.describe('request-link', () => {
             .setInputFiles({ name, mimeType: 'application/octet-stream', buffer: Buffer.from('a') });
         await expect(page.getByText(visitorCopy.pathTooLong)).toBeVisible();
         await expect(page.getByRole('button', { name: SEND })).toHaveCount(0);
-        expect(await stats([page])).toBe(0);
+        expect(await stats()).toBe(0);
     });
 
     test('request-link: beforeunload guards Waiting for accept', async ({ page, context }) => {
@@ -427,15 +441,25 @@ test.describe('request-link', () => {
         const h = host({ decide: 'delay:60000' });
         const dialogs: string[] = [];
 
-        // Ready: no prompt.
+        // Ready: no prompt. Chromium raises beforeunload only after sticky
+        // user activation, so Ready gets a selection and a real click first;
+        // without them this half could never fail (review 1, F5). A prompt
+        // here is accepted, so the page closes either way and the list below
+        // decides.
         const ready = await context.newPage();
         ready.on('dialog', (d) => {
             dialogs.push(`ready:${d.type()}`);
-            void d.dismiss();
+            void d.accept();
         });
         await ready.goto(strayLink());
         await expect(ready.getByRole('heading', { name: visitorCopy.readyEyebrow })).toBeVisible();
+        await pickFiles(ready, ['a.bin']);
+        await expect(ready.getByRole('button', { name: SEND })).toBeEnabled();
+        await ready.getByRole('heading', { name: visitorCopy.readyEyebrow }).click();
+        const readyClosed = ready.waitForEvent('close');
         await ready.close({ runBeforeUnload: true });
+        await readyClosed;
+        expect(dialogs).toEqual([]);
 
         // Waiting (V7): the browser's own prompt.
         page.on('dialog', (d) => {
@@ -450,11 +474,18 @@ test.describe('request-link', () => {
         await page.close({ runBeforeUnload: true });
         await stillOpen;
         expect(dialogs).toEqual(['waiting:beforeunload']);
-        expect(await stats([])).toBe(0);
+        expect(await stats()).toBe(0);
     });
 
-    test('request-link: Hide my IP delivers over the local relay with relay-only candidates', async ({ page, context }) => {
+    test('request-link: Hide my IP delivers over the local relay with relay-only candidates', async ({ page, context, trace }, testInfo) => {
         test.skip(process.env.FLOE_E2E_LOCAL_TURN !== '1', 'needs the SETUP-04 local coturn; never on CI');
+        // The real /api/turn-credentials answer carries coturn credentials,
+        // and a trace keeps every response body, so this cell never runs
+        // while a trace records (review 1, F7). trace is a worker option,
+        // which Playwright refuses to set in a describe group, so the guard
+        // is here, before the first request: run it without --trace and with
+        // --retries=0.
+        expect(traceRecords(trace, testInfo.retry), 'run the local relay cell without --trace').toBe(false);
         // No stunOnlyIce here: this cell needs the relay the local server serves.
         const stats = await guard(context, { stunOnly: false });
         const frames = await forwardSocketFrames(page);
@@ -478,6 +509,6 @@ test.describe('request-link', () => {
         const route = await waitForHostEvent(h, 'route', 5_000);
         expect(route.path).toBe('relay');
         await expect(page.getByText(/, relay\.( |$)/)).toBeVisible();
-        expect(await stats([page])).toBe(0);
+        expect(await stats()).toBe(0);
     });
 });

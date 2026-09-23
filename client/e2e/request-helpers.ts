@@ -14,7 +14,7 @@
  * reads, logs or attaches a TURN response.
  */
 
-import type { BrowserContext, Page, WebSocketRoute } from '@playwright/test';
+import type { BrowserContext, Page, PlaywrightWorkerOptions, WebSocketRoute } from '@playwright/test';
 import { createHash } from 'crypto';
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative, sep } from 'path';
@@ -24,6 +24,10 @@ import { SERVER_URL, WEB_URL } from './helpers';
 
 export interface RequestHostEvent {
     event: string;
+    /** Date.now() when this side read the line; set here, never by the
+     *  harness. Two events' gap is the harness's own gap, since both lines
+     *  cross the same pipe. */
+    receivedAt?: number;
     [field: string]: unknown;
 }
 
@@ -44,6 +48,8 @@ export interface RequestHostOptions {
     timeout?: string;
     /** -join-after: print the link, then claim the room this many ms later. */
     joinAfter?: number;
+    /** -join-on-stdin: print the link, then claim the room on `join()`. */
+    joinOnStdin?: boolean;
     /** -hold-after-file: hold the receive loop this many ms after the first
      *  committed file, between the `holding` and `released` events. */
     holdAfterFile?: number;
@@ -56,6 +62,8 @@ export interface RequestHost {
     exited: Promise<number | null>;
     /** Every event so far and a bounded stderr tail, for failure messages. */
     describe(): string;
+    /** Release a -join-on-stdin host into its room. */
+    join(): void;
     stop(): void;
 }
 
@@ -70,7 +78,8 @@ export function startRequestHost(opts: RequestHostOptions): RequestHost {
     if (opts.timeout) args.push('-timeout', opts.timeout);
     if (opts.joinAfter !== undefined) args.push('-join-after', String(opts.joinAfter));
     if (opts.holdAfterFile !== undefined) args.push('-hold-after-file', String(opts.holdAfterFile));
-    const proc = spawn(E2E_HOST_BINARY, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    if (opts.joinOnStdin) args.push('-join-on-stdin');
+    const proc = spawn(E2E_HOST_BINARY, args, { stdio: [opts.joinOnStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
     const events: RequestHostEvent[] = [];
     const host = { proc, events, outDir: opts.outDir } as RequestHost & { waiters: Array<() => void>; closed: boolean };
     host.waiters = [];
@@ -93,6 +102,8 @@ export function startRequestHost(opts: RequestHostOptions): RequestHost {
             } catch {
                 parsed = { event: 'unparsed-line' };
             }
+            if (typeof parsed !== 'object' || parsed === null) parsed = { event: 'unparsed-line' };
+            parsed.receivedAt = Date.now();
             events.push(parsed);
             host.waiters.splice(0).forEach((w) => w());
         }
@@ -107,6 +118,10 @@ export function startRequestHost(opts: RequestHostOptions): RequestHost {
         proc.on('error', () => done(-1));
     });
     host.describe = () => `${JSON.stringify(events)}${stderrTail ? ` stderr tail: ${stderrTail}` : ''}`;
+    host.join = () => {
+        if (!proc.stdin) throw new Error('join() needs a host started with joinOnStdin');
+        proc.stdin.write('\n');
+    };
     host.stop = () => {
         if (!host.closed) proc.kill();
     };
@@ -203,31 +218,48 @@ export function deliveredMismatch(outDir: string, sent: Record<string, string>):
 }
 
 /**
- * Count stats attempts for the whole context: every POST to the report
- * endpoint (aborted, so nothing leaves the machine) and every page-side
- * `floe:bytes-reported` event. Returns a reader for the total.
+ * Count stats attempts for the whole context: every request to a stats route,
+ * GET or POST, from any page (report POSTs are also aborted, so nothing leaves
+ * the machine), and every page-side `floe:bytes-reported` event. Both counts
+ * live on this side, so they survive a navigation and a closed page (review
+ * 1, F6). Returns a reader for the total.
  */
-export async function countStatsAttempts(context: BrowserContext): Promise<(pages: Page[]) => Promise<number>> {
-    let routed = 0;
-    await context.route('**/api/stats/report', (route) => {
-        routed++;
-        return route.abort();
+export async function countStatsAttempts(context: BrowserContext): Promise<() => Promise<number>> {
+    let requests = 0;
+    let events = 0;
+    context.on('request', (r) => {
+        if (/\/api\/stats(\/|\?|$)/.test(r.url())) requests++;
+    });
+    await context.route('**/api/stats/report', (route) => route.abort());
+    await context.exposeBinding('__floeStatsEvent', () => {
+        events++;
     });
     await context.addInitScript(() => {
-        const w = window as unknown as { __floeStatsEvents?: number };
-        w.__floeStatsEvents = 0;
         window.addEventListener('floe:bytes-reported', () => {
-            w.__floeStatsEvents = (w.__floeStatsEvents ?? 0) + 1;
+            void (window as unknown as { __floeStatsEvent: () => Promise<void> }).__floeStatsEvent();
         });
     });
-    return async (pages: Page[]) => {
-        let events = 0;
-        for (const p of pages) {
-            if (p.isClosed()) continue;
-            events += await p.evaluate(() => (window as unknown as { __floeStatsEvents?: number }).__floeStatsEvents ?? 0);
-        }
-        return routed + events;
-    };
+    return async () => requests + events;
+}
+
+/**
+ * Whether Playwright records a trace for this attempt under this trace option.
+ * Unknown and future modes count as recording.
+ */
+export function traceRecords(trace: PlaywrightWorkerOptions['trace'], retry: number): boolean {
+    const mode = typeof trace === 'string' ? trace : trace.mode;
+    switch (mode) {
+        case 'off':
+            return false;
+        case 'on-first-retry':
+            return retry === 1;
+        case 'on-all-retries':
+            return retry > 0;
+        case 'retain-on-first-failure':
+            return retry === 0;
+        default:
+            return true;
+    }
 }
 
 /**
