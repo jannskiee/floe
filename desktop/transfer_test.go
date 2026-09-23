@@ -169,12 +169,10 @@ func TestReceiveByCodeRequestLinkSendsNoToast(t *testing.T) {
 // either the real engine sender or a raw one that writes wire frames itself.
 
 // pairingFake is a fake server whose ICE list keeps every pairing on this
-// machine.
+// machine (every fake's default since review 2b N4; kept for its name).
 func pairingFake(t *testing.T) *fakeSignalServer {
 	t.Helper()
-	f := newFakeSignalServer(t)
-	f.set(func(f *fakeSignalServer) { f.turnBody = `[{"urls":"stun:127.0.0.1:9"}]` })
-	return f
+	return newFakeSignalServer(t)
 }
 
 // dropApp is a lane on a pairing fake with a link waiting. before runs on the

@@ -85,11 +85,19 @@ type fakeSignalServer struct {
 	statsPosts    []string // bodies of POST /api/stats/report
 }
 
+// localTurnBody is the fake's ICE list: one STUN URL on the loopback discard
+// port, which nothing answers and which never leaves this machine.
+const localTurnBody = `[{"urls":"stun:127.0.0.1:9"}]`
+
 // newFakeSignalServer starts the fake: a healthy server with request-1 that
 // seats every token join as host.
 func newFakeSignalServer(t *testing.T) *fakeSignalServer {
 	t.Helper()
-	f := &fakeSignalServer{t: t, role: "host", features: true}
+	// The ICE list is one STUN URL on the loopback discard port, so a pairing
+	// on any fake gathers on this machine only; without it ice.FetchDetail
+	// would fall back to public STUN (review 2b N4). A test that needs the
+	// unreadable list sets turnBody to "".
+	f := &fakeSignalServer{t: t, role: "host", features: true, turnBody: localTurnBody}
 	up := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
