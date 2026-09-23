@@ -484,7 +484,10 @@ func roomFromLink(t *testing.T, link string) string {
 	return room
 }
 
-// visit is a Go visitor: request-join, answer the host's offer, send path.
+// visit is a Go visitor: request-join, answer the host's offer, send path. It
+// waits for the host's received, as the /r page does, so nil means the host
+// committed the file and a refusal after the end frame comes back as that
+// refusal; the host's own close is what ends a wait with neither.
 func visit(url, room, path string) error {
 	sc, err := signaling.Connect(url)
 	if err != nil {
@@ -506,9 +509,10 @@ func visit(url, room, path string) error {
 	}
 	early := conn.Early()
 	return transfer.SendFilesWithOptions(dc, []string{path}, "visitor", transfer.SendOptions{
-		OnProgress: func(transfer.Progress) {},
-		Messages:   early.Msgs,
-		Closed:     early.Closed,
+		OnProgress:      func(transfer.Progress) {},
+		Messages:        early.Msgs,
+		Closed:          early.Closed,
+		RequireReceived: true,
 	})
 }
 
@@ -690,6 +694,9 @@ func TestRequestModeCorruptHashRefusesTheFile(t *testing.T) {
 	if code := h.exitCode(t); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
+	// Strict: the visitor waits for received, so the refusal the host sends
+	// after its hash compare can no longer lose to a drained buffer (it did 1
+	// in 40 idle and 1 in 4 loaded before, FT-GO-CONFIRMS).
 	var stopped *transfer.PeerStoppedError
 	if err := <-visitErr; !errors.As(err, &stopped) || stopped.Code != transfer.CodeHashMismatch {
 		t.Fatalf("visitor got %v, want a hash-mismatch stop", err)

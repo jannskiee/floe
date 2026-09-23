@@ -56,6 +56,25 @@ func TestSendOutcomeWords(t *testing.T) {
 	}
 }
 
+// -send waits for the host's received (RequireReceived), so a host that closes
+// after the last byte without it, or without a refusal, ended the drop without
+// confirming it. That is the crafted modes' host-closed, with their exit code,
+// and never "delivered" or "failed"; the engine's sentence is not printed.
+func TestSendOutcomeClosedBeforeReceivedIsHostClosed(t *testing.T) {
+	for name, err := range map[string]error{
+		"bare":    transfer.ErrClosedBeforeReceived,
+		"wrapped": fmt.Errorf("x: %w", transfer.ErrClosedBeforeReceived),
+	} {
+		ev, exit := sendOutcome(err)
+		if ev["event"] != "send-ended" || ev["outcome"] != "host-closed" || exit != exitHostClosed {
+			t.Errorf("%s: event %v exit %d, want outcome host-closed exit %d", name, ev, exit, exitHostClosed)
+		}
+		if len(ev) != 2 {
+			t.Errorf("%s: event %v carries more than its event and outcome", name, ev)
+		}
+	}
+}
+
 // The crafted modes end on the host's refusal (its code, allowlisted), the
 // host closing without one, or the bound; a refusal already queued when the
 // channel closes still counts as the refusal.

@@ -205,12 +205,12 @@ func parseFlags(args []string) (config, error) {
 // refusal from a transport failure without parsing text. usageText documents
 // them; TestUsageTextNamesEveryExitCode keeps the two in step.
 const (
-	exitDelivered   = 0 // -send: every file acked and delivered
+	exitDelivered   = 0 // -send: the host said received after committing every file
 	exitFailed      = 1 // a local, signaling, ICE or transport failure, the -timeout watchdog, or a stop the engine could not name
 	exitUsage       = 2 // bad flags, including a -server that is not local or private
 	exitPeerRefused = 3 // the host refused with a code (the event's "code" is the parsed code, or "other")
 	exitRelayGate   = 4 // -send: the visitor's own relay gate blocked before any file byte moved
-	exitHostClosed  = 5 // crafted modes: the host closed without a refusal code (-bad-sdp: the host left)
+	exitHostClosed  = 5 // the host closed without a refusal code: a crafted mode (-bad-sdp: the host left), or -send after the last byte with no received
 	exitBound       = 6 // crafted modes: the wait bound ran out and the host had not ended it
 	exitNotJoined   = 7 // the server did not seat this visitor (host-absent, room-full, refused, ...): CELL-06 tells it from a transport failure by the code
 )
@@ -229,12 +229,13 @@ Hostile flags (one per run): -hostile-meta f2|f4b|f5|f6, -hostile-name,
 -abort-reason <text>, -junk-flood, -bad-sdp, -skip-relay-gate.
 
 Exit codes (the last event line names the same word):
-  0  delivered: -send, every file acked and delivered
+  0  delivered: -send, the host said received after committing every file
   1  failed: a local, signaling, ICE or transport failure, the timeout, or an unnamed stop
   2  usage: bad flags, or a -server that is not local or private
   3  peer-refused: the host refused; "code" is its refusal code or other, "sentence" the engine's fixed text
   4  relay-gate: -send, the visitor's own relay gate blocked before any file byte moved
-  5  host-closed: a crafted mode, the host closed without a code (-bad-sdp: the host left)
+  5  host-closed: the host closed without a code: a crafted mode (-bad-sdp: the host left),
+     or -send after the last byte and before the host said received
   6  bound: a crafted mode, the wait ran out and the host had not ended it
   7  not-joined: the server did not seat this visitor; "result" is the client's fixed answer word
 `
