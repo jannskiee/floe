@@ -216,6 +216,56 @@ func abortFromPeer(raw []byte, localVer, updateHint string, total int) error {
 	return &peerReason{compatErrorFromIncompatible(localVer, updateHint, incompat)}
 }
 
+// waitFlushed waits until the forwarder has moved every frame that arrived
+// before the close into ackCh. After the close it does only non-blocking
+// work, so this returns at once in practice; the bound is a backstop.
+func waitFlushed(flushed <-chan struct{}) {
+	select {
+	case <-flushed:
+	case <-time.After(time.Second):
+	}
+}
+
+// stopBeforeClose is what a wait checks when the channel has closed. A
+// receiver that refuses sends its incompatible frame, flushes it and then
+// closes, so on this side the frame and the close can be ready at once; a
+// refusal that arrived must be reported as the refusal, never as a lost
+// connection. It returns the first refusal among the frames still queued in
+// ackCh (read through abortFromPeer, the one reader), or nil. Every other
+// frame it reads is dropped: the close ends the wait either way.
+func stopBeforeClose(ackCh <-chan []byte, flushed <-chan struct{}, localVer, updateHint string, total int) error {
+	waitFlushed(flushed)
+	for {
+		select {
+		case raw := <-ackCh:
+			if len(raw) > controlMsgMax {
+				continue
+			}
+			if err := abortFromPeer(raw, localVer, updateHint, total); err != nil {
+				return err
+			}
+		default:
+			return nil
+		}
+	}
+}
+
+// refusalAfterSendError is the check a failed Send makes. pion marks the
+// channel Closed before it runs onClose, so a Send in that window fails with
+// io.ErrClosedPipe while the receiver's refusal already sits in ackCh and
+// done has not fired yet (FT-GO-REFUSAL review F1). It waits up to a second
+// for done, which follows within microseconds, and then reports a queued
+// refusal through stopBeforeClose; nil keeps the Send's own error. When no
+// close follows at all, the error path takes about two seconds: this second
+// plus stopBeforeClose's wait for the flush (review 2, R2-3, measured).
+func refusalAfterSendError(done <-chan struct{}, ackCh <-chan []byte, flushed <-chan struct{}, localVer, updateHint string, total int) error {
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+	}
+	return stopBeforeClose(ackCh, flushed, localVer, updateHint, total)
+}
+
 // refusalCodeIn is the one reader of a peer's code: a JSON string that
 // ParseRefusalCode knows, else nothing. Not a string (a number, null, an
 // object) is nothing, never an error, because the field is optional.
@@ -372,24 +422,48 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 	// Non-blocking: a full buffer means a stray/duplicate message arrived;
 	// dropping it is safe because the ack loop already matched its ID.
 	ackCh := make(chan []byte, 4)
+	// flushed is closed once every frame that arrived before the channel
+	// closed is in ackCh, so a wait that sees the close can still read the
+	// refusal a receiver sends just before it closes (stopBeforeClose).
+	flushed := make(chan struct{})
 	if opts.Messages != nil && opts.Closed != nil {
 		// The pump was installed with the data channel, so the receiver's first
 		// ack cannot have arrived before anyone was listening. Forwarding into
 		// ackCh rather than reading opts.Messages directly leaves every deadline
 		// below exactly as it was.
 		go func() {
+			defer close(flushed)
+			forward := func(msg webrtc.DataChannelMessage) {
+				select {
+				case ackCh <- msg.Data:
+				default:
+				}
+			}
 			for {
 				select {
 				case msg, ok := <-opts.Messages:
 					if !ok {
 						return
 					}
-					select {
-					case ackCh <- msg.Data:
-					default:
-					}
+					forward(msg)
 				case <-opts.Closed:
-					return
+					// A refusal is the last frame a receiver sends before it
+					// closes, and both can be ready here at once: a random pick
+					// used to return with the refusal still in Messages. The
+					// pump fills Messages before it closes Closed (pion delivers
+					// a message before the close, from one read goroutine), so
+					// moving what is queued now leaves nothing behind.
+					for {
+						select {
+						case msg, ok := <-opts.Messages:
+							if !ok {
+								return
+							}
+							forward(msg)
+						default:
+							return
+						}
+					}
 				}
 			}
 		}()
@@ -400,6 +474,9 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 			default:
 			}
 		})
+		// pion runs OnMessage before OnClose on the same read goroutine, so
+		// every frame is in ackCh by the time done fires.
+		close(flushed)
 	}
 
 	// done is closed when the data channel closes, letting every wait below
@@ -450,7 +527,7 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 
 	var sentSoFar int64
 	for i, entry := range files {
-		if err := sendFile(dc, ackCh, sendMore, done, entry, i+1, len(files), totalBytes, localVer, onProgress, opts.UpdateHint, ackTimeoutOrDefault(opts.AckTimeout), sentSoFar, chunk); err != nil {
+		if err := sendFile(dc, ackCh, sendMore, done, flushed, entry, i+1, len(files), totalBytes, localVer, onProgress, opts.UpdateHint, ackTimeoutOrDefault(opts.AckTimeout), sentSoFar, chunk); err != nil {
 			// A refusal the PEER sent is returned as it came. The wrap named
 			// entry.displayName, which is the file the sender had already moved
 			// on to: a receiver refuses file N after its end marker, and the
@@ -525,6 +602,9 @@ drainLoop:
 			// before judging the close. And BufferedAmount is untrustworthy
 			// here (the SACK race above), so a nonzero value only means
 			// delivery could not be confirmed, never that data was lost.
+			// With the pump, "already sitting in ackCh" holds only once the
+			// forwarder has moved what was still queued at the close.
+			waitFlushed(flushed)
 		drainAcks:
 			for {
 				select {
@@ -585,7 +665,7 @@ drainLoop:
 }
 
 // sendFile handles the full send sequence for a single file.
-func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, done <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onProgress ProgressFunc, updateHint string, ackTimeout time.Duration, baseTotal int64, chunk int) error {
+func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, done <-chan struct{}, flushed <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onProgress ProgressFunc, updateHint string, ackTimeout time.Duration, baseTotal int64, chunk int) error {
 	f, err := os.Open(entry.absPath)
 	if err != nil {
 		return err
@@ -615,6 +695,9 @@ func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struc
 	}
 	metaJSON, _ := json.Marshal(meta)
 	if err := dc.SendText(string(metaJSON)); err != nil {
+		if stop := refusalAfterSendError(done, ackCh, flushed, localVer, updateHint, total); stop != nil {
+			return stop
+		}
 		return fmt.Errorf("failed to send metadata: %w", err)
 	}
 
@@ -689,7 +772,12 @@ ackLoop:
 		case <-done:
 			// A decline (the receiver's [Y/n] prompt closes the channel) or a
 			// receiver error-exit lands here in about a second instead of
-			// burning the full ack deadline.
+			// burning the full ack deadline. A refusal sent just before the
+			// close can be ready in ackCh at the same moment, and Go picks
+			// between ready cases at random: report it first.
+			if err := stopBeforeClose(ackCh, flushed, localVer, updateHint, total); err != nil {
+				return err
+			}
 			return fmt.Errorf("connection closed while waiting for the receiver (transfer declined or receiver exited)")
 		case <-ackDeadline:
 			return fmt.Errorf("timed out waiting for ack")
@@ -762,6 +850,12 @@ ackLoop:
 				select {
 				case <-sendMore:
 				case <-done:
+					// This wait reads no frames, so a receiver that refused
+					// mid-file (disk-full, write-failed) and then closed left
+					// its reason unread in ackCh: report it before the close.
+					if err := stopBeforeClose(ackCh, flushed, localVer, updateHint, total); err != nil {
+						return err
+					}
 					return fmt.Errorf("connection closed mid-transfer (%d bytes still buffered)", dc.BufferedAmount())
 				case <-time.After(60 * time.Second):
 					cur := dc.BufferedAmount()
@@ -772,6 +866,9 @@ ackLoop:
 				}
 			}
 			if sendErr := dc.Send(buf[:n]); sendErr != nil {
+				if stop := refusalAfterSendError(done, ackCh, flushed, localVer, updateHint, total); stop != nil {
+					return stop
+				}
 				return fmt.Errorf("failed to send chunk: %w", sendErr)
 			}
 			if hasher != nil {
@@ -835,5 +932,11 @@ ackLoop:
 		end.SHA256 = hex.EncodeToString(hasher.Sum(nil))
 	}
 	endJSON, _ := json.Marshal(end)
-	return dc.SendText(string(endJSON))
+	if err := dc.SendText(string(endJSON)); err != nil {
+		if stop := refusalAfterSendError(done, ackCh, flushed, localVer, updateHint, total); stop != nil {
+			return stop
+		}
+		return err
+	}
+	return nil
 }
