@@ -229,14 +229,13 @@ func TestDeliveryWaitEmptyBufferIsNeverAStall(t *testing.T) {
 	}
 }
 
-// A refusal that is queued by the time the tick arm finds the buffer empty is
-// reported, not a success (FT-GO-TICK; FT-GO-REFUSAL review 1, F2 part b). The
-// tick arm's buffer read is held until the refusal has reached ackCh, which is
-// the moment the old arm judged success without looking. The receiver's channel
-// stays open, so no close can end the wait. This narrows the window; a refusal
-// that arrives after the tick already ended the wait still needs the receiver's
-// word (part a).
-func TestDeliveryTickReportsAQueuedRefusal(t *testing.T) {
+// sendThroughHeldTick sends one empty file with test-owned Messages and holds
+// the delivery wait's first tick arm inside its buffer read, which reads 0,
+// until frame has reached ackCh: the moment the old arm judged success without
+// looking. The receiver's channel stays open, so no close can end the wait. It
+// returns the send's result.
+func sendThroughHeldTick(t *testing.T, frame webrtc.DataChannelMessage, onDelivered func(Delivered)) error {
+	t.Helper()
 	prevRead := deliveryBuffered
 	t.Cleanup(func() { deliveryBuffered = prevRead })
 	inTick := make(chan struct{})
@@ -261,10 +260,12 @@ func TestDeliveryTickReportsAQueuedRefusal(t *testing.T) {
 	path := sizedFile(t, 0)
 	msgs := make(chan webrtc.DataChannelMessage, 4)
 	closed := make(chan struct{})
+	// Lets the pump forwarder go once the test ends.
+	t.Cleanup(func() { close(closed) })
 	errc := make(chan error, 1)
 	go func() {
 		errc <- SendFilesWithOptions(dc, []string{path}, "test", SendOptions{
-			OnProgress: func(Progress) {}, Messages: msgs, Closed: closed,
+			OnProgress: func(Progress) {}, OnDelivered: onDelivered, Messages: msgs, Closed: closed,
 		})
 	}()
 	var meta struct {
@@ -289,14 +290,40 @@ func TestDeliveryTickReportsAQueuedRefusal(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("the delivery wait never reached its tick arm")
 	}
-	msgs <- webrtc.DataChannelMessage{IsString: true, Data: []byte(diskFullRefusal)}
+	msgs <- frame
 	// The pump forwarder moves it into ackCh at once; the pause is margin.
 	time.Sleep(200 * time.Millisecond)
 	close(release)
 	select {
 	case err := <-errc:
-		wantDiskFull(t, err)
+		return err
 	case <-time.After(10 * time.Second):
 		t.Fatal("the delivery wait did not end within 10s")
+	}
+	return nil
+}
+
+// A refusal that is queued by the time the tick arm finds the buffer empty is
+// reported, not a success (FT-GO-TICK; FT-GO-REFUSAL review 1, F2 part b). This
+// narrows the window; a refusal that arrives after the tick already ended the
+// wait still needs the receiver's word (part a, card FT-GO-CONFIRMS).
+func TestDeliveryTickReportsAQueuedRefusal(t *testing.T) {
+	wantDiskFull(t, sendThroughHeldTick(t, webrtc.DataChannelMessage{IsString: true, Data: []byte(diskFullRefusal)}, nil))
+}
+
+// A received frame queued by the time the tick arm finds the buffer empty still
+// sets the verified count (FT-GO-TICK review T1): OnDelivered fires once with
+// it, as it does when the ack arm reads the frame. Binary, as the Go receiver
+// sends it.
+func TestDeliveryTickReportsAQueuedReceived(t *testing.T) {
+	var got []Delivered
+	err := sendThroughHeldTick(t, webrtc.DataChannelMessage{Data: []byte(`{"type":"received","verified":1}`)}, func(d Delivered) {
+		got = append(got, d)
+	})
+	if err != nil {
+		t.Fatalf("a queued received frame must end the wait with success, got: %v", err)
+	}
+	if len(got) != 1 || got[0] != (Delivered{Files: 1, Verified: 1, HasVerified: true}) {
+		t.Fatalf("OnDelivered = %+v, want exactly one {Files:1 Verified:1 HasVerified:true}", got)
 	}
 }

@@ -87,8 +87,10 @@ func backpressureStalled(prev, cur uint64) bool {
 // the send buffer go without shrinking before it gives up. It is the
 // backpressure wait's window and the receiver's mid-transfer stall watchdog,
 // so one rule governs "the transfer stopped making progress" on both ends.
-// A var only so tests can shrink it; a test window must be at least four
-// drain ticks (200 ms), or the tick arm and the stall arm race.
+// A var only so tests can shrink it. Below four drain ticks (200 ms) the stall
+// arm reads a fake buffer more often than the tick does, which skews the tests
+// that count windows; only a test of the stall arm itself
+// (TestDeliveryWaitEmptyBufferIsNeverAStall) goes below it.
 var deliveryStallWindow = 60 * time.Second
 
 // deliveryBuffered reads the send buffer during the delivery wait. A seam for
