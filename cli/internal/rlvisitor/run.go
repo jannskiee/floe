@@ -11,6 +11,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"time"
 
@@ -42,7 +43,7 @@ func emit(fields map[string]interface{}) {
 // fixed word; no peer text or path is ever attached.
 func fail(stage string) int {
 	emit(map[string]interface{}{"event": "error", "stage": stage})
-	return 1
+	return exitFailed
 }
 
 // run performs the one behavior the flags selected and returns the process
@@ -63,13 +64,13 @@ func run(cfg config) int {
 	if err != nil || res != signaling.VisitorJoined {
 		// The result word is the client's own fixed enum, never server text.
 		emit(map[string]interface{}{"event": "not-joined", "result": res.String()})
-		return 1
+		return exitFailed
 	}
 	emit(map[string]interface{}{"event": "joined"})
 
 	watchdog := time.AfterFunc(cfg.timeout, func() {
 		emit(map[string]interface{}{"event": "error", "stage": "timeout"})
-		os.Exit(1)
+		os.Exit(exitFailed)
 	})
 	defer watchdog.Stop()
 
@@ -149,24 +150,55 @@ func runSend(dc *webrtc.DataChannel, cfg config, early *peer.Early) int {
 		Messages:   early.Msgs,
 		Closed:     early.Closed,
 	})
-	if err != nil {
-		emit(map[string]interface{}{"event": "send-ended", "ok": false})
-		return 0
-	}
-	emit(map[string]interface{}{"event": "send-ended", "ok": true})
-	return 0
+	ev, exit := sendOutcome(err)
+	emit(ev)
+	return exit
 }
 
-// runCraftedFrame writes one crafted text frame and gives the host a moment to
-// refuse before closing. The host's refusal is what the cell reads; the
-// visitor only needs to have sent the frame.
+// sendOutcome is the send-ended event and exit code for the error the engine
+// sender returned. The host's refusal arrives as a *PeerStoppedError whose Code
+// the engine already passed through ParseRefusalCode; it is checked again here
+// (anything unknown prints "other") and printed with PeerStoppedError.Error(),
+// one fixed sentence per code with no peer text in it (refusal.go). The
+// visitor's own relay gate prints that gate's sentence, which holds only local
+// numbers (TL-11). Any other error prints the word "failed" and never its text,
+// which can carry a local path or a peer's version string.
+func sendOutcome(err error) (map[string]interface{}, int) {
+	ev := map[string]interface{}{"event": "send-ended"}
+	var stopped *transfer.PeerStoppedError
+	switch {
+	case err == nil:
+		ev["outcome"] = "delivered"
+		return ev, exitDelivered
+	case errors.As(err, &stopped):
+		code := "other"
+		if c, ok := transfer.ParseRefusalCode(string(stopped.Code)); ok {
+			code = string(c)
+		}
+		ev["outcome"] = "peer-refused"
+		ev["code"] = code
+		ev["sentence"] = (&transfer.PeerStoppedError{Code: transfer.RefusalCode(code)}).Error()
+		return ev, exitPeerRefused
+	case errors.Is(err, transfer.ErrRelayOverLimit):
+		ev["outcome"] = "relay-gate"
+		ev["sentence"] = err.Error()
+		return ev, exitRelayGate
+	}
+	ev["outcome"] = "failed"
+	return ev, exitFailed
+}
+
+// craftedWait bounds how long a crafted mode waits for the host to end it.
+const craftedWait = 30 * time.Second
+
+// runCraftedFrame writes one crafted text frame and waits for the host to end
+// the drop: its refusal code, a close without one, or the bound.
 func runCraftedFrame(dc *webrtc.DataChannel, early *peer.Early, name string, frame []byte) int {
 	if err := dc.SendText(string(frame)); err != nil {
 		return fail("send")
 	}
 	emit(map[string]interface{}{"event": "frame-sent", "which": name})
-	waitForClose(early, 30*time.Second)
-	return 0
+	return emitEnd(name, early)
 }
 
 // runJunkFlood floods the host with junk control frames, then waits for the
@@ -178,14 +210,84 @@ func runJunkFlood(dc *webrtc.DataChannel, early *peer.Early) int {
 		}
 	}
 	emit(map[string]interface{}{"event": "junk-sent"})
-	waitForClose(early, 30*time.Second)
-	return 0
+	return emitEnd("junk-flood", early)
 }
 
-// waitForClose blocks until the data channel closes or the bound passes.
-func waitForClose(early *peer.Early, bound time.Duration) {
-	select {
-	case <-early.Closed:
-	case <-time.After(bound):
+// emitEnd waits for the host to end a crafted mode and reports how, with the
+// exit code for it.
+func emitEnd(name string, early *peer.Early) int {
+	ended, code := hostEnd(early.Msgs, early.Closed, craftedWait)
+	ev := map[string]interface{}{"event": "ended", "which": name, "ended": ended}
+	switch ended {
+	case "host-refused":
+		ev["code"] = code
+		emit(ev)
+		return exitPeerRefused
+	case "host-closed":
+		emit(ev)
+		return exitHostClosed
 	}
+	emit(ev)
+	return exitBound
+}
+
+// hostEnd waits until the host refuses (its code, allowlisted), closes the
+// channel, or the bound passes. A refusal is the last frame a host sends
+// before it closes, and both can be ready at once, so a close first drains
+// what is already queued for a refusal, as the engine's stopBeforeClose does.
+// Every other frame (an ack, for one) is read and dropped.
+func hostEnd(msgs <-chan webrtc.DataChannelMessage, closed <-chan struct{}, bound time.Duration) (ended, code string) {
+	timer := time.NewTimer(bound)
+	defer timer.Stop()
+	for {
+		select {
+		case m := <-msgs:
+			if c, ok := hostRefusalCode(m.Data); ok {
+				return "host-refused", c
+			}
+		case <-closed:
+			for {
+				select {
+				case m := <-msgs:
+					if c, ok := hostRefusalCode(m.Data); ok {
+						return "host-refused", c
+					}
+				default:
+					return "host-closed", ""
+				}
+			}
+		case <-timer.C:
+			return "bound", ""
+		}
+	}
+}
+
+// refusalFrameMax bounds what hostRefusalCode will parse; a refusal frame is
+// under the engine's 1000-byte control cap, and a file chunk is never parsed.
+const refusalFrameMax = 4096
+
+// hostRefusalCode reads the host's refusal code off an incompatible frame. type
+// and code are read by exact key from a raw map (a struct tag would accept
+// {"CODE":...}); only a code ParseRefusalCode knows passes through, anything
+// else, a missing code included, is the fixed word "other". No other field of
+// the frame is read, so no host text reaches stdout.
+func hostRefusalCode(raw []byte) (string, bool) {
+	if len(raw) == 0 || len(raw) > refusalFrameMax || raw[0] != '{' {
+		return "", false
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return "", false
+	}
+	var typ string
+	if json.Unmarshal(fields["type"], &typ) != nil || typ != "incompatible" {
+		return "", false
+	}
+	var code string
+	if json.Unmarshal(fields["code"], &code) == nil {
+		if c, ok := transfer.ParseRefusalCode(code); ok {
+			return string(c), true
+		}
+	}
+	return "other", true
 }

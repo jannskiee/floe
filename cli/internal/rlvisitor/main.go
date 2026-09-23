@@ -196,11 +196,48 @@ func parseFlags(args []string) (config, error) {
 	return cfg, nil
 }
 
+// The exit codes, one per outcome kind, so a QA driver can tell a host's
+// refusal from a transport failure without parsing text. usageText documents
+// them; TestUsageTextNamesEveryExitCode keeps the two in step.
+const (
+	exitDelivered   = 0 // -send: every file acked and delivered
+	exitFailed      = 1 // a local, signaling, ICE or transport failure, the -timeout watchdog, a not-joined answer, or a stop the engine could not name
+	exitUsage       = 2 // bad flags, including a -server that is not local or private
+	exitPeerRefused = 3 // the host refused with a code (the event's "code" is the parsed code, or "other")
+	exitRelayGate   = 4 // -send: the visitor's own relay gate blocked before any file byte moved
+	exitHostClosed  = 5 // crafted modes: the host closed without a refusal code (-bad-sdp: the host left)
+	exitBound       = 6 // crafted modes: the wait bound ran out and the host had not ended it
+)
+
+// usageText goes to stderr on a usage error. Stdout carries the JSON event
+// lines, plus a few plain lines the engine prints itself (the ICE fetch's
+// Warning, and the sender's Peer version line and summary box), so a driver
+// skips any line that is not JSON.
+const usageText = `floe-rlvisitor: a test-only hostile request-link visitor. It never ships and
+refuses any -server that is not localhost, a loopback or a private IP.
+
+  floe-rlvisitor (-link <url> | -room <uuid>) [-server <url>] [-timeout <d>]
+                 (-send <a,b> [-relay-only] | one hostile flag)
+
+Hostile flags (one per run): -hostile-meta f2|f4b|f5|f6, -hostile-name,
+-abort-reason <text>, -junk-flood, -bad-sdp, -skip-relay-gate.
+
+Exit codes (the last event line names the same word):
+  0  delivered: -send, every file acked and delivered
+  1  failed: a local, signaling, ICE or transport failure, the timeout, not-joined, or an unnamed stop
+  2  usage: bad flags, or a -server that is not local or private
+  3  peer-refused: the host refused; "code" is its refusal code or other, "sentence" the engine's fixed text
+  4  relay-gate: -send, the visitor's own relay gate blocked before any file byte moved
+  5  host-closed: a crafted mode, the host closed without a code (-bad-sdp: the host left)
+  6  bound: a crafted mode, the wait ran out and the host had not ended it
+`
+
 func main() {
 	cfg, err := parseFlags(os.Args[1:])
 	if err != nil {
 		emit(map[string]interface{}{"event": "error", "stage": "usage"})
-		os.Exit(2)
+		_, _ = os.Stderr.WriteString(usageText)
+		os.Exit(exitUsage)
 	}
 	os.Exit(run(cfg))
 }
