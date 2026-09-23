@@ -10,7 +10,8 @@ package main
 //
 // Everything that makes it a test peer lives in this file and never in the
 // engine: the scripted Decide, the shortened decide window of -fast-timers,
-// the socket blip of -blip-after, and -corrupt-hash, which rewrites the
+// the socket blip of -blip-after, the receive-loop hold of -hold-after-file,
+// and -corrupt-hash, which rewrites the
 // sender's end-frame digest on its way from the data channel to the engine so
 // the engine's own compare refuses the file. The release floe binary cannot
 // reach any of it (.goreleaser.yml builds only ./cmd/floe).
@@ -162,6 +163,10 @@ type requestConfig struct {
 	// after this long, so a spec can load the link while the host is absent
 	// (S1-WEB-05 test 1). The token still never leaves this process.
 	joinAfter time.Duration
+	// holdAfterFile, when set, blocks the receive loop this long after the
+	// first committed file, so the visitor stays in Sending with its data
+	// channel open for as long as a spec needs (S1-WEB-05 test 9).
+	holdAfterFile time.Duration
 }
 
 // requestMaxFiles is the request lane's Beta file cap (spec 05 8.3), kept when
@@ -188,6 +193,7 @@ func parseRequestFlags(args []string) (requestConfig, error) {
 	maxFiles := fs.Int("max-files", 0, "cap the files a drop may announce (turns the request limits on)")
 	blockShell := fs.Bool("block-shell-types", false, "save shell-parsed types as .floe-blocked (turns the request limits on)")
 	joinAfter := fs.Int("join-after", 0, "print the link, then join the room this many milliseconds later")
+	holdAfterFile := fs.Int("hold-after-file", 0, "after the first committed file, hold the receive loop this many milliseconds")
 	if err := fs.Parse(args); err != nil {
 		return requestConfig{}, err
 	}
@@ -207,7 +213,7 @@ func parseRequestFlags(args []string) (requestConfig, error) {
 			limits.MaxFiles = *maxFiles
 		}
 	}
-	if fs.NArg() != 0 || *out == "" || *timeout <= 0 || *joinAfter < 0 {
+	if fs.NArg() != 0 || *out == "" || *timeout <= 0 || *joinAfter < 0 || *holdAfterFile < 0 {
 		return requestConfig{}, errors.New("request: usage")
 	}
 	if *blip != "" && !blipEvents[*blip] {
@@ -225,7 +231,8 @@ func parseRequestFlags(args []string) (requestConfig, error) {
 		server: *server, web: strings.TrimRight(*web, "/"), out: *out, steps: steps,
 		decideWindow: window, keepWaiting: *keep, corruptHash: *corrupt,
 		blipAfter: *blip, timeout: *timeout, limits: limits,
-		joinAfter: time.Duration(*joinAfter) * time.Millisecond,
+		joinAfter:     time.Duration(*joinAfter) * time.Millisecond,
+		holdAfterFile: time.Duration(*holdAfterFile) * time.Millisecond,
 	}, nil
 }
 
@@ -351,6 +358,19 @@ func (h *requestHost) blip() {
 	h.ev.emit(map[string]interface{}{"event": "rejoined"})
 }
 
+// hold is -hold-after-file. The engine calls OnFileDone synchronously on its
+// receive loop, and its stall watchdog is armed only while that loop waits on
+// an empty queue, so the hold never trips it; the browser sender meanwhile
+// waits for the next file's ack (120 s for every file after the first), so a
+// hold must stay well under that. After a -blip-after file-committed the host
+// socket has already been swapped when this runs.
+func (h *requestHost) hold() {
+	h.emit("holding", nil)
+	start := time.Now()
+	time.Sleep(h.cfg.holdAfterFile)
+	h.emit("released", map[string]interface{}{"heldMs": time.Since(start).Milliseconds()})
+}
+
 // visitOutcome is how one visit ended.
 type visitOutcome int
 
@@ -446,6 +466,9 @@ func (h *requestHost) visit(step decideStep) visitOutcome {
 				h.verified++
 			}
 			h.emit("file-committed", map[string]interface{}{"verified": fd.Verified})
+			if h.files == 1 && h.cfg.holdAfterFile > 0 {
+				h.hold()
+			}
 		},
 		Messages: msgs,
 		Closed:   early.Closed,

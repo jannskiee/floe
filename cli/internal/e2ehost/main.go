@@ -8,7 +8,7 @@
 //	floe-e2ehost host -out <dir> [-server URL] [-room UUID] [-hold D] [-timeout D]
 //	floe-e2ehost send [-server URL] [-web URL] [-room UUID] [-corrupt-hash | -malformed-hash] <paths>
 //	floe-e2ehost request -out <dir> [-server URL] [-web URL] [-decide STEPS] [-fast-timers]
-//	    [-keep-waiting] [-corrupt-hash] [-blip-after EVENT] [-timeout D]
+//	    [-keep-waiting] [-corrupt-hash] [-blip-after EVENT] [-hold-after-file MS] [-timeout D]
 //
 // The first argument is a mode word. Send mode is a CLI-shaped sender whose
 // end frame can carry a digest that does not match what it sent, so the audit

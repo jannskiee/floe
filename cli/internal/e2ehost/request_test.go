@@ -484,11 +484,11 @@ func roomFromLink(t *testing.T, link string) string {
 	return room
 }
 
-// visit is a Go visitor: request-join, answer the host's offer, send path. It
+// visit is a Go visitor: request-join, answer the host's offer, send paths. It
 // waits for the host's received, as the /r page does, so nil means the host
 // committed the file and a refusal after the end frame comes back as that
 // refusal; the host's own close is what ends a wait with neither.
-func visit(url, room, path string) error {
+func visit(url, room string, paths ...string) error {
 	sc, err := signaling.Connect(url)
 	if err != nil {
 		return err
@@ -508,7 +508,7 @@ func visit(url, room, path string) error {
 		return err
 	}
 	early := conn.Early()
-	return transfer.SendFilesWithOptions(dc, []string{path}, "visitor", transfer.SendOptions{
+	return transfer.SendFilesWithOptions(dc, paths, "visitor", transfer.SendOptions{
 		OnProgress:      func(transfer.Progress) {},
 		Messages:        early.Msgs,
 		Closed:          early.Closed,
@@ -519,11 +519,17 @@ func visit(url, room, path string) error {
 // payload writes a random file and returns its path and digest.
 func payload(t *testing.T, size int) (string, [32]byte) {
 	t.Helper()
+	return namedPayload(t, "drop.bin", size)
+}
+
+// namedPayload is payload under a chosen base name, for a visit of two files.
+func namedPayload(t *testing.T, name string, size int) (string, [32]byte) {
+	t.Helper()
 	b := make([]byte, size)
 	if _, err := rand.Read(b); err != nil {
 		t.Fatal(err)
 	}
-	p := filepath.Join(t.TempDir(), "drop.bin")
+	p := filepath.Join(t.TempDir(), name)
 	if err := os.WriteFile(p, b, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -772,6 +778,74 @@ func TestRequestModeReopenAfterEvictsAStalledVisitor(t *testing.T) {
 	_, _, controls := srv.snapshot()
 	if !equalNames(controls, []string{"request-reopen", "request-seal", "request-close"}) {
 		t.Fatalf("control frames %v", controls)
+	}
+}
+
+// -hold-after-file is 0 (no hold) unless given, and never negative.
+func TestHoldAfterFileFlag(t *testing.T) {
+	plain, err := parseRequestFlags([]string{"-out", t.TempDir()})
+	if err != nil || plain.holdAfterFile != 0 {
+		t.Fatalf("default holdAfterFile %v, err %v; want 0", plain.holdAfterFile, err)
+	}
+	set, err := parseRequestFlags([]string{"-out", t.TempDir(), "-hold-after-file", "2500"})
+	if err != nil || set.holdAfterFile != 2500*time.Millisecond {
+		t.Fatalf("holdAfterFile %v, err %v; want 2.5s", set.holdAfterFile, err)
+	}
+	if _, err := parseRequestFlags([]string{"-out", t.TempDir(), "-hold-after-file", "-1"}); err == nil {
+		t.Fatal("a negative -hold-after-file was accepted")
+	}
+}
+
+// -hold-after-file: after the first committed file the receive loop holds for
+// the given time, printing holding and released around it, and then carries
+// on; the second file is committed only after the release, and both arrive
+// (S1-WEB-05 test 9 pins the visitor in Sending this way).
+func TestRequestModeHoldAfterFileHoldsTheLoop(t *testing.T) {
+	const holdMs = 700
+	srv := newFakeRequestServer(t)
+	out := t.TempDir()
+	first, sumA := namedPayload(t, "a.bin", 64*1024)
+	second, sumB := namedPayload(t, "b.bin", 64*1024)
+	h := startRequest(t, "-server", srv.url, "-out", out, "-hold-after-file", "700", "-timeout", "60s")
+
+	room := roomFromLink(t, h.until(t, "link")["link"].(string))
+	visitErr := make(chan error, 1)
+	go func() { visitErr <- visit(srv.url, room, first, second) }()
+	h.until(t, "holding")
+	released := h.until(t, "released")
+	if ms, ok := released["heldMs"].(float64); !ok || ms < holdMs {
+		t.Fatalf("released = %v, want heldMs of at least %d", released, holdMs)
+	}
+	if d := h.until(t, "done"); d["files"] != float64(2) || d["verified"] != float64(2) {
+		t.Fatalf("done = %v, want files 2 verified 2", d)
+	}
+	if code := h.exitCode(t); code != 0 {
+		t.Fatalf("exit %d, want 0", code)
+	}
+	if err := <-visitErr; err != nil {
+		t.Fatalf("visitor: %v", err)
+	}
+	want := []string{"joined", "link", "user-connected", "offer-sent", "sealed", "deciding", "accepted", "file-committed", "holding", "released", "file-committed", "closed", "done"}
+	if got := h.names(); !equalNames(got, want) {
+		t.Fatalf("events %v, want %v", got, want)
+	}
+	got := map[[32]byte]bool{}
+	entries, err := os.ReadDir(out)
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("output dir holds %d entries (err %v), want the two files", len(entries), err)
+	}
+	for _, e := range entries {
+		b, err := os.ReadFile(filepath.Join(out, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got[sha256.Sum256(b)] = true
+	}
+	if !got[sumA] || !got[sumB] {
+		t.Fatal("the committed files differ from what the visitor sent")
+	}
+	if n := srv.statsRequests(); n != 0 {
+		t.Fatalf("%d stats reports reached the server, want 0", n)
 	}
 }
 
