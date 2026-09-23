@@ -250,6 +250,29 @@ func stopBeforeClose(ackCh <-chan []byte, flushed <-chan struct{}, localVer, upd
 	}
 }
 
+// drainQueued reads every frame already queued in ackCh without waiting, for
+// the delivery wait. A refusal returns as stop (read through abortFromPeer, the
+// one reader); a received frame returns got with the receiver's verified count,
+// and reading stops there. Any other frame is dropped: the wait has no use for it.
+func drainQueued(ackCh <-chan []byte, localVer, updateHint string, total int) (got bool, verified int, hasVerified bool, stop error) {
+	for {
+		select {
+		case raw := <-ackCh:
+			if len(raw) > controlMsgMax {
+				continue
+			}
+			if err := abortFromPeer(raw, localVer, updateHint, total); err != nil {
+				return false, 0, false, err
+			}
+			if ok, v, has := parseReceived(raw, total); ok {
+				return true, v, has, nil
+			}
+		default:
+			return false, 0, false, nil
+		}
+	}
+}
+
 // refusalAfterSendError is the check a failed Send makes. pion marks the
 // channel Closed before it runs onClose, so a Send in that window fails with
 // io.ErrClosedPipe while the receiver's refusal already sits in ackCh and
@@ -605,23 +628,13 @@ drainLoop:
 			// With the pump, "already sitting in ackCh" holds only once the
 			// forwarder has moved what was still queued at the close.
 			waitFlushed(flushed)
-		drainAcks:
-			for {
-				select {
-				case raw := <-ackCh:
-					if len(raw) > controlMsgMax {
-						continue
-					}
-					if err := abortFromPeer(raw, localVer, opts.UpdateHint, len(files)); err != nil {
-						return err
-					}
-					if ok, v, has := parseReceived(raw, len(files)); ok {
-						verified, hasVerified = v, has
-						break drainLoop
-					}
-				default:
-					break drainAcks
-				}
+			got, v, has, err := drainQueued(ackCh, localVer, opts.UpdateHint, len(files))
+			if err != nil {
+				return err
+			}
+			if got {
+				verified, hasVerified = v, has
+				break drainLoop
 			}
 			if left := deliveryBuffered(dc); left != 0 {
 				return fmt.Errorf("connection closed before delivery was confirmed (%d bytes unacknowledged)", left)
