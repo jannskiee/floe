@@ -159,7 +159,6 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.errorLine('no-relay')).toBe(approved('E5'));
         expect(c.errorLine('relay-unknown')).toBe(approved('E6'));
         expect(c.errorLine('already-open')).toBe(approved('E7'));
-        expect(c.errorLine('web-address')).toBe(approved('E8'));
         expect(c.errorLine('disabled')).toBe(approved('X6'));
     });
 
@@ -286,10 +285,10 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
 
     it('no cut row can come out of requestCopy.ts', () => {
         const cut = [...rows.values()].filter((r) => r.status.startsWith('CUT'));
-        expect(cut.map((r) => r.id).sort()).toEqual(['C3', 'DN10', 'E3', 'P7', 'Q1', 'R4', 'ST2', 'V7', 'W6', 'X4']);
+        expect(cut.map((r) => r.id).sort()).toEqual(['C3', 'DN10', 'E3', 'E8', 'P7', 'Q1', 'R4', 'ST2', 'V7', 'W6', 'X4']);
         const out: string[] = [];
         for (const v of Object.values(c) as unknown[]) if (typeof v === 'string') out.push(v);
-        for (const code of ['denied', 'too-slow', 'network', 'server-restart', 'battery-standby', 'pending-rename']) {
+        for (const code of ['denied', 'too-slow', 'network', 'server-restart', 'battery-standby', 'pending-rename', 'web-address']) {
             out.push(c.errorLine(code), c.endedLine(code, END), c.stoppedCard(code, 4, 12), c.stoppedFull(code, 4, 12),
                 c.warningLine(code, {freeBytes: 1, totalBytes: 1}, SAVE));
         }

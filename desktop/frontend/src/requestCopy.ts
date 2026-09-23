@@ -32,7 +32,7 @@ export const READY_IP_LINE = 'Works while Floe is open. The person you send it t
 export const MAKING_LINK = 'Making the link...'; // R16
 export const READY_HIDE_IP_LINE = 'Hide my IP is on, so a drop goes through the relay and stops at 2 GB.'; // R17
 
-// ---- Error, making a link (E3 is cut, E-25) --------------------------------
+// ---- Error, making a link (E3 is cut, E-25; E8 is cut, D-122) --------------
 const ERROR_LINES: Record<string, string> = {
     disabled: 'Request links are turned off on the Floe server right now. Nothing else is affected.', // E1, X6
     limited: 'This network made too many request links today. Try again tomorrow.', // E2
@@ -40,7 +40,6 @@ const ERROR_LINES: Record<string, string> = {
     'no-relay': 'Hide my IP needs a TURN relay and this server has none. Turn off Hide my IP, or add a relay to the server.', // E5
     'relay-unknown': "Hide my IP needs a TURN relay, and this server's connection details could not be read. Check the server address, or turn off Hide my IP.", // E6
     'already-open': 'You already have a request link open. Close it to make a new one.', // E7
-    'web-address': 'Floe cannot build a link for this server yet. Add the Share link address under Settings, Advanced, then make the link again.', // E8
 };
 
 function has(table: Record<string, unknown>, key: string): boolean {

@@ -36,7 +36,6 @@ describe('error codes', () => {
         ['limited', 'This network made too many request links today. Try again tomorrow.'],
         ['unknown', 'Floe could not make a link. Try again later.'],
         ['already-open', 'You already have a request link open. Close it to make a new one.'],
-        ['web-address', 'Floe cannot build a link for this server yet. Add the Share link address under Settings, Advanced, then make the link again.'],
         ['no-relay', 'Hide my IP needs a TURN relay and this server has none. Turn off Hide my IP, or add a relay to the server.'],
         ['relay-unknown', "Hide my IP needs a TURN relay, and this server's connection details could not be read. Check the server address, or turn off Hide my IP."],
     ])('maps %s to fixed copy', (code, want) => {
@@ -45,6 +44,10 @@ describe('error codes', () => {
 
     it('maps off to fixed copy (E4: the switch-off refusal has no sentence of its own)', () => {
         expect(errorLine('off')).toBe('Floe could not make a link. Try again later.');
+    });
+
+    it('maps web-address to E4: nothing sends it since D-118 allowed one-domain self-hosts, and E8 is cut', () => {
+        expect(errorLine('web-address')).toBe('Floe could not make a link. Try again later.');
     });
 
     it('an unrecognized error code such as denied maps to the E4 sentence', () => {
@@ -213,7 +216,7 @@ describe('the whole table', () => {
     // a set of hostile ones, with a hostile value in every slot a value can
     // reach.
     const HOSTILE = ['$(calc)', ']]><![CDATA[', '<img src=x onerror=alert(1)>', '\u202Etxt.exe', 'x'.repeat(5000)];
-    const CODES = ['off', 'disabled', 'limited', 'unknown', 'already-open', 'web-address', 'no-relay', 'relay-unknown', 'expired',
+    const CODES = ['off', 'disabled', 'limited', 'unknown', 'already-open', 'no-relay', 'relay-unknown', 'expired',
         'closed', 'app-closed', 'setup-failed', 'visitor-left', 'disk-full', 'hash-mismatch', 'path-too-long', 'over-approved',
         'relay-cap', 'file-too-large-for-folder', 'write-failed', 'save-blocked', 'stopped', 'peer-abort', 'time-limit',
         'low-space', 'file-too-large-for-drive', 'relay-over-cap', 'laptop-power', 'denied', 'too-slow', ...HOSTILE];
