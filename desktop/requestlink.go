@@ -57,7 +57,6 @@ type RequestLinkSnapshot struct {
 	// snapshot older than the last one it adopted, so a binding's reply that
 	// loses the race to a later event (an AnswerRequest reply that still says
 	// deciding after receiving was emitted) cannot bring an old state back.
-	// The stubs return 0: they never report anything worth ordering.
 	Seq uint64 `json:"seq"`
 	// PromptGen identifies the prompt an AnswerRequest answers.
 	PromptGen uint64 `json:"promptGen"`
@@ -167,7 +166,11 @@ type requestLane struct {
 	// is the per-process counter; only ever read and bumped under mu.
 	seq uint64
 
-	// The link's secrets, in memory only; endLocked forgets them.
+	// The link's secrets, in memory only; endLocked forgets them. hostToken
+	// is kept for the lane's shape (spec 06 4.2) but nothing reads it: the
+	// lane goroutine joins with its own copy. Never print the lane (a %v of
+	// it would show the token) and never copy the field into a snapshot
+	// (TestRequestSnapshotNeverCarriesToken).
 	roomID    string
 	linkID    string
 	hostToken string
