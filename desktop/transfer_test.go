@@ -500,20 +500,28 @@ func TestRunRequestDropVisitorLeavesWhileDecidingReopens(t *testing.T) {
 }
 
 func TestRunRequestDropVisitorLeavesBeforeMetadataReopens(t *testing.T) {
+	// The E-35 timer is shortened only to prove it is cancelled, and kept well
+	// above the time the host takes to see the channel close: at 400 ms it beat
+	// that close in 1 of 40 runs under -count=40 (the lane then said
+	// setup-failed), where production gives it 30 s.
+	const openTimer = 3 * time.Second
 	var fired *atomic.Int32
 	a, _, f, room, base := dropApp(t, func(a *App) {
-		setVar(t, &requestOpenChannelTimeout, 400*time.Millisecond)
+		setVar(t, &requestOpenChannelTimeout, openTimer)
 		fired = countOpenChannelExpiries(t)
 	})
 	v := joinVisitor(t, f, room)
 	v.connect(t)
 	v.leave()
-	waitSnap(t, a, 5*time.Second, "waiting", "visitor-left")
+	waitFor(t, 5*time.Second, "the link to wait again", func() bool { return stateOf(a).State == "waiting" })
+	if s := stateOf(a); s.Code != "visitor-left" {
+		t.Fatalf("the link waits again with code %q, want visitor-left (open-channel timer fired %d times)", s.Code, fired.Load())
+	}
 	waitFor(t, 5*time.Second, "request-reopen", func() bool { return f.count("request-reopen") >= 1 })
 	if got := treeUnder(t, base); len(got) != 0 {
 		t.Fatalf("the save base holds %q", got)
 	}
-	time.Sleep(800 * time.Millisecond)
+	time.Sleep(openTimer + 500*time.Millisecond)
 	if n := fired.Load(); n != 0 {
 		t.Fatalf("the open-channel timer fired %d times after the visitor left", n)
 	}
