@@ -11,8 +11,10 @@
 // Faults (world option `faults`) are the failure shapes the runner must
 // name: hash-bad, extra-file, stray-file, part-left, verified-short,
 // sha-line-lie, heading-lie, stopped, no-prompt, not-used-up, decline-copy,
-// blip-no-absent, no-reclaim, route-relay, visitor-stats, visitor-seed,
-// init-script, beta-stuck, make-error, prompt-lie.
+// blip-no-absent, no-reclaim, visitor-stats, visitor-seed, bytes-reported,
+// init-script, beta-stuck, make-error, prompt-lie, goto-error, click-error.
+// A wrong route is the world's `route` option on a cell that expects the
+// other one.
 import { copyFileSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -69,7 +71,9 @@ export function fakeVisitorContext(world, opts = {}) {
         listeners: {},
         shots: [],
         url: null,
-        gotoError: null,
+        gotoError: world?.has('goto-error')
+            ? (u) => `page.goto: net::ERR_CONNECTION_REFUSED at ${u}`
+            : null,
     };
     if (world) world.visitors.push(v);
     const emit = (ev, arg) => (v.listeners[ev] || []).forEach((fn) => fn(arg));
@@ -176,6 +180,12 @@ export function fakeVisitorContext(world, opts = {}) {
                 async click() {
                     if (!buttons().includes(name))
                         throw new Error(`fake visitor: no visible button "${name}"`);
+                    // Playwright's call log names the page's URL, fragment
+                    // and all, in a click that times out.
+                    if (world?.has('click-error') && /^Send /.test(name))
+                        throw new Error(
+                            `locator.click: Timeout 30000ms exceeded.\nCall log:\n  - navigated to "${v.url}"`
+                        );
                     if (/^Send \d+ files?$/.test(name) || name === 'Try again') {
                         if (world) world.visitorSend(v);
                         else v.state = 'waiting';
@@ -427,7 +437,14 @@ export function fakeRequestWorld({
             createLeg: (opts) =>
                 new DesktopLeg({
                     ...opts,
-                    openDriver: async () => new PlaywrightDriver(h.page, h.context, {}),
+                    // PlaywrightDriver.open makes a fresh page per launch,
+                    // so a retry's host finds the view as a new page does.
+                    openDriver: async () => {
+                        dom.closed = false;
+                        dom.settingsOpen = false;
+                        dom.requestView = false;
+                        return new PlaywrightDriver(h.page, h.context, {});
+                    },
                     lister: async () => [],
                 }),
         },

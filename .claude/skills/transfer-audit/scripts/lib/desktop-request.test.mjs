@@ -204,6 +204,14 @@ test('wailsdev CloseLink ends the link and the ended view shows Make another lin
     assert.equal(f.dom.state, 'closed');
     assert.equal((await d.requestSnapshot()).state, 'ended');
     await assert.rejects(d.readRequestLink(), /no request link to read/);
+    // The next MakeLink starts from that ended view: Make another link
+    // first, then the form.
+    await make(d, f);
+    assert.equal(f.dom.state, 'waiting');
+    assert.deepEqual(
+        f.dom.clicks.map((c) => c.name).slice(-4),
+        ['Receive', 'Request link, beta', 'Make another link', 'Make link']
+    );
 });
 
 test('wailsdev done view: the heading counts the files, the SHA sentence shows only when every file verified, and Dismiss puts it away', async () => {

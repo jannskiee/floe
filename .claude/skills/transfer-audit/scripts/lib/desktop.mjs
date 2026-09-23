@@ -1396,6 +1396,10 @@ export class PlaywrightDriver {
             );
         await this._button(STRINGS.tabReceive).first().click();
         await this._button(REQUEST_STRINGS.choice).first().click();
+        // A link the last cell closed leaves the ended view (X2 and X3),
+        // which offers Make another link instead of the form.
+        if (await this._visible(REQUEST_STRINGS.makeAnother))
+            await this._button(REQUEST_STRINGS.makeAnother).first().click();
         const field = this.page.getByPlaceholder(
             REQUEST_STRINGS.saveToPlaceholder,
             { exact: true }
@@ -1799,6 +1803,8 @@ export class DesktopLeg extends Leg {
         this.openDriver = opts.openDriver ?? PlaywrightDriver.open;
         this.shellMenu = opts.shellMenu ?? shellMenuGuard;
         this.shellMenuArmed = false;
+        // Set by lib/request.mjs on a request link host; run by stop().
+        this.beforeClose = opts.beforeClose ?? null;
         this._code = null;
         this._link = null;
         this._sampler = null;
@@ -2824,6 +2830,16 @@ export class DesktopLeg extends Leg {
                     }
                 } catch (err) {
                     this.note(`cancel: ${err.message}`);
+                }
+                // A request link host closes its link and puts its switches
+                // back here (lib/request.mjs releaseHost), so an interrupt's
+                // shutdown() leaves no link open in the dev app either.
+                if (typeof this.beforeClose === 'function') {
+                    try {
+                        await this.beforeClose(this);
+                    } catch (err) {
+                        this.note(`before close: ${err.message}`);
+                    }
                 }
                 await this.restoreRelayForcer();
                 await this.restoreSaveDir();

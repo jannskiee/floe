@@ -479,12 +479,16 @@ const WITH_FEATURE = {
     desktop: { available: true },
 };
 const LOCAL = 'http://localhost:3001';
+// The request host is driven on the wailsdev lane only (a head lane), so
+// the head plans here take --desktop wailsdev and the shipped ones keep the
+// default, which is what a real run can ask for.
 const requestPlan = (profile, probe = WITH_FEATURE) =>
     cellPlan({
         profile,
         cells: REQUEST_IDS,
         probe,
         server: profile === 'head' ? LOCAL : 'https://api.floe.one',
+        desktopMode: profile === 'head' ? 'wailsdev' : 'auto',
     }).filter((c) => REQUEST_IDS.includes(c.id));
 
 function requestTableIds() {
@@ -640,6 +644,7 @@ test('reqblip refuses any server that is not loopback, as a usage error before a
         cells: ['H-DIR-W2D-reqblip'],
         probe: WITH_FEATURE,
         server: LOCAL,
+        desktopMode: 'wailsdev',
     }).find((c) => c.id === 'H-DIR-W2D-reqblip');
     assert.equal(ok.verdict, null);
     assert.equal(ok.request.loopbackOnly, true);
@@ -654,4 +659,40 @@ test('reqblip refuses any server that is not loopback, as a usage error before a
     // Only the blip cell carries the loopback rule.
     for (const c of requestPlan('head'))
         assert.equal(c.request.loopbackOnly, c.id === 'H-DIR-W2D-reqblip', c.id);
+});
+
+test('request cells SKIP request-host-uia-pending off the wailsdev lane, so a shipped run skips them all today', () => {
+    assert.match(SKIP_REASONS['request-host-uia-pending'], /wailsdev only/);
+    for (const desktopMode of ['auto', 'store', 'portable']) {
+        const rows = cellPlan({
+            profile: 'head',
+            cells: REQUEST_IDS,
+            probe: WITH_FEATURE,
+            server: LOCAL,
+            desktopMode,
+        }).filter((c) => REQUEST_IDS.includes(c.id) && c.reason !== 'head-only');
+        assert.ok(rows.length > 0);
+        for (const c of rows)
+            assert.equal(c.reason, 'request-host-uia-pending', `${c.id} on ${desktopMode}`);
+    }
+    // The shipped profile cannot take --desktop wailsdev (audit.mjs refuses
+    // it), so every shipped request cell SKIPs until the UIA verbs land.
+    for (const c of requestPlan('shipped').filter((c) => c.reason !== 'head-only'))
+        assert.equal(c.reason, 'request-host-uia-pending', c.id);
+    // The feature gate still comes first, and --desktop none still wins.
+    const noFeature = cellPlan({
+        profile: 'head',
+        cells: ['H-DIR-W2D-req'],
+        probe: { desktop: { available: true } },
+        server: LOCAL,
+    }).find((c) => c.id === 'H-DIR-W2D-req');
+    assert.equal(noFeature.reason, 'server-no-request-1');
+});
+
+test('every request flow checks the prompt, and TA-12 carries no oracle a web visitor cannot reach', () => {
+    for (const c of requestPlan('head').concat(requestPlan('shipped'))) {
+        if (c.request.flow === 'open-link-precondition') continue;
+        assert.ok(c.request.oracles.includes('prompt-counts-match-no-relay-warning'), c.id);
+        assert.ok(!c.request.oracles.includes('prompt-text-only-over-2gb'), c.id);
+    }
 });

@@ -178,6 +178,8 @@ export const SKIP_REASONS = Object.freeze({
     'head-desktop-pending': 'HEAD desktop build not available in this run',
     'server-no-request-1':
         'the server under test does not list request-1 in its /health features (probe P10)',
+    'request-host-uia-pending':
+        'the request link host verbs run on --desktop wailsdev only; the UIA verbs for the Store and portable builds are Phase F prep',
     filtered: 'excluded by --cells',
 });
 
@@ -527,6 +529,7 @@ function requestSpec(variant, flow) {
             oracles: ['quick-cell-oracles', 'link-still-waiting-after'],
         };
     const oracles = [
+        'prompt-counts-match-no-relay-warning',
         'sha256-in-drop-subfolder',
         'visitor-arrived-line',
         'visitor-sha-line-only-when-verified-equals-n',
@@ -540,7 +543,11 @@ function requestSpec(variant, flow) {
         oracles.push('visitor-not-connected-during-cut', 'host-reconnecting-then-waiting');
     if (flow === 'decline-then-accept')
         oracles.push('visitor-declined-line', 'keep-waiting-reopens', 'second-visitor-delivers');
-    if (variant === 'reqhideip') oracles.push('prompt-text-only-over-2gb');
+    // TA-12's over 2 GB prompt line (P6) is not reached from a web visitor:
+    // RequestVisitor.tsx probes the route 2 s after its channel opens and
+    // blocks a relayed drop over the cap before it sends any metadata, so
+    // the host never gets a prompt to read (a spec gap, WP-R2 handback).
+    // The cell proves the host-forced relay path and a prompt without P6.
     return {
         flow,
         feature: 'request-1',
@@ -590,6 +597,11 @@ export function gateCell(
         cell.sender.surface === 'wsl' || cell.receiver.surface === 'wsl';
     if (hasDesktop) {
         if (desktopMode === 'none') return skip(cell, 'desktop-none');
+        // The host of every request cell is driven through the wailsdev DOM
+        // verbs (lib/request.mjs); no other lane can make or answer a link
+        // yet, so the cell SKIPs rather than running a lane it cannot drive.
+        if (cell.request && desktopMode !== 'wailsdev')
+            return skip(cell, 'request-host-uia-pending');
         if (p.desktop?.available === false)
             return skip(cell, 'desktop-unavailable');
         if (profile === 'head' && p.desktop?.headBuild === false)

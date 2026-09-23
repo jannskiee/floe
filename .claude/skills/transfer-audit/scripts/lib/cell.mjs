@@ -119,6 +119,9 @@ function withTimeout(promise, ms, phase) {
     return Promise.race([promise, t]).finally(() => clearTimeout(timer));
 }
 
+/** The phase clock, for lib/request.mjs's own attempt. */
+export { withTimeout as attemptTimeout };
+
 export function assertStatsOff(cell) {
     if (!cell.receiver || cell.receiver.statsOff !== true)
         throw new SafetyError(
@@ -381,7 +384,7 @@ export function countCliReceiverAtSpawn(cell, leg, rec, ctx) {
         ctx.safety.cliReceiversOptedOut.ok += 1;
 }
 
-function statsProofCheck(cell, ev, rec, ctx) {
+export function statsProofCheck(cell, ev, rec, ctx) {
     const proof = ev?.statsProof || null;
     const surface = cell.receiver.surface;
     const events = bytesReportedCount(
@@ -904,11 +907,17 @@ async function verifyAttempt(cell, ctx, rec, legs, done, fixture, outDir) {
     };
 }
 
+/**
+ * hooks (lib/request.mjs openLinkHooks, TA-17) run beside the plain
+ * attempt: afterSetup(rec) as its own phase before any leg starts,
+ * afterVerify(rec) inside verify once every plain oracle held, and
+ * teardown(rec) after both legs stopped.
+ */
 export async function runAttempt(
     cell,
     ctx,
     n,
-    { reuse = null, designed = false } = {}
+    { reuse = null, designed = false, hooks = null } = {}
 ) {
     const sleep = ctx.sleep || defaultSleep;
     const T = cell.timeouts;
@@ -988,6 +997,10 @@ export async function runAttempt(
             await ctx.ledger.waitFor(cell.cost, { sleep, log: ctx.log });
             rec.ledgerEventsBefore = ctx.ledger.events.length;
         });
+        if (hooks?.afterSetup)
+            await phase('request.host', T.link + 30_000, () =>
+                hooks.afterSetup(rec)
+            );
         await phase('sender.start', T.link + 5_000, async () => {
             // A CLI-shaped sender that must lie about a digest is the test-only
             // floe-e2ehost send mode, never the shipped CLI: the engine has no
@@ -1175,9 +1188,10 @@ export async function runAttempt(
             sender: completionOf(done, 's'),
             receiver: completionOf(done, 'r'),
         };
-        await phase('verify', T.verify, () =>
-            verifyAttempt(cell, ctx, rec, legs, done, fixture, outDir)
-        );
+        await phase('verify', T.verify, async () => {
+            await verifyAttempt(cell, ctx, rec, legs, done, fixture, outDir);
+            if (hooks?.afterVerify) await hooks.afterVerify(rec);
+        });
         rec.ok = true;
         rec.outcome = 'pass';
     } catch (e) {
@@ -1280,6 +1294,21 @@ export async function runAttempt(
                         }
                     }
                     rec.evidence[side] = safeEvidence(l);
+                }
+                if (hooks?.teardown) {
+                    try {
+                        await hooks.teardown(rec);
+                    } catch (e) {
+                        rec.notes.push(`teardown hook: ${e.message}`);
+                        if (e instanceof SafetyError || e.safety) {
+                            rec.ok = false;
+                            rec.outcome = 'fail';
+                            rec.safety = true;
+                            rec.safetyError = e;
+                            rec.error = rec.error || describeError(e);
+                            rec.failedPhase = rec.failedPhase || 'teardown';
+                        }
+                    }
                 }
                 recordSafety(cell, rec, ctx);
                 if (
@@ -1495,19 +1524,17 @@ export async function runCell(cell, ctx) {
         return result;
     }
     assertStatsOff(cell);
-    // The request flow (Make link, the visitor on /r, Accept, the drop
-    // subfolder oracles) is not wired into the runner yet: the web visitor
-    // page is not on this base. Run as a plain cell, a request cell would
-    // move a normal room's bytes and PASS without proving anything about
-    // request links, so it ends ERROR before any leg starts.
+    // A request cell never runs as a plain cell: its own runner makes the
+    // link, drives the visitor on /r and checks the drop subfolder
+    // (lib/request.mjs), and TA-17 holds a link open beside its quick cell.
+    // Imported here, not at the top, because request.mjs imports this file.
+    let attemptFn = runAttempt;
     if (cell.request) {
-        result.verdict = 'ERROR';
-        result.reason = 'request-runner-pending';
-        result.note =
-            'request link cells are planned, and the runner wires them with the web visitor page (CP-QA)';
-        result.countsForExit = true;
-        result.durationS = 0;
-        return result;
+        const req = await import('./request.mjs');
+        attemptFn =
+            cell.request.flow === 'open-link-precondition'
+                ? req.runOpenLinkAttempt
+                : req.runRequestAttempt;
     }
     const sleep = ctx.sleep || defaultSleep;
     ctx.retry = ctx.retry || { used: 0, cap: RETRY_CAP };
@@ -1562,7 +1589,7 @@ export async function runCell(cell, ctx) {
         ];
     };
 
-    const a = await runAttempt(cell, ctx, 1);
+    const a = await attemptFn(cell, ctx, 1);
     attempts.push(a);
     if (cell.expect === 'kill-receiver') {
         if (!a.ok) return finish(...failureOf(a), a);
@@ -1611,7 +1638,7 @@ export async function runCell(cell, ctx) {
             );
         await sleep(ctx.retryWaitMs ?? RETRY_WAIT_MS);
     }
-    const b = await runAttempt(cell, ctx, 2);
+    const b = await attemptFn(cell, ctx, 2);
     attempts.push(b);
     if (b.ok) {
         const unproven = routeNoteOf(b);
