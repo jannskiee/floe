@@ -616,6 +616,18 @@ drainLoop:
 			}
 		case <-drainTick.C:
 			if deliveryBuffered(dc) == 0 {
+				// A frame the receiver sent may already be queued while the
+				// buffer reads empty, and select picks between ready arms at
+				// random: read it before judging success, so a queued refusal
+				// wins (FT-GO-TICK). A refusal that lands after this still
+				// needs the receiver's word, not a timer.
+				got, v, has, err := drainQueued(ackCh, localVer, opts.UpdateHint, len(files))
+				if err != nil {
+					return err
+				}
+				if got {
+					verified, hasVerified = v, has
+				}
 				break drainLoop
 			}
 		case <-done:
@@ -641,11 +653,11 @@ drainLoop:
 			}
 			break drainLoop
 		case <-stall.C:
+			// An empty buffer is the tick arm's to judge, within one tick, so
+			// the wait has one success exit on a drained buffer and it reads
+			// the queued frames first (FT-GO-TICK). Empty counts as progress.
 			cur := deliveryBuffered(dc)
-			if cur == 0 {
-				break drainLoop // drained; the tick arm usually sees this first
-			}
-			if backpressureStalled(lastBuffered, cur) {
+			if cur != 0 && backpressureStalled(lastBuffered, cur) {
 				return fmt.Errorf("timed out waiting for delivery confirmation from peer")
 			}
 			lastBuffered = cur

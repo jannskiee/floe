@@ -210,3 +210,75 @@ func TestDeliveryWaitReceivedStillWins(t *testing.T) {
 		t.Fatal("the received frame did not end the delivery wait")
 	}
 }
+
+// A refusal that is queued by the time the tick arm finds the buffer empty is
+// reported, not a success (FT-GO-TICK; FT-GO-REFUSAL review 1, F2 part b). The
+// tick arm's buffer read is held until the refusal has reached ackCh, which is
+// the moment the old arm judged success without looking. The receiver's channel
+// stays open, so no close can end the wait. This narrows the window; a refusal
+// that arrives after the tick already ended the wait still needs the receiver's
+// word (part a).
+func TestDeliveryTickReportsAQueuedRefusal(t *testing.T) {
+	prevRead := deliveryBuffered
+	t.Cleanup(func() { deliveryBuffered = prevRead })
+	inTick := make(chan struct{})
+	release := make(chan struct{})
+	var mu sync.Mutex
+	calls := 0
+	deliveryBuffered = func(*webrtc.DataChannel) uint64 {
+		mu.Lock()
+		calls++
+		n := calls
+		mu.Unlock()
+		// Read 1 is the wait's first sample, before its loop; read 2 is the
+		// first tick arm.
+		if n == 2 {
+			close(inTick)
+			<-release
+		}
+		return 0
+	}
+
+	dc, frames := newBlockingPair(t)
+	path := sizedFile(t, 0)
+	msgs := make(chan webrtc.DataChannelMessage, 4)
+	closed := make(chan struct{})
+	errc := make(chan error, 1)
+	go func() {
+		errc <- SendFilesWithOptions(dc, []string{path}, "test", SendOptions{
+			OnProgress: func(Progress) {}, Messages: msgs, Closed: closed,
+		})
+	}()
+	var meta struct {
+		ID string `json:"id"`
+	}
+	select {
+	case raw := <-frames:
+		if err := json.Unmarshal(raw, &meta); err != nil || meta.ID == "" {
+			t.Fatalf("first frame is not the metadata: %v", err)
+		}
+	case err := <-errc:
+		t.Fatalf("send ended before the metadata: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("no metadata within 10s")
+	}
+	ack, _ := json.Marshal(map[string]interface{}{"type": "ack", "id": meta.ID, "offset": 0, "pv": 1, "pvMin": 1})
+	msgs <- webrtc.DataChannelMessage{IsString: true, Data: ack}
+	select {
+	case <-inTick:
+	case err := <-errc:
+		t.Fatalf("send ended before the delivery tick: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the delivery wait never reached its tick arm")
+	}
+	msgs <- webrtc.DataChannelMessage{IsString: true, Data: []byte(diskFullRefusal)}
+	// The pump forwarder moves it into ackCh at once; the pause is margin.
+	time.Sleep(200 * time.Millisecond)
+	close(release)
+	select {
+	case err := <-errc:
+		wantDiskFull(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the delivery wait did not end within 10s")
+	}
+}
