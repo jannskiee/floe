@@ -213,8 +213,13 @@ type requestLane struct {
 	live atomic.Bool
 
 	// pairFn is the pairing body, run on user-connected by the goroutine that
-	// owns sc. S1-DSK-03b fills it; the default reopens the room so the link
-	// stays waiting.
+	// owns sc: runRequestDrop (S1-DSK-03b), through pairRequest. Its contract:
+	// it returns with the lane in waiting, declined, done or stopped (or rg
+	// gone); it registers its peer connection with setRequestConn and clears
+	// it before returning; and for every acceptDrop that returned true it
+	// releases the wake hold, even when rg has moved on: through endDrop, or
+	// with requestWakeRelease for an Accept the engine found abandoned before
+	// any claim.
 	pairFn func(rg uint64, sc *signaling.Client)
 
 	// emitMu serializes building and emitting snapshots, so two emits can
@@ -257,7 +262,7 @@ func newRequestLane(a *App) *requestLane {
 		backoffCap:   requestBackoffCap,
 		closeWait:    requestCloseWait,
 	}
-	l.pairFn = func(rg uint64, sc *signaling.Client) { a.pairStub(rg, sc) }
+	l.pairFn = func(rg uint64, sc *signaling.Client) { a.pairRequest(rg, sc) }
 	return l
 }
 
@@ -1032,12 +1037,94 @@ func (a *App) reconnect(rg uint64, stop <-chan struct{}, server, roomID, hostTok
 	}
 }
 
-// pairStub is the default pairFn until S1-DSK-03b: it reopens the room so the
-// visitor is turned away and the link stays waiting.
-func (a *App) pairStub(rg uint64, sc *signaling.Client) {
-	if a.requestActive(rg) {
-		_ = sc.RequestReopen()
+// requestPairing is what one pairing reads when its visitor arrives: the
+// link's own server, the Hide my IP and global stats switches as they are
+// right now (read under a.mu, then released), and the link's label, base
+// folder, end time and stop channel (read under the lane lock).
+type requestPairing struct {
+	server      string
+	hideIP      bool
+	reportStats bool
+	label       string
+	saveDir     string
+	expiresAt   time.Time
+	stop        <-chan struct{}
+}
+
+// pairRequest is the default pairFn: it reads the pairing, then runs the drop
+// (runRequestDrop, transfer.go).
+func (a *App) pairRequest(rg uint64, sc *signaling.Client) {
+	a.mu.Lock()
+	hideIP, reportStats := a.cfg.HideIP, a.cfg.ReportStats
+	a.mu.Unlock()
+	l := a.lane()
+	l.mu.Lock()
+	if rg != l.gen || l.cancelled {
+		l.mu.Unlock()
+		return
 	}
+	p := requestPairing{
+		server: l.server, hideIP: hideIP, reportStats: reportStats,
+		label: l.label, saveDir: l.saveDir, expiresAt: l.expiresAt, stop: l.stop,
+	}
+	l.mu.Unlock()
+	_ = a.runRequestDrop(rg, sc, p)
+}
+
+// setRequestConn registers a pairing's peer connection with generation rg, so
+// Close link and quit can close it. False when rg no longer owns the lane: the
+// caller closes conn itself.
+func (a *App) setRequestConn(rg uint64, conn closer) bool {
+	l := a.lane()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if rg != l.gen || l.cancelled {
+		return false
+	}
+	l.conn = conn
+	return true
+}
+
+// clearRequestConn forgets conn when the lane still holds it; one that Close
+// link or a quit took is theirs.
+func (a *App) clearRequestConn(conn closer) {
+	l := a.lane()
+	l.mu.Lock()
+	if l.conn == conn {
+		l.conn = nil
+	}
+	l.mu.Unlock()
+}
+
+// setDropCancel stores the running drop's cancel func for Cancel drop, gated
+// on rg still owning the lane.
+func (a *App) setDropCancel(rg uint64, cancel func()) bool {
+	l := a.lane()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if rg != l.gen || l.cancelled {
+		return false
+	}
+	l.dropCancel = cancel
+	return true
+}
+
+// reopenRequest ends a pairing that made no drop: request-reopen on the link's
+// socket, then waiting with code (visitor-left, setup-failed, no-relay,
+// relay-unknown, or "" for a missed request, whose missedAt is already set).
+// The reopen goes first, so a snapshot that says waiting never precedes it.
+func (a *App) reopenRequest(rg uint64, sc *signaling.Client, code string, cause error) error {
+	if !a.requestActive(rg) {
+		return cause
+	}
+	_ = sc.RequestReopen()
+	a.reqUpdate(rg, func(l *requestLane) {
+		l.prompt = nil
+		l.route = ""
+		l.dropCancel = nil
+		l.setStateLocked("waiting", code)
+	})
+	return cause
 }
 
 // sendCloseWithin writes request-close through closeFrame, waiting at most
@@ -1447,7 +1534,10 @@ func (a *App) AnswerRequest(promptGen uint64, answer string) RequestLinkSnapshot
 }
 
 // CancelRequestDrop stops a running drop through the cancel func the drop
-// registered (S1-DSK-03b). Outside receiving it does nothing.
+// registered (S1-DSK-03b), which returns at once: it sends stopped and closes
+// on its own goroutine, and the drop ends when its receive returns, which a
+// commit retry can hold for up to 5 minutes (WP-A2 review L3b). Outside
+// receiving it does nothing.
 func (a *App) CancelRequestDrop() {
 	l := a.lane()
 	l.mu.Lock()

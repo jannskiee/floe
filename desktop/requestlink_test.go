@@ -10,6 +10,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -68,6 +69,17 @@ type fakeSignalServer struct {
 	controls  []fakeControl // request-* frames from clients, in order
 	conns     []*fakeConn
 	closedCnt int
+
+	// The request room, spec 04 5.6 in miniature: the socket that made the
+	// last token join is the host, a request-join takes the visitor seat,
+	// signals go to the other seat, a visitor that leaves is reported to the
+	// host as peer-disconnected, request-seal seals, request-reopen evicts the
+	// visitor (room-full) and unseals.
+	host, visitor *fakeConn
+	sealed        bool
+	hostSignals   int      // signal frames from the host (the offer and its candidates)
+	turnHits      int      // GETs of /api/turn-credentials
+	statsPosts    []string // bodies of POST /api/stats/report
 }
 
 // newFakeSignalServer starts the fake: a healthy server with request-1 that
@@ -91,9 +103,20 @@ func newFakeSignalServer(t *testing.T) *fakeSignalServer {
 		f.mu.Lock()
 		block := f.block
 		body := f.turnBody
+		if r.URL.Path == "/api/turn-credentials" {
+			f.turnHits++
+		}
 		f.mu.Unlock()
 		if block != nil {
 			<-block
+		}
+		if r.URL.Path == "/api/stats/report" && r.Method == http.MethodPost {
+			raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<10))
+			f.mu.Lock()
+			f.statsPosts = append(f.statsPosts, string(raw))
+			f.mu.Unlock()
+			_, _ = w.Write([]byte(`{"ok":true}`))
+			return
 		}
 		if r.URL.Path == "/api/turn-credentials" && body != "" {
 			_, _ = w.Write([]byte(body))
@@ -134,7 +157,18 @@ func (f *fakeSignalServer) read(fc *fakeConn) {
 			fc.closed = true
 			f.closedCnt++
 		}
+		var tell *fakeConn
+		if f.visitor == fc {
+			f.visitor = nil
+			tell = f.host
+		}
+		if f.host == fc {
+			f.host = nil
+		}
 		f.mu.Unlock()
+		if tell != nil {
+			tell.send(map[string]string{"type": "peer-disconnected"})
+		}
 	}()
 	for {
 		_, raw, err := fc.c.ReadMessage()
@@ -166,6 +200,9 @@ func (f *fakeSignalServer) read(fc *fakeConn) {
 			}
 			f.mu.Lock()
 			f.joins = append(f.joins, fakeJoin{roomID: room, token: tok})
+			if !silent && refuse == "" && role == "host" {
+				f.host = fc
+			}
 			f.mu.Unlock()
 			switch {
 			case silent:
@@ -173,6 +210,55 @@ func (f *fakeSignalServer) read(fc *fakeConn) {
 				fc.send(map[string]string{"type": "refused", "code": refuse})
 			default:
 				fc.send(map[string]string{"type": "room-joined", "role": role})
+			}
+		case "request-join":
+			f.mu.Lock()
+			host := f.host
+			answer := "request-joined"
+			switch {
+			case host == nil:
+				answer = "host-absent"
+			case f.visitor != nil || f.sealed:
+				answer = "room-full"
+			default:
+				f.visitor = fc
+			}
+			f.mu.Unlock()
+			if answer != "request-joined" {
+				fc.send(map[string]string{"type": answer})
+				continue
+			}
+			fc.send(map[string]string{"type": "request-joined", "role": "visitor"})
+			host.send(map[string]string{"type": "user-connected", "id": "visitor"})
+		case "signal":
+			f.mu.Lock()
+			var to *fakeConn
+			switch fc {
+			case f.host:
+				to = f.visitor
+				f.hostSignals++
+			case f.visitor:
+				to = f.host
+			}
+			f.mu.Unlock()
+			if to != nil {
+				to.send(map[string]any{"type": "signal", "signal": m["signal"], "sender": "peer"})
+			}
+		case "request-seal":
+			f.mu.Lock()
+			if fc == f.host && f.visitor != nil {
+				f.sealed = true
+			}
+			f.mu.Unlock()
+		case "request-reopen":
+			f.mu.Lock()
+			var evict *fakeConn
+			if fc == f.host {
+				evict, f.visitor, f.sealed = f.visitor, nil, false
+			}
+			f.mu.Unlock()
+			if evict != nil {
+				evict.send(map[string]string{"type": "room-full"})
 			}
 		}
 	}
@@ -197,27 +283,30 @@ func (f *fakeSignalServer) dropAll() {
 	}
 }
 
-// userConnected tells the newest socket a visitor arrived.
-func (f *fakeSignalServer) userConnected() {
+// hostConn is the host's socket when one has joined, else the newest socket.
+func (f *fakeSignalServer) hostConn() *fakeConn {
 	f.mu.Lock()
-	var fc *fakeConn
-	if n := len(f.conns); n > 0 {
-		fc = f.conns[n-1]
+	defer f.mu.Unlock()
+	if f.host != nil {
+		return f.host
 	}
-	f.mu.Unlock()
+	if n := len(f.conns); n > 0 {
+		return f.conns[n-1]
+	}
+	return nil
+}
+
+// userConnected tells the host a visitor arrived.
+func (f *fakeSignalServer) userConnected() {
+	fc := f.hostConn()
 	if fc != nil {
 		fc.send(map[string]string{"type": "user-connected", "id": "visitor"})
 	}
 }
 
-// peerDisconnected tells the newest socket its visitor left.
+// peerDisconnected tells the host its visitor left.
 func (f *fakeSignalServer) peerDisconnected() {
-	f.mu.Lock()
-	var fc *fakeConn
-	if n := len(f.conns); n > 0 {
-		fc = f.conns[n-1]
-	}
-	f.mu.Unlock()
+	fc := f.hostConn()
 	if fc != nil {
 		fc.send(map[string]string{"type": "peer-disconnected"})
 	}
@@ -225,12 +314,7 @@ func (f *fakeSignalServer) peerDisconnected() {
 
 // pushRefused sends a seated host a refused frame (policy turned off).
 func (f *fakeSignalServer) pushRefused(code string) {
-	f.mu.Lock()
-	var fc *fakeConn
-	if n := len(f.conns); n > 0 {
-		fc = f.conns[n-1]
-	}
-	f.mu.Unlock()
+	fc := f.hostConn()
 	if fc != nil {
 		fc.send(map[string]string{"type": "refused", "code": code})
 	}
@@ -248,29 +332,46 @@ func (f *fakeSignalServer) count(typ string) int {
 	return n
 }
 
+// roomOpen reports whether the request room has no visitor and no seal, so
+// the next request-join is seated.
+func (f *fakeSignalServer) roomOpen() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.visitor == nil && !f.sealed
+}
+
 func (f *fakeSignalServer) tokenJoins() []fakeJoin {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]fakeJoin(nil), f.joins...)
 }
 
-// snapRecorder keeps every snapshot the lane emitted.
+// snapRecorder keeps every snapshot the lane emitted, and the JSON of every
+// lane event of any name (request:progress included).
 type snapRecorder struct {
 	mu    sync.Mutex
 	snaps []RequestLinkSnapshot
 	raw   []string
+	every []string
 }
 
 func (r *snapRecorder) emit(event string, data any) {
+	b, _ := json.Marshal(data)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.every = append(r.every, event+" "+string(b))
 	if event != "request:state" {
 		return
 	}
-	s := data.(RequestLinkSnapshot)
-	b, _ := json.Marshal(s)
-	r.mu.Lock()
-	r.snaps = append(r.snaps, s)
+	r.snaps = append(r.snaps, data.(RequestLinkSnapshot))
 	r.raw = append(r.raw, string(b))
-	r.mu.Unlock()
+}
+
+// allRaw is the JSON of every lane event so far, each prefixed with its name.
+func (r *snapRecorder) allRaw() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.every...)
 }
 
 func (r *snapRecorder) all() []RequestLinkSnapshot {
