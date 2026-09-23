@@ -666,33 +666,38 @@ func TestMakeRequestLinkRefusesSecondLink(t *testing.T) {
 	}
 }
 
-func TestMakeRequestLinkRefusesUnusableWebBase(t *testing.T) {
-	cases := []struct {
-		server, web string
-		ok          bool
-	}{
-		{"https://api.floe.one", "https://floe.one", true},
-		{"http://localhost:3001", "http://localhost:3000", true},
-		{"http://localhost:8080", "http://localhost:8080", true},
-		{"http://127.0.0.1:3001", "http://127.0.0.1:3001", true},
-		{"https://api.example.com", "https://files.example.com", true},
-		{"https://example.com", "https://example.com/floe", true},
-		{"https://files.example.com", "https://files.example.com", false},
-		{"https://192.168.1.50:3001", "https://192.168.1.50:3001", false},
-	}
-	for _, c := range cases {
-		if got := webBaseUsable(c.server, c.web); got != c.ok {
-			t.Errorf("webBaseUsable(%q, %q) = %v, want %v", c.server, c.web, got, c.ok)
-		}
-	}
-
-	// Through Make link: a one-origin self-host without a Share link address.
-	a, _ := laneApp(t, nil)
-	a.cfg.Server = "https://files.example.com"
-	a.lane().supportFn = func(string) FeatureResult { return FeatureResult{Reachable: true, RequestLinks: true} }
-	a.MakeRequestLink("x", "", "24h")
-	if s := waitState(t, a, 5*time.Second, "error"); s.Code != "web-address" {
-		t.Fatalf("code %q, want web-address", s.Code)
+// TestMakeRequestLinkAllowsOneDomainSelfHost (D-118, E-21): a self-host that
+// serves the web app and the signaling server on one origin makes a link,
+// and the link's web base is the owner's own: the Share link address when it
+// is set, else the server address (serverurl.Web leaves a self-hosted one
+// alone), never anything the server sends.
+func TestMakeRequestLinkAllowsOneDomainSelfHost(t *testing.T) {
+	f := newFakeSignalServer(t)
+	// "localhost." reaches the fake on this machine and reads as a
+	// self-hosted origin, not a local one: the case E-21 used to refuse.
+	origin := strings.Replace(f.url(), "127.0.0.1", "localhost.", 1)
+	for _, c := range []struct{ name, web, want string }{
+		{"no Share link address", "", origin},
+		{"Share link address on the same origin", origin, origin},
+		{"Share link address on another origin", "https://files.example.com", "https://files.example.com"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			a, _ := laneApp(t, f)
+			a.cfg.Server = origin
+			a.cfg.Web = c.web
+			a.MakeRequestLink("x", t.TempDir(), "24h")
+			waitFor(t, 10*time.Second, "the link to be made or refused", func() bool {
+				st := stateOf(a).State
+				return st == "waiting" || st == "error"
+			})
+			s := stateOf(a)
+			if s.State != "waiting" {
+				t.Fatalf("a one-domain self-host got %q %q, want a waiting link", s.State, s.Code)
+			}
+			if !strings.HasPrefix(s.Link, c.want+"/r/") {
+				t.Fatalf("the link's web base is not the owner's %q", c.want)
+			}
+		})
 	}
 }
 

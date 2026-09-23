@@ -566,41 +566,6 @@ func requestLinkFor(web, linkID, roomID string) string {
 	return web + "/r/" + linkID + "#" + roomID
 }
 
-// webBaseUsable is the E-21 check: a link built on the signaling origin
-// points at the API, not at a web app, so when web equals server the pair
-// must be Floe's own server or a local one. A split self-host sets its Share
-// link address under Settings, Advanced (E8).
-func webBaseUsable(server, web string) bool {
-	if web != server {
-		return true
-	}
-	return server == defaultServer || isLocalOrigin(server)
-}
-
-// isLocalOrigin reports whether origin's host is this machine.
-func isLocalOrigin(origin string) bool {
-	rest := origin
-	if i := strings.Index(rest, "://"); i >= 0 {
-		rest = rest[i+3:]
-	}
-	if i := strings.IndexByte(rest, '/'); i >= 0 {
-		rest = rest[:i]
-	}
-	host := rest
-	if strings.HasPrefix(host, "[") {
-		if i := strings.IndexByte(host, ']'); i >= 0 {
-			host = host[1:i]
-		}
-	} else if i := strings.LastIndexByte(host, ':'); i >= 0 {
-		host = host[:i]
-	}
-	switch strings.ToLower(host) {
-	case "localhost", "127.0.0.1", "::1":
-		return true
-	}
-	return false
-}
-
 // joinCode maps a host join result to the snapshot code (step 3g): only the
 // two refusals the Beta names keep their own code; every other answer,
 // including an unrecognized refusal code, is unknown (E-25, E-59).
@@ -730,11 +695,11 @@ func (a *App) runRequestLink(rg uint64, stop <-chan struct{}, hideIP bool, lifet
 		a.reqFail(rg, "disabled")
 		return
 	}
-	// d: a link must point at a web app (E-21).
-	if !webBaseUsable(server, web) {
-		a.reqFail(rg, "web-address")
-		return
-	}
+	// d: no web base is refused (D-118 relaxed E-21): a one-domain self-host
+	// serves its web app on the server's own origin. The base comes only from
+	// the owner's settings or serverurl.Web (endpoints), never from anything
+	// the server sends, so a server cannot steer the link, and with it the room
+	// id in the fragment, to a page of its choosing.
 	// e: Hide my IP needs a relay; the list is read once and dropped (L13).
 	if hideIP {
 		hasRelay, degraded, err := l.relayFn(server)
