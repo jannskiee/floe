@@ -10,9 +10,10 @@
 //
 // It never ships: .goreleaser.yml builds only cli/cmd/floe, and a test proves
 // no symbol of this package reaches that binary. It never reports stats (there
-// is no stats path here at all), never reads FLOE_SERVER (the server is -link,
-// -server or the local default), and never prints a host token or any part of
-// the room fragment beyond what the operator passed on the command line.
+// is no stats path here at all), never reads FLOE_SERVER (the server is
+// -server or the local default), refuses any -server that is not localhost, a
+// loopback or a private IP (localServer), and never prints a host token or any
+// part of the room fragment beyond what the operator passed on the command line.
 package main
 
 import (
@@ -20,6 +21,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -93,6 +96,36 @@ func (c config) mode() (mode, error) {
 
 const defaultServer = "http://127.0.0.1:3001"
 
+var errNotLocalServer = errors.New("rlvisitor: -server must be http(s)://<localhost, a loopback or a private IP>[:port]")
+
+// localServer refuses any -server that is not on this machine or its private
+// network, so this tool can never be aimed at api.floe.one or any public host,
+// whatever is typed (S1-DSK-08a: the hostile stub runs only on localhost). The
+// host must be localhost, a loopback IP literal, or a private IP literal
+// (RFC 1918, or an IPv6 ULA in fc00::/7); a private literal keeps the WSL host
+// address of FI-07 working. No other name is accepted, because a name can
+// resolve anywhere. The URL must be bare (scheme, host, optional port, at most
+// a trailing slash, which is dropped), because signaling.Connect and
+// ice.FetchDetail build their URLs by appending to this string.
+func localServer(raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return "", errNotLocalServer
+	}
+	if u.User != nil || u.Opaque != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" ||
+		(u.Path != "" && u.Path != "/") {
+		return "", errNotLocalServer
+	}
+	host := u.Hostname()
+	if !strings.EqualFold(host, "localhost") {
+		ip := net.ParseIP(host)
+		if ip == nil || !(ip.IsLoopback() || ip.IsPrivate()) {
+			return "", errNotLocalServer
+		}
+	}
+	return u.Scheme + "://" + u.Host, nil
+}
+
 // parseFlags reads the visitor's flags. It never reads FLOE_SERVER: the server
 // comes from a request link, -server, or the local default, so no environment
 // can point the stub at production.
@@ -100,7 +133,7 @@ func parseFlags(args []string) (config, error) {
 	fs := flag.NewFlagSet("rlvisitor", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	link := fs.String("link", "", "request link (floe.one/r/<id>#<roomId>); its server is not used, only its room id")
-	server := fs.String("server", defaultServer, "signaling server base URL")
+	server := fs.String("server", defaultServer, "signaling server base URL: localhost, a loopback or a private IP only")
 	room := fs.String("room", "", "room id (the link's fragment), if no -link is given")
 	send := fs.String("send", "", "comma-separated files or folders to send (normal and relay-only modes)")
 	relayOnly := fs.Bool("relay-only", false, "force the TURN relay (Hide my IP)")
@@ -119,7 +152,10 @@ func parseFlags(args []string) (config, error) {
 	}
 
 	roomID := strings.TrimSpace(*room)
-	srv := *server
+	srv, err := localServer(*server)
+	if err != nil {
+		return config{}, err
+	}
 	if *link != "" {
 		_, r, err := code.ParseRequestLink(*link)
 		if err != nil {

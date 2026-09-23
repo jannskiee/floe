@@ -55,6 +55,50 @@ func TestParseFlagsRefuseBadInput(t *testing.T) {
 	}
 }
 
+// -server takes only localhost, a loopback address or a private address
+// (RFC 1918 or an IPv6 ULA), so a typo can never aim the stub at production
+// or any public host; the WSL host address (FI-07) is private and stays
+// allowed.
+func TestParseFlagsRefusesNonLocalServer(t *testing.T) {
+	const room = "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
+	for _, srv := range []string{
+		"https://api.floe.one",
+		"http://floe.one",
+		"http://8.8.8.8:3001",
+		"http://example.com:3001",
+		"http://[2001:4860:4860::8888]:3001",
+		"http://0.0.0.0:3001",
+		"ftp://127.0.0.1:3001",
+		"127.0.0.1:3001",
+		"http://127.0.0.1:3001/api",
+		"http://127.0.0.1:3001?x=1",
+		"",
+	} {
+		if _, err := parseFlags([]string{"-room", room, "-server", srv, "-send", "a.bin"}); err == nil {
+			t.Errorf("-server %q: accepted, want a usage refusal", srv)
+		}
+	}
+	for srv, want := range map[string]string{
+		"http://127.0.0.1:3001":      "http://127.0.0.1:3001",
+		"http://localhost:3001":      "http://localhost:3001",
+		"http://172.29.64.1:3301":    "http://172.29.64.1:3301",
+		"http://192.168.1.20:3001":   "http://192.168.1.20:3001",
+		"http://10.0.0.5:3001/":      "http://10.0.0.5:3001",
+		"http://[::1]:3001":          "http://[::1]:3001",
+		"http://[fd12:3456::1]:3001": "http://[fd12:3456::1]:3001",
+		"https://127.0.0.1:3443":     "https://127.0.0.1:3443",
+	} {
+		cfg, err := parseFlags([]string{"-room", room, "-server", srv, "-send", "a.bin"})
+		if err != nil {
+			t.Errorf("-server %q: refused (%v), want accepted", srv, err)
+			continue
+		}
+		if cfg.server != want {
+			t.Errorf("-server %q: server = %q, want %q", srv, cfg.server, want)
+		}
+	}
+}
+
 func TestModeFromFlags(t *testing.T) {
 	const room = "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
 	cases := map[mode][]string{
