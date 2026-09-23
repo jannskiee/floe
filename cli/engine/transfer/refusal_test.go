@@ -195,27 +195,58 @@ func TestPeerStoppedErrorSentencesAreFixed(t *testing.T) {
 	}
 }
 
-// TestRefusedErrorSentencesAreFixed pins the receive-side sentences, including
-// the disk-full one, and that Err never leaks into them.
+// TestRefusedErrorSentencesAreFixed pins the receive-side sentence for every
+// code, byte for byte: RX-01 to RX-09 of the approved CLI copy (D-123) for the
+// nine codes that print "receive stopped: " and a fixed sentence, and the
+// unchanged write-failed, disk-full and hash-mismatch sentences. Err never
+// leaks into any of them, and neither does the code's own slug.
 func TestRefusedErrorSentencesAreFixed(t *testing.T) {
 	cause := errors.New("open C:\\Users\\someone\\secret.part: The device is not ready.")
-	cases := []struct {
-		code RefusalCode
-		want string
-	}{
-		{CodeWriteFailed, "write error: could not finish writing a file, so it was not kept"},
-		{CodeDiskFull, "write error: the drive ran out of space, so the file was not kept"},
-		{CodeHashMismatch, "a file did not match the SHA-256 the sender computed, so it was not kept"},
-		{"", "receive stopped"},
-		{CodePathTooLong, "receive stopped: path-too-long"},
+	want := map[RefusalCode]string{
+		CodePathTooLong:           "receive stopped: a file's path is too deep or too long to save in this folder", // RX-01
+		CodeFileTooLargeForFolder: "receive stopped: a file is larger than the save drive can hold",                // RX-02
+		CodeOverApproved:          "receive stopped: more data arrived than this transfer announced",               // RX-03
+		CodeRelayCap:              "receive stopped: relayed transfers are capped at 2 GB",                         // RX-04
+		CodeTimeLimit:             "receive stopped: the transfer reached its 24-hour limit",                       // RX-05
+		CodeExpired:               "receive stopped: nobody answered in time",                                      // RX-06
+		CodeDeclined:              "receive stopped: the transfer was declined",                                    // RX-07
+		CodeStopped:               "receive stopped: the transfer was stopped on this computer",                    // RX-08
+		CodeSaveBlocked:           "receive stopped: a finished file could not be moved into place",                // RX-09
+		// Unchanged by D-123: the desktop maps the "write error" prefix to its
+		// save-folder sentence, and the hash sentences pass through.
+		CodeWriteFailed:  "write error: could not finish writing a file, so it was not kept",
+		CodeDiskFull:     "write error: the drive ran out of space, so the file was not kept",
+		CodeHashMismatch: "a file did not match the SHA-256 the sender computed, so it was not kept",
 	}
-	for _, tc := range cases {
-		err := &RefusedError{Code: tc.code, Saved: 3, Err: cause}
-		if got := err.Error(); got != tc.want {
-			t.Errorf("%q: Error() = %q, want %q", tc.code, got, tc.want)
+	if len(want) != len(RefusalCodes) {
+		t.Fatalf("the sentence table has %d rows for %d codes", len(want), len(RefusalCodes))
+	}
+	for _, c := range RefusalCodes {
+		err := &RefusedError{Code: c, Saved: 3, Err: cause}
+		got := err.Error()
+		if got != want[c] {
+			t.Errorf("%s: Error() = %q, want %q", c, got, want[c])
+		}
+		if strings.Contains(got, "secret") || strings.Contains(got, "device") {
+			t.Errorf("%s: Error() leaks the cause: %q", c, got)
+		}
+		if strings.Contains(string(c), "-") && strings.Contains(got, string(c)) {
+			t.Errorf("%s: Error() prints the code's slug: %q", c, got)
+		}
+		for _, ch := range got {
+			if ch > unicode.MaxASCII || !unicode.IsPrint(ch) {
+				t.Errorf("%s: Error() has a non-ASCII or non-printable rune %U", c, ch)
+			}
 		}
 		if !errors.Is(err, cause) {
-			t.Errorf("%q: the cause is not reachable with errors.Is", tc.code)
+			t.Errorf("%s: the cause is not reachable with errors.Is", c)
+		}
+	}
+	// An empty code, and any code this build does not know (only a hand-built
+	// value can carry one), print the bare sentence and never the value.
+	for _, c := range []RefusalCode{"", "too-slow", "\x1b[2K\u202e$(calc)", "C:\\Users\\someone\\secret"} {
+		if got := (&RefusedError{Code: c, Err: cause}).Error(); got != "receive stopped" {
+			t.Errorf("%q: Error() = %q, want the bare %q", c, got, "receive stopped")
 		}
 	}
 	unreadable := &RefusedError{Code: CodeHashMismatch, Err: errSHA256Unreadable}
@@ -225,11 +256,27 @@ func TestRefusedErrorSentencesAreFixed(t *testing.T) {
 	if ErrDeclined.Error() != "transfer declined" {
 		t.Errorf("ErrDeclined = %q, want the accept prompt's sentence", ErrDeclined)
 	}
+}
+
+// TestCommitErrorSentenceIsFixed pins RX-10 of the approved CLI copy (D-123)
+// byte for byte: it says the .part was kept, and names no path, no file and
+// no cause, although every field it carries holds one.
+func TestCommitErrorSentenceIsFixed(t *testing.T) {
+	cause := errors.New("rename C:\\Users\\someone\\secret.part: The process cannot access the file because it is being used by another process.")
 	commit := &CommitError{PartPath: "C:\\x\\secret.part", Dest: "C:\\x\\secret", Base: "C:\\x\\secret", Err: cause}
-	if got := commit.Error(); strings.Contains(got, "secret") || strings.Contains(got, "device") {
+	const rx10 = "received a file in full but could not finish saving it; the complete file was kept in the save folder with a .part ending"
+	got := commit.Error()
+	if got != rx10 {
+		t.Errorf("CommitError.Error() = %q, want %q", got, rx10)
+	}
+	if strings.Contains(got, "secret") || strings.Contains(got, "process") || strings.Contains(got, `\`) {
 		t.Errorf("CommitError.Error() leaks a path or the cause: %q", got)
 	}
 	if !errors.Is(commit, cause) {
 		t.Error("CommitError does not unwrap to its cause")
+	}
+	var ce *CommitError
+	if !errors.As(fmt.Errorf("wrapped: %w", commit), &ce) || ce.PartPath != commit.PartPath {
+		t.Error("errors.As does not find a CommitError, so a caller cannot reach the .part")
 	}
 }

@@ -86,6 +86,29 @@ const RULES: Array<[pattern: string, friendly: string]> = [
     ['server error:', 'The server rejected the request. Try again in a minute.'],
     ['timed out waiting for delivery', 'The connection was lost before the transfer finished. Start it again.'],
     ['peer disconnected before connecting', 'The receiver left before the transfer started.'],
+    // A receive this side stopped on purpose, or could not finish saving
+    // (D-123, approved desktop copy RX1 to RX10). Each pattern is the
+    // engine's WHOLE sentence (RefusedError.Error() and CommitError.Error()
+    // in cli/engine/transfer/refusal.go, approved CLI copy RX-01 to RX-10),
+    // never the shared "receive stopped" prefix: a desktop SENDER is handed
+    // text about the other side (PeerStoppedError's "They ..." and "Their
+    // ...", a wire reason's "receiver ..."), which cannot contain these
+    // words, and the bare "receive stopped" of an empty code keeps passing
+    // through. No rule above occurs inside any of them, so none takes them
+    // first; errors.test.ts proves both directions.
+    ["receive stopped: a file's path is too deep or too long to save in this folder", "A file's path is too deep or too long to save in this folder."],
+    ['receive stopped: a file is larger than the save drive can hold', 'A file is larger than the save drive can hold.'],
+    ['receive stopped: more data arrived than this transfer announced', 'More data arrived than this transfer announced.'],
+    ['receive stopped: relayed transfers are capped at 2 GB', 'Relayed transfers are capped at 2 GB.'],
+    ['receive stopped: the transfer reached its 24-hour limit', 'The transfer reached its 24-hour limit.'],
+    ['receive stopped: nobody answered in time', 'Nobody answered in time.'],
+    ['receive stopped: the transfer was declined', 'The transfer was declined.'],
+    ['receive stopped: the transfer was stopped on this computer', 'The transfer was stopped on this computer.'],
+    ['receive stopped: a finished file could not be moved into place', 'A finished file could not be moved into place.'],
+    [
+        'received a file in full but could not finish saving it; the complete file was kept in the save folder with a .part ending',
+        'Received a file in full but could not finish saving it. The complete file was kept in the save folder with a .part ending.',
+    ],
     ['cannot create', 'Could not write to the save folder. Check that it exists and has free space.'],
     ['write error', 'Could not write to the save folder. Check that it exists and has free space.'],
     ['connection failed (state', 'The connection was lost before the transfer finished. Start it again.'],

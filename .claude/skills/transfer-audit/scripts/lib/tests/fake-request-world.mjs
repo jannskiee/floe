@@ -91,7 +91,8 @@ export function fakeVisitorContext(world, opts = {}) {
     const tick = () => world?.tick();
     const titleOf = () => {
         tick();
-        if (v.state === 'arrived') return `ALL ${v.files.length} FILES ARRIVED`;
+        if (v.state === 'arrived')
+            return v.files.length === 1 ? '1 FILE ARRIVED' : `ALL ${v.files.length} FILES ARRIVED`;
         return TITLES[v.state] ?? null;
     };
     const linesOf = () => {

@@ -36,6 +36,16 @@ describe('hidden tab titles', () => {
         expect(visitorTitle('V10', { percent: Number.NaN, index: 1, total: 12 }, true)).toBe('0% sent, 1 of 12 files - Floe');
     });
 
+    it('a drop of one file says file (D-123, T-02 and T-03)', () => {
+        // The approved drawn form of T-02 (index 0), the page's own 1-based
+        // index, and T-03; each beside its nearest plural neighbor, N = 2.
+        expect(visitorTitle('V10', { percent: 48, index: 0, total: 1 }, true)).toBe('48% sent, 0 of 1 file - Floe');
+        expect(visitorTitle('V10', { percent: 48, index: 1, total: 1 }, true)).toBe('48% sent, 1 of 1 file - Floe');
+        expect(visitorTitle('V13', { percent: 100, index: 1, total: 1 }, true)).toBe('1 file arrived - Floe');
+        expect(visitorTitle('V10', { percent: 48, index: 1, total: 2 }, true)).toBe('48% sent, 1 of 2 files - Floe');
+        expect(visitorTitle('V13', { percent: 100, index: 2, total: 2 }, true)).toBe('All 2 files arrived - Floe');
+    });
+
     it('no title contains an em or en dash', () => {
         const dash = new RegExp('[' + String.fromCharCode(0x2013, 0x2014) + ']');
         const states: VisitorState[] = ['load', 'V3', 'V6', 'V7', 'V10', 'V11', 'V11a', 'V11b', 'V12', 'V12a', 'V13'];

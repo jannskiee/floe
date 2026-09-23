@@ -199,7 +199,8 @@ test('the visitor copy is the frozen table, and only Ready, Connecting, Waiting 
     });
     assert.equal(sendLabel(1), 'Send 1 file');
     assert.equal(sendLabel(3), 'Send 3 files');
-    assert.equal(arrivedTitle(1), 'ALL 1 FILES ARRIVED', 'statusCopy keeps the plural');
+    assert.equal(arrivedTitle(1), '1 FILE ARRIVED', 'C-120 is singular for one file (D-123)');
+    assert.equal(arrivedTitle(2), 'ALL 2 FILES ARRIVED');
     for (const t of [VISITOR_TEXT.ready, VISITOR_TEXT.connecting, VISITOR_TEXT.waiting, 'SENDING 2 OF 5'])
         assert.ok(inProgressTitle(t), t);
     for (const t of [VISITOR_TEXT.hostAbsent, VISITOR_TEXT.used, VISITOR_TEXT.declined, 'Connection lost', arrivedTitle(2)])
@@ -243,7 +244,7 @@ test('awaitTitle returns on the title asked for, fails at once on any other endi
         (e) =>
             e.signatureKey === 'request-flow' &&
             e.message ===
-                'request-flow: the visitor-2 read "This link has already been used" instead of "ALL 1 FILES ARRIVED"'
+                'request-flow: the visitor-2 read "This link has already been used" instead of "1 FILE ARRIVED"'
     );
 
     s.v.state = 'waiting';

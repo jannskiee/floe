@@ -44,7 +44,8 @@ const bareHost = (h) => h.toLowerCase().replace(/^www\./, '');
 /**
  * The visitor page's fixed copy the runner keys on, quoted from
  * client/lib/request/visitorCopy.ts (the C-row id beside each). The V13
- * title is statusCopy's `ALL ${total} FILES ARRIVED`, plural for any count.
+ * title is statusCopy's C-120, `ALL ${total} FILES ARRIVED`, and
+ * `1 FILE ARRIVED` for a single file (D-123).
  */
 export const VISITOR_TEXT = Object.freeze({
     ready: 'SEND FILES THROUGH THIS LINK', // C-01, the Ready eyebrow (an h1)
@@ -58,8 +59,8 @@ export const VISITOR_TEXT = Object.freeze({
     shaMatched: "Their app reports every file's SHA-256 matched.", // C-122
 });
 
-/** V13's title for a drop of n files. */
-export const arrivedTitle = (n) => `ALL ${n} FILES ARRIVED`;
+/** V13's title for a drop of n files (C-120, singular when n is 1). */
+export const arrivedTitle = (n) => (n === 1 ? '1 FILE ARRIVED' : `ALL ${n} FILES ARRIVED`);
 
 /** C-09: the Send button's label for n files. */
 export const sendLabel = (n) => (n === 1 ? 'Send 1 file' : `Send ${n} files`);

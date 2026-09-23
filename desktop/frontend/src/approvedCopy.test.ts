@@ -28,6 +28,7 @@ import {
     REQUEST_LINKS_ON_LINE,
 } from './settings';
 import * as c from './requestCopy';
+import {friendlyError} from './errors';
 import {fmtBytes} from './incoming';
 import {fmtEta, fmtSpeed} from './progress';
 
@@ -274,6 +275,27 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.NOTICE_REVIEW).toBe(approved('N2'));
         expect(c.ANNOUNCE_REQUEST).toBe(approved('A1'));
         expect(c.ANNOUNCE_GUARD_LIFTED).toBe(approved('A2'));
+    });
+
+    it('Code receive error rows RX1 to RX10 match byte for byte', () => {
+        // The engine's fixed sentence per code (refusal.go RefusedError.Error()
+        // and CommitError.Error(), approved-copy-cli.txt RX-01 to RX-10) as
+        // ReceiveByCode wraps it, through friendlyError to the status line.
+        const engine: Array<[id: string, sentence: string]> = [
+            ['RX1', "receive stopped: a file's path is too deep or too long to save in this folder"],
+            ['RX2', 'receive stopped: a file is larger than the save drive can hold'],
+            ['RX3', 'receive stopped: more data arrived than this transfer announced'],
+            ['RX4', 'receive stopped: relayed transfers are capped at 2 GB'],
+            ['RX5', 'receive stopped: the transfer reached its 24-hour limit'],
+            ['RX6', 'receive stopped: nobody answered in time'],
+            ['RX7', 'receive stopped: the transfer was declined'],
+            ['RX8', 'receive stopped: the transfer was stopped on this computer'],
+            ['RX9', 'receive stopped: a finished file could not be moved into place'],
+            ['RX10', 'received a file in full but could not finish saving it; the complete file was kept in the save folder with a .part ending'],
+        ];
+        for (const [id, sentence] of engine) {
+            expect(friendlyError(`transfer failed: ${sentence}`), id).toBe(`Error: ${approved(id)}`);
+        }
     });
 
     it('no approved row that is not cut is left unchecked', () => {

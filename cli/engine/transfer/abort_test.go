@@ -860,7 +860,9 @@ func TestReceiverCreateErrorSendsWriteFailedFrame(t *testing.T) {
 			if tc.claimErr != nil && !errors.Is(res.err, tc.claimErr) {
 				t.Fatalf("the cause is not reachable with errors.Is: %v", res.err)
 			}
-			if msg := res.err.Error(); strings.Contains(msg, "deep") || strings.Contains(msg, "nnn") || strings.Contains(msg, partSuffix) {
+			// The file names themselves, not the bare word "deep": the
+			// path-too-long sentence (RX-01, D-123) says "too deep".
+			if msg := res.err.Error(); strings.Contains(msg, "deep.bin") || strings.Contains(msg, "nnn") || strings.Contains(msg, partSuffix) {
 				t.Fatalf("Error() must be fixed wording, got %q", msg)
 			}
 			if left := listDir(t, h.dir); len(left) != 0 {

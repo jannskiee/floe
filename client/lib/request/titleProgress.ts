@@ -31,15 +31,17 @@ export function visitorTitle(state: VisitorState, progress: TitleProgress, hidde
             // T-01.
             return 'Waiting for them to accept - Floe';
         case 'V10': {
-            // T-02.
+            // T-02, singular when N is 1 (D-123).
             const pct = Number.isFinite(progress.percent)
                 ? Math.min(100, Math.max(0, Math.floor(progress.percent)))
                 : 0;
-            return `${pct}% sent, ${progress.index} of ${progress.total} files - Floe`;
+            return progress.total === 1
+                ? `${pct}% sent, ${progress.index} of 1 file - Floe`
+                : `${pct}% sent, ${progress.index} of ${progress.total} files - Floe`;
         }
         case 'V13':
-            // T-03, until the tab is visible again.
-            return `All ${progress.total} files arrived - Floe`;
+            // T-03, until the tab is visible again; singular when N is 1 (D-123).
+            return progress.total === 1 ? '1 file arrived - Floe' : `All ${progress.total} files arrived - Floe`;
         default:
             // T-04: V11 and V12 with their sub-states, until visible.
             return 'Drop stopped - Floe';
