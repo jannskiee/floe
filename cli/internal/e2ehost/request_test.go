@@ -316,6 +316,22 @@ func (s *fakeRequestServer) snapshot() (tokens []string, badRoom bool, controls 
 	return append([]string(nil), s.tokens...), s.badRoom, append([]string(nil), s.controls...)
 }
 
+// controlsAfter reads the fake server's record once it holds n control frames,
+// or after 5 s. The harness writes request-close and exits at once, and the
+// server's read goroutine can still be a frame behind when the test reads: a
+// slow runner showed it (macOS, CI run 35812550043). A frame that never
+// arrives still fails the caller's comparison.
+func (s *fakeRequestServer) controlsAfter(n int) (tokens []string, badRoom bool, controls []string) {
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		tokens, badRoom, controls = s.snapshot()
+		if len(controls) >= n || time.Now().After(deadline) {
+			return tokens, badRoom, controls
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 // statsRequests is how many times anything asked to report stats.
 func (s *fakeRequestServer) statsRequests() int {
 	s.mu.Lock()
@@ -528,7 +544,7 @@ func TestRequestModeDeliversThroughAFakeServer(t *testing.T) {
 			t.Fatalf("line %d is not an event object: %s", i, h.raws[i])
 		}
 	}
-	tokens, badRoom, controls := srv.snapshot()
+	tokens, badRoom, controls := srv.controlsAfter(2)
 	checkNoToken(t, h, tokens)
 	if badRoom || len(tokens) != 1 {
 		t.Fatalf("host joins %d, badRoom %v: want one join with the derived room", len(tokens), badRoom)
@@ -576,7 +592,7 @@ func TestRequestModeKeepWaitingReopensAfterADecline(t *testing.T) {
 	if code := h.exitCode(t); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	_, _, controls := srv.snapshot()
+	_, _, controls := srv.controlsAfter(4)
 	if !equalNames(controls, []string{"request-seal", "request-reopen", "request-seal", "request-close"}) {
 		t.Fatalf("control frames %v", controls)
 	}
@@ -637,7 +653,7 @@ func TestRequestModeBlipReclaimsTheRoom(t *testing.T) {
 	if got := h.names(); !equalNames(got, want) {
 		t.Fatalf("events %v, want %v", got, want)
 	}
-	tokens, badRoom, controls := srv.snapshot()
+	tokens, badRoom, controls := srv.controlsAfter(2)
 	checkNoToken(t, h, tokens)
 	if len(tokens) != 2 || tokens[0] != tokens[1] || badRoom {
 		t.Fatalf("host joins %d (same token %v), badRoom %v", len(tokens), len(tokens) == 2 && tokens[0] == tokens[1], badRoom)
