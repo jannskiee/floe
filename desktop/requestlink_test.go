@@ -1312,26 +1312,143 @@ func TestRequestToastsAreConstant(t *testing.T) {
 	}
 }
 
-// TestNoDirectNotifyInRequestLane: in requestlink.go and in runRequestDrop
-// (transfer.go, S1-DSK-03b), nothing calls notify, notifyFn,
-// notifyTransferFailed or the Wails notification except notifyRequest, whose
-// text comes from the constant table, and every notifyRequest call passes a
-// table key.
+// TestNoDirectNotifyInRequestLane (S1-DSK-05, made unbypassable by review 1b
+// M1). Every non-test Go file of the desktop package is parsed (for every
+// platform: build constraints are not applied), and every REFERENCE to
+// notify, notifyFn, notifyTransferFailed or SendNotification, called or not
+// (a method value, a package-level alias, an interface method, a helper in a
+// new file), must sit in a declaration on the allowlist below; an allowlist
+// entry nothing uses any more fails too, so the list stays tight. The
+// request lane's only way to a notification is notifyRequest: its one notify
+// call passes exactly the title and body requestToastText returned, every
+// reference to notifyRequest is a call with a table key, and requestToastText
+// returns constants. The transfer lane's calls pass string literals. No toast
+// package is imported directly. Because the whole package is scanned, the
+// S1-DSK-03b drop (runRequestDrop) is covered by name without being listed.
 func TestNoDirectNotifyInRequestLane(t *testing.T) {
+	type use struct{ name, owner string }
+	allowed := map[use]bool{
+		{"notify", "app.go:(*App).notify"}:                             false,
+		{"notifyFn", "app.go:(*App).notify"}:                           false,
+		{"SendNotification", "app.go:(*App).notify"}:                   false,
+		{"notifyFn", "app.go:App"}:                                     false,
+		{"notify", "app.go:(*App).notifyTransferFailed"}:               false,
+		{"notifyTransferFailed", "app.go:(*App).notifyTransferFailed"}: false,
+		{"notify", "transfer.go:(*App).runSend"}:                       false,
+		{"notifyTransferFailed", "transfer.go:(*App).runSend"}:         false,
+		{"notifyTransferFailed", "transfer.go:(*App).ReceiveByCode"}:   false,
+		{"notify", "transfer.go:(*App).receiveByCode"}:                 false,
+		{"notify", "requestlink.go:(*App).notifyRequest"}:              false,
+	}
+	watched := map[string]bool{"notify": true, "notifyFn": true, "notifyTransferFailed": true, "SendNotification": true}
 	keys := map[string]bool{"toastRequestArrived": true, "toastDropDone": true, "toastDropFailed": true}
+	const laneOwner = "requestlink.go:(*App).notifyRequest"
+
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
 	fset := token.NewFileSet()
-	calls := 0
-	check := func(file, only string) {
+	parsed, laneNotify := 0, 0
+	var sawRequest, sawTable bool
+	for _, file := range files {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
 		f, err := parser.ParseFile(fset, file, nil, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, decl := range f.Decls {
-			fd, ok := decl.(*ast.FuncDecl)
-			if !ok || (only != "" && fd.Name.Name != only) {
-				continue
+		parsed++
+		for _, imp := range f.Imports {
+			if strings.Contains(strings.ToLower(imp.Path.Value), "toast") {
+				t.Errorf("%s imports %s: a notification goes through notify only", file, imp.Path.Value)
 			}
-			if fd.Name.Name == "requestToastText" {
+		}
+		for _, decl := range f.Decls {
+			owner := file + ":" + declOwner(decl)
+			fd, _ := decl.(*ast.FuncDecl)
+			// The identifiers that are a call's function, with their call.
+			callOf := map[*ast.Ident]*ast.CallExpr{}
+			ast.Inspect(decl, func(n ast.Node) bool {
+				if call, ok := n.(*ast.CallExpr); ok {
+					switch fn := call.Fun.(type) {
+					case *ast.Ident:
+						callOf[fn] = call
+					case *ast.SelectorExpr:
+						callOf[fn.Sel] = call
+					}
+				}
+				return true
+			})
+			var toastVars []string // notifyRequest: the idents requestToastText's pair lands in
+			var toastDefined token.Pos
+			if fd != nil && owner == laneOwner {
+				toastVars, toastDefined = toastTextVars(t, fset, fd)
+			}
+			ast.Inspect(decl, func(n ast.Node) bool {
+				id, ok := n.(*ast.Ident)
+				if !ok {
+					return true
+				}
+				at := fset.Position(id.Pos())
+				if fd != nil && id == fd.Name {
+					switch id.Name {
+					case "notifyRequest":
+						sawRequest = true
+					case "requestToastText":
+						sawTable = true
+					}
+					if watched[id.Name] {
+						u := use{id.Name, owner}
+						if _, ok := allowed[u]; !ok {
+							t.Errorf("%v: %s declares %s", at, owner, id.Name)
+						} else {
+							allowed[u] = true
+						}
+					}
+					return true
+				}
+				call := callOf[id]
+				switch {
+				case watched[id.Name]:
+					u := use{id.Name, owner}
+					if _, ok := allowed[u]; !ok {
+						t.Errorf("%v: %s references %s; only the allowlisted declarations may reach a notification", at, owner, id.Name)
+						return true
+					}
+					allowed[u] = true
+					switch {
+					case id.Name == "notify" && owner == laneOwner:
+						laneNotify++
+						if call == nil || len(call.Args) != 2 || len(toastVars) != 2 || call.Pos() < toastDefined || !isIdent(call.Args[0], toastVars[0]) || !isIdent(call.Args[1], toastVars[1]) {
+							t.Errorf("%v: notifyRequest reaches notify other than with the pair requestToastText returned", at)
+						}
+					case id.Name == "notify" && owner == "app.go:(*App).notifyTransferFailed":
+						if call == nil || len(call.Args) != 2 || !isStringLit(call.Args[1]) {
+							t.Errorf("%v: notifyTransferFailed's body is not a string literal", at)
+						}
+					case id.Name == "notify" && owner != "app.go:(*App).notify":
+						if call == nil || len(call.Args) != 2 || !isStringLit(call.Args[0]) || !isStringLit(call.Args[1]) {
+							t.Errorf("%v: %s calls notify with something other than two string literals", at, owner)
+						}
+					case id.Name == "notifyTransferFailed":
+						if call == nil || len(call.Args) != 2 || !isStringLit(call.Args[1]) {
+							t.Errorf("%v: %s calls notifyTransferFailed without a literal title", at, owner)
+						}
+					}
+				case id.Name == "notifyRequest":
+					if call == nil || len(call.Args) != 2 {
+						t.Errorf("%v: %s uses notifyRequest other than as a call with a table key", at, owner)
+						return true
+					}
+					if k, ok := call.Args[1].(*ast.Ident); !ok || !keys[k.Name] {
+						t.Errorf("%v: notifyRequest with a key that is not a table constant", at)
+					}
+				}
+				return true
+			})
+			if fd != nil && fd.Name.Name == "requestToastText" {
 				ast.Inspect(fd, func(n ast.Node) bool {
 					if ret, ok := n.(*ast.ReturnStmt); ok {
 						for _, res := range ret.Results {
@@ -1349,45 +1466,132 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 					return true
 				})
 			}
-			ast.Inspect(fd, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if !ok {
-					return true
-				}
-				var name string
-				switch fn := call.Fun.(type) {
-				case *ast.SelectorExpr:
-					name = fn.Sel.Name
-				case *ast.Ident:
-					name = fn.Name
-				}
-				at := fset.Position(call.Pos())
-				switch name {
-				case "notify":
-					calls++
-					if fd.Name.Name != "notifyRequest" {
-						t.Errorf("%v: %s calls notify directly", at, fd.Name.Name)
-					}
-				case "notifyFn", "notifyTransferFailed", "SendNotification":
-					t.Errorf("%v: %s calls %s", at, fd.Name.Name, name)
-				case "notifyRequest":
-					if len(call.Args) != 2 {
-						t.Errorf("%v: notifyRequest with %d args", at, len(call.Args))
-						break
-					}
-					if id, ok := call.Args[1].(*ast.Ident); !ok || !keys[id.Name] {
-						t.Errorf("%v: notifyRequest with a key that is not a table constant", at)
-					}
-				}
-				return true
-			})
 		}
 	}
-	check("requestlink.go", "")
-	check("transfer.go", "runRequestDrop")
-	if calls != 1 {
-		t.Fatalf("%d notify calls in the lane, want exactly the one in notifyRequest", calls)
+	if parsed < 10 || !sawRequest || !sawTable {
+		t.Fatalf("parsed %d files, notifyRequest found %v, requestToastText found %v", parsed, sawRequest, sawTable)
 	}
+	if laneNotify != 1 {
+		t.Errorf("notifyRequest references notify %d times, want exactly its one call", laneNotify)
+	}
+	for u, seen := range allowed {
+		if !seen {
+			t.Errorf("allowlist entry %s in %s is unused: remove it", u.name, u.owner)
+		}
+	}
+}
+
+// declOwner names a top-level declaration: "(*App).notify" for a method,
+// "name" for a function, the declared names for a type, var or const.
+func declOwner(d ast.Decl) string {
+	switch d := d.(type) {
+	case *ast.FuncDecl:
+		if d.Recv == nil || len(d.Recv.List) == 0 {
+			return d.Name.Name
+		}
+		return "(" + recvTypeName(d.Recv.List[0].Type) + ")." + d.Name.Name
+	case *ast.GenDecl:
+		var names []string
+		for _, s := range d.Specs {
+			switch s := s.(type) {
+			case *ast.TypeSpec:
+				names = append(names, s.Name.Name)
+			case *ast.ValueSpec:
+				for _, n := range s.Names {
+					names = append(names, n.Name)
+				}
+			case *ast.ImportSpec:
+				names = append(names, "import")
+			}
+		}
+		return strings.Join(names, ",")
+	}
+	return "?"
+}
+
+func recvTypeName(e ast.Expr) string {
+	switch e := e.(type) {
+	case *ast.StarExpr:
+		return "*" + recvTypeName(e.X)
+	case *ast.Ident:
+		return e.Name
+	case *ast.ParenExpr:
+		return recvTypeName(e.X)
+	case *ast.IndexExpr:
+		return recvTypeName(e.X)
+	case *ast.IndexListExpr:
+		return recvTypeName(e.X)
+	}
+	return "?"
+}
+
+// toastTextVars returns the two identifiers notifyRequest defines from
+// requestToastText (title, body) and where that define ends. The define must
+// be a top-level statement of the body, and nothing else in the body may set,
+// declare or shadow either name (another assignment, a var, a range variable,
+// a function literal's parameter), so a later use of the names can only mean
+// the table's pair.
+func toastTextVars(t *testing.T, fset *token.FileSet, fd *ast.FuncDecl) ([]string, token.Pos) {
+	t.Helper()
+	var vars []string
+	var end token.Pos
+	for _, st := range fd.Body.List {
+		as, ok := st.(*ast.AssignStmt)
+		if !ok || as.Tok != token.DEFINE || len(as.Rhs) != 1 || len(as.Lhs) < 2 {
+			continue
+		}
+		if call, ok := as.Rhs[0].(*ast.CallExpr); ok && isIdent(call.Fun, "requestToastText") {
+			for _, e := range as.Lhs[:2] {
+				if id, ok := e.(*ast.Ident); ok {
+					vars = append(vars, id.Name)
+				}
+			}
+			end = as.End()
+		}
+	}
+	if len(vars) != 2 {
+		t.Errorf("notifyRequest does not define its title and body from requestToastText at its top level")
+		return nil, 0
+	}
+	named := func(e ast.Expr) bool { return isIdent(e, vars[0]) || isIdent(e, vars[1]) }
+	sets := 0
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		switch s := n.(type) {
+		case *ast.AssignStmt:
+			for _, e := range s.Lhs {
+				if named(e) {
+					sets++
+				}
+			}
+		case *ast.RangeStmt:
+			if named(s.Key) || named(s.Value) {
+				sets++
+			}
+		case *ast.ValueSpec:
+			for _, id := range s.Names {
+				if named(id) {
+					sets++
+				}
+			}
+		case *ast.FuncLit:
+			t.Errorf("%v: notifyRequest holds a function literal", fset.Position(s.Pos()))
+		}
+		return true
+	})
+	if sets != 2 {
+		t.Errorf("notifyRequest sets or shadows its title and body %d times, want only the define from requestToastText", sets)
+	}
+	return vars, end
+}
+
+func isIdent(e ast.Expr, name string) bool {
+	id, ok := e.(*ast.Ident)
+	return ok && id.Name == name
+}
+
+func isStringLit(e ast.Expr) bool {
+	lit, ok := e.(*ast.BasicLit)
+	return ok && lit.Kind == token.STRING
 }
 
 // TestPromptSpamSuppressesToastKeepsFlashAndTitle (E-40): after two prompts
