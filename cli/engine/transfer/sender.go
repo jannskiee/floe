@@ -87,8 +87,10 @@ func backpressureStalled(prev, cur uint64) bool {
 // the send buffer go without shrinking before it gives up. It is the
 // backpressure wait's window and the receiver's mid-transfer stall watchdog,
 // so one rule governs "the transfer stopped making progress" on both ends.
-// A var only so tests can shrink it; a test window must be at least four
-// drain ticks (200 ms), or the tick arm and the stall arm race.
+// A var only so tests can shrink it. Below four drain ticks (200 ms) the stall
+// arm reads a fake buffer more often than the tick does, which skews the tests
+// that count windows; only a test of the stall arm itself
+// (TestDeliveryWaitEmptyBufferIsNeverAStall) goes below it.
 var deliveryStallWindow = 60 * time.Second
 
 // deliveryBuffered reads the send buffer during the delivery wait. A seam for
@@ -246,6 +248,29 @@ func stopBeforeClose(ackCh <-chan []byte, flushed <-chan struct{}, localVer, upd
 			}
 		default:
 			return nil
+		}
+	}
+}
+
+// drainQueued reads every frame already queued in ackCh without waiting, for
+// the delivery wait. A refusal returns as stop (read through abortFromPeer, the
+// one reader); a received frame returns got with the receiver's verified count,
+// and reading stops there. Any other frame is dropped: the wait has no use for it.
+func drainQueued(ackCh <-chan []byte, localVer, updateHint string, total int) (got bool, verified int, hasVerified bool, stop error) {
+	for {
+		select {
+		case raw := <-ackCh:
+			if len(raw) > controlMsgMax {
+				continue
+			}
+			if err := abortFromPeer(raw, localVer, updateHint, total); err != nil {
+				return false, 0, false, err
+			}
+			if ok, v, has := parseReceived(raw, total); ok {
+				return true, v, has, nil
+			}
+		default:
+			return false, 0, false, nil
 		}
 	}
 }
@@ -593,6 +618,18 @@ drainLoop:
 			}
 		case <-drainTick.C:
 			if deliveryBuffered(dc) == 0 {
+				// A frame the receiver sent may already be queued while the
+				// buffer reads empty, and select picks between ready arms at
+				// random: read it before judging success, so a queued refusal
+				// wins (FT-GO-TICK). A refusal that lands after this still
+				// needs the receiver's word, not a timer.
+				got, v, has, err := drainQueued(ackCh, localVer, opts.UpdateHint, len(files))
+				if err != nil {
+					return err
+				}
+				if got {
+					verified, hasVerified = v, has
+				}
 				break drainLoop
 			}
 		case <-done:
@@ -605,34 +642,24 @@ drainLoop:
 			// With the pump, "already sitting in ackCh" holds only once the
 			// forwarder has moved what was still queued at the close.
 			waitFlushed(flushed)
-		drainAcks:
-			for {
-				select {
-				case raw := <-ackCh:
-					if len(raw) > controlMsgMax {
-						continue
-					}
-					if err := abortFromPeer(raw, localVer, opts.UpdateHint, len(files)); err != nil {
-						return err
-					}
-					if ok, v, has := parseReceived(raw, len(files)); ok {
-						verified, hasVerified = v, has
-						break drainLoop
-					}
-				default:
-					break drainAcks
-				}
+			got, v, has, err := drainQueued(ackCh, localVer, opts.UpdateHint, len(files))
+			if err != nil {
+				return err
+			}
+			if got {
+				verified, hasVerified = v, has
+				break drainLoop
 			}
 			if left := deliveryBuffered(dc); left != 0 {
 				return fmt.Errorf("connection closed before delivery was confirmed (%d bytes unacknowledged)", left)
 			}
 			break drainLoop
 		case <-stall.C:
+			// An empty buffer is the tick arm's to judge, within one tick, so
+			// the wait has one success exit on a drained buffer and it reads
+			// the queued frames first (FT-GO-TICK). Empty counts as progress.
 			cur := deliveryBuffered(dc)
-			if cur == 0 {
-				break drainLoop // drained; the tick arm usually sees this first
-			}
-			if backpressureStalled(lastBuffered, cur) {
+			if cur != 0 && backpressureStalled(lastBuffered, cur) {
 				return fmt.Errorf("timed out waiting for delivery confirmation from peer")
 			}
 			lastBuffered = cur
