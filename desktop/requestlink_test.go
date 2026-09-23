@@ -25,6 +25,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/jannskiee/floe/cli/engine/signaling"
+	"github.com/jannskiee/floe/cli/engine/transfer"
 )
 
 // fakeConn is one socket the fake server accepted, with its own write lock.
@@ -982,8 +983,12 @@ func TestStaleLaneGenerationEmitsNothing(t *testing.T) {
 	}
 }
 
+// TestRequestSnapshotNeverCarriesToken: no lane event of any name (the
+// request:state snapshots and, since review 1b N3, request:progress and any
+// event added later) and no returned snapshot carries the host token or a
+// token-named field, across a make, a re-join, a whole drop and the end.
 func TestRequestSnapshotNeverCarriesToken(t *testing.T) {
-	f := newFakeSignalServer(t)
+	f := pairingFake(t)
 	a, rec := laneApp(t, f)
 	l := a.lane()
 	l.backoffBase, l.backoffCap = 20*time.Millisecond, 80*time.Millisecond
@@ -991,12 +996,35 @@ func TestRequestSnapshotNeverCarriesToken(t *testing.T) {
 	f.dropAll()
 	waitFor(t, 5*time.Second, "the re-join", func() bool { return len(f.tokenJoins()) == 2 })
 	waitState(t, a, 5*time.Second, "waiting")
+
+	room := s.Link[strings.Index(s.Link, "#")+1:]
+	paths := writeFiles(t, t.TempDir(), map[string][]byte{"a.bin": randomBytes(t, 64<<10)})
+	v := joinVisitor(t, f, room)
+	v.connect(t)
+	sent := make(chan error, 1)
+	go func() { sent <- v.sendFiles(paths, transfer.SendOptions{AckTimeout: time.Minute}) }()
+	acceptNext(t, a)
+	if err := <-sent; err != nil {
+		t.Fatalf("the visitor's send: %v", err)
+	}
+	v.leave()
+	waitState(t, a, 15*time.Second, "done")
 	a.CloseRequestLink()
 
 	token := f.tokenJoins()[0].token
 	returned, _ := json.Marshal(s)
 	got, _ := json.Marshal(a.GetRequestLink())
-	all := append([]string{string(returned), string(got)}, rec.raw...)
+	events := rec.allRaw()
+	progress := 0
+	for _, e := range events {
+		if strings.HasPrefix(e, "request:progress ") {
+			progress++
+		}
+	}
+	if progress == 0 {
+		t.Fatal("the drop emitted no request:progress event to scan")
+	}
+	all := append([]string{string(returned), string(got)}, events...)
 	if len(all) < 5 {
 		t.Fatalf("only %d snapshots recorded", len(all))
 	}
