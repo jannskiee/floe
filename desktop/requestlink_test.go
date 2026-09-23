@@ -1866,7 +1866,7 @@ func TestPeerLeftWhileDeclinedDoesNotReopen(t *testing.T) {
 		t.Fatalf("%d request-reopen sent while declined (the owner never chose Keep waiting)", n)
 	}
 	if now := stateOf(a); now.State != "declined" || now.Link != s.Link {
-		t.Fatalf("after the declined visitor left: %+v", now)
+		t.Fatalf("after the declined visitor left: %q, same link %v", now.State, now.Link == s.Link)
 	}
 	a.AnswerRequest(5, "keep-waiting")
 	waitFor(t, 5*time.Second, "request-reopen", func() bool { return f.count("request-reopen") == 1 })
@@ -1897,7 +1897,48 @@ func TestSocketLossWhileDeclinedKeepsDeclined(t *testing.T) {
 		t.Fatalf("%d request-reopen sent by the reconnect from declined", n)
 	}
 	if out := a.AnswerRequest(5, "keep-waiting"); out.State != "waiting" {
-		t.Fatalf("keep-waiting after the reconnect: %+v", out)
+		t.Fatalf("keep-waiting after the reconnect: %q", out.State)
 	}
 	waitFor(t, 5*time.Second, "request-reopen on the new socket", func() bool { return f.count("request-reopen") == 1 })
+}
+
+// TestReconnectFromWaitingSendsReopen (review 1a F2): a re-join from waiting
+// sends request-reopen once, on the new socket after its join, so a reopen
+// written on the socket that died (a setup-failed or visitor-left return in
+// S1-DSK-03b) cannot leave the reclaimed room sealed (spec 04 5.7:
+// Grace-sealed reclaims to Vacant-sealed) while the lane shows waiting. On a
+// room that is open already it changes nothing (Waiting plus request-reopen
+// is Waiting).
+func TestReconnectFromWaitingSendsReopen(t *testing.T) {
+	f := newFakeSignalServer(t)
+	a, _ := laneApp(t, f)
+	l := a.lane()
+	l.backoffBase, l.backoffCap = 20*time.Millisecond, 80*time.Millisecond
+	s := makeWaiting(t, a)
+	f.dropAll()
+	waitFor(t, 5*time.Second, "the re-join to settle", func() bool {
+		return len(f.tokenJoins()) == 2 && stateOf(a).State == "waiting"
+	})
+	waitFor(t, 5*time.Second, "request-reopen after the re-join", func() bool { return f.count("request-reopen") == 1 })
+	time.Sleep(100 * time.Millisecond)
+	if n := f.count("request-reopen"); n != 1 {
+		t.Fatalf("%d request-reopen frames after one re-join, want 1", n)
+	}
+	f.mu.Lock()
+	joins, reopenAt := 0, -1
+	for i, typ := range f.frames {
+		if typ == "join-room" {
+			joins++
+		}
+		if typ == "request-reopen" && reopenAt < 0 && joins == 2 {
+			reopenAt = i
+		}
+	}
+	f.mu.Unlock()
+	if reopenAt < 0 {
+		t.Fatal("the reopen did not follow the re-join")
+	}
+	if now := stateOf(a); now.State != "waiting" || now.Link != s.Link || now.Gen != s.Gen {
+		t.Fatalf("after the re-join: %q, same link %v, same gen %v", now.State, now.Link == s.Link, now.Gen == s.Gen)
+	}
 }

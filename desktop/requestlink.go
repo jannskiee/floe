@@ -976,6 +976,13 @@ func (a *App) reconnect(rg uint64, stop <-chan struct{}, server, roomID, hostTok
 				a.releaseRequestSocket(sc, false)
 				return nil, attempt
 			}
+			if back == "waiting" {
+				// A reopen written on the socket that died may never have
+				// reached the server, and a reclaim keeps a sealed room
+				// sealed (spec 04 5.7), so say again that the link waits. On a
+				// room that is open already it changes nothing.
+				_ = sc.RequestReopen()
+			}
 			return sc, attempt + 1
 		case signaling.HostTimeout, signaling.HostDown:
 			// One failed attempt; the next one waits longer.
