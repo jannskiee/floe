@@ -63,7 +63,26 @@ export function redactRooms(text, rooms = []) {
         const tag = /#room=/.test(v) ? 'room' : 'code';
         s = s.split(v).join(`<${tag} ${redact(v)}>`);
     }
-    return s.replace(ROOM_LINK_RE, (m) => `<room ${redact(m)}>`);
+    return redactRequestLinks(
+        s.replace(ROOM_LINK_RE, (m) => `<room ${redact(m)}>`)
+    );
+}
+
+/**
+ * A request link (spec 06 4.4: <web>/r/<linkId>#<roomId>) anywhere in a
+ * line, with or without its scheme and under any base path. The room after
+ * `#` is a secret for the life of the link; the link id before it names the
+ * link and stays readable, so a report can still tell two links apart.
+ */
+const REQUEST_LINK_ANY_RE =
+    /(\/r\/[A-Za-z0-9_-]+)#(?!<room>)[^\s'"`)\]<>]*[^\s'"`)\]<>.,;:!?]/g;
+
+/** Every request link in `text` with its room replaced by `<room>`. */
+export function redactRequestLinks(text) {
+    return String(text ?? '').replace(
+        REQUEST_LINK_ANY_RE,
+        (_m, head) => `${head}#<room>`
+    );
 }
 
 /** Every room link and code the run's attempts recorded, longest first. */

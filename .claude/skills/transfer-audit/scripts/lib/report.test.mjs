@@ -11,6 +11,7 @@ import {
     headline,
     newSafety,
     redact,
+    redactRequestLinks,
     redactRooms,
     relayBytesOf,
     renderMarkdown,
@@ -505,6 +506,53 @@ test('run.json and audit.md are redacted by value: notes, signatures, completion
         md.split('\n')[0],
         /^# Floe live-transfer audit: aborted: precondition: <room #[0-9a-f]{8}>$/
     );
+});
+
+test('a request link keeps its link id and loses its room in run.json and audit.md, wherever a line carries it', () => {
+    const room = '6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f';
+    const link = `http://localhost:3000/r/Xk3p9Q0aB1c#${room}`;
+    const shown = 'http://localhost:3000/r/Xk3p9Q0aB1c#<room>';
+    assert.equal(
+        redactRequestLinks(`page.goto: net::ERR_CONNECTION_REFUSED at ${link}`),
+        `page.goto: net::ERR_CONNECTION_REFUSED at ${shown}`
+    );
+    assert.equal(redactRequestLinks(`navigating to "${link}"`), `navigating to "${shown}"`);
+    // The waiting view may drop the scheme, and a self-host may serve the
+    // web app under a base path.
+    assert.equal(
+        redactRequestLinks(`localhost:3000/r/Xk3p9Q0aB1c#${room}.`),
+        'localhost:3000/r/Xk3p9Q0aB1c#<room>.'
+    );
+    assert.equal(
+        redactRequestLinks(`https://files.example.com/floe/r/Xk3p9Q0aB1c#${room}`),
+        'https://files.example.com/floe/r/Xk3p9Q0aB1c#<room>'
+    );
+    assert.equal(redactRequestLinks(redactRequestLinks(link)), shown, 'idempotent');
+    assert.equal(redactRequestLinks(null), '');
+    const c = cell('H-DIR-W2D-req', 'FAIL', {
+        note: `request-flow: the visitor could not open ${link}`,
+        attempts: [
+            {
+                n: 1,
+                room: { link: null, code: null },
+                request: { flow: 'accept', link: shown },
+                notes: [`visitor-1: navigating to "${link}"`],
+                signature: { text: `goto ${link}` },
+            },
+        ],
+        completion: { sender: { text: link } },
+    });
+    const run = {
+        ...baseRun([c]),
+        profile: 'head',
+        aborted: { reason: `harness: ${link}` },
+    };
+    const text = JSON.stringify(buildRunJson(run));
+    assert.ok(!text.includes(room), 'no room anywhere in run.json');
+    assert.ok(text.includes('/r/Xk3p9Q0aB1c#<room>'), 'the link id stays readable');
+    const md = renderMarkdown({ ...run, exitCode: 1, headline: headline(run) });
+    assert.ok(!md.includes(room), 'no room anywhere in audit.md');
+    assert.ok(md.includes('/r/Xk3p9Q0aB1c#<room>'));
 });
 
 test('table cells escape pipes and collapse newlines so a note never breaks the Cells table', () => {
