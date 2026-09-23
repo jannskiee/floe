@@ -102,7 +102,7 @@ const SUB = 'Acme footage 2026-09-14 1405';
 // Rows this file does not check, each with the reason. Anything else that is
 // not cut must be checked above, so a row cannot be silently forgotten.
 const NOT_RENDERED_HERE: Record<string, string> = {
-    R5: 'placement A helper; placement B was approved (Q-C1)',
+    R5: 'placement A helper; neither helper renders since the owner cut R4 (2026-09-23)',
     R18: 'needs the save folder file system, which no binding reports yet (reported gap)',
     R19: 'needs the save folder file system, which no binding reports yet (reported gap)',
     V2: 'a value: the engine-cleaned file name, rendered as text',
@@ -138,7 +138,6 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(`${c.CODE_TAB.toUpperCase()} / ${c.REQUEST_TAB.toUpperCase()}`).toBe(approved('R1'));
         expect(c.BETA_CHIP).toBe(bare('R2'));
         expect(c.REQUEST_TAB_NAME).toBe(approved('R3'));
-        expect(c.READY_HELPER).toBe(approved('R4'));
         expect(c.LABEL_EYEBROW.toUpperCase()).toBe(approved('R6'));
         expect(c.LABEL_HINT).toBe(approved('R7'));
         expect(c.SAVE_TO_EYEBROW.toUpperCase()).toBe(approved('R8'));
@@ -287,7 +286,7 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
 
     it('no cut row can come out of requestCopy.ts', () => {
         const cut = [...rows.values()].filter((r) => r.status.startsWith('CUT'));
-        expect(cut.map((r) => r.id).sort()).toEqual(['C3', 'DN10', 'E3', 'P7', 'Q1', 'ST2', 'V7', 'W6', 'X4']);
+        expect(cut.map((r) => r.id).sort()).toEqual(['C3', 'DN10', 'E3', 'P7', 'Q1', 'R4', 'ST2', 'V7', 'W6', 'X4']);
         const out: string[] = [];
         for (const v of Object.values(c) as unknown[]) if (typeof v === 'string') out.push(v);
         for (const code of ['denied', 'too-slow', 'network', 'server-restart', 'battery-standby', 'pending-rename']) {

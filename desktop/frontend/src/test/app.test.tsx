@@ -786,6 +786,31 @@ describe('the request link in the app', () => {
         expect(chip.getAttribute('aria-hidden')).toBe('true');
     });
 
+    it('the Beta chip sits right beside REQUEST LINK, apart from CODE', async () => {
+        switchOn();
+        mount();
+        await allOn();
+        await userEvent.click(receiveTab());
+        const chip = await screen.findByText('Beta', {selector: 'span'});
+        // The owner's 2026-09-23 look: the chip belongs to its label, on the
+        // words' baseline with a small gap, not to the row's CODE gap.
+        const pair = chip.parentElement!;
+        expect(pair.contains(requestButton())).toBe(true);
+        expect(pair.contains(screen.getByRole('button', {name: 'Code'}))).toBe(false);
+        expect(pair.className.split(' ')).toEqual(expect.arrayContaining(['items-baseline', 'gap-1']));
+        expect(chip.className).not.toMatch(/\bml-/);
+    });
+
+    it('the Ready view has no helper line above the form (R4, cut by the owner)', async () => {
+        switchOn();
+        mount();
+        await allOn();
+        await userEvent.click(receiveTab());
+        await userEvent.click(requestButton());
+        expect(screen.getByRole('button', {name: 'Make link'})).toBeTruthy();
+        expect(screen.queryByText(/A link someone can use to send files to this PC/)).toBeNull();
+    });
+
     it('inactive choice labels use zinc-400', async () => {
         switchOn();
         mount();
