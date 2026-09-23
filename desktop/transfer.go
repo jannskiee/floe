@@ -644,6 +644,9 @@ var (
 	iceFetchFn = ice.FetchDetail
 	// requestOpenChannelExpired runs when the E-35 timer fires; tests count it.
 	requestOpenChannelExpired = func() {}
+	// requestVolumeMaxFn is the save volume's largest file, for the prompt's
+	// drive-limit warning; a test stands in a FAT32 volume.
+	requestVolumeMaxFn = transfer.VolumeMaxFileSize
 )
 
 // The request link's receive policy (layer 2, spec 06 4.6): at most 10,000
@@ -936,7 +939,9 @@ func requestPromptFor(p requestPairing, in transfer.IncomingInfo, route string, 
 				pr.Warnings = append(pr.Warnings, "low-space")
 			}
 		}
-		if limit, err := transfer.VolumeMaxFileSize(dir); err == nil && limit > 0 && limit < max(in.FirstSize, in.TotalBytes) {
+		// The first file only, the one known before Accept (spec 05 8.3,
+		// D-118); a later file over the limit is refused at its own metadata.
+		if limit, err := requestVolumeMaxFn(dir); err == nil && limit > 0 && in.FirstSize > limit {
 			pr.Warnings = append(pr.Warnings, "file-too-large-for-drive")
 		}
 	}

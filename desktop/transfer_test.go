@@ -1263,3 +1263,34 @@ func TestRunRequestDropHideIPWithoutRelayReopens(t *testing.T) {
 		t.Fatalf("%d signals left the host without a relay", offers)
 	}
 }
+
+// TestRequestPromptDriveLimitWarnsForFirstFileOnly (D-118, spec 05 8.3): the
+// drive-limit warning asks about the first file, the only one known before
+// Accept; a later file over the limit is refused at its own metadata. A batch
+// of small files larger than 4 GB on a FAT32 drive gets no warning.
+func TestRequestPromptDriveLimitWarnsForFirstFileOnly(t *testing.T) {
+	const fat32Max = 4294967295
+	setVar(t, &requestVolumeMaxFn, func(string) (int64, error) { return fat32Max, nil })
+	p := requestPairing{saveDir: t.TempDir(), label: "x"}
+	warns := func(in transfer.IncomingInfo) bool {
+		for _, w := range requestPromptFor(p, in, "", time.Now()).Warnings {
+			if w == "file-too-large-for-drive" {
+				return true
+			}
+		}
+		return false
+	}
+	if warns(transfer.IncomingInfo{Files: 3, TotalBytes: 6 << 30, FirstSize: 1 << 20}) {
+		t.Error("a 6 GB batch whose first file is 1 MB warns about the drive limit")
+	}
+	if !warns(transfer.IncomingInfo{Files: 1, TotalBytes: 5 << 30, FirstSize: 5 << 30}) {
+		t.Error("a 5 GB first file on a FAT32 drive gets no drive-limit warning")
+	}
+	if warns(transfer.IncomingInfo{Files: 1, TotalBytes: fat32Max, FirstSize: fat32Max}) {
+		t.Error("a first file of exactly the drive's maximum warns")
+	}
+	setVar(t, &requestVolumeMaxFn, func(string) (int64, error) { return 0, nil })
+	if warns(transfer.IncomingInfo{Files: 1, TotalBytes: 5 << 30, FirstSize: 5 << 30}) {
+		t.Error("a volume with no known maximum warns")
+	}
+}
