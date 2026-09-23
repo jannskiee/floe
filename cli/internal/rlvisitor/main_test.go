@@ -56,6 +56,25 @@ func TestSendOutcomeWords(t *testing.T) {
 	}
 }
 
+// -send waits for the host's received (RequireReceived), so a host that closes
+// after the last byte without it, or without a refusal, ended the drop without
+// confirming it. That is the crafted modes' host-closed, with their exit code,
+// and never "delivered" or "failed"; the engine's sentence is not printed.
+func TestSendOutcomeClosedBeforeReceivedIsHostClosed(t *testing.T) {
+	for name, err := range map[string]error{
+		"bare":    transfer.ErrClosedBeforeReceived,
+		"wrapped": fmt.Errorf("x: %w", transfer.ErrClosedBeforeReceived),
+	} {
+		ev, exit := sendOutcome(err)
+		if ev["event"] != "send-ended" || ev["outcome"] != "host-closed" || exit != exitHostClosed {
+			t.Errorf("%s: event %v exit %d, want outcome host-closed exit %d", name, ev, exit, exitHostClosed)
+		}
+		if len(ev) != 2 {
+			t.Errorf("%s: event %v carries more than its event and outcome", name, ev)
+		}
+	}
+}
+
 // The crafted modes end on the host's refusal (its code, allowlisted), the
 // host closing without one, or the bound; a refusal already queued when the
 // channel closes still counts as the refusal.
@@ -300,6 +319,24 @@ func TestDefaultTimeoutOutlastsTheAckClock(t *testing.T) {
 	}
 	if cfg.timeout <= visitorAckTimeout {
 		t.Fatalf("default timeout %v must outlast the ack clock %v", cfg.timeout, visitorAckTimeout)
+	}
+}
+
+// -send waits for the host's received (RequireReceived), and a held rename
+// stretches that to the host's commit retry before save-blocked. The default
+// -timeout outlasts a full Accept window plus that retry, so such a cell ends
+// on the host's refusal and not the watchdog, and the usage text names the
+// default (FT-GO-REQRECV review 1, F4).
+func TestDefaultTimeoutCoversTheHostCommitRetry(t *testing.T) {
+	cfg, err := parseFlags([]string{"-room", "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f", "-send", "a.bin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.timeout <= visitorAckTimeout+hostCommitRetry {
+		t.Fatalf("default timeout %v must outlast the ack clock %v plus the host's commit retry %v", cfg.timeout, visitorAckTimeout, hostCommitRetry)
+	}
+	if !strings.Contains(usageText, "-timeout defaults to "+cfg.timeout.String()) {
+		t.Fatalf("usage text does not name the -timeout default %v", cfg.timeout)
 	}
 }
 

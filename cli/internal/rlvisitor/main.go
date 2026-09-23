@@ -145,10 +145,13 @@ func parseFlags(args []string) (config, error) {
 	badSDP := fs.Bool("bad-sdp", false, "answer with a malformed SDP instead of a real one")
 	hostileMeta := fs.String("hostile-meta", "", "send one D-033 metadata fixture: f2, f4b, f5 or f6")
 	skipGate := fs.Bool("skip-relay-gate", false, "skip the visitor's own relay-cap gate and announce an oversize file")
-	// Default past the visitor's own ack clock (10 min 15 s) so a -send whose
-	// Accept is held for the full window is never killed as a timeout before the
-	// host's decision window closes; CELL-05's idle hold relies on it (review Q7).
-	timeout := fs.Duration("timeout", visitorAckTimeout+2*time.Minute, "overall deadline for the run")
+	// Default 17 min 15 s: the visitor's own ack clock (10 min 15 s), so a -send
+	// whose Accept is held for the full window is never killed as a timeout
+	// before the host's decision window closes (CELL-05's idle hold relies on
+	// it, review Q7), plus the host's commit retry (5 min), because -send then
+	// waits for the host's received and a blocked save is retried that long
+	// before save-blocked (FT-GO-REQRECV review 1, F4), plus 2 min of margin.
+	timeout := fs.Duration("timeout", visitorAckTimeout+hostCommitRetry+2*time.Minute, "overall deadline for the run")
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
 	}
@@ -205,12 +208,12 @@ func parseFlags(args []string) (config, error) {
 // refusal from a transport failure without parsing text. usageText documents
 // them; TestUsageTextNamesEveryExitCode keeps the two in step.
 const (
-	exitDelivered   = 0 // -send: every file acked and delivered
+	exitDelivered   = 0 // -send: the host said received after committing every file
 	exitFailed      = 1 // a local, signaling, ICE or transport failure, the -timeout watchdog, or a stop the engine could not name
 	exitUsage       = 2 // bad flags, including a -server that is not local or private
 	exitPeerRefused = 3 // the host refused with a code (the event's "code" is the parsed code, or "other")
 	exitRelayGate   = 4 // -send: the visitor's own relay gate blocked before any file byte moved
-	exitHostClosed  = 5 // crafted modes: the host closed without a refusal code (-bad-sdp: the host left)
+	exitHostClosed  = 5 // the host closed without a refusal code: a crafted mode (-bad-sdp: the host left), or -send after the last byte with no received
 	exitBound       = 6 // crafted modes: the wait bound ran out and the host had not ended it
 	exitNotJoined   = 7 // the server did not seat this visitor (host-absent, room-full, refused, ...): CELL-06 tells it from a transport failure by the code
 )
@@ -228,13 +231,18 @@ refuses any -server that is not localhost, a loopback or a private IP.
 Hostile flags (one per run): -hostile-meta f2|f4b|f5|f6, -hostile-name,
 -abort-reason <text>, -junk-flood, -bad-sdp, -skip-relay-gate.
 
+-timeout defaults to 17m15s: the visitor's ack clock (10m15s), the host's
+5 min retry of a blocked save (-send waits for the host's received), and
+2 min of margin.
+
 Exit codes (the last event line names the same word):
-  0  delivered: -send, every file acked and delivered
+  0  delivered: -send, the host said received after committing every file
   1  failed: a local, signaling, ICE or transport failure, the timeout, or an unnamed stop
   2  usage: bad flags, or a -server that is not local or private
   3  peer-refused: the host refused; "code" is its refusal code or other, "sentence" the engine's fixed text
   4  relay-gate: -send, the visitor's own relay gate blocked before any file byte moved
-  5  host-closed: a crafted mode, the host closed without a code (-bad-sdp: the host left)
+  5  host-closed: the host closed without a code: a crafted mode (-bad-sdp: the host left),
+     or -send after the last byte and before the host said received
   6  bound: a crafted mode, the wait ran out and the host had not ended it
   7  not-joined: the server did not seat this visitor; "result" is the client's fixed answer word
 `

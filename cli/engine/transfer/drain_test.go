@@ -233,8 +233,9 @@ func TestDeliveryWaitEmptyBufferIsNeverAStall(t *testing.T) {
 // the delivery wait's first tick arm inside its buffer read, which reads 0,
 // until frame has reached ackCh: the moment the old arm judged success without
 // looking. The receiver's channel stays open, so no close can end the wait. It
-// returns the send's result.
-func sendThroughHeldTick(t *testing.T, frame webrtc.DataChannelMessage, onDelivered func(Delivered)) error {
+// returns the send's result. opts carries OnDelivered and RequireReceived;
+// OnProgress, Messages and Closed are set here.
+func sendThroughHeldTick(t *testing.T, frame webrtc.DataChannelMessage, opts SendOptions) error {
 	t.Helper()
 	prevRead := deliveryBuffered
 	t.Cleanup(func() { deliveryBuffered = prevRead })
@@ -262,11 +263,10 @@ func sendThroughHeldTick(t *testing.T, frame webrtc.DataChannelMessage, onDelive
 	closed := make(chan struct{})
 	// Lets the pump forwarder go once the test ends.
 	t.Cleanup(func() { close(closed) })
+	opts.OnProgress, opts.Messages, opts.Closed = func(Progress) {}, msgs, closed
 	errc := make(chan error, 1)
 	go func() {
-		errc <- SendFilesWithOptions(dc, []string{path}, "test", SendOptions{
-			OnProgress: func(Progress) {}, OnDelivered: onDelivered, Messages: msgs, Closed: closed,
-		})
+		errc <- SendFilesWithOptions(dc, []string{path}, "test", opts)
 	}()
 	var meta struct {
 		ID string `json:"id"`
@@ -308,7 +308,14 @@ func sendThroughHeldTick(t *testing.T, frame webrtc.DataChannelMessage, onDelive
 // narrows the window; a refusal that arrives after the tick already ended the
 // wait still needs the receiver's word (part a, card FT-GO-CONFIRMS).
 func TestDeliveryTickReportsAQueuedRefusal(t *testing.T) {
-	wantDiskFull(t, sendThroughHeldTick(t, webrtc.DataChannelMessage{IsString: true, Data: []byte(diskFullRefusal)}, nil))
+	wantDiskFull(t, sendThroughHeldTick(t, webrtc.DataChannelMessage{IsString: true, Data: []byte(diskFullRefusal)}, SendOptions{}))
+}
+
+// The same under RequireReceived: the refusal the tick arm reads is returned
+// there, since the frame is gone from ackCh and the receiver stays open
+// (FT-GO-REQRECV review 1, F2).
+func TestDeliveryTickReportsAQueuedRefusalUnderRequireReceived(t *testing.T) {
+	wantDiskFull(t, sendThroughHeldTick(t, webrtc.DataChannelMessage{IsString: true, Data: []byte(diskFullRefusal)}, SendOptions{RequireReceived: true}))
 }
 
 // A received frame queued by the time the tick arm finds the buffer empty still
@@ -316,9 +323,25 @@ func TestDeliveryTickReportsAQueuedRefusal(t *testing.T) {
 // it, as it does when the ack arm reads the frame. Binary, as the Go receiver
 // sends it.
 func TestDeliveryTickReportsAQueuedReceived(t *testing.T) {
+	receivedAtTheHeldTick(t, false)
+}
+
+// Under RequireReceived a received the tick arm reads must end the wait right
+// there, through the arm's own break: the frame is gone from ackCh, the
+// receiver stays open and a drained buffer no longer ends this wait, so
+// without that break the send never returns (FT-GO-REQRECV review 1, F2).
+func TestDeliveryTickReportsAQueuedReceivedUnderRequireReceived(t *testing.T) {
+	receivedAtTheHeldTick(t, true)
+}
+
+// receivedAtTheHeldTick queues a received frame at the held tick and requires
+// success with OnDelivered fired once with its count.
+func receivedAtTheHeldTick(t *testing.T, requireReceived bool) {
+	t.Helper()
 	var got []Delivered
-	err := sendThroughHeldTick(t, webrtc.DataChannelMessage{Data: []byte(`{"type":"received","verified":1}`)}, func(d Delivered) {
-		got = append(got, d)
+	err := sendThroughHeldTick(t, webrtc.DataChannelMessage{Data: []byte(`{"type":"received","verified":1}`)}, SendOptions{
+		RequireReceived: requireReceived,
+		OnDelivered:     func(d Delivered) { got = append(got, d) },
 	})
 	if err != nil {
 		t.Fatalf("a queued received frame must end the wait with success, got: %v", err)

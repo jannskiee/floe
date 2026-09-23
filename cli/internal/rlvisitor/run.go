@@ -27,6 +27,13 @@ import (
 // (9 min 45 s) always ends first (M-04).
 var visitorAckTimeout = transfer.VisitorAckTimeout + transfer.VisitorAckGrace
 
+// hostCommitRetry is how long the desktop host keeps retrying a finished
+// file's blocked move into place before it refuses save-blocked
+// (requestCommitRetry in desktop/transfer.go, E-36; a package main here
+// cannot import it). -send waits through it for the host's received or
+// refusal, so the -timeout default leaves room for it.
+const hostCommitRetry = 5 * time.Minute
+
 var stdout = os.Stdout
 
 // emit writes one event line to stdout as JSON.
@@ -164,14 +171,19 @@ func routeWord(conn *peer.Connection) string {
 }
 
 // runSend sends real files as the engine sender does, through the visitor's ack
-// clock. relay-only narrowed the ICE policy above.
+// clock. relay-only narrowed the ICE policy above. It waits for the host's
+// received, as the /r page does (requireReceived), so "delivered" means the
+// host committed every file and a post-end refusal (hash-mismatch,
+// write-failed, save-blocked) is reported as that refusal. That wait has no
+// deadline of its own; the -timeout watchdog is its bound.
 func runSend(dc *webrtc.DataChannel, cfg config, early *peer.Early) int {
 	emit(map[string]interface{}{"event": "sending", "files": len(cfg.send)})
 	err := transfer.SendFilesWithOptions(dc, cfg.send, "rlvisitor", transfer.SendOptions{
-		OnProgress: func(transfer.Progress) {},
-		AckTimeout: visitorAckTimeout,
-		Messages:   early.Msgs,
-		Closed:     early.Closed,
+		OnProgress:      func(transfer.Progress) {},
+		AckTimeout:      visitorAckTimeout,
+		Messages:        early.Msgs,
+		Closed:          early.Closed,
+		RequireReceived: true,
 	})
 	ev, exit := sendOutcome(err)
 	emit(ev)
@@ -184,8 +196,10 @@ func runSend(dc *webrtc.DataChannel, cfg config, early *peer.Early) int {
 // (anything unknown prints "other") and printed with PeerStoppedError.Error(),
 // one fixed sentence per code with no peer text in it (refusal.go). The
 // visitor's own relay gate prints that gate's sentence, which holds only local
-// numbers (TL-11). Any other error prints the word "failed" and never its text,
-// which can carry a local path or a peer's version string.
+// numbers (TL-11). A close after the last byte with no received and no refusal
+// (the engine's ErrClosedBeforeReceived) is the crafted modes' "host-closed",
+// with their exit code and no text. Any other error prints the word "failed"
+// and never its text, which can carry a local path or a peer's version string.
 func sendOutcome(err error) (map[string]interface{}, int) {
 	ev := map[string]interface{}{"event": "send-ended"}
 	var stopped *transfer.PeerStoppedError
@@ -206,6 +220,9 @@ func sendOutcome(err error) (map[string]interface{}, int) {
 		ev["outcome"] = "relay-gate"
 		ev["sentence"] = err.Error()
 		return ev, exitRelayGate
+	case errors.Is(err, transfer.ErrClosedBeforeReceived):
+		ev["outcome"] = "host-closed"
+		return ev, exitHostClosed
 	}
 	ev["outcome"] = "failed"
 	return ev, exitFailed
