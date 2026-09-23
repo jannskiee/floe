@@ -145,10 +145,13 @@ func parseFlags(args []string) (config, error) {
 	badSDP := fs.Bool("bad-sdp", false, "answer with a malformed SDP instead of a real one")
 	hostileMeta := fs.String("hostile-meta", "", "send one D-033 metadata fixture: f2, f4b, f5 or f6")
 	skipGate := fs.Bool("skip-relay-gate", false, "skip the visitor's own relay-cap gate and announce an oversize file")
-	// Default past the visitor's own ack clock (10 min 15 s) so a -send whose
-	// Accept is held for the full window is never killed as a timeout before the
-	// host's decision window closes; CELL-05's idle hold relies on it (review Q7).
-	timeout := fs.Duration("timeout", visitorAckTimeout+2*time.Minute, "overall deadline for the run")
+	// Default 17 min 15 s: the visitor's own ack clock (10 min 15 s), so a -send
+	// whose Accept is held for the full window is never killed as a timeout
+	// before the host's decision window closes (CELL-05's idle hold relies on
+	// it, review Q7), plus the host's commit retry (5 min), because -send then
+	// waits for the host's received and a blocked save is retried that long
+	// before save-blocked (FT-GO-REQRECV review 1, F4), plus 2 min of margin.
+	timeout := fs.Duration("timeout", visitorAckTimeout+hostCommitRetry+2*time.Minute, "overall deadline for the run")
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
 	}
@@ -227,6 +230,10 @@ refuses any -server that is not localhost, a loopback or a private IP.
 
 Hostile flags (one per run): -hostile-meta f2|f4b|f5|f6, -hostile-name,
 -abort-reason <text>, -junk-flood, -bad-sdp, -skip-relay-gate.
+
+-timeout defaults to 17m15s: the visitor's ack clock (10m15s), the host's
+5 min retry of a blocked save (-send waits for the host's received), and
+2 min of margin.
 
 Exit codes (the last event line names the same word):
   0  delivered: -send, the host said received after committing every file

@@ -322,6 +322,24 @@ func TestDefaultTimeoutOutlastsTheAckClock(t *testing.T) {
 	}
 }
 
+// -send waits for the host's received (RequireReceived), and a held rename
+// stretches that to the host's commit retry before save-blocked. The default
+// -timeout outlasts a full Accept window plus that retry, so such a cell ends
+// on the host's refusal and not the watchdog, and the usage text names the
+// default (FT-GO-REQRECV review 1, F4).
+func TestDefaultTimeoutCoversTheHostCommitRetry(t *testing.T) {
+	cfg, err := parseFlags([]string{"-room", "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f", "-send", "a.bin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.timeout <= visitorAckTimeout+hostCommitRetry {
+		t.Fatalf("default timeout %v must outlast the ack clock %v plus the host's commit retry %v", cfg.timeout, visitorAckTimeout, hostCommitRetry)
+	}
+	if !strings.Contains(usageText, "-timeout defaults to "+cfg.timeout.String()) {
+		t.Fatalf("usage text does not name the -timeout default %v", cfg.timeout)
+	}
+}
+
 // A relay mode refuses when the fetched ICE list cannot carry a relay: the
 // STUN-only fallback (degraded) or a relay-less list. A real relay, not
 // degraded, is usable (review Q6).

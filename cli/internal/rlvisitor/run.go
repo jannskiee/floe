@@ -27,6 +27,13 @@ import (
 // (9 min 45 s) always ends first (M-04).
 var visitorAckTimeout = transfer.VisitorAckTimeout + transfer.VisitorAckGrace
 
+// hostCommitRetry is how long the desktop host keeps retrying a finished
+// file's blocked move into place before it refuses save-blocked
+// (requestCommitRetry in desktop/transfer.go, E-36; a package main here
+// cannot import it). -send waits through it for the host's received or
+// refusal, so the -timeout default leaves room for it.
+const hostCommitRetry = 5 * time.Minute
+
 var stdout = os.Stdout
 
 // emit writes one event line to stdout as JSON.
