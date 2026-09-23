@@ -519,6 +519,14 @@ func (h *requestHost) stall(step decideStep) visitOutcome {
 		h.emit("reopened", map[string]interface{}{"evicted": true})
 		return visitEvicted
 	case <-h.sc.PeerLeft:
+		// A lost host socket closes Down before it pushes PeerLeft
+		// (signaling/client.go), so this reads as the visitor leaving only
+		// when the socket is still up (review 1, N3).
+		select {
+		case <-h.sc.Down:
+			h.ev.fail("signaling")
+		default:
+		}
 		h.emit("refused", map[string]interface{}{"code": "peer-left"})
 		return visitRefused
 	case <-h.sc.Down:

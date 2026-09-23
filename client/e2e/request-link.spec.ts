@@ -155,33 +155,39 @@ test.describe('request-link', () => {
         await send(page);
         await expect(page.getByRole('heading', { name: visitorCopy.waitingTitle })).toBeVisible();
 
-        // Visitor B while A holds the sealed room.
-        const b = await browser.newContext();
-        const statsB = await guard(b);
-        const pageB = await b.newPage();
-        await pageB.goto(link);
-        await pickFiles(pageB, ['a.bin']);
-        await send(pageB);
-        await expect(pageB.getByRole('heading', { name: visitorCopy.usedTitle })).toBeVisible();
-        await expect(pageB.getByText(visitorCopy.usedBody)).toBeVisible();
+        // Closed on failure too (review 1, N7): they are not Playwright's own.
+        const extra: BrowserContext[] = [];
+        try {
+            // Visitor B while A holds the sealed room.
+            const b = await browser.newContext();
+            extra.push(b);
+            const statsB = await guard(b);
+            const pageB = await b.newPage();
+            await pageB.goto(link);
+            await pickFiles(pageB, ['a.bin']);
+            await send(pageB);
+            await expect(pageB.getByRole('heading', { name: visitorCopy.usedTitle })).toBeVisible();
+            await expect(pageB.getByText(visitorCopy.usedBody)).toBeVisible();
 
-        await expectDelivered(page, h, sent);
-        await h.exited;
+            await expectDelivered(page, h, sent);
+            await h.exited;
 
-        // Visitor C after the harness closed the link: the room is gone (OD-28).
-        const c = await browser.newContext();
-        const statsC = await guard(c);
-        const pageC = await c.newPage();
-        await pageC.goto(link);
-        await pickFiles(pageC, ['a.bin']);
-        await send(pageC);
-        await expect(pageC.getByRole('heading', { name: visitorCopy.hostAbsentTitle })).toBeVisible();
+            // Visitor C after the harness closed the link: the room is gone (OD-28).
+            const c = await browser.newContext();
+            extra.push(c);
+            const statsC = await guard(c);
+            const pageC = await c.newPage();
+            await pageC.goto(link);
+            await pickFiles(pageC, ['a.bin']);
+            await send(pageC);
+            await expect(pageC.getByRole('heading', { name: visitorCopy.hostAbsentTitle })).toBeVisible();
 
-        expect(await stats()).toBe(0);
-        expect(await statsB()).toBe(0);
-        expect(await statsC()).toBe(0);
-        await b.close();
-        await c.close();
+            expect(await stats()).toBe(0);
+            expect(await statsB()).toBe(0);
+            expect(await statsC()).toBe(0);
+        } finally {
+            for (const x of extra) await x.close();
+        }
     });
 
     test('request-link: decline, then keep waiting accepts a second visit', async ({ page, context }) => {
@@ -283,6 +289,11 @@ test.describe('request-link', () => {
         await page.locator('input[webkitdirectory]').setInputFiles(join(scratch.sendDir, 'send-root'));
         await send(page);
         await expectDelivered(page, h, sent);
+        // Weak by construction (review 1, N4): setInputFiles on a
+        // webkitdirectory input hands the page a FileList, which never
+        // carries an empty folder, so the page cannot see this one. The drop
+        // walk that does see empty folders (C-35) is pinned in
+        // lib/request/folderWalk.test.ts ("skips and counts empty folders").
         expect(directoriesUnder(scratch.outDir).some((d) => d.endsWith('empty'))).toBe(false);
         expect(await stats()).toBe(0);
     });
