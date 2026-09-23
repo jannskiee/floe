@@ -255,7 +255,9 @@ func stopBeforeClose(ackCh <-chan []byte, flushed <-chan struct{}, localVer, upd
 // io.ErrClosedPipe while the receiver's refusal already sits in ackCh and
 // done has not fired yet (FT-GO-REFUSAL review F1). It waits up to a second
 // for done, which follows within microseconds, and then reports a queued
-// refusal through stopBeforeClose; nil keeps the Send's own error.
+// refusal through stopBeforeClose; nil keeps the Send's own error. When no
+// close follows at all, the error path takes about two seconds: this second
+// plus stopBeforeClose's wait for the flush (review 2, R2-3, measured).
 func refusalAfterSendError(done <-chan struct{}, ackCh <-chan []byte, flushed <-chan struct{}, localVer, updateHint string, total int) error {
 	select {
 	case <-done:

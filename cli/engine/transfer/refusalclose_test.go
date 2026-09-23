@@ -170,11 +170,12 @@ func TestSenderReportsARefusalThatArrivesWithTheCloseAtTheAckWait(t *testing.T) 
 // still be reported. Deterministic both ways.
 func TestSenderReportsARefusalThatArrivesWithTheCloseAtASend(t *testing.T) {
 	dc, first := newBlockingPair(t)
+	path := sizedFile(t, 256*1024)
 	msgs := make(chan webrtc.DataChannelMessage, 4)
 	closed := make(chan struct{})
 	errc := make(chan error, 1)
 	go func() {
-		errc <- SendFilesWithOptions(dc, []string{sizedFile(t, 256*1024)}, "test", SendOptions{
+		errc <- SendFilesWithOptions(dc, []string{path}, "test", SendOptions{
 			OnProgress: func(Progress) {},
 			Messages:   msgs,
 			Closed:     closed,
@@ -208,18 +209,81 @@ func TestSenderReportsARefusalThatArrivesWithTheCloseAtASend(t *testing.T) {
 	}
 }
 
+// The metadata Send: the sender's channel is already closed when the send
+// starts, the refusal is queued, and Closed fires 100 ms later. This is the
+// second or later file of a batch whose receiver refused the one before at
+// finalize and closed (FT-GO-REFUSAL review 2, R2-1).
+func TestSenderReportsARefusalThatArrivesWithTheCloseAtTheMetadataSend(t *testing.T) {
+	dc, _ := newBlockingPair(t)
+	if err := dc.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	path := sizedFile(t, 1024)
+	msgs := make(chan webrtc.DataChannelMessage, 4)
+	closed := make(chan struct{})
+	msgs <- webrtc.DataChannelMessage{IsString: true, Data: []byte(diskFullRefusal)}
+	time.AfterFunc(100*time.Millisecond, func() { close(closed) })
+	err := SendFilesWithOptions(dc, []string{path}, "test", SendOptions{
+		OnProgress: func(Progress) {}, Messages: msgs, Closed: closed,
+	})
+	wantDiskFull(t, err)
+}
+
+// The end-marker Send: a 0-byte file sends no chunk, so after the ack the
+// first Send is the end marker, on a channel closed after the metadata. This
+// is a mid-file refusal whose last chunk's Send still succeeded (R2-1).
+func TestSenderReportsARefusalThatArrivesWithTheCloseAtTheEndMarkerSend(t *testing.T) {
+	dc, first := newBlockingPair(t)
+	path := sizedFile(t, 0)
+	msgs := make(chan webrtc.DataChannelMessage, 4)
+	closed := make(chan struct{})
+	errc := make(chan error, 1)
+	go func() {
+		errc <- SendFilesWithOptions(dc, []string{path}, "test", SendOptions{
+			OnProgress: func(Progress) {}, Messages: msgs, Closed: closed,
+		})
+	}()
+	var meta struct {
+		ID string `json:"id"`
+	}
+	select {
+	case raw := <-first:
+		if err := json.Unmarshal(raw, &meta); err != nil || meta.ID == "" {
+			t.Fatalf("first frame is not the metadata: %v", err)
+		}
+	case err := <-errc:
+		t.Fatalf("send ended before the metadata: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("no metadata within 10s")
+	}
+	if err := dc.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	ack, _ := json.Marshal(map[string]interface{}{"type": "ack", "id": meta.ID, "offset": 0, "pv": 1, "pvMin": 1})
+	msgs <- webrtc.DataChannelMessage{IsString: true, Data: ack}
+	msgs <- webrtc.DataChannelMessage{IsString: true, Data: []byte(diskFullRefusal)}
+	time.AfterFunc(100*time.Millisecond, func() { close(closed) })
+	select {
+	case err := <-errc:
+		wantDiskFull(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the send did not end within 10s")
+	}
+}
+
 // The backpressure wait: the receiver has accepted and then stopped reading,
 // so the sender is parked on a full buffer when the refusal and the close
 // arrive together. Before the fix that wait never read the receiver's frames,
 // so every run reported "connection closed mid-transfer".
 func TestSenderReportsARefusalThatArrivesWithTheCloseDuringBackpressure(t *testing.T) {
 	dc, first := newBlockingPair(t)
+	path := sizedFile(t, 24<<20)
 	msgs := make(chan webrtc.DataChannelMessage, 4)
 	closed := make(chan struct{})
 	errc := make(chan error, 1)
 	var sent atomic.Int64
 	go func() {
-		errc <- SendFilesWithOptions(dc, []string{sizedFile(t, 24<<20)}, "test", SendOptions{
+		errc <- SendFilesWithOptions(dc, []string{path}, "test", SendOptions{
 			OnProgress: func(p Progress) { sent.Store(p.FileBytes) },
 			Messages:   msgs,
 			Closed:     closed,
