@@ -291,8 +291,8 @@ counts as PASS. SKIP names a machine or run precondition (`uia-setvalue`,
 `desktop-savedir`, `desktop-none`, `desktop-unavailable`,
 `head-desktop-pending`, `present`, `local-stun-only`, `prod-turn-absent`,
 `browser-relay-na`, `firewall-block`, `wsl-stopped`, `wsl-sideload`,
-`disk-space`, `infra-down`, `budget-exhausted`, `server-no-request-1`;
-`filtered` marks cells
+`disk-space`, `infra-down`, `budget-exhausted`, `server-no-request-1`,
+`request-host-uia-pending`; `filtered` marks cells
 dropped by `--cells` and is never counted). NA is impossible with the
 shipped product (`single-instance`, `no-cli-relay-forcer`). ERROR is a
 harness fault (for example `init-script-not-applied`), never a product
@@ -449,30 +449,73 @@ TA-10 to TA-13, TA-15 and TA-17 of spec 09 2.7.2, listed in
 `references/matrix.md` (Request-link cells) and `REQUEST_IDS` in
 `scripts/lib/matrix.mjs`. A run reaches them only through `--cells`, and
 each SKIPs `server-no-request-1` until probe P10 finds `request-1`.
+`scripts/lib/request.mjs` runs them; `runCell` hands every request cell
+to it, so none ever runs as a plain cell.
 
-- The host is the desktop on the wailsdev lane today: the DOM verbs on
-  `PlaywrightDriver` (make, read, accept, decline, keep waiting, close; the
-  table in matrix.md). The UIA verbs for the Store and portable builds are
-  Phase F prep, and so are TA-14 (Caddy reload) and TA-16 (the CLI visitor).
+- The host is the desktop on the wailsdev lane, driven through the DOM
+  verbs on `PlaywrightDriver` (the table in matrix.md). On any other lane
+  a request cell SKIPs `request-host-uia-pending`: the UIA verbs for the
+  Store and portable builds are Phase F prep, and so are TA-14 (Caddy
+  reload) and TA-16 (the CLI visitor). A shipped run cannot take
+  `--desktop wailsdev`, so today every shipped request cell SKIPs.
+- Before the run: the operator's `wails dev` app must already read
+  `reportStats:false`, `migrated:true` and the local server
+  (`GetSettings`), as for any wailsdev receiver; otherwise the cell is
+  ERROR `wailsdev-config` and the host is never driven.
+- Each attempt makes its own link: Hide my IP on for TA-12, the Beta switch
+  `Request links` on (retried for 10 s while the app's own feature probe
+  keeps it disabled), Make link with the Save to field set to the
+  attempt's own `out` folder (never the owner's DownloadsFloe requests;
+  a field that does not take is SKIP `desktop-savedir`), then Read link.
+- The visitor is a fresh Chromium context on `/r`: the files go into the
+  hidden "Choose files" input, Send is clicked by its label, and the
+  page's own status card is read. Relay cells move 4 MiB; TA-11 forces the
+  visitor's relay with the audit init script, TA-12 the host's Hide my IP.
 - Accept and Decline wait at least 1.2 s from the moment the prompt was
-  first seen (the frontend's guard is 1 s); a click inside the guard would
-  be ignored, and the verb then fails on its read-back.
-- Receivers stay opted out: the visitor's `floe:report-stats` seed is
-  `false`, `**/api/stats/report` is aborted and counted, and the count must
-  be 0 in every cell. Relay cells move 4 MiB.
-- The link carries the room after `#`: it goes to the visitor leg only.
-  Any line a person reads uses `redactRequestLink` (`#<room>`), and neither
-  audit.md nor run.json carries it.
-- `H-DIR-W2D-reqblip` cuts the host's `/ws` for 5 s through the driver's own
-  proxy (`scripts/lib/blip.mjs`, 127.0.0.1 only, loopback upstream only);
-  `cellPlan` refuses the cell as a usage error against any server that is
-  not loopback, so it can never point at api.floe.one.
-- Until the runner wires the request flow with the web visitor page
-  (CP-QA), a planned request cell ends ERROR `request-runner-pending`
-  before any leg starts: it never runs as a plain cell and never PASSes.
-- TA-17 (`-reqopen`) is the six quick cells with a link open on the desktop;
-  it needs the desktop even for its W2W cell, and the link must still be
-  waiting afterwards.
+  first seen (the frontend's guard is 1 s). Every prompt must carry the
+  visitor's own file count and bytes and no relay-over-cap line.
+- Oracles: the route pair (the visitor's nominated candidate pair, the
+  host pill or the lane's route); the host's stats proof and 0 report
+  attempts on every visitor (a `floe:bytes-reported` event on a visitor
+  is a safety stop); the host's saved and verified counts, its done heading
+  and SHA sentence, and the visitor's arrived title and SHA line, each SHA
+  line shown only when every file verified; the received files byte for
+  byte inside the one exclusive subfolder the host reports, nothing loose
+  beside it (`request-manifest`, `hash-mismatch`, `stale-part`); a fresh
+  visitor reading the link used up afterwards. A failed step is FAIL
+  `request-flow` with the fixed copy it met, never retried.
+- TA-13 (`H-DIR-W2D-reqblip`) starts the driver's own proxy
+  (`scripts/lib/blip.mjs`, 127.0.0.1 only, loopback upstream only), points
+  the host's server address at it through the app's own SetSettings (web
+  address set to the web under test), makes the link, cuts for 5 s, and
+  requires Reconnecting, the visitor's not-connected copy, the reclaim to
+  Waiting within 60 s and a delivery after Try again. `cellPlan` refuses
+  the cell against a server that is not loopback, the runner refuses it
+  again as a safety stop before any proxy or page, and the proxy refuses a
+  non-loopback upstream: it can never point at api.floe.one.
+- TA-15 declines the first visitor, reads its declined copy, checks
+  nothing was saved, clicks Keep waiting (`request-reopen`) and lets a
+  second visitor context deliver.
+- TA-17 (`-reqopen`) is the six quick cells with a link open on the
+  desktop: the host makes a link into its own `host-drops` folder after
+  setup, the quick cell runs as always, and verify requires the same link
+  still waiting and that folder empty. It needs the desktop even for its
+  W2W cell.
+- Teardown, pass or fail, and on an interrupt too (the host leg's stop):
+  a running drop is canceled, the cell's link closed or its result put
+  away, the blip's addresses and the Beta switch restored. Only a link
+  generation the cell made is touched; a link the owner already had open
+  is left as it was, with a note.
+- The link carries the room after `#`: it goes to the visitor's
+  `page.goto` only. Every message, note, log line and evidence file passes
+  through `redactRequestLinks` (`#<room>`, the link id stays), and the
+  report's redaction applies the same net to audit.md and run.json. The
+  host's captures can show the link on screen, so they go under
+  `cells/<id>/attempt-<n>/private/host/`: never share that folder.
+- TA-12's over 2 GB prompt line (P6) is not reachable from a web visitor:
+  the page probes its route 2 s after the channel opens and blocks a
+  relayed drop over the cap before it sends any metadata, so no prompt
+  reaches the host. TA-12 proves the host-forced relay path only.
 
 ## 8. Deep cells (the shapes that shipped bugs: chunk edges, sizes, kills, the cap, one non-loopback path)
 
