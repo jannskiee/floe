@@ -136,6 +136,37 @@ func TestFastTimersShrinkOnlyUnderTheFlag(t *testing.T) {
 	}
 }
 
+// -max-files and -block-shell-types reach ReceiveOptions.Limits, and nothing
+// else in it moves: no free-space reserve (a test must not depend on this
+// disk), no host relay check, the engine's default commit retry. With neither
+// flag Limits stays nil, the plain receive. -block-shell-types alone keeps the
+// Beta file cap, because a zero MaxFiles would refuse every drop.
+func TestLimitFlagsPlumb(t *testing.T) {
+	dir := t.TempDir()
+	plain, err := parseRequestFlags([]string{"-out", dir})
+	if err != nil || plain.limits != nil {
+		t.Fatalf("without limit flags: limits %+v, err %v; want nil", plain.limits, err)
+	}
+	for _, tc := range []struct {
+		args  []string
+		files int
+		shell bool
+	}{
+		{[]string{"-block-shell-types"}, requestMaxFiles, true},
+		{[]string{"-max-files", "2"}, 2, false},
+		{[]string{"-max-files", "3", "-block-shell-types"}, 3, true},
+	} {
+		cfg, err := parseRequestFlags(append([]string{"-out", dir}, tc.args...))
+		if err != nil || cfg.limits == nil {
+			t.Fatalf("%v: limits %+v, err %v", tc.args, cfg.limits, err)
+		}
+		l := cfg.limits
+		if l.MaxFiles != tc.files || l.BlockShellTypes != tc.shell || l.FreeReserve != 0 || l.HostRelayCheck || l.CommitRetry != 0 {
+			t.Fatalf("%v: limits %+v, want MaxFiles %d BlockShellTypes %v and nothing else", tc.args, *l, tc.files, tc.shell)
+		}
+	}
+}
+
 // Flags a spec can get wrong fail at start with the usage stage, and the
 // server never comes from FLOE_SERVER.
 func TestRequestFlagsRefuseBadInput(t *testing.T) {
@@ -150,6 +181,8 @@ func TestRequestFlagsRefuseBadInput(t *testing.T) {
 		"positional":        {"-out", dir, "extra"},
 		"unknown flag":      {"-out", dir, "-no-such-flag", "10"},
 		"commit-retry gone": {"-out", dir, "-commit-retry", "5m"},
+		"zero max-files":    {"-out", dir, "-max-files", "0"},
+		"negative files":    {"-out", dir, "-max-files", "-1"},
 		"bad decide":        {"-out", dir, "-decide", "sometimes"},
 		"unknown blip":      {"-out", dir, "-blip-after", "done"},
 		"zero timeout":      {"-out", dir, "-timeout", "0s"},
@@ -509,6 +542,45 @@ func checkNoToken(t *testing.T, h *harnessRun, tokens []string) {
 
 func equalNames(got, want []string) bool {
 	return strings.Join(got, ",") == strings.Join(want, ",")
+}
+
+// -block-shell-types reaches the receive: a .lnk from the visitor is saved as
+// .lnk.floe-blocked with it and under its own name without it.
+func TestRequestModeBlockShellTypesRenames(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "note.lnk")
+	if err := os.WriteFile(src, []byte("not a shortcut"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		flags []string
+		want  string
+	}{
+		{nil, "note.lnk"},
+		{[]string{"-block-shell-types"}, "note.lnk.floe-blocked"},
+	} {
+		srv := newFakeRequestServer(t)
+		out := t.TempDir()
+		args := append([]string{"-server", srv.url, "-out", out, "-decide", "accept", "-timeout", "60s"}, tc.flags...)
+		h := startRequest(t, args...)
+		room := roomFromLink(t, h.until(t, "link")["link"].(string))
+		visitErr := make(chan error, 1)
+		go func() { visitErr <- visit(srv.url, room, src) }()
+		h.until(t, "done")
+		if code := h.exitCode(t); code != 0 {
+			t.Fatalf("%v: exit %d, want 0", tc.flags, code)
+		}
+		if err := <-visitErr; err != nil {
+			t.Fatalf("%v: visitor: %v", tc.flags, err)
+		}
+		entries, err := os.ReadDir(out)
+		if err != nil || len(entries) != 1 || entries[0].Name() != tc.want {
+			names := []string{}
+			for _, e := range entries {
+				names = append(names, e.Name())
+			}
+			t.Fatalf("%v: output %v (err %v), want [%s]", tc.flags, names, err, tc.want)
+		}
+	}
 }
 
 // The smoke path: link printed, a visitor joins, Decide accepts, one file is

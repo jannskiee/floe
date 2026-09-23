@@ -138,7 +138,16 @@ type requestConfig struct {
 	corruptHash  bool
 	blipAfter    string
 	timeout      time.Duration
+	// limits is ReceiveOptions.Limits: nil unless -max-files or
+	// -block-shell-types is given.
+	limits *transfer.ReceiveLimits
 }
+
+// requestMaxFiles is the request lane's Beta file cap (spec 05 8.3), kept when
+// only -block-shell-types turns the limits on: a zero MaxFiles refuses every
+// drop. The Beta free-space reserve is left out so no test depends on this
+// disk, and -commit-retry stays dropped (FT-12).
+const requestMaxFiles = 10000
 
 // parseRequestFlags reads request mode's flags. It never reads FLOE_SERVER:
 // the server is -server or the local default, so a harness can never be
@@ -155,8 +164,26 @@ func parseRequestFlags(args []string) (requestConfig, error) {
 	corrupt := fs.Bool("corrupt-hash", false, "change one hex digit of each end-frame digest before the engine reads it")
 	blip := fs.String("blip-after", "", "drop and reclaim the host socket right after this event")
 	timeout := fs.Duration("timeout", 2*time.Minute, "overall deadline for the whole run")
+	maxFiles := fs.Int("max-files", 0, "cap the files a drop may announce (turns the request limits on)")
+	blockShell := fs.Bool("block-shell-types", false, "save shell-parsed types as .floe-blocked (turns the request limits on)")
 	if err := fs.Parse(args); err != nil {
 		return requestConfig{}, err
+	}
+	maxFilesSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "max-files" {
+			maxFilesSet = true
+		}
+	})
+	if maxFilesSet && *maxFiles <= 0 {
+		return requestConfig{}, errors.New("request: usage")
+	}
+	var limits *transfer.ReceiveLimits
+	if maxFilesSet || *blockShell {
+		limits = &transfer.ReceiveLimits{MaxFiles: requestMaxFiles, BlockShellTypes: *blockShell}
+		if maxFilesSet {
+			limits.MaxFiles = *maxFiles
+		}
 	}
 	if fs.NArg() != 0 || *out == "" || *timeout <= 0 {
 		return requestConfig{}, errors.New("request: usage")
@@ -175,7 +202,7 @@ func parseRequestFlags(args []string) (requestConfig, error) {
 	return requestConfig{
 		server: *server, web: strings.TrimRight(*web, "/"), out: *out, steps: steps,
 		decideWindow: window, keepWaiting: *keep, corruptHash: *corrupt,
-		blipAfter: *blip, timeout: *timeout,
+		blipAfter: *blip, timeout: *timeout, limits: limits,
 	}, nil
 }
 
@@ -393,6 +420,7 @@ func (h *requestHost) visit(step decideStep) visitOutcome {
 		},
 		Messages: msgs,
 		Closed:   early.Closed,
+		Limits:   h.cfg.limits,
 	})
 	if err != nil {
 		if word, ok := refusalWord(err); ok {
