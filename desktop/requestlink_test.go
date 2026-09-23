@@ -1972,6 +1972,47 @@ func TestCloseDuringHostJoinSendsNoRoomlessClose(t *testing.T) {
 	}
 }
 
+// TestMakeLinkDefaultFolderOutsideLaneLock (review 1a F5): the default save
+// folder (a home lookup and an os.Stat of Downloads, which a slow or offline
+// redirected Downloads can stall) is worked out before the lane lock is
+// taken, so a quit racing a Make link never waits on the file system.
+func TestMakeLinkDefaultFolderOutsideLaneLock(t *testing.T) {
+	f := newFakeSignalServer(t)
+	a, _ := laneApp(t, f)
+	a.quitFn = func() {}
+	dir := t.TempDir()
+	entered, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	old := requestDefaultDirFn
+	requestDefaultDirFn = func() string { close(entered); <-release; return dir }
+	t.Cleanup(func() { requestDefaultDirFn = old })
+	t.Cleanup(unblock)
+	made := make(chan RequestLinkSnapshot, 1)
+	go func() { made <- a.MakeRequestLink("x", "", "24h") }()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Make link never asked for the default folder")
+	}
+	quit := make(chan struct{})
+	go func() { a.ConfirmClose(); close(quit) }()
+	select {
+	case <-quit:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("ConfirmClose waited on the default folder lookup: file system work under the lane lock")
+	}
+	unblock()
+	select {
+	case s := <-made:
+		if s.SaveDir != dir {
+			t.Fatalf("the link's save folder is not the default one")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Make link did not return")
+	}
+}
+
 // TestPeerLeftWhileDeclinedDoesNotReopen (review 1a F1, probe P1): the
 // declined visitor leaving is expected, and only the owner's Keep waiting
 // reopens that room (T17), so the lane sends no request-reopen of its own and

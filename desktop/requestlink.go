@@ -133,6 +133,12 @@ const (
 	requestLabelMax = 64
 )
 
+// requestDefaultDirFn is the default save folder for a link made without
+// one, Downloads\Floe requests; a package var so a test can stall it.
+var requestDefaultDirFn = func() string {
+	return filepath.Join(defaultReceiveDir(), "Floe requests")
+}
+
 // joinWithTokenFn is the host join, a package var so tests can return any
 // result at once instead of waiting out the client's own 10 s reply timeout.
 // The lane arms no join timer of its own (M-04).
@@ -626,6 +632,14 @@ func (a *App) MakeRequestLink(label string, saveDir string, lifetime string) Req
 	hideIP := a.cfg.HideIP
 	a.mu.Unlock()
 
+	// The default save folder touches the disk (a home lookup and an os.Stat
+	// of Downloads, which a slow or offline redirected folder can stall), so
+	// it is worked out before the lane lock (review 1a F5).
+	saveDir = strings.TrimSpace(saveDir)
+	if saveDir == "" {
+		saveDir = requestDefaultDirFn()
+	}
+
 	l := a.lane()
 	l.mu.Lock()
 	if l.live.Load() {
@@ -651,10 +665,7 @@ func (a *App) MakeRequestLink(label string, saveDir string, lifetime string) Req
 	l.route, l.result, l.missedAt, l.suggestClose = "", nil, time.Time{}, false
 	l.promptEnds, l.ownerStop = nil, false
 	l.label = displayLabel(label)
-	l.saveDir = strings.TrimSpace(saveDir)
-	if l.saveDir == "" {
-		l.saveDir = filepath.Join(defaultReceiveDir(), "Floe requests")
-	}
+	l.saveDir = saveDir
 	if leftover != nil {
 		l.wg.Add(1)
 		go func() {
