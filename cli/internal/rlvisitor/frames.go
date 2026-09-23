@@ -14,13 +14,15 @@ import (
 	"encoding/json"
 
 	"github.com/google/uuid"
+	"github.com/jannskiee/floe/cli/engine/transfer"
 )
 
 // The wire is the engine's, unchanged: metadata is one JSON object with these
-// fields (transfer/sender.go metadataMsg). protocol version 1, both.
+// fields (transfer/sender.go metadataMsg). The protocol version is the engine's
+// own exported pair, so this stub cannot drift under the host's compat check.
 const (
-	protocolVersion    = 1
-	minProtocolVersion = 1
+	protocolVersion    = transfer.ProtocolVersion
+	minProtocolVersion = transfer.MinProtocolVersion
 )
 
 // maxAnnouncedSize mirrors transfer.maxAnnouncedSize (Number.MAX_SAFE_INTEGER):
@@ -124,13 +126,12 @@ func hostileDisplayName() string {
 }
 
 // oversizeRelayMeta is the metadata a -skip-relay-gate visitor announces to
-// force the host's relay-cap refusal: one file just over the 2 GiB relay cap
-// (RelaySizeLimit is 2 GiB; strictly greater is blocked), so the host refuses
-// on a relay path before any byte moves.
-const relaySizeLimit int64 = 2 * 1024 * 1024 * 1024
-
+// force the host's relay-cap refusal: one file just over the engine's relay cap
+// (transfer.RelaySizeLimit; strictly greater is blocked), so the host refuses
+// on a relay path before any byte moves. Using the exported constant keeps the
+// announce over the cap if the cap ever moves.
 func oversizeRelayMeta() []byte {
-	return oneFileMeta("relay-cap.bin", relaySizeLimit+1)
+	return oneFileMeta("relay-cap.bin", transfer.RelaySizeLimit+1)
 }
 
 // abortFrame is the visitor's own abort: an incompatible frame carrying a

@@ -8,8 +8,10 @@
 // a malformed SDP answer, relay-only ICE, and a skip of the visitor's own
 // relay-cap gate so the host's refusal is live-tested.
 //
-// It never ships: .goreleaser.yml builds only cli/cmd/floe, and a test proves
-// no symbol of this package reaches that binary. It never reports stats (there
+// It never ships: .goreleaser.yml builds only cli/cmd/floe, and
+// `go list -deps ./cmd/floe` names no rlvisitor symbol (a package main under
+// internal is unimportable), which a manual `go tool nm` of the release binary
+// confirms. It never reports stats (there
 // is no stats path here at all), never reads FLOE_SERVER (the server is
 // -server or the local default), refuses any -server that is not localhost, a
 // loopback or a private IP (localServer), and never prints a host token or any

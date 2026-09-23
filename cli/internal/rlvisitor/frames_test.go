@@ -12,9 +12,10 @@ import (
 	"github.com/jannskiee/floe/cli/engine/transfer"
 )
 
-// decodeMeta parses a metadata frame the way transfer.parseMetadata does,
-// through the exported receiver path, so a shape these tests accept is one the
-// real receiver will read.
+// decodeMeta parses a metadata frame with a plain json.Unmarshal and checks it
+// is a metadata frame carrying the eight fields and pv/pvMin 1/1, so a shape
+// these tests accept is one the real receiver's parseMetadata will read. It is
+// not the receiver path itself; it is the wire shape the receiver expects.
 func decodeMeta(t *testing.T, frame []byte) map[string]interface{} {
 	t.Helper()
 	var m map[string]interface{}
@@ -79,6 +80,11 @@ func TestHostileMetaShapesCrossTheLimits(t *testing.T) {
 	if len(f6Name()) >= 1000 {
 		t.Errorf("f6 name %d bytes is over the control-frame cap", len(f6Name()))
 	}
+	// The whole f6 frame stays under the 1000-byte control cap, so it exercises
+	// layer 1's path-unit check rather than the over-cap control-frame path.
+	if fr := mustFrame(t, "f6"); len(fr) >= 1000 {
+		t.Errorf("f6 frame is %d bytes, must stay under the 1000-byte control cap", len(fr))
+	}
 	if strings.ContainsAny(f6Name(), "/\\") {
 		t.Error("f6 must be one component, no separator")
 	}
@@ -109,11 +115,8 @@ func mustFrame(t *testing.T, kind string) []byte {
 // cap, so the host refuses on a relay path before any byte moves.
 func TestOversizeRelayMetaIsOverTheCap(t *testing.T) {
 	m := decodeMeta(t, oversizeRelayMeta())
-	if m["fileSize"] != float64(relaySizeLimit+1) {
-		t.Errorf("oversize fileSize = %v, want %d", m["fileSize"], relaySizeLimit+1)
-	}
-	if relaySizeLimit != 2*1024*1024*1024 {
-		t.Errorf("relaySizeLimit = %d, want 2 GiB", relaySizeLimit)
+	if m["fileSize"] != float64(transfer.RelaySizeLimit+1) {
+		t.Errorf("oversize fileSize = %v, want %d", m["fileSize"], transfer.RelaySizeLimit+1)
 	}
 }
 
