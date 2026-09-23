@@ -1097,12 +1097,15 @@ func (a *App) reopenRequest(rg uint64, sc *signaling.Client, code string, cause 
 
 // waitAgain puts generation rg back in waiting with code after a pairing that
 // made no drop, without touching the room: for reopenRequest, and for a
-// pairing whose seat a new visitor already holds.
+// pairing whose seat a new visitor already holds. A Cancel drop that landed
+// on a drop the engine then found abandoned leaves no owner's stop behind to
+// silence the next drop's failure toast (review 2a N2).
 func (a *App) waitAgain(rg uint64, code string) {
 	a.reqUpdate(rg, func(l *requestLane) {
 		l.prompt = nil
 		l.route = ""
 		l.dropCancel = nil
+		l.ownerStop = false
 		l.setStateLocked("waiting", code)
 	})
 }

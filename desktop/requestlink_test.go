@@ -2326,3 +2326,35 @@ func TestReconnectFromWaitingSendsReopen(t *testing.T) {
 		t.Fatalf("after the re-join: %q, same link %v, same gen %v", now.State, now.Link == s.Link, now.Gen == s.Gen)
 	}
 }
+
+// TestReopenAfterAcceptClearsOwnerStop (review 2a N2): a Cancel drop that
+// lands on a drop the engine then finds abandoned (the reopen path, no
+// endDrop) must not leave the owner's stop set, or the link's next drop that
+// really fails sends no failure toast.
+func TestReopenAfterAcceptClearsOwnerStop(t *testing.T) {
+	f := newFakeSignalServer(t)
+	sc, err := signaling.Connect(f.url())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sc.Close()
+	a, r := attentionApp(t, nil)
+	forceState(a, "waiting", 0)
+	a.openPrompt(1, RequestPrompt{})
+	a.acceptDrop(1)
+	l := a.lane()
+	l.mu.Lock()
+	l.dropCancel = func() {}
+	l.mu.Unlock()
+	a.CancelRequestDrop()
+	a.reopenRequest(1, sc, "visitor-left", nil)
+	if st := stateOf(a); st.State != "waiting" {
+		t.Fatalf("after the reopen: %q", st.State)
+	}
+	a.openPrompt(1, RequestPrompt{})
+	a.acceptDrop(1)
+	a.endDrop(1, "stopped", "peer-abort", nil)
+	if n := r.count(to3[0], to3[1]); n != 1 {
+		t.Fatalf("the next drop's failure sent %d failure toasts, want 1", n)
+	}
+}
