@@ -64,7 +64,7 @@ func run(cfg config) int {
 	if err != nil || res != signaling.VisitorJoined {
 		// The result word is the client's own fixed enum, never server text.
 		emit(map[string]interface{}{"event": "not-joined", "result": res.String()})
-		return exitFailed
+		return exitNotJoined
 	}
 	emit(map[string]interface{}{"event": "joined"})
 
@@ -211,8 +211,10 @@ func sendOutcome(err error) (map[string]interface{}, int) {
 	return ev, exitFailed
 }
 
-// craftedWait bounds how long a crafted mode waits for the host to end it.
-const craftedWait = 30 * time.Second
+// craftedWait bounds how long a crafted mode waits for the host to end it. It
+// outlasts the host's 30 s junk-frame deadline with margin, so a slow host that
+// ends the drop at its deadline is not reported as bound (WP-Q review 2, R2-2).
+const craftedWait = 45 * time.Second
 
 // runCraftedFrame writes one crafted text frame and waits for the host to end
 // the drop: its refusal code, a close without one, or the bound.

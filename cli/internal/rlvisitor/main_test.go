@@ -105,12 +105,13 @@ func TestUsageTextNamesEveryExitCode(t *testing.T) {
 		exitRelayGate:   "relay-gate",
 		exitHostClosed:  "host-closed",
 		exitBound:       "bound",
+		exitNotJoined:   "not-joined",
 	} {
 		if want := fmt.Sprintf("  %d  %s", code, word); !strings.Contains(usageText, want) {
 			t.Errorf("usage text lacks %q", want)
 		}
 	}
-	if len(map[int]bool{exitDelivered: true, exitFailed: true, exitUsage: true, exitPeerRefused: true, exitRelayGate: true, exitHostClosed: true, exitBound: true}) != 7 {
+	if len(map[int]bool{exitDelivered: true, exitFailed: true, exitUsage: true, exitPeerRefused: true, exitRelayGate: true, exitHostClosed: true, exitBound: true, exitNotJoined: true}) != 8 {
 		t.Error("two outcomes share an exit code")
 	}
 }
