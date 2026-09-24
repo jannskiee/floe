@@ -1803,6 +1803,68 @@ describe('policy', () => {
         }
     });
 
+    // The byte-order marks Windows tooling writes (CP-SE F1-3): PowerShell
+    // 5.1's Set-Content -Encoding utf8 writes UTF-8 with one, and its > and
+    // Out-File write UTF-16 LE with one.
+    const UTF8_BOM = Buffer.from([0xef, 0xbb, 0xbf]);
+    const UTF16LE_BOM = Buffer.from([0xff, 0xfe]);
+    function writeBytes(file, bytes) {
+        fs.writeFileSync(`${file}.tmp`, bytes);
+        fs.renameSync(`${file}.tmp`, file);
+    }
+
+    it('a policy file with a byte-order mark is read, in UTF-8 and in UTF-16 LE', () => {
+        const { file, lines, s } = store('bom.json');
+        writePolicy(file, '{"requestLinks": true}');
+        assert.equal(s.reload(), 'ok');
+
+        writeBytes(file, Buffer.concat([UTF8_BOM, Buffer.from('{"requestLinks": false}')]));
+        assert.equal(s.reload(), 'ok', 'UTF-8 with a BOM');
+        assert.equal(s.requestLinks(), false);
+
+        writeBytes(file, Buffer.concat([UTF16LE_BOM, Buffer.from('{"requestLinks": true}\r\n', 'utf16le')]));
+        assert.equal(s.reload(), 'ok', 'UTF-16 LE with a BOM');
+        assert.equal(s.requestLinks(), true);
+
+        writeBytes(file, Buffer.concat([UTF16LE_BOM, Buffer.from('{"requestLinks": false}\r\n', 'utf16le')]));
+        assert.equal(s.reload(), 'ok');
+        assert.equal(s.requestLinks(), false);
+        assert.deepEqual(lines, ['request links: on', 'request links: off', 'request links: on', 'request links: off']);
+
+        // At boot too.
+        const boot = store('bom-boot.json');
+        writeBytes(boot.file, Buffer.concat([UTF8_BOM, Buffer.from('{"requestLinks": true}')]));
+        assert.equal(boot.s.reload(), 'ok');
+        assert.equal(boot.s.requestLinks(), true);
+    });
+
+    it('a malformed file with a byte-order mark keeps the last good policy, and fails closed at boot', () => {
+        const off = '{"requestLinks": false}';
+        const bad = [
+            Buffer.concat([UTF8_BOM, Buffer.from('{"requestLinks": fals')]),
+            Buffer.concat([UTF8_BOM, UTF8_BOM, Buffer.from(off)]), // one mark is stripped, not two
+            Buffer.concat([UTF16LE_BOM, Buffer.from([0x7b, 0x00, 0x22])]), // an odd byte count
+            Buffer.concat([Buffer.from([0xfe, 0xff]), Buffer.from(off, 'utf16le').swap16()]), // UTF-16 BE: not decoded
+            Buffer.from(off, 'utf16le'), // UTF-16 LE without its mark
+        ];
+        const { file, lines, s } = store('bom-bad.json');
+        writePolicy(file, '{"requestLinks": true}');
+        assert.equal(s.reload(), 'ok');
+        for (const bytes of bad) {
+            writeBytes(file, bytes);
+            assert.equal(s.reload(), 'error', bytes.toString('hex').slice(0, 24));
+            assert.equal(s.requestLinks(), true, 'the last good policy must stand');
+        }
+        assert.deepEqual(lines, ['request links: on', 'policy file unreadable, keeping previous policy']);
+
+        for (const bytes of bad) {
+            const boot = store('bom-bad-boot.json');
+            writeBytes(boot.file, bytes);
+            assert.equal(boot.s.reload(), 'error');
+            assert.equal(boot.s.requestLinks(), false, 'a server that never read a good file is off');
+        }
+    });
+
     it('a flip is visible within one cleanupTick without restart', () => {
         // The module's own store, the one /health and the request handlers
         // consult, pointed at POLICY_PATH before server.js was required.

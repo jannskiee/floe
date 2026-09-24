@@ -35,7 +35,8 @@ const LOG_UNREADABLE = 'policy file unreadable, keeping previous policy';
 function parsePolicy(text) {
     let value;
     try {
-        value = JSON.parse(text);
+        // One leading byte-order mark, which JSON.parse rejects (CP-SE F1-3).
+        value = JSON.parse(text.startsWith('\uFEFF') ? text.slice(1) : text);
     } catch {
         return { policy: null, error: 'parse' };
     }
@@ -60,6 +61,15 @@ function sameStamp(a, b) {
     return a.ino === b.ino && a.ctimeNs === b.ctimeNs && a.mtimeNs === b.mtimeNs && a.size === b.size;
 }
 
+// UTF-8, or UTF-16 LE when the file opens with that byte-order mark (FF FE),
+// which Windows PowerShell 5.1's > and Out-File write by default: an operator
+// turning request links off from there must not be ignored (CP-SE F1-3).
+// Either mark decodes to one U+FEFF, which parsePolicy strips. Anything else,
+// UTF-16 BE included, fails to parse and keeps the last good policy.
+function decodePolicyBytes(bytes) {
+    return bytes[0] === 0xff && bytes[1] === 0xfe ? bytes.toString('utf16le') : bytes.toString('utf8');
+}
+
 // One read. `lastStamp` is the stamp of the last good read, so an unchanged
 // file is not read or parsed again. Returns a kind the store acts on:
 //   missing    no path, or the file does not exist: the defaults (off)
@@ -82,15 +92,15 @@ function readPolicyFile(path, lastStamp) {
     if (lastStamp && sameStamp(lastStamp, stamp)) {
         return { kind: 'unchanged', policy: null, stamp: lastStamp };
     }
-    let text;
+    let bytes;
     try {
-        text = fs.readFileSync(path, 'utf8');
+        bytes = fs.readFileSync(path);
     } catch {
         return { kind: 'error', policy: null, stamp: lastStamp };
     }
     // The file can change between the stat and the read.
-    if (Buffer.byteLength(text, 'utf8') > POLICY_MAX_BYTES) return { kind: 'error', policy: null, stamp: lastStamp };
-    const { policy } = parsePolicy(text);
+    if (bytes.length > POLICY_MAX_BYTES) return { kind: 'error', policy: null, stamp: lastStamp };
+    const { policy } = parsePolicy(decodePolicyBytes(bytes));
     if (!policy) return { kind: 'error', policy: null, stamp: lastStamp };
     return { kind: 'ok', policy, stamp };
 }
