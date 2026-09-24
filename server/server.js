@@ -971,8 +971,8 @@ function handleHostJoin(peer, roomId, hostToken, now = Date.now()) {
             return;
         }
     }
-    // Never convert an ordinary room into a reserved one, and never re-create
-    // a used link.
+    // Never convert an ordinary room into a reserved one. (A used link never
+    // reaches this line: its marker answered room-full above.)
     if (roomMeta.has(id) || rooms.has(id)) {
         peer.send('room-full', {});
         return;
