@@ -53,6 +53,8 @@ export interface RequestHostOptions {
     /** -hold-after-file: hold the receive loop this many ms after the first
      *  committed file, between the `holding` and `released` events. */
     holdAfterFile?: number;
+    /** -max-files: turns the receiver's request limits on with this file cap. */
+    maxFiles?: number;
 }
 
 export interface RequestHost {
@@ -79,6 +81,7 @@ export function startRequestHost(opts: RequestHostOptions): RequestHost {
     if (opts.joinAfter !== undefined) args.push('-join-after', String(opts.joinAfter));
     if (opts.holdAfterFile !== undefined) args.push('-hold-after-file', String(opts.holdAfterFile));
     if (opts.joinOnStdin) args.push('-join-on-stdin');
+    if (opts.maxFiles !== undefined) args.push('-max-files', String(opts.maxFiles));
     const proc = spawn(E2E_HOST_BINARY, args, { stdio: [opts.joinOnStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
     const events: RequestHostEvent[] = [];
     const host = { proc, events, outDir: opts.outDir } as RequestHost & { waiters: Array<() => void>; closed: boolean };
