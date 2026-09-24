@@ -1107,23 +1107,23 @@ const controlFrameMax = 1000
 // prefers queued messages to a close, still sees them all. quit stops it once
 // the receive has returned.
 //
+// Its queue is bounded like the pump's, by count and by bytes (F2-01): while
+// Decide holds the loop, a visitor's frames, at any size it picks, used to
+// fill cap(in) slots here too, 1 GiB of 4 MiB frames on top of the pump's own.
+// Floe-sized frames meet only the count, so the lookahead is what it was.
+//
 // Generic over the message type because naming pion's type here would make
 // pion a direct requirement of desktop/go.mod, which reaches the released
 // floe binary through the workspace (see requireRelay); the constraint still
 // pins the shape at compile time.
 func watchAbortFrames[M ~dataMessage](in <-chan M, closed, quit <-chan struct{}, saw *atomic.Bool) (<-chan M, <-chan struct{}) {
-	out := make(chan M, cap(in))
+	out := peer.NewFrameQueue(cap(in), peer.EarlyBufferBytes, func(m M) int { return len(dataMessage(m).Data) })
 	outClosed := make(chan struct{})
 	pass := func(m M) bool {
 		if dm := dataMessage(m); dm.IsString && isAbortFrame(dm.Data) {
 			saw.Store(true)
 		}
-		select {
-		case out <- m:
-			return true
-		case <-quit:
-			return false
-		}
+		return out.Send(m, quit)
 	}
 	go func() {
 		for {
@@ -1149,7 +1149,7 @@ func watchAbortFrames[M ~dataMessage](in <-chan M, closed, quit <-chan struct{},
 			}
 		}
 	}()
-	return out, outClosed
+	return out.C(), outClosed
 }
 
 // isAbortFrame reports whether a text frame from the visitor is an
