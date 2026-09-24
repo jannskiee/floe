@@ -252,7 +252,10 @@ const (
 	// without a client showing one.
 	HostRefusedUnknown
 	// HostRoomFull: room-full. The id belongs to an ordinary room, or the
-	// reservation holds another token's digest.
+	// reservation holds another token's digest, or the link was used: the
+	// host's request-close on a sealed room leaves a used marker for 24 h,
+	// and a token join on it is refused rather than re-creating the link
+	// (D-130).
 	HostRoomFull
 	// HostInvalidToken: error "Invalid host token", or the local check
 	// refused the pair before anything was sent (a malformed token, or a room

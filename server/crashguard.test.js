@@ -677,6 +677,74 @@ test.describe('request-link policy file', { concurrency: true }, () => {
         await assertSurvived(srv, 'reservations ended by the sweep while hosts drop, reclaim and close');
     });
 
+    test('a sealed reservation ended by a lazy expiry or by the real sweep leaves no marker and its token re-creates the link', { timeout: 150000 }, async (t) => {
+        // A zero grace makes a departed host's reservation due at once: at a
+        // lazy expiry on the next host join, or at the first real cleanup
+        // tick, about 60 s after startup. Only request-close leaves a used
+        // marker (D-130, review 1 F1): a sealed room whose host went away is
+        // no proof its link delivered anything.
+        const srv = await startServer({ POLICY_FILE: policyFileSaying(t, true), FLOE_TEST_REQUEST_GRACE_MS: '0' });
+        t.after(() => srv.stop());
+
+        // A pair that signaled both ways (the room seals, D-116), then its
+        // host vanishes without a request-close. The visitor stays seated.
+        async function sealedThenHostGone(what) {
+            const token = newToken();
+            const id = roomIdFromToken(token);
+            const host = await open(srv);
+            assert.deepEqual(await hostJoin(host, token), { type: 'room-joined', role: 'host' });
+            const visitor = await open(srv);
+            const seated = waitFor(visitor, 'request-joined');
+            const sawVisitor = waitFor(host, 'user-connected');
+            visitor.send(JSON.stringify({ type: 'request-join', roomId: id }));
+            await orBackstop(srv, Promise.all([seated, sawVisitor]), `${what}: a visitor join`);
+            const offer = waitFor(visitor, 'signal');
+            host.send(JSON.stringify({ type: 'signal', signal: { type: 'offer' } }));
+            await orBackstop(srv, offer, `${what}: the offer`);
+            const answer = waitFor(host, 'signal');
+            visitor.send(JSON.stringify({ type: 'signal', signal: { type: 'answer' } }));
+            await orBackstop(srv, answer, `${what}: the answer`);
+            const left = waitFor(visitor, 'peer-disconnected');
+            host.terminate();
+            await orBackstop(srv, left, `${what}: the host's departure`);
+            return { token, id, visitor };
+        }
+
+        // A lazy expiry: the token comes back after the zero grace and gets a
+        // fresh reservation, and the link works again for a new visitor.
+        const lazy = await sealedThenHostGone('lazy');
+        await new Promise((r) => setTimeout(r, 20));
+        const back = await open(srv);
+        assert.deepEqual(await orBackstop(srv, hostJoin(back, lazy.token), 'a lazy expiry'), { type: 'room-joined', role: 'host' }, 're-created, not refused');
+        const fresh = await open(srv);
+        const seated = waitForAny(fresh, ['request-joined', 'host-absent', 'room-full', 'disabled', 'error']);
+        const sawFresh = waitFor(back, 'user-connected');
+        fresh.send(JSON.stringify({ type: 'request-join', roomId: lazy.id }));
+        assert.deepEqual(await orBackstop(srv, seated, 'a visitor after a lazy expiry'), { type: 'request-joined', role: 'visitor' });
+        await orBackstop(srv, sawFresh, 'the re-created host hears the new visitor');
+
+        // The real sweep. The seated visitor's own request-join is silent while
+        // it holds its seat (an idempotent re-join) and answers once the sweep
+        // has ended the reservation, so it tells the two apart.
+        const swept = await sealedThenHostGone('sweep');
+        const deadline = Date.now() + 75000;
+        let got = [];
+        while (Date.now() < deadline) {
+            const r = repliesUntilPong(swept.visitor);
+            swept.visitor.send(JSON.stringify({ type: 'request-join', roomId: swept.id }));
+            swept.visitor.send(JSON.stringify({ type: 'ping' }));
+            got = await orBackstop(srv, r, 'a seated visitor polling through the sweep');
+            if (got.length) break;
+            await new Promise((r2) => setTimeout(r2, 3000));
+        }
+        assert.deepEqual(got, [{ type: 'host-absent' }], 'the sweep left nothing behind');
+        const again = await open(srv);
+        assert.deepEqual(await orBackstop(srv, hostJoin(again, swept.token), 'a host join after the sweep'), { type: 'room-joined', role: 'host' });
+
+        await assertSurvived(srv, 'sealed reservations ended by a lazy expiry and by the real sweep');
+        assertLogsCarryNone(srv, [lazy.token, lazy.id, swept.token, swept.id], 'sealed reservations ended without a request-close');
+    });
+
     test('policy flip within 60 s without restart', { timeout: 180000 }, async (t) => {
         const file = policyDir(t);
         writePolicy(file, '{"requestLinks":false}');
@@ -1255,4 +1323,106 @@ test('a Go client\'s handshake passes the same-host rule directly and through a 
     const { head } = await rawUpgrade(srv, '/ws', `Origin: ${originFromServer('https://floe.example.com:8443')}\r\n`, 'localhost:3001');
     assert.match(head, /^HTTP\/1\.1 403 /);
     await assertSurvived(srv, 'Go-shaped handshakes, direct and through proxies');
+});
+
+// --- request rooms: a used link (D-130) ---------------------------------------
+
+// A Socket.IO v4 client over a bare engine.io websocket, no client library,
+// with the same handshake the Socket.IO request-join fuzz above drives inline.
+// Resolves once the default namespace is connected, with send() and events(n),
+// which waits up to ms for the first n '42' event frames.
+function openSocketIO(srv) {
+    const ws = track(new WebSocket(`ws://127.0.0.1:${srv.port}/socket.io/?EIO=4&transport=websocket`, {
+        headers: { Origin: 'http://localhost:3000' },
+    }));
+    ws.on('error', () => {});
+    const events = [];
+    const waiters = [];
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('no namespace ack')), 5000);
+        ws.on('message', (raw) => {
+            const text = raw.toString();
+            if (text.startsWith('0')) ws.send('40');
+            else if (text === '2') ws.send('3');
+            else if (text.startsWith('40')) {
+                clearTimeout(timer);
+                resolve({
+                    send: (frame) => ws.send(frame),
+                    events: async (n, ms = 5000) => {
+                        const deadline = Date.now() + ms;
+                        while (events.length < n && Date.now() < deadline) {
+                            await new Promise((r) => { waiters.push(r); setTimeout(r, 200); });
+                        }
+                        return events.slice(0, n);
+                    },
+                });
+            } else if (text.startsWith('42')) {
+                events.push(text);
+                for (const w of waiters.splice(0)) w();
+            }
+        });
+    });
+}
+
+test('every join aimed at a used link answers room-full on both transports and never reaches the backstop', async (t) => {
+    const srv = await startServer({ POLICY_FILE: policyFileSaying(t, true) });
+    t.after(() => srv.stop());
+
+    // A drop's life as Floe Desktop and the /r page live it: the host joins,
+    // the visitor is seated, both signal (the room seals, D-116), the host
+    // confirms the seal and sends request-close at done.
+    const token = newToken();
+    const id = roomIdFromToken(token);
+    const idUpper = id.toUpperCase();
+    const host = await open(srv);
+    assert.deepEqual(await hostJoin(host, token), { type: 'room-joined', role: 'host' });
+    const visitor = await open(srv);
+    const seated = waitFor(visitor, 'request-joined');
+    const sawVisitor = waitFor(host, 'user-connected');
+    visitor.send(JSON.stringify({ type: 'request-join', roomId: id }));
+    await orBackstop(srv, Promise.all([seated, sawVisitor]), 'a visitor join');
+    const offer = waitFor(visitor, 'signal');
+    host.send(JSON.stringify({ type: 'signal', signal: { type: 'offer' } }));
+    await orBackstop(srv, offer, 'the offer');
+    const answer = waitFor(host, 'signal');
+    visitor.send(JSON.stringify({ type: 'signal', signal: { type: 'answer' } }));
+    await orBackstop(srv, answer, 'the answer');
+    const closed = repliesUntilPong(host);
+    host.send(JSON.stringify({ type: 'request-seal', roomId: id }));
+    host.send(JSON.stringify({ type: 'request-close', roomId: id }));
+    host.send(JSON.stringify({ type: 'ping' }));
+    assert.deepEqual(await orBackstop(srv, closed, 'a sealed close'), [], 'seal and close have no reply');
+
+    // Every join a confused or hostile client can aim at the used id over
+    // /ws. The host join with the link's own token passes the derivation and
+    // reaches the marker, which has no digest left to compare against. From a
+    // fresh socket, from the old host's and from the old visitor's.
+    const frames = [
+        { type: 'request-join', roomId: id },
+        { type: 'request-join', roomId: idUpper },
+        { type: 'join-room', roomId: id, hostToken: token },
+        { type: 'join-room', roomId: idUpper, hostToken: token },
+        { type: 'join-room', roomId: id },
+        { type: 'request-reopen', roomId: id },
+    ];
+    for (const [who, ws] of [['a fresh socket', await open(srv)], ['the old host', host], ['the old visitor', visitor]]) {
+        const replies = repliesUntilPong(ws);
+        for (const f of frames) ws.send(JSON.stringify(f));
+        ws.send(JSON.stringify({ type: 'ping' }));
+        const got = await orBackstop(srv, replies, `joins on a used id over /ws from ${who}`);
+        assert.deepEqual(got, Array(frames.length - 1).fill({ type: 'room-full' }), `${who}: ${JSON.stringify(got)}`);
+    }
+
+    // The same over Socket.IO: request-join, a plain join-room, and the host
+    // join's shape, which that transport has no path for.
+    const sio = await openSocketIO(srv);
+    sio.send(`42["request-join","${id}"]`);
+    sio.send(`42["join-room","${idUpper}"]`);
+    sio.send(`42["join-room",${JSON.stringify({ roomId: id, hostToken: token })}]`);
+    const events = await sio.events(3);
+    if (events.length !== 3) await assertSurvived(srv, 'joins on a used id over Socket.IO');
+    assert.deepEqual(events, ['42["room-full",{}]', '42["room-full",{}]', '42["error",{"message":"Invalid room ID"}]']);
+
+    await assertSurvived(srv, 'joins on a used id over both transports');
+    assertLogsCarryNone(srv, [token, id, idUpper], 'a used link');
 });
