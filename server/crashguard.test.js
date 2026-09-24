@@ -603,6 +603,8 @@ const HOSTILE_POLICIES = [
     ['[ nested 100,000 deep', '['.repeat(100000)],
     ['null', 'null'],
     ['"string"', '"string"'],
+    // Through the UTF-16 LE decode (CP-SE F1-3), which only an FF FE mark reaches.
+    ['a UTF-16 LE mark over an odd byte count', Buffer.from([0xff, 0xfe, 0x7b, 0x00, 0x22])],
 ];
 
 test.describe('request-link policy file', { concurrency: true }, () => {

@@ -73,6 +73,7 @@ const {
     handleRequestJoin,
     requestJoinAllowed,
     REQUEST_JOINS_PER_MINUTE,
+    REQUEST_SEATINGS_PER_MINUTE,
     handleRequestControl,
     REQUEST_MAX_AGE_MS,
     REQUEST_CREATE_KEYS_MAX,
@@ -1685,7 +1686,7 @@ describe('policy', () => {
         assert.equal(DEFAULT_POLICY.requestLinks, false);
     });
 
-    it('unchanged mtime and size are not re-parsed', () => {
+    it('an unchanged stamp is not re-parsed', () => {
         const { file, s } = store('stamp.json');
         writePolicy(file, '{"requestLinks":true}');
         const real = fs.readFileSync;
@@ -1705,6 +1706,162 @@ describe('policy', () => {
             assert.equal(s.requestLinks(), false);
         } finally {
             fs.readFileSync = real;
+        }
+    });
+
+    it('a same-size file renamed over the policy with the same mtime is read', () => {
+        // CP-SE F1-2, the finder's case: cp -p, tar x, rsync -a and docker cp
+        // keep the mtime, and these two files are both 22 bytes.
+        const { file, lines, s } = store('same-size-rename.json');
+        const on = '{"requestLinks":true }';
+        const off = '{"requestLinks":false}';
+        assert.equal(Buffer.byteLength(on), Buffer.byteLength(off));
+        const t = new Date('2026-09-24T12:00:00.000Z');
+        fs.writeFileSync(file, on);
+        fs.utimesSync(file, t, t);
+        assert.equal(s.reload(), 'ok');
+        assert.equal(s.requestLinks(), true);
+        const was = fs.statSync(file, { bigint: true });
+
+        fs.writeFileSync(`${file}.tmp`, off);
+        fs.utimesSync(`${file}.tmp`, t, t);
+        fs.renameSync(`${file}.tmp`, file); // the runbook's edit
+        const now = fs.statSync(file, { bigint: true });
+        assert.equal(now.size, was.size);
+        assert.equal(now.mtimeNs, was.mtimeNs);
+        assert.notEqual(now.ino, was.ino, 'the rename put a new file at the path');
+
+        assert.equal(s.reload(), 'ok');
+        assert.equal(s.requestLinks(), false);
+        assert.deepEqual(lines, ['request links: on', 'request links: off']);
+    });
+
+    it('a same-size edit in place with its mtime put back is read', async () => {
+        // cp -p onto the policy file itself keeps the inode as well as the
+        // mtime; the change time moves, and no user tool can set it back.
+        const { file, s } = store('same-size-in-place.json');
+        const t = new Date('2026-09-24T12:00:00.000Z');
+        fs.writeFileSync(file, '{"requestLinks":true }');
+        fs.utimesSync(file, t, t);
+        assert.equal(s.reload(), 'ok');
+        const was = fs.statSync(file, { bigint: true });
+        // Past a tick of a coarse file clock, or the edit's change time can
+        // equal the first write's (measured on NTFS: equal with no wait).
+        await new Promise((r) => setTimeout(r, 200));
+
+        fs.writeFileSync(file, '{"requestLinks":false}');
+        fs.utimesSync(file, t, t);
+        const now = fs.statSync(file, { bigint: true });
+        assert.equal(now.ino, was.ino, 'the same file');
+        assert.equal(now.size, was.size);
+        assert.equal(now.mtimeNs, was.mtimeNs);
+
+        assert.equal(s.reload(), 'ok');
+        assert.equal(s.requestLinks(), false);
+    });
+
+    it('a new inode alone, or a new change time alone, is a changed file', () => {
+        // Each identity field on its own, every other stat field held equal.
+        // A real rename also moves the change time on every platform this
+        // suite runs on, so only a stubbed stat can show the inode alone.
+        const { file, s } = store('stamp-fields.json');
+        fs.writeFileSync(file, '{"requestLinks":true }');
+        const real = fs.statSync;
+        const base = { num: real(file), big: real(file, { bigint: true }) };
+        const bumped = new Set();
+        fs.statSync = function (p, opts, ...rest) {
+            if (p !== file) return real.call(this, p, opts, ...rest);
+            const b = opts && opts.bigint ? base.big : base.num;
+            const one = typeof b.ino === 'bigint' ? 1n : 1;
+            const st = {
+                isFile: () => true,
+                ino: b.ino, size: b.size, mtimeMs: b.mtimeMs, mtimeNs: b.mtimeNs, ctimeMs: b.ctimeMs, ctimeNs: b.ctimeNs,
+            };
+            if (bumped.has('ino')) st.ino += one;
+            if (bumped.has('ctime')) {
+                st.ctimeMs += one;
+                if (st.ctimeNs !== undefined) st.ctimeNs += 1_000_000n;
+            }
+            return st;
+        };
+        try {
+            assert.equal(s.reload(), 'ok');
+            assert.equal(s.reload(), 'unchanged', 'every field equal');
+
+            fs.writeFileSync(file, '{"requestLinks":false}');
+            bumped.add('ino');
+            assert.equal(s.reload(), 'ok', 'a new inode alone');
+            assert.equal(s.requestLinks(), false);
+
+            fs.writeFileSync(file, '{"requestLinks":true }');
+            bumped.add('ctime');
+            assert.equal(s.reload(), 'ok', 'a new change time alone');
+            assert.equal(s.requestLinks(), true);
+            assert.equal(s.reload(), 'unchanged');
+        } finally {
+            fs.statSync = real;
+        }
+    });
+
+    // The byte-order marks Windows tooling writes (CP-SE F1-3): PowerShell
+    // 5.1's Set-Content -Encoding utf8 writes UTF-8 with one, and its > and
+    // Out-File write UTF-16 LE with one.
+    const UTF8_BOM = Buffer.from([0xef, 0xbb, 0xbf]);
+    const UTF16LE_BOM = Buffer.from([0xff, 0xfe]);
+    function writeBytes(file, bytes) {
+        fs.writeFileSync(`${file}.tmp`, bytes);
+        fs.renameSync(`${file}.tmp`, file);
+    }
+
+    it('a policy file with a byte-order mark is read, in UTF-8 and in UTF-16 LE', () => {
+        const { file, lines, s } = store('bom.json');
+        writePolicy(file, '{"requestLinks": true}');
+        assert.equal(s.reload(), 'ok');
+
+        writeBytes(file, Buffer.concat([UTF8_BOM, Buffer.from('{"requestLinks": false}')]));
+        assert.equal(s.reload(), 'ok', 'UTF-8 with a BOM');
+        assert.equal(s.requestLinks(), false);
+
+        writeBytes(file, Buffer.concat([UTF16LE_BOM, Buffer.from('{"requestLinks": true}\r\n', 'utf16le')]));
+        assert.equal(s.reload(), 'ok', 'UTF-16 LE with a BOM');
+        assert.equal(s.requestLinks(), true);
+
+        writeBytes(file, Buffer.concat([UTF16LE_BOM, Buffer.from('{"requestLinks": false}\r\n', 'utf16le')]));
+        assert.equal(s.reload(), 'ok');
+        assert.equal(s.requestLinks(), false);
+        assert.deepEqual(lines, ['request links: on', 'request links: off', 'request links: on', 'request links: off']);
+
+        // At boot too.
+        const boot = store('bom-boot.json');
+        writeBytes(boot.file, Buffer.concat([UTF8_BOM, Buffer.from('{"requestLinks": true}')]));
+        assert.equal(boot.s.reload(), 'ok');
+        assert.equal(boot.s.requestLinks(), true);
+    });
+
+    it('a malformed file with a byte-order mark keeps the last good policy, and fails closed at boot', () => {
+        const off = '{"requestLinks": false}';
+        const bad = [
+            Buffer.concat([UTF8_BOM, Buffer.from('{"requestLinks": fals')]),
+            Buffer.concat([UTF8_BOM, UTF8_BOM, Buffer.from(off)]), // one mark is stripped, not two
+            Buffer.concat([UTF16LE_BOM, Buffer.from([0x7b, 0x00, 0x22])]), // an odd byte count
+            Buffer.concat([Buffer.from([0xfe, 0xff]), Buffer.from(off, 'utf16le').swap16()]), // UTF-16 BE: not decoded
+            Buffer.from(off, 'utf16le'), // UTF-16 LE without its mark
+        ];
+        const { file, lines, s } = store('bom-bad.json');
+        writePolicy(file, '{"requestLinks": true}');
+        assert.equal(s.reload(), 'ok');
+        for (const bytes of bad) {
+            writeBytes(file, bytes);
+            assert.equal(s.reload(), 'error', bytes.toString('hex').slice(0, 24));
+            assert.equal(s.requestLinks(), true, 'the last good policy must stand');
+        }
+        assert.deepEqual(lines, ['request links: on', 'policy file unreadable, keeping previous policy']);
+
+        for (const bytes of bad) {
+            const boot = store('bom-bad-boot.json');
+            writeBytes(boot.file, bytes);
+            assert.equal(boot.s.reload(), 'error');
+            assert.equal(boot.s.requestLinks(), false, 'a server that never read a good file is off');
         }
     });
 
@@ -2473,6 +2630,165 @@ describe('handleRequestJoin', () => {
             Date.now = realNow;
         }
     });
+
+    it('a link holder that seats and unseats itself is seated at most 6 times in any 60 s; the rest get room-full and change nothing', () => {
+        // CP-SE F1-1. Every seating sends the host user-connected, and Floe
+        // Desktop answers each one with a TURN fetch from its own network,
+        // whose budget is 20 a minute. One socket, inside its own 30-frame
+        // budget, seats itself and leaves by a plain join to a fresh room.
+        const { host, id, token } = waitingHost();
+        const v = makePeer('looper', 'k-looper');
+        const answers = [];
+        for (let i = 0; i < 30; i++) {
+            const held = v.roomId;
+            handleRequestJoin(v, id, T0 + i * 100);
+            answers.push(v.msgs.pop().type);
+            if (i >= 6) {
+                // A refusal runs before the leave: the looper keeps the room it had.
+                assert.equal(v.roomId, held, `refusal ${i - 5} kept the seat it had`);
+                assert.deepEqual(rooms.get(held), [v]);
+            }
+            handleJoinRoom(v, randomUUID()); // leave without closing the socket
+            v.msgs.length = 0;
+        }
+        const connected = host.msgs.filter(m => m.type === 'user-connected').length;
+        assert.equal(connected, 6, 'user-connected the host saw inside one minute');
+        assert.deepEqual(answers, [...Array(6).fill('request-joined'), ...Array(24).fill('room-full')]);
+        assert.equal(REQUEST_SEATINGS_PER_MINUTE, 6);
+
+        // A refused seating changed nothing: the host heard only the six
+        // pairings, the looper kept the seat it had, and the reservation
+        // still waits, unsealed, for its host's visitor.
+        assert.deepEqual(host.msgs.map(m => m.type), Array(6).fill(['user-connected', 'peer-disconnected']).flat());
+        assert.notEqual(v.roomId, id);
+        assert.deepEqual(rooms.get(v.roomId), [v]);
+        assert.deepEqual(rooms.get(id), [host]);
+        const meta = roomMeta.get(id);
+        assert.equal(meta.sealed, false);
+        assert.equal(meta.hostPeerId, host.id);
+        assert.equal(meta.signaled.size, 0);
+        assert.equal(roomMeta.size, 1 + 1, 'the reservation and the looper\'s ordinary room');
+
+        // Another link is unaffected.
+        const other = waitingHost('k-other');
+        const z = makePeer('z', 'k-z');
+        handleRequestJoin(z, other.id, T0 + 3_000);
+        assert.deepEqual(z.msgs.pop(), { type: 'request-joined', data: { role: 'visitor' } });
+
+        // A refused peer stays where it was, and so does its partner: a
+        // receiver paired in an ordinary room, and the host of another link,
+        // each ask the spent link and keep their seats; nobody hears a leave.
+        const plain = randomUUID();
+        const a = makePeer('a', 'k-a');
+        const b = makePeer('b', 'k-b');
+        handleJoinRoom(a, plain);
+        handleJoinRoom(b, plain);
+        a.msgs.length = 0;
+        b.msgs.length = 0;
+        handleRequestJoin(b, id, T0 + 3_100);
+        assert.deepEqual(b.msgs, [{ type: 'room-full', data: {} }]);
+        assert.equal(b.roomId, plain);
+        assert.deepEqual(rooms.get(plain), [a, b]);
+        assert.deepEqual(a.msgs, [], 'the partner hears no peer-disconnected');
+        other.host.msgs.length = 0;
+        handleRequestJoin(other.host, id, T0 + 3_200);
+        assert.deepEqual(other.host.msgs, [{ type: 'room-full', data: {} }]);
+        assert.equal(other.host.roomId, other.id);
+        assert.deepEqual(rooms.get(other.id), [other.host, z]);
+        assert.equal(roomMeta.get(other.id).hostPeerId, other.host.id, 'its own link is not in grace');
+        assert.equal(roomMeta.get(other.id).hostAbsentSince, null);
+        assert.deepEqual(z.msgs, [], 'its visitor hears no host-absent');
+
+        // Per reservation, not per socket or key: a fresh socket from anywhere
+        // is refused too, and the host's reopen (Floe Desktop sends one after
+        // every leave) does not refill it.
+        handleRequestControl(host, 'request-reopen', id);
+        const w = makePeer('w', 'k-w');
+        handleRequestJoin(w, id, T0 + 59_999);
+        assert.deepEqual(w.msgs.pop(), { type: 'room-full', data: {} });
+        assert.equal(w.roomId, null);
+
+        // Rolling: each seating frees its slot 60 s after it was made.
+        handleRequestJoin(w, id, T0 + 60_000);
+        assert.deepEqual(w.msgs.pop(), { type: 'request-joined', data: { role: 'visitor' } });
+        handleDisconnect(w);
+        const x = makePeer('x', 'k-x');
+        handleRequestJoin(x, id, T0 + 60_050);
+        assert.deepEqual(x.msgs.pop(), { type: 'room-full', data: {} });
+        handleRequestJoin(x, id, T0 + 60_100);
+        assert.deepEqual(x.msgs.pop(), { type: 'request-joined', data: { role: 'visitor' } });
+        handleDisconnect(x);
+
+        // The budget is the last check, so a truer answer still wins over it.
+        handleDisconnect(host, T0 + 60_110);
+        const y = makePeer('y', 'k-y');
+        handleRequestJoin(y, id, T0 + 60_120);
+        assert.deepEqual(y.msgs.pop(), { type: 'host-absent', data: {} });
+
+        // A reclaim keeps the reservation, and its budget with it.
+        const back = makePeer('back', 'host-key');
+        assert.deepEqual(hostJoin(back, token, T0 + 60_130), { type: 'room-joined', data: { role: 'host' } });
+        handleRequestJoin(y, id, T0 + 60_140);
+        assert.deepEqual(y.msgs.pop(), { type: 'room-full', data: {} });
+
+        // The budget dies with its reservation: after request-close, the same
+        // token's new reservation (a counted create) seats at once.
+        handleRequestControl(back, 'request-close', id);
+        const again = makePeer('again', 'host-key');
+        assert.deepEqual(hostJoin(again, token, T0 + 60_150), { type: 'room-joined', data: { role: 'host' } });
+        assert.equal(createsInWindow('host-key', T0 + 60_150), 2);
+        handleRequestJoin(y, id, T0 + 60_160);
+        assert.deepEqual(y.msgs.pop(), { type: 'request-joined', data: { role: 'visitor' } });
+    });
+
+    it('the re-seats a real visitor can need in one minute all still seat', () => {
+        // The flows the seating budget must never refuse, pressed into 40 s,
+        // which none of them can really fit in (the host waits 30 s for an
+        // answer and 30 s for the channel before it reopens). Each seating is
+        // one; a room-full answer costs nothing. Five seatings against 6.
+        const { host, id } = waitingHost();
+        const joined = { type: 'request-joined', data: { role: 'visitor' } };
+        const full = { type: 'room-full', data: {} };
+        const join = (p, t) => { handleRequestJoin(p, id, t); return p.msgs.pop(); };
+
+        // 1. The first visit. Its socket blips before the channel opens.
+        const a = makePeer('a', 'k-v');
+        assert.deepEqual(join(a, T0), joined);
+
+        // 2. Try again on a new socket while the server still holds the old
+        //    seat: room-full, and the page's own retry 3 s later seats (R2).
+        const b = makePeer('b', 'k-v');
+        assert.deepEqual(join(b, T0 + 2_000), full);
+        handleDisconnect(a);
+        assert.deepEqual(join(b, T0 + 5_000), joined);
+
+        // 3. A failed setup: the host reopens and evicts it (E-03); Try again.
+        handleRequestControl(host, 'request-reopen', id);
+        assert.deepEqual(b.msgs.pop(), full);
+        assert.deepEqual(join(b, T0 + 10_000), joined);
+
+        // 4. The pair signals (the room seals), the host declines and keeps
+        //    waiting (a reopen), and the visitor sends again.
+        handleSignal(host, { type: 'offer' }, null);
+        handleSignal(b, { type: 'answer' }, null);
+        assert.equal(roomMeta.get(id).sealed, true);
+        handleRequestControl(host, 'request-reopen', id);
+        assert.deepEqual(b.msgs.pop(), full);
+        assert.deepEqual(join(b, T0 + 20_000), joined);
+
+        // 5. The socket goes after it answered, before its channel opened: the
+        //    room is sealed on that seat, the page's retries answer room-full
+        //    until the host reopens (L1), and the next one seats.
+        handleSignal(host, { type: 'offer' }, null);
+        handleSignal(b, { type: 'answer' }, null);
+        handleDisconnect(b);
+        const c = makePeer('c', 'k-v');
+        for (let t = T0 + 23_000; t < T0 + 35_000; t += 3_000) assert.deepEqual(join(c, t), full);
+        handleRequestControl(host, 'request-reopen', id);
+        assert.deepEqual(join(c, T0 + 38_000), joined);
+
+        assert.equal(host.msgs.filter(m => m.type === 'user-connected').length, 5);
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -2826,15 +3142,17 @@ describe('request rooms: disconnect and sweep', () => {
         const id = roomIdFromToken(token);
         const host = makePeer('host', '198.51.100.200');
         hostJoin(host, token, RQ_T0);
+        // At the seating budget's own pace, the fastest one link can be seated.
+        const pace = 60_000 / REQUEST_SEATINGS_PER_MINUTE;
         for (let i = 0; i < 50; i++) {
             const v = makePeer(`v${i}`, `203.0.113.${i}`);
-            handleRequestJoin(v, id, RQ_T0);
+            handleRequestJoin(v, id, RQ_T0 + i * pace);
             assert.equal(v.roomId, id, `visitor ${i} seated`);
             handleSignal(v, { type: 'anything' }, null);
             handleDisconnect(v);
         }
         const v = makePeer('last', '203.0.113.99');
-        handleRequestJoin(v, id, RQ_T0);
+        handleRequestJoin(v, id, RQ_T0 + 50 * pace);
         handleSignal(host, { type: 'offer' }, null);
         assert.equal(roomMeta.get(id).keys.size, 0);
 
