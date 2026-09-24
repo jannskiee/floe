@@ -16,7 +16,7 @@ import { runCell } from './cell.mjs';
 import { ACCEPT_WAIT_MS, PlaywrightDriver } from './desktop.mjs';
 import { cellPlan } from './matrix.mjs';
 import { Ledger } from './pacing.mjs';
-import { newSafety } from './report.mjs';
+import { buildRunJson, newSafety, renderMarkdown } from './report.mjs';
 import { UIA_PENDING, scrubDeep } from './request.mjs';
 import { SafetyError } from './surfaces.mjs';
 import { FAKE_ROOM } from './tests/fake-request-dom.mjs';
@@ -191,9 +191,45 @@ test('TA-10 H-DIR-W2D-req: Make link into the run folder, Accept after 1.2 s, th
     assert.ok(w.visitors.every((v) => v.closed));
     assert.equal(w.visitors.length, 2, 'the sender and the used-link checker');
     assert.equal(w.dom.closed, true);
-    // The host's captures live under private/.
-    for (const c of a.evidence.captures)
-        assert.match(c, /[\\/]private[\\/]host[\\/]/);
+    // The host's captures live under private/ on disk, and the summary the
+    // report reads carries their count, never their paths.
+    const onDisk = attemptJson(a).evidence.receiver.captures.map((c) => c.path);
+    assert.ok(onDisk.length > 0, 'the host was captured');
+    for (const c of onDisk) assert.match(c, /[\\/]private[\\/]host[\\/]/);
+    assert.deepEqual(a.evidence.captures, []);
+    assert.equal(a.evidence.privateCaptures, onDisk.length);
+});
+
+// The request.mjs header promises the host captures (which can show the
+// link on screen) are never quoted by audit.md or run.json; the first live
+// run's audit.md quoted them in every FAIL block's Evidence line
+// (2026-09-24).
+test('audit.md and run.json never quote a private/host capture path: the attempt folder stands in', async () => {
+    const w = fakeRequestWorld({ faults: ['not-used-up'] });
+    const ctx = ctxFor(w);
+    const r = await runCell(small('H-DIR-W2D-req'), ctx);
+    assert.equal(r.verdict, 'FAIL', r.note);
+    const a = r.attempts[0];
+    const onDisk = attemptJson(a).evidence.receiver.captures.map((c) => c.path);
+    assert.ok(onDisk.length > 0 && onDisk.every((p) => /[\\/]private[\\/]host[\\/]/.test(p)));
+    const run = {
+        runId: 'r1',
+        profile: 'head',
+        subset: 'default',
+        cells: [r],
+        safety: ctx.safety,
+        exitCode: 1,
+    };
+    const md = renderMarkdown(run);
+    const json = JSON.stringify(buildRunJson(run));
+    for (const [what, text] of [
+        ['audit.md', md],
+        ['run.json', json],
+    ])
+        assert.ok(!/[\\/]private[\\/]/.test(text), `${what} quotes a private path`);
+    const evidence = md.split('\n').find((l) => l.startsWith('Evidence: '));
+    assert.equal(evidence, `Evidence: ${a.evidence.dir}`);
+    assert.equal(a.evidence.privateCaptures, onDisk.length);
 });
 
 test('a request link cell never runs as a plain cell: no plain web, CLI or desktop leg starts', async () => {

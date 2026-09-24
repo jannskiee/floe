@@ -531,6 +531,8 @@ to it, so none ever runs as a plain cell.
   report's redaction applies the same net to audit.md and run.json. The
   host's captures can show the link on screen, so they go under
   `cells/<id>/attempt-<n>/private/host/`: never share that folder.
+  audit.md and run.json count them (`privateCaptures`) and never quote
+  their paths; an Evidence line names the attempt folder instead.
 - TA-12's over 2 GB prompt line (P6) is not reachable from a web visitor:
   the page probes its route 2 s after the channel opens and blocks a
   relayed drop over the cap before it sends any metadata, so no prompt
