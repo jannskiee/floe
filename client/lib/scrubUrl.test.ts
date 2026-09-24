@@ -286,6 +286,46 @@ describe('scrubUrl on a request link', () => {
         expect(scrubErrorEvent(nameless).transaction).toBeUndefined();
     });
 
+    it('a fragment-less /r URL wrapped, in a query value or percent-encoded is still redacted', () => {
+        // [as written, what it must become]: no producer writes these today
+        // (review 3 N1), but each one carries the id past a rule that only
+        // looked at a URL-shaped token's path.
+        const cases: [string, string][] = [
+            [`(https://www.floe.one/r/${LINK_ID})`, '/(https://www.floe.one/r/redacted'],
+            [`url=https://www.floe.one/r/${LINK_ID}`, '/url=https://www.floe.one/r/redacted'],
+            [`https://www.floe.one/?next=/r/${LINK_ID}`, 'https://www.floe.one/?next=%2Fr%2Fredacted'],
+            [`https://www.floe.one/?next=r%2F${LINK_ID}&x=1`, 'https://www.floe.one/?next=r%2Fredacted&x=1'],
+            [`https://www.floe.one/?next=%2Fr%2F${LINK_ID}`, 'https://www.floe.one/?next=%2Fr%2Fredacted'],
+            [`https://www.floe.one/%72/${LINK_ID}`, 'https://www.floe.one/r/redacted'],
+            [`/%72/${LINK_ID}`, '/r/redacted'],
+            [`/r%2F${LINK_ID}`, '/r/redacted'],
+        ];
+        for (const [written, want] of cases) {
+            const span = { description: `GET ${written}`, data: { note: written } };
+            expect(scrubSpanJson(span), written).toEqual({ description: `GET ${want}`, data: { note: want } });
+            if (!written.startsWith('(') && !written.startsWith('url=')) {
+                expect(scrubUrl(written), written).toBe(want);
+            }
+        }
+        // The same shapes without a /r segment, and free text, stay byte for byte.
+        const untouched = [
+            'https://www.floe.one/?next=/how-it-works',
+            'https://api.floe.one/socket.io/?EIO=4&transport=polling',
+            '/_next/image?url=%2Flogo.png&w=64&q=75',
+            '/_next/static/chunks/r3x.js',
+            '(https://www.floe.one/download)',
+            'hello%2Fr%2Fx',
+            'r/abc',
+        ];
+        for (const value of untouched) {
+            const span = { description: value, data: { note: value } };
+            expect(scrubSpanJson(span), value).toEqual({ description: value, data: { note: value } });
+        }
+        expect(scrubUrl('https://www.floe.one/?next=/how-it-works&q=a%20b')).toBe(
+            'https://www.floe.one/?next=/how-it-works&q=a%20b'
+        );
+    });
+
     it('never throws on an odd error event and returns it unchanged', () => {
         // beforeSend drops an event whose hook throws, so a throw would fail
         // closed, but a scrub has no business losing an error report. The SDK

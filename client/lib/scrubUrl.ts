@@ -18,14 +18,33 @@
 // path segment can begin (string start, or after a slash). The captured
 // boundary is put back, so "/r/x" and "r/x" each stay their own shape, and it
 // is what keeps /rx/abc and /robots.txt out of the match. A bare /r has no id
-// to redact and is left alone.
-const REQUEST_PATH = /(^|\/)r\/[^/]+/gi;
+// to redact and is left alone. The r and either slash may also be
+// percent-encoded (%72, %2F): a serialized pathname keeps them encoded, and
+// /%72/<id> or /r%2F<id> still names the same link.
+const REQUEST_PATH = /(^|\/|%2f)(?:r|%72)(?:\/|%2f)[^/]+/gi;
+
+// The same shape as a plain test: no /g, so it keeps no lastIndex between
+// calls, and only one character after the separator, since it only asks
+// whether there is a segment to redact.
+const REQUEST_PATH_SHAPE = /(^|\/|%2f)(?:r|%72)(?:\/|%2f)[^/]/i;
 
 function redactRequestPath(path: string): string {
     // lastIndex is reset per call: the regex is module-level and /g is stateful,
     // so a shared one would skip the next caller's match.
     REQUEST_PATH.lastIndex = 0;
     return path.replace(REQUEST_PATH, '$1r/redacted');
+}
+
+// A /r path can also ride in a query value (?next=/r/<id>). URLSearchParams
+// hands each value back decoded, so %2F and %72 are caught by the same test.
+// The query is rebuilt only when a value matches, so every other URL keeps its
+// query byte for byte.
+function redactRequestQuery(u: URL): void {
+    const params = [...u.searchParams];
+    if (!params.some(([, value]) => REQUEST_PATH_SHAPE.test(value))) return;
+    u.search = new URLSearchParams(
+        params.map(([key, value]) => [key, REQUEST_PATH_SHAPE.test(value) ? redactRequestPath(value) : value])
+    ).toString();
 }
 
 export function scrubUrl(url: string | undefined | null): string | undefined {
@@ -37,6 +56,7 @@ export function scrubUrl(url: string | undefined | null): string | undefined {
     try {
         const u = new URL(url, BASE);
         if (u.searchParams.has('room')) u.searchParams.set('room', 'redacted');
+        redactRequestQuery(u);
         u.pathname = redactRequestPath(u.pathname);
         u.hash = '';
         const out = u.toString();
@@ -176,13 +196,14 @@ const ROOM_PARAM = /[?&#]room=/i;
 // on its own. An element selector ("div#main", "a:nth-child(2)") is neither.
 const URL_TOKEN = /^(?:[a-z][a-z0-9+.-]*:\/\/|[/?#])/i;
 
-// A URL inside a token that does not start as one: a scheme's "://" somewhere
-// before a '#', as in "(https://floe.one/r/x#<id>)" or "url=http://a/#<id>".
-// The bare #<id> fragment carries no room= to catch it otherwise. Anchored on
-// "://" rather than any '/': an element selector can hold a '/' and then a '#'
-// (div.w-1/2.bg-[#fff], img[alt="a/b#c"]) and must come back as it was. No
-// SDK producer writes a page URL without its scheme.
-const EMBEDDED_URL = /:\/\/[^#]*#/;
+// A URL inside a token that does not start as one: a scheme's "://" anywhere,
+// as in "(https://floe.one/r/x#<id>)", "url=http://a/#<id>" or, with no
+// fragment at all, "(https://floe.one/r/<id>)". Such a token is only rewritten
+// when it also holds a fragment, a room= parameter or a /r segment. Anchored
+// on "://" rather than any '/': an element selector can hold a '/' and then a
+// '#' (div.w-1/2.bg-[#fff], img[alt="a/b#c"]) and must come back as it was.
+// No SDK producer writes a page URL without its scheme.
+const EMBEDDED_URL = /:\/\//;
 
 // Scrubs the room secret out of a span description or a transaction name.
 //
@@ -219,15 +240,16 @@ function scrubDescription(description: string): string {
         .join('');
 }
 
-// A /r/<something> path segment where a segment can begin. REQUEST_PATH's
-// shape, without /g so it keeps no lastIndex between calls. Only a URL-shaped
-// token is ever rewritten for it, so free text such as "r/abc" stays.
-const REQUEST_PATH_SHAPE = /(^|\/)r\/[^/]/i;
+// REQUEST_PATH_SHAPE on a raw, still-encoded string, where a /r path can also
+// open a query value (?next=r%2F<id>) right after its '='.
+const REQUEST_PATH_HINT = /(^|[/=]|%2f)(?:r|%72)(?:\/|%2f)[^/]/i;
 
 // Whether a string can hold the room id (a fragment or a room= parameter) or a
-// request-link id (a /r/<linkId> path). Nothing else is touched.
+// request-link id (a /r/<linkId> path). Nothing else is touched, and only a
+// URL-shaped token is ever rewritten for a /r segment, so free text such as
+// "r/abc" stays.
 function mayHoldSecret(value: string): boolean {
-    return value.includes('#') || ROOM_PARAM.test(value) || REQUEST_PATH_SHAPE.test(value);
+    return value.includes('#') || ROOM_PARAM.test(value) || REQUEST_PATH_HINT.test(value);
 }
 
 // A transaction name, on a transaction or on an error event: the description
