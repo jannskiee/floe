@@ -103,10 +103,15 @@ export const FIELDS = {
 // `notifyTransferFailed`, whose every call site passes a literal string
 // ("Floe - send failed", "Floe"), so nothing peer-chosen reaches an OS
 // notification. That is worth keeping as a row rather than deleting.
+//
+// desktop/frontend/src/components/Toasts.tsx is the second kind too: its one
+// row records that the Request link notice (RequestNotice) shows only the
+// constant N1 and N2 strings, never a label, count, size or name.
 export const TOKEN_FREE = new Set([
     'desktop/frontend/src/errors.ts',
     'desktop/frontend/src/history.ts',
     'desktop/frontend/src/components/HistoryView.tsx',
+    'desktop/frontend/src/components/Toasts.tsx',
     'cli/engine/peer/connection.go',
     'cli/engine/peer/setuperror.go',
     'cli/engine/transfer/relay.go',

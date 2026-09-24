@@ -341,6 +341,9 @@ function App() {
     // Send or code Receive (spec 06 5.1).
     const [reqUI, dispatchReq] = useReducer(reduceRequest, initialRequestUI);
     const [reqProgress, setReqProgress] = useState<Prog | null>(null);
+    // The newest lane generation a request:state snapshot or the
+    // GetRequestLink pull has named (F2-03).
+    const reqProgressGen = useRef(0);
     // Which half of Receive shows. Not persisted: entering Receive shows
     // REQUEST LINK while the lane has something to say, CODE otherwise.
     const [receiveKind, setReceiveKind] = useState<'code' | 'request'>('code');
@@ -749,11 +752,27 @@ function App() {
     // drop (S5), so these never go away under one. GetRequestLink is pulled
     // after both listeners exist, the GetPendingFiles ordering: a snapshot
     // emitted in between would otherwise be lost.
+    //
+    // A lane generation is one link and at most one drop, and Go emits
+    // request:progress for the current generation only, so a snapshot naming
+    // a newer generation than any before it clears the progress the last drop
+    // left (F2-03): the next drop shows its own progress or none, never the
+    // previous visitor's name and counts (a drop of empty files sends none).
+    // It clears here, in event order, so a progress event right behind that
+    // snapshot still shows.
     useEffect(() => {
         if (!requestLinksOn) return;
-        EventsOn('request:state', (s: unknown) => dispatchReq({type: 'SNAPSHOT', snap: normalizeSnapshot(s)}));
+        const adopt = (s: unknown) => {
+            const snap = normalizeSnapshot(s);
+            if (snap.gen > reqProgressGen.current) {
+                reqProgressGen.current = snap.gen;
+                setReqProgress(null);
+            }
+            dispatchReq({type: 'SNAPSHOT', snap});
+        };
+        EventsOn('request:state', adopt);
         EventsOn('request:progress', (p: Prog) => setReqProgress(p));
-        GetRequestLink().then((s) => dispatchReq({type: 'SNAPSHOT', snap: normalizeSnapshot(s)})).catch(() => {});
+        GetRequestLink().then(adopt).catch(() => {});
         return () => {
             EventsOff('request:state');
             EventsOff('request:progress');
@@ -884,7 +903,8 @@ function App() {
     }, [reqUI.snap.state, reqUI.snap.expiresAt, reqUI.snap.gen]);
 
     // One History row per finished drop (S1-DSK-09): the first time a lane
-    // generation reaches done, or stopped with files saved. Go may re-emit a
+    // generation reaches done, or stopped with files saved, or save-blocked
+    // (D-128, requestHistoryEntry). Go may re-emit a
     // terminal snapshot (a GetRequestLink pull, a later event of the same
     // gen), so the gens already recorded are remembered and a copy adds
     // nothing. The row keeps no link and no room id (requestHistoryEntry).

@@ -100,7 +100,8 @@ type Early struct {
 
 // earlyBuffer matches the buffer the transfer layer used when it owned this
 // pump. It is backpressure, not a drop policy: a full buffer parks pion's read
-// loop until the transfer layer catches up.
+// loop until the transfer layer catches up. EarlyBufferBytes bounds the same
+// pump by bytes (framequeue.go).
 const earlyBuffer = 256
 
 // attach installs the ONLY OnMessage and OnClose handlers this data channel will
@@ -112,20 +113,28 @@ const earlyBuffer = 256
 // their own callbacks, because pion keeps one handler per event and a later
 // registration silently replaces this one, reopening the window it closes.
 func (conn *Connection) attach(dc *webrtc.DataChannel) {
-	msgs := make(chan webrtc.DataChannelMessage, earlyBuffer)
+	msgs := NewFrameQueue(earlyBuffer, EarlyBufferBytes, func(m webrtc.DataChannelMessage) int { return len(m.Data) })
 	closed := make(chan struct{})
 	var once sync.Once
 	dc.OnClose(func() { once.Do(func() { close(closed) }) })
-	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-		// Selecting on closed means this can never block forever, and never
-		// panics: nothing closes msgs.
+	// stop ends a wait for room at the channel's close or at this Connection's
+	// Close, whichever comes first. The channel's close alone never did: pion
+	// fires OnClose only once its read loop exits, and the read loop is the
+	// goroutine waiting here, so a pump left full by a reader that had gone (a
+	// receive that returned while the peer kept sending) parked the loop, and
+	// every frame queued behind it, for the life of the process (F2-01).
+	// Nothing closes msgs, so this never panics either.
+	stop := make(chan struct{})
+	go func() {
 		select {
-		case msgs <- msg:
 		case <-closed:
+		case <-conn.done:
 		}
-	})
+		close(stop)
+	}()
+	dc.OnMessage(func(msg webrtc.DataChannelMessage) { msgs.Send(msg, stop) })
 	conn.mu.Lock()
-	conn.early = &Early{Msgs: msgs, Closed: closed}
+	conn.early = &Early{Msgs: msgs.C(), Closed: closed}
 	conn.mu.Unlock()
 }
 

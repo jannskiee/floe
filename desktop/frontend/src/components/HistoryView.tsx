@@ -4,7 +4,7 @@ import {OpenFolder, RevealFile} from '../../wailsjs/go/main/App';
 import {cn, Eyebrow} from './ui';
 import {fmtWhen, histKey, type HistEntry} from '../history';
 import {fmtBytes} from '../incoming';
-import {VERIFIED_LINE, renamedLine, stoppedFull, verifiedAll} from '../requestCopy';
+import {VERIFIED_LINE, keptPartLine, renamedLine, stoppedFull, verifiedAll} from '../requestCopy';
 import {RenamedConfirm} from './RequestLinkView';
 
 /** HistoryView is the History console: the header with Clear and its inline
@@ -123,6 +123,9 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
                                         )}
                                         {request && h.stopped && (
                                             <p className="pl-7 text-xs leading-relaxed text-amber-300/80">{stoppedFull(h.stopped, h.count, offered)}</p>
+                                        )}
+                                        {request && h.stopped && keptPartLine(h.stopped) && (
+                                            <p className="pl-7 text-xs leading-relaxed text-zinc-500">{keptPartLine(h.stopped)}</p>
                                         )}
                                         {/* Footer actions behind an inset hairline. The border-t is the
                                             row dividers' white/[0.04] but stops at the px-3.5 content

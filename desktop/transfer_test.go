@@ -1250,6 +1250,101 @@ func TestRequestProgressThrottled(t *testing.T) {
 	}
 }
 
+// watcherFloodBudget is the byte budget the watcher's queue shares with the
+// pump (peer.EarlyBufferBytes): 256 frames of the largest chunk any Floe
+// sender sends, 256 KiB. A literal, so this test also runs against code that
+// predates the constant.
+const watcherFloodBudget = 64 << 20
+
+// fillWatcher sends frames into in until a send has waited 200 ms, with
+// nobody reading the watcher's queue: the receive loop held by Decide, a
+// commit retry or the terminal prompt. It returns how many went in.
+func fillWatcher(in chan<- dataMessage, frame dataMessage, most int) int {
+	sent := 0
+	for sent < most {
+		select {
+		case in <- frame:
+			sent++
+			continue
+		case <-time.After(200 * time.Millisecond):
+		}
+		break
+	}
+	return sent
+}
+
+// TestWatchAbortFramesBoundsHeldBytes (F2-01): while the receive loop reads
+// nothing, the watcher's queue holds at most the byte budget of a visitor's
+// frames, whatever size the visitor picks. It used to hold cap(in) of them, so
+// 256 frames of 4 MiB (pion delivers frames that large) came to 1 GiB here on
+// top of the pump's own. Once the loop reads again, every frame still arrives.
+func TestWatchAbortFramesBoundsHeldBytes(t *testing.T) {
+	const frame = 4 << 20
+	in := make(chan dataMessage, 256)
+	quit := make(chan struct{})
+	defer close(quit)
+	var saw atomic.Bool
+	out, _ := watchAbortFrames(in, make(chan struct{}), quit, &saw)
+	// One backing array for every frame: what the budget counts is the frames'
+	// lengths, and the test need not allocate a gigabyte to show it.
+	payload := make([]byte, frame)
+	sent := fillWatcher(in, dataMessage{Data: payload}, 2*cap(in)+2)
+	if held := len(out) * frame; held > watcherFloodBudget {
+		t.Fatalf("the watcher holds %d frames of 4 MiB (%d MiB) for a loop that reads nothing, want at most %d MiB",
+			len(out), held>>20, watcherFloodBudget>>20)
+	}
+	for i := 0; i < sent; i++ {
+		select {
+		case m := <-out:
+			if len(m.Data) != frame {
+				t.Fatalf("frame %d has %d bytes", i, len(m.Data))
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("frame %d of %d never reached the loop once it read again", i+1, sent)
+		}
+	}
+	if saw.Load() {
+		t.Fatal("binary frames were taken for an abort")
+	}
+}
+
+// TestWatchAbortFramesSeesAbortBehindChunks: a legitimate visitor's abort is
+// seen while the loop reads nothing, as it always was, both right behind the
+// metadata (the Decide case) and behind a full queue of Floe-sized chunks: 256
+// chunks of 256 KiB fill the watcher's queue to exactly its byte budget, so
+// the byte bound never costs the watcher a frame of lookahead that a Floe
+// sender can use.
+func TestWatchAbortFramesSeesAbortBehindChunks(t *testing.T) {
+	abort := dataMessage{IsString: true, Data: []byte(`{"type":"incompatible","reason":"stopped","pv":1,"pvMin":1}`)}
+	for _, c := range []struct {
+		name   string
+		chunks int
+	}{
+		{"right behind the metadata", 0},
+		{"behind a full queue of 256 KiB chunks", 256},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			in := make(chan dataMessage, 256)
+			quit := make(chan struct{})
+			defer close(quit)
+			var saw atomic.Bool
+			out, _ := watchAbortFrames(in, make(chan struct{}), quit, &saw)
+			in <- dataMessage{IsString: true, Data: []byte(metaFrame(1, 1, "a.txt", 4, 4))}
+			select {
+			case <-out: // the loop takes the metadata, then Decide holds it
+			case <-time.After(5 * time.Second):
+				t.Fatal("the metadata never reached the loop")
+			}
+			chunk := make([]byte, 256<<10)
+			for i := 0; i < c.chunks; i++ {
+				in <- dataMessage{Data: chunk}
+			}
+			in <- abort
+			waitFor(t, 5*time.Second, "the watcher to see the abort", saw.Load)
+		})
+	}
+}
+
 func TestRequestResultNamesCapped(t *testing.T) {
 	var tally dropTally
 	for i := 0; i < 201; i++ {

@@ -22,6 +22,12 @@ const PASSTHROUGH = [
     'room is full',
 ];
 
+// RX10 (D-123): a receive that got a file in full, verified, and could not
+// move it into place keeps it as a .part (CommitError, E-36). The request
+// lane shows the same sentence for its save-blocked stop (D-128,
+// requestCopy.ts keptPartLine).
+export const COMMIT_KEPT_PART = 'Received a file in full but could not finish saving it. The complete file was kept in the save folder with a .part ending.';
+
 // Ordered mapping table: specific patterns before generic ones. The final
 // 'connection closed' bucket must stay last of the connection family so the
 // more precise closed-variants above it win.
@@ -105,10 +111,7 @@ const RULES: Array<[pattern: string, friendly: string]> = [
     ['receive stopped: the transfer was declined', 'The transfer was declined.'],
     ['receive stopped: the transfer was stopped on this computer', 'The transfer was stopped on this computer.'],
     ['receive stopped: a finished file could not be moved into place', 'A finished file could not be moved into place.'],
-    [
-        'received a file in full but could not finish saving it; the complete file was kept in the save folder with a .part ending',
-        'Received a file in full but could not finish saving it. The complete file was kept in the save folder with a .part ending.',
-    ],
+    ['received a file in full but could not finish saving it; the complete file was kept in the save folder with a .part ending', COMMIT_KEPT_PART],
     ['cannot create', 'Could not write to the save folder. Check that it exists and has free space.'],
     ['write error', 'Could not write to the save folder. Check that it exists and has free space.'],
     ['connection failed (state', 'The connection was lost before the transfer finished. Start it again.'],

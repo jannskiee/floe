@@ -1110,6 +1110,47 @@ describe('visitor names in the app', () => {
     });
 });
 
+describe('request progress per drop (F2-03)', () => {
+    it('the next drop never shows the previous drop\'s name, count or percent', async () => {
+        wails.go.GetSettings.mockImplementation(async () => ({
+            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false, requestLinks: true, migrated: true,
+        }));
+        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: true}));
+        const user = userEvent.setup();
+        mount();
+        await waitFor(() => expect(wails.listeners.size).toBe(15));
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
+        await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
+        const base = {code: '', promptGen: 1, link: 'http://localhost:3000/r/Xk3p9Q0aB1c#x', label: 'Acme', saveDir: 'D:\\x', expiresAt: Date.now() + 3600_000, route: 'direct', suggestClose: false};
+        // One drop on the link of lane generation 3, its last progress event
+        // naming the twelfth of twelve files.
+        act(() => {
+            wails.emit('request:state', {...base, gen: 3, seq: 1, state: 'receiving'});
+            wails.emit('request:progress', {fileName: 'visitor-A-contract.pdf', fileIndex: 12, fileCount: 12, fileBytes: 9, fileSize: 9, totalBytes: 900, grandTotal: 900, savedName: 'visitor-A-contract.pdf'});
+        });
+        expect(await screen.findByText('visitor-A-contract.pdf', {exact: true})).toBeTruthy();
+        act(() => {
+            wails.emit('request:state', {...base, gen: 3, seq: 2, state: 'done', result: {files: 12, saved: 12, bytes: 900, verified: 12, renamed: 0, folder: 'D:\\x\\Acme 2026-09-14 1405', names: []}});
+        });
+        await user.click(screen.getByRole('button', {name: 'Dismiss'}));
+        // The next link (generation 5), its drop accepted and receiving before
+        // its own first progress event: a drop of empty files never sends one.
+        act(() => {
+            wails.emit('request:state', {...base, gen: 5, seq: 9, state: 'receiving'});
+        });
+        expect(await screen.findByText(/^RECEIVING /)).toBeTruthy();
+        expect(screen.queryByText('visitor-A-contract.pdf', {exact: true})).toBeNull();
+        expect(screen.queryByText(/^RECEIVING 12 OF 12/)).toBeNull();
+        expect(screen.queryByText('100%')).toBeNull();
+        // Its own progress still shows.
+        act(() => {
+            wails.emit('request:progress', {fileName: 'visitor-B.txt', fileIndex: 1, fileCount: 2, fileBytes: 1, fileSize: 2, totalBytes: 1, grandTotal: 4, savedName: 'visitor-B.txt'});
+        });
+        expect(await screen.findByText('visitor-B.txt', {exact: true})).toBeTruthy();
+        expect(screen.getByText(/^RECEIVING 1 OF 2/)).toBeTruthy();
+    });
+});
+
 describe('request drops in History', () => {
     it('a terminal request snapshot appends exactly one history row', async () => {
         wails.go.GetSettings.mockImplementation(async () => ({

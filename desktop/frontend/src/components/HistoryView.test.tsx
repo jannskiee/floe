@@ -215,6 +215,16 @@ describe('request rows', () => {
         expect(screen.queryByText(/SHA-256/)).toBeNull();
     });
 
+    it('a save-blocked row with nothing saved points at the kept file (D-128)', async () => {
+        mount([request({stopped: 'save-blocked', names: [], count: 0, offered: 1, verified: 0, bytes: undefined})]);
+        await openRow();
+        expect(screen.getByText('Drop stopped: Windows would not let Floe save a file.')).toBeTruthy();
+        expect(screen.getByText('Received a file in full but could not finish saving it. The complete file was kept in the save folder with a .part ending.')).toBeTruthy();
+        expect(screen.queryByText(/SHA-256/)).toBeNull();
+        await userEvent.click(screen.getByRole('button', {name: 'Show in folder'}));
+        expect(wails.go.OpenFolder).toHaveBeenCalledWith(FOLDER);
+    });
+
     it('falls back to the count when the owner gave no label', () => {
         mount([request({label: undefined})]);
         expect(screen.getByText('2 files')).toBeTruthy();

@@ -434,6 +434,8 @@ function Result({phase, snap, onDismiss, onMakeAnother, onShowInFolder}: Request
             ) : (
                 <p className={t1Class}>{copy.stoppedCard(snap.code, r.saved, r.files)}</p>
             )}
+            {/* D-128: save-blocked kept a verified .part in the drop folder. */}
+            {!done && copy.keptPartLine(snap.code) && <p className={t1Class}>{copy.keptPartLine(snap.code)}</p>}
             {showFolder && (
                 <div className="flex min-w-0 items-center justify-between gap-3">
                     <span className="truncate font-mono text-xs text-zinc-300" title={r.folder}>{copy.folderName(r.folder)}</span>
@@ -442,7 +444,7 @@ function Result({phase, snap, onDismiss, onMakeAnother, onShowInFolder}: Request
                     </Button>
                 </div>
             )}
-            {!done && showFolder && <p className={t3Class}>{copy.STOPPED_FOLLOW_UP}</p>}
+            {!done && !!r.folder && copy.stoppedShowsFollowUp(snap.code, r.saved) && <p className={t3Class}>{copy.STOPPED_FOLLOW_UP}</p>}
             <Button className="w-full" onClick={onMakeAnother}>{copy.MAKE_ANOTHER_LINK}</Button>
             {confirming && (
                 <RenamedConfirm
