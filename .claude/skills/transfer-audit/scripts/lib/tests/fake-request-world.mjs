@@ -443,6 +443,7 @@ export function fakeRequestWorld({
                     openDriver: async () => {
                         dom.closed = false;
                         dom.settingsOpen = false;
+                        dom.mode = 'receive';
                         dom.requestView = false;
                         return new PlaywrightDriver(h.page, h.context, {});
                     },

@@ -2395,7 +2395,7 @@ test('buildHead refuses a mode it does not know', async () => {
  * runs the real page function against a stub window, which is what pins the
  * event name and payload rather than the source text.
  */
-function fakePage({ runtime } = {}) {
+function fakePage({ runtime, wails } = {}) {
     const chain = [];
     const node = () => ({
         locator(sel) {
@@ -2427,7 +2427,7 @@ function fakePage({ runtime } = {}) {
         async evaluate(fn, arg) {
             const had = 'window' in globalThis;
             const prev = globalThis.window;
-            globalThis.window = { runtime };
+            globalThis.window = { runtime, wails };
             try {
                 return await fn(arg);
             } finally {
@@ -2484,18 +2484,39 @@ test("PlaywrightDriver.click reaches the receive view's primary button by docume
     );
 });
 
-test('PlaywrightDriver.stage hands the app its files through the files:open event', async () => {
+test('PlaywrightDriver.stage hands its own page the files through a files:open notify, never EventsEmit', async () => {
     const emitted = [];
+    const notified = [];
     const page = fakePage({
         runtime: { EventsEmit: (...a) => emitted.push(a) },
+        wails: { EventsNotify: (json) => notified.push(json) },
     });
     const d = new PlaywrightDriver(page, null, {});
     const files = ['C:\\fx\\a.bin', 'C:\\fx\\b.bin'];
     const out = await d.stage(files);
     // App.tsx's mount effect: EventsOn('files:open', (paths) => addFiles(paths)),
     // so the payload is one array argument, not one argument per path.
-    assert.deepEqual(emitted, [['files:open', files]]);
+    assert.deepEqual(
+        notified.map((j) => JSON.parse(j)),
+        [{ name: 'files:open', data: [files] }]
+    );
+    // The wails dev server rebroadcasts an EventsEmit to every other page,
+    // so a sender leg's staging moved the request host's page to Send and
+    // stranded its Close link (the first live TA-17 run, 2026-09-24).
+    assert.deepEqual(emitted, [], 'EventsEmit is never called');
     assert.deepEqual(out, { staged: 2, via: 'files:open' });
+
+    // A page with EventsEmit alone is refused rather than broadcast to.
+    const emitOnly = new PlaywrightDriver(
+        fakePage({ runtime: { EventsEmit: (...a) => emitted.push(a) } }),
+        null,
+        {}
+    );
+    await assert.rejects(
+        () => emitOnly.stage(files),
+        (e) => e instanceof PhaseError && /EventsNotify is missing/.test(e.message)
+    );
+    assert.deepEqual(emitted, [], 'still no broadcast');
 
     // A page without the Wails runtime is a start-phase fault, never a
     // silent no-op that would look like an empty drop zone.

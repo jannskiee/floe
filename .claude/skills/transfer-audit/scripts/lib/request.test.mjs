@@ -13,7 +13,7 @@ import path from 'node:path';
 import { after, test } from 'node:test';
 
 import { runCell } from './cell.mjs';
-import { ACCEPT_WAIT_MS } from './desktop.mjs';
+import { ACCEPT_WAIT_MS, PlaywrightDriver } from './desktop.mjs';
 import { cellPlan } from './matrix.mjs';
 import { Ledger } from './pacing.mjs';
 import { newSafety } from './report.mjs';
@@ -374,6 +374,51 @@ test('TA-17 H-DIR-W2C-reqopen: the quick cell passes with a link open, the same 
     assert.equal(f.verdict, 'FAIL');
     assert.equal(f.reason, 'request-flow');
     assert.match(f.note, /the open link did not survive the quick cell \(the host reads ended\)/);
+});
+
+/**
+ * ctx whose desktop sender (a plain fake leg) first stages its files the
+ * way DesktopLeg.startSender does on the wailsdev lane: PlaywrightDriver
+ * .stage on the sender's own page, which sits on the same dev server as
+ * the host's (fake-request-dom devPeerPage).
+ */
+function withDesktopSenderStaging(w, ctx) {
+    const peer = w.host.devPeerPage();
+    const inner = ctx.getAdapter;
+    ctx.getAdapter = async (name) => {
+        const mod = await inner(name);
+        if (name !== 'desktop') return mod;
+        return {
+            ...mod,
+            createLeg: (o) => {
+                const leg = mod.createLeg(o);
+                if (o.label === 'host' || o.role !== 'sender') return leg;
+                const start = leg.start.bind(leg);
+                leg.start = async (...args) => {
+                    await new PlaywrightDriver(peer, null, {}).stage(o.files);
+                    return start(...args);
+                };
+                return leg;
+            },
+        };
+    };
+    return peer;
+}
+
+test('TA-17 H-DIR-D2C-reqopen: the desktop sender stages on its own page only, so the host keeps REQUEST LINK and its link is closed at teardown', async () => {
+    const w = fakeRequestWorld();
+    const ctx = ctxFor(w);
+    const peer = withDesktopSenderStaging(w, ctx);
+    const r = await runCell(small('H-DIR-D2C-reqopen'), ctx);
+    assert.equal(r.verdict, 'PASS', r.note);
+    const a = r.attempts[0];
+    assert.ok(!a.notes.some((l) => /host release/.test(l)), a.notes.join(' | '));
+    assert.equal(a.request.after, 'waiting');
+    assert.equal(a.request.released, 'ended');
+    assert.equal(w.dom.state, 'closed', 'Close link at teardown');
+    assert.deepEqual(w.dom.broadcasts, [], 'nothing was rebroadcast to the host page');
+    assert.equal(w.dom.mode, 'receive', 'the host page never left Receive');
+    assert.equal(peer.peer.notified.length, 1, 'the sender page was handed its files');
 });
 
 // ------------------------------------------------------- failure words

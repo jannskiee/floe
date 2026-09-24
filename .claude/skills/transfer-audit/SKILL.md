@@ -397,7 +397,11 @@ that no other lane does, every one of them learned from that run:
   `files:open` event `App.tsx` listens on, which is the same entry point
   Explorer's verb and a second instance use. The native picker behind the
   Files button (`SelectFiles()`) cannot be driven from a browser page, and
-  `StartSend()` would skip the button the cell exists to exercise.
+  `StartSend()` would skip the button the cell exists to exercise. The
+  event goes through `window.wails.EventsNotify`, which reaches the leg's
+  own page only: `runtime.EventsEmit` is rebroadcast by the dev server to
+  every other page, and on 2026-09-24 it moved a request host's page to
+  Send and stranded its Close link.
 - **The receive view's primary button.** It carries the same accessible
   name as the RECEIVE tab, and the calm redesign left it a sibling of the
   field groups rather than of the code input, so it is reached by document

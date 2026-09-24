@@ -1209,23 +1209,39 @@ export class PlaywrightDriver {
      * The picker the Files button opens is Go's SelectFiles(), a native
      * dialog no browser page can drive, and StartSend() would skip the
      * very button the cell exists to exercise, so neither is usable here.
-     * Wails v2 EventsEmit notifies this page's own listeners before it
-     * forwards anything to Go (runtime/desktop/events.js: notifyListeners,
-     * then WailsInvoke 'EE'), so the paths reach addFiles in this page
-     * with no round trip and no dependence on the dev bridge.
+     *
+     * The event is delivered with window.wails.EventsNotify, which runs
+     * this page's own listeners and nothing else (Wails v2.12.0
+     * runtime/desktop/events.js; the dev IPC calls it for every event it
+     * receives, runtime/dev/main.js). Never runtime.EventsEmit: after its
+     * local listeners it sends 'EE' to the dev server, whose
+     * notifyExcludingSender rebroadcasts it to every other page
+     * (devserver.go handleIPCWebSocket). Every leg has its own page on the
+     * one dev server, so a sender's staging ran addFiles on the request
+     * host's page too, moved it to Send, and stranded its Close link (the
+     * first live TA-17 run, 2026-09-24). A page without EventsNotify is
+     * refused rather than broadcast to.
      */
     async stage(files) {
         const paths = (files || []).map(String);
-        const ok = await this.page.evaluate((p) => {
+        const how = await this.page.evaluate((p) => {
+            const w = window.wails;
+            if (w && typeof w.EventsNotify === 'function') {
+                w.EventsNotify(JSON.stringify({ name: 'files:open', data: [p] }));
+                return 'notified';
+            }
             const rt = window.runtime;
-            if (!rt || typeof rt.EventsEmit !== 'function') return false;
-            rt.EventsEmit('files:open', p);
-            return true;
+            return rt && typeof rt.EventsEmit === 'function' ? 'emit-only' : 'none';
         }, paths);
-        if (!ok)
+        if (how === 'emit-only')
             throw new PhaseError(
                 'start',
-                'desktop wailsdev: window.runtime.EventsEmit is missing on the dev server page'
+                'desktop wailsdev: window.wails.EventsNotify is missing on the dev server page, and EventsEmit would hand the files to every other page on the dev server'
+            );
+        if (how !== 'notified')
+            throw new PhaseError(
+                'start',
+                'desktop wailsdev: the Wails runtime is missing on the dev server page'
             );
         return { staged: paths.length, via: 'files:open' };
     }
