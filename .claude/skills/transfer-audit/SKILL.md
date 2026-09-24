@@ -514,9 +514,12 @@ to it, so none ever runs as a plain cell.
   away, the blip's addresses and the Beta switch restored. Every request
   verb first brings the host page back to Receive > REQUEST LINK when it
   is not showing it, so a page that moved to Send still gets its link
-  closed. Only a link
-  generation the cell made is touched; a link the owner already had open
-  is left as it was, with a note.
+  closed. Only a link generation the cell made is touched at teardown. A
+  live link found when a cell starts is closed first only when it saves
+  into this run's own
+  evidence root (a leftover of an earlier cell, noted as swept); any other
+  is the owner's, is left exactly as it is, and the cell is ERROR
+  `host-busy` before any click.
 - The link carries the room after `#`: it goes to the visitor's
   `page.goto` only. Every message, note, log line and evidence file passes
   through `redactRequestLinks` (`#<room>`, the link id stays), and the

@@ -587,12 +587,43 @@ test('a link the cell did not make is never closed: the owner\'s open link is le
         link: `${WEB}/r/Xk3p9Q0aB1c#${FAKE_ROOM}`,
         linkSaveDir: 'C:\owner',
     });
+    const t0 = w.host.now();
     const r = await runCell(small('H-DIR-W2D-req'), ctxFor(w));
     assert.equal(r.verdict, 'ERROR', r.note);
+    // Refused by name before any click, not a 30 s Save to fill timeout
+    // on the waiting view (the first live run's C2D-reqopen, 2026-09-24).
+    assert.equal(r.reason, 'host-busy', r.note);
+    assert.equal(r.attempts[0].failedPhase, 'host.start');
+    assert.match(r.note, /host-busy: the host lane already holds waiting \(gen 1\) from before this cell/);
+    assert.ok(w.host.now() - t0 < 30_000, `refused in ${w.host.now() - t0} ms of fake time`);
     assert.equal(w.dom.state, 'waiting', 'the owner link still waits');
     assert.equal(clicksOf(w, 'Close link').length, 0);
+    assert.equal(clicksOf(w, 'Make link').length, 0);
+});
+
+test('a live link this run left behind (its folder inside the run) is closed first, noted, and the cell runs', async () => {
+    const w = fakeRequestWorld({ host: { settings: { requestLinks: true } } });
+    const ctx = ctxFor(w);
+    // The previous cell's link, still waiting: made into its own host-drops
+    // folder under this run's evidence root, as TA-17 makes them.
+    Object.assign(w.dom, {
+        state: 'waiting',
+        gen: 1,
+        link: `${WEB}/r/Xk3p9Q0aB1c#${FAKE_ROOM}`,
+        linkSaveDir: path.join(ctx.evidenceRoot, 'cells', 'H-DIR-D2C-reqopen', 'attempt-1', 'host-drops'),
+    });
+    const r = await runCell(small('H-DIR-W2D-req'), ctx);
+    assert.equal(r.verdict, 'PASS', r.note);
+    const a = r.attempts[0];
+    assert.deepEqual(a.request.swept, { state: 'waiting', gen: 1 });
     assert.ok(
-        r.attempts[0].notes.some((l) => /which this cell did not make; left alone/.test(l)),
-        r.attempts[0].notes.join(' | ')
+        a.notes.some((l) => /swept this run's leftover waiting link \(gen 1\) before Make link/.test(l)),
+        a.notes.join(' | ')
     );
+    const names = w.dom.clicks.map((c) => c.name);
+    assert.ok(
+        names.indexOf('Close link') > -1 && names.indexOf('Close link') < names.indexOf('Make link'),
+        names.join(', ')
+    );
+    assertNoRoom(ctx, r, 'H-DIR-W2D-req');
 });

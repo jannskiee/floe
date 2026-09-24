@@ -59,8 +59,19 @@ const LINK_OPEN = new Set([
     'declined',
 ]);
 const RESULTS = new Set(['done', 'stopped']);
+// A link or a drop that is live: Go refuses a second Make link
+// (already-open, one link in the Beta) and the view shows no Save to field.
+const LIVE = new Set([...LINK_OPEN, 'receiving', 'making']);
 
 const scrub = (s) => redactRequestLinks(s);
+
+/** `child` is `root` or a folder under it (Windows compares without case). */
+export function insideDir(child, root) {
+    if (typeof child !== 'string' || typeof root !== 'string' || !child || !root)
+        return false;
+    const rel = path.relative(path.resolve(root), path.resolve(child));
+    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
 
 /** A copy of any value with every request link's room removed. */
 export function scrubDeep(value) {
@@ -97,6 +108,51 @@ function blipUnproven(phase, message) {
         reason: BLIP_KEY,
         signatureKey: BLIP_KEY,
     });
+}
+
+/**
+ * The host lane already holds a live link or drop when a cell starts, one
+ * this run did not leave behind: a harness ERROR by name before any click.
+ * It used to cost a 30 s Save to fill timeout on the waiting view, keyed
+ * `unknown` (the first live run's C2D-reqopen, 2026-09-24).
+ */
+export const HOST_BUSY_KEY = 'host-busy';
+function hostBusy(message) {
+    return new PhaseError('host.start', `${HOST_BUSY_KEY}: ${message}`, {
+        harness: true,
+        reason: HOST_BUSY_KEY,
+        signatureKey: HOST_BUSY_KEY,
+    });
+}
+
+/**
+ * Before Make link: a live link or drop on the host lane is either this
+ * run's own leftover, which is closed (a drop canceled) and noted, or it is
+ * refused as host-busy and left exactly as it is. Own means the lane saves
+ * into a folder under this run's evidence root, which only this run's cells
+ * create, so an owner's link is never touched. A result (done, stopped) or
+ * an ended link is not live: Make link's own Make another link puts it away.
+ */
+async function clearLeftover(host, ctx, rec, st) {
+    const s = await snapshotOf(host);
+    if (!LIVE.has(s.state)) return;
+    const gen = Number(s.gen) || 0;
+    if (s.state === 'making' || !insideDir(s.saveDir, ctx.evidenceRoot))
+        throw hostBusy(
+            `the host lane already holds ${s.state} (gen ${gen}) from before this cell, and it is not this run's; nothing was made or closed`
+        );
+    const { now, nap } = st.clock;
+    if (s.state === 'receiving') await host.driver.cancelRequestDrop({ now, nap });
+    else await host.driver.closeRequestLink({ now, nap });
+    const after = await snapshotOf(host);
+    if (LIVE.has(after.state))
+        throw hostBusy(
+            `this run's leftover ${s.state} link (gen ${gen}) still reads ${after.state} after it was closed`
+        );
+    rec.request.swept = { state: s.state, gen };
+    rec.notes.push(
+        `host start: swept this run's leftover ${s.state} link (gen ${gen}) before Make link`
+    );
 }
 
 function clockOf(ctx) {
@@ -227,6 +283,7 @@ async function startHost(cell, ctx, rec, st, { outDir, relayOnly, blipUrl = null
     // audit's interrupt shutdown) closes the link and puts the switches back.
     host.beforeClose = () => releaseHost(st, rec);
     await host.launch([]);
+    await clearLeftover(host, ctx, rec, st);
     await host.applyRelayForcer();
     st.beta = await setRequestLinks(host, true, st.clock);
     rec.request.beta = { ...st.beta };
@@ -772,6 +829,7 @@ function newRequestRecord(cell) {
         hostView: null,
         usedUp: null,
         released: null,
+        swept: null,
     };
 }
 

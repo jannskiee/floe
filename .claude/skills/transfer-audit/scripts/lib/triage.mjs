@@ -23,8 +23,10 @@ export const SIGNATURES = Object.freeze([
     ['request-flow', /request-flow/, false, 'request-flow'],
     ['request-manifest', /request-manifest/, false, 'request-manifest'],
     // The request runner's own harness ERRORs (keyed, so the report can name
-    // a triage row): TA-13's host not behind the blip proxy.
+    // a triage row): TA-13's host not behind the blip proxy, and a host lane
+    // that already holds a live link this run did not leave behind.
     ['blip-url', /blip-url/, false, 'blip-url'],
+    ['host-busy', /host-busy/, false, 'host-busy'],
     // A .part left behind by a receiver that exited clean is a product
     // defect (the staged write was never committed or abandoned), never a
     // harness fault.
@@ -191,6 +193,7 @@ export const TRIAGE_KEYS = new Set([
     'request-flow',
     'request-manifest',
     'blip-url',
+    'host-busy',
 ]);
 
 export const INFRA_KEYS = new Set([
