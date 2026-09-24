@@ -3056,7 +3056,7 @@ describe('request rooms: disconnect and sweep', () => {
         cleanupTick(RQ_T0 + REQUEST_GRACE_MS + 1);
         assert.equal(quiet.visitor.roomId, null);
         assert.equal(quiet.visitor.msgs.length, 0, 'silently');
-        assert.equal(roomMeta.has(quiet.id), false);
+        assert.equal(roomMeta.get(quiet.id).used, true, 'the sealed reservation leaves its used marker (D-130)');
         assert.equal(rooms.has(quiet.id), false);
     });
 
@@ -3082,7 +3082,7 @@ describe('request rooms: disconnect and sweep', () => {
         cleanupTick(RQ_T0 + REQUEST_MAX_AGE_MS);
         assert.ok(roomMeta.has(id), 'not at the ceiling itself');
         cleanupTick(RQ_T0 + REQUEST_MAX_AGE_MS + 1);
-        assert.equal(roomMeta.has(id), false, 'sealed or not, with its host seated');
+        assert.equal(roomMeta.get(id).used, true, 'ended with its host seated; sealed, so a used marker (D-130)');
         assert.equal(rooms.has(id), false);
         assert.equal(host.roomId, null);
         assert.equal(visitor.roomId, null);
@@ -3243,13 +3243,18 @@ describe('request rooms: disconnect and sweep', () => {
         fs.writeFileSync(POLICY_PATH, '{"requestLinks":false}');
         cleanupTick(RQ_T0 + REQUEST_GRACE_MS + 2);
         assert.equal(rooms.size, 0);
-        assert.equal(roomMeta.size, 0);
+        // Only the sealed one's used marker is left (D-130), until its day ends.
+        assert.deepEqual([...roomMeta.keys()], [c.id]);
+        assert.equal(roomMeta.get(c.id).used, true);
         for (const p of [a, b, c, d]) {
             assert.equal(p.host.roomId, null);
             assert.equal(p.visitor.roomId, null);
         }
         cleanupTick(RQ_T0 + REQUEST_CREATE_WINDOW_MS);
         assert.equal(requestCreates.size, 0);
+        cleanupTick(RQ_T0 + REQUEST_GRACE_MS + 1 + REQUEST_USED_MARKER_MS + 1);
+        assert.equal(roomMeta.size, 0);
+        assert.equal(requestRoomIds.size, 0);
     });
 });
 
@@ -3502,5 +3507,179 @@ describe('request rooms: a used link (D-130)', () => {
         assert.deepEqual(hostJoin(makePeer('later', 'k3'), t, CLOSED + REQUEST_USED_MARKER_MS + 2), { type: 'room-joined', data: { role: 'host' } });
         check('a create into the freed slot');
         assert.equal(requestRoomIds.size, MAX_REQUEST_ROOMS);
+    });
+
+    // A pair that has signaled both ways, so its room is sealed (D-116), with
+    // nothing closed yet.
+    function sealedPair(hostKey, visitorKey) {
+        const link = pairedRequestRoom(hostKey, visitorKey);
+        handleSignal(link.host, { type: 'offer' }, null);
+        handleSignal(link.visitor, { type: 'answer' }, null);
+        assert.equal(roomMeta.get(link.id).sealed, true);
+        link.host.msgs.length = 0;
+        link.visitor.msgs.length = 0;
+        return link;
+    }
+
+    // What every end of a sealed reservation must leave: the same four-field
+    // marker, still counted, answering room-full to a visitor and to the host.
+    function assertUsedMarker(link, closedAt, what) {
+        assert.deepEqual({ ...roomMeta.get(link.id) }, { kind: 'request', sealed: true, used: true, closedAt }, what);
+        assert.ok(requestRoomIds.has(link.id), `${what}: counted toward the cap`);
+        assert.equal(requestRoomIds.size, countRequestRooms(), `${what}: the count`);
+        assert.equal(rooms.has(link.id), false, `${what}: no room`);
+        const v = makePeer(`probe-${randomUUID()}`, 'k-probe');
+        handleRequestJoin(v, link.id, closedAt + 1);
+        assert.deepEqual(v.msgs, [{ type: 'room-full', data: {} }], `${what}: request-join`);
+        const h = makePeer(`probe-host-${randomUUID()}`, 'k-probe-host');
+        assert.deepEqual(hostJoin(h, link.token, closedAt + 2), { type: 'room-full', data: {} }, `${what}: host join`);
+        assert.equal(roomMeta.get(link.id).closedAt, closedAt, `${what}: a join never re-arms it`);
+    }
+
+    it('every way a sealed reservation ends leaves the used marker: the grace sweep, the age ceiling, a lazy expiry and endReservation', () => {
+        // The grace sweep: the host vanished after pairing without a
+        // request-close (the visitor stays seated for its drop), and nobody
+        // reclaimed.
+        const grace = sealedPair('kg', 'kgv');
+        handleDisconnect(grace.host, RQ_T0 + 1_000);
+        assert.deepEqual(grace.visitor.msgs, [{ type: 'peer-disconnected', data: {} }]);
+        grace.visitor.msgs.length = 0;
+        const graceEnd = RQ_T0 + 1_000 + REQUEST_GRACE_MS + 1;
+        cleanupTick(graceEnd);
+        assert.equal(grace.visitor.roomId, null);
+        assert.deepEqual(grace.visitor.msgs, [], 'the seated visitor is unseated silently, as before');
+        assertUsedMarker(grace, graceEnd, 'the grace sweep');
+
+        // The same with seat 1 already empty (a Decline: sealed by request-seal,
+        // the visitor gone, then the host).
+        const declined = pairedRequestRoom('kd', 'kdv');
+        handleRequestControl(declined.host, 'request-seal', declined.id);
+        handleDisconnect(declined.visitor, RQ_T0 + 2_000);
+        handleDisconnect(declined.host, RQ_T0 + 3_000);
+        const declinedEnd = RQ_T0 + 3_000 + REQUEST_GRACE_MS + 1;
+        cleanupTick(declinedEnd);
+        assertUsedMarker(declined, declinedEnd, 'vacant-sealed, then the grace sweep');
+
+        // A lazy expiry: the token comes back after the grace, before any sweep.
+        // Answered like any used link, and no create is counted.
+        const lazy = sealedPair('kl', 'klv');
+        handleDisconnect(lazy.host, RQ_T0 + 4_000);
+        const lazyAt = RQ_T0 + 4_000 + REQUEST_GRACE_MS + 1;
+        const back = makePeer('back', 'kl');
+        assert.deepEqual(hostJoin(back, lazy.token, lazyAt), { type: 'room-full', data: {} }, 'never re-created');
+        assert.equal(back.roomId, null);
+        assert.equal(lazy.visitor.roomId, null);
+        assert.equal(createsInWindow('kl', lazyAt), 1, 'no create counted');
+        assertUsedMarker(lazy, lazyAt, 'a lazy expiry');
+
+        // endReservation from any other path.
+        const direct = sealedPair('ke', 'kev');
+        endReservation(direct.id, RQ_T0 + 5_000);
+        assert.equal(direct.host.roomId, null);
+        assert.equal(direct.visitor.roomId, null);
+        assertUsedMarker(direct, RQ_T0 + 5_000, 'endReservation');
+
+        // The age ceiling, with its host still seated. Last: this tick is a
+        // week on, so it also ends the markers above.
+        const old = sealedPair('ko', 'kov');
+        const ageEnd = RQ_T0 + REQUEST_MAX_AGE_MS + 1;
+        cleanupTick(ageEnd);
+        assert.equal(old.host.roomId, null);
+        assert.equal(old.visitor.roomId, null);
+        assert.equal(old.host.msgs.length + old.visitor.msgs.length, 0, 'silently');
+        assertUsedMarker(old, ageEnd, 'the age ceiling');
+        assert.deepEqual([...roomMeta.keys()], [old.id], 'the earlier markers had their day');
+    });
+
+    it('every way an unsealed reservation ends leaves nothing, and a later request-join answers host-absent', () => {
+        const gone = (id, what) => {
+            assert.equal(roomMeta.has(id), false, what);
+            assert.equal(requestRoomIds.has(id), false, `${what}: its slot is free`);
+            assert.equal(requestRoomIds.size, countRequestRooms(), `${what}: the count`);
+            const v = makePeer(`probe-${randomUUID()}`, 'k-probe');
+            handleRequestJoin(v, id, RQ_T0);
+            assert.deepEqual(v.msgs, [{ type: 'host-absent', data: {} }], `${what}: request-join`);
+        };
+
+        // The grace sweep: a host that waited alone, one whose visitor was
+        // paired but had not signaled, and one whose sealed pair it reopened.
+        const waiting = makePeer('waiting', 'kw');
+        const wt = newToken();
+        hostJoin(waiting, wt, RQ_T0);
+        handleDisconnect(waiting, RQ_T0 + 1_000);
+        const paired = pairedRequestRoom('kp', 'kpv');
+        handleDisconnect(paired.host, RQ_T0 + 1_000);
+        assert.deepEqual(paired.visitor.msgs, [{ type: 'host-absent', data: {} }], 'told at once, as before');
+        const reopened = sealedPair('kr', 'krv');
+        handleRequestControl(reopened.host, 'request-reopen', reopened.id);
+        handleDisconnect(reopened.host, RQ_T0 + 1_000);
+        cleanupTick(RQ_T0 + 1_000 + REQUEST_GRACE_MS + 1);
+        gone(roomIdFromToken(wt), 'a waiting host, swept');
+        gone(paired.id, 'paired, unsealed, swept');
+        gone(reopened.id, 'reopened, swept');
+
+        // A lazy expiry: today's counted fresh create.
+        const lazy = pairedRequestRoom('kl', 'klv');
+        handleDisconnect(lazy.host, RQ_T0 + 2_000);
+        const lazyAt = RQ_T0 + 2_000 + REQUEST_GRACE_MS + 1;
+        assert.deepEqual(hostJoin(makePeer('back', 'kl'), lazy.token, lazyAt), { type: 'room-joined', data: { role: 'host' } });
+        assert.deepEqual({ used: roomMeta.get(lazy.id).used, createdAt: roomMeta.get(lazy.id).createdAt }, { used: undefined, createdAt: lazyAt });
+        assert.equal(createsInWindow('kl', lazyAt), 2);
+
+        // endReservation from any other path.
+        const direct = pairedRequestRoom('ke', 'kev');
+        endReservation(direct.id, RQ_T0 + 3_000);
+        gone(direct.id, 'endReservation');
+
+        // The age ceiling, with its host seated.
+        const old = pairedRequestRoom('ko', 'kov');
+        cleanupTick(RQ_T0 + REQUEST_MAX_AGE_MS + 1);
+        assert.equal(old.host.roomId, null);
+        gone(old.id, 'the age ceiling');
+
+        // The policy purge, which only ever ends unsealed reservations (this
+        // one, and the lazily re-created one above).
+        const purged = pairedRequestRoom('kx', 'kxv');
+        setPolicy(false);
+        setPolicy(true);
+        gone(purged.id, 'the policy purge');
+        assert.equal(roomMeta.size, 0);
+        assert.equal(requestRoomIds.size, 0);
+    });
+
+    it('a used marker never re-arms: touching, sweeping or ending it never gives it another day', () => {
+        const link = sealedPair('kr', 'krv');
+        handleDisconnect(link.host, RQ_T0);
+        const marked = RQ_T0 + REQUEST_GRACE_MS + 1;
+        cleanupTick(marked);
+        assert.equal(roomMeta.get(link.id).closedAt, marked);
+
+        // Everything that can reach it, a second before its day ends.
+        const late = marked + REQUEST_USED_MARKER_MS - 1_000;
+        handleRequestJoin(makePeer('v', 'kv'), link.id, late);
+        hostJoin(makePeer('h', 'kr'), link.token, late);
+        handleJoinRoom(makePeer('p', 'kp'), link.id);
+        for (const p of [link.host, link.visitor]) {
+            for (const type of ['request-seal', 'request-reopen', 'request-close']) handleRequestControl(p, type, link.id, late);
+        }
+        setPolicy(false);
+        cleanupTick(late);
+        setPolicy(true);
+        cleanupTick(late);
+        assert.deepEqual({ ...roomMeta.get(link.id) }, { kind: 'request', sealed: true, used: true, closedAt: marked });
+
+        // Its end is final: the sweep forgets it rather than marking it again.
+        cleanupTick(marked + REQUEST_USED_MARKER_MS + 1);
+        assert.equal(roomMeta.has(link.id), false);
+        assert.equal(requestRoomIds.has(link.id), false);
+        cleanupTick(marked + 2 * REQUEST_USED_MARKER_MS + 2);
+        assert.equal(roomMeta.has(link.id), false);
+
+        // And endReservation on a marker ends it too, never a new day.
+        const other = usedRequestLink(RQ_T0 + 1_000, 'ko', 'kov');
+        endReservation(other.id, RQ_T0 + 2_000);
+        assert.equal(roomMeta.has(other.id), false);
+        assert.equal(requestRoomIds.has(other.id), false);
+        assert.equal(requestRoomIds.size, countRequestRooms());
     });
 });
