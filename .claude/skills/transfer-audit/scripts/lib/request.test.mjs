@@ -680,3 +680,12 @@ test('TA-17 whose release outlives the teardown budget: ERROR host-release, the 
     assert.equal(r.reason, 'host-release', r.note);
     assert.match(r.note, /did not finish within the teardown budget/);
 });
+
+test('TA-17 whose lane still reads waiting after Close link: ERROR host-release, the link this cell made is still live', async () => {
+    const w = fakeRequestWorld({ host: { laneStaysOpen: true } });
+    const r = await runCell(small('H-DIR-W2C-reqopen'), ctxFor(w));
+    assert.equal(r.verdict, 'ERROR', r.note);
+    assert.equal(r.reason, 'host-release', r.note);
+    assert.match(r.note, /host release: the link this cell made still reads waiting/);
+    assert.equal(r.attempts[0].request.released, 'waiting');
+});

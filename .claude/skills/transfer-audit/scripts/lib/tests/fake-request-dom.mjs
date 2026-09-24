@@ -76,11 +76,14 @@ export function fakeRequestDom({
     // host that makes its link on the old address whatever Settings reads.
     addressesStuck = false,
     ignoreServer = false,
-    // Release shapes: a Close link or Dismiss click the view ignores, and a
-    // Close link click that never returns (the teardown budget runs out).
+    // Release shapes: a Close link or Dismiss click the view ignores, a
+    // Close link click that never returns (the teardown budget runs out),
+    // and a view that shows the ended link while the lane still reads
+    // waiting.
     closeStuck = false,
     dismissStuck = false,
     closeHangs = false,
+    laneStaysOpen = false,
 } = {}) {
     const clock = { t: 0, waiters: [] };
     const dom = {
@@ -308,7 +311,12 @@ export function fakeRequestDom({
         const hasLink = [...LINK_STATES, 'receiving'].includes(dom.state);
         dom.seq += 1;
         return {
-            state: dom.state === 'closed' ? 'ended' : dom.state,
+            state:
+                dom.state === 'closed'
+                    ? laneStaysOpen
+                        ? 'waiting'
+                        : 'ended'
+                    : dom.state,
             code: dom.code,
             gen: dom.gen,
             seq: dom.seq,
