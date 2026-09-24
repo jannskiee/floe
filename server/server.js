@@ -384,11 +384,17 @@ function cleanupTick(now = Date.now()) {
     // A reservation ends here when its host has been gone for longer than the
     // grace, so the effective grace is 10 to 11 minutes (exactly 10 on a
     // reclaim attempt, the lazy check in handleHostJoin), or when it is older
-    // than the age ceiling, sealed or not. Each entry in its own try/catch, so
-    // one bad entry can never stop the sweep of the rest.
+    // than the age ceiling, sealed or not. A used link's marker (D-130) ends
+    // REQUEST_USED_MARKER_MS after its close and is read by nothing else here:
+    // it has no host to be absent and no creation time. Each entry in its own
+    // try/catch, so one bad entry can never stop the sweep of the rest.
     for (const [roomId, meta] of roomMeta) {
         try {
             if (meta.kind !== 'request') continue;
+            if (meta.used) {
+                if (now - meta.closedAt > REQUEST_USED_MARKER_MS) endReservation(roomId);
+                continue;
+            }
             const graceOver = meta.hostPeerId === null && now - meta.hostAbsentSince > REQUEST_GRACE_MS;
             if (graceOver || now - meta.createdAt > REQUEST_MAX_AGE_MS) endReservation(roomId);
         } catch { /* the next tick tries this entry again */ }
@@ -449,8 +455,9 @@ function sealDigest(key) {
 //
 // A request room is the one exception to "the record dies with the room": its
 // reservation outlives the empty room so the host can reclaim its seat with the
-// token, and only endReservation (grace expiry, request-close, a policy purge)
-// ends it (spec 04 5.12).
+// token, and only the request-room paths end it (grace expiry, the age
+// ceiling, request-close, a policy purge; spec 04 5.12). A sealed request-close
+// leaves a used marker in its place for a day first (D-130).
 function destroyRoom(roomId) {
     rooms.delete(roomId);
     const meta = roomMeta.get(roomId);
@@ -478,6 +485,25 @@ function destroyRoom(roomId) {
 // each of the 8 days a 7 d + 10 min window can touch), and the global bound is
 // MAX_REQUEST_ROOMS. A flood of the cap refuses only new request links
 // (limited), never ordinary rooms, codes or the room seal.
+//
+// A used link (D-130, deciding spec 04 5.16 c, gap G5). A request-close for a
+// SEALED room comes after a drop ran on it, or after a Decline, so the room
+// goes and the reservation is swapped for a marker that says only that:
+// { kind, sealed, used, closedAt }. No token digest, no key digest, no
+// seating times, no peer id; the id itself is the Map key. For
+// REQUEST_USED_MARKER_MS after the close, a request-join answers room-full
+// ("This link has already been used") where it would otherwise have answered
+// host-absent, and a host join is refused; then the sweep ends the marker like
+// any reservation, and a restart forgets it (memory only). An unsealed close
+// (Close link while waiting) still ends the reservation outright.
+//
+// E-15 with the marker: a marker keeps its reservation's MAX_REQUEST_ROOMS
+// slot, so the cap bounds reservations and markers together and stays 5000.
+// Per key, a live entry can now be a create up to the age ceiling plus the
+// marker's day old, so that bound is about 180 (20 a day on each of the 9 days
+// an 8 d + 10 min window can touch). A marker holds its slot for its day with
+// no socket and no traffic, where a sealed reservation whose host left held it
+// for the grace; the create budget and the cap still bound both.
 //
 // Privacy: the record holds a digest of the host's rate key (sealDigest), never
 // the key, and requestCreates is keyed the same way; a reservation can live for
@@ -521,6 +547,10 @@ const REQUEST_SEATING_WINDOW_MS = 60 * 1000;
 // at the next sweep, sealed or not (D-021): a drop is capped at 24 h, and a
 // modified desktop could otherwise hold one for as long as its socket lives.
 const REQUEST_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000 + 10 * 60 * 1000;
+// How long a used link keeps saying so after its sealed close (D-130), from
+// the close, not from the create. The sweep's 60 s interval makes it 24 h to
+// 24 h and one minute.
+const REQUEST_USED_MARKER_MS = 24 * 60 * 60 * 1000;
 
 // sealDigest(rateKey) -> timestamps of successful creates inside the window, at
 // most REQUEST_CREATES_PER_DAY each. Written only on a successful create, which
@@ -528,13 +558,15 @@ const REQUEST_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000 + 10 * 60 * 1000;
 //
 // At most REQUEST_CREATE_KEYS_MAX keys (D-116). The per-key budget cannot bind
 // an attacker holding many keys (IPv6 /64s, or any X-Forwarded-For on a
-// self-host exposed directly), and a create followed by request-close frees its
-// MAX_REQUEST_ROOMS slot, so without a ceiling the log grows by one entry per
-// key per day. Past the ceiling the least recently created key is dropped
-// (an expired one first, since the Map is kept in last-create order): never a
-// limited answer to a new key, which would let one many-key caller stop every
-// request link for a day. Dropping a key's history can only give that key a
-// fresh budget; MAX_REQUEST_ROOMS stays the global bound on live reservations.
+// self-host exposed directly), and a create followed by an unsealed
+// request-close frees its MAX_REQUEST_ROOMS slot at once (a sealed one a day
+// later, with its used marker), so without a ceiling the log grows by one
+// entry per key per day. Past the ceiling the least recently created key is
+// dropped (an expired one first, since the Map is kept in last-create order):
+// never a limited answer to a new key, which would let one many-key caller
+// stop every request link for a day. Dropping a key's history can only give
+// that key a fresh budget; MAX_REQUEST_ROOMS stays the global bound on live
+// reservations and used markers.
 // Measured cost at the ceiling (Node 22, heapUsed after gc): about 3.0 MB with
 // one timestamp per key (299 B a key) and about 5.0 MB with the full 20.
 const REQUEST_CREATE_KEYS_MAX = 10000;
@@ -565,7 +597,9 @@ function recordCreate(key, now = Date.now()) {
 // handleHostJoin is one size read: a refused create at a full cap would
 // otherwise walk every room (ordinary ones too) on every frame, and it spends
 // no budget, so one socket could repeat it. A request meta enters roomMeta
-// only in handleHostJoin and leaves only through forgetReservation.
+// only in handleHostJoin and leaves only through forgetReservation. A sealed
+// request-close swaps it in place for its used marker and leaves the id here:
+// the marker counts toward the cap like the reservation it replaced.
 const requestRoomIds = new Set();
 
 // A walk, kept as the test oracle for requestRoomIds.
@@ -739,7 +773,8 @@ function recordSeating(meta, now) {
 // budget, the id's shape, the kill switch (which wins over every other
 // answer), then host-absent for an unknown or ordinary id alike (no existence
 // oracle), an idempotent re-join, room-full for a sealed link (the truthful
-// answer while its host is briefly away), host-absent for an empty seat 0,
+// answer while its host is briefly away) and for a used one (its marker is
+// sealed, D-130), host-absent for an empty seat 0,
 // room-full for a full room, room-full past the link's seating budget, and
 // only then the seat. The two-key room seal is not applied here: seat 0 is
 // token-held and seat 1 is closed by request-seal, so a visitor sharing the
@@ -811,10 +846,14 @@ function handleRequestJoin(peer, roomId, now = Date.now()) {
 // reopen: after a Decline the owner chose to keep waiting on, or a failed
 // setup. A seated visitor (a squatter, or a declined page that never leaves:
 // there is no leave message) is evicted with room-full, and the room unseals.
-// close: the room and its reservation are gone; a later request-join answers
-// host-absent. An unsealed visitor hears host-absent; a sealed one is left to
-// its data channel.
-function handleRequestControl(peer, type, roomId) {
+// close: the room is gone. An unsealed room's reservation goes with it, and a
+// later request-join answers host-absent (Close link while waiting). A sealed
+// room has been used, so its reservation becomes a used marker for
+// REQUEST_USED_MARKER_MS (D-130): a later request-join answers room-full, and
+// a host join is refused. An unsealed visitor hears host-absent; a sealed one
+// is left to its data channel. Nobody is seated in a marker and it has no
+// host, so no control frame reaches one: a reopen can never unseal a used link.
+function handleRequestControl(peer, type, roomId, now = Date.now()) {
     if (typeof roomId !== 'string' || roomId.length !== 36) return;
     const id = roomId.toLowerCase();
     const meta = roomMeta.get(id);
@@ -844,8 +883,14 @@ function handleRequestControl(peer, type, roomId) {
             }
         }
         rooms.delete(id);
-        forgetReservation(id);
         peer.roomId = null;
+        if (meta.sealed) {
+            // A fresh object, not the reservation with fields deleted, so
+            // nothing personal can ride along. The id stays in requestRoomIds.
+            roomMeta.set(id, { kind: 'request', sealed: true, used: true, closedAt: now });
+        } else {
+            forgetReservation(id);
+        }
     }
 }
 
@@ -853,8 +898,9 @@ function handleRequestControl(peer, type, roomId) {
 // property (spec 04 5.6.2): shape checks first, the token regex before any
 // hash, then the derivation (one SHA-256) BEFORE the policy check so a
 // malformed or foreign token never learns the flag state, then the policy,
-// then the lookup with a constant-time compare of two 32-byte digests, and the
-// limits before anything is created. Replies are server constants only.
+// then the lookup with a constant-time compare of two 32-byte digests (a used
+// link's marker answers room-full before it), and the limits before anything
+// is created. Replies are server constants only.
 function handleHostJoin(peer, roomId, hostToken, now = Date.now()) {
     if (typeof roomId !== 'string' || !UUID_REGEX.test(roomId)) {
         peer.send('error', { message: 'Invalid room ID' });
@@ -879,6 +925,18 @@ function handleHostJoin(peer, roomId, hostToken, now = Date.now()) {
     const presented = hostTokenHash(hostToken);
     const meta = roomMeta.get(id);
     if (meta && meta.kind === 'request') {
+        // A used link (D-130): never reclaimed, never re-created, until its
+        // marker ends. Before the compare, which a marker has no digest for.
+        // room-full is the answer a host join already gives for an id it may
+        // not take (an ordinary room there): it asserts nothing false, where
+        // each refused code names a policy that does not hold here (disabled,
+        // limited) and that Floe Desktop shows its own copy for. Only the
+        // token's holder gets this far (the derivation above), and that its
+        // own link was used is nothing it did not already know.
+        if (meta.used) {
+            peer.send('room-full', {});
+            return;
+        }
         if (!crypto.timingSafeEqual(presented, meta.hostTokenHash)) {
             peer.send('room-full', {});
             return;
@@ -1521,4 +1579,5 @@ module.exports = {
     REQUEST_SEATINGS_PER_MINUTE,
     handleRequestControl,
     REQUEST_MAX_AGE_MS,
+    REQUEST_USED_MARKER_MS,
 };

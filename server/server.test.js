@@ -78,6 +78,7 @@ const {
     REQUEST_MAX_AGE_MS,
     REQUEST_CREATE_KEYS_MAX,
     requestRoomIds,
+    REQUEST_USED_MARKER_MS,
 } = require('./server');
 
 // ---------------------------------------------------------------------------
@@ -2965,13 +2966,15 @@ describe('handleRequestControl', () => {
         assert.deepEqual(later.msgs, [{ type: 'host-absent', data: {} }]);
         assert.equal(rooms.has(id), false);
 
-        // A sealed visitor is not told: its drop runs on the data channel.
+        // A sealed visitor is not told: its drop runs on the data channel. Its
+        // room goes too, and the reservation becomes a used marker (D-130).
         const s = pairedRequestRoom('k3', 'k4');
         handleRequestControl(s.host, 'request-seal', s.id);
         handleRequestControl(s.host, 'request-close', s.id);
         assert.equal(s.visitor.msgs.length, 0);
         assert.equal(s.visitor.roomId, null);
-        assert.equal(roomMeta.has(s.id), false);
+        assert.equal(rooms.has(s.id), false);
+        assert.equal(roomMeta.get(s.id).used, true);
     });
 
     it('control messages with malformed or foreign ids are dropped silently', () => {
@@ -3247,5 +3250,257 @@ describe('request rooms: disconnect and sweep', () => {
         }
         cleanupTick(RQ_T0 + REQUEST_CREATE_WINDOW_MS);
         assert.equal(requestCreates.size, 0);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Request rooms: a used link (D-130, spec 04 5.16 c)
+// ---------------------------------------------------------------------------
+
+// A link whose drop ran: the pair signaled (which seals the room, D-116), the
+// host confirmed the seal, and Floe Desktop sent request-close at done.
+function usedRequestLink(closeAt, hostKey = 'host-key', visitorKey = 'visitor-key') {
+    const link = pairedRequestRoom(hostKey, visitorKey);
+    handleSignal(link.host, { type: 'offer' }, null);
+    handleSignal(link.visitor, { type: 'answer' }, null);
+    handleRequestControl(link.host, 'request-seal', link.id);
+    assert.equal(roomMeta.get(link.id).sealed, true);
+    handleRequestControl(link.host, 'request-close', link.id, closeAt);
+    link.host.msgs.length = 0;
+    link.visitor.msgs.length = 0;
+    return link;
+}
+
+describe('request rooms: a used link (D-130)', () => {
+    beforeEach(() => resetRequestState(true));
+    after(() => resetRequestState(false));
+
+    const CLOSED = RQ_T0 + 5_000;
+
+    function setPolicy(on) {
+        fs.writeFileSync(POLICY_PATH, JSON.stringify({ requestLinks: on }));
+        policyStore.apply({ requestLinks: on });
+    }
+
+    it('a used link answers room-full after a sealed close, and disabled while request links are off', () => {
+        const { id, host, visitor } = usedRequestLink(CLOSED);
+        assert.equal(rooms.has(id), false, 'the room itself goes, as before');
+        assert.equal(host.roomId, null);
+        assert.equal(visitor.roomId, null);
+        assert.deepEqual(visitor.msgs, [], 'the sealed visitor is left to its data channel');
+
+        // A fresh visitor opening the link after the drop (TA-10, 11, 15).
+        const fresh = makePeer('fresh', 'k-fresh');
+        handleRequestJoin(fresh, id, CLOSED + 60_000);
+        assert.deepEqual(fresh.msgs, [{ type: 'room-full', data: {} }]);
+        assert.equal(fresh.roomId, null);
+        // The visitor itself coming back, in upper case.
+        handleRequestJoin(visitor, id.toUpperCase(), CLOSED + 61_000);
+        assert.deepEqual(visitor.msgs, [{ type: 'room-full', data: {} }]);
+        assert.equal(rooms.has(id), false, 'no room is created');
+        assert.deepEqual(host.msgs, [], 'nobody is sent user-connected');
+
+        // Nor can a plain join-room or a code take the id.
+        const plain = makePeer('plain', 'k-plain');
+        handleJoinRoom(plain, id);
+        assert.deepEqual(plain.msgs, [{ type: 'room-full', data: {} }]);
+        assert.equal(plain.roomId, null);
+        assert.equal(rooms.has(id), false);
+        const res = fakeRes();
+        registerCodeHandler({ body: { roomId: id } }, res);
+        assert.equal(res.statusCode, 400);
+        assert.equal(codeToRoom.size, 0);
+
+        // The kill switch still wins, and the marker outlives the flip: it is
+        // sealed, like a room whose drop is still running.
+        setPolicy(false);
+        handleRequestJoin(fresh, id, CLOSED + 62_000);
+        assert.deepEqual(fresh.msgs.pop(), { type: 'disabled', data: {} });
+        assert.equal(roomMeta.get(id).used, true);
+        setPolicy(true);
+        handleRequestJoin(fresh, id, CLOSED + 63_000);
+        assert.deepEqual(fresh.msgs.pop(), { type: 'room-full', data: {} });
+    });
+
+    it('an unsealed close still ends the reservation outright, and a later request-join answers host-absent', () => {
+        // Close link while waiting: no visitor ever paired.
+        const token = newToken();
+        const id = roomIdFromToken(token);
+        const host = makePeer('host', 'host-key');
+        hostJoin(host, token, RQ_T0);
+        handleRequestControl(host, 'request-close', id, CLOSED);
+        assert.equal(roomMeta.has(id), false);
+        assert.equal(requestRoomIds.has(id), false, 'its slot is free at once');
+        assert.equal(rooms.has(id), false);
+        const v = makePeer('v', 'kv');
+        handleRequestJoin(v, id, CLOSED + 1);
+        assert.deepEqual(v.msgs, [{ type: 'host-absent', data: {} }]);
+
+        // Paired but not sealed (a visitor seated, nothing signaled yet): the
+        // visitor hears host-absent, and nothing is kept either.
+        const p = pairedRequestRoom('kp', 'kpv');
+        handleRequestControl(p.host, 'request-close', p.id, CLOSED);
+        assert.deepEqual(p.visitor.msgs, [{ type: 'host-absent', data: {} }]);
+        assert.equal(roomMeta.has(p.id), false);
+        handleRequestJoin(v, p.id, CLOSED + 2);
+        assert.deepEqual(v.msgs.pop(), { type: 'host-absent', data: {} });
+
+        // A sealed pair the host reopened (Keep waiting) is unsealed again, so
+        // its close is an unsealed one.
+        const r = pairedRequestRoom('kr', 'krv');
+        handleSignal(r.host, { type: 'offer' }, null);
+        handleSignal(r.visitor, { type: 'answer' }, null);
+        handleRequestControl(r.host, 'request-reopen', r.id);
+        handleRequestControl(r.host, 'request-close', r.id, CLOSED);
+        assert.equal(roomMeta.has(r.id), false);
+        handleRequestJoin(v, r.id, CLOSED + 3);
+        assert.deepEqual(v.msgs.pop(), { type: 'host-absent', data: {} });
+
+        // And the same token can make the link again (a counted create), as today.
+        assert.deepEqual(hostJoin(makePeer('again', 'host-key'), token, CLOSED + 10), { type: 'room-joined', data: { role: 'host' } });
+        assert.equal(createsInWindow('host-key', CLOSED + 10), 2);
+    });
+
+    it('a host join on a used id is refused with room-full, creates nothing and leaves the joiner where it was', () => {
+        const { token, id, host } = usedRequestLink(CLOSED);
+        const marker = roomMeta.get(id);
+        const before = { ...marker };
+        assert.equal(createsInWindow('host-key', CLOSED), 1);
+
+        // The token's own holder, on its old socket and on a new one seated in
+        // an ordinary room: room-full both times, and the new one keeps its room.
+        assert.deepEqual(hostJoin(host, token, CLOSED + 1_000), { type: 'room-full', data: {} });
+        const back = makePeer('back', 'host-key');
+        const plain = randomUUID();
+        handleJoinRoom(back, plain);
+        back.msgs.length = 0;
+        handleHostJoin(back, id.toUpperCase(), token, CLOSED + 2_000);
+        assert.deepEqual(back.msgs, [{ type: 'room-full', data: {} }]);
+        assert.equal(back.roomId, plain);
+        assert.deepEqual(rooms.get(plain), [back]);
+
+        // No control frame reaches the marker either: nobody is seated in it,
+        // so a reopen can never unseal a used link.
+        for (const p of [host, back]) {
+            for (const type of ['request-reopen', 'request-seal', 'request-close']) handleRequestControl(p, type, id, CLOSED + 3_000);
+        }
+
+        assert.equal(roomMeta.get(id), marker, 'the marker, not a new reservation');
+        assert.deepEqual({ ...roomMeta.get(id) }, before);
+        assert.equal(rooms.has(id), false);
+        assert.equal(host.roomId, null);
+        assert.equal(createsInWindow('host-key', CLOSED + 3_000), 1, 'a refused join is not a create');
+        assert.equal(host.msgs.length, 1);
+
+        // Any other token still fails the derivation first, and the kill
+        // switch still answers before the lookup.
+        const other = makePeer('other', 'k-other');
+        handleHostJoin(other, id, newToken(), CLOSED + 4_000);
+        assert.deepEqual(other.msgs.pop(), { type: 'error', data: { message: 'Invalid host token' } });
+        setPolicy(false);
+        assert.deepEqual(hostJoin(back, token, CLOSED + 5_000), { type: 'refused', data: { code: 'disabled' } });
+        assert.equal(roomMeta.get(id), marker);
+        assert.equal(back.roomId, plain);
+    });
+
+    it('the used marker holds no token digest, no key digest and no address', () => {
+        const hostAddress = '198.51.100.21';
+        const visitorAddress = '2001:db8:5:6::/64';
+        const { token, id, host, visitor } = usedRequestLink(CLOSED, hostAddress, visitorAddress);
+
+        // Only what answering needs: a request id, sealed, used, and since when.
+        const marker = roomMeta.get(id);
+        assert.deepEqual(Object.keys(marker).sort(), ['closedAt', 'kind', 'sealed', 'used']);
+        assert.deepEqual({ ...marker }, { kind: 'request', sealed: true, used: true, closedAt: CLOSED });
+        for (const [k, v] of Object.entries(marker)) {
+            assert.ok(v === null || typeof v !== 'object', `meta.${k} is a container`);
+        }
+
+        // The whole map, dumped: nothing the reservation saw survives it.
+        const dump = JSON.stringify([...roomMeta]);
+        const digest = createHash('sha256').update(token, 'utf8').digest();
+        const secrets = [token, host.id, visitor.id, hostAddress, visitorAddress, '2001:db8:5:6',
+            ...['hex', 'base64', 'base64url'].map(enc => digest.toString(enc)),
+            JSON.stringify([...digest]).slice(1, -1)];
+        for (const s of secrets) assert.ok(!dump.includes(s), `roomMeta holds ${s}`);
+    });
+
+    it('the sweep removes the used marker 24 h after the close and not before', () => {
+        assert.equal(REQUEST_USED_MARKER_MS, 24 * 60 * 60 * 1000);
+        const { id } = usedRequestLink(CLOSED);
+        const v = makePeer('v', 'kv');
+
+        // Neither the grace nor the age ceiling reads a marker: it has no host
+        // to be absent and no creation time.
+        cleanupTick(CLOSED + REQUEST_GRACE_MS + 60_000);
+        assert.equal(roomMeta.get(id).used, true, 'not at the grace');
+        cleanupTick(CLOSED + REQUEST_USED_MARKER_MS);
+        assert.equal(roomMeta.get(id).used, true, 'not at 24 h itself');
+        handleRequestJoin(v, id, CLOSED + REQUEST_USED_MARKER_MS);
+        assert.deepEqual(v.msgs.pop(), { type: 'room-full', data: {} });
+
+        cleanupTick(CLOSED + REQUEST_USED_MARKER_MS + 1);
+        assert.equal(roomMeta.has(id), false);
+        assert.equal(requestRoomIds.has(id), false);
+        assert.equal(rooms.has(id), false);
+        // Gone is gone: the id answers like any unknown one.
+        handleRequestJoin(v, id, CLOSED + REQUEST_USED_MARKER_MS + 2);
+        assert.deepEqual(v.msgs.pop(), { type: 'host-absent', data: {} });
+
+        // A link closed late in its life keeps its full 24 h: the clock starts
+        // at the close, not at the create.
+        const lateClose = RQ_T0 + REQUEST_MAX_AGE_MS - 1;
+        const late = usedRequestLink(lateClose, 'kl', 'klv');
+        cleanupTick(RQ_T0 + REQUEST_MAX_AGE_MS + 1);
+        assert.equal(roomMeta.get(late.id).used, true, 'past the age ceiling of its reservation');
+        cleanupTick(lateClose + REQUEST_USED_MARKER_MS + 1);
+        assert.equal(roomMeta.has(late.id), false);
+    });
+
+    it('a malformed used marker does not stop the sweep of a good one', () => {
+        // First in the Map, a planted marker whose room array makes
+        // endReservation throw; the real marker after it must still go.
+        roomMeta.set('planted-used', { kind: 'request', sealed: true, used: true, closedAt: 0 });
+        requestRoomIds.add('planted-used');
+        rooms.set('planted-used', [null]);
+        const { id } = usedRequestLink(CLOSED);
+        assert.equal(roomMeta.get(id).used, true);
+        assert.doesNotThrow(() => cleanupTick(CLOSED + REQUEST_USED_MARKER_MS + 1));
+        assert.equal(roomMeta.has(id), false, 'the sweep went on past the bad entry');
+        roomMeta.delete('planted-used');
+        requestRoomIds.delete('planted-used');
+        rooms.delete('planted-used');
+    });
+
+    it('the request-room count stays exact across mark, sweep and cap, and a marker counts toward MAX_REQUEST_ROOMS', () => {
+        const check = (what) => assert.equal(requestRoomIds.size, countRequestRooms(), what);
+        const used = usedRequestLink(CLOSED, 'k1', 'k1v');
+        check('a sealed close');
+        assert.ok(requestRoomIds.has(used.id), 'the marker keeps its slot');
+        assert.equal(requestRoomIds.size, 1);
+        const waiting = pairedRequestRoom('k2', 'k2v');
+        handleRequestControl(waiting.host, 'request-close', waiting.id, CLOSED);
+        check('an unsealed close');
+        assert.equal(requestRoomIds.size, 1);
+
+        // The cap: planted live reservations (host seated, young, so no sweep
+        // ends them) and the one marker fill it exactly.
+        for (let i = 1; i < MAX_REQUEST_ROOMS; i++) {
+            roomMeta.set(`fill-${i}`, { keys: new Set(), kind: 'request', hostPeerId: `planted-${i}`, hostAbsentSince: null, createdAt: CLOSED, sealed: false });
+            requestRoomIds.add(`fill-${i}`);
+        }
+        check('full');
+        assert.equal(requestRoomIds.size, MAX_REQUEST_ROOMS);
+        const t = newToken();
+        assert.deepEqual(hostJoin(makePeer('late', 'k3'), t, CLOSED + 1), { type: 'refused', data: { code: 'limited' } });
+        assert.equal(roomMeta.has(roomIdFromToken(t)), false);
+
+        // The sweep frees the marker's slot, and only that one.
+        cleanupTick(CLOSED + REQUEST_USED_MARKER_MS + 1);
+        check('the marker sweep');
+        assert.equal(requestRoomIds.size, MAX_REQUEST_ROOMS - 1);
+        assert.deepEqual(hostJoin(makePeer('later', 'k3'), t, CLOSED + REQUEST_USED_MARKER_MS + 2), { type: 'room-joined', data: { role: 'host' } });
+        check('a create into the freed slot');
+        assert.equal(requestRoomIds.size, MAX_REQUEST_ROOMS);
     });
 });

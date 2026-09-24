@@ -142,7 +142,7 @@ test.describe('request-link', () => {
         expect(await stats()).toBe(0);
     });
 
-    test('request-link: used link answers room-full while sealed and host-absent after close', async ({ page, context, browser }) => {
+    test('request-link: used link answers room-full while sealed and after close', async ({ page, context, browser }) => {
         const stats = await guard(context);
         const sent = makeFiles({ 'a.bin': 64 * 1024 });
         // A's hold must outlast B's whole visit (a new context, a load, a
@@ -173,7 +173,8 @@ test.describe('request-link', () => {
             await expectDelivered(page, h, sent);
             await h.exited;
 
-            // Visitor C after the harness closed the link: the room is gone (OD-28).
+            // Visitor C after the harness closed the link: the room is gone,
+            // and the server's used marker still says so (D-130).
             const c = await browser.newContext();
             extra.push(c);
             const statsC = await guard(c);
@@ -181,7 +182,8 @@ test.describe('request-link', () => {
             await pageC.goto(link);
             await pickFiles(pageC, ['a.bin']);
             await send(pageC);
-            await expect(pageC.getByRole('heading', { name: visitorCopy.hostAbsentTitle })).toBeVisible();
+            await expect(pageC.getByRole('heading', { name: visitorCopy.usedTitle })).toBeVisible();
+            await expect(pageC.getByText(visitorCopy.usedBody)).toBeVisible();
 
             expect(await stats()).toBe(0);
             expect(await statsB()).toBe(0);

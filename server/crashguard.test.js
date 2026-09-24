@@ -1049,3 +1049,105 @@ test('a new message type on a rate-limited socket is not fatal', async (t) => {
     try { socket.write(Buffer.from([0x81, 0x02, 0x41, 0x42])); } catch { /* closed */ }
     await assertSurvived(srv, 'request frames on a rate-limited connection');
 });
+
+// --- request rooms: a used link (D-130) ---------------------------------------
+
+// A Socket.IO v4 client over a bare engine.io websocket, no client library,
+// with the same handshake the Socket.IO request-join fuzz above drives inline.
+// Resolves once the default namespace is connected, with send() and events(n),
+// which waits up to ms for the first n '42' event frames.
+function openSocketIO(srv) {
+    const ws = track(new WebSocket(`ws://127.0.0.1:${srv.port}/socket.io/?EIO=4&transport=websocket`, {
+        headers: { Origin: 'http://localhost:3000' },
+    }));
+    ws.on('error', () => {});
+    const events = [];
+    const waiters = [];
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('no namespace ack')), 5000);
+        ws.on('message', (raw) => {
+            const text = raw.toString();
+            if (text.startsWith('0')) ws.send('40');
+            else if (text === '2') ws.send('3');
+            else if (text.startsWith('40')) {
+                clearTimeout(timer);
+                resolve({
+                    send: (frame) => ws.send(frame),
+                    events: async (n, ms = 5000) => {
+                        const deadline = Date.now() + ms;
+                        while (events.length < n && Date.now() < deadline) {
+                            await new Promise((r) => { waiters.push(r); setTimeout(r, 200); });
+                        }
+                        return events.slice(0, n);
+                    },
+                });
+            } else if (text.startsWith('42')) {
+                events.push(text);
+                for (const w of waiters.splice(0)) w();
+            }
+        });
+    });
+}
+
+test('every join aimed at a used link answers room-full on both transports and never reaches the backstop', async (t) => {
+    const srv = await startServer({ POLICY_FILE: policyFileSaying(t, true) });
+    t.after(() => srv.stop());
+
+    // A drop's life as Floe Desktop and the /r page live it: the host joins,
+    // the visitor is seated, both signal (the room seals, D-116), the host
+    // confirms the seal and sends request-close at done.
+    const token = newToken();
+    const id = roomIdFromToken(token);
+    const idUpper = id.toUpperCase();
+    const host = await open(srv);
+    assert.deepEqual(await hostJoin(host, token), { type: 'room-joined', role: 'host' });
+    const visitor = await open(srv);
+    const seated = waitFor(visitor, 'request-joined');
+    const sawVisitor = waitFor(host, 'user-connected');
+    visitor.send(JSON.stringify({ type: 'request-join', roomId: id }));
+    await orBackstop(srv, Promise.all([seated, sawVisitor]), 'a visitor join');
+    const offer = waitFor(visitor, 'signal');
+    host.send(JSON.stringify({ type: 'signal', signal: { type: 'offer' } }));
+    await orBackstop(srv, offer, 'the offer');
+    const answer = waitFor(host, 'signal');
+    visitor.send(JSON.stringify({ type: 'signal', signal: { type: 'answer' } }));
+    await orBackstop(srv, answer, 'the answer');
+    const closed = repliesUntilPong(host);
+    host.send(JSON.stringify({ type: 'request-seal', roomId: id }));
+    host.send(JSON.stringify({ type: 'request-close', roomId: id }));
+    host.send(JSON.stringify({ type: 'ping' }));
+    assert.deepEqual(await orBackstop(srv, closed, 'a sealed close'), [], 'seal and close have no reply');
+
+    // Every join a confused or hostile client can aim at the used id over
+    // /ws. The host join with the link's own token passes the derivation and
+    // reaches the marker, which has no digest left to compare against. From a
+    // fresh socket, from the old host's and from the old visitor's.
+    const frames = [
+        { type: 'request-join', roomId: id },
+        { type: 'request-join', roomId: idUpper },
+        { type: 'join-room', roomId: id, hostToken: token },
+        { type: 'join-room', roomId: idUpper, hostToken: token },
+        { type: 'join-room', roomId: id },
+        { type: 'request-reopen', roomId: id },
+    ];
+    for (const [who, ws] of [['a fresh socket', await open(srv)], ['the old host', host], ['the old visitor', visitor]]) {
+        const replies = repliesUntilPong(ws);
+        for (const f of frames) ws.send(JSON.stringify(f));
+        ws.send(JSON.stringify({ type: 'ping' }));
+        const got = await orBackstop(srv, replies, `joins on a used id over /ws from ${who}`);
+        assert.deepEqual(got, Array(frames.length - 1).fill({ type: 'room-full' }), `${who}: ${JSON.stringify(got)}`);
+    }
+
+    // The same over Socket.IO: request-join, a plain join-room, and the host
+    // join's shape, which that transport has no path for.
+    const sio = await openSocketIO(srv);
+    sio.send(`42["request-join","${id}"]`);
+    sio.send(`42["join-room","${idUpper}"]`);
+    sio.send(`42["join-room",${JSON.stringify({ roomId: id, hostToken: token })}]`);
+    const events = await sio.events(3);
+    if (events.length !== 3) await assertSurvived(srv, 'joins on a used id over Socket.IO');
+    assert.deepEqual(events, ['42["room-full",{}]', '42["room-full",{}]', '42["error",{"message":"Invalid room ID"}]']);
+
+    await assertSurvived(srv, 'joins on a used id over both transports');
+    assertLogsCarryNone(srv, [token, id, idUpper], 'a used link');
+});
