@@ -43,7 +43,8 @@ import {
     type RequestHostOptions,
 } from './request-helpers';
 
-const DELIVERED = /^ALL \d+ FILES ARRIVED$/;
+// One file reads in the singular (D-123): "1 FILE ARRIVED", never "ALL 1 FILES ARRIVED".
+const DELIVERED = /^(ALL \d+ FILES|1 FILE) ARRIVED$/;
 const SEND = /^Send \d+ files?$/;
 
 interface Scratch {
