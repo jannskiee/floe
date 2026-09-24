@@ -877,7 +877,7 @@ func TestRequestModeReopenAfterEvictsAStalledVisitor(t *testing.T) {
 	if got := h.names(); !equalNames(got, want) {
 		t.Fatalf("events %v, want %v", got, want)
 	}
-	_, _, controls := srv.snapshot()
+	_, _, controls := srv.controlsAfter(3)
 	if !equalNames(controls, []string{"request-reopen", "request-seal", "request-close"}) {
 		t.Fatalf("control frames %v", controls)
 	}
