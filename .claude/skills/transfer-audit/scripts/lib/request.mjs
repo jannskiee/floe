@@ -59,8 +59,19 @@ const LINK_OPEN = new Set([
     'declined',
 ]);
 const RESULTS = new Set(['done', 'stopped']);
+// A link or a drop that is live: Go refuses a second Make link
+// (already-open, one link in the Beta) and the view shows no Save to field.
+const LIVE = new Set([...LINK_OPEN, 'receiving', 'making']);
 
 const scrub = (s) => redactRequestLinks(s);
+
+/** `child` is `root` or a folder under it (Windows compares without case). */
+export function insideDir(child, root) {
+    if (typeof child !== 'string' || typeof root !== 'string' || !child || !root)
+        return false;
+    const rel = path.relative(path.resolve(root), path.resolve(child));
+    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
 
 /** A copy of any value with every request link's room removed. */
 export function scrubDeep(value) {
@@ -81,6 +92,67 @@ function flow(phase, message, extra = {}) {
         signatureKey: FLOW_KEY,
         ...extra,
     });
+}
+
+/**
+ * TA-13's host is not behind the blip proxy: no URL to point it at, a
+ * server address that did not read back, or no socket through the proxy
+ * before the cut. A harness ERROR, never a request-flow FAIL: the first
+ * live run (2026-09-24) cut a proxy the host was never behind and read the
+ * host's correct Waiting as a product defect.
+ */
+export const BLIP_KEY = 'blip-url';
+function blipUnproven(phase, message) {
+    return new PhaseError(phase, `${BLIP_KEY}: ${message}`, {
+        harness: true,
+        reason: BLIP_KEY,
+        signatureKey: BLIP_KEY,
+    });
+}
+
+/**
+ * The host lane already holds a live link or drop when a cell starts, one
+ * this run did not leave behind: a harness ERROR by name before any click.
+ * It used to cost a 30 s Save to fill timeout on the waiting view, keyed
+ * `unknown` (the first live run's C2D-reqopen, 2026-09-24).
+ */
+export const HOST_BUSY_KEY = 'host-busy';
+function hostBusy(message) {
+    return new PhaseError('host.start', `${HOST_BUSY_KEY}: ${message}`, {
+        harness: true,
+        reason: HOST_BUSY_KEY,
+        signatureKey: HOST_BUSY_KEY,
+    });
+}
+
+/**
+ * Before Make link: a live link or drop on the host lane is either this
+ * run's own leftover, which is closed (a drop canceled) and noted, or it is
+ * refused as host-busy and left exactly as it is. Own means the lane saves
+ * into a folder under this run's evidence root, which only this run's cells
+ * create, so an owner's link is never touched. A result (done, stopped) or
+ * an ended link is not live: Make link's own Make another link puts it away.
+ */
+async function clearLeftover(host, ctx, rec, st) {
+    const s = await snapshotOf(host);
+    if (!LIVE.has(s.state)) return;
+    const gen = Number(s.gen) || 0;
+    if (s.state === 'making' || !insideDir(s.saveDir, ctx.evidenceRoot))
+        throw hostBusy(
+            `the host lane already holds ${s.state} (gen ${gen}) from before this cell, and it is not this run's; nothing was made or closed`
+        );
+    const { now, nap } = st.clock;
+    if (s.state === 'receiving') await host.driver.cancelRequestDrop({ now, nap });
+    else await host.driver.closeRequestLink({ now, nap });
+    const after = await snapshotOf(host);
+    if (LIVE.has(after.state))
+        throw hostBusy(
+            `this run's leftover ${s.state} link (gen ${gen}) still reads ${after.state} after it was closed`
+        );
+    rec.request.swept = { state: s.state, gen };
+    rec.notes.push(
+        `host start: swept this run's leftover ${s.state} link (gen ${gen}) before Make link`
+    );
 }
 
 function clockOf(ctx) {
@@ -211,6 +283,7 @@ async function startHost(cell, ctx, rec, st, { outDir, relayOnly, blipUrl = null
     // audit's interrupt shutdown) closes the link and puts the switches back.
     host.beforeClose = () => releaseHost(st, rec);
     await host.launch([]);
+    await clearLeftover(host, ctx, rec, st);
     await host.applyRelayForcer();
     st.beta = await setRequestLinks(host, true, st.clock);
     rec.request.beta = { ...st.beta };
@@ -221,10 +294,9 @@ async function startHost(cell, ctx, rec, st, { outDir, relayOnly, blipUrl = null
         const after = await host.driver.setAddresses(blipUrl, web);
         rec.request.addresses = { swapped: true, restored: null };
         if (!after || after.server !== blipUrl || after.web !== web)
-            throw new PhaseError(
+            throw blipUnproven(
                 'host.start',
-                'the host did not take the blip proxy as its server address (SetSettings read back something else)',
-                { harness: true, reason: 'wailsdev-config' }
+                'the host did not take the blip proxy as its server address (SetSettings read back something else)'
             );
     }
     // Only a link generation this cell made is ever closed or put away: the
@@ -251,7 +323,9 @@ async function startHost(cell, ctx, rec, st, { outDir, relayOnly, blipUrl = null
  * Leave the host as the cell found it: stop a running drop, close an open
  * link, put a result away (the Beta switch is locked while one shows),
  * restore the addresses the blip swapped, and turn the Beta switch back off
- * if the cell turned it on. Runs from the host leg's stop, once.
+ * if the cell turned it on. Runs from the host leg's stop, once. Each step
+ * that fails is a note and a release failure (st.releaseFailures), which
+ * markHostRelease turns into the attempt's verdict.
  */
 async function releaseHost(st, rec) {
     if (st.released) return;
@@ -259,6 +333,10 @@ async function releaseHost(st, rec) {
     const { host } = st;
     const { now, nap } = st.clock;
     const note = (l) => rec.notes.push(scrub(l));
+    const fail = (l) => {
+        note(l);
+        st.releaseFailures.push(scrub(l));
+    };
     try {
         let s = await snapshotOf(host);
         const ours = st.makeTried && Number(s.gen) > st.genBefore;
@@ -273,10 +351,13 @@ async function releaseHost(st, rec) {
                 await host.driver.closeRequestLink({ now, nap });
             else if (RESULTS.has(s.state))
                 await host.driver.dismissRequestResult({ now, nap });
-            rec.request.released = (await snapshotOf(host)).state;
+            const left = (await snapshotOf(host)).state;
+            rec.request.released = left;
+            if (LIVE.has(left))
+                fail(`host release: the link this cell made still reads ${left}`);
         }
     } catch (e) {
-        note(`host release: ${e.message}`);
+        fail(`host release: ${e.message}`);
     }
     if (st.addresses) {
         try {
@@ -288,19 +369,73 @@ async function releaseHost(st, rec) {
                 back?.server === st.addresses.server &&
                 back?.web === st.addresses.web;
             rec.request.addresses = { swapped: true, restored: ok };
-            if (!ok) note('host addresses: the old server address did not read back; set it again in the dev app');
+            if (!ok) fail('host addresses: the old server address did not read back; set it again in the dev app');
         } catch (e) {
             rec.request.addresses = { swapped: true, restored: false };
-            note(`host addresses: ${e.message}`);
+            fail(`host addresses: ${e.message}`);
         }
     }
     if (st.beta?.changed) {
         try {
             await setRequestLinks(host, false, st.clock);
         } catch (e) {
-            note(`Beta switch restore: ${e.message}`);
+            fail(`Beta switch restore: ${e.message}`);
         }
     }
+    st.releaseDone = true;
+}
+
+/**
+ * What the release left undone: its failed steps, and a release that
+ * started (or a link that was made) but never finished inside the teardown
+ * budget. Empty when the host is as the cell found it.
+ */
+function releaseProblems(st) {
+    if (!st.host) return [];
+    const out = [...(st.releaseFailures || [])];
+    if ((st.makeTried || st.released) && !st.releaseDone)
+        out.push('host release: it did not finish within the teardown budget');
+    return out;
+}
+
+/**
+ * A host not left as found is a keyed harness ERROR on a cell that
+ * otherwise passed, because the next desktop-host cell inherits it (the
+ * first live run, 2026-09-24: D2C-reqopen PASSed with its link still open,
+ * and C2D-reqopen after it could not make one). A cell that already failed
+ * keeps its own finding and gets the same words as a note.
+ */
+export const HOST_RELEASE_KEY = 'host-release';
+function markHostRelease(rec, problems) {
+    if (!problems.length) return;
+    const first = (s) => String(s).split(/\r?\n/)[0].trim();
+    const text = scrub(
+        `${HOST_RELEASE_KEY}: the host was not left as found (${problems.map(first).join('; ')}); the next desktop-host cell would inherit it`
+    );
+    if (!rec.ok) {
+        rec.notes.push(text);
+        return;
+    }
+    rec.ok = false;
+    rec.outcome = 'fail';
+    rec.harness = true;
+    rec.failedPhase = 'teardown';
+    rec.error = {
+        name: 'PhaseError',
+        message: text,
+        phase: 'teardown',
+        reason: HOST_RELEASE_KEY,
+        signatureKey: HOST_RELEASE_KEY,
+        harness: true,
+        safety: false,
+    };
+    rec.signature = {
+        key: HOST_RELEASE_KEY,
+        retryable: false,
+        triage: HOST_RELEASE_KEY,
+        text,
+    };
+    rec.signatureKey = HOST_RELEASE_KEY;
 }
 
 // ----------------------------------------------------------- the visitor
@@ -429,11 +564,24 @@ async function runFlow(cell, ctx, rec, st, fixture, T) {
     }
     if (req.flow === 'blip-then-accept') {
         const ms = req.blipMs;
+        const blip = {
+            cutMs: ms,
+            liveBefore: Number(st.blip.live) || 0,
+            reconnecting: false,
+            hostAbsent: false,
+            reclaimed: false,
+        };
+        rec.request.blip = blip;
+        // The host's /ws is the one socket that must run through the proxy
+        // by now; with none, the cut would cut nothing.
+        if (blip.liveBefore < 1)
+            throw blipUnproven(
+                'request',
+                'no socket runs through the blip proxy before the cut, so the host is not behind it and the cut would cut nothing'
+            );
         const v = await open('visitor-1');
         const cutting = st.blip.cut(ms, { wait: st.clock.nap });
         cutting.catch(() => {});
-        const blip = { cutMs: ms, reconnecting: false, hostAbsent: false, reclaimed: false };
-        rec.request.blip = blip;
         await awaitHostState(host, ['reconnecting'], ms, {
             ...st.clock,
             fail: ['ended', 'error'],
@@ -744,6 +892,7 @@ function newRequestRecord(cell) {
         hostView: null,
         usedUp: null,
         released: null,
+        swept: null,
     };
 }
 
@@ -827,6 +976,8 @@ export async function runRequestAttempt(cell, ctx, n) {
         host: null,
         link: null,
         visitors: [],
+        releaseFailures: [],
+        releaseDone: false,
         browser: null,
         blip: null,
         outDir: null,
@@ -886,6 +1037,14 @@ export async function runRequestAttempt(cell, ctx, n) {
                     ctx.startBlip || (await import('./blip.mjs')).startBlip;
                 st.blip = await start({ upstream: server });
                 blipUrl = st.blip.url;
+                // The host is pointed at this URL next; without one the
+                // swap would be skipped and the cell would run with no
+                // proxy in the host's path.
+                if (!isLoopbackUrl(blipUrl))
+                    throw blipUnproven(
+                        'blip',
+                        'the blip proxy handed back no loopback URL, so the host cannot be pointed at it'
+                    );
             });
         }
         await phase('host.start', T.link + 30_000, () =>
@@ -1003,6 +1162,7 @@ export async function runRequestAttempt(cell, ctx, n) {
         } catch (e) {
             rec.notes.push(scrub(`teardown: ${e.message}`));
         }
+        markHostRelease(rec, releaseProblems(st));
         // Every visitor's report attempts reach the Safety table, pass or
         // fail; verify only turns them into the cell's verdict.
         if (ctx.safety) {
@@ -1090,8 +1250,12 @@ export function openLinkHooks(cell, ctx) {
         host: null,
         link: null,
         visitors: [],
+        releaseFailures: [],
+        releaseDone: false,
     };
     return {
+        /** What the host release left undone (runOpenLinkAttempt reads it). */
+        releaseProblems: () => releaseProblems(st),
         async afterSetup(rec) {
             rec.request = newRequestRecord(cell);
             st.drops = path.join(rec.evidenceDir, 'host-drops');
@@ -1127,7 +1291,32 @@ export function openLinkHooks(cell, ctx) {
     };
 }
 
-/** One attempt of a TA-17 cell: the quick cell with a link held open. */
-export function runOpenLinkAttempt(cell, ctx, n, opts = {}) {
-    return runAttempt(cell, ctx, n, { ...opts, hooks: openLinkHooks(cell, ctx) });
+/**
+ * One attempt of a TA-17 cell: the quick cell with a link held open. The
+ * release is judged after runAttempt returns, because its teardown phase
+ * can time out while the release is still running (the first live run's
+ * D2C-reqopen, 2026-09-24); attempt.json is rewritten when that changes
+ * the verdict.
+ */
+export async function runOpenLinkAttempt(cell, ctx, n, opts = {}) {
+    const hooks = openLinkHooks(cell, ctx);
+    const rec = await runAttempt(cell, ctx, n, { ...opts, hooks });
+    const problems = hooks.releaseProblems();
+    if (problems.length) {
+        markHostRelease(rec, problems);
+        rec.notes = rec.notes.map(scrub);
+        if (rec.evidenceDir) {
+            try {
+                const { safetyError, ...plain } = rec;
+                void safetyError;
+                writeFileSync(
+                    path.join(rec.evidenceDir, 'attempt.json'),
+                    JSON.stringify(scrubDeep(plain), null, 4)
+                );
+            } catch (e) {
+                rec.notes.push(`evidence write: ${e.message}`);
+            }
+        }
+    }
+    return rec;
 }

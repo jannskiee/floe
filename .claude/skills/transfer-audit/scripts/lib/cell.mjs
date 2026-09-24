@@ -1484,18 +1484,39 @@ function fill(result, rec, cell) {
     result.receiver.outputDir = rec.outDir ?? null;
 }
 
+/**
+ * A capture under an attempt's private/ folder: the request host's, which
+ * can show a request link on screen (lib/request.mjs). Judged relative to
+ * the attempt folder, and by a `private` path segment for a capture kept
+ * anywhere else.
+ */
+export function isPrivateCapture(file, attemptDir) {
+    const p = String(file || '');
+    if (attemptDir) {
+        const rel = path.relative(attemptDir, p);
+        if (rel && !rel.startsWith('..') && !path.isAbsolute(rel))
+            return /^private(?:[\\/]|$)/i.test(rel);
+    }
+    return /(^|[\\/])private[\\/]/i.test(p);
+}
+
 export function attemptSummary(rec) {
     const { safetyError, fixture, evidence, timeline, ...rest } = rec;
+    // lib/desktop.mjs captures are { tag, t, path, w, h }; the report wants
+    // paths. A private capture stays on disk and is counted, but its path
+    // never reaches audit.md or run.json, which both read this summary: the
+    // Evidence line then names the attempt folder.
+    const shots = (evidence?.captures ?? []).map((c) =>
+        typeof c === 'string' ? c : (c && c.path) || String(c)
+    );
+    const hidden = shots.filter((p) => isPrivateCapture(p, rec.evidenceDir));
     return {
         ...rest,
         evidence: {
             senderTranscript: evidence?.sender?.transcript ?? null,
             receiverTranscript: evidence?.receiver?.transcript ?? null,
-            // lib/desktop.mjs captures are { tag, t, path, w, h }; the
-            // report wants paths.
-            captures: (evidence?.captures ?? []).map((c) =>
-                typeof c === 'string' ? c : (c && c.path) || String(c)
-            ),
+            captures: shots.filter((p) => !hidden.includes(p)),
+            privateCaptures: hidden.length,
             browserConsole:
                 evidence?.receiver?.console ??
                 evidence?.sender?.console ??

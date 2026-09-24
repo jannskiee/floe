@@ -13,10 +13,10 @@ import path from 'node:path';
 import { after, test } from 'node:test';
 
 import { runCell } from './cell.mjs';
-import { ACCEPT_WAIT_MS } from './desktop.mjs';
+import { ACCEPT_WAIT_MS, PlaywrightDriver } from './desktop.mjs';
 import { cellPlan } from './matrix.mjs';
 import { Ledger } from './pacing.mjs';
-import { newSafety } from './report.mjs';
+import { buildRunJson, newSafety, renderMarkdown } from './report.mjs';
 import { UIA_PENDING, scrubDeep } from './request.mjs';
 import { SafetyError } from './surfaces.mjs';
 import { FAKE_ROOM } from './tests/fake-request-dom.mjs';
@@ -191,9 +191,45 @@ test('TA-10 H-DIR-W2D-req: Make link into the run folder, Accept after 1.2 s, th
     assert.ok(w.visitors.every((v) => v.closed));
     assert.equal(w.visitors.length, 2, 'the sender and the used-link checker');
     assert.equal(w.dom.closed, true);
-    // The host's captures live under private/.
-    for (const c of a.evidence.captures)
-        assert.match(c, /[\\/]private[\\/]host[\\/]/);
+    // The host's captures live under private/ on disk, and the summary the
+    // report reads carries their count, never their paths.
+    const onDisk = attemptJson(a).evidence.receiver.captures.map((c) => c.path);
+    assert.ok(onDisk.length > 0, 'the host was captured');
+    for (const c of onDisk) assert.match(c, /[\\/]private[\\/]host[\\/]/);
+    assert.deepEqual(a.evidence.captures, []);
+    assert.equal(a.evidence.privateCaptures, onDisk.length);
+});
+
+// The request.mjs header promises the host captures (which can show the
+// link on screen) are never quoted by audit.md or run.json; the first live
+// run's audit.md quoted them in every FAIL block's Evidence line
+// (2026-09-24).
+test('audit.md and run.json never quote a private/host capture path: the attempt folder stands in', async () => {
+    const w = fakeRequestWorld({ faults: ['not-used-up'] });
+    const ctx = ctxFor(w);
+    const r = await runCell(small('H-DIR-W2D-req'), ctx);
+    assert.equal(r.verdict, 'FAIL', r.note);
+    const a = r.attempts[0];
+    const onDisk = attemptJson(a).evidence.receiver.captures.map((c) => c.path);
+    assert.ok(onDisk.length > 0 && onDisk.every((p) => /[\\/]private[\\/]host[\\/]/.test(p)));
+    const run = {
+        runId: 'r1',
+        profile: 'head',
+        subset: 'default',
+        cells: [r],
+        safety: ctx.safety,
+        exitCode: 1,
+    };
+    const md = renderMarkdown(run);
+    const json = JSON.stringify(buildRunJson(run));
+    for (const [what, text] of [
+        ['audit.md', md],
+        ['run.json', json],
+    ])
+        assert.ok(!/[\\/]private[\\/]/.test(text), `${what} quotes a private path`);
+    const evidence = md.split('\n').find((l) => l.startsWith('Evidence: '));
+    assert.equal(evidence, `Evidence: ${a.evidence.dir}`);
+    assert.equal(a.evidence.privateCaptures, onDisk.length);
 });
 
 test('a request link cell never runs as a plain cell: no plain web, CLI or desktop leg starts', async () => {
@@ -256,6 +292,7 @@ test('TA-13 H-DIR-W2D-reqblip: the host goes through the blip, a visitor in the 
     assert.equal(w.dom.madeWith.web, WEB, 'and still points at the web under test');
     assert.deepEqual(a.request.blip, {
         cutMs: 5000,
+        liveBefore: 1,
         reconnecting: true,
         hostAbsent: true,
         reclaimed: true,
@@ -267,6 +304,55 @@ test('TA-13 H-DIR-W2D-reqblip: the host goes through the blip, a visitor in the 
     assert.deepEqual(a.request.addresses, { swapped: true, restored: true });
     assert.equal(w.dom.settings.server, LOCAL);
     assert.equal(w.dom.settings.web, '');
+});
+
+// The first live TA-13 run (2026-09-24) cut a proxy the host was never
+// behind and FAILed request-flow "the host read waiting 5000 ms on": a
+// harness fault that read as a product defect. Each way the host can miss
+// the proxy is now an ERROR blip-url before any cut.
+test('TA-13 with a blip proxy that hands back no URL: ERROR blip-url in the blip phase, and no host is driven', async () => {
+    const w = fakeRequestWorld();
+    const ctx = ctxFor(w, {
+        startBlip: async (o) => {
+            const b = await w.startBlip(o);
+            Object.defineProperty(b, 'url', { value: undefined });
+            return b;
+        },
+    });
+    const r = await runCell(small('H-DIR-W2D-reqblip'), ctx);
+    assert.equal(r.verdict, 'ERROR', r.note);
+    assert.equal(r.reason, 'blip-url', r.note);
+    assert.equal(r.attempts[0].failedPhase, 'blip');
+    assert.equal(r.attempts[0].signatureKey, 'blip-url');
+    assert.match(r.note, /blip-url: the blip proxy handed back no loopback URL/);
+    assert.equal(clicksOf(w, 'Make link').length, 0, 'no link was made');
+    assert.equal(w.dom.settings.server, LOCAL, 'the host address was never touched');
+    assert.equal(w.blips[0].cuts.length, 0, 'nothing was cut');
+    assert.equal(w.blips[0].stopped, true, 'the proxy was still stopped');
+});
+
+test('TA-13 with a host whose Settings keep the old server: ERROR blip-url in host.start, before any link', async () => {
+    const w = fakeRequestWorld({ host: { addressesStuck: true } });
+    const r = await runCell(small('H-DIR-W2D-reqblip'), ctxFor(w));
+    assert.equal(r.verdict, 'ERROR', r.note);
+    assert.equal(r.reason, 'blip-url', r.note);
+    assert.equal(r.attempts[0].failedPhase, 'host.start');
+    assert.match(r.note, /blip-url: the host did not take the blip proxy as its server address/);
+    assert.equal(clicksOf(w, 'Make link').length, 0, 'no link was made');
+    assert.equal(w.blips[0].cuts.length, 0, 'nothing was cut');
+});
+
+test('TA-13 with a host that is not behind the proxy (0 live sockets): ERROR blip-url before the cut, never a request-flow FAIL', async () => {
+    const w = fakeRequestWorld({ host: { ignoreServer: true } });
+    const r = await runCell(small('H-DIR-W2D-reqblip'), ctxFor(w));
+    assert.equal(r.verdict, 'ERROR', r.note);
+    assert.equal(r.reason, 'blip-url', r.note);
+    assert.equal(r.attempts[0].failedPhase, 'request');
+    assert.match(r.note, /blip-url: no socket runs through the blip proxy before the cut/);
+    assert.equal(r.attempts[0].request.blip.liveBefore, 0);
+    assert.equal(w.blips[0].cuts.length, 0, 'nothing was cut');
+    assert.equal(w.visitors.length, 0, 'no visitor opened the link');
+    assert.equal(w.dom.state, 'closed', 'the link was still closed at teardown');
 });
 
 test('TA-15 H-DIR-W2D-reqdecline: Decline after the guard, the declined copy, Keep waiting reopens, a second visitor delivers', async () => {
@@ -324,6 +410,86 @@ test('TA-17 H-DIR-W2C-reqopen: the quick cell passes with a link open, the same 
     assert.equal(f.verdict, 'FAIL');
     assert.equal(f.reason, 'request-flow');
     assert.match(f.note, /the open link did not survive the quick cell \(the host reads ended\)/);
+});
+
+/**
+ * ctx whose desktop sender (a plain fake leg) first stages its files the
+ * way DesktopLeg.startSender does on the wailsdev lane: PlaywrightDriver
+ * .stage on the sender's own page, which sits on the same dev server as
+ * the host's (fake-request-dom devPeerPage).
+ */
+function withDesktopSenderStaging(w, ctx) {
+    const peer = w.host.devPeerPage();
+    const inner = ctx.getAdapter;
+    ctx.getAdapter = async (name) => {
+        const mod = await inner(name);
+        if (name !== 'desktop') return mod;
+        return {
+            ...mod,
+            createLeg: (o) => {
+                const leg = mod.createLeg(o);
+                if (o.label === 'host' || o.role !== 'sender') return leg;
+                const start = leg.start.bind(leg);
+                leg.start = async (...args) => {
+                    await new PlaywrightDriver(peer, null, {}).stage(o.files);
+                    return start(...args);
+                };
+                return leg;
+            },
+        };
+    };
+    return peer;
+}
+
+test('TA-17 H-DIR-D2C-reqopen: the desktop sender stages on its own page only, so the host keeps REQUEST LINK and its link is closed at teardown', async () => {
+    const w = fakeRequestWorld();
+    const ctx = ctxFor(w);
+    const peer = withDesktopSenderStaging(w, ctx);
+    const r = await runCell(small('H-DIR-D2C-reqopen'), ctx);
+    assert.equal(r.verdict, 'PASS', r.note);
+    const a = r.attempts[0];
+    assert.ok(!a.notes.some((l) => /host release/.test(l)), a.notes.join(' | '));
+    assert.equal(a.request.after, 'waiting');
+    assert.equal(a.request.released, 'ended');
+    assert.equal(w.dom.state, 'closed', 'Close link at teardown');
+    assert.deepEqual(w.dom.broadcasts, [], 'nothing was rebroadcast to the host page');
+    assert.equal(w.dom.mode, 'receive', 'the host page never left Receive');
+    assert.equal(peer.peer.notified.length, 1, 'the sender page was handed its files');
+});
+
+test('TA-17 whose host page is moved to Send by another page mid-cell: the release goes back to REQUEST LINK and closes the link', async () => {
+    const w = fakeRequestWorld();
+    const ctx = ctxFor(w);
+    const peer = w.host.devPeerPage();
+    const inner = ctx.getAdapter;
+    ctx.getAdapter = async (name) => {
+        const mod = await inner(name);
+        if (name !== 'cli') return mod;
+        return {
+            ...mod,
+            createLeg: (o) => {
+                const leg = mod.createLeg(o);
+                const start = leg.start.bind(leg);
+                // Any page on the dev server that broadcasts files:open
+                // (an older driver, the owner's second tab).
+                leg.start = async (...args) => {
+                    await peer.evaluate(() =>
+                        window.runtime.EventsEmit('files:open', ['C:\\fx\\other.bin'])
+                    );
+                    return start(...args);
+                };
+                return leg;
+            },
+        };
+    };
+    const r = await runCell(small('H-DIR-C2W-reqopen'), ctx);
+    assert.equal(r.verdict, 'PASS', r.note);
+    const a = r.attempts[0];
+    assert.ok(!a.notes.some((l) => /host release/.test(l)), a.notes.join(' | '));
+    assert.equal(w.dom.broadcasts.length, 1, 'the host page did receive the broadcast');
+    assert.equal(a.request.released, 'ended');
+    assert.equal(w.dom.state, 'closed', 'Close link at teardown');
+    assert.equal(w.dom.settings.requestLinks, false, 'and the Beta switch is off again');
 });
 
 // ------------------------------------------------------- failure words
@@ -457,12 +623,105 @@ test('a link the cell did not make is never closed: the owner\'s open link is le
         link: `${WEB}/r/Xk3p9Q0aB1c#${FAKE_ROOM}`,
         linkSaveDir: 'C:\owner',
     });
+    const t0 = w.host.now();
     const r = await runCell(small('H-DIR-W2D-req'), ctxFor(w));
     assert.equal(r.verdict, 'ERROR', r.note);
+    // Refused by name before any click, not a 30 s Save to fill timeout
+    // on the waiting view (the first live run's C2D-reqopen, 2026-09-24).
+    assert.equal(r.reason, 'host-busy', r.note);
+    assert.equal(r.attempts[0].failedPhase, 'host.start');
+    assert.match(r.note, /host-busy: the host lane already holds waiting \(gen 1\) from before this cell/);
+    assert.ok(w.host.now() - t0 < 30_000, `refused in ${w.host.now() - t0} ms of fake time`);
     assert.equal(w.dom.state, 'waiting', 'the owner link still waits');
     assert.equal(clicksOf(w, 'Close link').length, 0);
+    assert.equal(clicksOf(w, 'Make link').length, 0);
+});
+
+test('a live link this run left behind (its folder inside the run) is closed first, noted, and the cell runs', async () => {
+    const w = fakeRequestWorld({ host: { settings: { requestLinks: true } } });
+    const ctx = ctxFor(w);
+    // The previous cell's link, still waiting: made into its own host-drops
+    // folder under this run's evidence root, as TA-17 makes them.
+    Object.assign(w.dom, {
+        state: 'waiting',
+        gen: 1,
+        link: `${WEB}/r/Xk3p9Q0aB1c#${FAKE_ROOM}`,
+        linkSaveDir: path.join(ctx.evidenceRoot, 'cells', 'H-DIR-D2C-reqopen', 'attempt-1', 'host-drops'),
+    });
+    const r = await runCell(small('H-DIR-W2D-req'), ctx);
+    assert.equal(r.verdict, 'PASS', r.note);
+    const a = r.attempts[0];
+    assert.deepEqual(a.request.swept, { state: 'waiting', gen: 1 });
     assert.ok(
-        r.attempts[0].notes.some((l) => /which this cell did not make; left alone/.test(l)),
+        a.notes.some((l) => /swept this run's leftover waiting link \(gen 1\) before Make link/.test(l)),
+        a.notes.join(' | ')
+    );
+    const names = w.dom.clicks.map((c) => c.name);
+    assert.ok(
+        names.indexOf('Close link') > -1 && names.indexOf('Close link') < names.indexOf('Make link'),
+        names.join(', ')
+    );
+    assertNoRoom(ctx, r, 'H-DIR-W2D-req');
+});
+
+// ------------------------------------------------------- the release
+
+// The first live run's D2C-reqopen (2026-09-24) PASSed while its release
+// failed: Close link timed out, the link and the Beta switch stayed on, and
+// the next cell inherited them. A release that does not leave the host as
+// found is now a keyed harness ERROR on a cell that otherwise passed.
+test('TA-17 whose Close link does not take: ERROR host-release in teardown, never a PASS with a note', async () => {
+    const w = fakeRequestWorld({ host: { closeStuck: true } });
+    const r = await runCell(small('H-DIR-W2C-reqopen'), ctxFor(w));
+    assert.equal(r.verdict, 'ERROR', r.note);
+    assert.equal(r.reason, 'host-release', r.note);
+    const a = r.attempts[0];
+    assert.equal(a.failedPhase, 'teardown');
+    assert.equal(a.signatureKey, 'host-release');
+    assert.equal(a.request.after, 'waiting', 'the quick cell itself held');
+    assert.match(r.note, /host-release: the host was not left as found/);
+    assert.match(r.note, /"Make another link" did not appear/);
+    assert.match(r.note, /Beta switch restore/);
+    assert.equal(attemptJson(a).signatureKey, 'host-release', 'attempt.json says so too');
+});
+
+test('TA-10 whose result cannot be put away: ERROR host-release (the Beta switch stays locked on)', async () => {
+    const w = fakeRequestWorld({ host: { dismissStuck: true } });
+    const r = await runCell(small('H-DIR-W2D-req'), ctxFor(w));
+    assert.equal(r.verdict, 'ERROR', r.note);
+    assert.equal(r.reason, 'host-release', r.note);
+    assert.match(r.note, /"Dismiss" was still showing/);
+    assert.match(r.note, /Beta switch restore/);
+    assert.equal(w.dom.settings.requestLinks, true, 'the switch really is still on');
+    assert.equal(attemptJson(r.attempts[0]).signatureKey, 'host-release');
+});
+
+test('a FAIL whose release also failed keeps its own finding and carries the host-release note', async () => {
+    const w = fakeRequestWorld({ faults: ['not-used-up'], host: { dismissStuck: true } });
+    const r = await runCell(small('H-DIR-W2D-req'), ctxFor(w));
+    assert.equal(r.verdict, 'FAIL', r.note);
+    assert.equal(r.reason, 'request-flow');
+    assert.ok(
+        r.attempts[0].notes.some((l) => /^host-release: the host was not left as found/.test(l)),
         r.attempts[0].notes.join(' | ')
     );
+});
+
+test('TA-17 whose release outlives the teardown budget: ERROR host-release, the release did not finish', async () => {
+    const w = fakeRequestWorld({ host: { closeHangs: true } });
+    const cell = small('H-DIR-W2C-reqopen');
+    cell.timeouts.teardown = 200;
+    const r = await runCell(cell, ctxFor(w));
+    assert.equal(r.verdict, 'ERROR', r.note);
+    assert.equal(r.reason, 'host-release', r.note);
+    assert.match(r.note, /did not finish within the teardown budget/);
+});
+
+test('TA-17 whose lane still reads waiting after Close link: ERROR host-release, the link this cell made is still live', async () => {
+    const w = fakeRequestWorld({ host: { laneStaysOpen: true } });
+    const r = await runCell(small('H-DIR-W2C-reqopen'), ctxFor(w));
+    assert.equal(r.verdict, 'ERROR', r.note);
+    assert.equal(r.reason, 'host-release', r.note);
+    assert.match(r.note, /host release: the link this cell made still reads waiting/);
+    assert.equal(r.attempts[0].request.released, 'waiting');
 });

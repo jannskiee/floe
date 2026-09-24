@@ -72,6 +72,18 @@ export function fakeRequestDom({
     saveDirStuck = false,
     betaStuck = false,
     makeError = null,
+    // TA-13 shapes: a SetSettings that keeps the old server address, and a
+    // host that makes its link on the old address whatever Settings reads.
+    addressesStuck = false,
+    ignoreServer = false,
+    // Release shapes: a Close link or Dismiss click the view ignores, a
+    // Close link click that never returns (the teardown budget runs out),
+    // and a view that shows the ended link while the lane still reads
+    // waiting.
+    closeStuck = false,
+    dismissStuck = false,
+    closeHangs = false,
+    laneStaysOpen = false,
 } = {}) {
     const clock = { t: 0, waiters: [] };
     const dom = {
@@ -84,7 +96,14 @@ export function fakeRequestDom({
         reopens: 0,
         picked: [],
         settingsOpen: false,
+        // App.tsx `mode`: the REQUEST LINK view shows only on Receive, and
+        // requestView is its `receiveKind === 'request'`.
+        mode: 'receive',
         requestView: false,
+        // What App.tsx addFiles staged, and every event the dev server
+        // rebroadcast to this page from another one (devPeerPage below).
+        staged: [],
+        broadcasts: [],
         saveDir: '',
         linkSaveDir: '',
         link: '',
@@ -166,15 +185,30 @@ export function fakeRequestDom({
     };
     const rowOn = () =>
         dom.settings.requestLinks && (dom.featureOn || HOLDS.has(dom.state));
+    // Receive > CODE | REQUEST LINK: the row, and the view under it, show
+    // only on the Receive tab.
+    const onRequestView = () =>
+        !dom.settingsOpen && dom.mode === 'receive' && dom.requestView;
     const visibleButtons = () => {
         tick();
         const out = ['Settings', 'Receive'];
         if (dom.settingsOpen || dom.closed) return dom.closed ? [] : out;
-        if (rowOn()) {
+        if (dom.mode === 'receive' && rowOn()) {
             out.push('Request link, beta');
             if (dom.requestView) out.push(...(VIEW_BUTTONS[dom.state] || []));
         }
         return out;
+    };
+    // App.tsx addFiles (the files:open listener): Settings closes and the
+    // page moves to Send with the paths staged.
+    dom.addFiles = (paths) => {
+        dom.settingsOpen = false;
+        dom.mode = 'send';
+        dom.staged = [...(paths || [])];
+    };
+    // The host page's own event listeners: EventsOn('files:open', addFiles).
+    const ownListeners = (msg) => {
+        if (msg && msg.name === 'files:open') dom.addFiles(msg.data?.[0]);
     };
     const visible = (name) => visibleButtons().includes(name);
     const makeLink = () => {
@@ -189,6 +223,7 @@ export function fakeRequestDom({
         dom.result = null;
         dom.linkSaveDir = dom.saveDir.trim();
         dom.madeWith = { ...dom.settings };
+        if (ignoreServer) dom.madeWith.server = 'http://localhost:3001';
         const web =
             dom.settings.web || webFor(dom.settings.server || 'http://localhost:3001');
         dom.link = link ?? `${web.replace(/\/+$/, '')}/r/Xk3p9Q0aB1c#${FAKE_ROOM}`;
@@ -202,7 +237,16 @@ export function fakeRequestDom({
             dom.settingsOpen = !dom.settingsOpen;
             return;
         }
-        if (name === 'Receive') return;
+        if (name === 'Receive') {
+            // App.tsx: entering Receive shows REQUEST LINK while the lane
+            // has something to say, CODE otherwise; staying on it changes
+            // nothing.
+            if (dom.mode !== 'receive') {
+                dom.mode = 'receive';
+                dom.requestView = dom.state !== 'ready';
+            }
+            return;
+        }
         if (name === 'Request link, beta') {
             dom.requestView = true;
             return;
@@ -229,12 +273,15 @@ export function fakeRequestDom({
             dom.state = 'waiting';
             if (dom.onAnswer) dom.onAnswer('keep-waiting');
         } else if (name === 'Close link') {
+            if (closeStuck) return;
             dom.state = 'closed';
             dom.code = 'closed';
             if (dom.onAnswer) dom.onAnswer('close');
         } else if (name === 'Cancel drop') {
             dom.state = 'stopped';
             dom.code = 'stopped';
+        } else if (name === 'Dismiss' && dismissStuck) {
+            return;
         } else if (name === 'Dismiss' || name === 'Make another link') {
             dom.state = 'ready';
             dom.result = null;
@@ -249,6 +296,7 @@ export function fakeRequestDom({
                 return visible(name);
             },
             async click() {
+                if (closeHangs && name === 'Close link') return new Promise(() => {});
                 click(name);
             },
             async waitFor() {
@@ -263,7 +311,12 @@ export function fakeRequestDom({
         const hasLink = [...LINK_STATES, 'receiving'].includes(dom.state);
         dom.seq += 1;
         return {
-            state: dom.state === 'closed' ? 'ended' : dom.state,
+            state:
+                dom.state === 'closed'
+                    ? laneStaysOpen
+                        ? 'waiting'
+                        : 'ended'
+                    : dom.state,
             code: dom.code,
             gen: dom.gen,
             seq: dom.seq,
@@ -293,7 +346,7 @@ export function fakeRequestDom({
                       : 'Active'
                 : 'Ready';
         const out = [pill];
-        if (dom.settingsOpen || !dom.requestView) return out.map(node);
+        if (!onRequestView()) return out.map(node);
         switch (dom.state) {
             case 'waiting':
                 out.push('Waiting for them to open the link.');
@@ -337,7 +390,7 @@ export function fakeRequestDom({
     };
     const inputNodes = () => {
         tick();
-        if (dom.settingsOpen || !dom.requestView) return [];
+        if (!onRequestView()) return [];
         if (LINK_STATES.has(dom.state)) {
             const value = screenText !== undefined ? screenText : dom.link;
             return [{ value, textContent: '', contains: () => false }];
@@ -387,11 +440,7 @@ export function fakeRequestDom({
                 throw new Error(`fake dom: placeholder ${text} not modeled`);
             return {
                 async fill(v) {
-                    if (
-                        dom.settingsOpen ||
-                        !dom.requestView ||
-                        !['ready', 'error'].includes(dom.state)
-                    )
+                    if (!onRequestView() || !['ready', 'error'].includes(dom.state))
                         throw new Error('fake dom: the Save to field is not showing');
                     if (!saveDirStuck) dom.saveDir = String(v);
                 },
@@ -433,7 +482,7 @@ export function fakeRequestDom({
                 SetSettings: async (server, web, hideIP, reportStats) => {
                     dom.setSettingsCalls.push({ server, web, hideIP, reportStats });
                     Object.assign(dom.settings, {
-                        server,
+                        server: addressesStuck ? dom.settings.server : server,
                         web,
                         hideIP,
                         reportStats,
@@ -445,7 +494,13 @@ export function fakeRequestDom({
                 },
             };
             globalThis.window = withBinding
-                ? { go: { main: { App: app } }, __floeRoute: null }
+                ? {
+                      go: { main: { App: app } },
+                      __floeRoute: null,
+                      // This page's own listeners (App.tsx's files:open).
+                      runtime: { EventsEmit: (name, ...data) => ownListeners({ name, data }) },
+                      wails: { EventsNotify: (json) => ownListeners(JSON.parse(json)) },
+                  }
                 : {};
             globalThis.document = {
                 querySelectorAll: (sel) =>
@@ -477,9 +532,48 @@ export function fakeRequestDom({
             dom.closed = true;
         },
     };
+    /**
+     * Another leg's page on the same wails dev server (its own Playwright
+     * context), with the two Wails runtime calls a page can make. Wails
+     * v2.12.0 devserver.go handleIPCWebSocket hands an `EE` (EventsEmit)
+     * message to notifyExcludingSender, which rebroadcasts it to every
+     * other connected page: this host page's files:open listener runs
+     * addFiles and leaves REQUEST LINK for Send (the first live TA-17 run,
+     * 2026-09-24). EventsNotify (runtime/desktop/events.js) reaches the
+     * calling page's own listeners and nothing else.
+     */
+    const devPeerPage = () => {
+        const peer = { emitted: [], notified: [] };
+        return {
+            peer,
+            async evaluate(fn, arg) {
+                const had = 'window' in globalThis;
+                const prev = globalThis.window;
+                globalThis.window = {
+                    runtime: {
+                        EventsEmit: (name, ...data) => {
+                            peer.emitted.push({ name, data });
+                            dom.broadcasts.push({ name, data });
+                            ownListeners({ name, data });
+                        },
+                    },
+                    wails: {
+                        EventsNotify: (json) => peer.notified.push(JSON.parse(json)),
+                    },
+                };
+                try {
+                    return await fn(arg);
+                } finally {
+                    if (had) globalThis.window = prev;
+                    else delete globalThis.window;
+                }
+            },
+        };
+    };
     return {
         page,
         context,
+        devPeerPage,
         dom,
         clock,
         now,

@@ -397,7 +397,11 @@ that no other lane does, every one of them learned from that run:
   `files:open` event `App.tsx` listens on, which is the same entry point
   Explorer's verb and a second instance use. The native picker behind the
   Files button (`SelectFiles()`) cannot be driven from a browser page, and
-  `StartSend()` would skip the button the cell exists to exercise.
+  `StartSend()` would skip the button the cell exists to exercise. The
+  event goes through `window.wails.EventsNotify`, which reaches the leg's
+  own page only: `runtime.EventsEmit` is rebroadcast by the dev server to
+  every other page, and on 2026-09-24 it moved a request host's page to
+  Send and stranded its Close link.
 - **The receive view's primary button.** It carries the same accessible
   name as the RECEIVE tab, and the calm redesign left it a sibling of the
   field groups rather than of the code input, so it is reached by document
@@ -492,7 +496,11 @@ to it, so none ever runs as a plain cell.
   Waiting within 60 s and a delivery after Try again. `cellPlan` refuses
   the cell against a server that is not loopback, the runner refuses it
   again as a safety stop before any proxy or page, and the proxy refuses a
-  non-loopback upstream: it can never point at api.floe.one.
+  non-loopback upstream: it can never point at api.floe.one. A host that
+  is not behind the proxy (no proxy URL, a server address that did not
+  read back, or no live socket through it before the cut) is ERROR
+  `blip-url` and nothing is cut: a cut of a proxy the host bypasses would
+  read the host's correct Waiting as a product defect.
 - TA-15 declines the first visitor, reads its declined copy, checks
   nothing was saved, clicks Keep waiting (`request-reopen`) and lets a
   second visitor context deliver.
@@ -503,15 +511,28 @@ to it, so none ever runs as a plain cell.
   W2W cell.
 - Teardown, pass or fail, and on an interrupt too (the host leg's stop):
   a running drop is canceled, the cell's link closed or its result put
-  away, the blip's addresses and the Beta switch restored. Only a link
-  generation the cell made is touched; a link the owner already had open
-  is left as it was, with a note.
+  away, the blip's addresses and the Beta switch restored. Every request
+  verb first brings the host page back to Receive > REQUEST LINK when it
+  is not showing it, so a page that moved to Send still gets its link
+  closed. Only a link generation the cell made is touched at teardown. A
+  live link found when a cell starts is closed first only when it saves
+  into this run's own
+  evidence root (a leftover of an earlier cell, noted as swept); any other
+  is the owner's, is left exactly as it is, and the cell is ERROR
+  `host-busy` before any click. A release that does not leave the host as
+  found (the link still open, the result still showing, the address or
+  the Beta switch not restored, or a release that outlived the teardown
+  budget) turns a cell that otherwise passed into ERROR `host-release`; a
+  cell that already failed keeps its own finding with the same words as a
+  note.
 - The link carries the room after `#`: it goes to the visitor's
   `page.goto` only. Every message, note, log line and evidence file passes
   through `redactRequestLinks` (`#<room>`, the link id stays), and the
   report's redaction applies the same net to audit.md and run.json. The
   host's captures can show the link on screen, so they go under
   `cells/<id>/attempt-<n>/private/host/`: never share that folder.
+  audit.md and run.json count them (`privateCaptures`) and never quote
+  their paths; an Evidence line names the attempt folder instead.
 - TA-12's over 2 GB prompt line (P6) is not reachable from a web visitor:
   the page probes its route 2 s after the channel opens and blocks a
   relayed drop over the cap before it sends any metadata, so no prompt
