@@ -492,7 +492,11 @@ to it, so none ever runs as a plain cell.
   Waiting within 60 s and a delivery after Try again. `cellPlan` refuses
   the cell against a server that is not loopback, the runner refuses it
   again as a safety stop before any proxy or page, and the proxy refuses a
-  non-loopback upstream: it can never point at api.floe.one.
+  non-loopback upstream: it can never point at api.floe.one. A host that
+  is not behind the proxy (no proxy URL, a server address that did not
+  read back, or no live socket through it before the cut) is ERROR
+  `blip-url` and nothing is cut: a cut of a proxy the host bypasses would
+  read the host's correct Waiting as a product defect.
 - TA-15 declines the first visitor, reads its declined copy, checks
   nothing was saved, clicks Keep waiting (`request-reopen`) and lets a
   second visitor context deliver.

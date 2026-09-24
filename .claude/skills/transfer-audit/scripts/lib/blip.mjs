@@ -48,7 +48,17 @@ export class BlipProxy {
             });
         });
         this.port = this.server.address().port;
-        return { port: this.port, url: `http://${BLIP_HOST}:${this.port}` };
+        return { port: this.port, url: this.url };
+    }
+
+    /**
+     * The URL the host is pointed at, or null before start(). request.mjs
+     * reads it off the instance startBlip returns; start() alone used to
+     * return it, so the first live TA-13 run (2026-09-24) swapped nothing
+     * and cut a proxy the host was never behind.
+     */
+    get url() {
+        return this.port == null ? null : `http://${BLIP_HOST}:${this.port}`;
     }
 
     get cutting() {

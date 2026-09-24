@@ -83,6 +83,22 @@ function flow(phase, message, extra = {}) {
     });
 }
 
+/**
+ * TA-13's host is not behind the blip proxy: no URL to point it at, a
+ * server address that did not read back, or no socket through the proxy
+ * before the cut. A harness ERROR, never a request-flow FAIL: the first
+ * live run (2026-09-24) cut a proxy the host was never behind and read the
+ * host's correct Waiting as a product defect.
+ */
+export const BLIP_KEY = 'blip-url';
+function blipUnproven(phase, message) {
+    return new PhaseError(phase, `${BLIP_KEY}: ${message}`, {
+        harness: true,
+        reason: BLIP_KEY,
+        signatureKey: BLIP_KEY,
+    });
+}
+
 function clockOf(ctx) {
     const c = ctx.clock || {};
     return {
@@ -221,10 +237,9 @@ async function startHost(cell, ctx, rec, st, { outDir, relayOnly, blipUrl = null
         const after = await host.driver.setAddresses(blipUrl, web);
         rec.request.addresses = { swapped: true, restored: null };
         if (!after || after.server !== blipUrl || after.web !== web)
-            throw new PhaseError(
+            throw blipUnproven(
                 'host.start',
-                'the host did not take the blip proxy as its server address (SetSettings read back something else)',
-                { harness: true, reason: 'wailsdev-config' }
+                'the host did not take the blip proxy as its server address (SetSettings read back something else)'
             );
     }
     // Only a link generation this cell made is ever closed or put away: the
@@ -429,11 +444,24 @@ async function runFlow(cell, ctx, rec, st, fixture, T) {
     }
     if (req.flow === 'blip-then-accept') {
         const ms = req.blipMs;
+        const blip = {
+            cutMs: ms,
+            liveBefore: Number(st.blip.live) || 0,
+            reconnecting: false,
+            hostAbsent: false,
+            reclaimed: false,
+        };
+        rec.request.blip = blip;
+        // The host's /ws is the one socket that must run through the proxy
+        // by now; with none, the cut would cut nothing.
+        if (blip.liveBefore < 1)
+            throw blipUnproven(
+                'request',
+                'no socket runs through the blip proxy before the cut, so the host is not behind it and the cut would cut nothing'
+            );
         const v = await open('visitor-1');
         const cutting = st.blip.cut(ms, { wait: st.clock.nap });
         cutting.catch(() => {});
-        const blip = { cutMs: ms, reconnecting: false, hostAbsent: false, reclaimed: false };
-        rec.request.blip = blip;
         await awaitHostState(host, ['reconnecting'], ms, {
             ...st.clock,
             fail: ['ended', 'error'],
@@ -886,6 +914,14 @@ export async function runRequestAttempt(cell, ctx, n) {
                     ctx.startBlip || (await import('./blip.mjs')).startBlip;
                 st.blip = await start({ upstream: server });
                 blipUrl = st.blip.url;
+                // The host is pointed at this URL next; without one the
+                // swap would be skipped and the cell would run with no
+                // proxy in the host's path.
+                if (!isLoopbackUrl(blipUrl))
+                    throw blipUnproven(
+                        'blip',
+                        'the blip proxy handed back no loopback URL, so the host cannot be pointed at it'
+                    );
             });
         }
         await phase('host.start', T.link + 30_000, () =>

@@ -81,6 +81,23 @@ test('blip binds 127.0.0.1 only and carries bytes both ways', async () => {
     }
 });
 
+test('the proxy keeps the URL the runner points the host at, and has none before it listens', async () => {
+    // request.mjs reads `blip.url` off what startBlip returns. start() used
+    // to return the URL without keeping it, so the first live TA-13 run
+    // (2026-09-24) pointed the host at nothing and cut a socket-free proxy.
+    const idle = new BlipProxy({ upstream: 'http://localhost:3001' });
+    assert.equal(idle.url, null, 'no URL before start()');
+    const echo = await echoServer();
+    const blip = await startBlip({ upstream: echo.url });
+    try {
+        assert.equal(blip.url, `http://${BLIP_HOST}:${blip.port}`);
+        assert.ok(blip.port > 0);
+    } finally {
+        await blip.stop();
+        await echo.close();
+    }
+});
+
 test('a cut closes live sockets, refuses new ones for the window, then resumes', async () => {
     const echo = await echoServer();
     const blip = await startBlip({ upstream: echo.url });

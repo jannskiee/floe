@@ -72,6 +72,10 @@ export function fakeRequestDom({
     saveDirStuck = false,
     betaStuck = false,
     makeError = null,
+    // TA-13 shapes: a SetSettings that keeps the old server address, and a
+    // host that makes its link on the old address whatever Settings reads.
+    addressesStuck = false,
+    ignoreServer = false,
 } = {}) {
     const clock = { t: 0, waiters: [] };
     const dom = {
@@ -189,6 +193,7 @@ export function fakeRequestDom({
         dom.result = null;
         dom.linkSaveDir = dom.saveDir.trim();
         dom.madeWith = { ...dom.settings };
+        if (ignoreServer) dom.madeWith.server = 'http://localhost:3001';
         const web =
             dom.settings.web || webFor(dom.settings.server || 'http://localhost:3001');
         dom.link = link ?? `${web.replace(/\/+$/, '')}/r/Xk3p9Q0aB1c#${FAKE_ROOM}`;
@@ -433,7 +438,7 @@ export function fakeRequestDom({
                 SetSettings: async (server, web, hideIP, reportStats) => {
                     dom.setSettingsCalls.push({ server, web, hideIP, reportStats });
                     Object.assign(dom.settings, {
-                        server,
+                        server: addressesStuck ? dom.settings.server : server,
                         web,
                         hideIP,
                         reportStats,

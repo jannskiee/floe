@@ -256,6 +256,7 @@ test('TA-13 H-DIR-W2D-reqblip: the host goes through the blip, a visitor in the 
     assert.equal(w.dom.madeWith.web, WEB, 'and still points at the web under test');
     assert.deepEqual(a.request.blip, {
         cutMs: 5000,
+        liveBefore: 1,
         reconnecting: true,
         hostAbsent: true,
         reclaimed: true,
@@ -267,6 +268,55 @@ test('TA-13 H-DIR-W2D-reqblip: the host goes through the blip, a visitor in the 
     assert.deepEqual(a.request.addresses, { swapped: true, restored: true });
     assert.equal(w.dom.settings.server, LOCAL);
     assert.equal(w.dom.settings.web, '');
+});
+
+// The first live TA-13 run (2026-09-24) cut a proxy the host was never
+// behind and FAILed request-flow "the host read waiting 5000 ms on": a
+// harness fault that read as a product defect. Each way the host can miss
+// the proxy is now an ERROR blip-url before any cut.
+test('TA-13 with a blip proxy that hands back no URL: ERROR blip-url in the blip phase, and no host is driven', async () => {
+    const w = fakeRequestWorld();
+    const ctx = ctxFor(w, {
+        startBlip: async (o) => {
+            const b = await w.startBlip(o);
+            Object.defineProperty(b, 'url', { value: undefined });
+            return b;
+        },
+    });
+    const r = await runCell(small('H-DIR-W2D-reqblip'), ctx);
+    assert.equal(r.verdict, 'ERROR', r.note);
+    assert.equal(r.reason, 'blip-url', r.note);
+    assert.equal(r.attempts[0].failedPhase, 'blip');
+    assert.equal(r.attempts[0].signatureKey, 'blip-url');
+    assert.match(r.note, /blip-url: the blip proxy handed back no loopback URL/);
+    assert.equal(clicksOf(w, 'Make link').length, 0, 'no link was made');
+    assert.equal(w.dom.settings.server, LOCAL, 'the host address was never touched');
+    assert.equal(w.blips[0].cuts.length, 0, 'nothing was cut');
+    assert.equal(w.blips[0].stopped, true, 'the proxy was still stopped');
+});
+
+test('TA-13 with a host whose Settings keep the old server: ERROR blip-url in host.start, before any link', async () => {
+    const w = fakeRequestWorld({ host: { addressesStuck: true } });
+    const r = await runCell(small('H-DIR-W2D-reqblip'), ctxFor(w));
+    assert.equal(r.verdict, 'ERROR', r.note);
+    assert.equal(r.reason, 'blip-url', r.note);
+    assert.equal(r.attempts[0].failedPhase, 'host.start');
+    assert.match(r.note, /blip-url: the host did not take the blip proxy as its server address/);
+    assert.equal(clicksOf(w, 'Make link').length, 0, 'no link was made');
+    assert.equal(w.blips[0].cuts.length, 0, 'nothing was cut');
+});
+
+test('TA-13 with a host that is not behind the proxy (0 live sockets): ERROR blip-url before the cut, never a request-flow FAIL', async () => {
+    const w = fakeRequestWorld({ host: { ignoreServer: true } });
+    const r = await runCell(small('H-DIR-W2D-reqblip'), ctxFor(w));
+    assert.equal(r.verdict, 'ERROR', r.note);
+    assert.equal(r.reason, 'blip-url', r.note);
+    assert.equal(r.attempts[0].failedPhase, 'request');
+    assert.match(r.note, /blip-url: no socket runs through the blip proxy before the cut/);
+    assert.equal(r.attempts[0].request.blip.liveBefore, 0);
+    assert.equal(w.blips[0].cuts.length, 0, 'nothing was cut');
+    assert.equal(w.visitors.length, 0, 'no visitor opened the link');
+    assert.equal(w.dom.state, 'closed', 'the link was still closed at teardown');
 });
 
 test('TA-15 H-DIR-W2D-reqdecline: Decline after the guard, the declined copy, Keep waiting reopens, a second visitor delivers', async () => {

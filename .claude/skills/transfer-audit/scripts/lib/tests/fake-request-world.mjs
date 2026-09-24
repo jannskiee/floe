@@ -18,10 +18,12 @@
 import { copyFileSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
+import { BLIP_HOST, BlipProxy } from '../blip.mjs';
 import { DesktopLeg, PlaywrightDriver } from '../desktop.mjs';
 import { fakeRequestDom } from './fake-request-dom.mjs';
 
-export const BLIP_URL = 'http://127.0.0.1:45999';
+const BLIP_PORT = 45999;
+export const BLIP_URL = `http://${BLIP_HOST}:${BLIP_PORT}`;
 const SUB = 'Floe request 1';
 
 const TITLES = {
@@ -33,15 +35,6 @@ const TITLES = {
     absent: 'Their computer is not connected right now',
     used: 'This link has already been used',
     refused: 'A file changed or was damaged on the way, so their Floe deleted it',
-};
-
-const isLoopback = (u) => {
-    try {
-        const h = new URL(u).hostname.replace(/^\[|\]$/g, '');
-        return h === 'localhost' || h === '::1' || /^127\./.test(h);
-    } catch {
-        return false;
-    }
 };
 
 const sizeOf = (p) => {
@@ -403,32 +396,39 @@ export function fakeRequestWorld({
             return fakeVisitorContext(world, opts);
         },
     };
+    // The real BlipProxy, so the runner reads exactly the fields the real
+    // proxy has: the first live TA-13 run (2026-09-24) died on a `url` the
+    // old hand-written fake had and the real proxy did not. Nothing listens:
+    // start() is never called, the port is the one it would have bound, and
+    // only the socket side (live, cut, stop) is scripted on the fake clock.
     world.startBlip = async ({ upstream }) => {
-        if (!isLoopback(upstream))
-            throw new Error(`blip: upstream ${upstream} is not a loopback http(s) URL`);
-        const b = {
-            upstream,
-            url: BLIP_URL,
-            port: 45999,
-            cuts: [],
-            stopped: false,
-            async cut(ms, { wait = h.nap } = {}) {
-                const from = h.now();
-                b.cuts.push({ from, ms });
-                // Only a host whose link was made through the proxy loses
-                // its socket.
-                if (dom.madeWith?.server === BLIP_URL)
-                    dom.blip = {
-                        from,
-                        until: from + ms,
-                        reclaimMs: world.has('no-reclaim') ? Infinity : reclaimMs,
-                    };
-                await wait(ms);
-                return { cutAt: from, resumedAt: h.now(), destroyed: 1 };
-            },
-            async stop() {
-                b.stopped = true;
-            },
+        const b = new BlipProxy({ upstream, now: h.now });
+        b.port = BLIP_PORT;
+        b.upstream = upstream;
+        b.cuts = [];
+        b.stopped = false;
+        // One proxied socket: the host's /ws, once its link was made
+        // through this proxy's own URL.
+        const hostSockets = () =>
+            b.url && dom.madeWith?.server === b.url && !b.stopped ? 1 : 0;
+        Object.defineProperty(b, 'live', { get: hostSockets });
+        b.cut = async (ms, { wait = h.nap } = {}) => {
+            const from = h.now();
+            const destroyed = hostSockets();
+            b.cuts.push({ from, ms });
+            // Only a host whose link was made through the proxy loses
+            // its socket.
+            if (destroyed)
+                dom.blip = {
+                    from,
+                    until: from + ms,
+                    reclaimMs: world.has('no-reclaim') ? Infinity : reclaimMs,
+                };
+            await wait(ms);
+            return { cutAt: from, resumedAt: h.now(), destroyed };
+        };
+        b.stop = async () => {
+            b.stopped = true;
         };
         world.blips.push(b);
         return b;

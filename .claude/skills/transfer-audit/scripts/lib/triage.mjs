@@ -22,6 +22,9 @@ export const SIGNATURES = Object.freeze([
     // that passes would make a lane or visitor defect read as luck.
     ['request-flow', /request-flow/, false, 'request-flow'],
     ['request-manifest', /request-manifest/, false, 'request-manifest'],
+    // The request runner's own harness ERRORs (keyed, so the report can name
+    // a triage row): TA-13's host not behind the blip proxy.
+    ['blip-url', /blip-url/, false, 'blip-url'],
     // A .part left behind by a receiver that exited clean is a product
     // defect (the staged write was never committed or abandoned), never a
     // harness fault.
@@ -187,6 +190,7 @@ export const TRIAGE_KEYS = new Set([
     'wsl-host-ip',
     'request-flow',
     'request-manifest',
+    'blip-url',
 ]);
 
 export const INFRA_KEYS = new Set([
