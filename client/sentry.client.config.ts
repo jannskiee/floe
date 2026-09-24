@@ -91,13 +91,21 @@ Sentry.init({
     // fragment included, onto every event's request.url and onto the segment
     // span's url.full. On a receiver page that is the whole share link, so
     // until this hook existed one trace-sampled page load in ten sent it.
+    // browserTracing also names six or more navigation-timing spans per page
+    // load after that same URL (browser.domContentLoadedEvent, browser.loadEvent,
+    // browser.request and their siblings), which this hook left in place until
+    // scrubTransactionEvent learned to scrub span descriptions too.
     beforeSendTransaction(event) {
         return scrubTransactionEvent(event);
     },
 
-    // Standalone spans (the span-streaming lifecycle) bypass
-    // beforeSendTransaction. Scrub their URL attributes the same way so a
-    // future SDK default cannot reopen the gap.
+    // Standalone spans (INP and the other standalone web-vital spans) never
+    // become a transaction, so beforeSendTransaction cannot see them; the SDK
+    // sends them through this hook instead. It also runs, before
+    // beforeSendTransaction, over a transaction's root span and every child
+    // span, so each transaction is scrubbed twice: scrubSpanJson must stay
+    // idempotent. The span-streaming lifecycle (traceLifecycle 'stream') does
+    // not call a plain beforeSendSpan at all and is not enabled here.
     beforeSendSpan(span) {
         return scrubSpanJson(span);
     },
