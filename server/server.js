@@ -505,6 +505,18 @@ const MAX_REQUEST_ROOMS = 5000;
 // so it dies with the socket and needs no map and no sweep.
 const REQUEST_JOINS_PER_MINUTE = 30;
 const REQUEST_JOIN_WINDOW_MS = 60 * 1000;
+// Per reservation, in any rolling 60 s (CP-SE F1-1): how many times a visitor
+// can be seated. Every seating sends the host user-connected, and Floe Desktop
+// answers each one with a GET /api/turn-credentials from its own address,
+// whose budget is 20 a minute for everyone behind it (turn.js). Seat 1 frees
+// on the visitor's own leave, so without this one link holder paced the
+// host's fetches: 30 a minute per socket, and the probe drew 10 429s in 4 s.
+// 6 leaves the host's network 14 of its 20. A real visitor needs 1 to 3 a
+// minute (a blip and Try again, its own old seat's room-full retry, an
+// eviction on reopen; a room-full answer is no seating), the S1-WEB-05 cells
+// need at most 2 per link, and all of them pressed into 40 s are 5.
+const REQUEST_SEATINGS_PER_MINUTE = 6;
+const REQUEST_SEATING_WINDOW_MS = 60 * 1000;
 // A reservation older than the longest link life (7 days) plus the grace ends
 // at the next sweep, sealed or not (D-021): a drop is capped at 24 h, and a
 // modified desktop could otherwise hold one for as long as its socket lives.
@@ -706,15 +718,32 @@ function requestJoinAllowed(peer, now = Date.now()) {
     return true;
 }
 
+// The per-reservation seating budget. `seatedAt` holds the times of the last
+// REQUEST_SEATINGS_PER_MINUTE seatings, oldest first, so it is a constant few
+// numbers on the reservation's own record and ends with it: no map, no sweep.
+// A rolling window, so never more than the budget in any 60 s. Nothing resets
+// it but time: not a reopen (Floe Desktop sends one after every leave), not a
+// reclaim.
+function seatingAllowed(meta, now) {
+    const seatedAt = meta.seatedAt;
+    return seatedAt.length < REQUEST_SEATINGS_PER_MINUTE || now - seatedAt[0] >= REQUEST_SEATING_WINDOW_MS;
+}
+
+function recordSeating(meta, now) {
+    meta.seatedAt.push(now);
+    if (meta.seatedAt.length > REQUEST_SEATINGS_PER_MINUTE) meta.seatedAt.shift();
+}
+
 // request-join over Socket.IO (the /r page) or /ws (a CLI visitor). Never
 // creates a room and never takes seat 0. Precedence (spec 04 5.6.4): the
 // budget, the id's shape, the kill switch (which wins over every other
 // answer), then host-absent for an unknown or ordinary id alike (no existence
 // oracle), an idempotent re-join, room-full for a sealed link (the truthful
 // answer while its host is briefly away), host-absent for an empty seat 0,
-// room-full for a full room, and only then the seat. The two-key room seal
-// is not applied here: seat 0 is token-held and seat 1 is closed by
-// request-seal, so a visitor sharing the host's address is seated.
+// room-full for a full room, room-full past the link's seating budget, and
+// only then the seat. The two-key room seal is not applied here: seat 0 is
+// token-held and seat 1 is closed by request-seal, so a visitor sharing the
+// host's address is seated.
 function handleRequestJoin(peer, roomId, now = Date.now()) {
     if (!requestJoinAllowed(peer, now)) return;
     if (typeof roomId !== 'string' || !UUID_REGEX.test(roomId)) {
@@ -750,10 +779,18 @@ function handleRequestJoin(peer, roomId, now = Date.now()) {
         peer.send('host-absent', {}); // defensive: a seated host is always in the array
         return;
     }
+    // Last, so it never changes another case's answer, and before the leave,
+    // so a refused peer keeps whatever seat it had and the reservation is
+    // untouched. The shipped room-full: a full link, as far as anyone can tell.
+    if (!seatingAllowed(meta, now)) {
+        peer.send('room-full', {});
+        return;
+    }
 
     leaveCurrentRoom(peer, now);
     room.push(peer);
     peer.roomId = id;
+    recordSeating(meta, now);
     meta.signaled.clear(); // a new pairing: both seats must signal again
     peer.send('request-joined', { role: 'visitor' });
     try {
@@ -875,6 +912,7 @@ function handleHostJoin(peer, roomId, hostToken, now = Date.now()) {
         hostPeerId: peer.id,
         sealed: false,
         signaled: new Set(), // peer ids, not keys: who has signaled in this pairing (noteRequestSignal)
+        seatedAt: [], // times of the last few seatings (seatingAllowed)
         createdAt: now,
         hostAbsentSince: null,
     });
@@ -1480,6 +1518,7 @@ module.exports = {
     handleRequestJoin,
     requestJoinAllowed,
     REQUEST_JOINS_PER_MINUTE,
+    REQUEST_SEATINGS_PER_MINUTE,
     handleRequestControl,
     REQUEST_MAX_AGE_MS,
 };

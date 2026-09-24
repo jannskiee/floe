@@ -73,6 +73,7 @@ const {
     handleRequestJoin,
     requestJoinAllowed,
     REQUEST_JOINS_PER_MINUTE,
+    REQUEST_SEATINGS_PER_MINUTE,
     handleRequestControl,
     REQUEST_MAX_AGE_MS,
     REQUEST_CREATE_KEYS_MAX,
@@ -2473,6 +2474,135 @@ describe('handleRequestJoin', () => {
             Date.now = realNow;
         }
     });
+
+    it('a link holder that seats and unseats itself is seated at most 6 times in any 60 s; the rest get room-full and change nothing', () => {
+        // CP-SE F1-1. Every seating sends the host user-connected, and Floe
+        // Desktop answers each one with a TURN fetch from its own network,
+        // whose budget is 20 a minute. One socket, inside its own 30-frame
+        // budget, seats itself and leaves by a plain join to a fresh room.
+        const { host, id, token } = waitingHost();
+        const v = makePeer('looper', 'k-looper');
+        const answers = [];
+        for (let i = 0; i < 30; i++) {
+            handleRequestJoin(v, id, T0 + i * 100);
+            answers.push(v.msgs.pop().type);
+            handleJoinRoom(v, randomUUID()); // leave without closing the socket
+            v.msgs.length = 0;
+        }
+        const connected = host.msgs.filter(m => m.type === 'user-connected').length;
+        assert.equal(connected, 6, 'user-connected the host saw inside one minute');
+        assert.deepEqual(answers, [...Array(6).fill('request-joined'), ...Array(24).fill('room-full')]);
+        assert.equal(REQUEST_SEATINGS_PER_MINUTE, 6);
+
+        // A refused seating changed nothing: the host heard only the six
+        // pairings, the looper kept the seat it had, and the reservation
+        // still waits, unsealed, for its host's visitor.
+        assert.deepEqual(host.msgs.map(m => m.type), Array(6).fill(['user-connected', 'peer-disconnected']).flat());
+        assert.notEqual(v.roomId, id);
+        assert.deepEqual(rooms.get(v.roomId), [v]);
+        assert.deepEqual(rooms.get(id), [host]);
+        const meta = roomMeta.get(id);
+        assert.equal(meta.sealed, false);
+        assert.equal(meta.hostPeerId, host.id);
+        assert.equal(meta.signaled.size, 0);
+        assert.equal(roomMeta.size, 1 + 1, 'the reservation and the looper\'s ordinary room');
+
+        // Another link is unaffected.
+        const other = waitingHost('k-other');
+        const z = makePeer('z', 'k-z');
+        handleRequestJoin(z, other.id, T0 + 3_000);
+        assert.deepEqual(z.msgs.pop(), { type: 'request-joined', data: { role: 'visitor' } });
+
+        // Per reservation, not per socket or key: a fresh socket from anywhere
+        // is refused too, and the host's reopen (Floe Desktop sends one after
+        // every leave) does not refill it.
+        handleRequestControl(host, 'request-reopen', id);
+        const w = makePeer('w', 'k-w');
+        handleRequestJoin(w, id, T0 + 59_999);
+        assert.deepEqual(w.msgs.pop(), { type: 'room-full', data: {} });
+        assert.equal(w.roomId, null);
+
+        // Rolling: each seating frees its slot 60 s after it was made.
+        handleRequestJoin(w, id, T0 + 60_000);
+        assert.deepEqual(w.msgs.pop(), { type: 'request-joined', data: { role: 'visitor' } });
+        handleDisconnect(w);
+        const x = makePeer('x', 'k-x');
+        handleRequestJoin(x, id, T0 + 60_050);
+        assert.deepEqual(x.msgs.pop(), { type: 'room-full', data: {} });
+        handleRequestJoin(x, id, T0 + 60_100);
+        assert.deepEqual(x.msgs.pop(), { type: 'request-joined', data: { role: 'visitor' } });
+        handleDisconnect(x);
+
+        // The budget is the last check, so a truer answer still wins over it.
+        handleDisconnect(host, T0 + 60_110);
+        const y = makePeer('y', 'k-y');
+        handleRequestJoin(y, id, T0 + 60_120);
+        assert.deepEqual(y.msgs.pop(), { type: 'host-absent', data: {} });
+
+        // A reclaim keeps the reservation, and its budget with it.
+        const back = makePeer('back', 'host-key');
+        assert.deepEqual(hostJoin(back, token, T0 + 60_130), { type: 'room-joined', data: { role: 'host' } });
+        handleRequestJoin(y, id, T0 + 60_140);
+        assert.deepEqual(y.msgs.pop(), { type: 'room-full', data: {} });
+
+        // The budget dies with its reservation: after request-close, the same
+        // token's new reservation (a counted create) seats at once.
+        handleRequestControl(back, 'request-close', id);
+        const again = makePeer('again', 'host-key');
+        assert.deepEqual(hostJoin(again, token, T0 + 60_150), { type: 'room-joined', data: { role: 'host' } });
+        assert.equal(createsInWindow('host-key', T0 + 60_150), 2);
+        handleRequestJoin(y, id, T0 + 60_160);
+        assert.deepEqual(y.msgs.pop(), { type: 'request-joined', data: { role: 'visitor' } });
+    });
+
+    it('the re-seats a real visitor can need in one minute all still seat', () => {
+        // The flows the seating budget must never refuse, pressed into 40 s,
+        // which none of them can really fit in (the host waits 30 s for an
+        // answer and 30 s for the channel before it reopens). Each seating is
+        // one; a room-full answer costs nothing. Five seatings against 6.
+        const { host, id } = waitingHost();
+        const joined = { type: 'request-joined', data: { role: 'visitor' } };
+        const full = { type: 'room-full', data: {} };
+        const join = (p, t) => { handleRequestJoin(p, id, t); return p.msgs.pop(); };
+
+        // 1. The first visit. Its socket blips before the channel opens.
+        const a = makePeer('a', 'k-v');
+        assert.deepEqual(join(a, T0), joined);
+
+        // 2. Try again on a new socket while the server still holds the old
+        //    seat: room-full, and the page's own retry 3 s later seats (R2).
+        const b = makePeer('b', 'k-v');
+        assert.deepEqual(join(b, T0 + 2_000), full);
+        handleDisconnect(a);
+        assert.deepEqual(join(b, T0 + 5_000), joined);
+
+        // 3. A failed setup: the host reopens and evicts it (E-03); Try again.
+        handleRequestControl(host, 'request-reopen', id);
+        assert.deepEqual(b.msgs.pop(), full);
+        assert.deepEqual(join(b, T0 + 10_000), joined);
+
+        // 4. The pair signals (the room seals), the host declines and keeps
+        //    waiting (a reopen), and the visitor sends again.
+        handleSignal(host, { type: 'offer' }, null);
+        handleSignal(b, { type: 'answer' }, null);
+        assert.equal(roomMeta.get(id).sealed, true);
+        handleRequestControl(host, 'request-reopen', id);
+        assert.deepEqual(b.msgs.pop(), full);
+        assert.deepEqual(join(b, T0 + 20_000), joined);
+
+        // 5. The socket goes after it answered, before its channel opened: the
+        //    room is sealed on that seat, the page's retries answer room-full
+        //    until the host reopens (L1), and the next one seats.
+        handleSignal(host, { type: 'offer' }, null);
+        handleSignal(b, { type: 'answer' }, null);
+        handleDisconnect(b);
+        const c = makePeer('c', 'k-v');
+        for (let t = T0 + 23_000; t < T0 + 35_000; t += 3_000) assert.deepEqual(join(c, t), full);
+        handleRequestControl(host, 'request-reopen', id);
+        assert.deepEqual(join(c, T0 + 38_000), joined);
+
+        assert.equal(host.msgs.filter(m => m.type === 'user-connected').length, 5);
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -2826,15 +2956,17 @@ describe('request rooms: disconnect and sweep', () => {
         const id = roomIdFromToken(token);
         const host = makePeer('host', '198.51.100.200');
         hostJoin(host, token, RQ_T0);
+        // At the seating budget's own pace, the fastest one link can be seated.
+        const pace = 60_000 / REQUEST_SEATINGS_PER_MINUTE;
         for (let i = 0; i < 50; i++) {
             const v = makePeer(`v${i}`, `203.0.113.${i}`);
-            handleRequestJoin(v, id, RQ_T0);
+            handleRequestJoin(v, id, RQ_T0 + i * pace);
             assert.equal(v.roomId, id, `visitor ${i} seated`);
             handleSignal(v, { type: 'anything' }, null);
             handleDisconnect(v);
         }
         const v = makePeer('last', '203.0.113.99');
-        handleRequestJoin(v, id, RQ_T0);
+        handleRequestJoin(v, id, RQ_T0 + 50 * pace);
         handleSignal(host, { type: 'offer' }, null);
         assert.equal(roomMeta.get(id).keys.size, 0);
 
