@@ -8,6 +8,7 @@
 //
 // Pure: no DOM, no Wails runtime, no clock except the injected one.
 
+import {COMMIT_KEPT_PART} from './errors';
 import {fmtBytes} from './incoming';
 
 // ---- A request link pasted into Receive > CODE ----------------------------
@@ -273,10 +274,29 @@ export function stoppedFull(code: string, saved: number, files: number): string 
     return `${s.full} ${savedOf(saved, files)}`;
 }
 
-/** stoppedShowsFolder: Show in folder and the follow-up line appear only when
- *  at least one file was saved (DT-05 draws neither for relay-cap). */
+/** stoppedShowsFolder: Show in folder appears when at least one file was
+ *  saved (DT-05 draws it for no relay-cap stop), and for save-blocked even with
+ *  none saved (D-128, the one exception to DT-05): the engine keeps the file it
+ *  could not move into place, complete and verified, as a .part in the drop
+ *  folder (E-36), and keptPartLine says so. */
 export function stoppedShowsFolder(code: string, saved: number): boolean {
+    return code !== 'relay-cap' && (saved > 0 || code === 'save-blocked');
+}
+
+/** stoppedShowsFollowUp: the follow-up line (ST15) keeps its approved state,
+ *  at least one file saved, and never for relay-cap (DT-05). D-128 left it. */
+export function stoppedShowsFollowUp(code: string, saved: number): boolean {
     return saved > 0 && code !== 'relay-cap';
+}
+
+/** RX10 (D-123), the code receive's sentence for a file kept as a .part. */
+export const SAVE_BLOCKED_KEPT_LINE = COMMIT_KEPT_PART;
+
+/** keptPartLine is the line a stopped drop adds, on the card and in History,
+ *  when the engine kept a verified .part in the drop folder: save-blocked
+ *  only (D-128). It names no file, and every other code gets none. */
+export function keptPartLine(code: string): string {
+    return code === 'save-blocked' ? SAVE_BLOCKED_KEPT_LINE : '';
 }
 
 // ---- Dialogs, header, notice, announcements --------------------------------

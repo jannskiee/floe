@@ -122,6 +122,21 @@ describe('request drops in History', () => {
         expect(requestHistoryEntry(snap({state: 'done'}), AT)).toBeNull(); // no result
     });
 
+    it('a save-blocked stop with nothing saved still gets its row (D-128)', () => {
+        // The engine keeps that file, complete and verified, as a .part in the
+        // drop folder (E-36): the row keeps the folder and the code, and no
+        // name, since nothing was saved under one.
+        const blocked = {...result, files: 1, saved: 0, bytes: 0, verified: 0, renamed: 0, names: []};
+        expect(requestHistoryEntry(snap({state: 'stopped', code: 'save-blocked', result: blocked}), AT)).toEqual({
+            kind: 'recv', names: [], count: 0, dir: result.folder, at: AT, via: 'request', label: 'Acme footage',
+            verified: 0, renamed: 0, offered: 1, stopped: 'save-blocked',
+        });
+        // Every other stop with nothing saved still adds nothing.
+        for (const code of ['write-failed', 'disk-full', 'stopped', 'peer-abort', 'unknown', '']) {
+            expect(requestHistoryEntry(snap({state: 'stopped', code, result: blocked}), AT), code).toBeNull();
+        }
+    });
+
     it('request rows keep at most 200 names and the real count', () => {
         const names = Array.from({length: 201}, (_, i) => `f${i}.bin`);
         const row = requestHistoryEntry(snap({state: 'done', result: {...result, files: 201, saved: 201, verified: 201, names}}), AT)!;

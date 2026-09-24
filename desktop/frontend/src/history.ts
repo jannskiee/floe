@@ -80,14 +80,18 @@ export const REQUEST_NAMES_CAP = 200;
 
 /** requestHistoryEntry is the one History row a finished request drop adds
  *  (S1-DSK-09): a done drop, or a stopped one that saved at least one file
- *  (OD-31 O4: the files exist on disk). Anything else adds nothing. Built only
- *  from the snapshot's result, the owner's label and the stop code; the link
- *  and the room id never reach it. The names are the engine's display-safe
- *  saved names. */
+ *  (OD-31 O4: the files exist on disk), or a save-blocked one whatever it
+ *  saved (D-128: the engine kept the file it could not move into place as a
+ *  verified .part in the drop folder, and the row says so through
+ *  keptPartLine). Anything else adds nothing. Built only from the snapshot's
+ *  result, the owner's label and the stop code; the link and the room id never
+ *  reach it. The names are the engine's display-safe saved names, so the kept
+ *  .part, saved under none, adds no name. */
 export function requestHistoryEntry(snap: RequestLinkSnapshot, now: number = Date.now()): HistEntry | null {
     const r = snap.result;
     if (!r) return null;
-    if (snap.state !== 'done' && !(snap.state === 'stopped' && r.saved > 0)) return null;
+    const stopped = snap.state === 'stopped' && (r.saved > 0 || snap.code === 'save-blocked');
+    if (snap.state !== 'done' && !stopped) return null;
     const entry: HistEntry = {
         kind: 'recv',
         names: r.names.slice(0, REQUEST_NAMES_CAP),

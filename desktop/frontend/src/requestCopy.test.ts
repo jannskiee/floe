@@ -209,6 +209,26 @@ describe('stop codes', () => {
         expect(stoppedShowsFolder('relay-cap', 3)).toBe(false);
         expect(savedOf(0, 12)).toBe('0 of 12 files were saved.');
     });
+
+    it('a save-blocked stop shows the folder and the kept-file line whatever was saved (D-128)', () => {
+        // The one exception to DT-05's rule for the folder: the engine keeps
+        // the file it could not move into place, complete and verified, as a
+        // .part in the drop folder (E-36). The follow-up line (ST15) keeps its
+        // approved state, at least one file saved.
+        expect(stoppedShowsFolder('save-blocked', 0)).toBe(true);
+        expect(stoppedShowsFolder('save-blocked', 3)).toBe(true);
+        expect(copy.stoppedShowsFollowUp('save-blocked', 0)).toBe(false);
+        expect(copy.stoppedShowsFollowUp('save-blocked', 3)).toBe(true);
+        expect(copy.stoppedShowsFollowUp('disk-full', 4)).toBe(true);
+        expect(copy.stoppedShowsFollowUp('disk-full', 0)).toBe(false);
+        expect(copy.stoppedShowsFollowUp('relay-cap', 3)).toBe(false);
+        // RX10 (D-123), the code receive's sentence for the same kept file.
+        expect(copy.SAVE_BLOCKED_KEPT_LINE).toBe('Received a file in full but could not finish saving it. The complete file was kept in the save folder with a .part ending.');
+        expect(copy.keptPartLine('save-blocked')).toBe(copy.SAVE_BLOCKED_KEPT_LINE);
+        for (const code of ['disk-full', 'write-failed', 'relay-cap', 'stopped', 'peer-abort', 'unknown', '', '<img src=x onerror=alert(1)>']) {
+            expect(copy.keptPartLine(code), code).toBe('');
+        }
+    });
 });
 
 describe('the whole table', () => {
@@ -225,7 +245,7 @@ describe('the whole table', () => {
         const out: string[] = [];
         for (const v of Object.values(copy)) if (typeof v === 'string') out.push(v);
         for (const code of CODES) {
-            out.push(errorLine(code), endedLine(code, END), stoppedCard(code, 4, 12), stoppedFull(code, 4, 12));
+            out.push(errorLine(code), endedLine(code, END), stoppedCard(code, 4, 12), stoppedFull(code, 4, 12), copy.keptPartLine(code));
             out.push(warningLine(code, {freeBytes: 31 * GB, totalBytes: 38 * GB}, 'D:\\Footage\\Floe requests'));
             out.push(reopenLine({code, missedAt: MISSED, suggestClose: false}), reopenLine({code, suggestClose: false}));
         }
@@ -254,6 +274,10 @@ describe('the whole table', () => {
 
     it('carries no pending-rename, QR or denied copy', () => {
         const all = everyOutput().join('\n');
-        expect(all).not.toMatch(/keep trying for 5 minutes|\.part\b|QR|scans this|turned off request links for this network/);
+        // DN10, the pending-rename line, stays cut (E-36): it named the kept
+        // file ("It is kept as A001_C002.mov.part"). The one .part sentence
+        // the module may produce is RX10's, which names none (D-128).
+        expect(all).not.toMatch(/keep trying for 5 minutes|would not let Floe rename|kept as \S*\.part|QR|scans this|turned off request links for this network/);
+        expect(all.match(/\.part\b/g) ?? []).toHaveLength(all.split(copy.SAVE_BLOCKED_KEPT_LINE).length - 1);
     });
 });

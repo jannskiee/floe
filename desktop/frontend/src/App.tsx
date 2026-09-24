@@ -903,7 +903,8 @@ function App() {
     }, [reqUI.snap.state, reqUI.snap.expiresAt, reqUI.snap.gen]);
 
     // One History row per finished drop (S1-DSK-09): the first time a lane
-    // generation reaches done, or stopped with files saved. Go may re-emit a
+    // generation reaches done, or stopped with files saved, or save-blocked
+    // (D-128, requestHistoryEntry). Go may re-emit a
     // terminal snapshot (a GetRequestLink pull, a later event of the same
     // gen), so the gens already recorded are remembered and a copy adds
     // nothing. The row keeps no link and no room id (requestHistoryEntry).

@@ -341,6 +341,27 @@ describe('the result card', () => {
         expect(screen.queryByRole('button', {name: 'Show in folder'})).toBeNull();
         expect(screen.queryByText('The sender can send the rest with a new link.')).toBeNull();
     });
+
+    it('a save-blocked stop points at the kept file, even with nothing saved (D-128)', async () => {
+        const user = userEvent.setup();
+        const kept = 'Received a file in full but could not finish saving it. The complete file was kept in the save folder with a .part ending.';
+        for (const saved of [0, 4]) {
+            const p = props({phase: 'stopped', snap: snap({state: 'stopped', code: 'save-blocked', result: {...result, saved, verified: saved, names: saved ? ['a.mov'] : []}})});
+            const {unmount} = render(<RequestLinkView {...p}/>);
+            expect(screen.getByText(`Windows would not let Floe save a file, even after trying for 5 minutes. ${saved} of 12 files were saved.`)).toBeTruthy();
+            expect(screen.getByText(kept)).toBeTruthy();
+            await user.click(screen.getByRole('button', {name: 'Show in folder'}));
+            expect(p.onShowInFolder).toHaveBeenCalledWith(result.folder);
+            // ST15 keeps its approved state, at least one file saved.
+            expect(screen.queryByText('The sender can send the rest with a new link.') !== null, `saved ${saved}`).toBe(saved > 0);
+            expect(document.body.textContent).not.toMatch(/[0-9a-f]{16,}/);
+            unmount();
+        }
+        // Any other stop with nothing saved still shows neither.
+        render(<RequestLinkView {...at('stopped')} snap={snap({state: 'stopped', code: 'write-failed', result: {...result, saved: 0}})}/>);
+        expect(screen.queryByRole('button', {name: 'Show in folder'})).toBeNull();
+        expect(screen.queryByText(kept)).toBeNull();
+    });
 });
 
 describe('every state', () => {

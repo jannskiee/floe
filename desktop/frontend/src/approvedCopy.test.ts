@@ -258,6 +258,10 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         }
         expect(c.STOPPED_FOLLOW_UP).toBe(approved('ST15'));
         expect(c.savedOf(4, 12)).toBe(st16);
+        // D-128: a save-blocked stop, on the card and in History, points at
+        // the kept .part with the code receive's approved sentence, RX10.
+        expect(c.SAVE_BLOCKED_KEPT_LINE).toBe(approved('RX10'));
+        expect(c.keptPartLine('save-blocked')).toBe(approved('RX10'));
     });
 
     it('CODE paste, dialog, header, notice and announcement rows match byte for byte', () => {
