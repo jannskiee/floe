@@ -62,11 +62,40 @@ export interface RequestHost {
     events: RequestHostEvent[];
     outDir: string;
     exited: Promise<number | null>;
-    /** Every event so far and a bounded stderr tail, for failure messages. */
+    /** Every event so far and a bounded stderr tail, for failure messages,
+     *  with the link and the room id redacted (describeHarness). */
     describe(): string;
     /** Release a -join-on-stdin host into its room. */
     join(): void;
     stop(): void;
+}
+
+/**
+ * The harness fields that carry the link or the room id: `link` on the link
+ * event and `roomId` on joined (cli/internal/e2ehost/request.go). describe()
+ * replaces them, so a failed wait never puts either into a Playwright error,
+ * report or CI artifact.
+ */
+const SECRET_FIELDS = ['link', 'roomId'];
+const REDACTED = '<redacted>';
+/** In the stderr tail: a room id (UUID-shaped, RoomIDFromToken) and a link's
+ *  `/r/<linkId>` path, whether or not an event announced them. */
+const TAIL_SECRETS = [/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, /\/r\/[A-Za-z0-9_-]+/g];
+
+/**
+ * The events with SECRET_FIELDS redacted and every other field kept, then the
+ * stderr tail with TAIL_SECRETS replaced. A tail cut at its start loses the cut
+ * line, which could hold the end of a value no pattern would match.
+ */
+function describeHarness(events: RequestHostEvent[], stderrTail: string, stderrCut: boolean): string {
+    const shown = events.map((e) => {
+        const copy: RequestHostEvent = { ...e };
+        for (const field of SECRET_FIELDS) if (field in copy) copy[field] = REDACTED;
+        return copy;
+    });
+    let tail = stderrCut ? stderrTail.slice(stderrTail.indexOf('\n') + 1 || stderrTail.length) : stderrTail;
+    for (const re of TAIL_SECRETS) tail = tail.replace(re, REDACTED);
+    return `${JSON.stringify(shown)}${tail ? ` stderr tail: ${tail}` : ''}`;
 }
 
 /** Start the harness in request mode. Every stdout line must parse as JSON. */
@@ -88,8 +117,11 @@ export function startRequestHost(opts: RequestHostOptions): RequestHost {
     host.waiters = [];
     host.closed = false;
     let stderrTail = '';
+    let stderrCut = false;
     proc.stderr?.on('data', (chunk: Buffer) => {
-        stderrTail = (stderrTail + chunk.toString()).slice(-2000);
+        const all = stderrTail + chunk.toString();
+        stderrCut ||= all.length > 2000;
+        stderrTail = all.slice(-2000);
     });
     let buffered = '';
     proc.stdout?.on('data', (chunk: Buffer) => {
@@ -120,7 +152,7 @@ export function startRequestHost(opts: RequestHostOptions): RequestHost {
         proc.on('close', (code) => done(code));
         proc.on('error', () => done(-1));
     });
-    host.describe = () => `${JSON.stringify(events)}${stderrTail ? ` stderr tail: ${stderrTail}` : ''}`;
+    host.describe = () => describeHarness(events, stderrTail, stderrCut);
     host.join = () => {
         if (!proc.stdin) throw new Error('join() needs a host started with joinOnStdin');
         proc.stdin.write('\n');

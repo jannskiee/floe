@@ -12,8 +12,9 @@
  * Privacy, as in request-link.spec.ts: a STUN-only ICE list (every cell is
  * direct) and stats attempts counted, which must be 0. Contents are compared
  * only through deliveredMismatch, whose failure names a path and never a
- * digest. The harness's own failure text lists its events, two of which hold
- * the link and the room id, so these cells replace it with event names.
+ * digest. A failed harness wait reports event names and counts only: the
+ * harness's own failure text redacts the link and the room id, but here it
+ * would also list up to 1,000 file-committed events.
  */
 
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
