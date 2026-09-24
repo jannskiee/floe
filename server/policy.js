@@ -51,8 +51,11 @@ function parsePolicy(text) {
 // mtime was kept (cp -p, tar x, rsync -a, docker cp), and request links stayed
 // on while the file said off. A file renamed over the path (the runbook's
 // edit, rsync, tar) is a new inode; a same-size edit in place (cp -p onto the
-// file) keeps the inode but moves the change time, which no user tool can set
-// back. BigInt stats: a 64-bit NTFS file id past 2^53 would round in a Number.
+// file) keeps the inode but moves the change time, which no common tool sets
+// back. Not always on NTFS: a program can set ChangeTime there, and an edit
+// inside one file-clock tick of the last write keeps it (measured: equal with
+// no wait, moved after 200 ms). A rename-over is still caught by the inode.
+// BigInt stats: a 64-bit NTFS file id past 2^53 would round in a Number.
 function stampOf(st) {
     return { ino: st.ino, ctimeNs: st.ctimeNs, mtimeNs: st.mtimeNs, size: st.size };
 }
