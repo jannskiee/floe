@@ -3,8 +3,8 @@
 // The room id is the only thing protecting a transfer: anyone holding it can
 // join as the receiver. New links carry it in the URL fragment (#room=<id>);
 // older links used the ?room=<id> query param. Strip both (and any other
-// fragment) so error reports, breadcrumbs, and request URLs sent to Sentry can
-// never be replayed to hijack a transfer.
+// fragment) so error reports, breadcrumbs, request URLs, span attributes and
+// span descriptions sent to Sentry can never be replayed to hijack a transfer.
 //
 // Accepts absolute or relative URLs and never throws.
 export function scrubUrl(url: string | undefined | null): string | undefined {
@@ -41,19 +41,22 @@ const URL_ATTRIBUTES = ['url.full', 'http.url', 'http.query', 'http.fragment'] a
 // Structural shapes for Sentry's TransactionEvent and SpanJSON, declared here
 // rather than imported so this module and its vitest never load the SDK.
 export interface ScrubbableSpan {
+    description?: string;
     data?: Record<string, unknown>;
 }
 
 export interface ScrubbableTransaction {
+    transaction?: string;
     request?: { url?: string };
     contexts?: { trace?: { data?: Record<string, unknown> } };
     spans?: ScrubbableSpan[];
 }
 
-// Scrubs the room secret out of one span's URL attributes, in place. Standalone
-// spans reach beforeSendSpan; spans inside a transaction event go through
-// scrubTransactionEvent below.
+// Scrubs the room secret out of one span, in place: its description and its
+// URL attributes. Standalone spans reach beforeSendSpan; spans inside a
+// transaction event go through scrubTransactionEvent below.
 export function scrubSpanJson<T extends ScrubbableSpan>(span: T): T {
+    if (typeof span.description === 'string') span.description = scrubDescription(span.description);
     scrubAttributes(span.data);
     return span;
 }
@@ -65,13 +68,49 @@ export function scrubSpanJson<T extends ScrubbableSpan>(span: T): T {
 // scrubbing that protects error reports covered no trace. Meanwhile the
 // browser SDK's HttpContext integration stamps location.href, fragment
 // included, onto every event's request.url and onto the segment span's
-// url.full. On a receiver page that is the whole share link, and with
-// tracesSampleRate 0.1 one page load in ten was sending it.
+// url.full, and browserTracing names its navigation-timing spans after the
+// document URL (see scrubDescription). On a receiver page that is the whole
+// share link, and with tracesSampleRate 0.1 one page load in ten was sending
+// it. The transaction name is the segment span's description, so it gets the
+// same rule as every other span's.
 export function scrubTransactionEvent<T extends ScrubbableTransaction>(event: T): T {
+    if (typeof event.transaction === 'string') event.transaction = scrubDescription(event.transaction);
     if (event.request?.url) event.request.url = scrubUrl(event.request.url);
     scrubAttributes(event.contexts?.trace?.data);
-    for (const span of event.spans ?? []) scrubAttributes(span.data);
+    for (const span of event.spans ?? []) scrubSpanJson(span);
     return event;
+}
+
+// A query parameter or fragment key named room, the legacy and the current
+// link shapes alike. "bathroom=3" is not one.
+const ROOM_PARAM = /[?&#]room=/i;
+
+// An absolute URL with an authority (scheme://), or a path, query or fragment
+// on its own. An element selector ("div#main", "a:nth-child(2)") is neither.
+const URL_TOKEN = /^(?:[a-z][a-z0-9+.-]*:\/\/|[/?#])/i;
+
+// Scrubs the room secret out of a span description or a transaction name.
+//
+// browserTracing names its navigation-timing spans (ops
+// browser.domContentLoadedEvent, browser.loadEvent, browser.connect,
+// browser.cache, browser.DNS, browser.request and their siblings) after the
+// PerformanceNavigationTiming entry, whose name is the document URL with its
+// fragment. The fix that covered request.url and url.full left these
+// descriptions carrying the whole receiver link.
+//
+// Fail-closed but exact: a string with no '#' and no room= parameter cannot
+// hold the secret in any link shape, so it comes back byte for byte (mark and
+// paint names, resource paths, selectors, free text; the URL parser would
+// otherwise normalize a path like /a/../b). Anything else is split on
+// whitespace, and every token that is URL-shaped or carries a room= parameter
+// goes through scrubUrl, which drops the fragment whatever it holds (a bare
+// #<id> included) and redacts ?room=.
+function scrubDescription(description: string): string {
+    if (!description.includes('#') && !ROOM_PARAM.test(description)) return description;
+    return description
+        .split(/(\s+)/)
+        .map((token) => (URL_TOKEN.test(token) || ROOM_PARAM.test(token) ? (scrubUrl(token) ?? '') : token))
+        .join('');
 }
 
 function scrubAttributes(data: Record<string, unknown> | undefined): void {
