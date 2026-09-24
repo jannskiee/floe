@@ -16,7 +16,7 @@
 
 import type { BrowserContext, Page, PlaywrightWorkerOptions, WebSocketRoute } from '@playwright/test';
 import { createHash } from 'crypto';
-import { readdirSync, readFileSync, statSync } from 'fs';
+import { closeSync, openSync, readdirSync, readSync, statSync } from 'fs';
 import { join, relative, sep } from 'path';
 import { spawn, type ChildProcess } from 'child_process';
 import { E2E_HOST_BINARY } from './cli-binary';
@@ -53,6 +53,8 @@ export interface RequestHostOptions {
     /** -hold-after-file: hold the receive loop this many ms after the first
      *  committed file, between the `holding` and `released` events. */
     holdAfterFile?: number;
+    /** -max-files: turns the receiver's request limits on with this file cap. */
+    maxFiles?: number;
 }
 
 export interface RequestHost {
@@ -60,11 +62,40 @@ export interface RequestHost {
     events: RequestHostEvent[];
     outDir: string;
     exited: Promise<number | null>;
-    /** Every event so far and a bounded stderr tail, for failure messages. */
+    /** Every event so far and a bounded stderr tail, for failure messages,
+     *  with the link and the room id redacted (describeHarness). */
     describe(): string;
     /** Release a -join-on-stdin host into its room. */
     join(): void;
     stop(): void;
+}
+
+/**
+ * The harness fields that carry the link or the room id: `link` on the link
+ * event and `roomId` on joined (cli/internal/e2ehost/request.go). describe()
+ * replaces them, so a failed wait never puts either into a Playwright error,
+ * report or CI artifact.
+ */
+const SECRET_FIELDS = ['link', 'roomId'];
+const REDACTED = '<redacted>';
+/** In the stderr tail: a room id (UUID-shaped, RoomIDFromToken) and a link's
+ *  `/r/<linkId>` path, whether or not an event announced them. */
+const TAIL_SECRETS = [/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, /\/r\/[A-Za-z0-9_-]+/g];
+
+/**
+ * The events with SECRET_FIELDS redacted and every other field kept, then the
+ * stderr tail with TAIL_SECRETS replaced. A tail cut at its start loses the cut
+ * line, which could hold the end of a value no pattern would match.
+ */
+function describeHarness(events: RequestHostEvent[], stderrTail: string, stderrCut: boolean): string {
+    const shown = events.map((e) => {
+        const copy: RequestHostEvent = { ...e };
+        for (const field of SECRET_FIELDS) if (field in copy) copy[field] = REDACTED;
+        return copy;
+    });
+    let tail = stderrCut ? stderrTail.slice(stderrTail.indexOf('\n') + 1 || stderrTail.length) : stderrTail;
+    for (const re of TAIL_SECRETS) tail = tail.replace(re, REDACTED);
+    return `${JSON.stringify(shown)}${tail ? ` stderr tail: ${tail}` : ''}`;
 }
 
 /** Start the harness in request mode. Every stdout line must parse as JSON. */
@@ -79,14 +110,18 @@ export function startRequestHost(opts: RequestHostOptions): RequestHost {
     if (opts.joinAfter !== undefined) args.push('-join-after', String(opts.joinAfter));
     if (opts.holdAfterFile !== undefined) args.push('-hold-after-file', String(opts.holdAfterFile));
     if (opts.joinOnStdin) args.push('-join-on-stdin');
+    if (opts.maxFiles !== undefined) args.push('-max-files', String(opts.maxFiles));
     const proc = spawn(E2E_HOST_BINARY, args, { stdio: [opts.joinOnStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
     const events: RequestHostEvent[] = [];
     const host = { proc, events, outDir: opts.outDir } as RequestHost & { waiters: Array<() => void>; closed: boolean };
     host.waiters = [];
     host.closed = false;
     let stderrTail = '';
+    let stderrCut = false;
     proc.stderr?.on('data', (chunk: Buffer) => {
-        stderrTail = (stderrTail + chunk.toString()).slice(-2000);
+        const all = stderrTail + chunk.toString();
+        stderrCut ||= all.length > 2000;
+        stderrTail = all.slice(-2000);
     });
     let buffered = '';
     proc.stdout?.on('data', (chunk: Buffer) => {
@@ -117,7 +152,7 @@ export function startRequestHost(opts: RequestHostOptions): RequestHost {
         proc.on('close', (code) => done(code));
         proc.on('error', () => done(-1));
     });
-    host.describe = () => `${JSON.stringify(events)}${stderrTail ? ` stderr tail: ${stderrTail}` : ''}`;
+    host.describe = () => describeHarness(events, stderrTail, stderrCut);
     host.join = () => {
         if (!proc.stdin) throw new Error('join() needs a host started with joinOnStdin');
         proc.stdin.write('\n');
@@ -169,6 +204,24 @@ export async function requestLink(host: RequestHost): Promise<string> {
     return e.link;
 }
 
+/**
+ * SHA-256 of one file, read in 4 MiB slices. readFileSync refuses any file
+ * over 2 GiB with ERR_FS_FILE_TOO_LARGE, which S1-WEB-06's 4 GiB + 1 B cell
+ * (M-08) would hit.
+ */
+function sha256File(path: string): string {
+    const hash = createHash('sha256');
+    const slab = Buffer.allocUnsafe(4 * 1024 * 1024);
+    const fd = openSync(path, 'r');
+    try {
+        let n: number;
+        while ((n = readSync(fd, slab, 0, slab.length, null)) > 0) hash.update(slab.subarray(0, n));
+    } finally {
+        closeSync(fd);
+    }
+    return hash.digest('hex');
+}
+
 /** Every file under `dir`, as forward-slash relative path to SHA-256. */
 export function sha256Manifest(dir: string): Record<string, string> {
     const out: Record<string, string> = {};
@@ -176,7 +229,7 @@ export function sha256Manifest(dir: string): Record<string, string> {
         for (const name of readdirSync(d)) {
             const full = join(d, name);
             if (statSync(full).isDirectory()) walk(full);
-            else out[relative(dir, full).split(sep).join('/')] = createHash('sha256').update(readFileSync(full)).digest('hex');
+            else out[relative(dir, full).split(sep).join('/')] = sha256File(full);
         }
     };
     walk(dir);
