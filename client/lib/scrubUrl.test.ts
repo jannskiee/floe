@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { scrubErrorEvent, scrubSpanJson, scrubTransactionEvent, scrubUrl } from './scrubUrl';
+import type { ScrubbableErrorEvent } from './scrubUrl';
 
 describe('scrubUrl', () => {
     it('strips the room id from a fragment (new-style links)', () => {
@@ -283,6 +284,36 @@ describe('scrubUrl on a request link', () => {
         expect(scrubErrorEvent(bare)).toBe(bare);
         const nameless: { transaction?: string } = {};
         expect(scrubErrorEvent(nameless).transaction).toBeUndefined();
+    });
+
+    it('never throws on an odd error event and returns it unchanged', () => {
+        // beforeSend drops an event whose hook throws, so a throw would fail
+        // closed, but a scrub has no business losing an error report. The SDK
+        // does not emit these shapes; anything else that reaches beforeSend
+        // (a third-party event processor, a future SDK) might.
+        const shapes: unknown[] = [
+            { exception: null },
+            { exception: { values: null } },
+            { exception: { values: 'nope' } },
+            { exception: { values: [null] } },
+            { exception: { values: [undefined, 42, 'x', true] } },
+            { exception: { values: [{ stacktrace: null }] } },
+            { exception: { values: [{ stacktrace: 'nope' }] } },
+            { exception: { values: [{ stacktrace: { frames: null } }] } },
+            { exception: { values: [{ stacktrace: { frames: 'nope' } }] } },
+            { exception: { values: [{ stacktrace: { frames: { 0: { filename: `/r/${LINK_ID}` } } } }] } },
+            { exception: { values: [{ stacktrace: { frames: [null, 7, 'x', { filename: 42, abs_path: null }] } }] } },
+            { request: null },
+            { request: { url: 42 } },
+            { transaction: null },
+            { transaction: 42 },
+        ];
+        for (const shape of shapes) {
+            const event = shape as ScrubbableErrorEvent;
+            const before = structuredClone(shape);
+            expect(() => scrubErrorEvent(event), JSON.stringify(shape)).not.toThrow();
+            expect(event, JSON.stringify(shape)).toEqual(before);
+        }
     });
 
     // A /r pageload transaction as the capture shows it (ids replaced), plus an

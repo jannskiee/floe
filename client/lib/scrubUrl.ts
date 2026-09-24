@@ -141,16 +141,31 @@ export interface ScrubbableErrorEvent {
 // rule. V8 names an inline script's frames after the document URL without its
 // fragment, so a frame thrown from one on /r carries the path too; frames from
 // bundle chunks hold no /r segment and come back as they were.
+//
+// It never throws, whatever the shape: beforeSend drops an event whose hook
+// throws, and a scrub has no business losing an error report. A value, a
+// stacktrace, a frame list or a frame that is not what the SDK writes is
+// skipped and left as it is.
 export function scrubErrorEvent<T extends ScrubbableErrorEvent>(event: T): T {
-    if (event.request?.url) event.request.url = scrubUrl(event.request.url);
+    if (typeof event.request?.url === 'string') event.request.url = scrubUrl(event.request.url);
     if (typeof event.transaction === 'string') event.transaction = scrubTransactionName(event.transaction);
-    for (const value of event.exception?.values ?? []) {
-        for (const frame of value.stacktrace?.frames ?? []) {
+    const values: unknown = event.exception?.values;
+    if (!Array.isArray(values)) return event;
+    for (const value of values) {
+        if (!isObject(value) || !isObject(value.stacktrace)) continue;
+        const frames = value.stacktrace.frames;
+        if (!Array.isArray(frames)) continue;
+        for (const frame of frames) {
+            if (!isObject(frame)) continue;
             if (typeof frame.filename === 'string') frame.filename = scrubDescription(frame.filename);
             if (typeof frame.abs_path === 'string') frame.abs_path = scrubDescription(frame.abs_path);
         }
     }
     return event;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
 }
 
 // A query parameter or fragment key named room, the legacy and the current
