@@ -90,12 +90,13 @@ const ROOM_PARAM = /[?&#]room=/i;
 // on its own. An element selector ("div#main", "a:nth-child(2)") is neither.
 const URL_TOKEN = /^(?:[a-z][a-z0-9+.-]*:\/\/|[/?#])/i;
 
-// A URL inside a token that does not start as one: a '/' somewhere before a
-// '#', as in "(https://floe.one/r/x#<id>)" or "floe.one/?s=x#<id>". The bare
-// #<id> fragment carries no room= to catch it otherwise. htmlTreeAsString
-// writes the id before any class or attribute, so a selector's '/' (a class
-// like w-1/2) always comes after its '#'.
-const EMBEDDED_URL = /\/[^#]*#/;
+// A URL inside a token that does not start as one: a scheme's "://" somewhere
+// before a '#', as in "(https://floe.one/r/x#<id>)" or "url=http://a/#<id>".
+// The bare #<id> fragment carries no room= to catch it otherwise. Anchored on
+// "://" rather than any '/': an element selector can hold a '/' and then a '#'
+// (div.w-1/2.bg-[#fff], img[alt="a/b#c"]) and must come back as it was. No
+// SDK producer writes a page URL without its scheme.
+const EMBEDDED_URL = /:\/\/[^#]*#/;
 
 // Scrubs the room secret out of a span description or a transaction name.
 //

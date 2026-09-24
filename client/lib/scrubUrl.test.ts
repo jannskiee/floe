@@ -261,6 +261,9 @@ const UNTOUCHED = [
     'body > div#main > button.send',
     'div#main > a:nth-child(2)',
     'div#main.w-1/2',
+    'div.w-1/2.bg-[#fff]',
+    'div#x.w-1/2.bg-[#fff]',
+    'img[alt="a/b#c"]',
     'bathroom=3',
     'GET /api/turn-credentials',
     '/a/../b',
@@ -282,7 +285,7 @@ const FAIL_CLOSED: [string, string][] = [
     [`navigate to http://localhost:3000/#room=${ROOM} now`, 'navigate to http://localhost:3000/ now'],
     [`www.floe.one/#room=${ROOM}`, '/www.floe.one/'],
     [`(https://www.floe.one/r/Zq1a2b3c4d#${ROOM})`, '/(https://www.floe.one/r/Zq1a2b3c4d'],
-    [`floe.one/?s=b7Kq2xZp9w#${ROOM}`, '/floe.one/?s=b7Kq2xZp9w'],
+    [`url=https://www.floe.one/r/Zq1a2b3c4d#${ROOM}`, '/url=https://www.floe.one/r/Zq1a2b3c4d'],
 ];
 
 // A long-animation-frame span's data, as browserTracing copies it from the
