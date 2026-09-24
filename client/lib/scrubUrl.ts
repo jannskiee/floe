@@ -90,6 +90,13 @@ const ROOM_PARAM = /[?&#]room=/i;
 // on its own. An element selector ("div#main", "a:nth-child(2)") is neither.
 const URL_TOKEN = /^(?:[a-z][a-z0-9+.-]*:\/\/|[/?#])/i;
 
+// A URL inside a token that does not start as one: a '/' somewhere before a
+// '#', as in "(https://floe.one/r/x#<id>)" or "floe.one/?s=x#<id>". The bare
+// #<id> fragment carries no room= to catch it otherwise. htmlTreeAsString
+// writes the id before any class or attribute, so a selector's '/' (a class
+// like w-1/2) always comes after its '#'.
+const EMBEDDED_URL = /\/[^#]*#/;
+
 // Scrubs the room secret out of a span description or a transaction name.
 //
 // browserTracing names its navigation-timing spans (ops
@@ -103,14 +110,18 @@ const URL_TOKEN = /^(?:[a-z][a-z0-9+.-]*:\/\/|[/?#])/i;
 // hold the secret in any link shape, so it comes back byte for byte (mark and
 // paint names, resource paths, selectors, free text; the URL parser would
 // otherwise normalize a path like /a/../b). Anything else is split on
-// whitespace, and every token that is URL-shaped or carries a room= parameter
-// goes through scrubUrl, which drops the fragment whatever it holds (a bare
-// #<id> included) and redacts ?room=.
+// whitespace, and every token that is URL-shaped, holds a URL, or carries a
+// room= parameter goes through scrubUrl, which drops the fragment whatever it
+// holds (a bare #<id> included) and redacts ?room=.
 function scrubDescription(description: string): string {
     if (!description.includes('#') && !ROOM_PARAM.test(description)) return description;
     return description
         .split(/(\s+)/)
-        .map((token) => (URL_TOKEN.test(token) || ROOM_PARAM.test(token) ? (scrubUrl(token) ?? '') : token))
+        .map((token) =>
+            URL_TOKEN.test(token) || EMBEDDED_URL.test(token) || ROOM_PARAM.test(token)
+                ? (scrubUrl(token) ?? '')
+                : token
+        )
         .join('');
 }
 
