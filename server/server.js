@@ -505,9 +505,12 @@ function destroyRoom(roomId) {
 //
 // E-15 with the marker: a marker keeps its reservation's MAX_REQUEST_ROOMS
 // slot, so the cap bounds reservations and markers together and stays 5000.
-// Per key, a live entry can now be a create up to the age ceiling plus the
-// marker's day old, so that bound is about 180 (20 a day on each of the 9 days
-// an 8 d + 10 min window can touch). A marker holds its slot for its day with
+// Per key, a live entry can now be as old as the age ceiling plus the
+// marker's day, each ended at most one sweep tick late: 7 d 10 min + 1 min +
+// 24 h + 1 min = 8 d 12 min from its create. Those creates fit in 9 day-long
+// windows (8 whole days and 12 minutes), 20 each, so that bound is 180 (it was
+// 160). A key whose history was dropped at REQUEST_CREATE_KEYS_MAX can exceed
+// it; MAX_REQUEST_ROOMS still holds. A marker holds its slot for its day with
 // no socket and no traffic, where a sealed reservation whose host left gave it
 // up after the grace; the create budget and the cap still bound both.
 //
