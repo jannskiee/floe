@@ -52,9 +52,10 @@ export interface ScrubbableTransaction {
     spans?: ScrubbableSpan[];
 }
 
-// Scrubs the room secret out of one span, in place: its description and its
-// URL attributes. Standalone spans reach beforeSendSpan; spans inside a
-// transaction event go through scrubTransactionEvent below.
+// Scrubs the room secret out of one span, in place: its description, its URL
+// attributes and every other string in its data. Standalone spans reach
+// beforeSendSpan; spans inside a transaction event go through
+// scrubTransactionEvent below.
 export function scrubSpanJson<T extends ScrubbableSpan>(span: T): T {
     if (typeof span.description === 'string') span.description = scrubDescription(span.description);
     scrubAttributes(span.data);
@@ -126,6 +127,21 @@ function scrubAttributes(data: Record<string, unknown> | undefined): void {
             data[key] = scrubQuery(value);
         } else {
             data[key] = scrubUrl(value);
+        }
+    }
+    // Any other string attribute can still hold the page URL. A
+    // long-animation-frame span copies its first script's invoker and
+    // sourceURL into browser.script.invoker and code.filepath, and for an
+    // inline classic script or an inline onclick Chromium fills both with the
+    // document URL, fragment included. The description rule leaves everything
+    // without a '#' or a room= parameter byte for byte, and a handler name
+    // like BUTTON#b.onclick or a selector in lcp.element is not URL-shaped.
+    for (const [key, value] of Object.entries(data)) {
+        if ((URL_ATTRIBUTES as readonly string[]).includes(key)) continue;
+        if (typeof value === 'string') {
+            data[key] = scrubDescription(value);
+        } else if (Array.isArray(value)) {
+            data[key] = value.map((item) => (typeof item === 'string' ? scrubDescription(item) : item));
         }
     }
 }

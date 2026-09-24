@@ -104,6 +104,52 @@ describe('scrubTransactionEvent', () => {
         expect(out.contexts.trace.data['url.full']).toBe(RECEIVER_SCRUBBED);
         expect(out.request.url).toBe(RECEIVER_SCRUBBED);
         expect(out.measurements).toEqual(pageloadEvent().measurements);
+        const loaf = out.spans.find((s) => s.op === 'ui.long-animation-frame');
+        expect(loaf?.data).toEqual({ ...LOAF_DATA, ...LOAF_URLS(RECEIVER_SCRUBBED) });
+    });
+
+    it('scrubs the page URL out of every other string in span data', () => {
+        // Beyond the four URL attributes: a long-animation-frame span's script
+        // attributes on a child span, a legacy ?room= referer on the segment
+        // (contexts.trace.data), and a string inside an array value.
+        const event = {
+            contexts: {
+                trace: {
+                    data: {
+                        'sentry.op': 'pageload',
+                        'http.request.header.referer': `https://www.floe.one/?room=${ROOM}`,
+                    },
+                },
+            },
+            spans: [
+                { data: { ...LOAF_DATA, ...LOAF_URLS(RECEIVER) } },
+                { data: { 'custom.list': ['plain', RECEIVER, 7] } },
+            ],
+        };
+        const out = scrubTransactionEvent(event);
+        expect(JSON.stringify(out)).not.toContain(ROOM);
+        expect(out.contexts.trace.data).toEqual({
+            'sentry.op': 'pageload',
+            'http.request.header.referer': 'https://www.floe.one/?room=redacted',
+        });
+        expect(out.spans[0].data).toEqual({ ...LOAF_DATA, ...LOAF_URLS(RECEIVER_SCRUBBED) });
+        expect(out.spans[1].data).toEqual({ 'custom.list': ['plain', RECEIVER_SCRUBBED, 7] });
+    });
+
+    it('leaves span data strings that are not URLs exactly as they were', () => {
+        const data = () => ({
+            ...LOAF_DATA,
+            'browser.script.invoker': 'BUTTON#b.onclick',
+            'code.filepath': 'https://cloud.umami.is/script.js',
+            'lcp.element': 'body > div#main > img.hero',
+            'cls.source.1': 'div#app > section',
+            'custom.list': ['TimerHandler:setTimeout', 'bathroom=3', 7],
+            ...Object.fromEntries(UNTOUCHED.map((d, i) => [`untouched.${i}`, d])),
+        });
+        const event = { contexts: { trace: { data: data() } }, spans: [{ data: data() }] };
+        const out = scrubTransactionEvent(event);
+        expect(out.contexts.trace.data).toEqual(data());
+        expect(out.spans[0].data).toEqual(data());
     });
 
     it('leaves a span description that is not a URL exactly as it was', () => {
@@ -145,6 +191,13 @@ describe('scrubSpanJson', () => {
         const json = JSON.stringify(scrubSpanJson(segment));
         expect(json).not.toContain(ROOM);
         expect(json).not.toContain('#');
+    });
+
+    it("scrubs the page URL out of a standalone span's other data strings", () => {
+        const span = { op: 'ui.long-animation-frame', data: { ...LOAF_DATA, ...LOAF_URLS(RECEIVER) } };
+        expect(scrubSpanJson(span).data).toEqual({ ...LOAF_DATA, ...LOAF_URLS(RECEIVER_SCRUBBED) });
+        const selector = { data: { ...LOAF_DATA, 'browser.script.invoker': 'BUTTON#b.onclick' } };
+        expect(scrubSpanJson(selector).data['browser.script.invoker']).toBe('BUTTON#b.onclick');
     });
 
     it('leaves a standalone span description that is not a URL exactly as it was', () => {
@@ -217,6 +270,18 @@ const FAIL_CLOSED: [string, string][] = [
     [`www.floe.one/#room=${ROOM}`, '/www.floe.one/'],
 ];
 
+// A long-animation-frame span's data, as browserTracing copies it from the
+// frame's first script. For an inline classic script, or an inline onclick,
+// Chromium reports the document URL, fragment included, as both the invoker
+// and the sourceURL; for a handler it reports names like BUTTON#b.onclick.
+const LOAF_DATA = {
+    'sentry.op': 'ui.long-animation-frame',
+    'sentry.origin': 'auto.ui.browser.metrics',
+    'browser.script.invoker_type': 'classic-script',
+    'browser.script.source_char_position': 0,
+};
+const LOAF_URLS = (url: string) => ({ 'browser.script.invoker': url, 'code.filepath': url });
+
 function pageloadEvent() {
     return {
         type: 'transaction',
@@ -231,6 +296,11 @@ function pageloadEvent() {
         },
         measurements: { fcp: { value: 120, unit: 'millisecond' }, ttfb: { value: 30, unit: 'millisecond' } },
         spans: [
+            {
+                op: 'ui.long-animation-frame',
+                description: 'Main UI thread blocked',
+                data: { ...LOAF_DATA, ...LOAF_URLS(RECEIVER) },
+            },
             { op: 'mark', description: 'Next.js-before-hydration', data: { 'sentry.op': 'mark' } },
             { op: 'paint', description: 'first-contentful-paint', data: { 'sentry.op': 'paint' } },
             {
