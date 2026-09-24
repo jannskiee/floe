@@ -4,7 +4,7 @@ import { IGNORED_ERROR_PATTERNS } from './lib/ignoredErrors';
 import { isInjectedScriptError } from './lib/injectedScripts';
 import { isNonBrowserRuntimeError } from './lib/nonBrowserRuntimes';
 import { isStaleBundleError } from './lib/staleBundle';
-import { scrubSpanJson, scrubTransactionEvent, scrubUrl } from './lib/scrubUrl';
+import { scrubErrorEvent, scrubSpanJson, scrubTransactionEvent, scrubUrl } from './lib/scrubUrl';
 
 Sentry.init({
     // Set NEXT_PUBLIC_SENTRY_DSN in your environment to enable error tracking.
@@ -66,12 +66,11 @@ Sentry.init({
             event.tags = { ...event.tags, stale_bundle: true, auto_recovered: true };
         }
 
-        // Strip the room secret from the request URL before the event is sent.
-        if (event.request?.url) {
-            event.request.url = scrubUrl(event.request.url);
-        }
-
-        return event;
+        // Strip the room secret and the request-link id before the event is
+        // sent: request.url, the transaction name (the raw /r/<linkId> path on
+        // an error thrown on /r) and stack frame file names. Last, so the
+        // filters above still read the frames as the browser reported them.
+        return scrubErrorEvent(event);
     },
 
     // Breadcrumbs (navigation, fetch, xhr) record URLs as they happen; scrub the

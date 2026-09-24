@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { scrubSpanJson, scrubTransactionEvent, scrubUrl } from './scrubUrl';
+import { scrubErrorEvent, scrubSpanJson, scrubTransactionEvent, scrubUrl } from './scrubUrl';
 
 describe('scrubUrl', () => {
     it('strips the room id from a fragment (new-style links)', () => {
@@ -194,7 +194,176 @@ describe('scrubUrl on a request link', () => {
         expect(JSON.stringify(data)).not.toContain(LINK_ID);
         expect(JSON.stringify(data)).not.toContain(ROOM_ID);
     });
+
+    it('a /r pageload shaped like the capture carries no link id anywhere', () => {
+        // Captured on a production build (CP-UI forced-r-diag.txt): the segment's
+        // url.path is the bare /r/<linkId> path, with no '#' and no room=, so
+        // neither the URL attributes nor the description rule reached it.
+        // browserTracing and the Next router instrumentation write url.path on
+        // every pageload and navigation span, and an http.client span names
+        // and records any fetch of a /r path the same way.
+        const out = scrubTransactionEvent(requestPageload());
+        const json = JSON.stringify(out);
+        expect(json).not.toContain(LINK_ID);
+        expect(json).not.toContain(ROOM_ID);
+        expect(out.transaction).toBe('/r/redacted');
+        expect(out.request.url).toBe('http://localhost:3000/r/redacted');
+        expect(out.contexts.trace.data).toEqual({
+            'sentry.op': 'pageload',
+            'sentry.source': 'route',
+            'url.full': 'http://localhost:3000/r/redacted',
+            'url.path': '/r/redacted',
+            'url.template': '/r/redacted',
+        });
+        const fetchSpan = out.spans.find((s) => s.op === 'http.client');
+        expect(fetchSpan?.description).toBe('GET /r/redacted?_rsc=1x2y3');
+        expect(fetchSpan?.data).toEqual({
+            type: 'fetch',
+            url: '/r/redacted?_rsc=1x2y3',
+            'url.path': '/r/redacted',
+            'http.query': '?_rsc=1x2y3',
+        });
+        for (const span of out.spans.filter((s) => s.op.startsWith('browser.'))) {
+            expect(span.description).toBe('http://localhost:3000/r/redacted');
+        }
+        // A standalone span reaches the same rule.
+        const standalone = { description: `GET /r/${LINK_ID}`, data: { 'url.path': `/r/${LINK_ID}` } };
+        expect(JSON.stringify(scrubSpanJson(standalone))).not.toContain(LINK_ID);
+    });
+
+    it('a pageload anywhere else keeps its paths byte for byte', () => {
+        const event = () => ({
+            transaction: '/how-it-works',
+            request: { url: 'https://www.floe.one/how-it-works' },
+            contexts: {
+                trace: {
+                    data: {
+                        'url.full': 'https://www.floe.one/how-it-works',
+                        'url.path': '/how-it-works',
+                        'url.template': '/how-it-works',
+                    },
+                },
+            },
+            spans: [
+                {
+                    op: 'http.client',
+                    description: 'GET /api/stats',
+                    data: { url: '/api/stats', 'url.path': '/api/stats' },
+                },
+                { op: 'resource.other', description: '/robots.txt', data: { 'url.path': '/robots.txt' } },
+                { op: 'resource.other', description: '/rx/abc', data: { 'url.path': '/r' } },
+                { op: 'custom', description: 'r/abc is not a path', data: { note: 'div.w-1/2 r/x' } },
+            ],
+        });
+        expect(scrubTransactionEvent(event())).toEqual(event());
+    });
+
+    it('an error event from /r carries no link id anywhere', () => {
+        // Captured on a production build: an error thrown on /r reports its
+        // transaction as the raw /r/<linkId> path, and beforeSend scrubbed
+        // request.url only. V8 names an inline script's frames after the
+        // document URL without its fragment, so a frame on /r carries the path.
+        const out = scrubErrorEvent(requestError(`/r/${LINK_ID}`, `http://localhost:3000/r/${LINK_ID}#${ROOM_ID}`));
+        const json = JSON.stringify(out);
+        expect(json).not.toContain(LINK_ID);
+        expect(json).not.toContain(ROOM_ID);
+        expect(out.transaction).toBe('/r/redacted');
+        expect(out.request.url).toBe('http://localhost:3000/r/redacted');
+        const frames = out.exception.values[0].stacktrace.frames;
+        expect(frames[0]).toEqual({ ...INLINE_FRAME, filename: 'app:///r/redacted', abs_path: 'app:///r/redacted' });
+        expect(frames[1]).toEqual(CHUNK_FRAME);
+        // A parameterized name collapses to the same bucket as on a transaction.
+        expect(scrubErrorEvent({ transaction: '/r/:linkId' }).transaction).toBe('/r/redacted');
+    });
+
+    it('an error event anywhere else is left byte for byte', () => {
+        const home = () => requestError('/how-it-works', 'https://www.floe.one/how-it-works', 'app:///how-it-works');
+        expect(scrubErrorEvent(home())).toEqual(home());
+        const bare = {};
+        expect(scrubErrorEvent(bare)).toBe(bare);
+        const nameless: { transaction?: string } = {};
+        expect(scrubErrorEvent(nameless).transaction).toBeUndefined();
+    });
+
+    // A /r pageload transaction as the capture shows it (ids replaced), plus an
+    // http.client span for a fetch of a /r path and one resource span that must
+    // stay as it is.
+    function requestPageload() {
+        const href = `http://localhost:3000/r/${LINK_ID}#${ROOM_ID}`;
+        return {
+            type: 'transaction',
+            transaction: '/r/:linkId',
+            request: { url: href, headers: { 'User-Agent': 'Mozilla/5.0' } },
+            contexts: {
+                trace: {
+                    data: {
+                        'sentry.op': 'pageload',
+                        'sentry.source': 'route',
+                        'url.full': href,
+                        'url.path': `/r/${LINK_ID}`,
+                        'url.template': '/r/:linkId',
+                    },
+                },
+            },
+            spans: [
+                ...['browser.domContentLoadedEvent', 'browser.loadEvent', 'browser.request', 'browser.response'].map(
+                    (op) => ({ op, description: href, data: { 'sentry.op': op } })
+                ),
+                {
+                    op: 'http.client',
+                    description: `GET /r/${LINK_ID}?_rsc=1x2y3`,
+                    data: {
+                        type: 'fetch',
+                        url: `/r/${LINK_ID}?_rsc=1x2y3`,
+                        'url.path': `/r/${LINK_ID}`,
+                        'http.query': '?_rsc=1x2y3',
+                    },
+                },
+                {
+                    op: 'resource.script',
+                    description: '/_next/static/chunks/0a1b.js',
+                    data: { 'sentry.op': 'resource.script' },
+                },
+            ],
+        };
+    }
+
+    // An error event as beforeSend receives it, with one frame from an inline
+    // script on the page and one from a bundle chunk.
+    function requestError(transaction: string, url: string, inlineFrame = `app:///r/${LINK_ID}`) {
+        return {
+            level: 'error',
+            transaction,
+            request: { url, headers: { 'User-Agent': 'Mozilla/5.0' } },
+            contexts: { trace: { trace_id: '0123456789abcdef0123456789abcdef', span_id: '0123456789abcdef' } },
+            exception: {
+                values: [
+                    {
+                        type: 'Error',
+                        value: 'boom',
+                        stacktrace: {
+                            frames: [
+                                { ...INLINE_FRAME, filename: inlineFrame, abs_path: inlineFrame },
+                                { ...CHUNK_FRAME },
+                            ],
+                        },
+                    },
+                ],
+            },
+        };
+    }
 });
+
+const INLINE_FRAME = { function: '?', lineno: 5, colno: 15, in_app: true };
+
+const CHUNK_FRAME = {
+    filename: 'app:///_next/static/chunks/0a1b.js',
+    abs_path: 'app:///_next/static/chunks/0a1b.js',
+    function: 'onClick',
+    lineno: 1,
+    colno: 2048,
+    in_app: true,
+};
 
 describe('scrubTransactionEvent', () => {
     const LINK = 'https://www.floe.one/?s=abcd1234#room=secret-uuid';

@@ -119,13 +119,37 @@ export function scrubSpanJson<T extends ScrubbableSpan>(span: T): T {
 // silently stop covering an id of any other length. Fail closed, and it costs
 // a bucket name nobody reads.
 export function scrubTransactionEvent<T extends ScrubbableTransaction>(event: T): T {
-    if (typeof event.transaction === 'string') event.transaction = scrubDescription(event.transaction);
+    if (typeof event.transaction === 'string') event.transaction = scrubTransactionName(event.transaction);
     if (event.request?.url) event.request.url = scrubUrl(event.request.url);
-    if (typeof event.transaction === 'string') {
-        event.transaction = redactRequestPath(event.transaction);
-    }
     scrubAttributes(event.contexts?.trace?.data);
     for (const span of event.spans ?? []) scrubSpanJson(span);
+    return event;
+}
+
+export interface ScrubbableErrorEvent {
+    request?: { url?: string };
+    transaction?: string;
+    exception?: { values?: { stacktrace?: { frames?: { filename?: string; abs_path?: string }[] } }[] };
+}
+
+// Scrubs the room secret and the request-link id out of an error event, in
+// place, for beforeSend.
+//
+// request.url was the only field beforeSend scrubbed. On /r an error event's
+// transaction is the raw /r/<linkId> path (captured on a production build),
+// not the parameterized name a pageload gets, so it takes the transaction-name
+// rule. V8 names an inline script's frames after the document URL without its
+// fragment, so a frame thrown from one on /r carries the path too; frames from
+// bundle chunks hold no /r segment and come back as they were.
+export function scrubErrorEvent<T extends ScrubbableErrorEvent>(event: T): T {
+    if (event.request?.url) event.request.url = scrubUrl(event.request.url);
+    if (typeof event.transaction === 'string') event.transaction = scrubTransactionName(event.transaction);
+    for (const value of event.exception?.values ?? []) {
+        for (const frame of value.stacktrace?.frames ?? []) {
+            if (typeof frame.filename === 'string') frame.filename = scrubDescription(frame.filename);
+            if (typeof frame.abs_path === 'string') frame.abs_path = scrubDescription(frame.abs_path);
+        }
+    }
     return event;
 }
 
@@ -161,16 +185,41 @@ const EMBEDDED_URL = /:\/\/[^#]*#/;
 // whitespace, and every token that is URL-shaped, holds a URL, or carries a
 // room= parameter goes through scrubUrl, which drops the fragment whatever it
 // holds (a bare #<id> included) and redacts ?room=.
+//
+// A request link adds a third shape, the /r/<linkId> path, and that one needs
+// no '#' or room= at all: url.path on every pageload and navigation span is
+// the bare path, and so is the url of a fetch. The check is made per token as
+// well as per string, so a string that qualifies because of one token never
+// has its other URL tokens normalized.
 function scrubDescription(description: string): string {
-    if (!description.includes('#') && !ROOM_PARAM.test(description)) return description;
+    if (!mayHoldSecret(description)) return description;
     return description
         .split(/(\s+)/)
         .map((token) =>
-            URL_TOKEN.test(token) || EMBEDDED_URL.test(token) || ROOM_PARAM.test(token)
+            mayHoldSecret(token) &&
+            (URL_TOKEN.test(token) || EMBEDDED_URL.test(token) || ROOM_PARAM.test(token))
                 ? (scrubUrl(token) ?? '')
                 : token
         )
         .join('');
+}
+
+// A /r/<something> path segment where a segment can begin. REQUEST_PATH's
+// shape, without /g so it keeps no lastIndex between calls. Only a URL-shaped
+// token is ever rewritten for it, so free text such as "r/abc" stays.
+const REQUEST_PATH_SHAPE = /(^|\/)r\/[^/]/i;
+
+// Whether a string can hold the room id (a fragment or a room= parameter) or a
+// request-link id (a /r/<linkId> path). Nothing else is touched.
+function mayHoldSecret(value: string): boolean {
+    return value.includes('#') || ROOM_PARAM.test(value) || REQUEST_PATH_SHAPE.test(value);
+}
+
+// A transaction name, on a transaction or on an error event: the description
+// rule, then the /r rule unconditionally (see scrubTransactionEvent for why a
+// parameterized /r/:linkId collapses too).
+function scrubTransactionName(name: string): string {
+    return redactRequestPath(scrubDescription(name));
 }
 
 function scrubAttributes(data: Record<string, unknown> | undefined): void {
