@@ -10,7 +10,8 @@ package main
 //
 // Everything that makes it a test peer lives in this file and never in the
 // engine: the scripted Decide, the shortened decide window of -fast-timers,
-// the socket blip of -blip-after, and -corrupt-hash, which rewrites the
+// the socket blip of -blip-after, the receive-loop hold of -hold-after-file,
+// and -corrupt-hash, which rewrites the
 // sender's end-frame digest on its way from the data channel to the engine so
 // the engine's own compare refuses the file. The release floe binary cannot
 // reach any of it (.goreleaser.yml builds only ./cmd/floe).
@@ -20,6 +21,7 @@ package main
 // token is never printed; the stats URL is always empty.
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -60,11 +62,20 @@ type decideStep struct {
 	code  transfer.RefusalCode  // refuse only
 	delay time.Duration         // how long before answering
 	never bool                  // never answer: the decide window or the visitor's leaving ends it
+	// skipOffer seats the visitor and never makes the offer (offer:skip), the
+	// stalled setup S1-WEB-05 test 10 needs. With reopenAfter set
+	// (reopen-after:<ms>), request-reopen goes out that long after
+	// user-connected, which evicts the seated visitor with room-full (E-03).
+	skipOffer   bool
+	reopenAfter time.Duration
 }
 
 // parseDecideStep reads one of accept, decline, delay:<ms> (accept after
 // that many milliseconds), never, refuse:<code> (a RefusalCode this build
-// knows). Anything else is an error, so a typo in a spec fails at start.
+// knows), offer:skip (never offer; the visit ends when the visitor leaves)
+// or reopen-after:<ms> (never offer, and evict the visitor with
+// request-reopen after that many milliseconds). Anything else is an error, so
+// a typo in a spec fails at start.
 func parseDecideStep(s string) (decideStep, error) {
 	switch {
 	case s == "accept":
@@ -79,6 +90,14 @@ func parseDecideStep(s string) (decideStep, error) {
 			return decideStep{}, fmt.Errorf("decide: bad delay in %q", s)
 		}
 		return decideStep{kind: transfer.DecisionAccept, delay: time.Duration(ms) * time.Millisecond}, nil
+	case s == "offer:skip":
+		return decideStep{skipOffer: true}, nil
+	case strings.HasPrefix(s, "reopen-after:"):
+		ms, err := strconv.Atoi(strings.TrimPrefix(s, "reopen-after:"))
+		if err != nil || ms < 1 {
+			return decideStep{}, fmt.Errorf("decide: bad reopen-after in %q", s)
+		}
+		return decideStep{skipOffer: true, reopenAfter: time.Duration(ms) * time.Millisecond}, nil
 	case strings.HasPrefix(s, "refuse:"):
 		code, ok := transfer.ParseRefusalCode(strings.TrimPrefix(s, "refuse:"))
 		if !ok {
@@ -141,6 +160,18 @@ type requestConfig struct {
 	// limits is ReceiveOptions.Limits: nil unless -max-files or
 	// -block-shell-types is given.
 	limits *transfer.ReceiveLimits
+	// joinAfter, when set, prints the link first and claims the room only
+	// after this long, so a spec can load the link while the host is absent
+	// (S1-WEB-05 test 1). The token still never leaves this process.
+	joinAfter time.Duration
+	// joinOnStdin prints the link first and claims the room only when one
+	// line arrives on stdin, so the spec releases the join after it has seen
+	// the host-absent state, with no fixed window in either direction.
+	joinOnStdin bool
+	// holdAfterFile, when set, blocks the receive loop this long after the
+	// first committed file, so the visitor stays in Sending with its data
+	// channel open for as long as a spec needs (S1-WEB-05 test 9).
+	holdAfterFile time.Duration
 }
 
 // requestMaxFiles is the request lane's Beta file cap (spec 05 8.3), kept when
@@ -166,6 +197,9 @@ func parseRequestFlags(args []string) (requestConfig, error) {
 	timeout := fs.Duration("timeout", 2*time.Minute, "overall deadline for the whole run")
 	maxFiles := fs.Int("max-files", 0, "cap the files a drop may announce (turns the request limits on)")
 	blockShell := fs.Bool("block-shell-types", false, "save shell-parsed types as .floe-blocked (turns the request limits on)")
+	joinAfter := fs.Int("join-after", 0, "print the link, then join the room this many milliseconds later")
+	joinOnStdin := fs.Bool("join-on-stdin", false, "print the link, then join the room when one line arrives on stdin")
+	holdAfterFile := fs.Int("hold-after-file", 0, "after the first committed file, hold the receive loop this many milliseconds")
 	if err := fs.Parse(args); err != nil {
 		return requestConfig{}, err
 	}
@@ -185,11 +219,19 @@ func parseRequestFlags(args []string) (requestConfig, error) {
 			limits.MaxFiles = *maxFiles
 		}
 	}
-	if fs.NArg() != 0 || *out == "" || *timeout <= 0 {
+	if fs.NArg() != 0 || *out == "" || *timeout <= 0 || *joinAfter < 0 || *holdAfterFile < 0 {
 		return requestConfig{}, errors.New("request: usage")
+	}
+	if *joinOnStdin && *joinAfter > 0 {
+		return requestConfig{}, errors.New("request: -join-on-stdin and -join-after are exclusive")
 	}
 	if *blip != "" && !blipEvents[*blip] {
 		return requestConfig{}, fmt.Errorf("request: -blip-after names no event: %q", *blip)
+	}
+	// A late join prints the link before any socket exists, so a blip there
+	// would close a client that is not there yet.
+	if *blip == "link" && (*joinOnStdin || *joinAfter > 0) {
+		return requestConfig{}, errors.New("request: -blip-after link needs the host joined first")
 	}
 	steps, err := parseDecideScript(*decide)
 	if err != nil {
@@ -203,6 +245,9 @@ func parseRequestFlags(args []string) (requestConfig, error) {
 		server: *server, web: strings.TrimRight(*web, "/"), out: *out, steps: steps,
 		decideWindow: window, keepWaiting: *keep, corruptHash: *corrupt,
 		blipAfter: *blip, timeout: *timeout, limits: limits,
+		joinAfter:     time.Duration(*joinAfter) * time.Millisecond,
+		joinOnStdin:   *joinOnStdin,
+		holdAfterFile: time.Duration(*holdAfterFile) * time.Millisecond,
 	}, nil
 }
 
@@ -328,12 +373,28 @@ func (h *requestHost) blip() {
 	h.ev.emit(map[string]interface{}{"event": "rejoined"})
 }
 
+// hold is -hold-after-file. The engine calls OnFileDone synchronously on its
+// receive loop, and its stall watchdog is armed only while that loop waits on
+// an empty queue, so the hold never trips it; the browser sender meanwhile
+// waits for the next file's ack (120 s for every file after the first), so a
+// hold must stay well under that. After a -blip-after file-committed the host
+// socket has already been swapped when this runs.
+func (h *requestHost) hold() {
+	h.emit("holding", nil)
+	start := time.Now()
+	time.Sleep(h.cfg.holdAfterFile)
+	h.emit("released", map[string]interface{}{"heldMs": time.Since(start).Milliseconds()})
+}
+
 // visitOutcome is how one visit ended.
 type visitOutcome int
 
 const (
 	visitDelivered visitOutcome = iota + 1
 	visitRefused
+	// visitEvicted: the harness itself sent request-reopen under a seated
+	// visitor (reopen-after); the room is already open for the next visit.
+	visitEvicted
 )
 
 // refusalWord is the code a refused visit reports: always a constant this
@@ -366,6 +427,9 @@ func (h *requestHost) visit(step decideStep) visitOutcome {
 		h.ev.fail("signaling")
 	}
 	h.emit("user-connected", nil)
+	if step.skipOffer {
+		return h.stall(step)
+	}
 
 	servers, _, err := ice.FetchDetail(h.cfg.server)
 	if err != nil {
@@ -417,6 +481,9 @@ func (h *requestHost) visit(step decideStep) visitOutcome {
 				h.verified++
 			}
 			h.emit("file-committed", map[string]interface{}{"verified": fd.Verified})
+			if h.files == 1 && h.cfg.holdAfterFile > 0 {
+				h.hold()
+			}
 		},
 		Messages: msgs,
 		Closed:   early.Closed,
@@ -432,8 +499,45 @@ func (h *requestHost) visit(step decideStep) visitOutcome {
 	return visitDelivered
 }
 
-// runRequest is request mode's entry.
-func runRequest(ev *events, args []string) {
+// stall is a visit that never gets an offer: the visitor stays seated in
+// its setup until it leaves, or, under reopen-after, until the harness
+// reopens the room under it, which the server answers by evicting the visitor
+// with room-full.
+func (h *requestHost) stall(step decideStep) visitOutcome {
+	h.emit("offer-skipped", nil)
+	var reopen <-chan time.Time
+	if step.reopenAfter > 0 {
+		t := time.NewTimer(step.reopenAfter)
+		defer t.Stop()
+		reopen = t.C
+	}
+	select {
+	case <-reopen:
+		if err := h.sc.RequestReopen(); err != nil {
+			h.ev.fail("reopen")
+		}
+		h.emit("reopened", map[string]interface{}{"evicted": true})
+		return visitEvicted
+	case <-h.sc.PeerLeft:
+		// A lost host socket closes Down before it pushes PeerLeft
+		// (signaling/client.go), so this reads as the visitor leaving only
+		// when the socket is still up (review 1, N3).
+		select {
+		case <-h.sc.Down:
+			h.ev.fail("signaling")
+		default:
+		}
+		h.emit("refused", map[string]interface{}{"code": "peer-left"})
+		return visitRefused
+	case <-h.sc.Down:
+		h.ev.fail("signaling")
+	}
+	return visitRefused
+}
+
+// runRequest is request mode's entry. stdin is read only under -join-on-stdin,
+// and only for the one line that releases the join; its content is ignored.
+func runRequest(ev *events, stdin io.Reader, args []string) {
 	cfg, err := parseRequestFlags(args)
 	if err != nil {
 		ev.usage()
@@ -450,16 +554,49 @@ func runRequest(ev *events, args []string) {
 
 	watchdog := time.AfterFunc(cfg.timeout, func() { ev.fail("timeout") })
 
-	h.sc = h.connect()
-	h.emit("joined", map[string]interface{}{"role": "host", "roomId": h.room})
-	h.emit("link", map[string]interface{}{"link": cfg.web + "/r/" + linkID + "#" + h.room})
+	link := cfg.web + "/r/" + linkID + "#" + h.room
+	if cfg.joinAfter > 0 || cfg.joinOnStdin {
+		// The link first, then the room: until the join the server answers
+		// the visitor host-absent. The room id is the token's derivation, so
+		// it is known before any join; the token itself is never printed.
+		h.emit("link", map[string]interface{}{"link": link})
+		if cfg.joinOnStdin {
+			// End of input before a line means the spec went away: fail
+			// rather than join a room nobody will visit.
+			if _, err := bufio.NewReader(stdin).ReadString('\n'); err != nil {
+				watchdog.Stop()
+				ev.fail("stdin")
+			}
+		} else {
+			time.Sleep(cfg.joinAfter)
+		}
+		h.sc = h.connect()
+		h.emit("joined", map[string]interface{}{"role": "host", "roomId": h.room})
+	} else {
+		h.sc = h.connect()
+		h.emit("joined", map[string]interface{}{"role": "host", "roomId": h.room})
+		h.emit("link", map[string]interface{}{"link": link})
+	}
 
 	for n := 0; ; n++ {
 		step := cfg.steps[len(cfg.steps)-1]
 		if n < len(cfg.steps) {
 			step = cfg.steps[n]
 		}
-		if h.visit(step) == visitDelivered || !cfg.keepWaiting {
+		outcome := h.visit(step)
+		if outcome == visitDelivered {
+			break
+		}
+		if outcome == visitEvicted {
+			// Already reopened by the harness; the next step takes the next
+			// visitor. A stale peer-disconnected is dropped as below.
+			select {
+			case <-h.sc.PeerLeft:
+			default:
+			}
+			continue
+		}
+		if !cfg.keepWaiting {
 			break
 		}
 		// A stale peer-disconnected from the visit that just ended must not

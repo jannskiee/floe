@@ -14,6 +14,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -396,13 +397,18 @@ type harnessRun struct {
 	code chan int
 	seen []map[string]interface{}
 	raws []string
+	// stdin is the harness's standard input, for -join-on-stdin.
+	stdin *io.PipeWriter
 }
 
 func startRequest(t *testing.T, args ...string) *harnessRun {
 	t.Helper()
+	stdinR, stdinW := io.Pipe()
+	t.Cleanup(func() { stdinW.Close() })
 	h := &harnessRun{
-		sink: &lineSink{raw: make(chan string, 256), lines: make(chan map[string]interface{}, 256)},
-		code: make(chan int, 1),
+		sink:  &lineSink{raw: make(chan string, 256), lines: make(chan map[string]interface{}, 256)},
+		code:  make(chan int, 1),
+		stdin: stdinW,
 	}
 	ev := &events{enc: json.NewEncoder(h.sink), exit: func(code int) { panic(exitPanic(code)) }}
 	go func() {
@@ -415,7 +421,7 @@ func startRequest(t *testing.T, args ...string) *harnessRun {
 				panic(r)
 			}
 		}()
-		runRequest(ev, args)
+		runRequest(ev, stdinR, args)
 	}()
 	return h
 }
@@ -484,11 +490,11 @@ func roomFromLink(t *testing.T, link string) string {
 	return room
 }
 
-// visit is a Go visitor: request-join, answer the host's offer, send path. It
+// visit is a Go visitor: request-join, answer the host's offer, send paths. It
 // waits for the host's received, as the /r page does, so nil means the host
 // committed the file and a refusal after the end frame comes back as that
 // refusal; the host's own close is what ends a wait with neither.
-func visit(url, room, path string) error {
+func visit(url, room string, paths ...string) error {
 	sc, err := signaling.Connect(url)
 	if err != nil {
 		return err
@@ -508,7 +514,7 @@ func visit(url, room, path string) error {
 		return err
 	}
 	early := conn.Early()
-	return transfer.SendFilesWithOptions(dc, []string{path}, "visitor", transfer.SendOptions{
+	return transfer.SendFilesWithOptions(dc, paths, "visitor", transfer.SendOptions{
 		OnProgress:      func(transfer.Progress) {},
 		Messages:        early.Msgs,
 		Closed:          early.Closed,
@@ -519,11 +525,17 @@ func visit(url, room, path string) error {
 // payload writes a random file and returns its path and digest.
 func payload(t *testing.T, size int) (string, [32]byte) {
 	t.Helper()
+	return namedPayload(t, "drop.bin", size)
+}
+
+// namedPayload is payload under a chosen base name, for a visit of two files.
+func namedPayload(t *testing.T, name string, size int) (string, [32]byte) {
+	t.Helper()
 	b := make([]byte, size)
 	if _, err := rand.Read(b); err != nil {
 		t.Fatal(err)
 	}
-	p := filepath.Join(t.TempDir(), "drop.bin")
+	p := filepath.Join(t.TempDir(), name)
 	if err := os.WriteFile(p, b, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -640,6 +652,302 @@ func TestRequestModeDeliversThroughAFakeServer(t *testing.T) {
 	got, err := os.ReadFile(filepath.Join(out, entries[0].Name()))
 	if err != nil || sha256.Sum256(got) != sum {
 		t.Fatal("the committed file differs from what the visitor sent")
+	}
+}
+
+// -join-after: the link is printed before the host claims the room, a visitor
+// in that window is answered host-absent, and after the join the same link
+// delivers (S1-WEB-05 test 1). The token is still never printed.
+func TestRequestModeJoinAfterPrintsTheLinkFirst(t *testing.T) {
+	srv := newFakeRequestServer(t)
+	out := t.TempDir()
+	path, _ := payload(t, 64*1024)
+	h := startRequest(t, "-server", srv.url, "-out", out, "-join-after", "1500", "-timeout", "60s")
+
+	room := roomFromLink(t, h.until(t, "link")["link"].(string))
+	if tokens, _, _ := srv.snapshot(); len(tokens) != 0 {
+		t.Fatal("the host joined before the link was printed")
+	}
+	early, err := signaling.Connect(srv.url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := early.RequestJoin(room)
+	early.Close()
+	if err != nil || res != signaling.VisitorHostAbsent {
+		t.Fatalf("a visitor before the join got %v (err %v), want host-absent", res, err)
+	}
+	h.until(t, "joined")
+	if err := visit(srv.url, room, path); err != nil {
+		t.Fatalf("visitor after the join: %v", err)
+	}
+	if d := h.until(t, "done"); d["files"] != float64(1) {
+		t.Fatalf("done = %v", d)
+	}
+	if code := h.exitCode(t); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	want := []string{"link", "joined", "user-connected", "offer-sent", "sealed", "deciding", "accepted", "file-committed", "closed", "done"}
+	if got := h.names(); !equalNames(got, want) {
+		t.Fatalf("events %v, want %v", got, want)
+	}
+	tokens, badRoom, _ := srv.snapshot()
+	checkNoToken(t, h, tokens)
+	if badRoom || len(tokens) != 1 {
+		t.Fatalf("host joins %d, badRoom %v", len(tokens), badRoom)
+	}
+}
+
+// -join-after is 0 (today's order) unless given, and never negative.
+func TestJoinAfterFlag(t *testing.T) {
+	plain, err := parseRequestFlags([]string{"-out", t.TempDir()})
+	if err != nil || plain.joinAfter != 0 {
+		t.Fatalf("default joinAfter %v, err %v; want 0", plain.joinAfter, err)
+	}
+	set, err := parseRequestFlags([]string{"-out", t.TempDir(), "-join-after", "2500"})
+	if err != nil || set.joinAfter != 2500*time.Millisecond {
+		t.Fatalf("joinAfter %v, err %v; want 2.5s", set.joinAfter, err)
+	}
+	if _, err := parseRequestFlags([]string{"-out", t.TempDir(), "-join-after", "-1"}); err == nil {
+		t.Fatal("a negative -join-after was accepted")
+	}
+}
+
+// -join-on-stdin is off unless given, excludes -join-after, and neither late
+// join combines with -blip-after link, whose blip would run before any socket
+// exists (review 1, N2).
+func TestJoinOnStdinFlag(t *testing.T) {
+	plain, err := parseRequestFlags([]string{"-out", t.TempDir()})
+	if err != nil || plain.joinOnStdin {
+		t.Fatalf("default joinOnStdin %v, err %v; want false", plain.joinOnStdin, err)
+	}
+	set, err := parseRequestFlags([]string{"-out", t.TempDir(), "-join-on-stdin"})
+	if err != nil || !set.joinOnStdin {
+		t.Fatalf("joinOnStdin %v, err %v; want true", set.joinOnStdin, err)
+	}
+	if _, err := parseRequestFlags([]string{"-out", t.TempDir(), "-blip-after", "link"}); err != nil {
+		t.Fatalf("-blip-after link alone was refused: %v", err)
+	}
+	dir := t.TempDir()
+	for name, args := range map[string][]string{
+		"both late joins":            {"-out", dir, "-join-on-stdin", "-join-after", "5"},
+		"blip at link, stdin join":   {"-out", dir, "-join-on-stdin", "-blip-after", "link"},
+		"blip at link, timed join":   {"-out", dir, "-join-after", "5", "-blip-after", "link"},
+		"stdin join with a value":    {"-out", dir, "-join-on-stdin=maybe"},
+		"blip at link, timed join 1": {"-out", dir, "-join-after", "1", "-blip-after", "link"},
+	} {
+		if _, err := parseRequestFlags(args); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+// -join-on-stdin: the link is printed, the host stays out of the room (a
+// visitor meanwhile is answered host-absent) until one line arrives on stdin,
+// and then the same link delivers (S1-WEB-05 test 1, deterministic in both
+// directions). The token is still never printed.
+func TestRequestModeJoinOnStdinWaitsForALine(t *testing.T) {
+	srv := newFakeRequestServer(t)
+	out := t.TempDir()
+	path, _ := payload(t, 64*1024)
+	h := startRequest(t, "-server", srv.url, "-out", out, "-join-on-stdin", "-timeout", "60s")
+
+	room := roomFromLink(t, h.until(t, "link")["link"].(string))
+	early, err := signaling.Connect(srv.url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := early.RequestJoin(room)
+	early.Close()
+	if err != nil || res != signaling.VisitorHostAbsent {
+		t.Fatalf("a visitor before the line got %v (err %v), want host-absent", res, err)
+	}
+	// No timer releases the join: well past any delay, still no host.
+	time.Sleep(500 * time.Millisecond)
+	if tokens, _, _ := srv.snapshot(); len(tokens) != 0 {
+		t.Fatal("the host joined before a line arrived on stdin")
+	}
+	if _, err := io.WriteString(h.stdin, "\n"); err != nil {
+		t.Fatal(err)
+	}
+	h.until(t, "joined")
+	if err := visit(srv.url, room, path); err != nil {
+		t.Fatalf("visitor after the join: %v", err)
+	}
+	if d := h.until(t, "done"); d["files"] != float64(1) {
+		t.Fatalf("done = %v", d)
+	}
+	if code := h.exitCode(t); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	want := []string{"link", "joined", "user-connected", "offer-sent", "sealed", "deciding", "accepted", "file-committed", "closed", "done"}
+	if got := h.names(); !equalNames(got, want) {
+		t.Fatalf("events %v, want %v", got, want)
+	}
+	tokens, badRoom, _ := srv.snapshot()
+	checkNoToken(t, h, tokens)
+	if badRoom || len(tokens) != 1 {
+		t.Fatalf("host joins %d, badRoom %v", len(tokens), badRoom)
+	}
+}
+
+// -join-on-stdin with stdin closed before any line (the spec went away): the
+// harness fails at the stdin stage and never joins.
+func TestRequestModeJoinOnStdinEOFJoinsNothing(t *testing.T) {
+	srv := newFakeRequestServer(t)
+	h := startRequest(t, "-server", srv.url, "-out", t.TempDir(), "-join-on-stdin", "-timeout", "60s")
+	h.until(t, "link")
+	h.stdin.Close()
+	if e := h.until(t, "error"); e["stage"] != "stdin" {
+		t.Fatalf("error = %v, want stage stdin", e)
+	}
+	if code := h.exitCode(t); code != 1 {
+		t.Fatalf("exit %d, want 1", code)
+	}
+	if tokens, _, _ := srv.snapshot(); len(tokens) != 0 {
+		t.Fatalf("%d host joins after stdin closed, want 0", len(tokens))
+	}
+}
+
+// offer:skip and reopen-after:<ms> parse, and malformed forms are refused.
+func TestStallStepsParse(t *testing.T) {
+	good := map[string]decideStep{
+		"offer:skip":        {skipOffer: true},
+		"reopen-after:1":    {skipOffer: true, reopenAfter: time.Millisecond},
+		"reopen-after:3000": {skipOffer: true, reopenAfter: 3 * time.Second},
+	}
+	for spec, want := range good {
+		got, err := parseDecideStep(spec)
+		if err != nil || got != want {
+			t.Errorf("parseDecideStep(%q) = %+v, %v; want %+v", spec, got, err, want)
+		}
+	}
+	for _, bad := range []string{"offer:", "offer:Skip", "offer:skip ", "reopen-after:", "reopen-after:0", "reopen-after:-5", "reopen-after:x", "reopen-after:1.5"} {
+		if _, err := parseDecideStep(bad); err == nil {
+			t.Errorf("parseDecideStep(%q) accepted a step it must refuse", bad)
+		}
+	}
+	steps, err := parseDecideScript("reopen-after:3000,accept")
+	if err != nil || len(steps) != 2 || !steps[0].skipOffer || steps[1].kind != transfer.DecisionAccept {
+		t.Fatalf("parseDecideScript = %+v, %v", steps, err)
+	}
+}
+
+// reopen-after:<ms>,accept: the first visitor is seated and never offered to,
+// the harness reopens the room under it (the server evicts it with room-full),
+// and the next visitor delivers (S1-WEB-05 test 10).
+func TestRequestModeReopenAfterEvictsAStalledVisitor(t *testing.T) {
+	srv := newFakeRequestServer(t)
+	out := t.TempDir()
+	path, _ := payload(t, 64*1024)
+	h := startRequest(t, "-server", srv.url, "-out", out, "-decide", "reopen-after:500,accept", "-timeout", "60s")
+
+	room := roomFromLink(t, h.until(t, "link")["link"].(string))
+	stalled, err := signaling.Connect(srv.url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stalled.Close()
+	if res, err := stalled.RequestJoin(room); err != nil || res != signaling.VisitorJoined {
+		t.Fatalf("stalled visitor not seated: %v %v", res, err)
+	}
+	h.until(t, "offer-skipped")
+	start := time.Now()
+	select {
+	case <-stalled.RoomFull:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the stalled visitor was never evicted with room-full")
+	}
+	if waited := time.Since(start); waited > 5*time.Second {
+		t.Fatalf("eviction took %v, want about the 500 ms reopen-after", waited)
+	}
+	if r := h.until(t, "reopened"); r["evicted"] != true {
+		t.Fatalf("reopened = %v, want evicted true", r)
+	}
+	if err := visit(srv.url, room, path); err != nil {
+		t.Fatalf("next visitor: %v", err)
+	}
+	if d := h.until(t, "done"); d["files"] != float64(1) {
+		t.Fatalf("done = %v", d)
+	}
+	if code := h.exitCode(t); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	want := []string{"joined", "link", "user-connected", "offer-skipped", "reopened", "user-connected", "offer-sent", "sealed", "deciding", "accepted", "file-committed", "closed", "done"}
+	if got := h.names(); !equalNames(got, want) {
+		t.Fatalf("events %v, want %v", got, want)
+	}
+	_, _, controls := srv.snapshot()
+	if !equalNames(controls, []string{"request-reopen", "request-seal", "request-close"}) {
+		t.Fatalf("control frames %v", controls)
+	}
+}
+
+// -hold-after-file is 0 (no hold) unless given, and never negative.
+func TestHoldAfterFileFlag(t *testing.T) {
+	plain, err := parseRequestFlags([]string{"-out", t.TempDir()})
+	if err != nil || plain.holdAfterFile != 0 {
+		t.Fatalf("default holdAfterFile %v, err %v; want 0", plain.holdAfterFile, err)
+	}
+	set, err := parseRequestFlags([]string{"-out", t.TempDir(), "-hold-after-file", "2500"})
+	if err != nil || set.holdAfterFile != 2500*time.Millisecond {
+		t.Fatalf("holdAfterFile %v, err %v; want 2.5s", set.holdAfterFile, err)
+	}
+	if _, err := parseRequestFlags([]string{"-out", t.TempDir(), "-hold-after-file", "-1"}); err == nil {
+		t.Fatal("a negative -hold-after-file was accepted")
+	}
+}
+
+// -hold-after-file: after the first committed file the receive loop holds for
+// the given time, printing holding and released around it, and then carries
+// on; the second file is committed only after the release, and both arrive
+// (S1-WEB-05 test 9 pins the visitor in Sending this way).
+func TestRequestModeHoldAfterFileHoldsTheLoop(t *testing.T) {
+	const holdMs = 700
+	srv := newFakeRequestServer(t)
+	out := t.TempDir()
+	first, sumA := namedPayload(t, "a.bin", 64*1024)
+	second, sumB := namedPayload(t, "b.bin", 64*1024)
+	h := startRequest(t, "-server", srv.url, "-out", out, "-hold-after-file", "700", "-timeout", "60s")
+
+	room := roomFromLink(t, h.until(t, "link")["link"].(string))
+	visitErr := make(chan error, 1)
+	go func() { visitErr <- visit(srv.url, room, first, second) }()
+	h.until(t, "holding")
+	released := h.until(t, "released")
+	if ms, ok := released["heldMs"].(float64); !ok || ms < holdMs {
+		t.Fatalf("released = %v, want heldMs of at least %d", released, holdMs)
+	}
+	if d := h.until(t, "done"); d["files"] != float64(2) || d["verified"] != float64(2) {
+		t.Fatalf("done = %v, want files 2 verified 2", d)
+	}
+	if code := h.exitCode(t); code != 0 {
+		t.Fatalf("exit %d, want 0", code)
+	}
+	if err := <-visitErr; err != nil {
+		t.Fatalf("visitor: %v", err)
+	}
+	want := []string{"joined", "link", "user-connected", "offer-sent", "sealed", "deciding", "accepted", "file-committed", "holding", "released", "file-committed", "closed", "done"}
+	if got := h.names(); !equalNames(got, want) {
+		t.Fatalf("events %v, want %v", got, want)
+	}
+	got := map[[32]byte]bool{}
+	entries, err := os.ReadDir(out)
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("output dir holds %d entries (err %v), want the two files", len(entries), err)
+	}
+	for _, e := range entries {
+		b, err := os.ReadFile(filepath.Join(out, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got[sha256.Sum256(b)] = true
+	}
+	if !got[sumA] || !got[sumB] {
+		t.Fatal("the committed files differ from what the visitor sent")
+	}
+	if n := srv.statsRequests(); n != 0 {
+		t.Fatalf("%d stats reports reached the server, want 0", n)
 	}
 }
 
