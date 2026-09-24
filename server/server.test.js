@@ -2640,8 +2640,14 @@ describe('handleRequestJoin', () => {
         const v = makePeer('looper', 'k-looper');
         const answers = [];
         for (let i = 0; i < 30; i++) {
+            const held = v.roomId;
             handleRequestJoin(v, id, T0 + i * 100);
             answers.push(v.msgs.pop().type);
+            if (i >= 6) {
+                // A refusal runs before the leave: the looper keeps the room it had.
+                assert.equal(v.roomId, held, `refusal ${i - 5} kept the seat it had`);
+                assert.deepEqual(rooms.get(held), [v]);
+            }
             handleJoinRoom(v, randomUUID()); // leave without closing the socket
             v.msgs.length = 0;
         }
@@ -2668,6 +2674,30 @@ describe('handleRequestJoin', () => {
         const z = makePeer('z', 'k-z');
         handleRequestJoin(z, other.id, T0 + 3_000);
         assert.deepEqual(z.msgs.pop(), { type: 'request-joined', data: { role: 'visitor' } });
+
+        // A refused peer stays where it was, and so does its partner: a
+        // receiver paired in an ordinary room, and the host of another link,
+        // each ask the spent link and keep their seats; nobody hears a leave.
+        const plain = randomUUID();
+        const a = makePeer('a', 'k-a');
+        const b = makePeer('b', 'k-b');
+        handleJoinRoom(a, plain);
+        handleJoinRoom(b, plain);
+        a.msgs.length = 0;
+        b.msgs.length = 0;
+        handleRequestJoin(b, id, T0 + 3_100);
+        assert.deepEqual(b.msgs, [{ type: 'room-full', data: {} }]);
+        assert.equal(b.roomId, plain);
+        assert.deepEqual(rooms.get(plain), [a, b]);
+        assert.deepEqual(a.msgs, [], 'the partner hears no peer-disconnected');
+        other.host.msgs.length = 0;
+        handleRequestJoin(other.host, id, T0 + 3_200);
+        assert.deepEqual(other.host.msgs, [{ type: 'room-full', data: {} }]);
+        assert.equal(other.host.roomId, other.id);
+        assert.deepEqual(rooms.get(other.id), [other.host, z]);
+        assert.equal(roomMeta.get(other.id).hostPeerId, other.host.id, 'its own link is not in grace');
+        assert.equal(roomMeta.get(other.id).hostAbsentSince, null);
+        assert.deepEqual(z.msgs, [], 'its visitor hears no host-absent');
 
         // Per reservation, not per socket or key: a fresh socket from anywhere
         // is refused too, and the host's reopen (Floe Desktop sends one after
