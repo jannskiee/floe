@@ -45,6 +45,7 @@ import {
     STRINGS,
     ShellMenuGuard,
     USER_AWAY_IDLE_S,
+    UiaDriver,
     WAILSDEV_URL,
     WINDOWS_APPS,
     activeGuards,
@@ -58,6 +59,7 @@ import {
     identityVersion,
     isRoomLink,
     listDesktopProcesses,
+    openReceiveCode,
     parseTag,
     parseTasklist,
     pillVerdict,
@@ -513,6 +515,10 @@ function scriptedDriver(state) {
             if (state.onClick) state.onClick(name, opts);
             return { via: 'invoke' };
         },
+        async toCodeView() {
+            calls.push(['to-code-view']);
+            return false;
+        },
         async setValue(placeholder, value, opts = {}) {
             calls.push(['set-value', placeholder, value, opts]);
             const before = state.values[placeholder] ?? '';
@@ -648,6 +654,8 @@ test('receiver flow: tab, remember save dir, set code and dir, click the action 
     );
     await leg.start();
     assert.deepEqual(driver.calls[0], ['click', 'Receive', { index: 0 }]);
+    // The Code sub-view before any field is read (openReceiveCode).
+    assert.deepEqual(driver.calls[1], ['to-code-view']);
     assert.equal(leg.saveDir.original, 'C:\\old\\dir');
     assert.deepEqual(
         driver.calls
@@ -2482,6 +2490,81 @@ test("PlaywrightDriver.click reaches the receive view's primary button by docume
         !page.chain.some((c, i) => c[0] === 'getByRole' && i > 0),
         'the button is taken by the anchored XPath, not by a nested role query'
     );
+});
+
+/** A page holding only the receive row's Code choice, in a given state. */
+function codeChoicePage({ shown, pressed }) {
+    const clicks = [];
+    const button = {
+        first: () => button,
+        isVisible: async () => shown,
+        getAttribute: async (n) => (n === 'aria-pressed' ? String(pressed) : null),
+        click: async () => {
+            clicks.push('Code');
+        },
+    };
+    return {
+        clicks,
+        getByRole(role, o) {
+            assert.equal(role, 'button');
+            assert.deepEqual(o, { name: STRINGS.codeChoice, exact: true });
+            return button;
+        },
+    };
+}
+
+test('PlaywrightDriver.toCodeView presses Code only when it shows and is not pressed', async () => {
+    assert.equal(STRINGS.codeChoice, 'Code');
+    for (const [shown, pressed, want] of [
+        [true, false, ['Code']], // the view kept Request link from the last cell
+        [true, true, []], // already on Code
+        [false, false, []], // the beta is off: no choice row at all
+    ]) {
+        const page = codeChoicePage({ shown, pressed });
+        const pressedIt = await new PlaywrightDriver(page, null, {}).toCodeView();
+        assert.deepEqual(page.clicks, want, `shown=${shown} pressed=${pressed}`);
+        assert.equal(pressedIt, want.length === 1);
+    }
+});
+
+test('openReceiveCode opens RECEIVE and then its Code sub-view, on either driver', async () => {
+    // The head default run of 2026-09-25 lost every *2D cell to
+    // `locator.inputValue: Timeout 30000ms`: a request cell left the receive
+    // view on Request link, where the code and Save to fields do not exist.
+    const calls = [];
+    await openReceiveCode({
+        click: async (n, o) => calls.push(['click', n, o]),
+        toCodeView: async () => calls.push(['toCodeView']),
+    });
+    assert.deepEqual(calls, [['click', STRINGS.tabReceive, { index: 0 }], ['toCodeView']]);
+
+    // The UIA lane has no request link verbs (request.mjs refuses them off
+    // wailsdev), so there is no sub-view to leave: only the tab is clicked.
+    const sent = [];
+    const uia = new UiaDriver(
+        {
+            retry: async (verb, args) => sent.push([verb, args.name]),
+            request: async (verb) => sent.push([verb]),
+        },
+        7
+    );
+    await openReceiveCode(uia);
+    assert.equal(await uia.toCodeView(), false);
+    assert.deepEqual(sent, [['click', STRINGS.tabReceive]]);
+});
+
+test('every code-receive path in DesktopLeg goes through openReceiveCode', () => {
+    // A bare RECEIVE click followed by a read of the code or Save to field is
+    // the shape that timed out; the request views reach RECEIVE through
+    // _toRequestView and makeRequestLink, which pick their own sub-view.
+    const src = readFileSync(fileURLToPath(new URL('./desktop.mjs', import.meta.url)), 'utf8');
+    const bare = src
+        .split('\n')
+        .map((l, i) => [i + 1, l.trim()])
+        .filter(([, l]) => /click\(STRINGS\.tabReceive\b/.test(l));
+    const allowed = /^await this\._button\(STRINGS\.tabReceive\)\.first\(\)\.click\(\);$|^await driver\.click\(STRINGS\.tabReceive, \{ index: 0 \}\);$/;
+    const stray = bare.filter(([, l]) => !allowed.test(l));
+    assert.deepEqual(stray, [], 'a RECEIVE click outside openReceiveCode and the request views');
 });
 
 test('PlaywrightDriver.stage hands its own page the files through a files:open notify, never EventsEmit', async () => {

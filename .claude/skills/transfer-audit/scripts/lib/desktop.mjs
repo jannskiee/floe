@@ -113,6 +113,7 @@ export const STRINGS = Object.freeze({
     textPlaceholder: 'Type or paste text to send', // send-text textarea
     tabSend: 'Send', // modeBtn('send', 'Send')
     tabReceive: 'Receive', // modeBtn('receive', 'Receive')
+    codeChoice: 'Code', // Receive > CODE | REQUEST LINK (R1), only while the Request links beta is on
     receiveButton: 'Receive', // primary button on the receive view
     cancel: 'Cancel',
     settings: 'Settings', // TitleBar.tsx aria-label
@@ -1087,6 +1088,14 @@ export class UiaDriver {
             ...opts,
         });
     }
+    /**
+     * The request link verbs run on the wailsdev lane only (request.mjs
+     * refuses them here), so an exe leg's receive view has no sub-view to
+     * leave. PlaywrightDriver.toCodeView says why the other lane needs one.
+     */
+    async toCodeView() {
+        return false;
+    }
     async readText(re, opts = {}) {
         const r = await this.client.readText(this.hwnd, re, opts);
         return r.texts;
@@ -1394,6 +1403,23 @@ export class PlaywrightDriver {
      * RECEIVE tab (the first button of that name, in the card header) and
      * the REQUEST LINK choice, the same two clicks Make link starts with.
      */
+    /**
+     * With the Request links beta on, the receive view is two sub-views
+     * behind a Code | Request link choice, and it keeps the last one: after
+     * a request cell it reopens on Request link, where neither the code
+     * field nor the receive Save to field exists (the head default run of
+     * 2026-09-25 lost every *2D cell to `locator.inputValue: Timeout
+     * 30000ms` that way). Presses Code when it shows and is not already
+     * pressed; with the beta off there is no choice row and nothing is
+     * pressed. Resolves whether it pressed.
+     */
+    async toCodeView() {
+        if (!(await this._visible(STRINGS.codeChoice))) return false;
+        const code = this._button(STRINGS.codeChoice).first();
+        if ((await code.getAttribute('aria-pressed')) === 'true') return false;
+        await code.click();
+        return true;
+    }
     async _toRequestView() {
         for (const name of REQUEST_VIEW_MARKS)
             if (await this._visible(name)) return false;
@@ -1812,6 +1838,16 @@ export async function closeAndWait(
 }
 
 // -------------------------------------------------------------- the leg
+
+/**
+ * RECEIVE, then its Code sub-view (toCodeView), before any receive field is
+ * read. Every code-receive path goes through here; the request views reach
+ * RECEIVE through _toRequestView and makeRequestLink instead.
+ */
+export async function openReceiveCode(driver) {
+    await driver.click(STRINGS.tabReceive, { index: 0 });
+    await driver.toCodeView();
+}
 
 export class DesktopLeg extends Leg {
     constructor(opts) {
@@ -2298,7 +2334,7 @@ export class DesktopLeg extends Leg {
             );
         await this.launch([]);
         await this.applyRelayForcer();
-        await this.driver.click(STRINGS.tabReceive, { index: 0 });
+        await openReceiveCode(this.driver);
         const orig = await this.driver.getValue(STRINGS.saveDirPlaceholder, {
             scope: 'receive',
         });
@@ -3577,7 +3613,7 @@ const PROBES = {
         try {
             leg = await probeLeg(opts);
             const d = leg.driver;
-            await d.click(STRINGS.tabReceive, { index: 0 });
+            await openReceiveCode(d);
             const set = await d.setValue(
                 STRINGS.codePlaceholder,
                 'zzz-zzz-zzz'
@@ -3585,7 +3621,7 @@ const PROBES = {
             detail.set = set;
             await d.click(STRINGS.tabSend, { index: 0 });
             await sleep(300);
-            await d.click(STRINGS.tabReceive, { index: 0 });
+            await openReceiveCode(d);
             await sleep(300);
             const back = await d.getValue(STRINGS.codePlaceholder);
             detail.afterTabFlip = back.value;
@@ -3788,7 +3824,7 @@ const PROBES = {
         try {
             leg = await probeLeg(opts);
             const d = leg.driver;
-            await d.click(STRINGS.tabReceive, { index: 0 });
+            await openReceiveCode(d);
             const original =
                 (
                     await d.getValue(STRINGS.saveDirPlaceholder, {
@@ -3815,7 +3851,7 @@ const PROBES = {
             leg = null;
             if (opts.relaunch !== false) {
                 leg = await probeLeg(opts);
-                await leg.driver.click(STRINGS.tabReceive, { index: 0 });
+                await openReceiveCode(leg.driver);
                 const again =
                     (
                         await leg.driver.getValue(STRINGS.saveDirPlaceholder, {
