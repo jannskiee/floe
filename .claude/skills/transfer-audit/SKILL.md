@@ -519,7 +519,12 @@ to it, so none ever runs as a plain cell.
   into this run's own
   evidence root (a leftover of an earlier cell, noted as swept); any other
   is the owner's, is left exactly as it is, and the cell is ERROR
-  `host-busy` before any click.
+  `host-busy` before any click. A release that does not leave the host as
+  found (the link still open, the result still showing, the address or
+  the Beta switch not restored, or a release that outlived the teardown
+  budget) turns a cell that otherwise passed into ERROR `host-release`; a
+  cell that already failed keeps its own finding with the same words as a
+  note.
 - The link carries the room after `#`: it goes to the visitor's
   `page.goto` only. Every message, note, log line and evidence file passes
   through `redactRequestLinks` (`#<room>`, the link id stays), and the

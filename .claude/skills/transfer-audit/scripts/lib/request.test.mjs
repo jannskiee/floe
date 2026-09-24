@@ -627,3 +627,56 @@ test('a live link this run left behind (its folder inside the run) is closed fir
     );
     assertNoRoom(ctx, r, 'H-DIR-W2D-req');
 });
+
+// ------------------------------------------------------- the release
+
+// The first live run's D2C-reqopen (2026-09-24) PASSed while its release
+// failed: Close link timed out, the link and the Beta switch stayed on, and
+// the next cell inherited them. A release that does not leave the host as
+// found is now a keyed harness ERROR on a cell that otherwise passed.
+test('TA-17 whose Close link does not take: ERROR host-release in teardown, never a PASS with a note', async () => {
+    const w = fakeRequestWorld({ host: { closeStuck: true } });
+    const r = await runCell(small('H-DIR-W2C-reqopen'), ctxFor(w));
+    assert.equal(r.verdict, 'ERROR', r.note);
+    assert.equal(r.reason, 'host-release', r.note);
+    const a = r.attempts[0];
+    assert.equal(a.failedPhase, 'teardown');
+    assert.equal(a.signatureKey, 'host-release');
+    assert.equal(a.request.after, 'waiting', 'the quick cell itself held');
+    assert.match(r.note, /host-release: the host was not left as found/);
+    assert.match(r.note, /"Make another link" did not appear/);
+    assert.match(r.note, /Beta switch restore/);
+    assert.equal(attemptJson(a).signatureKey, 'host-release', 'attempt.json says so too');
+});
+
+test('TA-10 whose result cannot be put away: ERROR host-release (the Beta switch stays locked on)', async () => {
+    const w = fakeRequestWorld({ host: { dismissStuck: true } });
+    const r = await runCell(small('H-DIR-W2D-req'), ctxFor(w));
+    assert.equal(r.verdict, 'ERROR', r.note);
+    assert.equal(r.reason, 'host-release', r.note);
+    assert.match(r.note, /"Dismiss" was still showing/);
+    assert.match(r.note, /Beta switch restore/);
+    assert.equal(w.dom.settings.requestLinks, true, 'the switch really is still on');
+    assert.equal(attemptJson(r.attempts[0]).signatureKey, 'host-release');
+});
+
+test('a FAIL whose release also failed keeps its own finding and carries the host-release note', async () => {
+    const w = fakeRequestWorld({ faults: ['not-used-up'], host: { dismissStuck: true } });
+    const r = await runCell(small('H-DIR-W2D-req'), ctxFor(w));
+    assert.equal(r.verdict, 'FAIL', r.note);
+    assert.equal(r.reason, 'request-flow');
+    assert.ok(
+        r.attempts[0].notes.some((l) => /^host-release: the host was not left as found/.test(l)),
+        r.attempts[0].notes.join(' | ')
+    );
+});
+
+test('TA-17 whose release outlives the teardown budget: ERROR host-release, the release did not finish', async () => {
+    const w = fakeRequestWorld({ host: { closeHangs: true } });
+    const cell = small('H-DIR-W2C-reqopen');
+    cell.timeouts.teardown = 200;
+    const r = await runCell(cell, ctxFor(w));
+    assert.equal(r.verdict, 'ERROR', r.note);
+    assert.equal(r.reason, 'host-release', r.note);
+    assert.match(r.note, /did not finish within the teardown budget/);
+});

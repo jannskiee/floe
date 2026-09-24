@@ -323,7 +323,9 @@ async function startHost(cell, ctx, rec, st, { outDir, relayOnly, blipUrl = null
  * Leave the host as the cell found it: stop a running drop, close an open
  * link, put a result away (the Beta switch is locked while one shows),
  * restore the addresses the blip swapped, and turn the Beta switch back off
- * if the cell turned it on. Runs from the host leg's stop, once.
+ * if the cell turned it on. Runs from the host leg's stop, once. Each step
+ * that fails is a note and a release failure (st.releaseFailures), which
+ * markHostRelease turns into the attempt's verdict.
  */
 async function releaseHost(st, rec) {
     if (st.released) return;
@@ -331,6 +333,10 @@ async function releaseHost(st, rec) {
     const { host } = st;
     const { now, nap } = st.clock;
     const note = (l) => rec.notes.push(scrub(l));
+    const fail = (l) => {
+        note(l);
+        st.releaseFailures.push(scrub(l));
+    };
     try {
         let s = await snapshotOf(host);
         const ours = st.makeTried && Number(s.gen) > st.genBefore;
@@ -345,10 +351,13 @@ async function releaseHost(st, rec) {
                 await host.driver.closeRequestLink({ now, nap });
             else if (RESULTS.has(s.state))
                 await host.driver.dismissRequestResult({ now, nap });
-            rec.request.released = (await snapshotOf(host)).state;
+            const left = (await snapshotOf(host)).state;
+            rec.request.released = left;
+            if (LIVE.has(left))
+                fail(`host release: the link this cell made still reads ${left}`);
         }
     } catch (e) {
-        note(`host release: ${e.message}`);
+        fail(`host release: ${e.message}`);
     }
     if (st.addresses) {
         try {
@@ -360,19 +369,73 @@ async function releaseHost(st, rec) {
                 back?.server === st.addresses.server &&
                 back?.web === st.addresses.web;
             rec.request.addresses = { swapped: true, restored: ok };
-            if (!ok) note('host addresses: the old server address did not read back; set it again in the dev app');
+            if (!ok) fail('host addresses: the old server address did not read back; set it again in the dev app');
         } catch (e) {
             rec.request.addresses = { swapped: true, restored: false };
-            note(`host addresses: ${e.message}`);
+            fail(`host addresses: ${e.message}`);
         }
     }
     if (st.beta?.changed) {
         try {
             await setRequestLinks(host, false, st.clock);
         } catch (e) {
-            note(`Beta switch restore: ${e.message}`);
+            fail(`Beta switch restore: ${e.message}`);
         }
     }
+    st.releaseDone = true;
+}
+
+/**
+ * What the release left undone: its failed steps, and a release that
+ * started (or a link that was made) but never finished inside the teardown
+ * budget. Empty when the host is as the cell found it.
+ */
+function releaseProblems(st) {
+    if (!st.host) return [];
+    const out = [...(st.releaseFailures || [])];
+    if ((st.makeTried || st.released) && !st.releaseDone)
+        out.push('host release: it did not finish within the teardown budget');
+    return out;
+}
+
+/**
+ * A host not left as found is a keyed harness ERROR on a cell that
+ * otherwise passed, because the next desktop-host cell inherits it (the
+ * first live run, 2026-09-24: D2C-reqopen PASSed with its link still open,
+ * and C2D-reqopen after it could not make one). A cell that already failed
+ * keeps its own finding and gets the same words as a note.
+ */
+export const HOST_RELEASE_KEY = 'host-release';
+function markHostRelease(rec, problems) {
+    if (!problems.length) return;
+    const first = (s) => String(s).split(/\r?\n/)[0].trim();
+    const text = scrub(
+        `${HOST_RELEASE_KEY}: the host was not left as found (${problems.map(first).join('; ')}); the next desktop-host cell would inherit it`
+    );
+    if (!rec.ok) {
+        rec.notes.push(text);
+        return;
+    }
+    rec.ok = false;
+    rec.outcome = 'fail';
+    rec.harness = true;
+    rec.failedPhase = 'teardown';
+    rec.error = {
+        name: 'PhaseError',
+        message: text,
+        phase: 'teardown',
+        reason: HOST_RELEASE_KEY,
+        signatureKey: HOST_RELEASE_KEY,
+        harness: true,
+        safety: false,
+    };
+    rec.signature = {
+        key: HOST_RELEASE_KEY,
+        retryable: false,
+        triage: HOST_RELEASE_KEY,
+        text,
+    };
+    rec.signatureKey = HOST_RELEASE_KEY;
 }
 
 // ----------------------------------------------------------- the visitor
@@ -913,6 +976,8 @@ export async function runRequestAttempt(cell, ctx, n) {
         host: null,
         link: null,
         visitors: [],
+        releaseFailures: [],
+        releaseDone: false,
         browser: null,
         blip: null,
         outDir: null,
@@ -1097,6 +1162,7 @@ export async function runRequestAttempt(cell, ctx, n) {
         } catch (e) {
             rec.notes.push(scrub(`teardown: ${e.message}`));
         }
+        markHostRelease(rec, releaseProblems(st));
         // Every visitor's report attempts reach the Safety table, pass or
         // fail; verify only turns them into the cell's verdict.
         if (ctx.safety) {
@@ -1184,8 +1250,12 @@ export function openLinkHooks(cell, ctx) {
         host: null,
         link: null,
         visitors: [],
+        releaseFailures: [],
+        releaseDone: false,
     };
     return {
+        /** What the host release left undone (runOpenLinkAttempt reads it). */
+        releaseProblems: () => releaseProblems(st),
         async afterSetup(rec) {
             rec.request = newRequestRecord(cell);
             st.drops = path.join(rec.evidenceDir, 'host-drops');
@@ -1221,7 +1291,32 @@ export function openLinkHooks(cell, ctx) {
     };
 }
 
-/** One attempt of a TA-17 cell: the quick cell with a link held open. */
-export function runOpenLinkAttempt(cell, ctx, n, opts = {}) {
-    return runAttempt(cell, ctx, n, { ...opts, hooks: openLinkHooks(cell, ctx) });
+/**
+ * One attempt of a TA-17 cell: the quick cell with a link held open. The
+ * release is judged after runAttempt returns, because its teardown phase
+ * can time out while the release is still running (the first live run's
+ * D2C-reqopen, 2026-09-24); attempt.json is rewritten when that changes
+ * the verdict.
+ */
+export async function runOpenLinkAttempt(cell, ctx, n, opts = {}) {
+    const hooks = openLinkHooks(cell, ctx);
+    const rec = await runAttempt(cell, ctx, n, { ...opts, hooks });
+    const problems = hooks.releaseProblems();
+    if (problems.length) {
+        markHostRelease(rec, problems);
+        rec.notes = rec.notes.map(scrub);
+        if (rec.evidenceDir) {
+            try {
+                const { safetyError, ...plain } = rec;
+                void safetyError;
+                writeFileSync(
+                    path.join(rec.evidenceDir, 'attempt.json'),
+                    JSON.stringify(scrubDeep(plain), null, 4)
+                );
+            } catch (e) {
+                rec.notes.push(`evidence write: ${e.message}`);
+            }
+        }
+    }
+    return rec;
 }

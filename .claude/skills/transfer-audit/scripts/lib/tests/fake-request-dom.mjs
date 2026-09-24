@@ -76,6 +76,11 @@ export function fakeRequestDom({
     // host that makes its link on the old address whatever Settings reads.
     addressesStuck = false,
     ignoreServer = false,
+    // Release shapes: a Close link or Dismiss click the view ignores, and a
+    // Close link click that never returns (the teardown budget runs out).
+    closeStuck = false,
+    dismissStuck = false,
+    closeHangs = false,
 } = {}) {
     const clock = { t: 0, waiters: [] };
     const dom = {
@@ -265,12 +270,15 @@ export function fakeRequestDom({
             dom.state = 'waiting';
             if (dom.onAnswer) dom.onAnswer('keep-waiting');
         } else if (name === 'Close link') {
+            if (closeStuck) return;
             dom.state = 'closed';
             dom.code = 'closed';
             if (dom.onAnswer) dom.onAnswer('close');
         } else if (name === 'Cancel drop') {
             dom.state = 'stopped';
             dom.code = 'stopped';
+        } else if (name === 'Dismiss' && dismissStuck) {
+            return;
         } else if (name === 'Dismiss' || name === 'Make another link') {
             dom.state = 'ready';
             dom.result = null;
@@ -285,6 +293,7 @@ export function fakeRequestDom({
                 return visible(name);
             },
             async click() {
+                if (closeHangs && name === 'Close link') return new Promise(() => {});
                 click(name);
             },
             async waitFor() {
