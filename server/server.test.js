@@ -1,11 +1,15 @@
 'use strict';
 
-// Unit tests for pure server logic — no network I/O.
+// Unit tests for server logic, all in this process. Only 'room seal over both
+// transports' touches the network: it binds an ephemeral 127.0.0.1 port to
+// drive the real connection handlers, and closes it when it is done.
 // Uses Node's built-in test runner (node:test), available from Node 18+.
 // Run with: npm test
 
-const { describe, it, beforeEach, after } = require('node:test');
+const { describe, it, before, beforeEach, after } = require('node:test');
 const assert = require('node:assert/strict');
+const { createHash, randomUUID } = require('node:crypto');
+const WebSocket = require('ws');
 
 const {
     errorHandler,
@@ -19,6 +23,7 @@ const {
     registerCodeHandler,
     resolveCodeHandler,
     rooms,
+    roomMeta,
     codeToRoom,
     roomToCode,
     codeFailures,
@@ -32,6 +37,7 @@ const {
     heartbeatTick,
     handlePong,
     WS_SEND_BUFFER_CEILING,
+    server,
 } = require('./server');
 
 // ---------------------------------------------------------------------------
@@ -40,10 +46,15 @@ const {
 
 const ROOM_ID   = '11111111-1111-1111-1111-111111111111';
 
-function makePeer(id) {
+// `key` is the peer's rate key, as createSocketIOPeer and createWSPeer record
+// it. The default is what getClientIp and rateKey yield for a peer with no
+// address, so every test that names no key has all of its peers sharing one,
+// which the room seal deliberately never seals (see 'room seal' below).
+function makePeer(id, key = 'unknown') {
     const msgs = [];
     return {
         id,
+        key,
         roomId: null,
         msgs,
         send(type, data) { msgs.push({ type, data }); },
@@ -234,7 +245,7 @@ describe('words.json', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleJoinRoom', () => {
-    beforeEach(() => { rooms.clear(); roomToCode.clear(); codeFailures.clear(); });
+    beforeEach(() => { rooms.clear(); roomMeta.clear(); roomToCode.clear(); codeFailures.clear(); });
 
     it('assigns sender role to the first peer in a room', () => {
         const p = makePeer('peer-A');
@@ -289,7 +300,7 @@ describe('handleJoinRoom', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleSignal', () => {
-    beforeEach(() => { rooms.clear(); roomToCode.clear(); codeFailures.clear(); });
+    beforeEach(() => { rooms.clear(); roomMeta.clear(); roomToCode.clear(); codeFailures.clear(); });
 
     it('routes signal to the other peer when targeted by ID', () => {
         const pA = makePeer('peer-A');
@@ -372,7 +383,7 @@ describe('handleSignal', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleDisconnect', () => {
-    beforeEach(() => { rooms.clear(); roomToCode.clear(); codeFailures.clear(); });
+    beforeEach(() => { rooms.clear(); roomMeta.clear(); roomToCode.clear(); codeFailures.clear(); });
 
     it('removes only the disconnecting peer; the room survives with the remaining peer', () => {
         const pA = makePeer('peer-A');
@@ -448,12 +459,421 @@ describe('handleDisconnect', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Room seal: once two keys have sat in a room, a third key is refused
+// ---------------------------------------------------------------------------
+
+describe('room seal', () => {
+    beforeEach(() => { rooms.clear(); roomMeta.clear(); roomToCode.clear(); codeFailures.clear(); });
+
+    // What every real pair does before a single file byte can move: the sender
+    // offers, the receiver answers. A key counts toward the seal only once its
+    // peer has routed a signal, so a test that means "these two have paired"
+    // has to say so with this, not with two joins.
+    function exchangeSignals(sender, receiver) {
+        handleSignal(sender, { type: 'offer' }, receiver.id);
+        handleSignal(receiver, { type: 'answer' }, sender.id);
+    }
+
+    it('a third key after the receiver leaves gets room-full', () => {
+        const pA = makePeer('peer-A', 'a');
+        const pB = makePeer('peer-B', 'b');
+        const pC = makePeer('peer-C', 'c');
+        handleJoinRoom(pA, ROOM_ID);
+        handleJoinRoom(pB, ROOM_ID);
+        exchangeSignals(pA, pB);
+        handleDisconnect(pB); // seat two is free again, so only the seal can refuse
+        pA.msgs.length = 0;
+
+        handleJoinRoom(pC, ROOM_ID);
+
+        assert.deepEqual(pC.msgs, [{ type: 'room-full', data: {} }]);
+        assert.equal(pC.roomId, null);
+        assert.deepEqual(rooms.get(ROOM_ID).map(p => p.id), ['peer-A']);
+        assert.equal(pA.msgs.length, 0, 'the seated sender hears nothing of a refused joiner');
+    });
+
+    it('the browser re-join with the same key gets receiver and a fresh user-connected', () => {
+        // A browser receiver whose socket dropped comes back on a new socket id
+        // from the same address and re-runs its join (P2PTransfer.tsx, the
+        // reconnect handler). Its key is already one of the two.
+        const pA = makePeer('peer-A', 'a');
+        const pB = makePeer('peer-B', 'b');
+        handleJoinRoom(pA, ROOM_ID);
+        handleJoinRoom(pB, ROOM_ID);
+        exchangeSignals(pA, pB); // sealed, so only the key check lets B2 in
+        handleDisconnect(pB);
+        pA.msgs.length = 0;
+
+        const pB2 = makePeer('peer-B2', 'b');
+        handleJoinRoom(pB2, ROOM_ID);
+
+        assert.deepEqual(pB2.msgs, [{ type: 'room-joined', data: { role: 'receiver' } }]);
+        assert.deepEqual(
+            pA.msgs.filter(m => m.type === 'user-connected'),
+            [{ type: 'user-connected', data: { id: 'peer-B2' } }],
+        );
+    });
+
+    it('the ghost case admits the real receiver', () => {
+        // P2PTransfer.tsx re-joins a reconnecting sender with a bare join-room,
+        // which can land beside its own ghost (the old socket's disconnect has not
+        // arrived yet) and so take seat two. A seal on "this room has been full
+        // once" would then refuse the real receiver forever. Two keys have not
+        // sat here, so the room stays open.
+        const ghost = makePeer('peer-A-old', 'a');
+        const rejoin = makePeer('peer-A-new', 'a');
+        const pB = makePeer('peer-B', 'b');
+        handleJoinRoom(ghost, ROOM_ID);
+        handleJoinRoom(rejoin, ROOM_ID);
+        assert.deepEqual(rejoin.msgs, [{ type: 'room-joined', data: { role: 'receiver' } }]);
+        handleDisconnect(ghost);
+
+        handleJoinRoom(pB, ROOM_ID);
+
+        assert.deepEqual(pB.msgs, [{ type: 'room-joined', data: { role: 'receiver' } }]);
+        assert.equal(pB.roomId, ROOM_ID);
+        assert.deepEqual(rooms.get(ROOM_ID).map(p => p.id), ['peer-A-new', 'peer-B']);
+    });
+
+    it('peers sharing one key are not sealed', () => {
+        // The same-NAT fail-open, asserted because it is deliberate: two people
+        // behind one address never reach two keys, so the seal cannot tell a
+        // stranger from the receiver there. A per-room token is the only fix,
+        // and the released binaries have no field to carry one.
+        const [pA, pB, pC] = ['peer-A', 'peer-B', 'peer-C'].map(id => makePeer(id, 'nat'));
+        handleJoinRoom(pA, ROOM_ID);
+        handleJoinRoom(pB, ROOM_ID);
+        exchangeSignals(pA, pB); // a real pair, and still one key
+        handleDisconnect(pB);
+
+        handleJoinRoom(pC, ROOM_ID);
+
+        assert.deepEqual(pC.msgs, [{ type: 'room-joined', data: { role: 'receiver' } }]);
+        assert.deepEqual(rooms.get(ROOM_ID).map(p => p.id), ['peer-A', 'peer-C']);
+    });
+
+    it('an unpaired room is not sealed', () => {
+        // One key has sat here, so the room is still waiting for its receiver.
+        const pA = makePeer('peer-A', 'a');
+        const pB = makePeer('peer-B', 'b');
+        handleJoinRoom(pA, ROOM_ID);
+
+        handleJoinRoom(pB, ROOM_ID);
+
+        assert.deepEqual(pB.msgs, [{ type: 'room-joined', data: { role: 'receiver' } }]);
+        assert.deepEqual(pA.msgs.filter(m => m.type === 'user-connected'), [{ type: 'user-connected', data: { id: 'peer-B' } }]);
+    });
+
+    it('the seal lives and dies with its room', () => {
+        // Deleted by destroyRoom at both of its call sites, so a room id that has
+        // emptied starts unsealed, and the map cannot grow past the live rooms.
+        const pA = makePeer('peer-A', 'a');
+        const pB = makePeer('peer-B', 'b');
+        handleJoinRoom(pA, ROOM_ID);
+        assert.equal(roomMeta.get(ROOM_ID).keys.size, 0, 'a join alone counts nothing');
+        handleJoinRoom(pB, ROOM_ID);
+        assert.equal(roomMeta.get(ROOM_ID).keys.size, 0);
+        exchangeSignals(pA, pB);
+        assert.equal(roomMeta.get(ROOM_ID).keys.size, 2);
+        handleDisconnect(pB);
+        assert.equal(roomMeta.get(ROOM_ID).keys.size, 2, 'a departed key stays counted while the room exists');
+
+        handleDisconnect(pA); // handleDisconnect's destroyRoom
+        assert.equal(roomMeta.size, 0);
+
+        const pC = makePeer('peer-C', 'c');
+        const pD = makePeer('peer-D', 'd');
+        handleJoinRoom(pC, ROOM_ID);
+        handleJoinRoom(pD, ROOM_ID);
+        assert.deepEqual(pD.msgs, [{ type: 'room-joined', data: { role: 'receiver' } }], 'the emptied id starts unsealed');
+
+        const other = '11111111-2222-4333-8444-555555555555';
+        handleDisconnect(pD);
+        handleJoinRoom(pC, other); // the leave-first block's destroyRoom
+        assert.deepEqual([...roomMeta.keys()], [other]);
+        assert.equal(roomMeta.get(other).keys.size, 0);
+    });
+
+    it('a sender that re-joins from a new address beside its own ghost does not lock out the receiver', () => {
+        // The web sender waits with its link open. Its network changes (Wi-Fi to
+        // cellular, a VPN toggled), Socket.IO reconnects within seconds under a
+        // new key, and the bare re-join lands in seat two because the old
+        // socket is still seated until its ping timeout reaps it (up to about
+        // 45 s). Two keys have now sat in the room, but neither has signaled:
+        // the ghost is dead and the sender has no one to offer to. Counting
+        // them would have the sender seal its own room against the receiver.
+        const ghost = makePeer('peer-A-old', 'wifi');
+        const rejoin = makePeer('peer-A-new', 'cellular');
+        const pB = makePeer('peer-B', 'home');
+        handleJoinRoom(ghost, ROOM_ID);
+        handleJoinRoom(rejoin, ROOM_ID);
+        handleDisconnect(ghost);
+
+        handleJoinRoom(pB, ROOM_ID);
+
+        assert.deepEqual(pB.msgs, [{ type: 'room-joined', data: { role: 'receiver' } }]);
+        assert.deepEqual(rooms.get(ROOM_ID).map(p => p.id), ['peer-A-new', 'peer-B']);
+
+        // The pair that then forms still seals the room.
+        exchangeSignals(rejoin, pB);
+        handleDisconnect(pB);
+        const stranger = makePeer('peer-X', 'elsewhere');
+        handleJoinRoom(stranger, ROOM_ID);
+        assert.deepEqual(stranger.msgs, [{ type: 'room-full', data: {} }]);
+    });
+
+    it('a key that has only been signaled to does not count', () => {
+        // The rule is "has routed a signal", not "has taken part in one". A
+        // receiver that was offered to and left before answering has no
+        // connection and has received nothing, and its own network may be why
+        // it left: counting it would refuse that receiver when it comes back
+        // from its new address, and refuse nobody who could have been sent a
+        // byte.
+        const pA = makePeer('peer-A', 'a');
+        const pB = makePeer('peer-B', 'b');
+        const pC = makePeer('peer-C', 'c');
+        handleJoinRoom(pA, ROOM_ID);
+        handleJoinRoom(pB, ROOM_ID);
+        handleSignal(pA, { type: 'offer' }, 'peer-B');
+        handleDisconnect(pB);
+
+        handleJoinRoom(pC, ROOM_ID);
+
+        assert.deepEqual(pC.msgs, [{ type: 'room-joined', data: { role: 'receiver' } }]);
+    });
+
+    it('a signal the server drops counts nothing', () => {
+        // Only a signal that reaches the other seat counts: a lone sender has no
+        // one to route to, and a signal naming someone else is dropped.
+        const pA = makePeer('peer-A', 'a');
+        const pB = makePeer('peer-B', 'b');
+        handleJoinRoom(pA, ROOM_ID);
+        handleSignal(pA, { type: 'offer' }, null); // nobody in seat two yet
+        handleJoinRoom(pB, ROOM_ID);
+        handleSignal(pB, { type: 'answer' }, 'not-peer-A');
+
+        assert.equal(roomMeta.get(ROOM_ID).keys.size, 0);
+    });
+
+    it('roomMeta keeps a per-process digest of each key, never the key', () => {
+        // A rate key is an address (an IPv4 address in full, an IPv6 /64), and a
+        // room can live for hours, past the "at most about two minutes" the
+        // privacy page promises for an IP address. The seal only has to tell
+        // keys apart, so it compares keyed digests instead.
+        const other = '11111111-2222-4333-8444-555555555555';
+        const raw = ['203.0.113.7', '2001:db8:1:2::/64', '198.51.100.9'];
+        const pA = makePeer('peer-A', raw[0]);
+        const pB = makePeer('peer-B', raw[1]);
+        handleJoinRoom(pA, ROOM_ID);
+        handleJoinRoom(pB, ROOM_ID);
+        handleSignal(pA, { type: 'offer' }, 'peer-B');
+        const [digestA] = roomMeta.get(ROOM_ID).keys;
+        handleSignal(pB, { type: 'answer' }, 'peer-A');
+        const digestB = [...roomMeta.get(ROOM_ID).keys].find(d => d !== digestA);
+
+        // The same key in another room of this process: the same digest.
+        const pA2 = makePeer('peer-A2', raw[0]);
+        const pC = makePeer('peer-C', raw[2]);
+        handleJoinRoom(pA2, other);
+        handleJoinRoom(pC, other);
+        handleSignal(pA2, { type: 'offer' }, 'peer-C');
+
+        assert.deepEqual([...roomMeta.get(other).keys], [digestA], 'one key, one digest');
+        assert.equal(roomMeta.get(ROOM_ID).keys.size, 2);
+        assert.ok(digestB && digestB !== digestA, 'two keys, two digests');
+
+        const dump = JSON.stringify([...roomMeta].map(([id, m]) => [id, [...m.keys]]));
+        for (const key of raw) assert.ok(!dump.includes(key), `roomMeta holds ${key}`);
+        // Keyed, not a bare hash: 2^32 SHA-256 runs reverse any IPv4 address.
+        const bare = raw.flatMap(k => ['hex', 'base64', 'base64url'].map(enc => createHash('sha256').update(k).digest(enc)));
+        for (const d of [digestA, digestB]) {
+            assert.equal(typeof d, 'string');
+            assert.ok(!bare.includes(d), 'an unkeyed hash of the key');
+        }
+        // The secret stays inside server.js.
+        assert.ok(!Object.values(require('./server')).some(v => v instanceof Uint8Array), 'an exported secret');
+    });
+
+    it('a peer with no key fails open instead of throwing', () => {
+        // What a transport that lost its key would hand the seal. Every such
+        // peer shares one key, so nobody is sealed out, and nothing throws on
+        // the join and signal paths, where a throw is a remote kill.
+        const [pA, pB, pC] = ['peer-A', 'peer-B', 'peer-C'].map((id) => {
+            const p = makePeer(id);
+            p.key = undefined;
+            return p;
+        });
+        handleJoinRoom(pA, ROOM_ID);
+        handleJoinRoom(pB, ROOM_ID);
+        assert.doesNotThrow(() => exchangeSignals(pA, pB));
+        handleDisconnect(pB);
+
+        assert.doesNotThrow(() => handleJoinRoom(pC, ROOM_ID));
+        assert.deepEqual(pC.msgs, [{ type: 'room-joined', data: { role: 'receiver' } }]);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Room seal through the real transports
+// ---------------------------------------------------------------------------
+
+describe('room seal over both transports', () => {
+    // The seal is only as good as the key each transport hands it, and a break
+    // in that wiring fails open (every peer of that transport shares one key),
+    // so no unit test above would notice. These drive the real io.use and /ws
+    // connection handlers on an ephemeral loopback port. Each peer names its
+    // own address in X-Forwarded-For, which getClientIp trusts for one hop by
+    // default. 198.51.100.0/24 is TEST-NET-2 (RFC 5737).
+    let port;
+    const sockets = new Set();
+
+    before(async () => {
+        await new Promise((resolve, reject) => {
+            server.once('error', reject);
+            server.listen(0, '127.0.0.1', () => { server.off('error', reject); resolve(); });
+        });
+        port = server.address().port;
+    });
+
+    after(async () => {
+        for (const ws of sockets) ws.terminate();
+        await new Promise((resolve) => server.close(resolve));
+    });
+
+    // Messages by type, in arrival order, whichever transport they came over.
+    function mailbox() {
+        const inbox = [];
+        const waiters = [];
+        return {
+            push(type, data) {
+                const i = waiters.findIndex(w => w.types.includes(type));
+                if (i === -1) { inbox.push({ type, data }); return; }
+                const [w] = waiters.splice(i, 1);
+                clearTimeout(w.timer);
+                w.resolve({ type, data });
+            },
+            next(types, ms = 3000) {
+                const i = inbox.findIndex(m => types.includes(m.type));
+                if (i !== -1) return Promise.resolve(inbox.splice(i, 1)[0]);
+                return new Promise((resolve, reject) => {
+                    const w = { types, resolve };
+                    w.timer = setTimeout(() => {
+                        waiters.splice(waiters.indexOf(w), 1);
+                        reject(new Error(`no ${types.join(' or ')} within ${ms} ms`));
+                    }, ms);
+                    waiters.push(w);
+                });
+            },
+        };
+    }
+
+    // A CLI peer: JSON frames on /ws.
+    function wsPeer(address) {
+        const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { 'X-Forwarded-For': address } });
+        sockets.add(ws);
+        const box = mailbox();
+        ws.on('message', (raw) => {
+            let msg;
+            try { msg = JSON.parse(raw); } catch { return; }
+            const { type, ...data } = msg;
+            box.push(type, data);
+        });
+        return new Promise((resolve, reject) => {
+            ws.once('error', reject);
+            ws.once('open', () => resolve({
+                join: (roomId) => ws.send(JSON.stringify({ type: 'join-room', roomId })),
+                signal: (signal) => ws.send(JSON.stringify({ type: 'signal', signal })),
+                next: box.next,
+                close: () => ws.close(),
+            }));
+        });
+    }
+
+    // A browser peer: Socket.IO v4 spoken over a bare engine.io websocket, so
+    // the test needs no client library. '0' is engine.io's open, answered by
+    // '40' (connect the default namespace); '2' is its ping; '40' back is the
+    // namespace ack, '44' a refusal from io.use; '42' carries an event.
+    function sioPeer(address) {
+        const ws = new WebSocket(`ws://127.0.0.1:${port}/socket.io/?EIO=4&transport=websocket`, {
+            headers: { 'X-Forwarded-For': address, Origin: 'http://localhost:3000' },
+        });
+        sockets.add(ws);
+        const box = mailbox();
+        const emit = (...args) => ws.send('42' + JSON.stringify(args));
+        return new Promise((resolve, reject) => {
+            ws.once('error', reject);
+            ws.on('message', (raw) => {
+                const text = raw.toString();
+                if (text.startsWith('0')) ws.send('40');
+                else if (text === '2') ws.send('3');
+                else if (text.startsWith('40')) resolve({
+                    join: (roomId) => emit('join-room', roomId),
+                    signal: (signal) => emit('signal', { signal }),
+                    next: box.next,
+                    close: () => ws.close(),
+                });
+                else if (text.startsWith('44')) reject(new Error(`io.use refused ${address}: ${text}`));
+                else if (text.startsWith('42')) {
+                    const [type, data] = JSON.parse(text.slice(2));
+                    box.push(type, data);
+                }
+            });
+        });
+    }
+
+    // A real pairing as the server sees it, then the receiver leaves. Each
+    // await is the server's own answer, so every step has been processed
+    // before the next one starts.
+    async function pairThenLeave(sender, receiver, roomId) {
+        sender.join(roomId);
+        assert.deepEqual((await sender.next(['room-joined', 'room-full'])).data, { role: 'sender' });
+        receiver.join(roomId);
+        assert.deepEqual((await receiver.next(['room-joined', 'room-full'])).data, { role: 'receiver' });
+        await sender.next(['user-connected']);
+        sender.signal({ type: 'offer' });
+        await receiver.next(['signal']);
+        receiver.signal({ type: 'answer' });
+        await sender.next(['signal']);
+        receiver.close();
+        await sender.next(['peer-disconnected']); // seat two is free again
+    }
+
+    async function joinOutcome(peer, roomId) {
+        peer.join(roomId);
+        return peer.next(['room-joined', 'room-full']);
+    }
+
+    it('/ws carries each connection its own key', async () => {
+        const roomId = randomUUID();
+        await pairThenLeave(await wsPeer('198.51.100.1'), await wsPeer('198.51.100.2'), roomId);
+
+        const third = await joinOutcome(await wsPeer('198.51.100.3'), roomId);
+        const back = await joinOutcome(await wsPeer('198.51.100.2'), roomId);
+
+        assert.deepEqual(third, { type: 'room-full', data: {} }, 'a third address after the pair');
+        assert.deepEqual(back, { type: 'room-joined', data: { role: 'receiver' } }, 'the receiver\'s own address');
+    });
+
+    it('Socket.IO carries each connection its own key', async () => {
+        const roomId = randomUUID();
+        await pairThenLeave(await sioPeer('198.51.100.11'), await sioPeer('198.51.100.12'), roomId);
+
+        const third = await joinOutcome(await sioPeer('198.51.100.13'), roomId);
+        const back = await joinOutcome(await sioPeer('198.51.100.12'), roomId);
+
+        assert.deepEqual(third, { type: 'room-full', data: {} }, 'a third address after the pair');
+        assert.deepEqual(back, { type: 'room-joined', data: { role: 'receiver' } }, 'the receiver\'s own address');
+    });
+});
+
+// ---------------------------------------------------------------------------
 // Code lifecycle and the per-key failed-resolve budget
 // ---------------------------------------------------------------------------
 
 describe('code lifecycle', () => {
     beforeEach(() => {
         rooms.clear();
+        roomMeta.clear();
         codeToRoom.clear();
         roomToCode.clear();
         codeFailures.clear();

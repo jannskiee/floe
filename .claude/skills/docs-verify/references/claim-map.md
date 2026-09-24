@@ -54,7 +54,13 @@ The map names where a value is stated; grep the old literal repo-wide before fin
 ## Room code TTL and retirement
 
 - server/server.js: the `expires:` expression in the `codeToRoom.set(...)` call under `POST /api/code` (the outside limit), and the three `forgetCode(roomId)` call sites that retire a code earlier: `registerCodeHandler`, the second-seat branch of `handleJoinRoom`, and `destroyRoom`. Resolving never retires a code: the pre-join retry depends on it.
-- Docs: docs/reference/http-api.mdx "Room codes" (stated twice), docs/cli/send.mdx "Output", docs/troubleshooting.mdx (the "codes expire after" heading and the "503" section), docs/reference/architecture.mdx "Room codes", docs/self-hosting/configuration.mdx `MAX_ACTIVE_CODES` row, CLAUDE.md "Room Codes".
+- Docs: docs/reference/http-api.mdx "Room codes" (stated twice), docs/cli/send.mdx "Output", docs/troubleshooting.mdx (the "codes expire after" heading and the "503" section), docs/reference/architecture.mdx "Room codes", docs/self-hosting/configuration.mdx `MAX_ACTIVE_CODES` row, docs/desktop/sending.mdx (the one-receiver paragraph: the code stops working once the recipient joins), CLAUDE.md "Room Codes".
+
+## Room seal
+
+- server/server.js: the seal check in `handleJoinRoom` (after the leave-first block: refuse when the room's `roomMeta` record holds two keys and not the joiner's), the key added in `handleSignal` once a signal passes the room and target checks (the create branch starts the set empty and a join never adds to it, so only a peer that has routed a signal counts), and `roomMeta.delete` in `destroyRoom` (the seal lasts exactly as long as the room). The key is `rateKey(ip)` (server/ratekey.js), the same key every per-IP limiter counts under, carried by `createSocketIOPeer` and `createWSPeer`; peers sharing one key are never sealed out, on purpose.
+- server/server.js `sealDigest`: `roomMeta` stores an HMAC-SHA256 of each key under `SEAL_SECRET` (random per process, memory only), never the key itself, because a room can outlive the retention the privacy page promises for an IP address. Storing the raw `rateKey`, or an unkeyed hash of it, makes both privacy sentences below untrue.
+- Docs: docs/how-it-works/signaling.mdx "A room holds exactly two people" (the freed-seat paragraphs), docs/reference/architecture.mdx (both `room-full` rows and the "A room also seals" paragraph), docs/web-app/sending.mdx "One link, one recipient at a time", docs/desktop/sending.mdx (the one-receiver paragraph). Privacy (depends on `sealDigest`, not on the seal's wording): client/app/privacy/page.tsx "IP addresses" ("at most about two minutes after your last request") and the reports paragraph ("keeps no record of who joined which room").
 
 ## TURN credential lifetimes
 
