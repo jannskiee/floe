@@ -239,6 +239,69 @@ test('wailsdev done view: the heading counts the files, the SHA sentence shows o
     assert.equal(g.dom.state, 'stopped');
 });
 
+// The first live TA-17 run (2026-09-24): another leg's page staged its
+// files, the dev server rebroadcast files:open, and the host page moved to
+// Send. Close link was then not on screen, the release timed out, and the
+// link stayed open into the next cell. Every request verb now brings the
+// page back to Receive > REQUEST LINK before it clicks.
+test('wailsdev request verbs bring a page that moved to Send back to Receive > REQUEST LINK before they click', async () => {
+    const moved = (f) => {
+        f.dom.addFiles(['C:\\fx\\a.bin']);
+        assert.equal(f.dom.mode, 'send', 'the page left Receive');
+    };
+    const tail = (f, n) => f.dom.clicks.map((c) => c.name).slice(-n);
+
+    // Close link, the release's verb.
+    const f = fakeRequestDom();
+    const d = driverOn(f);
+    await make(d, f);
+    moved(f);
+    await d.closeRequestLink({ now: f.now, nap: f.nap });
+    assert.equal(f.dom.state, 'closed');
+    assert.deepEqual(tail(f, 3), ['Receive', 'Request link, beta', 'Close link']);
+
+    // Decline, Keep waiting, Accept and Cancel drop.
+    const g = fakeRequestDom();
+    const e = driverOn(g);
+    await make(e, g);
+    g.requestAt(g.clock.t + 10);
+    moved(g);
+    await e.declineRequest({ now: g.now, nap: g.nap });
+    assert.equal(g.dom.state, 'declined');
+    moved(g);
+    await e.keepWaiting({ now: g.now, nap: g.nap });
+    assert.equal(g.dom.state, 'waiting');
+    g.requestAt(g.clock.t + 10);
+    moved(g);
+    await e.acceptRequest({ now: g.now, nap: g.nap });
+    assert.equal(g.dom.state, 'receiving');
+    moved(g);
+    await e.cancelRequestDrop({ now: g.now, nap: g.nap });
+    assert.equal(g.dom.state, 'stopped');
+
+    // The done view: its heading, then Dismiss.
+    const h = fakeRequestDom();
+    const k = driverOn(h);
+    await make(k, h);
+    h.dom.state = 'done';
+    h.dom.result = { files: 1, saved: 1, bytes: 1024 * 1024, verified: 1, renamed: 0, folder: DIR, names: ['a.bin'] };
+    moved(h);
+    assert.equal((await k.readRequestResult()).files, 1);
+    moved(h);
+    await k.dismissRequestResult({ now: h.now, nap: h.nap });
+    assert.equal(h.dom.state, 'ready');
+
+    // Already on the view: no extra click.
+    const q = fakeRequestDom();
+    const p = driverOn(q);
+    await make(p, q);
+    await p.closeRequestLink({ now: q.now, nap: q.nap });
+    assert.deepEqual(
+        q.dom.clicks.map((c) => c.name),
+        ['Receive', 'Request link, beta', 'Make link', 'Close link']
+    );
+});
+
 test('wailsdev setAddresses points the host at another server and web, and keeps Hide my IP and reportStats', async () => {
     const f = fakeRequestDom({ settings: { hideIP: true } });
     const d = driverOn(f);

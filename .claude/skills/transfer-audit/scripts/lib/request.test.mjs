@@ -421,6 +421,41 @@ test('TA-17 H-DIR-D2C-reqopen: the desktop sender stages on its own page only, s
     assert.equal(peer.peer.notified.length, 1, 'the sender page was handed its files');
 });
 
+test('TA-17 whose host page is moved to Send by another page mid-cell: the release goes back to REQUEST LINK and closes the link', async () => {
+    const w = fakeRequestWorld();
+    const ctx = ctxFor(w);
+    const peer = w.host.devPeerPage();
+    const inner = ctx.getAdapter;
+    ctx.getAdapter = async (name) => {
+        const mod = await inner(name);
+        if (name !== 'cli') return mod;
+        return {
+            ...mod,
+            createLeg: (o) => {
+                const leg = mod.createLeg(o);
+                const start = leg.start.bind(leg);
+                // Any page on the dev server that broadcasts files:open
+                // (an older driver, the owner's second tab).
+                leg.start = async (...args) => {
+                    await peer.evaluate(() =>
+                        window.runtime.EventsEmit('files:open', ['C:\\fx\\other.bin'])
+                    );
+                    return start(...args);
+                };
+                return leg;
+            },
+        };
+    };
+    const r = await runCell(small('H-DIR-C2W-reqopen'), ctx);
+    assert.equal(r.verdict, 'PASS', r.note);
+    const a = r.attempts[0];
+    assert.ok(!a.notes.some((l) => /host release/.test(l)), a.notes.join(' | '));
+    assert.equal(w.dom.broadcasts.length, 1, 'the host page did receive the broadcast');
+    assert.equal(a.request.released, 'ended');
+    assert.equal(w.dom.state, 'closed', 'Close link at teardown');
+    assert.equal(w.dom.settings.requestLinks, false, 'and the Beta switch is off again');
+});
+
 // ------------------------------------------------------- failure words
 
 const failures = [

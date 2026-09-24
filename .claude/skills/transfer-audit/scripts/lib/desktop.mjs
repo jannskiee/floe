@@ -189,6 +189,20 @@ export const REQUEST_STRINGS = Object.freeze({
 });
 
 /**
+ * One button the REQUEST LINK view shows in each lane state, so a page that
+ * shows none of them is not on the view: Close link (waiting through
+ * declined, W4), Cancel drop (receiving, V4), Dismiss (done or stopped,
+ * DN2), Make another link (ended, X3), Make link (ready or error, R14).
+ */
+const REQUEST_VIEW_MARKS = Object.freeze([
+    REQUEST_STRINGS.closeLink,
+    REQUEST_STRINGS.cancelDrop,
+    REQUEST_STRINGS.dismiss,
+    REQUEST_STRINGS.makeAnother,
+    REQUEST_STRINGS.makeLink,
+]);
+
+/**
  * A lane code as the host sent it (a key into requestCopy.ts, never text),
  * or `?` for anything that is not one: it is quoted into messages.
  */
@@ -1370,6 +1384,24 @@ export class PlaywrightDriver {
             await nap(REQUEST_POLL_MS);
         }
     }
+    /**
+     * Back to Receive > REQUEST LINK when the page is not showing it, before
+     * a request verb clicks; returns whether it had to move. The page can
+     * leave on its own terms (another leg's files:open rebroadcast moved it
+     * to Send in the first live TA-17 run, 2026-09-24, and the release then
+     * timed out on Close link), so no verb assumes it. The view is showing
+     * when one of its state buttons is (REQUEST_VIEW_MARKS); otherwise the
+     * RECEIVE tab (the first button of that name, in the card header) and
+     * the REQUEST LINK choice, the same two clicks Make link starts with.
+     */
+    async _toRequestView() {
+        for (const name of REQUEST_VIEW_MARKS)
+            if (await this._visible(name)) return false;
+        await this._button(STRINGS.tabReceive).first().click();
+        if (await this._visible(REQUEST_STRINGS.choice))
+            await this._button(REQUEST_STRINGS.choice).first().click();
+        return true;
+    }
     /** The host-authoritative snapshot (GetRequestLink), or null. */
     async requestSnapshot() {
         return this.page.evaluate(async () => {
@@ -1522,6 +1554,7 @@ export class PlaywrightDriver {
      * read back that the prompt left.
      */
     async _answer(name, { timeoutMs = 60_000, now = Date.now, nap = sleep } = {}) {
+        await this._toRequestView();
         const seenAt = await this._waitShown(name, timeoutMs, { now, nap });
         for (;;) {
             const left = ACCEPT_WAIT_MS - (now() - seenAt);
@@ -1547,6 +1580,7 @@ export class PlaywrightDriver {
      * view, and the waiting view (Copy link) must come back.
      */
     async keepWaiting({ now = Date.now, nap = sleep } = {}) {
+        await this._toRequestView();
         if (!(await this._visible(REQUEST_STRINGS.keepWaiting)))
             throw new PhaseError(
                 'request',
@@ -1563,6 +1597,7 @@ export class PlaywrightDriver {
     }
     /** Close link, then the ended view's Make another link must show (X3). */
     async closeRequestLink({ now = Date.now, nap = sleep } = {}) {
+        await this._toRequestView();
         await this._button(REQUEST_STRINGS.closeLink).first().click();
         const endedAt = await this._waitShown(
             REQUEST_STRINGS.makeAnother,
@@ -1578,6 +1613,7 @@ export class PlaywrightDriver {
      * requestLink.ts), so this comes before any switch restore.
      */
     async dismissRequestResult({ now = Date.now, nap = sleep } = {}) {
+        await this._toRequestView();
         await this._button(REQUEST_STRINGS.dismiss).first().click();
         const at = await this._waitGone(REQUEST_STRINGS.dismiss, 10_000, {
             now,
@@ -1588,6 +1624,7 @@ export class PlaywrightDriver {
 
     /** Stop a drop that is still receiving (V4 Cancel drop). */
     async cancelRequestDrop({ now = Date.now, nap = sleep } = {}) {
+        await this._toRequestView();
         await this._button(REQUEST_STRINGS.cancelDrop).first().click();
         const at = await this._waitGone(REQUEST_STRINGS.cancelDrop, 10_000, {
             now,
@@ -1602,6 +1639,7 @@ export class PlaywrightDriver {
      * names the view lists are never read here.
      */
     async readRequestResult() {
+        await this._toRequestView();
         const heading = (await this.readText(RE.requestDone))[0] ?? null;
         const m = heading ? RE.requestDone.exec(heading) : null;
         const verified = await this.readText(

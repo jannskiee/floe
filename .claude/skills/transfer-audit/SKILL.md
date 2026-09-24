@@ -511,7 +511,10 @@ to it, so none ever runs as a plain cell.
   W2W cell.
 - Teardown, pass or fail, and on an interrupt too (the host leg's stop):
   a running drop is canceled, the cell's link closed or its result put
-  away, the blip's addresses and the Beta switch restored. Only a link
+  away, the blip's addresses and the Beta switch restored. Every request
+  verb first brings the host page back to Receive > REQUEST LINK when it
+  is not showing it, so a page that moved to Send still gets its link
+  closed. Only a link
   generation the cell made is touched; a link the owner already had open
   is left as it was, with a note.
 - The link carries the room after `#`: it goes to the visitor's
