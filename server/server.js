@@ -384,13 +384,11 @@ function cleanupTick(now = Date.now()) {
     // A reservation ends here when its host has been gone for longer than the
     // grace, so the effective grace is 10 to 11 minutes (exactly 10 on a
     // reclaim attempt, the lazy check in handleHostJoin), or when it is older
-    // than the age ceiling, sealed or not; a sealed one leaves its used marker
-    // (endReservation, D-130). A marker ends REQUEST_USED_MARKER_MS after its
+    // than the age ceiling, sealed or not, and leaves no marker (only
+    // request-close does, D-130). A marker ends REQUEST_USED_MARKER_MS after its
     // closedAt and is read by nothing else here: it has no host to be absent
     // and no creation time. Each entry in its own try/catch, so one bad entry
-    // can never stop the sweep of the rest. Marking an entry is a set on a key
-    // the loop has already passed, so a marker made here is never swept in the
-    // same tick.
+    // can never stop the sweep of the rest.
     for (const [roomId, meta] of roomMeta) {
         try {
             if (meta.kind !== 'request') continue;
@@ -459,8 +457,8 @@ function sealDigest(key) {
 // A request room is the one exception to "the record dies with the room": its
 // reservation outlives the empty room so the host can reclaim its seat with the
 // token, and only the request-room paths end it (grace expiry, the age
-// ceiling, request-close, a policy purge; spec 04 5.12). A sealed reservation,
-// however it ends, leaves a used marker in its place for a day (D-130).
+// ceiling, request-close, a policy purge; spec 04 5.12). A sealed request-close
+// leaves a used marker in its place for a day first (D-130).
 function destroyRoom(roomId) {
     rooms.delete(roomId);
     const meta = roomMeta.get(roomId);
@@ -489,19 +487,21 @@ function destroyRoom(roomId) {
 // MAX_REQUEST_ROOMS. A flood of the cap refuses only new request links
 // (limited), never ordinary rooms, codes or the room seal.
 //
-// A used link (D-130, deciding spec 04 5.16 c, gap G5). A SEALED reservation
-// has been used: a drop ran on it, or its visitor was declined. However it
-// ends (request-close, the grace after its host vanished, the age ceiling, a
-// lazy expiry), the room goes and the reservation is swapped for a marker that
-// says only that: { kind, sealed, used, closedAt }. No token digest, no key
-// digest, no seating times, no peer id; the id itself is the Map key. For
-// REQUEST_USED_MARKER_MS after that end, a request-join answers room-full
-// ("This link has already been used") where it would otherwise have answered
-// host-absent, and a host join is refused, so a sealed link whose host comes
-// back after the grace is not re-created. Then the sweep ends the marker for
-// good (it never re-arms), and a restart forgets it (memory only). An unsealed
-// reservation, however it ends (Close link while waiting included), still goes
-// outright.
+// A used link (D-130, deciding spec 04 5.16 c, gap G5). When the host sends
+// request-close for a SEALED room (Floe Desktop does at every end it knows:
+// done, stopped, Close link, expiry, quit), the room goes and the reservation
+// is swapped for a marker that says only that: { kind, sealed, used, closedAt }.
+// No token digest, no key digest, no seating times, no peer id; the id itself
+// is the Map key. For REQUEST_USED_MARKER_MS after the close, a request-join
+// answers room-full ("This link has already been used") where it would
+// otherwise have answered host-absent, and a host join is refused; then the
+// sweep ends the marker for good (it never re-arms), and a restart forgets it
+// (memory only). Every other end (an unsealed close, which is Close link while
+// waiting; the grace; the age ceiling; a lazy expiry) still goes outright,
+// sealed or not (review 1 F1): a room is sealed from its pairing through the
+// prompt and a Decline, so a sealed room whose host went away may have
+// delivered nothing, and its host must be able to re-create it. A request-close
+// lost with its socket therefore falls back to host-absent (OD-28).
 //
 // E-15 with the marker: a marker keeps its reservation's MAX_REQUEST_ROOMS
 // slot, so the cap bounds reservations and markers together and stays 5000.
@@ -553,9 +553,9 @@ const REQUEST_SEATING_WINDOW_MS = 60 * 1000;
 // at the next sweep, sealed or not (D-021): a drop is capped at 24 h, and a
 // modified desktop could otherwise hold one for as long as its socket lives.
 const REQUEST_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000 + 10 * 60 * 1000;
-// How long a used link keeps saying so after its sealed reservation ended
-// (D-130), from that end, not from the create. The sweep's 60 s interval makes
-// it 24 h to 24 h and one minute.
+// How long a used link keeps saying so after its sealed request-close (D-130),
+// from the close, not from the create. The sweep's 60 s interval makes it 24 h
+// to 24 h and one minute.
 const REQUEST_USED_MARKER_MS = 24 * 60 * 60 * 1000;
 
 // sealDigest(rateKey) -> timestamps of successful creates inside the window, at
@@ -564,9 +564,9 @@ const REQUEST_USED_MARKER_MS = 24 * 60 * 60 * 1000;
 //
 // At most REQUEST_CREATE_KEYS_MAX keys (D-116). The per-key budget cannot bind
 // an attacker holding many keys (IPv6 /64s, or any X-Forwarded-For on a
-// self-host exposed directly), and an unsealed reservation frees its
-// MAX_REQUEST_ROOMS slot as soon as it ends (a sealed one a day later, with
-// its used marker), so without a ceiling the log grows by one
+// self-host exposed directly), and a reservation frees its MAX_REQUEST_ROOMS
+// slot as soon as it ends (one ended by a sealed request-close a day later,
+// with its used marker), so without a ceiling the log grows by one
 // entry per key per day. Past the ceiling the least recently created key is
 // dropped (an expired one first, since the Map is kept in last-create order):
 // never a limited answer to a new key, which would let one many-key caller
@@ -604,9 +604,9 @@ function recordCreate(key, now = Date.now()) {
 // otherwise walk every room (ordinary ones too) on every frame, and it spends
 // no budget, so one socket could repeat it. A request meta enters roomMeta
 // only in handleHostJoin and leaves only through forgetReservation. A sealed
-// reservation's end (endReservation) swaps it in place for its used marker and
-// leaves the id here: the marker counts toward the cap like the reservation it
-// replaced.
+// request-close (endReservation with markUsed) swaps it in place for its used
+// marker and leaves the id here: the marker counts toward the cap like the
+// reservation it replaced.
 const requestRoomIds = new Set();
 
 // A walk, kept as the test oracle for requestRoomIds.
@@ -626,15 +626,19 @@ function forgetReservation(roomId) {
 //
 // Every end of a reservation comes through here: request-close, the grace and
 // age sweeps, a lazy expiry in handleHostJoin (the policy purge ends only
-// unsealed ones, on its own). A SEALED reservation has been used, so whichever
-// way it ends it leaves a used marker (D-130). An unsealed one is forgotten
-// outright, and so is a marker at the end of its own day: `!meta.used` is what
-// keeps a marker from ever re-arming.
-function endReservation(roomId, now = Date.now()) {
+// unsealed ones, on its own). Only request-close passes markUsed, and only a
+// SEALED reservation it ends leaves a used marker (D-130): the host saying the
+// link is finished, after a pairing, is what "used" means. Every other end
+// forgets, sealed or not (review 1 F1). A room is sealed from its pairing
+// through the prompt and a Decline, so a sealed room whose host went away past
+// the grace (a laptop asleep during the prompt) may have delivered nothing,
+// and its host must be able to re-create it. A marker at the end of its own
+// day is forgotten too: `!meta.used` keeps a marker from ever re-arming.
+function endReservation(roomId, now = Date.now(), { markUsed = false } = {}) {
     for (const p of rooms.get(roomId) || []) p.roomId = null;
     rooms.delete(roomId);
     const meta = roomMeta.get(roomId);
-    if (meta && meta.kind === 'request' && meta.sealed && !meta.used) {
+    if (markUsed && meta && meta.kind === 'request' && meta.sealed && !meta.used) {
         // A fresh object, not the reservation with fields deleted, so nothing
         // personal can ride along. The id stays in requestRoomIds, so the
         // marker counts toward MAX_REQUEST_ROOMS.
@@ -872,10 +876,10 @@ function handleRequestJoin(peer, roomId, now = Date.now()) {
 // later request-join answers host-absent (Close link while waiting). A sealed
 // room has been used, so its reservation becomes a used marker for
 // REQUEST_USED_MARKER_MS (D-130): a later request-join answers room-full, and
-// a host join is refused (endReservation, as for every other end of a sealed
-// reservation). An unsealed visitor hears host-absent; a sealed one is left to
-// its data channel. Nobody is seated in a marker and it has no host, so no
-// control frame reaches one: a reopen can never unseal a used link.
+// a host join is refused. This is the only end that leaves a marker. An
+// unsealed visitor hears host-absent; a sealed one is left to its data
+// channel. Nobody is seated in a marker and it has no host, so no control
+// frame reaches one: a reopen can never unseal a used link.
 function handleRequestControl(peer, type, roomId, now = Date.now()) {
     if (typeof roomId !== 'string' || roomId.length !== 36) return;
     const id = roomId.toLowerCase();
@@ -902,8 +906,9 @@ function handleRequestControl(peer, type, roomId, now = Date.now()) {
         if (visitor && !meta.sealed) {
             try { visitor.send('host-absent', {}); } catch { /* undeliverable */ }
         }
-        // Unseats both, and leaves the used marker when sealed.
-        endReservation(id, now);
+        // Unseats both, and leaves the used marker when sealed (the one end
+        // that does, D-130).
+        endReservation(id, now, { markUsed: true });
     }
 }
 
@@ -955,9 +960,8 @@ function handleHostJoin(peer, roomId, hostToken, now = Date.now()) {
             return;
         }
         if (meta.hostPeerId === null && now - meta.hostAbsentSince > REQUEST_GRACE_MS) {
-            // Lazy expiry. Unsealed, the reservation goes and a fresh (counted)
-            // create follows below; sealed, it leaves its used marker, which the
-            // check below answers room-full like any used link (D-130).
+            // Lazy expiry, sealed or not: the reservation goes (no marker; only
+            // request-close leaves one) and a fresh (counted) create follows.
             endReservation(id, now);
         } else {
             reclaimHostSeat(peer, id, meta, now); // not counted against the daily budget

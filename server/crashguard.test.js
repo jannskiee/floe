@@ -673,10 +673,12 @@ test.describe('request-link policy file', { concurrency: true }, () => {
         await assertSurvived(srv, 'reservations ended by the sweep while hosts drop, reclaim and close');
     });
 
-    test('a sealed reservation ended by a lazy expiry or by the real sweep leaves a used marker', { timeout: 150000 }, async (t) => {
+    test('a sealed reservation ended by a lazy expiry or by the real sweep leaves no marker and its token re-creates the link', { timeout: 150000 }, async (t) => {
         // A zero grace makes a departed host's reservation due at once: at a
         // lazy expiry on the next host join, or at the first real cleanup
-        // tick, about 60 s after startup (D-130).
+        // tick, about 60 s after startup. Only request-close leaves a used
+        // marker (D-130, review 1 F1): a sealed room whose host went away is
+        // no proof its link delivered anything.
         const srv = await startServer({ POLICY_FILE: policyFileSaying(t, true), FLOE_TEST_REQUEST_GRACE_MS: '0' });
         t.after(() => srv.stop());
 
@@ -704,20 +706,22 @@ test.describe('request-link policy file', { concurrency: true }, () => {
             return { token, id, visitor };
         }
 
-        // A lazy expiry: the token comes back after the zero grace.
+        // A lazy expiry: the token comes back after the zero grace and gets a
+        // fresh reservation, and the link works again for a new visitor.
         const lazy = await sealedThenHostGone('lazy');
         await new Promise((r) => setTimeout(r, 20));
         const back = await open(srv);
-        assert.deepEqual(await orBackstop(srv, hostJoin(back, lazy.token), 'a lazy expiry'), { type: 'room-full' }, 'a used link is never re-created');
+        assert.deepEqual(await orBackstop(srv, hostJoin(back, lazy.token), 'a lazy expiry'), { type: 'room-joined', role: 'host' }, 're-created, not refused');
         const fresh = await open(srv);
-        const replies = repliesUntilPong(fresh);
+        const seated = waitForAny(fresh, ['request-joined', 'host-absent', 'room-full', 'disabled', 'error']);
+        const sawFresh = waitFor(back, 'user-connected');
         fresh.send(JSON.stringify({ type: 'request-join', roomId: lazy.id }));
-        fresh.send(JSON.stringify({ type: 'ping' }));
-        assert.deepEqual(await orBackstop(srv, replies, 'a visitor after a lazy expiry'), [{ type: 'room-full' }]);
+        assert.deepEqual(await orBackstop(srv, seated, 'a visitor after a lazy expiry'), { type: 'request-joined', role: 'visitor' });
+        await orBackstop(srv, sawFresh, 'the re-created host hears the new visitor');
 
         // The real sweep. The seated visitor's own request-join is silent while
-        // it holds its seat (an idempotent re-join) and answers room-full once
-        // the sweep has ended the reservation, so it tells the two apart.
+        // it holds its seat (an idempotent re-join) and answers once the sweep
+        // has ended the reservation, so it tells the two apart.
         const swept = await sealedThenHostGone('sweep');
         const deadline = Date.now() + 75000;
         let got = [];
@@ -729,12 +733,12 @@ test.describe('request-link policy file', { concurrency: true }, () => {
             if (got.length) break;
             await new Promise((r2) => setTimeout(r2, 3000));
         }
-        assert.deepEqual(got, [{ type: 'room-full' }], 'the sweep left a used marker, not host-absent');
+        assert.deepEqual(got, [{ type: 'host-absent' }], 'the sweep left nothing behind');
         const again = await open(srv);
-        assert.deepEqual(await orBackstop(srv, hostJoin(again, swept.token), 'a host join after the sweep'), { type: 'room-full' });
+        assert.deepEqual(await orBackstop(srv, hostJoin(again, swept.token), 'a host join after the sweep'), { type: 'room-joined', role: 'host' });
 
         await assertSurvived(srv, 'sealed reservations ended by a lazy expiry and by the real sweep');
-        assertLogsCarryNone(srv, [lazy.token, lazy.id, swept.token, swept.id], 'used markers from a lazy expiry and the sweep');
+        assertLogsCarryNone(srv, [lazy.token, lazy.id, swept.token, swept.id], 'sealed reservations ended without a request-close');
     });
 
     test('policy flip within 60 s without restart', { timeout: 180000 }, async (t) => {
