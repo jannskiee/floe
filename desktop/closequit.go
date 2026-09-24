@@ -50,7 +50,10 @@ func (a *App) armQuitRetry() {
 	go func() {
 		for i := 0; i < quitRetries; i++ {
 			time.Sleep(wait)
-			if a.shuttingDown.Load() {
+			// Blocked now means the close was lost and the owner, seeing the
+			// window still up, started something: stand down without asking,
+			// because asking would pop the close guard unprompted.
+			if a.shuttingDown.Load() || a.closeBlocked() {
 				return
 			}
 			a.requestQuit()

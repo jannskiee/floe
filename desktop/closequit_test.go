@@ -48,6 +48,22 @@ func TestQuitRetryStopsOnceShutdownRuns(t *testing.T) {
 	}
 }
 
+// TestQuitRetryStandsDownWhenCloseBecomesBlocked: the close was lost, and the
+// owner, seeing the window still up, started a transfer. The retry must not
+// quit it, and must not ask either: runtime.Quit would re-enter onBeforeClose
+// and pop the close guard seconds after the owner last touched the X.
+func TestQuitRetryStandsDownWhenCloseBecomesBlocked(t *testing.T) {
+	var quits atomic.Int32
+	a := &App{quitFn: func() { quits.Add(1) }, quitRetryWait: 20 * time.Millisecond}
+	if a.onBeforeClose(nil) {
+		t.Fatal("an idle app blocked its own close")
+	}
+	a.beginTransfer()
+	if got := waitQuits(&quits, 1); got != 0 {
+		t.Fatalf("quit asked again %d times with a transfer running, want 0", got)
+	}
+}
+
 // TestQuitRetryArmsOnce: every retried quit re-enters onBeforeClose (Wails
 // asks it before each quit), and that must not start a second retry loop.
 func TestQuitRetryArmsOnce(t *testing.T) {
