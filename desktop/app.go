@@ -90,9 +90,9 @@ type App struct {
 	// log.Fatals on the nil context a bare test App carries.
 	quitFn func()
 
-	// shuttingDown is set first thing in shutdown; quitRetryArmed makes the
-	// quit retry (closequit.go) start once per process; quitRetryWait is its
-	// test seam, zero meaning quitRetryAfter.
+	// shuttingDown is set first thing in shutdown; quitRetryArmed keeps the
+	// quit retry (closequit.go) to one loop at a time; quitRetryWait is its
+	// test seam for the first wait, zero meaning quitRetryFirst.
 	shuttingDown   atomic.Bool
 	quitRetryArmed atomic.Bool
 	quitRetryWait  time.Duration

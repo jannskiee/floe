@@ -38,7 +38,7 @@ func TestOnBeforeCloseRetriesQuitUntilShutdown(t *testing.T) {
 // shutdown hook runs and no second quit is asked for.
 func TestQuitRetryStopsOnceShutdownRuns(t *testing.T) {
 	var quits atomic.Int32
-	a := &App{quitFn: func() { quits.Add(1) }, quitRetryWait: 20 * time.Millisecond}
+	a := &App{quitFn: func() { quits.Add(1) }, quitRetryWait: 250 * time.Millisecond}
 	if a.onBeforeClose(nil) {
 		t.Fatal("an idle app blocked its own close")
 	}
@@ -54,7 +54,7 @@ func TestQuitRetryStopsOnceShutdownRuns(t *testing.T) {
 // and pop the close guard seconds after the owner last touched the X.
 func TestQuitRetryStandsDownWhenCloseBecomesBlocked(t *testing.T) {
 	var quits atomic.Int32
-	a := &App{quitFn: func() { quits.Add(1) }, quitRetryWait: 20 * time.Millisecond}
+	a := &App{quitFn: func() { quits.Add(1) }, quitRetryWait: 250 * time.Millisecond}
 	if a.onBeforeClose(nil) {
 		t.Fatal("an idle app blocked its own close")
 	}
@@ -62,6 +62,43 @@ func TestQuitRetryStandsDownWhenCloseBecomesBlocked(t *testing.T) {
 	if got := waitQuits(&quits, 1); got != 0 {
 		t.Fatalf("quit asked again %d times with a transfer running, want 0", got)
 	}
+}
+
+// TestQuitRetryRearmsAfterItStoodDown: the loop that stood down disarms, so
+// the next close the app lets through (a Close anyway, whose dialog never
+// dismisses itself, or a later X) gets a retry of its own (review 1 F1).
+func TestQuitRetryRearmsAfterItStoodDown(t *testing.T) {
+	var quits atomic.Int32
+	a := &App{quitFn: func() { quits.Add(1) }, quitRetryWait: 5 * time.Millisecond}
+	if a.onBeforeClose(nil) {
+		t.Fatal("an idle app blocked its own close")
+	}
+	g := a.beginTransfer()
+	deadline := time.Now().Add(2 * time.Second)
+	for a.quitRetryArmed.Load() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if a.quitRetryArmed.Load() {
+		t.Fatal("the retry that stood down never disarmed")
+	}
+	if got := quits.Load(); got != 0 {
+		t.Fatalf("quit asked %d times while the transfer ran, want 0", got)
+	}
+	a.clearTransfer(g)
+	if a.onBeforeClose(nil) {
+		t.Fatal("an idle app blocked its own close")
+	}
+	if got := waitQuits(&quits, quitRetries); got != quitRetries {
+		t.Fatalf("the second close was asked again %d times, want %d", got, quitRetries)
+	}
+}
+
+// TestRequestQuitWithoutContextAsksNothing: with no quitFn and no context (a
+// bare test App, or a close before startup stored the context) requestQuit
+// returns, where runtime.Quit would log.Fatal the whole test binary seconds
+// later inside whichever test then ran (review 1 F2).
+func TestRequestQuitWithoutContextAsksNothing(t *testing.T) {
+	(&App{}).requestQuit()
 }
 
 // TestQuitRetryArmsOnce: every retried quit re-enters onBeforeClose (Wails
