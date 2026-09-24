@@ -99,9 +99,13 @@ Sentry.init({
         return scrubTransactionEvent(event);
     },
 
-    // Standalone spans (the span-streaming lifecycle) bypass
-    // beforeSendTransaction. Scrub their descriptions and URL attributes the
-    // same way so a future SDK default cannot reopen the gap.
+    // Standalone spans (INP and the other standalone web-vital spans) never
+    // become a transaction, so beforeSendTransaction cannot see them; the SDK
+    // sends them through this hook instead. It also runs, before
+    // beforeSendTransaction, over a transaction's root span and every child
+    // span, so each transaction is scrubbed twice: scrubSpanJson must stay
+    // idempotent. The span-streaming lifecycle (traceLifecycle 'stream') does
+    // not call a plain beforeSendSpan at all and is not enabled here.
     beforeSendSpan(span) {
         return scrubSpanJson(span);
     },

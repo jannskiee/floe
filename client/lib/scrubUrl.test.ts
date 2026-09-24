@@ -170,6 +170,18 @@ describe('scrubTransactionEvent', () => {
     it('scrubs a transaction name that carries the room', () => {
         expect(scrubTransactionEvent({ transaction: RECEIVER }).transaction).toBe(RECEIVER_SCRUBBED);
     });
+
+    it('is idempotent, because beforeSendSpan and beforeSendTransaction both run on a transaction', () => {
+        const once = scrubTransactionEvent(pageloadEvent());
+        const snapshot = JSON.stringify(once);
+        expect(JSON.stringify(scrubTransactionEvent(once))).toBe(snapshot);
+        for (const [, want] of FAIL_CLOSED) {
+            expect(scrubSpanJson({ description: want, data: { 'code.filepath': want } })).toEqual({
+                description: want,
+                data: { 'code.filepath': want },
+            });
+        }
+    });
 });
 
 describe('scrubSpanJson', () => {
@@ -185,8 +197,8 @@ describe('scrubSpanJson', () => {
             expect(scrubSpanJson(span)).toBe(span);
             expect(span.description).toBe(RECEIVER_SCRUBBED);
         }
-        // The segment span of the span-streaming lifecycle: its description is
-        // the transaction name, and HttpContext writes url.full onto it.
+        // A transaction's root span as beforeSendSpan sees it: its description
+        // is the transaction name, and HttpContext writes url.full onto it.
         const segment = { is_segment: true, description: RECEIVER, data: { 'url.full': RECEIVER } };
         const json = JSON.stringify(scrubSpanJson(segment));
         expect(json).not.toContain(ROOM);
