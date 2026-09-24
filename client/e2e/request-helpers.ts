@@ -16,7 +16,7 @@
 
 import type { BrowserContext, Page, PlaywrightWorkerOptions, WebSocketRoute } from '@playwright/test';
 import { createHash } from 'crypto';
-import { readdirSync, readFileSync, statSync } from 'fs';
+import { closeSync, openSync, readdirSync, readSync, statSync } from 'fs';
 import { join, relative, sep } from 'path';
 import { spawn, type ChildProcess } from 'child_process';
 import { E2E_HOST_BINARY } from './cli-binary';
@@ -169,6 +169,24 @@ export async function requestLink(host: RequestHost): Promise<string> {
     return e.link;
 }
 
+/**
+ * SHA-256 of one file, read in 4 MiB slices. readFileSync refuses any file
+ * over 2 GiB with ERR_FS_FILE_TOO_LARGE, which S1-WEB-06's 4 GiB + 1 B cell
+ * (M-08) would hit.
+ */
+function sha256File(path: string): string {
+    const hash = createHash('sha256');
+    const slab = Buffer.allocUnsafe(4 * 1024 * 1024);
+    const fd = openSync(path, 'r');
+    try {
+        let n: number;
+        while ((n = readSync(fd, slab, 0, slab.length, null)) > 0) hash.update(slab.subarray(0, n));
+    } finally {
+        closeSync(fd);
+    }
+    return hash.digest('hex');
+}
+
 /** Every file under `dir`, as forward-slash relative path to SHA-256. */
 export function sha256Manifest(dir: string): Record<string, string> {
     const out: Record<string, string> = {};
@@ -176,7 +194,7 @@ export function sha256Manifest(dir: string): Record<string, string> {
         for (const name of readdirSync(d)) {
             const full = join(d, name);
             if (statSync(full).isDirectory()) walk(full);
-            else out[relative(dir, full).split(sep).join('/')] = createHash('sha256').update(readFileSync(full)).digest('hex');
+            else out[relative(dir, full).split(sep).join('/')] = sha256File(full);
         }
     };
     walk(dir);
