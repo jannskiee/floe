@@ -24,6 +24,8 @@ fully supported.
     - `api.your-domain.com` to the signaling server on `:3001`
 
     The signaling server uses WebSockets. Make sure your proxy forwards the `Upgrade` and `Connection` headers.
+
+    Keep the host name in the `Host` header as the client sent it. Caddy and Traefik do by default, and nginx does with `proxy_set_header Host $host`. The CLI and the desktop app connect to `api.your-domain.com`, which is not your `CLIENT_URL`, so the server lets them in by matching their `Origin` against the host name in `Host`. A proxy that rewrites `Host` to the upstream address (`localhost:3001`, the nginx default without that line) gets them refused with a `403`.
   </Step>
   <Step title="Set NEXT_PUBLIC_SOCKET_URL">
     In `.env`:
