@@ -34,6 +34,7 @@ const { roomIdFromToken } = require('./hosttoken');
 const {
     errorHandler,
     getClientIp,
+    isAllowedOrigin,
     rateKey,
     generateCode,
     checkRateLimit,
@@ -143,6 +144,181 @@ describe('getClientIp', () => {
 
     it('falls back to socket address for an empty XFF string', () => {
         assert.equal(getClientIp('', '9.9.9.9'), '9.9.9.9');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// isAllowedOrigin: who may open a WebSocket on /ws or Socket.IO
+// ---------------------------------------------------------------------------
+
+describe('isAllowedOrigin', () => {
+    const HOST = 'api.floe.one';
+
+    it('lets an absent Origin through, as undefined or empty', () => {
+        // Any non-browser client may omit it, so requiring it would stop nothing.
+        assert.equal(isAllowedOrigin(undefined, HOST), true);
+        assert.equal(isAllowedOrigin('', HOST), true);
+        assert.equal(isAllowedOrigin(undefined, undefined), true);
+    });
+
+    it('lets the three hardcoded web origins through on any host', () => {
+        for (const origin of ['https://floe.one', 'https://www.floe.one', 'http://localhost:3000']) {
+            assert.equal(isAllowedOrigin(origin, HOST), true, origin);
+            assert.equal(isAllowedOrigin(origin, '192.168.1.50:3001'), true, origin);
+            assert.equal(isAllowedOrigin(origin, undefined), true, `${origin} with no Host`);
+        }
+    });
+
+    it('lets an Origin naming the server\'s own host through', () => {
+        // cli/engine/signaling/client.go originFromServer sends the server's own
+        // address for every self-hosted --server, so this is what every
+        // installed CLI and desktop app presents to a self-hosted server.
+        assert.equal(isAllowedOrigin('http://192.168.1.50:3001', '192.168.1.50:3001'), true);
+        assert.equal(isAllowedOrigin('https://floe.example.com', 'floe.example.com'), true);
+        assert.equal(isAllowedOrigin('http://[::1]:3001', '[::1]:3001'), true);
+    });
+
+    it('compares the host only, never the scheme', () => {
+        // TLS usually ends at the proxy, so an https Origin meets a server that
+        // was reached over plain http.
+        assert.equal(isAllowedOrigin('https://192.168.1.50:3001', '192.168.1.50:3001'), true);
+    });
+
+    it('compares hosts without regard to case', () => {
+        // Hostnames are case-insensitive, and the URL parser lowercases the
+        // Origin's. A Host header keeps whatever case the client typed in
+        // --server when the proxy passes it through unchanged.
+        assert.equal(isAllowedOrigin('https://Floe.Example.com', 'Floe.Example.com'), true);
+        assert.equal(isAllowedOrigin('https://floe.example.com', 'FLOE.example.COM'), true);
+    });
+
+    it('refuses a foreign origin and a lookalike', () => {
+        assert.equal(isAllowedOrigin('https://evil.example', HOST), false);
+        assert.equal(isAllowedOrigin('https://floe.one.evil.example', HOST), false);
+        assert.equal(isAllowedOrigin('https://api.floe.one.evil.example', HOST), false);
+    });
+
+    it('refuses a port mismatch', () => {
+        assert.equal(isAllowedOrigin('http://192.168.1.50:3000', '192.168.1.50:3001'), false);
+        assert.equal(isAllowedOrigin('http://192.168.1.50', '192.168.1.50:3001'), false);
+    });
+
+    it('refuses the literal null origin', () => {
+        // Sandboxed frames and file: pages send "null".
+        assert.equal(isAllowedOrigin('null', HOST), false);
+        assert.equal(isAllowedOrigin('null', 'null'), false);
+    });
+
+    it('refuses two Origin headers joined into one', () => {
+        // Node joins a repeated Origin header with ", ", so an allowed value
+        // followed by a foreign one arrives as a single string.
+        assert.equal(isAllowedOrigin('https://floe.one, https://evil.example', HOST), false);
+        assert.equal(isAllowedOrigin(`https://${HOST}, https://evil.example`, HOST), false);
+    });
+
+    it('refuses a backslash authority that hides the real host', () => {
+        // WHATWG URL reads a backslash as a path separator in http(s), so the
+        // host here is evil.example, not the name after the @.
+        assert.equal(isAllowedOrigin(`https://evil.example\\@${HOST}`, HOST), false);
+    });
+
+    it('the same-host rule holds across the whole table, including a Host a proxy stripped of its port', () => {
+        // One row per expectation above, plus the rows the port rule adds
+        // (D-114). nginx `proxy_set_header Host $host`, the docs' own example
+        // and the usual Nginx Proxy Manager and SWAG default, forwards the host
+        // name without its port, so a CLI or desktop app pointed at
+        // https://api.example.com:8443 arrives with that Origin and Host
+        // api.example.com. A default port spelled out in --server (:80, :443)
+        // stays in both the Origin and the Host the Go client sends.
+        const rows = [
+            // [origin, host, expected, why]
+            [undefined, HOST, true, 'absent'],
+            ['', HOST, true, 'empty'],
+            [undefined, undefined, true, 'absent, no Host'],
+            ['https://floe.one', HOST, true, 'allow-list'],
+            ['https://www.floe.one', '192.168.1.50:3001', true, 'allow-list on another host'],
+            ['http://localhost:3000', undefined, true, 'allow-list, no Host'],
+            ['http://192.168.1.50:3001', '192.168.1.50:3001', true, 'same host and port'],
+            ['https://floe.example.com', 'floe.example.com', true, 'same host, default port'],
+            ['http://[::1]:3001', '[::1]:3001', true, 'IPv6 literal'],
+            ['https://192.168.1.50:3001', '192.168.1.50:3001', true, 'scheme ignored'],
+            ['https://Floe.Example.com', 'Floe.Example.com', true, 'case kept on both sides'],
+            ['https://floe.example.com', 'FLOE.example.COM', true, 'case differs'],
+            ['https://floe.example.com:8443', 'floe.example.com', true, 'proxy dropped the port from Host'],
+            ['https://floe.example.com:8443', 'FLOE.EXAMPLE.COM', true, 'proxy dropped the port, case differs'],
+            ['https://floe.example.com:443', 'floe.example.com:443', true, ':443 spelled out'],
+            ['http://floe.example.com:80', 'floe.example.com:80', true, ':80 spelled out'],
+            ['https://floe.example.com:443', 'floe.example.com', true, ':443 in Origin only'],
+            ['https://evil.example', HOST, false, 'foreign'],
+            ['https://floe.one.evil.example', HOST, false, 'lookalike'],
+            ['https://api.floe.one.evil.example', HOST, false, 'lookalike of the host itself'],
+            ['https://evil.example:8443', 'floe.example.com', false, 'port dropped, different host'],
+            ['http://192.168.1.50:3000', '192.168.1.50:3001', false, 'port mismatch'],
+            ['http://192.168.1.50', '192.168.1.50:3001', false, 'Host carries a port the Origin lacks'],
+            ['https://floe.example.com', 'floe.example.com:8443', false, 'Host carries a port the Origin lacks'],
+            ['https://floe.example.com:8443', 'localhost:3001', false, 'Host rewritten to the upstream'],
+            ['https://floe.example.com', 'localhost:3001', false, 'Host rewritten to the upstream, default port'],
+            ['null', HOST, false, 'null origin'],
+            ['null', 'null', false, 'null origin and Host'],
+            ['https://floe.one, https://evil.example', HOST, false, 'joined duplicate'],
+            [`https://${HOST}, https://evil.example`, HOST, false, 'joined duplicate of the host'],
+            [`https://evil.example\\@${HOST}`, HOST, false, 'backslash authority'],
+            ['https://evil.example', undefined, false, 'no Host'],
+            ['https://evil.example', '', false, 'empty Host'],
+        ];
+        const wrong = rows
+            .filter(([origin, host, expected]) => isAllowedOrigin(origin, host) !== expected)
+            .map(([origin, host, expected, why]) => `${why}: isAllowedOrigin(${JSON.stringify(origin)}, ${JSON.stringify(host)}) should be ${expected}`);
+        assert.deepEqual(wrong, []);
+    });
+
+    it('refuses anything else when the Host header is absent', () => {
+        assert.equal(isAllowedOrigin('https://evil.example', undefined), false);
+        assert.equal(isAllowedOrigin('https://evil.example', ''), false);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// handleUpgradeRequest: the order its checks run in
+// ---------------------------------------------------------------------------
+
+describe('handleUpgradeRequest order', () => {
+    it('keeps the error listener first and the origin check after both pass-through returns', () => {
+        // CLAUDE.md's kill list: the no-op socket error listener has to precede
+        // anything that can throw, and the Socket.IO pass-through has to precede
+        // anything that can refuse. A refusal placed above either return would
+        // write a status line into a socket engine.io owns. On the wire that is
+        // invisible today, because engine.io refuses a foreign Origin itself
+        // before this handler runs (crashguard.test.js has the live check), so
+        // the order is pinned here as well, from the source.
+        const source = require('node:fs').readFileSync(require.resolve('./server.js'), 'utf8');
+        const start = source.indexOf('function handleUpgradeRequest(');
+        const end = source.indexOf("server.on('upgrade', handleUpgradeRequest);");
+        assert.ok(start !== -1 && end > start, 'handleUpgradeRequest not found where expected');
+        const code = source.slice(start, end)
+            .split('\n')
+            .filter(line => !/^\s*\/\//.test(line))
+            .join('\n');
+
+        const at = (marker) => {
+            const i = code.indexOf(marker);
+            assert.notEqual(i, -1, `marker missing from handleUpgradeRequest: ${marker}`);
+            assert.equal(code.indexOf(marker, i + 1), -1, `marker appears twice: ${marker}`);
+            return i;
+        };
+        const order = [
+            "socket.on('error', () => {});",
+            "if (pathname !== '/ws') return;",
+            "if (req.url.startsWith(io.path() + '/')) return;",
+            'if (!isAllowedOrigin(req.headers.origin, req.headers.host)) {',
+            // The warn call rather than refuseUpgrade(socket, 403), which later
+            // checks in this handler may also use; this call is the origin check's own.
+            "warnRejectedOrigin('/ws', req.headers.origin, req.headers.host);",
+            'wss.handleUpgrade(',
+        ].map(at);
+        for (let i = 1; i < order.length; i++) {
+            assert.ok(order[i - 1] < order[i], `check ${i} runs before check ${i - 1}`);
+        }
     });
 });
 

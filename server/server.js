@@ -65,6 +65,59 @@ app.use(
     })
 );
 
+// Who may open a WebSocket, on /ws and on Socket.IO. cors above covers HTTP
+// reads only: a browser opens a WebSocket to any host without asking, so without
+// this any page on any site could hold signaling sockets here, spending its
+// visitors' connection budget from their own addresses.
+//
+// Three ways in. No Origin at all: any non-browser client may leave it out, so
+// requiring it would only stop our own users. The allow-list above. And an
+// Origin whose host is this server's own Host header, which is what every
+// installed CLI and desktop app sends a self-hosted server
+// (cli/engine/signaling/client.go originFromServer); an allow-list of
+// CLIENT_URL alone would refuse all of them. Host only, never the scheme: TLS
+// usually ends at the proxy.
+//
+// The host names must match; the ports only when the Host header still carries
+// one (D-114). nginx `proxy_set_header Host $host`, the docs' own example and
+// the usual Nginx Proxy Manager default, forwards the name without its port, so
+// a CLI pointed at https://api.example.com:8443 arrives as that Origin with
+// Host api.example.com. The Host is parsed as a URL with the Origin's scheme,
+// which lowercases its name (hostnames are case-insensitive, and the Go client
+// sends the case typed in --server) and normalizes a default port spelled out on
+// either side (:80, :443). What this admits beyond an exact match is a page on
+// another port of the same host name, which only that host's owner can serve.
+function isAllowedOrigin(origin, host) {
+    if (origin === undefined || origin === '') return true;
+    if (allowedOrigins.includes(origin)) return true;
+    if (!host) return false;
+    try {
+        const o = new URL(origin);
+        const h = new URL(`${o.protocol}//${host}`);
+        return o.hostname === h.hostname && (h.port === '' || h.port === o.port);
+    } catch {
+        return false;
+    }
+}
+
+// One line per path for the life of the process, so an operator whose proxy
+// rewrites Host learns why every CLI is refused, and a page that retries
+// forever gets no flood lever. A Set rather than one flag, or the first path
+// refused would silence the other; it holds at most the two literal paths.
+// It names the Host the Origin was compared with, because a proxy that rewrites
+// Host shows up as the server's own address being refused, and only the Host
+// says why. Both are quoted and cut so a newline in either cannot forge a line.
+const warnedOriginPaths = new Set();
+function warnRejectedOrigin(path, origin, host) {
+    if (warnedOriginPaths.has(path)) return;
+    warnedOriginPaths.add(path);
+    const quoted = (value) => JSON.stringify(String(value).slice(0, 200));
+    console.warn(
+        `Refused a connection on ${path} from Origin ${quoted(origin)} (Host ${quoted(host)}): ` +
+        `not CLIENT_URL, a floe.one origin, or this server's own host. Further refusals on ${path} are not logged.`
+    );
+}
+
 // After cors on purpose. A malformed body makes this middleware throw, and the
 // error short-circuits straight to the error handler; if cors ran later, that
 // response would carry no Access-Control-Allow-Origin and the browser would
@@ -1184,6 +1237,16 @@ const io = new Server(server, {
         methods: ['GET', 'POST'],
         credentials: true,
     },
+    // The Origin check for both Socket.IO transports, run by engine.io on the
+    // handshake before any session exists (io.use would run after one has been
+    // opened). A refused websocket upgrade gets engine.io's 400 with this
+    // message as its body, a refused polling handshake a 403. cors above stays
+    // as it is: it only decides which answers a browser may read.
+    allowRequest: (req, callback) => {
+        if (isAllowedOrigin(req.headers.origin, req.headers.host)) return callback(null, true);
+        warnRejectedOrigin('/socket.io', req.headers.origin, req.headers.host);
+        callback('Origin not allowed', false);
+    },
     maxHttpBufferSize: 1e6, // Signaling only: SDP/ICE < 10 KB
 });
 
@@ -1299,6 +1362,18 @@ function handleUpgradeRequest(req, socket, head) {
     // completing it twice throws. Reusing engine.io's own predicate, rather than
     // matching dot segments, covers the %2e%2e and backslash spellings too.
     if (req.url.startsWith(io.path() + '/')) return;
+
+    // The Origin check, and the only refusal below the two returns above, on
+    // purpose: placed above either one it would answer for sockets engine.io
+    // owns. By here the socket is ours, because the return above reuses
+    // engine.io's own claim predicate. Socket.IO's half of the check is its
+    // allowRequest option, not this. No ws verifyClient and no check in the
+    // connection handler: both run after this point and would only repeat it.
+    if (!isAllowedOrigin(req.headers.origin, req.headers.host)) {
+        warnRejectedOrigin('/ws', req.headers.origin, req.headers.host);
+        refuseUpgrade(socket, 403);
+        return;
+    }
 
     // Any future drift between the two routers lands on that same throw.
     // Destroy rather than refuse: reaching here means someone else may own this
@@ -1474,6 +1549,7 @@ if (require.main === module) {
 module.exports = {
     errorHandler,
     getClientIp,
+    isAllowedOrigin,
     rateKey,
     generateCode,
     registerCodeHandler,

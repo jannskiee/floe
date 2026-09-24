@@ -18,6 +18,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
+const http = require('node:http');
 const net = require('node:net');
 const { spawn } = require('node:child_process');
 const { randomBytes, randomUUID } = require('node:crypto');
@@ -140,10 +141,13 @@ const UPGRADE_HEADERS =
 // One raw upgrade request. Resolves with the reply headers, the socket (so a
 // caller can write frames on an accepted connection), and afterHandshake(), which
 // waits for a pattern in whatever the server sends once the headers are done.
-function rawUpgrade(srv, target) {
+// extraHeaders is inserted verbatim, each line ending in \r\n. host is the Host
+// header, which the server never routes on, so a test can present whatever a
+// proxy in front of it would have forwarded.
+function rawUpgrade(srv, target, extraHeaders = '', host = `127.0.0.1:${srv.port}`) {
     return new Promise((resolve, reject) => {
         const socket = track(net.connect(srv.port, '127.0.0.1', () => {
-            socket.write(`GET ${target} HTTP/1.1\r\nHost: 127.0.0.1:${srv.port}\r\n${UPGRADE_HEADERS}\r\n`);
+            socket.write(`GET ${target} HTTP/1.1\r\nHost: ${host}\r\n${extraHeaders}${UPGRADE_HEADERS}\r\n`);
         }));
         let buf = '';
         let headEnd = -1;
@@ -1048,4 +1052,207 @@ test('a new message type on a rate-limited socket is not fatal', async (t) => {
     // And the unmasked frame the pre-existing test sends, after a new type.
     try { socket.write(Buffer.from([0x81, 0x02, 0x41, 0x42])); } catch { /* closed */ }
     await assertSurvived(srv, 'request frames on a rate-limited connection');
+});
+
+// --- Origin on both WebSocket paths ----------------------------------------
+//
+// A browser names the page it runs on in Origin, so without a check any page on
+// any site could open signaling sockets here from its visitors' addresses. A
+// refusal is a status line on the wire, which no in-process test can see, so the
+// live cases live here. The CLI and the desktop app never send a foreign Origin:
+// cli/engine/signaling/client.go originFromServer sends a floe.one or localhost
+// origin for the two known servers and the server's own address for any other.
+
+const EVIL = 'Origin: https://evil.example\r\n';
+const REFUSED_WS = /^Refused a connection on \/ws from Origin "https:\/\/evil\.example"/gm;
+const REFUSED_SIO = /^Refused a connection on \/socket\.io from Origin "https:\/\/evil\.example"/gm;
+
+// A plain HTTP GET with no connection pooling, for the Socket.IO polling
+// transport, which is an ordinary request rather than an upgrade.
+function get(srv, path, headers = {}) {
+    return new Promise((resolve, reject) => {
+        const req = http.get({ host: '127.0.0.1', port: srv.port, path, headers, agent: false }, (res) => {
+            let body = '';
+            res.setEncoding('utf8');
+            res.on('data', (d) => { body += d; });
+            res.on('end', () => resolve({ status: res.statusCode, body }));
+        });
+        req.on('error', reject);
+        req.setTimeout(5000, () => req.destroy(new Error(`no reply to ${path}`)));
+    });
+}
+
+async function joinsARoom(ws) {
+    const joined = waitFor(ws, 'room-joined');
+    ws.send(JSON.stringify({ type: 'join-room', roomId: randomUUID() }));
+    return (await joined).role;
+}
+
+test('/ws with a foreign Origin gets 403 and the server survives', async (t) => {
+    const srv = await startServer();
+    t.after(() => srv.stop());
+
+    for (let i = 0; i < 3; i++) {
+        const { head, body } = await rawUpgrade(srv, '/ws', EVIL);
+        assert.match(head, /^HTTP\/1\.1 403 Forbidden\r\n/);
+        assert.equal(body, 'Forbidden');
+    }
+    await assertSurvived(srv, 'three /ws handshakes from a foreign Origin');
+    // Logged once per path however many arrive: a line per refusal would hand
+    // any web page a log flood at a rate it picks.
+    assert.equal((srv.stderr.match(REFUSED_WS) || []).length, 1, `stderr:\n${srv.stderr}`);
+    // The Host it was compared with, so an operator whose proxy rewrites or
+    // strips Host can see why the server's own address was refused.
+    assert.ok(srv.stderr.includes(`from Origin "https://evil.example" (Host "127.0.0.1:${srv.port}")`), `stderr:\n${srv.stderr}`);
+});
+
+test('no Origin reaches open', async (t) => {
+    const srv = await startServer();
+    t.after(() => srv.stop());
+
+    // Any non-browser client may leave Origin out, so the server cannot require
+    // it without stopping nothing but its own users.
+    const { head } = await rawUpgrade(srv, '/ws');
+    assert.match(head, /^HTTP\/1\.1 101 /);
+
+    const ws = await open(srv); // the ws client sends no Origin unless told to
+    assert.equal(await joinsARoom(ws), 'sender');
+    await assertSurvived(srv, 'a /ws client with no Origin');
+});
+
+test('/ws with the server\'s own host as Origin reaches open', async (t) => {
+    const srv = await startServer();
+    t.after(() => srv.stop());
+
+    // What every installed CLI and desktop app sends a self-hosted server. The
+    // https form is the same server behind a proxy that ends TLS: host only.
+    for (const origin of [`http://127.0.0.1:${srv.port}`, `https://127.0.0.1:${srv.port}`]) {
+        const ws = track(new WebSocket(`ws://127.0.0.1:${srv.port}/ws`, { headers: { Origin: origin } }));
+        await new Promise((resolve, reject) => {
+            ws.once('open', resolve);
+            ws.once('error', reject);
+        });
+        assert.equal(await joinsARoom(ws), 'sender', origin);
+    }
+    await assertSurvived(srv, 'two /ws clients naming the server\'s own host');
+});
+
+test('a Socket.IO websocket upgrade with a foreign Origin gets 400 Origin not allowed', async (t) => {
+    const srv = await startServer();
+    t.after(() => srv.stop());
+
+    // engine.io's abortUpgrade answers 400 for every refusal code and carries
+    // the reason allowRequest gave as the body.
+    const { head, body } = await rawUpgrade(srv, '/socket.io/?EIO=4&transport=websocket', EVIL);
+    assert.match(head, /^HTTP\/1\.1 400 Bad Request\r\n/);
+    assert.equal(body, 'Origin not allowed');
+    await assertSurvived(srv, 'a Socket.IO upgrade from a foreign Origin');
+});
+
+test('a Socket.IO websocket upgrade from http://localhost:3000 still gets 101', async (t) => {
+    const srv = await startServer();
+    t.after(() => srv.stop());
+
+    const { head, afterHandshake } = await rawUpgrade(srv, '/socket.io/?EIO=4&transport=websocket', 'Origin: http://localhost:3000\r\n');
+    assert.match(head, /^HTTP\/1\.1 101 /);
+    assert.ok(await afterHandshake(/"sid"/, 3000), '101 but no Socket.IO session');
+    await assertSurvived(srv, 'a Socket.IO upgrade from an allowed Origin');
+});
+
+test('a Socket.IO polling handshake with a foreign Origin gets 403 and an allowed one 200', async (t) => {
+    const srv = await startServer();
+    t.after(() => srv.stop());
+
+    const path = '/socket.io/?EIO=4&transport=polling';
+    const refused = await get(srv, path, { Origin: 'https://evil.example' });
+    assert.equal(refused.status, 403);
+    assert.deepEqual(JSON.parse(refused.body), { code: 4, message: 'Origin not allowed' });
+
+    const allowed = await get(srv, path, { Origin: 'https://floe.one' });
+    assert.equal(allowed.status, 200);
+    assert.match(allowed.body, /"sid"/);
+    await assertSurvived(srv, 'two Socket.IO polling handshakes');
+});
+
+test('a foreign Origin on a Socket.IO target is refused by Socket.IO alone', async (t) => {
+    const srv = await startServer();
+    t.after(() => srv.stop());
+
+    // The ordering proof on the wire's side. engine.io refuses these before the
+    // /ws handler runs, and the second target also satisfies the /ws pathname
+    // check (the dot-segment case above). If the /ws origin check ever moved
+    // above either pass-through return, it would refuse these too and say so in
+    // a /ws line: the client already has engine.io's 400 by then, so stderr is
+    // the only place the difference shows.
+    for (const target of [
+        '/socket.io/?EIO=4&transport=websocket',
+        '/socket.io/../ws?EIO=4&transport=websocket',
+    ]) {
+        const { head, body } = await rawUpgrade(srv, target, EVIL);
+        assert.match(head, /^HTTP\/1\.1 400 Bad Request\r\n/, target);
+        assert.equal(body, 'Origin not allowed', target);
+    }
+    await assertSurvived(srv, 'two Socket.IO targets from a foreign Origin');
+    assert.equal((srv.stderr.match(REFUSED_SIO) || []).length, 1, `stderr:\n${srv.stderr}`);
+    assert.ok(srv.stderr.includes(`on /socket.io from Origin "https://evil.example" (Host "127.0.0.1:${srv.port}")`), `stderr:\n${srv.stderr}`);
+    assert.equal((srv.stderr.match(REFUSED_WS) || []).length, 0, `the /ws check ran for a Socket.IO target:\n${srv.stderr}`);
+});
+
+// The Origin and Host the Go client sends, built the way it builds them, so the
+// same-host rule is exercised with the request every installed CLI and desktop
+// app actually makes. A copy of originFromServer in cli/engine/signaling/client.go
+// (unchanged in every release): keep the two in step. The Host header is the
+// URL's host as typed (gorilla/websocket sets `Host: u.Host`), or, behind a
+// proxy like nginx `proxy_set_header Host $host`, the lowercased host name
+// without its port.
+function originFromServer(serverURL) {
+    if (serverURL === 'https://api.floe.one') return 'https://floe.one';
+    if (serverURL === 'http://localhost:3001') return 'http://localhost:3000';
+    const u = serverURL.endsWith('/') ? serverURL.slice(0, -1) : serverURL;
+    const i = u.indexOf('://');
+    if (i === -1) return u;
+    let host = u.slice(i + 3);
+    const j = host.indexOf('/');
+    if (j !== -1) host = host.slice(0, j);
+    return u.slice(0, i + 3) + host;
+}
+
+function typedHost(serverURL) {
+    const rest = serverURL.slice(serverURL.indexOf('://') + 3);
+    const j = rest.indexOf('/');
+    return j === -1 ? rest : rest.slice(0, j);
+}
+
+function portStrippedHost(serverURL) {
+    return new URL(serverURL.replace(/^ws/, 'http')).hostname;
+}
+
+test('a Go client\'s handshake passes the same-host rule directly and through a port-stripping proxy', async (t) => {
+    const srv = await startServer();
+    t.after(() => srv.stop());
+
+    const servers = [
+        `http://127.0.0.1:${srv.port}`,
+        'https://floe.example.com:8443',
+        'https://floe.example.com:8443/',
+        'https://Floe.Example.com:8443/signal',
+        'wss://floe.example.com:8443',
+        'https://floe.example.com:443',
+        'http://floe.example.com:80',
+        'https://floe.example.com',
+    ];
+    for (const server of servers) {
+        const origin = `Origin: ${originFromServer(server)}\r\n`;
+        for (const [how, host] of [['direct', typedHost(server)], ['port-stripping proxy', portStrippedHost(server)]]) {
+            const { head, socket } = await rawUpgrade(srv, '/ws', origin, host);
+            assert.match(head, /^HTTP\/1\.1 101 /, `--server ${server}, ${how} (Host ${host})`);
+            socket.destroy();
+        }
+    }
+
+    // The edge this rule does not cover, and the docs name: a proxy that
+    // rewrites Host to the upstream address.
+    const { head } = await rawUpgrade(srv, '/ws', `Origin: ${originFromServer('https://floe.example.com:8443')}\r\n`, 'localhost:3001');
+    assert.match(head, /^HTTP\/1\.1 403 /);
+    await assertSurvived(srv, 'Go-shaped handshakes, direct and through proxies');
 });
