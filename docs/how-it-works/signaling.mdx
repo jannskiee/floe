@@ -71,8 +71,15 @@ having been opened once.
 
 The seat frees again once that device disconnects and the server notices, which takes up to about
 a minute if the drop was not a clean one. Whether the transfer survives that gap depends on who is
-sending: the web app holds its room open and waits for whoever arrives next, while `floe send` and
-the desktop app end the transfer as soon as the receiving side goes.
+sending: the web app holds its room open for the receiver to come back from the same network, while
+`floe send` and the desktop app end the transfer as soon as the receiving side goes.
+
+A freed seat does not let just anyone in. Once devices on two different networks have each sent a
+connection-setup message through a room, as a sender and a receiver do the moment they start
+connecting, a device on a third network is turned away as if the room were full, for as long as
+the room exists. Joining alone does not count, so a sender whose network changes while it waits for
+its receiver is not counted twice. Devices that share one network address count as one, so two
+people behind the same router are not told apart.
 
 For a second recipient, start a second transfer.
 

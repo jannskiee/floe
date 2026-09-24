@@ -347,7 +347,8 @@ const cleanupInterval = setInterval(() => {
 //
 // Both Socket.IO (browser) and WebSocket (CLI) peers share this registry.
 // Each "peer" is a plain object with:
-//   { id, type, roomId, send(type, data) }
+//   { id, type, key, roomId, send(type, data) }
+// where key is the rateKey of the address the connection was admitted under.
 //
 // This means a browser and a CLI can be in the same room and exchange
 // WebRTC signals through the same routing logic.
@@ -355,19 +356,44 @@ const cleanupInterval = setInterval(() => {
 
 const rooms = new Map(); // roomId → [peer, peer]
 
+// One record per live room, created with the room and deleted with it in
+// destroyRoom, so it can never outlive the room or hold more entries than
+// `rooms` does. `keys` holds the sealDigest of every rate key whose peer has
+// routed a signal in the room (handleSignal), including peers that have since
+// left: that history is what the seal in handleJoinRoom reads.
+const roomMeta = new Map(); // roomId → { keys: Set<sealDigest(rateKey)> }
+
+// The seal tells keys apart without keeping them. A rate key is an address (an
+// IPv4 address in full, an IPv6 /64), a room can live for hours, and the
+// privacy page promises an IP address is kept at most about two minutes. So a
+// room keeps an HMAC-SHA256 of each key under a secret drawn once per process:
+// equal keys still match within this process, hashing every IPv4 address does
+// not reverse a digest, and every digest means nothing after a restart. The
+// secret lives in this binding only. Never log, print, export or persist it.
+const SEAL_SECRET = crypto.randomBytes(32);
+
+// String() so a missing key digests as 'undefined' (one shared key, which the
+// seal fails open for) instead of throwing inside update() on the
+// unauthenticated join and signal paths.
+function sealDigest(key) {
+    return crypto.createHmac('sha256', SEAL_SECRET).update(String(key)).digest('base64');
+}
+
 // The single way a room stops existing. A room that is gone must not leave a
 // working code behind it: the phrase is the whole secret, and a code outliving
 // its room is a phrase an attacker can still guess for whatever is created at
 // that id next. Every rooms.delete goes through here.
 function destroyRoom(roomId) {
     rooms.delete(roomId);
+    roomMeta.delete(roomId);
     forgetCode(roomId);
 }
 
-function createSocketIOPeer(socket) {
+function createSocketIOPeer(socket, key) {
     return {
         id: socket.id,
         type: 'socketio',
+        key,
         roomId: null,
         send(type, data) {
             // 'user-connected' historically sent just the peer ID string in the
@@ -391,10 +417,11 @@ function createSocketIOPeer(socket) {
 // itself: 2600 frames offered, 94 MB peak, 30 MB above where it started.
 const WS_SEND_BUFFER_CEILING = 1e6;
 
-function createWSPeer(ws) {
+function createWSPeer(ws, key) {
     return {
         id: ws.peerId,
         type: 'ws',
+        key,
         roomId: null,
         send(type, data) {
             if (ws.readyState !== WebSocket.OPEN) return;
@@ -439,11 +466,38 @@ function handleJoinRoom(peer, roomId) {
         peer.roomId = null;
     }
 
+    // The seal. Once two distinct keys have routed signals in a room, a third
+    // key is refused for as long as the room exists, so a stranger holding the
+    // link cannot take the receiver's seat after the receiver leaves or drops.
+    //
+    // Counted in signaling keys, never in seats and never as a "has been
+    // paired" flag. The browser re-joins a reconnecting sender with a bare
+    // join-room (P2PTransfer.tsx, the socket reconnect handler), which can land
+    // in seat two beside its own ghost, and under a new key when the sender's
+    // network changed while it waited. A flag or a seat count would then have
+    // the sender seal its own room against the real receiver. Neither the ghost
+    // nor the waiting sender routes a signal, while a real pair always has
+    // before any file byte moves (handleSignal).
+    //
+    // Fails open, on purpose, for peers that share a key (one NAT, one IPv6
+    // /64): they never reach two keys, so a stranger behind the receiver's own
+    // address is not refused. Closing that needs a per-room token, and the
+    // released clients have no field to send one in. The e2e suite runs every
+    // peer on one host, which can reach two keys on a dual-stack loopback
+    // (127.0.0.1 keys as itself, ::1 as its /64) but cannot present a third, so
+    // it is never refused.
+    const meta = roomMeta.get(roomId);
+    if (meta && meta.keys.size >= 2 && !meta.keys.has(sealDigest(peer.key))) {
+        peer.send('room-full', {});
+        return;
+    }
+
     const room = rooms.get(roomId) || [];
 
     if (room.length === 0) {
         room.push(peer);
         rooms.set(roomId, room);
+        roomMeta.set(roomId, { keys: new Set() });
         peer.roomId = roomId;
         peer.send('room-joined', { role: 'sender' });
     } else if (room.length === 1) {
@@ -481,6 +535,17 @@ function handleSignal(senderPeer, signal, targetId) {
     const targetPeer = room.find(p => p.id !== senderPeer.id);
     if (!targetPeer) return;
     if (targetId && targetPeer.id !== targetId) return;
+
+    // From here the signal goes to the other seat, and only now does the
+    // sender's key count toward the room seal (handleJoinRoom). A sender and a
+    // receiver each route one (the offer, the answer) before any file byte can
+    // move; a ghost never routes one, and a lone sender has no seat to route to.
+    // Only the sender of the signal counts: a receiver that was offered to and
+    // left before answering has received nothing. The key comes from the
+    // connection, never from the frame. At most three keys: once two count, only
+    // a peer already seated then can add one more.
+    const meta = roomMeta.get(senderPeer.roomId);
+    if (meta) meta.keys.add(sealDigest(senderPeer.key));
 
     // signal is the only peer-supplied value this server serializes: roomId is
     // UUID-checked and target is only compared. JSON.stringify recurses, so a
@@ -535,11 +600,13 @@ const io = new Server(server, {
 io.use((socket, next) => {
     const ip = getClientIp(socket.handshake.headers['x-forwarded-for'], socket.handshake.address);
     if (!checkRateLimit(ip)) return next(new Error('Rate limit exceeded'));
+    // The key the room seal counts this peer under (handleJoinRoom).
+    socket.data.rateKey = rateKey(ip);
     next();
 });
 
 io.on('connection', (socket) => {
-    const peer = createSocketIOPeer(socket);
+    const peer = createSocketIOPeer(socket, socket.data.rateKey);
 
     socket.on('ping', (callback) => {
         if (typeof callback === 'function') callback();
@@ -670,7 +737,7 @@ wss.on('connection', (ws, req) => {
     ws.isAlive = true;
     ws.pingNonce = null;
 
-    const peer = createWSPeer(ws);
+    const peer = createWSPeer(ws, rateKey(ip));
 
     ws.on('pong', (data) => handlePong(ws, data));
 
@@ -812,6 +879,7 @@ module.exports = {
     handlePong,
     WS_SEND_BUFFER_CEILING,
     rooms,
+    roomMeta,
     codeToRoom,
     roomToCode,
     codeFailures,
@@ -822,4 +890,5 @@ module.exports = {
     makeRateLimiter,
     codeRateLimits,
     selectMinimalIceUrls,
+    server,
 };
