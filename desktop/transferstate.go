@@ -124,9 +124,11 @@ func (a *App) closeBlocked() bool {
 // thread, so blocking here freezes the window. No dialog from Go, therefore;
 // just tell the frontend to ask. EventsEmit posts and returns, never blocks.
 // Returning false whenever no transfer is active is the property that makes
-// an unclosable window impossible.
+// an unclosable window impossible; the quit retry (closequit.go) covers the
+// quit Wails then posts getting lost on the UI thread.
 func (a *App) onBeforeClose(ctx context.Context) bool {
 	if !a.closeBlocked() {
+		a.armQuitRetry()
 		return false
 	}
 	runtime.EventsEmit(ctx, "close:blocked")
@@ -149,9 +151,5 @@ func (a *App) ConfirmClose() {
 	a.mu.Unlock()
 	a.CancelTransfer()
 	a.lane().closeForQuit()
-	if a.quitFn != nil {
-		a.quitFn()
-		return
-	}
-	runtime.Quit(a.ctx)
+	a.requestQuit()
 }

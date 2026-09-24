@@ -6,6 +6,8 @@ import (
 	goruntime "runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/jannskiee/floe/cli/engine/transfer"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -88,6 +90,13 @@ type App struct {
 	// log.Fatals on the nil context a bare test App carries.
 	quitFn func()
 
+	// shuttingDown is set first thing in shutdown; quitRetryArmed keeps the
+	// quit retry (closequit.go) to one loop at a time; quitRetryWait is its
+	// test seam for the first wait, zero meaning quitRetryFirst.
+	shuttingDown   atomic.Bool
+	quitRetryArmed atomic.Bool
+	quitRetryWait  time.Duration
+
 	// req is the Request link lane (requestlink.go): its own mutex,
 	// generation and handles, never the transfer slot above. Created by
 	// NewApp; lane() creates it on first use for a bare test App.
@@ -149,6 +158,7 @@ func (a *App) startup(ctx context.Context) {
 // .part files are registered, and a completed file's commit rename vacated
 // that path, so nothing that finished can be touched.
 func (a *App) shutdown(ctx context.Context) {
+	a.shuttingDown.Store(true) // ends the quit retry (closequit.go)
 	transfer.AbandonPartials()
 	// A quit that did not come through ConfirmClose (no link was live when it
 	// started) still ends the lane; idempotent after ConfirmClose.
