@@ -1709,6 +1709,100 @@ describe('policy', () => {
         }
     });
 
+    it('a same-size file renamed over the policy with the same mtime is read', () => {
+        // CP-SE F1-2, the finder's case: cp -p, tar x, rsync -a and docker cp
+        // keep the mtime, and these two files are both 22 bytes.
+        const { file, lines, s } = store('same-size-rename.json');
+        const on = '{"requestLinks":true }';
+        const off = '{"requestLinks":false}';
+        assert.equal(Buffer.byteLength(on), Buffer.byteLength(off));
+        const t = new Date('2026-09-24T12:00:00.000Z');
+        fs.writeFileSync(file, on);
+        fs.utimesSync(file, t, t);
+        assert.equal(s.reload(), 'ok');
+        assert.equal(s.requestLinks(), true);
+        const was = fs.statSync(file, { bigint: true });
+
+        fs.writeFileSync(`${file}.tmp`, off);
+        fs.utimesSync(`${file}.tmp`, t, t);
+        fs.renameSync(`${file}.tmp`, file); // the runbook's edit
+        const now = fs.statSync(file, { bigint: true });
+        assert.equal(now.size, was.size);
+        assert.equal(now.mtimeNs, was.mtimeNs);
+        assert.notEqual(now.ino, was.ino, 'the rename put a new file at the path');
+
+        assert.equal(s.reload(), 'ok');
+        assert.equal(s.requestLinks(), false);
+        assert.deepEqual(lines, ['request links: on', 'request links: off']);
+    });
+
+    it('a same-size edit in place with its mtime put back is read', async () => {
+        // cp -p onto the policy file itself keeps the inode as well as the
+        // mtime; the change time moves, and no user tool can set it back.
+        const { file, s } = store('same-size-in-place.json');
+        const t = new Date('2026-09-24T12:00:00.000Z');
+        fs.writeFileSync(file, '{"requestLinks":true }');
+        fs.utimesSync(file, t, t);
+        assert.equal(s.reload(), 'ok');
+        const was = fs.statSync(file, { bigint: true });
+        // Past a tick of a coarse file clock, or the edit's change time can
+        // equal the first write's (measured on NTFS: equal with no wait).
+        await new Promise((r) => setTimeout(r, 200));
+
+        fs.writeFileSync(file, '{"requestLinks":false}');
+        fs.utimesSync(file, t, t);
+        const now = fs.statSync(file, { bigint: true });
+        assert.equal(now.ino, was.ino, 'the same file');
+        assert.equal(now.size, was.size);
+        assert.equal(now.mtimeNs, was.mtimeNs);
+
+        assert.equal(s.reload(), 'ok');
+        assert.equal(s.requestLinks(), false);
+    });
+
+    it('a new inode alone, or a new change time alone, is a changed file', () => {
+        // Each identity field on its own, every other stat field held equal.
+        // A real rename also moves the change time on every platform this
+        // suite runs on, so only a stubbed stat can show the inode alone.
+        const { file, s } = store('stamp-fields.json');
+        fs.writeFileSync(file, '{"requestLinks":true }');
+        const real = fs.statSync;
+        const base = { num: real(file), big: real(file, { bigint: true }) };
+        const bumped = new Set();
+        fs.statSync = function (p, opts, ...rest) {
+            if (p !== file) return real.call(this, p, opts, ...rest);
+            const b = opts && opts.bigint ? base.big : base.num;
+            const one = typeof b.ino === 'bigint' ? 1n : 1;
+            const st = {
+                isFile: () => true,
+                ino: b.ino, size: b.size, mtimeMs: b.mtimeMs, mtimeNs: b.mtimeNs, ctimeMs: b.ctimeMs, ctimeNs: b.ctimeNs,
+            };
+            if (bumped.has('ino')) st.ino += one;
+            if (bumped.has('ctime')) {
+                st.ctimeMs += one;
+                if (st.ctimeNs !== undefined) st.ctimeNs += 1_000_000n;
+            }
+            return st;
+        };
+        try {
+            assert.equal(s.reload(), 'ok');
+            assert.equal(s.reload(), 'unchanged', 'every field equal');
+
+            fs.writeFileSync(file, '{"requestLinks":false}');
+            bumped.add('ino');
+            assert.equal(s.reload(), 'ok', 'a new inode alone');
+            assert.equal(s.requestLinks(), false);
+
+            fs.writeFileSync(file, '{"requestLinks":true }');
+            bumped.add('ctime');
+            assert.equal(s.reload(), 'ok', 'a new change time alone');
+            assert.equal(s.requestLinks(), true);
+            assert.equal(s.reload(), 'unchanged');
+        } finally {
+            fs.statSync = real;
+        }
+    });
+
     it('a flip is visible within one cleanupTick without restart', () => {
         // The module's own store, the one /health and the request handlers
         // consult, pointed at POLICY_PATH before server.js was required.

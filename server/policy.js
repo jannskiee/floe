@@ -45,17 +45,32 @@ function parsePolicy(text) {
     return { policy: Object.freeze({ requestLinks: value.requestLinks === true }), error: null };
 }
 
-// One read. `lastStamp` is the { mtimeMs, size } of the last good read, so an
-// unchanged file is not read or parsed again. Returns a kind the store acts on:
+// The stamp of a read: the file's identity as well as its mtime and size
+// (CP-SE F1-2). mtime and size alone skipped a same-length off-file whose
+// mtime was kept (cp -p, tar x, rsync -a, docker cp), and request links stayed
+// on while the file said off. A file renamed over the path (the runbook's
+// edit, rsync, tar) is a new inode; a same-size edit in place (cp -p onto the
+// file) keeps the inode but moves the change time, which no user tool can set
+// back. BigInt stats: a 64-bit NTFS file id past 2^53 would round in a Number.
+function stampOf(st) {
+    return { ino: st.ino, ctimeNs: st.ctimeNs, mtimeNs: st.mtimeNs, size: st.size };
+}
+
+function sameStamp(a, b) {
+    return a.ino === b.ino && a.ctimeNs === b.ctimeNs && a.mtimeNs === b.mtimeNs && a.size === b.size;
+}
+
+// One read. `lastStamp` is the stamp of the last good read, so an unchanged
+// file is not read or parsed again. Returns a kind the store acts on:
 //   missing    no path, or the file does not exist: the defaults (off)
-//   unchanged  same mtime and size as the last good read
+//   unchanged  the same file, change time, mtime and size as the last good read
 //   ok         parsed; `policy` is the new object and `stamp` its stamp
 //   error      anything else: keep the last good policy
 function readPolicyFile(path, lastStamp) {
     if (!path) return { kind: 'missing', policy: DEFAULT_POLICY, stamp: null };
     let st;
     try {
-        st = fs.statSync(path);
+        st = fs.statSync(path, { bigint: true });
     } catch (err) {
         if (err && err.code === 'ENOENT') return { kind: 'missing', policy: DEFAULT_POLICY, stamp: null };
         return { kind: 'error', policy: null, stamp: lastStamp };
@@ -63,7 +78,8 @@ function readPolicyFile(path, lastStamp) {
     // isFile before any read: a FIFO or a device at the path would block the
     // event loop inside readFileSync.
     if (!st.isFile() || st.size > POLICY_MAX_BYTES) return { kind: 'error', policy: null, stamp: lastStamp };
-    if (lastStamp && lastStamp.mtimeMs === st.mtimeMs && lastStamp.size === st.size) {
+    const stamp = stampOf(st);
+    if (lastStamp && sameStamp(lastStamp, stamp)) {
         return { kind: 'unchanged', policy: null, stamp: lastStamp };
     }
     let text;
@@ -76,7 +92,7 @@ function readPolicyFile(path, lastStamp) {
     if (Buffer.byteLength(text, 'utf8') > POLICY_MAX_BYTES) return { kind: 'error', policy: null, stamp: lastStamp };
     const { policy } = parsePolicy(text);
     if (!policy) return { kind: 'error', policy: null, stamp: lastStamp };
-    return { kind: 'ok', policy, stamp: { mtimeMs: st.mtimeMs, size: st.size } };
+    return { kind: 'ok', policy, stamp };
 }
 
 // The live policy. `onChange(prev, next)` runs after the swap, only when the
