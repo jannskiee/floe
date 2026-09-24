@@ -1686,7 +1686,7 @@ describe('policy', () => {
         assert.equal(DEFAULT_POLICY.requestLinks, false);
     });
 
-    it('unchanged mtime and size are not re-parsed', () => {
+    it('an unchanged stamp is not re-parsed', () => {
         const { file, s } = store('stamp.json');
         writePolicy(file, '{"requestLinks":true}');
         const real = fs.readFileSync;
