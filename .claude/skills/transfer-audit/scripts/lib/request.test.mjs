@@ -637,6 +637,46 @@ test('a link the cell did not make is never closed: the owner\'s open link is le
     assert.equal(clicksOf(w, 'Make link').length, 0);
 });
 
+// The test above never reaches releaseHost: clearLeftover refuses the owner's
+// live link before Make link is tried. The release's own rule (close or put
+// away only a link generation this cell made) matters when the owner's link
+// goes live after clearLeftover has looked, and the cell's Make link then
+// fails on it: Make link was tried, and the lane's gen is the owner's.
+test('a Make link that fails on an owner link gone live after the leftover check leaves that link open: the release closes only a generation this cell made', async () => {
+    const w = fakeRequestWorld();
+    // The owner makes a link in the dev app the moment the Beta switch the
+    // cell turned on takes: after clearLeftover, before the cell's Make link.
+    const worldTick = w.dom.onTick;
+    let ownerMade = false;
+    w.dom.onTick = (t) => {
+        if (!ownerMade && w.dom.settings.requestLinks === true && w.dom.state === 'ready') {
+            ownerMade = true;
+            Object.assign(w.dom, {
+                state: 'waiting',
+                gen: w.dom.gen + 1,
+                link: `${WEB}/r/Xk3p9Q0aB1c#${FAKE_ROOM}`,
+                linkSaveDir: 'C:\\owner',
+            });
+        }
+        if (worldTick) worldTick(t);
+    };
+    const r = await runCell(small('H-DIR-W2D-req'), ctxFor(w));
+    assert.ok(ownerMade, 'the owner link went live while the host started');
+    assert.notEqual(r.verdict, 'PASS', r.note);
+    const a = r.attempts[0];
+    assert.equal(a.failedPhase, 'host.start', r.note);
+    assert.equal(clicksOf(w, 'Close link').length, 0, 'the release never clicked Close link on the owner link');
+    assert.equal(w.dom.state, 'waiting', 'the owner link still waits');
+    assert.equal(w.dom.gen, 1, 'the only link generation is the owner\'s');
+    assert.equal(clicksOf(w, 'Make link').length, 0);
+    // Non-vacuity: this note is written only when Make link was tried and the
+    // gen check found the lane's link was not this cell's.
+    assert.ok(
+        a.notes.some((l) => /host release: the lane holds waiting, which this cell did not make; left alone/.test(l)),
+        a.notes.join(' | ')
+    );
+});
+
 test('a live link this run left behind (its folder inside the run) is closed first, noted, and the cell runs', async () => {
     const w = fakeRequestWorld({ host: { settings: { requestLinks: true } } });
     const ctx = ctxFor(w);
