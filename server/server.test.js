@@ -2452,6 +2452,29 @@ describe('handleHostJoin', () => {
         assert.equal(requestRoomIds.size, 0);
     });
 
+    // Spec 04 5.6.2: the token regex runs before any hash, so a hostile length
+    // never reaches SHA-256. Without it a malformed token still fails the
+    // derivation compare with the same answer, so only a spy on createHash
+    // (hosttoken.js calls it through the shared crypto module) can see the order.
+    it('a malformed host token is refused before any hash is computed', () => {
+        const nodeCrypto = require('node:crypto');
+        const realCreateHash = nodeCrypto.createHash;
+        let hashes = 0;
+        nodeCrypto.createHash = (...args) => { hashes += 1; return realCreateHash.apply(nodeCrypto, args); };
+        const p = makePeer('p', 'k1');
+        try {
+            const id = randomUUID();
+            for (const hostToken of ['A'.repeat(1024 * 1024), 'A'.repeat(42), `${'A'.repeat(42)}+`, `${'A'.repeat(43)}\n`]) {
+                handleHostJoin(p, id, hostToken, T0);
+                assert.deepEqual(p.msgs.pop(), { type: 'error', data: { message: 'Invalid host token' } });
+            }
+        } finally {
+            nodeCrypto.createHash = realCreateHash;
+        }
+        assert.equal(hashes, 0);
+        assert.equal(roomMeta.size, 0);
+    });
+
     it('malformed hostToken and roomId never throw and change nothing', () => {
         const token = newToken();
         const id = roomIdFromToken(token);
@@ -2504,6 +2527,26 @@ describe('handleHostJoin', () => {
         assert.ok(roomMeta.has(plain));
         handleDisconnect(a);
         assert.equal(roomMeta.has(plain), false);
+    });
+
+    // FT-CODE-RANGE review F4: before the string check, an array holding a
+    // reserved request room id stringified to that id for UUID_REGEX, then
+    // missed the reserved lookup (a string-only guard), so a code could alias a
+    // request room.
+    it('POST /api/code refuses an array holding a reserved request room id and registers nothing', () => {
+        const token = newToken();
+        const id = roomIdFromToken(token);
+        const host = makePeer('host-1', 'k1');
+        hostJoin(host, token, T0);
+
+        for (const roomId of [[id], [id.toUpperCase()], [[id]]]) {
+            const res = fakeRes();
+            assert.doesNotThrow(() => registerCodeHandler({ body: { roomId } }, res));
+            assert.equal(res.statusCode, 400);
+            assert.deepEqual(res.body, { error: 'Invalid room ID' });
+        }
+        assert.equal(codeToRoom.size, 0);
+        assert.equal(roomToCode.size, 0);
     });
 
     it('memory returns to zero after close, expiry and purge', () => {

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("https://floe.one/r/Xk3p9Q0aB1c#6F1C2B9E-4A5D-4C3B-9F7E-2D1A0B9C8E7F")
