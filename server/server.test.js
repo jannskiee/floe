@@ -2491,6 +2491,26 @@ describe('handleHostJoin', () => {
         assert.equal(roomMeta.has(plain), false);
     });
 
+    // FT-CODE-RANGE review F4: before the string check, an array holding a
+    // reserved request room id stringified to that id for UUID_REGEX, then
+    // missed the reserved lookup (a string-only guard), so a code could alias a
+    // request room.
+    it('POST /api/code refuses an array holding a reserved request room id and registers nothing', () => {
+        const token = newToken();
+        const id = roomIdFromToken(token);
+        const host = makePeer('host-1', 'k1');
+        hostJoin(host, token, T0);
+
+        for (const roomId of [[id], [id.toUpperCase()], [[id]]]) {
+            const res = fakeRes();
+            assert.doesNotThrow(() => registerCodeHandler({ body: { roomId } }, res));
+            assert.equal(res.statusCode, 400);
+            assert.deepEqual(res.body, { error: 'Invalid room ID' });
+        }
+        assert.equal(codeToRoom.size, 0);
+        assert.equal(roomToCode.size, 0);
+    });
+
     it('memory returns to zero after close, expiry and purge', () => {
         // Expiry: the host leaves and never comes back.
         const t1 = newToken();
