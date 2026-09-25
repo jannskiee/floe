@@ -305,7 +305,7 @@ and the 2-second wait for an abort reason to reach the wire.
 | Sender waiting for delivery confirmation | 60 s with no drain | `timed out waiting for delivery confirmation from peer` |
 | Receiver connected, no data yet | 30 s | `connected, but no data arrived from the sender within 30s` |
 | Receiver mid-transfer with no progress | 60 s | Transfer fails |
-| Receiver grace before teardown | 5 s | Lets the final acknowledgement reach the sender |
+| Receiver grace before teardown | 5 s | Lets the final acknowledgment reach the sender |
 | The byte-count report | 5 s | Abandoned; never affects the files |
 | Flushing an abort reason before closing | 2 s | Best effort; the close goes out either way |
 | Fetching TURN credentials over HTTP | 30 s | Warns and falls back to STUN only |
