@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import Link from 'next/link';
 import { RequestVisitor } from '@/components/RequestVisitor';
 
 /**
@@ -42,6 +41,16 @@ export function RequestShell() {
 
 /** Privacy and Terms, and nothing else.
  *
+ *  Plain anchors, never next/link, so leaving /r is a page load. A next/link
+ *  keeps the /r document alive and was measured leaking the link id three
+ *  ways (CP-QA F3-01, F3-02): its in-viewport prefetches send
+ *  Next-Url: /r/<linkId> to the server with no click at all; the Umami tracker
+ *  the next page loads stays in the document, so Back reports /r/<linkId> as a
+ *  pageview and the following page reports it as the referrer. The same soft
+ *  hop also skips beforeunload, so the Stop confirmation never shows mid-drop
+ *  (F5-02), and it carries the socket singleton the page disconnected over to
+ *  / (F5-04).
+ *
  *  rel="noreferrer" on both. They are same-origin today and the no-referrer
  *  response header already covers them, so this is the belt to that header's
  *  braces: a page whose whole point is that its URL does not travel should not
@@ -49,20 +58,20 @@ export function RequestShell() {
 function RequestFooter() {
     return (
         <footer className="flex items-center justify-center gap-6 pb-8 pt-10 text-xs text-zinc-500 sm:pb-10">
-            <Link
+            <a
                 href="/privacy"
                 rel="noreferrer"
                 className="transition hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-ice"
             >
                 Privacy
-            </Link>
-            <Link
+            </a>
+            <a
                 href="/terms"
                 rel="noreferrer"
                 className="transition hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-ice"
             >
                 Terms
-            </Link>
+            </a>
         </footer>
     );
 }

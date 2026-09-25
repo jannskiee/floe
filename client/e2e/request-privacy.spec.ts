@@ -153,6 +153,100 @@ test.describe('request privacy', () => {
         }
     });
 
+    test.describe('leaving /r', () => {
+        // page.route cannot see a request a service worker makes, and the
+        // collector POST must never slip past it. The worker plays no part in
+        // how the footer navigates.
+        test.use({ serviceWorkers: 'block' });
+
+        test('E2E-10 the footer leaves /r by a page load, and Back hands Umami nothing', async ({
+            page,
+        }) => {
+            // CP-QA F3-02 and F5-01: with next/link in the /r footer, Privacy
+            // was a soft navigation, the tracker loaded by /privacy stayed in
+            // the /r document, and Back reported /r/<linkId> as a pageview
+            // (then as the referrer of the next page). The same soft hop is
+            // what sent Next-Url: /r/<linkId> to the server (F3-01), skipped
+            // beforeunload (F5-02) and left / offline (F5-04), so the marker
+            // check below covers the root of all five on every build.
+            //
+            // The Umami half needs a tracker that really runs, which only a
+            // build with a website id has (E2E_EXPECT_UMAMI=1, as E2E-10
+            // above). Then the tracker script, a public static file, is the
+            // one request let through; every other request to an umami.is
+            // host is the collector, recorded here and never sent.
+            const expectUmami = process.env.E2E_EXPECT_UMAMI === '1';
+            // Every collector request, as its URL plus its body.
+            const umami: string[] = [];
+            // The page path each collected payload reported.
+            const reported: string[] = [];
+            await page.route(
+                (url) => url.hostname === 'umami.is' || url.hostname.endsWith('.umami.is'),
+                (route) => {
+                    const request = route.request();
+                    const url = new URL(request.url());
+                    if (
+                        expectUmami &&
+                        request.method() === 'GET' &&
+                        url.hostname === 'cloud.umami.is' &&
+                        url.pathname === '/script.js'
+                    ) {
+                        return route.continue();
+                    }
+                    const body = request.postData() ?? '';
+                    umami.push(`${request.url()} ${body}`);
+                    try {
+                        reported.push(new URL(JSON.parse(body).payload.url).pathname);
+                    } catch {
+                        // Not a payload with a page URL; still checked below.
+                    }
+                    return route.abort();
+                }
+            );
+            const collected = (path: string) => reported.includes(path);
+
+            await page.goto(LINK);
+            await expect(page.getByText('SEND FILES THROUGH THIS LINK')).toBeVisible();
+            await page.evaluate(() => {
+                (window as unknown as Record<string, unknown>).__floeRequestDocument = true;
+            });
+
+            await page.getByRole('link', { name: 'Privacy', exact: true }).click();
+            await page.waitForURL((url) => url.pathname === '/privacy');
+            // A page load: the /r document, and its marker, are gone. A soft
+            // navigation keeps both, and that document is the one the tracker
+            // would load into.
+            expect(
+                await page.evaluate(
+                    () => (window as unknown as Record<string, unknown>).__floeRequestDocument
+                ),
+                'Privacy was a soft navigation off /r'
+            ).toBeUndefined();
+            if (expectUmami) {
+                // Non-vacuity: the tracker is live on /privacy, so it would
+                // have seen whatever Back did next.
+                await expect.poll(() => collected('/privacy')).toBe(true);
+            }
+
+            await page.goBack();
+            await page.waitForURL((url) => url.pathname === `/r/${LINK_ID}`);
+            await expect(page.getByText('SEND FILES THROUGH THIS LINK')).toBeVisible();
+
+            // The next page is where a leaked /r would show as the referrer.
+            await page.getByRole('link', { name: 'Terms', exact: true }).click();
+            await page.waitForURL((url) => url.pathname === '/terms');
+            if (expectUmami) {
+                await expect.poll(() => collected('/terms')).toBe(true);
+            }
+
+            for (const sent of umami) {
+                expect(sent, 'an Umami request carried the request link').not.toContain('/r/');
+                expect(sent, 'an Umami request carried the link id').not.toContain(LINK_ID);
+                expect(sent, 'an Umami request carried the room id').not.toContain(ROOM_ID);
+            }
+        });
+    });
+
     test('E2E-12 unsupported browser opens no socket', async ({ page }) => {
         await page.addInitScript(() => {
             // The capability the page probes for. Deleting the constructor is
