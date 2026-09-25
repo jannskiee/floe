@@ -252,7 +252,10 @@ function generateCode(pick = () => words[crypto.randomInt(words.length)]) {
 // request that pushes the table over its ceiling.
 function registerCodeHandler(req, res) {
     const { roomId } = req.body || {};
-    if (!roomId || !UUID_REGEX.test(roomId)) {
+    // A string first: RegExp.test stringifies anything else, so a deeply
+    // nested array threw RangeError (a 500 with a stack trace) and a
+    // one-element array holding a UUID passed as the room id.
+    if (typeof roomId !== 'string' || !UUID_REGEX.test(roomId)) {
         return res.status(400).json({ error: 'Invalid room ID' });
     }
     forgetCode(roomId);

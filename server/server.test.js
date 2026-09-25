@@ -1070,6 +1070,21 @@ describe('code lifecycle', () => {
         return res;
     }
 
+    it('refuses a roomId that is not a string, without throwing', () => {
+        // RegExp.test stringifies its argument: a deeply nested array blew the
+        // stack (a 500 and a stack trace per request, FT-CODE-RANGE), and a
+        // one-element array holding a UUID passed and became a map key.
+        let deep = ROOM_ID;
+        for (let i = 0; i < 50000; i++) deep = [deep];
+        for (const roomId of [deep, [ROOM_ID], { toString: () => ROOM_ID }, 42, true]) {
+            const res = fakeRes();
+            assert.doesNotThrow(() => registerCodeHandler({ body: { roomId } }, res));
+            assert.equal(res.statusCode, 400);
+            assert.deepEqual(res.body, { error: 'Invalid room ID' });
+        }
+        assert.equal(codeToRoom.size, 0, 'nothing registered');
+        assert.equal(roomToCode.size, 0, 'no reverse entry');
+    });
     it('a paired room retires its code', () => {
         const code = register(ROOM_ID);
         const pA = makePeer('peer-A');
