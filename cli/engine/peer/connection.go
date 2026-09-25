@@ -47,10 +47,12 @@ type Connection struct {
 	answers    chan webrtc.SessionDescription
 	candidates chan webrtc.ICECandidateInit
 
-	// ICE candidates received before the remote description was set are buffered
+	// ICE candidates received before the remote description was set are
+	// buffered, up to maxPendingCandidates and maxPendingCandidateBytes.
 	mu                sync.Mutex
 	remoteDescSet     bool
 	pendingCandidates []webrtc.ICECandidateInit
+	pendingBytes      int // candidateBytes summed over pendingCandidates
 
 	// connected is sent once when the PeerConnection reaches "connected" state
 	connected chan error
@@ -527,6 +529,7 @@ func (conn *Connection) setRemoteDesc(desc webrtc.SessionDescription) error {
 	conn.remoteDescSet = true
 	pending := conn.pendingCandidates
 	conn.pendingCandidates = nil
+	conn.pendingBytes = 0
 	conn.mu.Unlock()
 
 	for _, c := range pending {
@@ -535,17 +538,53 @@ func (conn *Connection) setRemoteDesc(desc webrtc.SessionDescription) error {
 	return nil
 }
 
+// The bounds on the candidates a peer can have buffered before the remote
+// description is set. The peer chooses how many it sends and how large each
+// is: the server caps one frame at 1 MB, not the list, and a request link's
+// host waits up to signalWait for the answer of a visitor anyone holding the
+// link can be: unbounded, the list grows for the whole wait (F2-CPQA-01). A
+// real peer sends one candidate per local address and ICE server, and only
+// those that race its answer, or this side's reading of its offer, land here:
+// under 20 in practice, and a machine with IPv4 and IPv6 on many adapters stays
+// under 64. A real candidate is under 1 KiB even with a 256-character ufrag,
+// so 64 KiB holds 64 of the largest. Past either bound the rest are dropped
+// with no error: ICE still gets every candidate that was kept, and the peer's
+// checks that reach this side are learned as peer-reflexive candidates.
+const (
+	maxPendingCandidates     = 64
+	maxPendingCandidateBytes = 64 << 10
+)
+
+// candidateBytes is what one candidate costs the buffer: its three strings,
+// every one of them the peer's choice.
+func candidateBytes(c webrtc.ICECandidateInit) int {
+	n := len(c.Candidate)
+	if c.SDPMid != nil {
+		n += len(*c.SDPMid)
+	}
+	if c.UsernameFragment != nil {
+		n += len(*c.UsernameFragment)
+	}
+	return n
+}
+
 // addRemoteCandidate adds a remote ICE candidate, or buffers it if the remote
-// description has not been set yet.
+// description has not been set yet, within maxPendingCandidates and
+// maxPendingCandidateBytes.
 func (conn *Connection) addRemoteCandidate(c webrtc.ICECandidateInit) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
 	if conn.remoteDescSet {
 		conn.pc.AddICECandidate(c)
-	} else {
-		conn.pendingCandidates = append(conn.pendingCandidates, c)
+		return
 	}
+	size := candidateBytes(c)
+	if len(conn.pendingCandidates) >= maxPendingCandidates || conn.pendingBytes+size > maxPendingCandidateBytes {
+		return
+	}
+	conn.pendingCandidates = append(conn.pendingCandidates, c)
+	conn.pendingBytes += size
 }
 
 // dispatchSignals runs in a goroutine. It reads raw JSON from the signaling
