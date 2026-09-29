@@ -150,6 +150,15 @@ test.describe('request privacy', () => {
             await expect(script).toHaveCount(1);
             await expect(script).toHaveAttribute('data-exclude-hash', 'true');
             await expect(script).toHaveAttribute('data-exclude-search', 'true');
+            // The send filter (lib/analyticsPath.ts umamiBeforeSend): the
+            // tracker finds it by this name on window, and sends everything
+            // unfiltered when nothing is there.
+            await expect(script).toHaveAttribute('data-before-send', 'floeUmamiBeforeSend');
+            expect(
+                await page.evaluate(
+                    () => typeof (window as unknown as Record<string, unknown>).floeUmamiBeforeSend
+                )
+            ).toBe('function');
         }
     });
 

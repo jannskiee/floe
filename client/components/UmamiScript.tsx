@@ -2,7 +2,15 @@
 
 import Script from 'next/script';
 import { usePathname } from 'next/navigation';
-import { loadsUmami } from '@/lib/analyticsPath';
+import { UMAMI_BEFORE_SEND, loadsUmami, umamiBeforeSend } from '@/lib/analyticsPath';
+
+// The tracker looks the data-before-send hook up on window before every send,
+// and a missing hook means nothing is filtered, so it is installed when this
+// module first runs in the browser: before any render can append the script,
+// on every page, and never torn down.
+if (typeof window !== 'undefined') {
+    (window as unknown as Record<string, unknown>)[UMAMI_BEFORE_SEND] = umamiBeforeSend;
+}
 
 interface Props {
     /** NEXT_PUBLIC_UMAMI_WEBSITE_ID, read in the root layout. It is inlined at
@@ -49,6 +57,9 @@ export function UmamiScript({ websiteId }: Props) {
             // navigator.doNotTrack, msDoNotTrack and window.doNotTrack
             // (verified 2026-09-05); the privacy page states this.
             data-do-not-track="true"
+            // Every payload passes umamiBeforeSend first, which drops any
+            // whose url or referrer is a /r path (lib/analyticsPath.ts).
+            data-before-send={UMAMI_BEFORE_SEND}
             strategy="afterInteractive"
         />
     );
