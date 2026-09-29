@@ -459,10 +459,14 @@ function Result({phase, snap, onDismiss, onMakeAnother, onShowInFolder}: Request
                     <p className={t2Class}>{copy.NOT_SCANNED_LINE}</p>
                 </div>
             ) : (
-                <p className={t1Class}>{copy.stoppedCard(snap.code, r.saved, r.files)}</p>
+                // The stop and, for save-blocked, the kept file are one
+                // statement: one group, 8 px apart.
+                <div className="space-y-2">
+                    <p className={t1Class}>{copy.stoppedCard(snap.code, r.saved, r.files)}</p>
+                    {/* D-128: save-blocked kept a verified .part in the drop folder. */}
+                    {copy.keptPartLine(snap.code) && <p className={t1Class}>{copy.keptPartLine(snap.code)}</p>}
+                </div>
             )}
-            {/* D-128: save-blocked kept a verified .part in the drop folder. */}
-            {!done && copy.keptPartLine(snap.code) && <p className={t1Class}>{copy.keptPartLine(snap.code)}</p>}
             {showFolder && (
                 <div className="flex min-w-0 items-center justify-between gap-3">
                     {/* The drop's own folder name, cut in the middle so its

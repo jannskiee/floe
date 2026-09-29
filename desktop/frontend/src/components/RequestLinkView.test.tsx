@@ -375,6 +375,16 @@ describe('the result card', () => {
         expect(screen.queryByRole('button', {name: 'Show in folder'})).toBeNull();
         expect(screen.queryByText(kept)).toBeNull();
     });
+
+    it('the save-blocked stop and its kept-file line read as one statement, 8 px apart', () => {
+        // ST9 and ST17 are one group (space-y-2), not two blocks of the card's
+        // 16 px rhythm (D-136 L6).
+        render(<RequestLinkView {...at('stopped')} snap={snap({state: 'stopped', code: 'save-blocked', result: {...result, saved: 0}})}/>);
+        const stop = screen.getByText('Windows would not let Floe finish saving a file.');
+        const kept = screen.getByText('The complete file was kept in the folder with a .part ending.');
+        expect(stop.nextElementSibling).toBe(kept);
+        expect(stop.parentElement!.className.split(' ')).toContain('space-y-2');
+    });
 });
 
 describe('the link phases (D-136)', () => {
