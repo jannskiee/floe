@@ -21,7 +21,7 @@ import {
     safeCode,
     samePath,
 } from './desktop.mjs';
-import { FAKE_LINK, SAVE_TO, VERIFIED_LINE, fakeRequestDom } from './tests/fake-request-dom.mjs';
+import { FAKE_LINK, HIDE_IP_NOTE, SAVE_TO, VERIFIED_LINE, fakeRequestDom } from './tests/fake-request-dom.mjs';
 
 const ROOM = FAKE_LINK.slice(FAKE_LINK.indexOf('#') + 1);
 const DIR = path.join(tmpdir(), 'lta-request-out');
@@ -46,11 +46,16 @@ test('the request strings are the frozen copy, and the wait exceeds the guard', 
         keepWaiting: 'Keep waiting',
         makeAnother: 'Make another link',
         betaSwitch: 'Request links',
-        saveToPlaceholder: SAVE_TO,
+        saveToPlaceholder: 'Downloads\\Floe requests',
         dismiss: 'Dismiss',
         cancelDrop: 'Cancel drop',
-        verifiedLine: VERIFIED_LINE,
+        verifiedLine: 'SHA-256 matched',
     });
+    // The fake page draws the same bytes, so a fake-driven test proves the
+    // real strings, not the fake against itself.
+    assert.equal(SAVE_TO, REQUEST_STRINGS.saveToPlaceholder);
+    assert.equal(VERIFIED_LINE, REQUEST_STRINGS.verifiedLine);
+    assert.equal(HIDE_IP_NOTE, 'Hide my IP is on. Transfers go through the relay (capped at 2 GB).');
     assert.equal(ACCEPT_GUARD_MS, 1000);
     assert.ok(ACCEPT_WAIT_MS >= 1200);
     assert.ok(RE.requestLinksRow.test(REQUEST_STRINGS.betaSwitch));
@@ -212,6 +217,22 @@ test('wailsdev CloseLink ends the link and the ended view shows Make another lin
         f.dom.clicks.map((c) => c.name).slice(-4),
         ['Receive', 'Request link, beta', 'Make another link', 'Make link']
     );
+});
+
+test('the pill reads one word with Hide my IP off and on: the screen-reader twin is the word\'s sibling (D-135)', async () => {
+    for (const hideIP of [false, true]) {
+        const f = fakeRequestDom({ settings: { hideIP } });
+        const d = driverOn(f);
+        assert.deepEqual(await d.readText(RE.pill), ['Ready'], `hideIP ${hideIP}`);
+        await make(d, f);
+        assert.deepEqual(await d.readText(RE.pill), ['Ready'], `hideIP ${hideIP}, a link waits`);
+        // The twin's sentence is never read as a status word.
+        assert.deepEqual(await d.readText(/Hide my IP is on/), hideIP ? [`, ${HIDE_IP_NOTE}`] : []);
+        f.dom.state = 'receiving';
+        f.dom.route = 'relay';
+        assert.deepEqual(await d.readText(RE.pill), ['Relay'], `hideIP ${hideIP}, a drop moves`);
+        assert.deepEqual(await d.readText(/Hide my IP is on/), [], 'no twin while a drop moves');
+    }
 });
 
 test('wailsdev done view: the heading counts the files, the SHA sentence shows only when every file verified, and Dismiss puts it away', async () => {
