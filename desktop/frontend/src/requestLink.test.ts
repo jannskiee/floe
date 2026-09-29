@@ -289,10 +289,13 @@ describe('the request lane reducer', () => {
         // A later prompt of the same link replaces it.
         const second = at('deciding', {promptGen: 2, prompt: {files: 3, totalBytes: 1, folder: 'g', freeBytes: 1, warnings: [], answerBy: 1}})(at('waiting')(deciding));
         expect(acceptedPrompt(at('receiving')(second))).toEqual({files: 3, folder: 'g'});
-        // A new link generation forgets it.
+        // A new link generation forgets it: the reducer drops it from the
+        // state, and the selector never hands out another generation's.
         const next = reduce(receiving, {type: 'SNAPSHOT', snap: snap({state: 'waiting', gen: 2})});
+        expect(next.accepted).toBeNull();
         expect(acceptedPrompt(next)).toBeNull();
         expect(acceptedPrompt(reduce(next, {type: 'SNAPSHOT', snap: snap({state: 'receiving', gen: 2})}))).toBeNull();
+        expect(acceptedPrompt({...next, accepted: {gen: 1, files: 12, folder: 'f'}})).toBeNull();
         // A stale snapshot changes nothing, the kept prompt included.
         const stale = snap({state: 'deciding', gen: 0, prompt: {files: 99, totalBytes: 1, folder: 'x', freeBytes: 1, warnings: [], answerBy: 1}});
         expect(reduce(receiving, {type: 'SNAPSHOT', snap: stale})).toBe(receiving);
