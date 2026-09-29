@@ -271,6 +271,23 @@ func (conn *Connection) SetupAsSender() (*webrtc.DataChannel, error) {
 	// channel with no handler on it. See Early.
 	conn.attach(dc)
 
+	// No Floe answerer opens a data channel: the browser answers as
+	// simple-peer's non-initiator, which only listens for one, and the Go
+	// answerer is SetupAsReceiver, which creates none, in every release since
+	// v1.0.0. A channel the answerer opens anyway would meet pion's default
+	// handler, which closes it but keeps the closed object, label and all, for
+	// the connection's life, outside the pump's byte budget, once for every
+	// channel the peer chooses to open (F4-01). So the first one ends this
+	// connection: the caller sees setup fail, or its channel close through
+	// Early().Closed, as when a peer leaves. Registered before the offer
+	// leaves, so none can come first.
+	conn.pc.OnDataChannel(func(extra *webrtc.DataChannel) {
+		_ = extra.Close()
+		// On its own goroutine, never inside the callback: pion's accept loop
+		// waits for this handler to return, and Close tears that loop down.
+		go conn.Close()
+	})
+
 	// Create the SDP offer describing our capabilities
 	offer, err := conn.pc.CreateOffer(nil)
 	if err != nil {
