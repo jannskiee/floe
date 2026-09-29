@@ -590,3 +590,58 @@ func TestSetupDataChannelWaitStopsAtOnce(t *testing.T) {
 		assertStopped(t, err, ErrClosed, StageClosed)
 	})
 }
+
+// The grace wait after "connected", while the channel is not open yet, gets
+// the same two cases (review A R2). Before, it watched neither, so a Close or
+// a peer leaving there waited out connectGrace and then read as "connected but
+// the data channel did not open"; a desktop cancel, or f0fdb6f's close on an
+// extra channel, landed in that window. No ICE runs here (the fake peers
+// trickle nothing), so the channel can never open, and the test reports
+// "connected" itself, as the Connection's OnConnectionStateChange handler does.
+func TestSetupChannelGraceStopsAtOnce(t *testing.T) {
+	inGrace := func(t *testing.T, conn *Connection, done <-chan error) {
+		t.Helper()
+		conn.connected <- nil
+		time.Sleep(300 * time.Millisecond)
+		select {
+		case err := <-done:
+			t.Fatalf("setup returned in its grace wait before the event: %v", err)
+		default:
+		}
+	}
+	sender := func(t *testing.T) (*Connection, *setupWS, <-chan error) {
+		conn, s := joinedConnection(t, "sender")
+		done := runSetup(conn.SetupAsSender)
+		sendSignal(t, s, "answer", newAnswerer(t, waitSignal(t, s, "offer")))
+		inGrace(t, conn, done)
+		return conn, s, done
+	}
+	receiver := func(t *testing.T) (*Connection, *setupWS, <-chan error) {
+		conn, s := joinedConnection(t, "receiver")
+		done := runSetup(conn.SetupAsReceiver)
+		sendSignal(t, s, "offer", newOfferer(t))
+		waitSignal(t, s, "answer")
+		inGrace(t, conn, done)
+		return conn, s, done
+	}
+	for _, side := range []struct {
+		name  string
+		setup func(*testing.T) (*Connection, *setupWS, <-chan error)
+	}{{"sender", sender}, {"receiver", receiver}} {
+		t.Run(side.name+", local close", func(t *testing.T) {
+			conn, _, done := side.setup(t)
+			closed := time.Now()
+			conn.Close()
+			elapsed, err := waitSetup(t, done, closed, 3*time.Second)
+			t.Logf("setup returned %v after Close in its grace wait", elapsed)
+			assertStopped(t, err, ErrClosed, StageClosed)
+		})
+		t.Run(side.name+", peer leaves", func(t *testing.T) {
+			_, s, done := side.setup(t)
+			left := peerLeaves(t, s)
+			elapsed, err := waitSetup(t, done, left, 3*time.Second)
+			t.Logf("setup returned %v after the peer left in its grace wait", elapsed)
+			assertStopped(t, err, ErrPeerLeft, StagePeerLeft)
+		})
+	}
+}

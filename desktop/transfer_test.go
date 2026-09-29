@@ -895,6 +895,57 @@ func TestRunRequestDropRemovesEmptySubfolderOnEarlyStop(t *testing.T) {
 	}
 }
 
+// TestRunRequestDropRemovesNestedEmptyFoldersOnEarlyStop (CP-QA F2-CPQA-02) is
+// the early stop of a folder drop: the engine made the visitor's subfolders
+// before the stop, and with nothing saved there is no History row and no Show
+// in folder, so nothing may be left for the owner to find.
+func TestRunRequestDropRemovesNestedEmptyFoldersOnEarlyStop(t *testing.T) {
+	a, _, f, room, base := dropApp(t, nil)
+	v := joinVisitor(t, f, room)
+	v.connect(t)
+	v.sendText(metaFrame(1, 1, "Project/raw/a.txt", 4, 4))
+	acceptNext(t, a)
+	v.frameOfType(t, "ack", 10*time.Second)
+	v.leave() // after Accept, before a byte
+	s := waitState(t, a, 15*time.Second, "stopped")
+	if got := treeUnder(t, base); len(got) != 0 {
+		t.Fatalf("an early stop of a nested drop (state %q, code %q) left %q under the save base", s.State, s.Code, got)
+	}
+}
+
+// TestRemoveEmptyDirsKeepsAKeptPart (D-128): only empty folders go, deepest
+// first; a kept .part keeps its folder and every folder above it, and with
+// nothing left in it the drop folder goes too.
+func TestRemoveEmptyDirsKeepsAKeptPart(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "Acme footage 2026-09-25 1654")
+	for _, d := range []string{"Project/raw/deep", "Project/empty", "Other/a/b"} {
+		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(d)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	part := filepath.Join(root, "Project", "raw", "clip.mov.part")
+	if err := os.WriteFile(part, []byte("verified bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	removeEmptyDirs(root)
+	got := strings.Join(treeUnder(t, root), ",")
+	if want := "Project,Project/raw,Project/raw/clip.mov.part"; got != want {
+		t.Fatalf("left %q, want %q", got, want)
+	}
+	if b, err := os.ReadFile(part); err != nil || string(b) != "verified bytes" {
+		t.Fatalf("the kept .part changed: %q, %v", b, err)
+	}
+
+	if err := os.Remove(part); err != nil {
+		t.Fatal(err)
+	}
+	removeEmptyDirs(root)
+	if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the emptied drop folder is still there: %v", err)
+	}
+	removeEmptyDirs(root) // a folder that is already gone is no error
+}
+
 // TestRunRequestDropMapsErrorsToFixedCodes (E-42): every way a drop can fail
 // reaches the owner as a fixed code, never as the peer's words, pion's SDP
 // error or an OS error, and the pairing spike's hostile metadata is refused

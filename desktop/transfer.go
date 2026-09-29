@@ -813,7 +813,7 @@ func (a *App) endRequestDrop(rg uint64, sc *signaling.Client, d *requestDrop, er
 		}
 		res := d.tally.result(d.files, d.folder)
 		if state == "stopped" && res.Saved == 0 {
-			_ = os.Remove(d.folder) // an empty folder only; anything in it stays
+			removeEmptyDirs(d.folder) // empty folders only; anything in them stays
 		}
 		a.endDrop(rg, state, code, &res)
 		return err
@@ -873,6 +873,33 @@ func (d *requestDrop) stopCode(err error) string {
 		return "peer-abort"
 	}
 	return "unknown"
+}
+
+// removeEmptyDirs removes root and the directories under it that are empty,
+// deepest first, so a folder whose subfolders were all empty goes with them.
+// It never removes a file, so a kept .part keeps every folder above it
+// (D-128), and os.Remove refuses a directory that is not empty. A stopped
+// drop that saved nothing needs this rather than one os.Remove: for a folder
+// drop the engine has already made the visitor's subfolders (CP-QA
+// F2-CPQA-02), and with nothing saved there is no History row or Show in
+// folder to lead the owner to them. WalkDir does not follow a link inside root
+// and reports it as no directory, so nothing outside root is walked or removed.
+func removeEmptyDirs(root string) {
+	var dirs []string
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			dirs = append(dirs, p)
+		}
+		return nil
+	})
+	// WalkDir lists a directory before anything in it, so the reverse order
+	// reaches every child before its parent.
+	for i := len(dirs) - 1; i >= 0; i-- {
+		_ = os.Remove(dirs[i])
+	}
 }
 
 // channelClosed reports whether ch has closed, without waiting.
