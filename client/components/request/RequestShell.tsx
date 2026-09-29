@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import Link from 'next/link';
 import { RequestVisitor } from '@/components/RequestVisitor';
 
 /**
@@ -23,7 +22,18 @@ export function RequestShell() {
         // The same centering shell as /, /download and not-found: the root
         // layout's <body> carries only the font variables, so a page that omits
         // this renders zinc text on white.
-        <div className="flex min-h-dvh flex-col items-center bg-zinc-950 font-sans text-zinc-100 px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-[max(1.5rem,env(safe-area-inset-left),env(safe-area-inset-right))] sm:pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        //
+        // dark and scheme-dark put everything inside in the dark theme. Nothing
+        // above sets .dark, so without them the shadcn Button read the light
+        // tokens (near-white outline buttons under near-white text, a
+        // near-black Send on the near-black card) and the native Hide my IP
+        // checkbox drew white (R4 F1, F2).
+        //
+        // *:[--ring:...] gives every control the ice focus ring (3.99:1 against
+        // the card at the Button's 50%, where the dark token gave 1.88:1). It
+        // sets --ring on the shell's children because .dark sets it on the
+        // shell itself from an unlayered rule, which beats any utility there.
+        <div className="dark scheme-dark *:[--ring:var(--color-ice)] flex min-h-dvh flex-col items-center bg-zinc-950 font-sans text-zinc-100 px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-[max(1.5rem,env(safe-area-inset-left),env(safe-area-inset-right))] sm:pb-[max(1.5rem,env(safe-area-inset-bottom))]">
             {/* A wordmark, not a link. It tells the visitor where they are,
                 which is half of why the links live on floe.one at all, and it
                 goes nowhere: one task on this page. */}
@@ -42,6 +52,18 @@ export function RequestShell() {
 
 /** Privacy and Terms, and nothing else.
  *
+ *  Plain anchors, never next/link, so leaving /r is a page load. A next/link
+ *  keeps the /r document alive and was measured leaking the link id three
+ *  ways (CP-QA F3-01, F3-02): its in-viewport prefetches send
+ *  Next-Url: /r/<linkId> to the server with no click at all; the Umami tracker
+ *  the next page loads stays in the document, so Back reports /r/<linkId> as a
+ *  pageview and the following page reports it as the referrer. The same soft
+ *  hop also skipped beforeunload, so leaving by the footer mid-drop ended the
+ *  drop with no prompt at all (F5-02); as a page load it raises the browser's
+ *  own leave-page prompt from useVisitorGuards (spec 07 4.14), just as closing
+ *  the tab does. The in-page Stop dialog stays the Stop button's. The soft hop
+ *  also carried the socket singleton the page disconnected over to / (F5-04).
+ *
  *  rel="noreferrer" on both. They are same-origin today and the no-referrer
  *  response header already covers them, so this is the belt to that header's
  *  braces: a page whose whole point is that its URL does not travel should not
@@ -49,20 +71,20 @@ export function RequestShell() {
 function RequestFooter() {
     return (
         <footer className="flex items-center justify-center gap-6 pb-8 pt-10 text-xs text-zinc-500 sm:pb-10">
-            <Link
+            <a
                 href="/privacy"
                 rel="noreferrer"
                 className="transition hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-ice"
             >
                 Privacy
-            </Link>
-            <Link
+            </a>
+            <a
                 href="/terms"
                 rel="noreferrer"
                 className="transition hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-ice"
             >
                 Terms
-            </Link>
+            </a>
         </footer>
     );
 }

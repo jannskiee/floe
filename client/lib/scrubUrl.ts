@@ -188,6 +188,127 @@ function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
 
+// Server and edge events carry what a browser event never does: the request's
+// headers and query string, and on an error from captureRequestError,
+// contexts.nextjs.request_path, the raw path and query. sendDefaultPii false
+// drops only the headers that carry an IP address. Every other header stays,
+// Cookie included, and @sentry/core 10.72.0 also parses that header into
+// request.cookies, unfiltered, and attaches any body the scope holds as
+// request.data. Next's RSC requests name the page they were made from in
+// Next-Url and Next-Router-State-Tree, so from /r they name /r/<linkId>: five
+// prefetch transactions per /r view on a production build (CP-QA F3-01), and a
+// render fault on /r sent the path in request_path (F3-03). A legacy ?room=
+// page sends its whole URL, room id included, as the Referer of every
+// same-origin request and as the query string of its own (skeptic S2, O-2).
+//
+// So a server event keeps one header, the user agent (Sentry reads the browser
+// and OS from it, and the privacy page says each report carries it), and its
+// query string and request path take request.url's rules. Of the request
+// block it keeps the url, method, query string and headers: cookies, the body
+// and anything the SDK adds later go. Allowlists rather than denylists: Next
+// can add a header and the SDK a field, and a new one must arrive dropped.
+const KEPT_REQUEST_HEADERS = new Set(['user-agent']);
+const KEPT_REQUEST_FIELDS = new Set(['url', 'method', 'query_string', 'headers']);
+
+export interface ScrubbableServerRequest {
+    request?: { url?: string; headers?: Record<string, string>; query_string?: unknown };
+    // A record, not { nextjs?: ... }: Sentry's Contexts declares no nextjs key,
+    // so a shape naming only that one is a weak type Contexts fails to match.
+    contexts?: Record<string, unknown>;
+    breadcrumbs?: unknown;
+}
+
+/** beforeSend on the server and edge runtimes: scrubErrorEvent, plus the
+ *  request block, contexts.nextjs.request_path and the breadcrumbs. */
+export function scrubServerErrorEvent<T extends ScrubbableErrorEvent & ScrubbableServerRequest>(event: T): T {
+    scrubErrorEvent(event);
+    scrubServerRequest(event);
+    scrubBreadcrumbs(event);
+    return event;
+}
+
+/** beforeSendTransaction on the server and edge runtimes: scrubTransactionEvent,
+ *  plus the same request fields and breadcrumbs. */
+export function scrubServerTransactionEvent<T extends ScrubbableTransaction & ScrubbableServerRequest>(
+    event: T
+): T {
+    scrubTransactionEvent(event);
+    scrubServerRequest(event);
+    scrubBreadcrumbs(event);
+    return event;
+}
+
+// Never throws, like scrubErrorEvent. Unlike it, a header list, query string
+// or request path of a shape the SDK does not write is deleted rather than
+// left as it is: these fields exist to carry URLs.
+function scrubServerRequest(event: ScrubbableServerRequest): void {
+    const request: unknown = event.request;
+    if (isObject(request)) {
+        for (const field of Object.keys(request)) {
+            if (!KEPT_REQUEST_FIELDS.has(field)) delete request[field];
+        }
+        const headers = request.headers;
+        if (isObject(headers)) {
+            for (const name of Object.keys(headers)) {
+                if (!KEPT_REQUEST_HEADERS.has(name.toLowerCase())) delete headers[name];
+            }
+        } else if (headers !== undefined) {
+            delete request.headers;
+        }
+        if (typeof request.query_string === 'string') {
+            request.query_string = scrubQuery(request.query_string).replace(/^\?/, '');
+        } else if (request.query_string !== undefined) {
+            delete request.query_string;
+        }
+    }
+    const contexts: unknown = event.contexts;
+    const nextjs = isObject(contexts) ? contexts.nextjs : undefined;
+    if (isObject(nextjs) && nextjs.request_path !== undefined) {
+        if (typeof nextjs.request_path === 'string') nextjs.request_path = scrubUrl(nextjs.request_path);
+        else delete nextjs.request_path;
+    }
+}
+
+// The server and edge configs have no beforeBreadcrumb, and both event kinds
+// carry the scope's breadcrumbs: a console breadcrumb holds whatever was
+// logged, a Next render fault's stack included. url, to and from in data take
+// request.url's rule, as the browser's beforeBreadcrumb does; every other
+// string, the message and each console argument included, takes the
+// description rule. A breadcrumb list of a shape the SDK does not write is
+// deleted, and a value nested deeper than the SDK's own normalization leaves
+// one is dropped rather than walked.
+const BREADCRUMB_URL_KEYS = ['url', 'to', 'from'] as const;
+const MAX_BREADCRUMB_DEPTH = 8;
+
+function scrubBreadcrumbs(event: ScrubbableServerRequest): void {
+    const crumbs: unknown = event.breadcrumbs;
+    if (crumbs === undefined) return;
+    if (!Array.isArray(crumbs)) {
+        delete event.breadcrumbs;
+        return;
+    }
+    event.breadcrumbs = crumbs.map((crumb: unknown) => {
+        const data = isObject(crumb) ? crumb.data : undefined;
+        if (isObject(data) && !Array.isArray(data)) {
+            for (const key of BREADCRUMB_URL_KEYS) {
+                const value = data[key];
+                if (typeof value === 'string') data[key] = scrubUrl(value);
+            }
+        }
+        // The description rule leaves the URLs just scrubbed as they are.
+        return scrubStrings(crumb, 0);
+    });
+}
+
+function scrubStrings(value: unknown, depth: number): unknown {
+    if (typeof value === 'string') return scrubDescription(value);
+    if (!isObject(value)) return value;
+    if (depth >= MAX_BREADCRUMB_DEPTH) return undefined;
+    if (Array.isArray(value)) return value.map((item: unknown) => scrubStrings(item, depth + 1));
+    for (const key of Object.keys(value)) value[key] = scrubStrings(value[key], depth + 1);
+    return value;
+}
+
 // A query parameter or fragment key named room, the legacy and the current
 // link shapes alike. "bathroom=3" is not one.
 const ROOM_PARAM = /[?&#]room=/i;
@@ -259,8 +380,18 @@ function scrubTransactionName(name: string): string {
     return redactRequestPath(scrubDescription(name));
 }
 
+// The span attributes the SDK's httpHeadersToSpanAttributes writes, one per
+// header it keeps: http.request.header.next_url and its siblings on every
+// server span of a request. Dropped whole rather than scrubbed: a header can
+// carry any URL, and Next-Router-State-Tree is URL-encoded JSON that holds
+// the link id where no string rule here can see it (CP-QA F3-01).
+const HEADER_ATTRIBUTE = /^http\.(?:request|response)\.header\./;
+
 function scrubAttributes(data: Record<string, unknown> | undefined): void {
     if (!data) return;
+    for (const key of Object.keys(data)) {
+        if (HEADER_ATTRIBUTE.test(key)) delete data[key];
+    }
     for (const key of URL_ATTRIBUTES) {
         const value = data[key];
         if (typeof value !== 'string' || value === '') continue;

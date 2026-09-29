@@ -44,6 +44,24 @@ function requestSources(): Record<string, string> {
     return out;
 }
 
+/** Everything /r renders: its own sources, plus the shared ones that wrap or
+ *  sit beside the shell there. They are shared with other pages, so they are
+ *  not in requestSources: InAppBrowserGuard also wraps /, where it rightly
+ *  reports to Umami, which the /r-only rules forbid. Only rules that hold for
+ *  every page these render on may read this list. */
+function renderedOnRequestPage(): Record<string, string> {
+    const out = requestSources();
+    for (const f of [
+        'components/InAppBrowserGuard.tsx',
+        'app/layout.tsx',
+        'components/UmamiScript.tsx',
+        'components/ServiceWorkerRegistration.tsx',
+    ]) {
+        out[f] = read(f);
+    }
+    return out;
+}
+
 /** The argument text of every call to `name(` in `src`, balanced on parens. */
 function callArgs(src: string, name: string): string[] {
     const out: string[] = [];
@@ -252,5 +270,33 @@ describe('the /r page boundaries', () => {
         for (const [file, src] of Object.entries(requestSources())) {
             expect(/\bconsole\./.test(src), file).toBe(false);
         }
+    });
+
+    it('no way off /r is a soft navigation: plain anchors, no next/link, no router', () => {
+        // A next/link or a router push keeps the /r document alive. Its
+        // in-viewport prefetches send Next-Url: /r/<linkId> to the server, and
+        // so to server-side Sentry (CP-QA F3-01); after Back, the tracker the
+        // next page loaded into that document reports /r/<linkId> (F3-02). The
+        // same hop skips beforeunload, so leaving mid-drop raises no
+        // leave-page prompt (F5-02), and it hands the disconnected socket
+        // singleton to / (F5-04). A plain anchor is a page load and does none
+        // of that; mid-drop it raises the browser's leave-page prompt (spec 07
+        // 4.14), as closing the tab does.
+        //
+        // app/not-found.tsx, which a /r/<id>/<more> URL renders, is not held
+        // to this: its Navbar and Footer navigate softly on every page, and on
+        // that URL the Umami before-send hook and the server header scrub
+        // carry the load.
+        const sources = renderedOnRequestPage();
+        expect(Object.keys(sources)).toContain('components/InAppBrowserGuard.tsx');
+        for (const [file, src] of Object.entries(sources)) {
+            expect(/from\s+['"]next\/link['"]/.test(src), `${file} imports next/link`).toBe(false);
+            expect(/\buseRouter\b/.test(src), `${file} uses the router`).toBe(false);
+        }
+        const shell = read('components/request/RequestShell.tsx');
+        const footer = shell.slice(shell.indexOf('function RequestFooter'));
+        const anchors = footer.match(/<a\b[^>]*>/g) ?? [];
+        expect(anchors.map((a) => /href="([^"]*)"/.exec(a)?.[1])).toEqual(['/privacy', '/terms']);
+        for (const a of anchors) expect(a, a).toContain('rel="noreferrer"');
     });
 });
