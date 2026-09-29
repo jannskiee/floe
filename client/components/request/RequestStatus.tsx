@@ -67,26 +67,29 @@ export function RequestStatus({
                 </div>
                 {copy.badge && <RouteBadge route={route} />}
             </div>
-            {copy.learnMore && (
-                <p className="mt-2 text-sm">
-                    {/* A new tab: Back to files keeps the picked files, and a
-                        same-tab click here would drop them. */}
-                    <a
-                        href={SIZE_LIMIT_HREF}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-zinc-400 underline underline-offset-2 transition hover:text-white"
-                    >
-                        {visitorCopy.learnMore}
-                    </a>
-                </p>
-            )}
-            {copy.lines.map((line) => (
+            {copy.lines.map((line, i) => (
                 // The waiting countdown is one of these lines; it changes once
                 // a minute and is deliberately outside any live region. The
                 // announcements live in the page's one status span.
                 <p key={line} className="mt-3 text-sm leading-relaxed text-zinc-400">
                     {line}
+                    {copy.learnMore && i === copy.lines.length - 1 && (
+                        <>
+                            {' '}
+                            {/* V9, as WV-23 draws it: inline at the end of
+                                the body. A new tab: Back to files keeps the
+                                picked files, and a same-tab click here would
+                                drop them. */}
+                            <a
+                                href={SIZE_LIMIT_HREF}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-zinc-300 underline underline-offset-2 transition hover:text-white focus-visible:outline-2 focus-visible:outline-ice"
+                            >
+                                {visitorCopy.learnMore}
+                            </a>
+                        </>
+                    )}
                 </p>
             ))}
             {copy.showArrived && <ArrivedList rows={arrived} />}

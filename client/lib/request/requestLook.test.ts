@@ -40,6 +40,20 @@ describe('the /r look', () => {
         }
     });
 
+    it("V9's Learn more follows the body inline, after a space, as WV-23 draws it", () => {
+        const src = read('RequestStatus.tsx');
+        const body = src.indexOf('{line}');
+        const space = src.indexOf("{' '}", body);
+        const link = src.indexOf('href={SIZE_LIMIT_HREF}', body);
+        const end = src.indexOf('</p>', body);
+        expect(body).toBeGreaterThan(-1);
+        expect(space).toBeGreaterThan(body);
+        expect(link).toBeGreaterThan(space);
+        expect(end).toBeGreaterThan(link);
+        // Only the last line takes it, so it ends the card's text.
+        expect(src).toContain('copy.learnMore && i === copy.lines.length - 1');
+    });
+
     it('every line that carries information reads at zinc-400, the IP notice first', () => {
         // zinc-500 on the card is 3.99:1, under WCAG 1.4.3's 4.5:1; zinc-400
         // is 7.35:1 (spec 07 4.18). The IP notice is the page's one privacy

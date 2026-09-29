@@ -1,6 +1,6 @@
 import React, { type ChangeEvent, type DragEvent, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
-import { relayCapNotice, sendLabel, visitorCopy } from '@/lib/request/visitorCopy';
+import { sendLabel, visitorCopy } from '@/lib/request/visitorCopy';
 import type { SendBlock } from '@/lib/request/visitorState';
 import { ReadyHeader } from '@/components/request/ReadyHeader';
 import { RequestDropzone } from '@/components/request/RequestDropzone';
@@ -66,7 +66,7 @@ export function RequestReady(props: RequestReadyProps) {
             {hasFiles && <RequestFileList rows={props.rows} size={props.size} emptyFolders={props.emptyFolders} />}
             <HideMyIpSwitch checked={props.hideIp} onChange={props.onHideIp} />
             {props.block === 'relay-cap' && (
-                <p className="mt-2 text-sm leading-relaxed text-zinc-300">{relayCapNotice(props.size)}</p>
+                <p className="mt-2 text-sm leading-relaxed text-zinc-300">{visitorCopy.relayCapReady}</p>
             )}
             {props.needsRelay && props.hideIp && (
                 <p className="mt-2 text-sm leading-relaxed text-zinc-300">{visitorCopy.hideIpNeedsRelay}</p>

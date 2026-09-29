@@ -1,7 +1,8 @@
 // Every string the visitor page renders, in one place.
 //
 // The copy is frozen: it was approved at Checkpoint C (2026-09-18) and the ids
-// below are that table's ids. Edit a string here only with a new approval.
+// below are that table's ids; D-136 (2026-09-25) re-approved the rows the /r
+// polish shortened or split. Edit a string here only with a new approval.
 //
 // Three rules the table itself carries, restated because they are invariants of
 // this module rather than of any one string: American English; no em dash and no
@@ -29,11 +30,13 @@ export const visitorCopy = {
     readyEyebrow: 'SEND FILES THROUGH THIS LINK',
     /** C-01: the chip beside the eyebrow. */
     betaChip: 'Beta',
-    /** C-02: what this page is, and where the files go. */
+    /** C-02: where the files go, and that Floe cannot say whose computer that
+     *  is. The wordmark, the heading and the help link say what the page is. */
     readyIntro:
-        'This is a Floe request link. Files go to the computer of the person who made it, not to a Floe server. Floe does not know who made this link.',
-    /** C-13: the Beta support line, shown while request links are in Beta. */
-    betaSupport: 'During Beta, request links work in current Chrome and Edge on desktop.',
+        'Files go to the computer of whoever made this link, not to a Floe server. Floe does not know who that is.',
+    /** C-13: the support line, shown while request links are in Beta (the chip
+     *  beside the eyebrow carries "Beta"). */
+    betaSupport: 'Works in current Chrome and Edge on a computer.',
 
     /** C-20: V1, a link whose shape does not parse. Detected locally; no network
      *  call happens to produce it. */
@@ -83,21 +86,24 @@ export const visitorCopy = {
     addMoreFiles: 'Add more files',
     /** E45-1: above Send on a coarse-pointer device. A line, never a block. */
     coarsePointer: 'Keep this page open and your screen on.',
-    /** C-53: V6b, shown under the switch back in Ready. */
-    hideIpNeedsRelay:
-        'Hide my IP needs a relay, and this Floe server has none right now. Turn off Hide my IP to send directly.',
+    /** C-31: V3b, next to the disabled Send; the count line above already
+     *  carries the size. */
+    relayCapReady: 'Relayed drops are capped at 2 GB. Turn off Hide my IP, or remove files.',
+    /** C-53: V6b, shown under the switch back in Ready. "This Floe server"
+     *  matters on a self-hosted server with no TURN. */
+    hideIpNeedsRelay: 'This Floe server has no relay right now. Turn off Hide my IP to send directly.',
 
     // ---- Server answers (V4, V5) ----
     /** C-40. */
     hostAbsentTitle: 'Their computer is not connected right now',
-    /** C-41. */
-    hostAbsentBody: 'The person who made this link may have closed Floe. Your files stay selected.',
+    /** C-41. "They" follows "Their computer" in the title. */
+    hostAbsentBody: 'They may have closed Floe. Your files stay selected.',
     /** C-42. */
     tryAgain: 'Try again',
     /** C-43. */
     usedTitle: 'This link has already been used',
     /** C-44. */
-    usedBody: 'Ask the person who made it for a new one.',
+    usedBody: 'Ask for a new link.',
     /** C-45. */
     turnedOff: 'Request links are turned off right now',
     /** C-46: no answer to request-join at all (an older or self-hosted server). */
@@ -118,8 +124,9 @@ export const visitorCopy = {
     /** C-60. */
     waitingTitle: 'Waiting for them to accept',
     /** C-61 after its first sentence; C-62 replaces that sentence in the last
-     *  minute and this tail follows it. */
-    answerTail: 'Nothing is saved until they accept. Keep this page open.',
+     *  minute and this tail follows it. When anything is saved is the docs'
+     *  to explain. */
+    answerTail: 'Keep this page open.',
     /** C-62. */
     lastMinute: 'They have less than 1 min to answer.',
 
@@ -130,17 +137,20 @@ export const visitorCopy = {
     timedOut: 'They did not answer in time. Nothing was sent.',
     /** C-72 and C-81. */
     backToFiles: 'Back to files',
-    /** C-80: the main page's existing relay wording. */
+    /** V9's title, drawn on WV-23 (D-136). */
+    relayLimitTitle: 'Relay limit',
+    /** C-80: V9's body under that title. The main page keeps its own banner. */
     relayBlocked:
-        'Transfer limit exceeded. Relay connections are capped at 2 GB. Remove files to proceed, or switch to a network that supports a direct connection.',
-    /** APP-3: after C-80, to /how-it-works#size-limit. */
+        'This connection needs a relay, and relayed drops are capped at 2 GB. Remove files, or try another network.',
+    /** APP-3: inline at the end of C-80, to /how-it-works#size-limit. */
     learnMore: 'Learn more',
 
     // ---- Sending (V10) ----
     /** C-93: drawn in capitals by CSS; the DOM keeps the approved casing. */
-    arrivedHeading: 'ARRIVED (saved on their computer)',
-    /** C-94: always shown in V10. */
-    keepInFront: 'Keep this tab in front until the last file arrives. For long drops, pin this tab.',
+    arrivedHeading: 'ARRIVED',
+    /** C-94: always shown in V10. C-95 says to pin the tab when the drop is
+     *  long. */
+    keepInFront: 'Keep this tab in front until the last file arrives.',
     /** C-102 to C-105: the inline confirmation Cancel opens after the first
      *  ack (D-091 Q-C14 option a, wording D-096). Before the first ack a
      *  Cancel loses nothing and asks nothing. */
@@ -149,7 +159,7 @@ export const visitorCopy = {
     keepSending: 'Keep sending',
     stop: 'Stop',
     /** C-95: the whole-drop ETA is over 20 minutes. */
-    pluggedIn: 'Keep this computer plugged in and awake. Pin this tab so Chrome does not put it to sleep.',
+    pluggedIn: 'Keep this computer plugged in and awake, and pin this tab.',
     /** C-96: the whole-drop ETA is over 2 hours. */
     startsOver: 'If the connection drops, the file that was moving starts over.',
     /** C-98: back from hidden after a time jump; replaces C-96 for the
@@ -163,7 +173,7 @@ export const visitorCopy = {
     /** C-100. */
     stoppedByYou: 'You stopped this drop.',
     /** C-101, and a version range miss. */
-    needsUpdate: 'Their Floe needs an update to receive from this page.',
+    needsUpdate: 'Their Floe needs an update.',
     /** C-110. */
     lostTitle: 'Connection lost',
     /** C-112: V12a. */
@@ -177,12 +187,20 @@ export const visitorCopy = {
     askForTheRest: 'Ask them for a new link to send the rest.',
     /** 4.15.2: relay-cap's second line when nothing was saved. */
     relayCapNothing: 'Nothing was sent. Send under 2 GB.',
+    /** 4.15.2: path-too-long's line after the saved line (C-33's words). */
+    zipNested: 'Zip deeply nested folders first.',
+    /** 4.15.2: over-approved's line after the saved line. */
+    filesChanged: 'If files changed after you chose them, ask them for a new link.',
+    /** C-130's heading; the visitor's own path is in the line under it. */
+    unreadableTitle: 'Could not read a file',
 
     // ---- Screen reader lines (4.15.3) that are not a title ----
     /** SR-01. */
     srConnecting: 'Connecting to their computer.',
     /** SR-02. */
     srWaiting: 'Waiting for them to accept.',
+    /** SR-07 for V9: the two-word title with the reason it stands for. */
+    srRelayLimit: 'Relay limit. This connection needs a relay, and relayed drops are capped at 2 GB.',
 } as const;
 
 /** The refusal titles of 4.15.2, keyed by the twelve allowlisted codes. A Map,
@@ -195,15 +213,12 @@ const REFUSAL_TITLES: ReadonlyMap<string, string> = new Map([
     ['write-failed', 'Their computer could not save a file'],
     ['hash-mismatch', 'A file changed or was damaged on the way, so their Floe deleted it'],
     ['relay-cap', 'Relayed drops are capped at 2 GB'],
-    ['path-too-long', 'A folder path is too long for their computer. Zip deeply nested folders first.'],
-    ['file-too-large-for-folder', 'A file is too large for the drive they save to.'],
-    ['save-blocked', 'A file arrived but their computer blocked saving it.'],
-    [
-        'over-approved',
-        'More data arrived than they accepted. If files changed after you chose them, ask them for a new link.',
-    ],
+    ['path-too-long', 'A folder path is too long for their computer'],
+    ['file-too-large-for-folder', 'A file is too large for the drive they save to'],
+    ['save-blocked', 'Their computer blocked saving a file'],
+    ['over-approved', 'More data arrived than they accepted'],
     ['stopped', 'They stopped this drop.'],
-    ['time-limit', 'This drop reached the 24-hour limit, so their Floe stopped it.'],
+    ['time-limit', 'This drop reached the 24-hour limit'],
 ]);
 
 /** 4.15.2's unknown or missing code: anything the page does not know,
@@ -239,6 +254,9 @@ export function refusalCopy(refusal: unknown, saved: unknown, total: number): Re
     const lines =
         code === 'relay-cap' && count === 0 ? [visitorCopy.relayCapNothing] : [savedLine(count, total)];
     if (code === 'hash-mismatch') lines.push(visitorCopy.askForTheRest);
+    // The fix a heading used to carry is a line after the saved line (D-136).
+    if (code === 'path-too-long') lines.push(visitorCopy.zipNested);
+    if (code === 'over-approved') lines.push(visitorCopy.filesChanged);
     return { title, lines, showArrived: count > 0 };
 }
 
@@ -250,11 +268,6 @@ export function countLine(count: number, size: number): string {
 /** C-09. */
 export function sendLabel(count: number): string {
     return count === 1 ? 'Send 1 file' : `Send ${count} files`;
-}
-
-/** C-31: V3b. */
-export function relayCapNotice(size: number): string {
-    return `This drop is ${formatBytes(size)}, so it cannot go through the relay. Turn off Hide my IP, or send under 2 GB.`;
 }
 
 /** C-61, or C-62 in the last minute. Never "0 min". */
@@ -324,9 +337,10 @@ function lostLine(arrived: number, total: number): string {
         : `${arrived} of ${total} files arrived. ${visitorCopy.askForTheRest}`;
 }
 
-/** C-130, with the visitor's own path. */
-function unreadableTitle(path: string): string {
-    return `Could not read "${path}". It may have been moved, renamed, or on a drive or folder that is no longer available. Nothing further was sent.`;
+/** C-130's first line, with the visitor's own path, never a name the host
+ *  sent. The saved line and the ARRIVED list say what was sent. */
+function unreadableLine(path: string): string {
+    return `"${path}" may have been moved or renamed, or its drive disconnected.`;
 }
 
 export interface StatusContext {
@@ -346,7 +360,7 @@ export interface StatusCopy {
     lines: string[];
     action: 'try-again' | 'back-to-files' | 'cancel' | null;
     showArrived: boolean;
-    /** V9: the Learn more link after the title. */
+    /** V9: the Learn more link, inline at the end of the last line. */
     learnMore: boolean;
     /** V7 and V10 show the route badge. */
     badge: boolean;
@@ -397,14 +411,16 @@ export function statusCopy(model: VisitorModel, ctx: StatusContext): StatusCopy 
         case 'V8b':
             return card('ended', visitorCopy.timedOut, [], 'back-to-files', { one: true });
         case 'V9':
-            return card('ended', visitorCopy.relayBlocked, [], 'back-to-files', { learnMore: true });
+            return card('ended', visitorCopy.relayLimitTitle, [visitorCopy.relayBlocked], 'back-to-files', {
+                learnMore: true,
+            });
         case 'V11': {
             // An unreadable local file (C-130): the visitor's own path, and the
             // saved line from the visitor's own count, since no host count
             // came with it.
             const unreadable = model.unreadableIndex > 0 ? ctx.pathAt(model.unreadableIndex) : undefined;
             if (model.stop === null && unreadable !== undefined) {
-                return card('ended', unreadableTitle(unreadable), [savedLine(arrived, total)], null, {
+                return card('ended', visitorCopy.unreadableTitle, [unreadableLine(unreadable), savedLine(arrived, total)], null, {
                     showArrived: arrived > 0,
                 });
             }
@@ -461,6 +477,8 @@ export function announcement(model: VisitorModel, ctx: StatusContext): string {
             return one
                 ? `Connection lost. ${arrivedCount(model)} of 1 file arrived.`
                 : `Connection lost. ${arrivedCount(model)} of ${model.total} files arrived.`;
+        case 'V9':
+            return visitorCopy.srRelayLimit;
         case 'V4':
         case 'V5a':
         case 'V5b':
@@ -468,7 +486,6 @@ export function announcement(model: VisitorModel, ctx: StatusContext): string {
         case 'V6a':
         case 'V8a':
         case 'V8b':
-        case 'V9':
         case 'V11':
         case 'V11a':
         case 'V11b':

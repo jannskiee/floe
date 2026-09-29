@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { visitorCopy } from '../lib/request/visitorCopy';
 
 // ---------------------------------------------------------------------------
 // The /r visitor page, before any of it does anything.
@@ -299,9 +300,7 @@ test.describe('request privacy', () => {
         // not the page's, which is what keeps a link scanner or a chat app's
         // preview fetcher from taking the seat or collecting an IP address.
         await expect(page.getByText('SEND FILES THROUGH THIS LINK')).toBeVisible();
-        await expect(
-            page.getByText('This is a Floe request link.', { exact: false })
-        ).toBeVisible();
+        await expect(page.getByText(visitorCopy.readyIntro, { exact: true })).toBeVisible();
         await page.waitForTimeout(1_000);
         expect(signaling).toEqual([]);
     });
