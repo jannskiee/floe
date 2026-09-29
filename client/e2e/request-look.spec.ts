@@ -162,11 +162,21 @@ test.describe('request look', () => {
             await page.keyboard.press('Tab');
         }
         expect(await button.evaluate((el) => el.matches(':focus-visible')), 'Choose files has keyboard focus').toBe(true);
-        const { ring, surround } = await seen(button);
-        expect(ring, 'a focus ring is drawn').not.toBeNull();
-        // WCAG 1.4.11: 3:1 against what is around it. The dark ring token drew
-        // 1.88:1 here; the ice ring RequestShell sets computes to 3.99:1.
-        expect(contrast(ring ?? surround, surround), 'focus ring against the card').toBeGreaterThanOrEqual(3);
+        // WCAG 1.4.11: 3:1 against what is around it. The Button's
+        // transition-all animates the ring in over 150 ms, so a read right
+        // after Tab sees no ring or a faint one: the contrast is polled until
+        // it settles. The dark ring token settled at 1.88:1 and never reaches
+        // 3; the ice ring RequestShell sets computes to 3.99:1. No ring at all
+        // counts as 0.
+        await expect
+            .poll(
+                async () => {
+                    const { ring, surround } = await seen(button);
+                    return ring ? contrast(ring, surround) : 0;
+                },
+                { message: 'focus ring against the card', timeout: 5_000 }
+            )
+            .toBeGreaterThanOrEqual(3);
     });
 
     test('the Hide my IP checkbox draws in the dark scheme', async ({ page }) => {
