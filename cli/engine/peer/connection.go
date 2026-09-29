@@ -49,7 +49,8 @@ type Connection struct {
 
 	// ICE candidates received before the remote description was set are
 	// buffered, up to maxPendingCandidates. remoteCandidates counts every
-	// candidate taken, buffered or handed to pion, up to maxRemoteCandidates.
+	// candidate taken, buffered, in the remote description or handed to pion,
+	// up to maxRemoteCandidates.
 	mu                sync.Mutex
 	remoteDescSet     bool
 	pendingCandidates []webrtc.ICECandidateInit
@@ -539,6 +540,17 @@ func (conn *Connection) ConnectionType() (string, error) {
 // once, so the stage cannot drift between its two callers: pion quotes the
 // offending SDP token, and SetupError.Error() is what makes that showable.
 func (conn *Connection) setRemoteDesc(desc webrtc.SessionDescription) error {
+	// pion adds every a=candidate line of a remote description itself, inside
+	// SetRemoteDescription, where addRemoteCandidate never sees it. So the
+	// lines take their share of the same budget first, after the buffered
+	// candidates and before any trickled later, and past maxCandidateBytes or
+	// the budget a line is dropped like a trickled candidate (F2-CPQA-01).
+	conn.mu.Lock()
+	var kept int
+	desc.SDP, kept = filterSDPCandidates(desc.SDP, maxRemoteCandidates-conn.remoteCandidates)
+	conn.remoteCandidates += kept
+	conn.mu.Unlock()
+
 	if err := conn.pc.SetRemoteDescription(desc); err != nil {
 		return &SetupError{Stage: StageRemoteDescription, Err: fmt.Errorf("failed to set remote description: %w", err)}
 	}
@@ -566,12 +578,16 @@ func (conn *Connection) setRemoteDesc(desc webrtc.SessionDescription) error {
 // selected; before the remote description the buffer also grows for as long
 // as the host waits for the answer (F2-CPQA-01).
 //
-// maxRemoteCandidates bounds the candidates taken over the connection's life,
-// those buffered and those handed to pion together. A real peer sends one per
-// local address and ICE server: with the one STUN and two TURN URLs Floe
-// serves, a browser on a machine of ten adapters, each with IPv4 and three
-// IPv6 addresses, sends about 110 and a Go peer fewer, while most machines
-// send 5 to 20. 256 is more than twice the largest.
+// maxRemoteCandidates bounds the candidates taken over the connection's life:
+// those buffered, the a=candidate lines of the remote description (see
+// setRemoteDesc) and those handed to pion later, together. A real peer sends
+// one per local address and ICE server: with the one STUN and two TURN URLs
+// Floe serves, a browser on a machine of ten adapters, each with IPv4 and
+// three IPv6 addresses, sends about 110 and a Go peer fewer, while most
+// machines send 5 to 20. 256 is more than twice the largest. Floe's peers
+// trickle and put none in their descriptions; a peer that writes them there
+// instead spends the same budget (pion writes each of its own twice, one line
+// per component, which still fits).
 //
 // maxPendingCandidates bounds the ones that wait for the remote description.
 // Only those that race the peer's answer, or this side's reading of its

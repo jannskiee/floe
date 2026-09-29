@@ -1,7 +1,7 @@
 package peer
 
-// SDP reading and rewriting. Both functions are pure string work on a session
-// description and hold no connection state.
+// SDP reading and rewriting. Every function here is pure string work on a
+// session description and holds no connection state.
 
 import "strings"
 
@@ -15,6 +15,29 @@ func extractFingerprint(sdp string) string {
 		}
 	}
 	return ""
+}
+
+// filterSDPCandidates keeps at most room of the description's a=candidate
+// lines, in order, and only those whose value (the line without "a=", which
+// reads as a trickled candidate's Candidate string does) is at most
+// maxCandidateBytes. Every other line, a=end-of-candidates included, comes back
+// byte for byte with its line ending. It returns the description and how many
+// candidate lines it kept, for the caller to count against maxRemoteCandidates.
+func filterSDPCandidates(sdp string, room int) (string, int) {
+	var b strings.Builder
+	b.Grow(len(sdp))
+	kept := 0
+	for _, line := range strings.SplitAfter(sdp, "\n") {
+		value := strings.TrimRight(line, "\r\n")
+		if value == "a=candidate" || strings.HasPrefix(value, "a=candidate:") {
+			if kept >= room || len(value)-len("a=") > maxCandidateBytes {
+				continue
+			}
+			kept++
+		}
+		b.WriteString(line)
+	}
+	return b.String(), kept
 }
 
 // patchMaxMessageSize pins a=max-message-size to 1 GB in the SDP.
