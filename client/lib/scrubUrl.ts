@@ -215,23 +215,26 @@ export interface ScrubbableServerRequest {
     // A record, not { nextjs?: ... }: Sentry's Contexts declares no nextjs key,
     // so a shape naming only that one is a weak type Contexts fails to match.
     contexts?: Record<string, unknown>;
+    breadcrumbs?: unknown;
 }
 
 /** beforeSend on the server and edge runtimes: scrubErrorEvent, plus the
- *  request headers, query string and contexts.nextjs.request_path. */
+ *  request block, contexts.nextjs.request_path and the breadcrumbs. */
 export function scrubServerErrorEvent<T extends ScrubbableErrorEvent & ScrubbableServerRequest>(event: T): T {
     scrubErrorEvent(event);
     scrubServerRequest(event);
+    scrubBreadcrumbs(event);
     return event;
 }
 
 /** beforeSendTransaction on the server and edge runtimes: scrubTransactionEvent,
- *  plus the same request fields. */
+ *  plus the same request fields and breadcrumbs. */
 export function scrubServerTransactionEvent<T extends ScrubbableTransaction & ScrubbableServerRequest>(
     event: T
 ): T {
     scrubTransactionEvent(event);
     scrubServerRequest(event);
+    scrubBreadcrumbs(event);
     return event;
 }
 
@@ -264,6 +267,46 @@ function scrubServerRequest(event: ScrubbableServerRequest): void {
         if (typeof nextjs.request_path === 'string') nextjs.request_path = scrubUrl(nextjs.request_path);
         else delete nextjs.request_path;
     }
+}
+
+// The server and edge configs have no beforeBreadcrumb, and both event kinds
+// carry the scope's breadcrumbs: a console breadcrumb holds whatever was
+// logged, a Next render fault's stack included. url, to and from in data take
+// request.url's rule, as the browser's beforeBreadcrumb does; every other
+// string, the message and each console argument included, takes the
+// description rule. A breadcrumb list of a shape the SDK does not write is
+// deleted, and a value nested deeper than the SDK's own normalization leaves
+// one is dropped rather than walked.
+const BREADCRUMB_URL_KEYS = ['url', 'to', 'from'] as const;
+const MAX_BREADCRUMB_DEPTH = 8;
+
+function scrubBreadcrumbs(event: ScrubbableServerRequest): void {
+    const crumbs: unknown = event.breadcrumbs;
+    if (crumbs === undefined) return;
+    if (!Array.isArray(crumbs)) {
+        delete event.breadcrumbs;
+        return;
+    }
+    event.breadcrumbs = crumbs.map((crumb: unknown) => {
+        const data = isObject(crumb) ? crumb.data : undefined;
+        if (isObject(data) && !Array.isArray(data)) {
+            for (const key of BREADCRUMB_URL_KEYS) {
+                const value = data[key];
+                if (typeof value === 'string') data[key] = scrubUrl(value);
+            }
+        }
+        // The description rule leaves the URLs just scrubbed as they are.
+        return scrubStrings(crumb, 0);
+    });
+}
+
+function scrubStrings(value: unknown, depth: number): unknown {
+    if (typeof value === 'string') return scrubDescription(value);
+    if (!isObject(value)) return value;
+    if (depth >= MAX_BREADCRUMB_DEPTH) return undefined;
+    if (Array.isArray(value)) return value.map((item: unknown) => scrubStrings(item, depth + 1));
+    for (const key of Object.keys(value)) value[key] = scrubStrings(value[key], depth + 1);
+    return value;
 }
 
 // A query parameter or fragment key named room, the legacy and the current

@@ -833,6 +833,60 @@ describe('server and edge events', () => {
         expect(transaction.request).toEqual({ url: 'http://127.0.0.1:64805/' });
     });
 
+    it('scrubs every breadcrumb string, on errors and transactions alike', () => {
+        // The server and edge configs set no beforeBreadcrumb, and both event
+        // kinds carry the scope's breadcrumbs (the captured F3-03 error and its
+        // transaction each held the console breadcrumb Next logs for a render
+        // fault). None carried a /r id; like the Umami hook, this is for the
+        // path nobody has found yet.
+        const crumbs = () => [
+            {
+                timestamp: 1790325332.108,
+                category: 'console',
+                level: 'error',
+                message: `GET /r/${LINK_ID}?_rsc=x failed`,
+                data: {
+                    logger: 'console',
+                    arguments: [
+                        '⨯',
+                        { name: 'Error', stack: `Error: boom\n    at render (https://floe.one/r/${LINK_ID}#room=${ROOM_ID})` },
+                        7,
+                    ],
+                },
+            },
+            { category: 'http', type: 'http', data: { url: `https://floe.one/r/${LINK_ID}`, method: 'GET', status_code: 200 } },
+            { category: 'navigation', data: { from: `/r/${LINK_ID}`, to: '/privacy' } },
+            // A url with no leading slash: the description rule leaves free
+            // text like it alone, the url rule does not.
+            { category: 'fetch', data: { url: `r/${LINK_ID}` } },
+            { category: 'console', level: 'log', message: 'render took 12ms' },
+        ];
+        const want = [
+            {
+                timestamp: 1790325332.108,
+                category: 'console',
+                level: 'error',
+                message: 'GET /r/redacted?_rsc=x failed',
+                data: {
+                    logger: 'console',
+                    // The description rule's shape for a URL in parentheses
+                    // (see "a fragment-less /r URL wrapped" above).
+                    arguments: ['⨯', { name: 'Error', stack: 'Error: boom\n    at render /(https://floe.one/r/redacted' }, 7],
+                },
+            },
+            { category: 'http', type: 'http', data: { url: 'https://floe.one/r/redacted', method: 'GET', status_code: 200 } },
+            { category: 'navigation', data: { from: '/r/redacted', to: '/privacy' } },
+            { category: 'fetch', data: { url: '/r/redacted' } },
+            { category: 'console', level: 'log', message: 'render took 12ms' },
+        ];
+        const error = scrubServerErrorEvent({ breadcrumbs: crumbs() });
+        const transaction = scrubServerTransactionEvent({ breadcrumbs: crumbs() });
+        for (const out of [error, transaction]) {
+            expect(JSON.stringify(out)).not.toMatch(new RegExp(`${LINK_ID}|${ROOM_ID}`));
+            expect(out.breadcrumbs).toEqual(want);
+        }
+    });
+
     it('a server event anywhere else keeps its URL, query string and request path', () => {
         const out = scrubServerErrorEvent({
             transaction: 'GET /api/config',
@@ -860,6 +914,10 @@ describe('server and edge events', () => {
             { contexts: 'x' },
             { contexts: { nextjs: null } },
             { contexts: { nextjs: { request_path: [`/r/${LINK_ID}`] } } },
+            { breadcrumbs: `/r/${LINK_ID}` },
+            { breadcrumbs: { message: `/r/${LINK_ID}` } },
+            { breadcrumbs: [null, `/r/${LINK_ID}`, { message: [`/r/${LINK_ID}`], data: [`/r/${LINK_ID}`] }] },
+            { breadcrumbs: [{ data: { url: 42, deep: { deeper: { list: [`/r/${LINK_ID}`] } } } }] },
         ];
         for (const shape of shapes) {
             const event = structuredClone(shape) as Parameters<typeof scrubServerErrorEvent>[0];
