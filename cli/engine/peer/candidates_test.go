@@ -117,7 +117,7 @@ func TestPendingCandidatesAreBounded(t *testing.T) {
 func TestCandidateFloodBeforeTheAnswerIsBounded(t *testing.T) {
 	shrinkSignalWait(t, 25*time.Second)
 	conn, s := joinedConnection(t, "sender")
-	done := runSetup(conn.SetupAsSender)
+	done := runSetup(t, conn, conn.SetupAsSender)
 	waitSignal(t, s, "offer")
 
 	runtime.GC()
@@ -171,14 +171,13 @@ func TestBufferedCandidatesStillConnect(t *testing.T) {
 		t.Skip("skipping ICE loopback setup in -short mode")
 	}
 	conn, s := joinedConnection(t, "sender")
-	done := make(chan error, 1)
-	go func() {
+	done := runSetup(t, conn, func() (*webrtc.DataChannel, error) {
 		dc, err := conn.SetupAsSender()
 		if err == nil && dc.ReadyState() != webrtc.DataChannelStateOpen {
 			err = fmt.Errorf("setup returned a channel in state %s", dc.ReadyState())
 		}
-		done <- err
-	}()
+		return dc, err
+	})
 	offer := waitSignal(t, s, "offer")
 
 	// The answerer is shaped like the engine's own (the same address filter),
@@ -306,7 +305,7 @@ func connectedSender(t *testing.T) (*Connection, *setupWS, int) {
 		t.Skip("skipping ICE loopback setup in -short mode")
 	}
 	conn, s := joinedConnection(t, "sender")
-	done := runSetup(conn.SetupAsSender)
+	done := runSetup(t, conn, conn.SetupAsSender)
 	offer := waitSignal(t, s, "offer")
 
 	se := webrtc.SettingEngine{}

@@ -199,8 +199,7 @@ func TestSetupErrorWrapsEveryStage(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer conn.Close()
-			done := make(chan error, 1)
-			go func() { _, err := conn.SetupAsSender(); done <- err }()
+			done := runSetup(t, conn, conn.SetupAsSender)
 			answer := answerTo(t, offerSentTo(t, signals))
 			conn.connected <- connFailed
 			conn.answers <- answer
@@ -222,8 +221,7 @@ func TestSetupErrorWrapsEveryStage(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer conn.Close()
-			done := make(chan error, 1)
-			go func() { _, err := conn.SetupAsSender(); done <- err }()
+			done := runSetup(t, conn, conn.SetupAsSender)
 			answer := answerTo(t, offerSentTo(t, signals))
 			conn.connected <- nil
 			conn.answers <- answer

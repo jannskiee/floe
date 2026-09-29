@@ -172,7 +172,7 @@ func TestSDPCandidatesStillConnect(t *testing.T) {
 		t.Skip("skipping ICE loopback setup in -short mode")
 	}
 	conn, s := joinedConnection(t, "sender")
-	done := runSetup(conn.SetupAsSender)
+	done := runSetup(t, conn, conn.SetupAsSender)
 	offer := waitSignal(t, s, "offer")
 
 	se := webrtc.SettingEngine{}

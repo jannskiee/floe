@@ -244,11 +244,30 @@ func pairHostVisitor(t *testing.T, relayURL string) (host, visitor *side) {
 	}
 	hostCh := make(chan setup, 1)
 	visitorCh := make(chan setup, 1)
+	// Both setups end before the test does, whatever path it takes: this
+	// cleanup runs before the two above (last in, first out), closes both
+	// Connections and waits for the two goroutines, so none outlives the test
+	// into a later one (the same rule as runSetup in connection_test.go).
+	var setups sync.WaitGroup
+	setups.Add(2)
+	t.Cleanup(func() {
+		host.conn.Close()
+		visitor.conn.Close()
+		ended := make(chan struct{})
+		go func() { setups.Wait(); close(ended) }()
+		select {
+		case <-ended:
+		case <-time.After(10 * time.Second):
+			t.Errorf("a pairing's setup goroutine was still running 10 s after Close")
+		}
+	})
 	go func() {
+		defer setups.Done()
 		dc, err := host.conn.SetupAsSender()
 		hostCh <- setup{dc, err}
 	}()
 	go func() {
+		defer setups.Done()
 		dc, err := visitor.conn.SetupAsReceiver()
 		visitorCh <- setup{dc, err}
 	}()
