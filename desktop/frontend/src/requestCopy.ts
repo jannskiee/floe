@@ -195,9 +195,6 @@ export function etaLongLine(etaSeconds: number): string {
     const days = Math.max(1, Math.round(etaSeconds / 86400));
     return `This drop would take about ${days} ${days === 1 ? 'day' : 'days'} on this connection and will stop at 24 hours.`;
 }
-export const RELAY_DROP_TOOLTIP = 'Request link: relay, capped at 2 GB.'; // V8
-/** H3: a relayed drop and a direct Send both moving. */
-export const RELAY_DROP_DIRECT_SEND_TOOLTIP = 'Request link: relay, capped at 2 GB. Send: direct.'; // H3
 
 // ---- Done ------------------------------------------------------------------
 /** DN1: RECEIVED 12 FILES, 38.0 GB. */
@@ -306,8 +303,10 @@ export const CLOSE_FLOE = 'Close Floe'; // CL3
 export const CLOSE_DROP_RECEIVING_LINE = "You're still receiving. If you close now, the transfer stops before the files finish."; // CL4
 export const CLOSE_LINK_ALSO_LINE = 'Your request link also stops working.'; // CL5
 export const START_OVER_LINK_LINE = 'Your request link stays open.'; // SO1
-export const MARKER_TEXT = 'link open'; // H1
-export const MARKER_NAME = 'Request link is open'; // H2
+// H2: the Receive tab's screen-reader description while a link is open. The
+// header has no marker for an open link (H1 is cut) and the status chip has no
+// relay tooltip for a drop (V8 and H3 are cut).
+export const LINK_OPEN_DESCRIPTION = 'Request link is open'; // H2
 export const NOTICE_TEXT = 'Someone wants to send you files.'; // N1
 export const NOTICE_REVIEW = 'Review'; // N2
 export const ANNOUNCE_REQUEST = 'Request link: someone wants to send you files.'; // A1

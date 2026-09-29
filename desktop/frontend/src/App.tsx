@@ -54,7 +54,6 @@ import {
     errorCode as requestErrorCode,
     initialRequestUI,
     linkOpen,
-    markerVisible,
     noticeVisible,
     normalizeSnapshot,
     parsePastedLink,
@@ -75,11 +74,8 @@ import {
     CODE_PASTE_LINE,
     CODE_TAB,
     KEEP_FLOE_OPEN,
-    MARKER_NAME,
-    MARKER_TEXT,
+    LINK_OPEN_DESCRIPTION,
     OPEN_IN_BROWSER,
-    RELAY_DROP_DIRECT_SEND_TOOLTIP,
-    RELAY_DROP_TOOLTIP,
     REQUEST_TAB,
     REQUEST_TAB_NAME,
     START_OVER_LINK_LINE,
@@ -105,6 +101,9 @@ type Mode = 'send' | 'receive' | 'history';
 // a reset lands on the exact same copy a fresh launch shows.
 const INITIAL_SEND_STATUS = 'Select or drag files, then click Send.';
 const INITIAL_RECV_STATUS = 'Enter a code or link, then click Receive.';
+
+// The hidden H2 line the Receive tab points its aria-describedby at.
+const RECEIVE_DESCRIPTION_ID = 'floe-receive-link-open';
 
 // Windows paths compare case-insensitively; normalize for dedupe and removal but
 // keep the original strings for display and for the Go side.
@@ -1671,11 +1670,16 @@ function App() {
         : (busy && route === 'relay') || dropRelay ? 'Relay'
         : (busy && route === 'direct') || dropDirect ? 'Direct'
         : 'Active';
-    const statusTip = !moving
-        ? (hideIP ? 'Hide my IP is on. Transfers go through the relay (capped at 2 GB).' : 'Ready for a transfer')
-        : dropRelay ? (sending && route === 'direct' ? RELAY_DROP_DIRECT_SEND_TOOLTIP : RELAY_DROP_TOOLTIP)
-        : busy ? (route === 'relay' ? 'Relay connection' : route === 'direct' ? 'Direct peer connection' : 'Connecting')
-        : dropDirect ? 'Direct peer connection' : 'Connecting';
+    // The chip's one remaining hover (D-135 D2): the amber READY, the only
+    // case where the dot's hue carries a meaning the word does not. Every
+    // other state shows nothing on hover, because the word says it all. The
+    // same sentence rides a screen-reader twin beside the word, and the Ready
+    // form and Settings say it in visible text (WCAG 1.4.1).
+    const statusNote = !moving && hideIP ? 'Hide my IP is on. Transfers go through the relay (capped at 2 GB).' : '';
+    // The Receive tab's description while a link waits (H2): the header no
+    // longer carries a marker for it, so a screen reader hears it on the tab
+    // that leads to the link. Not while a drop moves: the chip says that.
+    const receiveDescribed = linkOpen(reqUI.snap.state) && !dropMoving;
 
     // The header clock toggles the history view; leaving returns to the tab it
     // covered. The ref never holds 'history' (only set when entering from a tab).
@@ -1766,14 +1770,13 @@ function App() {
         dispatchReq({type: 'MAKE_ANOTHER'});
         requestAnimationFrame(() => document.getElementById(LABEL_INPUT_ID)?.focus());
     }
-    // The marker and Review both open Receive > REQUEST LINK. Review also
-    // brings the prompt into view and focuses its heading: the only automatic
-    // focus move, and one the owner pressed a button for.
-    function openRequestView(toPrompt: boolean) {
+    // Review opens Receive > REQUEST LINK, brings the prompt into view and
+    // focuses its heading: the only automatic focus move, and one the owner
+    // pressed a button for.
+    function openRequestView() {
         setSettingsOpen(false);
         setMode('receive');
         setReceiveKind('request');
-        if (!toPrompt) return;
         requestAnimationFrame(() => {
             const h = document.getElementById(PROMPT_HEADING_ID);
             h?.scrollIntoView?.({block: 'center'});
@@ -1784,6 +1787,7 @@ function App() {
     const modeBtn = (m: Mode, label: string) => (
         <button
             onClick={() => setMode(m)}
+            aria-describedby={m === 'receive' && receiveDescribed ? RECEIVE_DESCRIPTION_ID : undefined}
             className={cn(
                 'border-b-2 px-3 pb-1 font-mono text-[11px] uppercase tracking-[0.2em] transition-colors',
                 mode === m ? 'border-white text-zinc-100' : 'border-transparent text-zinc-600 hover:text-zinc-400',
@@ -1856,7 +1860,7 @@ function App() {
                 {updateAvailable ? `Update available: Floe ${bareVersion(updateVer)}. See Settings.` : ''}
             </span>
             <NoticeStack>
-                {showRequestNotice && <RequestNotice onReview={() => openRequestView(true)}/>}
+                {showRequestNotice && <RequestNotice onReview={openRequestView}/>}
                 {showUpdate && <UpdateNotice version={updateVer} onDismiss={() => setUpdateDismissed(true)}/>}
             </NoticeStack>
             {/* The request lane's announcements (A1 on a new prompt, A2 when
@@ -2306,28 +2310,23 @@ function App() {
                                 <div className="flex items-center gap-5">
                                     {modeBtn('send', 'Send')}
                                     {modeBtn('receive', 'Receive')}
-                                    {/* "link open" (H1): words and a neutral dot, never a new
-                                        colour. A button: it opens Receive > REQUEST LINK when
-                                        pressed and never switches tabs on its own. */}
-                                    {markerVisible(reqUI.snap) && (
-                                        <button
-                                            type="button"
-                                            aria-label={MARKER_NAME}
-                                            onClick={() => openRequestView(false)}
-                                            className="flex items-center gap-1.5 whitespace-nowrap pb-1 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500 transition-colors hover:text-zinc-300"
-                                        >
-                                            <span aria-hidden className="size-1.5 rounded-full bg-zinc-500"/>
-                                            {MARKER_TEXT}
-                                        </button>
-                                    )}
+                                    {/* H2, the Receive tab's description while a link waits. The
+                                        header shows no marker for an open link (D-135 D1): READY
+                                        carries it, and the notice calls the owner when someone sends. */}
+                                    <span id={RECEIVE_DESCRIPTION_ID} hidden>{LINK_OPEN_DESCRIPTION}</span>
                                 </div>
                                 <div className="flex items-center gap-3">
                                     {/* one-word status; the dot color carries the route (site parity:
-                                        green = direct, amber = relay), details live in the tooltip */}
-                                    <Tooltip label={statusTip}>
+                                        green = direct, amber = relay). The word keeps an element of its
+                                        own and the screen-reader twin is its sibling, never inside it:
+                                        the transfer-audit reader keeps innermost elements whose whole
+                                        text is one status word. One Tooltip in every case, so the chip
+                                        never remounts; an empty label shows nothing. */}
+                                    <Tooltip label={statusNote}>
                                         <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">
                                             <StatusDot className={cn('transition-colors duration-500', relayTone ? 'bg-amber-500' : 'bg-green-500')} pulse={moving}/>
-                                            {statusWord}
+                                            <span>{statusWord}</span>
+                                            {statusNote && <span className="sr-only normal-case">, {statusNote}</span>}
                                         </span>
                                     </Tooltip>
                                     <Tooltip label="History" keys={isMac ? '⌘Y' : 'Ctrl+H'} align="end">

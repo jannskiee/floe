@@ -7,7 +7,7 @@ import {
     etaLines,
     guardActive,
     initialRequestUI,
-    markerVisible,
+    linkOpen,
     noticeVisible,
     normalizeSnapshot,
     phase,
@@ -82,11 +82,11 @@ describe('the request lane reducer', () => {
         expect(phase(reduce(ready, {type: 'FEATURE', requestLinks: false}))).toBe('off');
     });
 
-    it('T3 Make link then a waiting snapshot shows Waiting with the marker', () => {
+    it('T3 Make link then a waiting snapshot shows Waiting with the link open', () => {
         const making = reduce(ready, {type: 'MAKE'});
         expect(phase(making)).toBe('making');
         expect(phase(waiting)).toBe('waiting');
-        expect(markerVisible(waiting.snap)).toBe(true);
+        expect(linkOpen(waiting.snap.state)).toBe(true);
     });
 
     it('T4 a refusal snapshot shows Error with its code', () => {
@@ -116,13 +116,13 @@ describe('the request lane reducer', () => {
     it('T7 waiting to reconnecting', () => {
         const r = at('reconnecting', {reconnectUntil: 9})(waiting);
         expect(phase(r)).toBe('reconnecting');
-        expect(markerVisible(r.snap)).toBe(true);
+        expect(linkOpen(r.snap.state)).toBe(true);
     });
 
     it('T8 waiting ends as expired at the link end', () => {
         const x = at('ended', {code: 'expired'})(waiting);
         expect(phase(x)).toBe('ended');
-        expect(markerVisible(x.snap)).toBe(false);
+        expect(linkOpen(x.snap.state)).toBe(false);
     });
 
     it('reconnecting ends as expired at the link end (E-34)', () => {
@@ -323,12 +323,12 @@ describe('the request lane selectors', () => {
         ]);
     });
 
-    it('the marker shows from Waiting to Receiving only', () => {
+    it('a link is open from Waiting to Receiving only (the close guard and the Receive tab description)', () => {
         for (const s of ['waiting', 'reconnecting', 'connecting', 'deciding', 'declined', 'receiving']) {
-            expect(markerVisible(snap({state: s})), s).toBe(true);
+            expect(linkOpen(s), s).toBe(true);
         }
         for (const s of ['off', 'ready', 'making', 'error', 'done', 'stopped', 'ended']) {
-            expect(markerVisible(snap({state: s})), s).toBe(false);
+            expect(linkOpen(s), s).toBe(false);
         }
     });
 

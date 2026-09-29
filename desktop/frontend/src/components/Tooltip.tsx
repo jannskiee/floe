@@ -92,14 +92,19 @@ export function Tooltip({label, keys, align = 'center', className, children}: {
         setCoords({left, top});
     }, [anchor, align]);
 
+    // An empty label shows nothing, so a trigger whose explanation comes and
+    // goes (the status chip) keeps one Tooltip around it in every state:
+    // swapping the wrapper in and out would change the element type and
+    // remount the trigger.
     const show = useCallback((instant: boolean) => {
+        if (!label) return;
         window.clearTimeout(timer.current);
         if (instant || Date.now() - lastClosed < SKIP) {
             place();
             return;
         }
         timer.current = window.setTimeout(place, DELAY);
-    }, [place]);
+    }, [label, place]);
 
     // Timers must be cleared on unmount: main.tsx renders under StrictMode, whose
     // double-invoked effects would otherwise leave a tooltip stuck open in dev.

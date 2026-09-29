@@ -318,11 +318,6 @@ export function showRow(switchOn: boolean, featurePresent: boolean, laneState: s
     return switchOn && (featurePresent || laneHoldsSomething(laneState));
 }
 
-/** markerVisible: the header "link open" marker, Waiting to Receiving (H1). */
-export function markerVisible(snap: RequestLinkSnapshot): boolean {
-    return linkOpen(snap.state);
-}
-
 /** settingsLocked: the Settings switch locks with S5 from making a link until
  *  its result is put away, so turning the Beta off never strands a link. */
 export function settingsLocked(p: Phase): boolean {

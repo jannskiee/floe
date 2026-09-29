@@ -214,7 +214,6 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.CANCEL_DROP).toBe(approved('V4'));
         expect(c.ETA_OVER_2H_LINE).toBe(approved('V5'));
         expect(c.etaLongLine(3 * 86400)).toBe(approved('V6'));
-        expect(c.RELAY_DROP_TOOLTIP).toBe(approved('V8'));
     });
 
     it('Done rows match byte for byte', () => {
@@ -272,9 +271,7 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.CLOSE_DROP_RECEIVING_LINE).toBe(approved('CL4'));
         expect(c.CLOSE_LINK_ALSO_LINE).toBe(approved('CL5'));
         expect(c.START_OVER_LINK_LINE).toBe(approved('SO1'));
-        expect(c.MARKER_TEXT).toBe(approved('H1'));
-        expect(c.MARKER_NAME).toBe(approved('H2'));
-        expect(c.RELAY_DROP_DIRECT_SEND_TOOLTIP).toBe(approved('H3'));
+        expect(c.LINK_OPEN_DESCRIPTION).toBe(approved('H2'));
         expect(c.NOTICE_TEXT).toBe(approved('N1'));
         expect(c.NOTICE_REVIEW).toBe(approved('N2'));
         expect(c.ANNOUNCE_REQUEST).toBe(approved('A1'));

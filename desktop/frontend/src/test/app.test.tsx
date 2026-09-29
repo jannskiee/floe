@@ -668,9 +668,9 @@ describe('a request link pasted into CODE', () => {
 
 /**
  * Receive > REQUEST LINK in the app (S1-DSK-06): the events' own effect, the
- * row rules, the header marker, the close guard and Start over copy, and the
- * next-launch line. Go's side is the mock: a test plays the lane by emitting
- * request:state snapshots.
+ * row rules, the Receive tab's description, the close guard and Start over
+ * copy, and the next-launch line. Go's side is the mock: a test plays the lane
+ * by emitting request:state snapshots.
  */
 describe('the request link in the app', () => {
     const GB = 1024 ** 3;
@@ -682,9 +682,9 @@ describe('the request link in the app', () => {
     const lane = (state: string, over: Record<string, unknown> = {}) => ({...base, state, ...over});
     const prompt = {files: 12, totalBytes: 38 * GB, folder: 'Floe requests\\Acme footage 2026-09-14 1405', freeBytes: 500 * GB, warnings: [], answerBy: Date.now() + 9 * 60000};
 
-    function switchOn(feature = true) {
+    function switchOn(feature = true, hideIP = false) {
         wails.go.GetSettings.mockImplementation(async () => ({
-            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false, requestLinks: true, migrated: true,
+            server: '', web: '', hideIP, reportStats: true, noUpdateCheck: false, requestLinks: true, migrated: true,
         }));
         wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: feature}));
     }
@@ -927,18 +927,115 @@ describe('the request link in the app', () => {
         expect(wails.go.CloseRequestLink).not.toHaveBeenCalled();
     });
 
-    it('the header marker opens REQUEST LINK and never switches tabs by itself', async () => {
+    it('no header marker: the Receive tab is described while a link is open, Send never', async () => {
+        // D-135 D1: READY carries an open link, so the header looks the same
+        // with no link and with a waiting one. H2 moves to the Receive tab's
+        // description, only while a link is open and no drop moves (the chip
+        // says that), and never on another tab.
         switchOn();
         const user = userEvent.setup();
         mount();
         await allOn();
+        const send = () => screen.getAllByRole('button', {name: 'Send'})[0];
+        expect(receiveTab().getAttribute('aria-describedby')).toBeNull();
         push(lane('waiting'));
-        // Still on Send: the marker appeared, the view did not move.
-        const marker = await screen.findByRole('button', {name: 'Request link is open'});
-        expect(marker.textContent).toBe('link open');
+        // Still on Send: no marker, and the view did not move.
+        expect(screen.queryByRole('button', {name: 'Request link is open'})).toBeNull();
+        expect(screen.queryByText(/link open/i)).toBeNull();
         expect(screen.getByRole('button', {name: 'Text'})).toBeTruthy();
-        await user.click(marker);
+        await waitFor(() => expect(receiveTab().getAttribute('aria-describedby')).toBe('floe-receive-link-open'));
+        const description = document.getElementById('floe-receive-link-open')!;
+        expect(description.textContent).toBe('Request link is open');
+        expect(description.hidden).toBe(true);
+        expect(receiveTab().textContent).toBe('Receive');
+        expect(send().getAttribute('aria-describedby')).toBeNull();
+        expect(screen.getByRole('button', {name: 'History'}).getAttribute('aria-describedby')).toBeNull();
+        // Entering Receive opens REQUEST LINK while the link is live.
+        await user.click(receiveTab());
         expect(await screen.findByRole('button', {name: 'Close link'})).toBeTruthy();
+        expect(receiveTab().getAttribute('aria-describedby')).toBe('floe-receive-link-open');
+        // A drop moving: the chip says it, so no description.
+        push(lane('receiving', {gen: 2, route: 'direct'}));
+        expect(receiveTab().getAttribute('aria-describedby')).toBeNull();
+        // The link gone: no description either.
+        push(lane('ended', {gen: 3, code: 'closed'}));
+        expect(receiveTab().getAttribute('aria-describedby')).toBeNull();
+        expect(send().getAttribute('aria-describedby')).toBeNull();
+    });
+
+    // The transfer-audit skill's desktop reader (desktop.mjs readText and
+    // RE.pill) keeps the innermost p, span, code, h2 or div whose whole trimmed
+    // text is one status word; every desktop cell samples the chip that way.
+    const PILL = /^(Ready|Active|Direct|Relay)$/i;
+    function pillReads(): string[] {
+        const hit = [...document.querySelectorAll('p, span, code, h2, div')].filter((e) => PILL.test((e.textContent || '').trim()));
+        return hit.filter((e) => !hit.some((o) => o !== e && e.contains(o))).map((e) => (e.textContent || '').trim());
+    }
+    const TIP2 = 'Hide my IP is on. Transfers go through the relay (capped at 2 GB).';
+    const pause = (ms: number) => act(async () => { await new Promise((r) => setTimeout(r, ms)); });
+
+    it('the chip word keeps an element of its own, with Hide my IP off and on', async () => {
+        for (const hideIP of [false, true]) {
+            switchOn(true, hideIP);
+            const {unmount} = mount();
+            await allOn();
+            const word = await screen.findByText('Ready');
+            await waitFor(() => expect(!!word.nextElementSibling).toBe(hideIP));
+            expect(pillReads(), `hideIP ${hideIP}`).toEqual(['Ready']);
+            expect(word.children.length).toBe(0);
+            if (hideIP) {
+                // The screen-reader twin is the word's sibling, never inside it.
+                const twin = word.nextElementSibling!;
+                expect(twin.textContent).toBe(`, ${TIP2}`);
+                expect(twin.className.split(' ')).toContain('sr-only');
+                expect(word.contains(twin)).toBe(false);
+                expect(word.parentElement!.querySelector('.bg-amber-500')).toBeTruthy();
+            } else {
+                expect(word.parentElement!.querySelector('.bg-green-500')).toBeTruthy();
+            }
+            unmount();
+        }
+    });
+
+    it('the amber READY explains itself on hover; with Hide my IP off READY shows nothing', async () => {
+        const user = userEvent.setup();
+        switchOn(true, true);
+        const amber = mount();
+        await allOn();
+        const word = await screen.findByText('Ready');
+        await waitFor(() => expect(word.nextElementSibling).toBeTruthy());
+        await user.hover(word);
+        expect((await screen.findByRole('tooltip')).textContent).toBe(TIP2);
+        await user.unhover(word);
+        amber.unmount();
+
+        switchOn(true, false);
+        mount();
+        await allOn();
+        await pause(400);
+        await user.hover(screen.getByText('Ready'));
+        await pause(600);
+        expect(screen.queryByRole('tooltip')).toBeNull();
+    });
+
+    it('hovering DIRECT or RELAY shows nothing, and the moving chip has no twin', async () => {
+        // D-135 D2: "Direct peer connection" and the relay lines are gone.
+        switchOn(true, true);
+        const user = userEvent.setup();
+        mount();
+        await allOn();
+        await waitFor(() => expect(screen.getByText('Ready').nextElementSibling).toBeTruthy());
+        for (const [route, name, seq] of [['direct', 'Direct', 1], ['relay', 'Relay', 2]] as const) {
+            push(lane('receiving', {gen: 2, seq, route}));
+            const word = await screen.findByText(name);
+            expect(word.nextElementSibling, name).toBeNull();
+            expect(pillReads(), name).toEqual([name]);
+            await pause(400);
+            await user.hover(word);
+            await pause(600);
+            expect(screen.queryByRole('tooltip'), name).toBeNull();
+            await user.unhover(word);
+        }
     });
 
     it('a prompt raises the notice elsewhere, announces once, and Review opens it', async () => {
@@ -977,7 +1074,9 @@ describe('the request link in the app', () => {
         // A link open behind the Send view pins nothing there.
         push(lane('waiting', {seq: 1}));
         expect(card().style.marginTop).toBe('');
-        await user.click(await screen.findByRole('button', {name: 'Request link is open'}));
+        // Entering Receive opens REQUEST LINK while the link is live (the header
+        // has no marker to click since D-135).
+        await user.click(receiveTab());
         expect(await screen.findByRole('button', {name: 'Close link'})).toBeTruthy();
         expect(card().style.marginTop).toBe('163.5px');
         expect(card().style.marginBottom).toBe('auto');
@@ -1231,9 +1330,10 @@ describe('reset all settings with a link open', () => {
         expect(sw().checked).toBe(true);
         expect(wails.listeners.has('request:state')).toBe(true);
 
-        // And the link is still reachable to close.
+        // And the link is still reachable to close: Back lands on Send, and
+        // entering Receive opens REQUEST LINK while the link is live.
         await user.click(screen.getByRole('button', {name: 'Back'}));
-        await user.click(screen.getByRole('button', {name: 'Request link is open'}));
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
         expect(await screen.findByRole('button', {name: 'Close link'})).toBeTruthy();
     });
 
@@ -1270,7 +1370,7 @@ describe('snapshot order (D-115)', () => {
         };
         const prompt = {files: 2, totalBytes: 2048, folder: 'Floe requests\\Acme footage 2026-09-14 1405', freeBytes: 1 << 30, warnings: [], answerBy: Date.now() + 9 * 60000};
         act(() => { wails.emit('request:state', {...base, seq: 3, state: 'deciding', prompt}); });
-        await user.click(screen.getByRole('button', {name: 'Request link is open'}));
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
         const accept = await screen.findByRole('button', {name: 'Accept'});
         await act(async () => { await new Promise((r) => setTimeout(r, 1100)); });
         await user.click(accept);
