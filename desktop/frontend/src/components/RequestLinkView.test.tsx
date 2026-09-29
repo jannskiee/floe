@@ -328,32 +328,45 @@ describe('the result card', () => {
 
     it('shows the SHA-256 line only when every file verified', () => {
         const {rerender} = render(<RequestLinkView {...at('done')}/>);
-        expect(screen.getByText("Every file arrived intact: its SHA-256 matched the sender's.")).toBeTruthy();
+        expect(screen.getByText('SHA-256 matched')).toBeTruthy();
         rerender(<RequestLinkView {...at('done')} snap={snap({state: 'done', result: {...result, verified: 11}})}/>);
         expect(screen.queryByText(/SHA-256/)).toBeNull();
         // No hash value or digest-shaped text anywhere.
         expect(document.body.textContent).not.toMatch(/[0-9a-f]{16,}/);
     });
 
-    it('a stop with nothing saved shows no folder and no follow-up (DT-05)', () => {
+    it('a stop with nothing saved shows no folder (DT-05) and no follow-up line (ST15 is cut)', () => {
         render(<RequestLinkView {...at('stopped')} snap={snap({state: 'stopped', code: 'relay-cap', result: {...result, saved: 0}})}/>);
-        expect(screen.getByText('Over 2 GB through the relay, so it stopped before any file was saved.')).toBeTruthy();
+        expect(screen.getByText('Over the 2 GB relay limit. Nothing was saved.')).toBeTruthy();
         expect(screen.queryByRole('button', {name: 'Show in folder'})).toBeNull();
-        expect(screen.queryByText('The sender can send the rest with a new link.')).toBeNull();
+        expect(document.body.textContent).not.toMatch(/send the rest/);
+    });
+
+    it('a stop reads its count in the web grammar (ST16, D-136)', () => {
+        const {rerender} = render(<RequestLinkView {...at('stopped')}/>);
+        expect(screen.getByText('The drive ran out of space. 4 of 12 files were saved.')).toBeTruthy();
+        rerender(<RequestLinkView {...at('stopped')} snap={snap({state: 'stopped', code: 'disk-full', result: {...result, files: 1, saved: 1}})}/>);
+        expect(screen.getByText('The drive ran out of space. 1 of 1 file was saved.')).toBeTruthy();
+        rerender(<RequestLinkView {...at('stopped')} snap={snap({state: 'stopped', code: 'path-too-long', result: {...result, saved: 0}})}/>);
+        expect(screen.getByText('A folder path was too long for Windows. Nothing was saved.')).toBeTruthy();
+        expect(document.body.textContent).not.toMatch(/send the rest/);
     });
 
     it('a save-blocked stop points at the kept file, even with nothing saved (D-128)', async () => {
         const user = userEvent.setup();
-        const kept = 'Received a file in full but could not finish saving it. The complete file was kept in the save folder with a .part ending.';
+        const kept = 'The complete file was kept in the folder with a .part ending.';
         for (const saved of [0, 4]) {
             const p = props({phase: 'stopped', snap: snap({state: 'stopped', code: 'save-blocked', result: {...result, saved, verified: saved, names: saved ? ['a.mov'] : []}})});
             const {unmount} = render(<RequestLinkView {...p}/>);
-            expect(screen.getByText(`Windows would not let Floe save a file, even after trying for 5 minutes. ${saved} of 12 files were saved.`)).toBeTruthy();
+            // ST9 carries a count only when a file was saved, so the card never
+            // says "Nothing was saved." above the kept file (ST17).
+            const card = saved ? `Windows would not let Floe finish saving a file. ${saved} of 12 files were saved.` : 'Windows would not let Floe finish saving a file.';
+            expect(screen.getByText(card)).toBeTruthy();
             expect(screen.getByText(kept)).toBeTruthy();
+            expect(document.body.textContent).not.toMatch(/Nothing was saved/);
             await user.click(screen.getByRole('button', {name: 'Show in folder'}));
             expect(p.onShowInFolder).toHaveBeenCalledWith(result.folder);
-            // ST15 keeps its approved state, at least one file saved.
-            expect(screen.queryByText('The sender can send the rest with a new link.') !== null, `saved ${saved}`).toBe(saved > 0);
+            expect(document.body.textContent).not.toMatch(/send the rest/);
             expect(document.body.textContent).not.toMatch(/[0-9a-f]{16,}/);
             unmount();
         }
@@ -361,6 +374,34 @@ describe('the result card', () => {
         render(<RequestLinkView {...at('stopped')} snap={snap({state: 'stopped', code: 'write-failed', result: {...result, saved: 0}})}/>);
         expect(screen.queryByRole('button', {name: 'Show in folder'})).toBeNull();
         expect(screen.queryByText(kept)).toBeNull();
+    });
+});
+
+describe('the link phases (D-136)', () => {
+    it('no IP line while the link waits, connects, reconnects, decides or is declined', () => {
+        // The IP line is said once, on the Ready form, with its timing (R15);
+        // W9 is cut.
+        for (const phase of ['waiting', 'connecting', 'reconnecting', 'deciding', 'declined'] as const) {
+            const {container, unmount} = render(<RequestLinkView {...at(phase)}/>);
+            expect(container.textContent, phase).not.toMatch(/IP address/);
+            unmount();
+        }
+    });
+
+    it('Waiting says Waiting for files. and nothing else in the slot', () => {
+        const {container} = render(<RequestLinkView {...at('waiting')}/>);
+        expect(screen.getByText('Waiting for files.')).toBeTruthy();
+        expect(container.textContent).not.toMatch(/open the link|still open/);
+    });
+
+    it('Reconnecting says C1 on two lines, the news first and the reassurance quieter', () => {
+        render(<RequestLinkView {...at('reconnecting')}/>);
+        const news = screen.getByText('No connection to the Floe server.');
+        const note = screen.getByText('Floe keeps trying.');
+        expect(news.nextElementSibling).toBe(note);
+        expect(news.className).toContain('text-zinc-200');
+        expect(note.className).toContain('text-zinc-500');
+        expect(document.body.textContent).not.toMatch(/Senders see|until the link ends/);
     });
 });
 

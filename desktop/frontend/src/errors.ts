@@ -24,8 +24,8 @@ const PASSTHROUGH = [
 
 // RX10 (D-123): a receive that got a file in full, verified, and could not
 // move it into place keeps it as a .part (CommitError, E-36). The request
-// lane shows the same sentence for its save-blocked stop (D-128,
-// requestCopy.ts keptPartLine).
+// lane's save-blocked stop says only its second sentence, with "save folder"
+// as "folder" (ST17, D-136; requestCopy.ts SAVE_BLOCKED_KEPT_LINE).
 export const COMMIT_KEPT_PART = 'Received a file in full but could not finish saving it. The complete file was kept in the save folder with a .part ending.';
 
 // Ordered mapping table: specific patterns before generic ones. The final

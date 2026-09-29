@@ -8,7 +8,6 @@
 //
 // Pure: no DOM, no Wails runtime, no clock except the injected one.
 
-import {COMMIT_KEPT_PART} from './errors';
 import {fmtBytes} from './incoming';
 
 // ---- A request link pasted into Receive > CODE ----------------------------
@@ -29,13 +28,13 @@ export const LINK_ENDS_EYEBROW = 'Link ends'; // R11, rendered in uppercase
 export const LIFETIME_24H = 'In 24 hours'; // R12
 export const LIFETIME_7D = 'In 7 days'; // R13
 export const MAKE_LINK = 'Make link'; // R14
-export const READY_IP_LINE = 'Works while Floe is open. The person you send it to can see your IP address once they connect, unless Hide my IP is on.'; // R15
+export const READY_IP_LINE = 'Whoever sends sees your IP address, even if you decline, unless Hide my IP is on.'; // R15, only while Hide my IP is off
 export const MAKING_LINK = 'Making the link...'; // R16
-export const READY_HIDE_IP_LINE = 'Hide my IP is on, so a drop goes through the relay and stops at 2 GB.'; // R17
+export const READY_HIDE_IP_LINE = 'Hide my IP is on, so drops are capped at 2 GB.'; // R17
 
 // ---- Error, making a link (E3 is cut, E-25; E8 is cut, D-122) --------------
 const ERROR_LINES: Record<string, string> = {
-    disabled: 'Request links are turned off on the Floe server right now. Nothing else is affected.', // E1, X6
+    disabled: 'Request links are turned off on this server right now.', // E1, X6
     limited: 'This network made too many request links today. Try again tomorrow.', // E2
     unknown: 'Floe could not make a link. Try again later.', // E4
     'no-relay': 'Hide my IP needs a TURN relay and this server has none. Turn off Hide my IP, or add a relay to the server.', // E5
@@ -84,17 +83,16 @@ export const CLOSE_LINK = 'Close link'; // W4
 export function scopeLine(expiresAt: number, now: number): string {
     return `For one person. Ends ${fmtEnds(expiresAt, now)}.`; // W5
 }
-export const WAITING_LINE = 'Waiting for them to open the link.'; // W8
-export const WAITING_IP_LINE = 'They can see your IP address once they connect, unless Hide my IP is on.'; // W9
+export const WAITING_LINE = 'Waiting for files.'; // W8 (W9 is cut: the IP line is said once, at Ready)
 export function missedLine(missedAt: number): string {
-    return `You missed a request at ${fmtClock(missedAt)}. The link is still open.`; // W10
+    return `You missed a request at ${fmtClock(missedAt)}.`; // W10
 }
 export const SETUP_FAILED_LINE = 'The sender could not connect.'; // W11
 export const CONNECTING_LINE = 'Connecting to their computer.'; // W12
 export const SUGGEST_CLOSE_LINE = '2 requests ended without Accept in the last 10 minutes. Close this link?'; // W13
-export function reconnectingLine(expiresAt: number): string {
-    return `No connection to the Floe server. Floe keeps trying until the link ends at ${fmtClock(expiresAt)}. Senders see: not connected.`; // C1
-}
+// C1, two lines: the news, then the reassurance, quieter.
+export const RECONNECTING_LINE = 'No connection to the Floe server.'; // C1, line 1
+export const RECONNECTING_NOTE = 'Floe keeps trying.'; // C1, line 2
 export const RETRY_NOW = 'Retry now'; // C2
 
 /** reopenLine is the first line of the activity slot on a reopened link, or
@@ -113,8 +111,8 @@ export function reopenLine(s: {code: string; missedAt?: number; suggestClose: bo
  *  closed with a link open, X2 otherwise (the network and server-restart ends
  *  were removed by E-34, so any other code is a close). */
 export function endedLine(code: string, expiresAt: number): string {
-    if (code === 'expired') return `This link ended at ${fmtClock(expiresAt)}.`; // X1
-    if (code === 'app-closed') return 'This link stopped when Floe closed. Make a new one.'; // X5
+    if (code === 'expired') return `Link ended at ${fmtClock(expiresAt)}.`; // X1
+    if (code === 'app-closed') return 'Link stopped when Floe closed.'; // X5
     return 'Link closed.'; // X2
 }
 export const MAKE_ANOTHER_LINK = 'Make another link'; // X3, DN7
@@ -154,7 +152,7 @@ export function warningLine(code: string, p: {freeBytes: number; totalBytes: num
         case 'low-space':
             return `Only ${fmtBytes(p.freeBytes)} free on ${driveOf(saveDir)}. The drop will stop when the drive fills.`; // P4
         case 'file-too-large-for-drive':
-            return 'This drive cannot save files over 4 GB. A larger file will stop the drop.'; // P5
+            return 'This drive cannot save files over 4 GB, so this drop will stop.'; // P5
         case 'relay-over-cap':
             return `Hide my IP is on, so this ${fmtBytes(p.totalBytes)} drop will stop before any file.`; // P6
         case 'laptop-power':
@@ -172,7 +170,7 @@ export const ACCEPT = 'Accept'; // P9
 export const DECLINE = 'Decline'; // P9
 export const PROMPT_CAUTION = 'Accept only if you expect files from the person you sent this link to.'; // P10
 export const DECLINED_LINE = 'You declined. Nothing was saved.'; // D1
-export const DECLINED_QUESTION = 'Keep this link open for the person you meant to send it to?'; // D2
+export const DECLINED_QUESTION = 'Keep waiting for the person you sent it to?'; // D2
 export const KEEP_WAITING = 'Keep waiting'; // D3
 
 // ---- Receiving -------------------------------------------------------------
@@ -189,7 +187,7 @@ export function timeLeft(eta: string): string {
     return `${eta} left`;
 }
 export const CANCEL_DROP = 'Cancel drop'; // V4
-export const ETA_OVER_2H_LINE = 'If the connection drops, the file that was moving starts over. Windows may restart for updates outside your active hours.'; // V5
+export const ETA_OVER_2H_LINE = 'If the connection drops, the file that was moving starts over.'; // V5
 /** V6, with the estimate in whole days. */
 export function etaLongLine(etaSeconds: number): string {
     const days = Math.max(1, Math.round(etaSeconds / 86400));
@@ -202,7 +200,7 @@ export function doneHeading(files: number, bytes: number): string {
     return `RECEIVED ${filesCount(files).toUpperCase()}, ${fmtBytes(bytes).toUpperCase()}`;
 }
 export const DISMISS = 'Dismiss'; // DN2
-export const VERIFIED_LINE = "Every file arrived intact: its SHA-256 matched the sender's."; // DN3
+export const VERIFIED_LINE = 'SHA-256 matched'; // DN3, the D-101 words
 export function renamedLine(n: number): string {
     return n === 1
         ? '1 file was renamed to end in .floe-blocked because Windows can open it by itself.' // DN4
@@ -226,27 +224,33 @@ export function verifiedAll(r: {files: number; saved: number; verified: number})
     return r.files > 0 && r.saved === r.files && r.verified === r.files;
 }
 
-// ---- Stopped (ST2 is cut, E-24; ST13 has no source in Stage 1) --------------
+// ---- Stopped (ST2 is cut, E-24; ST13 has no source in Stage 1; ST15 is cut,
+// D-136: Make another link sits right under the card) -----------------------
 export const STOPPED_HEADING = 'DROP STOPPED'; // ST0
-export const STOPPED_FOLLOW_UP = 'The sender can send the rest with a new link.'; // ST15
-/** ST16, and the tail of every stop sentence that carries a count. */
+/** ST16, and the tail of every stop sentence that carries a count, in the web
+ *  page's grammar (D-123, D-136): "4 of 12 files were saved.", "1 of 1 file
+ *  was saved.", and "Nothing was saved." when none was, whatever the drop
+ *  offered (0 of 0 and 0 of 1 included). */
 export function savedOf(saved: number, files: number): string {
-    return `${saved} of ${files} files were saved.`;
+    if (saved <= 0) return 'Nothing was saved.';
+    return files === 1 ? `${saved} of 1 file was saved.` : `${saved} of ${files} files were saved.`;
 }
 
 // One entry per stop code: the card body under DROP STOPPED, and the full
 // sentence the History row keeps (DH-02). `count` says whether the sentence
 // carries its own count (ST1, ST10 to ST12), takes ST16 on the card (ST3 to
-// ST5, ST7 to ST9), or has none (ST6, nothing was saved).
-const STOPS: Record<string, {card: string; full: string; count: 'own' | 'append' | 'none'}> = {
+// ST5, ST7, ST8), takes it only when a file was saved (ST9: its card sits
+// above ST17, the kept file, so "Nothing was saved." would contradict it), or
+// has none (ST6, whose card says nothing was saved).
+const STOPS: Record<string, {card: string; full: string; count: 'own' | 'append' | 'kept' | 'none'}> = {
     'disk-full': {card: 'The drive ran out of space.', full: 'Drop stopped: the drive ran out of space.', count: 'own'}, // ST1
     'hash-mismatch': {card: 'A file did not match what was sent, so Floe deleted it.', full: 'Drop stopped: a file did not match what was sent, so Floe deleted it.', count: 'append'}, // ST3
     'path-too-long': {card: 'A folder path was too long for Windows.', full: 'Drop stopped: a folder path was too long for Windows.', count: 'append'}, // ST4
     'over-approved': {card: 'More data arrived than you accepted.', full: 'Drop stopped: more data arrived than you accepted.', count: 'append'}, // ST5
-    'relay-cap': {card: 'Over 2 GB through the relay, so it stopped before any file was saved.', full: 'Drop stopped before any file: over 2 GB through the relay.', count: 'none'}, // ST6
+    'relay-cap': {card: 'Over the 2 GB relay limit. Nothing was saved.', full: 'Drop stopped before any file: over 2 GB through the relay.', count: 'none'}, // ST6
     'file-too-large-for-folder': {card: 'A file is too large for this drive.', full: 'Drop stopped: a file is too large for this drive.', count: 'append'}, // ST7
     'write-failed': {card: 'Windows could not write to the folder.', full: 'Drop stopped: Windows could not write to the folder.', count: 'append'}, // ST8
-    'save-blocked': {card: 'Windows would not let Floe save a file, even after trying for 5 minutes.', full: 'Drop stopped: Windows would not let Floe save a file.', count: 'append'}, // ST9
+    'save-blocked': {card: 'Windows would not let Floe finish saving a file.', full: 'Drop stopped: Windows would not let Floe save a file.', count: 'kept'}, // ST9
     stopped: {card: 'You stopped this drop.', full: 'You stopped this drop.', count: 'own'}, // ST10
     'peer-abort': {card: 'The sender stopped this drop.', full: 'Drop stopped: the sender left.', count: 'own'}, // ST11
     'time-limit': {card: 'The drop reached the 24-hour limit.', full: 'Drop stopped: it reached the 24-hour limit.', count: 'own'}, // ST12
@@ -258,7 +262,7 @@ const STOPS: Record<string, {card: string; full: string; count: 'own' | 'append'
 export function stoppedCard(code: string, saved: number, files: number): string {
     if (!has(STOPS, code)) return savedOf(saved, files); // ST14
     const s = STOPS[code];
-    return s.count === 'none' ? s.card : `${s.card} ${savedOf(saved, files)}`;
+    return s.count === 'none' || (s.count === 'kept' && saved <= 0) ? s.card : `${s.card} ${savedOf(saved, files)}`;
 }
 
 /** stoppedFull is the History form of the same stop (DH-02): the row's own
@@ -267,7 +271,7 @@ export function stoppedFull(code: string, saved: number, files: number): string 
     if (!has(STOPS, code)) return `Drop stopped. ${savedOf(saved, files)}`; // ST14
     const s = STOPS[code];
     if (s.count !== 'own') return s.full;
-    if (code === 'peer-abort') return `${s.full} ${saved} of ${files} files arrived.`; // ST11
+    if (code === 'peer-abort') return `${s.full} ${saved} of ${files} ${files === 1 ? 'file' : 'files'} arrived.`; // ST11
     return `${s.full} ${savedOf(saved, files)}`;
 }
 
@@ -280,14 +284,10 @@ export function stoppedShowsFolder(code: string, saved: number): boolean {
     return code !== 'relay-cap' && (saved > 0 || code === 'save-blocked');
 }
 
-/** stoppedShowsFollowUp: the follow-up line (ST15) keeps its approved state,
- *  at least one file saved, and never for relay-cap (DT-05). D-128 left it. */
-export function stoppedShowsFollowUp(code: string, saved: number): boolean {
-    return saved > 0 && code !== 'relay-cap';
-}
-
-/** RX10 (D-123), the code receive's sentence for a file kept as a .part. */
-export const SAVE_BLOCKED_KEPT_LINE = COMMIT_KEPT_PART;
+/** ST17 (D-136), RX10's second sentence with "save folder" as "folder": the
+ *  drop keeps the file in its own subfolder, which Show in folder opens. The
+ *  code receive keeps RX10 whole (COMMIT_KEPT_PART in errors.ts). */
+export const SAVE_BLOCKED_KEPT_LINE = 'The complete file was kept in the folder with a .part ending.';
 
 /** keptPartLine is the line a stopped drop adds, on the card and in History,
  *  when the engine kept a verified .part in the drop folder: save-blocked
@@ -297,7 +297,7 @@ export function keptPartLine(code: string): string {
 }
 
 // ---- Dialogs, header, notice, announcements --------------------------------
-export const CLOSE_LINK_OPEN_LINE = 'Your request link stops working until you make a new one.'; // CL2
+export const CLOSE_LINK_OPEN_LINE = 'Your request link stops working.'; // CL2
 export const KEEP_FLOE_OPEN = 'Keep Floe open'; // CL3
 export const CLOSE_FLOE = 'Close Floe'; // CL3
 export const CLOSE_DROP_RECEIVING_LINE = "You're still receiving. If you close now, the transfer stops before the files finish."; // CL4

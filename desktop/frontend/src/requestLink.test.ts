@@ -315,7 +315,7 @@ describe('the request lane selectors', () => {
         const r = receiving.snap;
         expect(etaLines(r, 2 * 3600, 60)).toEqual([]);
         expect(etaLines(r, 2 * 3600 + 1, 60)).toEqual([
-            'If the connection drops, the file that was moving starts over. Windows may restart for updates outside your active hours.',
+            'If the connection drops, the file that was moving starts over.',
         ]);
         expect(etaLines(r, 24 * 3600, 60)).toHaveLength(1);
         expect(etaLines(r, 3 * 86400, 60)).toEqual([

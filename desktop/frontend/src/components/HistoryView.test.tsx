@@ -162,7 +162,7 @@ describe('request rows', () => {
     it('request row Show in folder opens the folder directly when nothing was renamed', async () => {
         mount([request()]);
         await openRow();
-        expect(screen.getByText("Every file arrived intact: its SHA-256 matched the sender's.")).toBeTruthy();
+        expect(screen.getByText('SHA-256 matched')).toBeTruthy();
         await userEvent.click(screen.getByRole('button', {name: 'Show in folder'}));
         expect(wails.go.OpenFolder).toHaveBeenCalledTimes(1);
         expect(wails.go.OpenFolder).toHaveBeenCalledWith(FOLDER);
@@ -219,7 +219,7 @@ describe('request rows', () => {
         mount([request({stopped: 'save-blocked', names: [], count: 0, offered: 1, verified: 0, bytes: undefined})]);
         await openRow();
         expect(screen.getByText('Drop stopped: Windows would not let Floe save a file.')).toBeTruthy();
-        expect(screen.getByText('Received a file in full but could not finish saving it. The complete file was kept in the save folder with a .part ending.')).toBeTruthy();
+        expect(screen.getByText('The complete file was kept in the folder with a .part ending.')).toBeTruthy();
         expect(screen.queryByText(/SHA-256/)).toBeNull();
         await userEvent.click(screen.getByRole('button', {name: 'Show in folder'}));
         expect(wails.go.OpenFolder).toHaveBeenCalledWith(FOLDER);

@@ -225,7 +225,8 @@ function ActivitySlot(props: RequestLinkViewProps) {
     if (phase === 'reconnecting') {
         return (
             <div className="space-y-1.5">
-                <p className={t1Class}>{copy.reconnectingLine(snap.expiresAt)}</p>
+                <p className={t1Class}>{copy.RECONNECTING_LINE}</p>
+                <p className={t3Class}>{copy.RECONNECTING_NOTE}</p>
                 <div className="h-0.5"/>
                 <Button variant="outline" className="w-full" onClick={props.onRetry}>{copy.RETRY_NOW}</Button>
             </div>
@@ -238,7 +239,6 @@ function ActivitySlot(props: RequestLinkViewProps) {
                     <Loader2 className="size-3.5 shrink-0 animate-spin"/>
                     <span>{copy.CONNECTING_LINE}</span>
                 </p>
-                <p className={t3Class}>{copy.WAITING_IP_LINE}</p>
             </div>
         );
     }
@@ -248,12 +248,10 @@ function ActivitySlot(props: RequestLinkViewProps) {
         <div className="space-y-1.5">
             <p className={t1Class}>{reopened}</p>
             <p className={t2Class}>{copy.WAITING_LINE}</p>
-            <p className={t3Class}>{copy.WAITING_IP_LINE}</p>
         </div>
     ) : (
         <div className="space-y-1.5">
             <p className={t1Class}>{copy.WAITING_LINE}</p>
-            <p className={t3Class}>{copy.WAITING_IP_LINE}</p>
         </div>
     );
 }
@@ -444,7 +442,6 @@ function Result({phase, snap, onDismiss, onMakeAnother, onShowInFolder}: Request
                     </Button>
                 </div>
             )}
-            {!done && !!r.folder && copy.stoppedShowsFollowUp(snap.code, r.saved) && <p className={t3Class}>{copy.STOPPED_FOLLOW_UP}</p>}
             <Button className="w-full" onClick={onMakeAnother}>{copy.MAKE_ANOTHER_LINK}</Button>
             {confirming && (
                 <RenamedConfirm

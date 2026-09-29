@@ -874,7 +874,7 @@ describe('the request link in the app', () => {
         act(() => { wails.emit('close:blocked'); });
         const dialog = await screen.findByRole('dialog');
         expect(within(dialog).getByText('Close Floe?')).toBeTruthy();
-        expect(within(dialog).getByText('Your request link stops working until you make a new one.')).toBeTruthy();
+        expect(within(dialog).getByText('Your request link stops working.')).toBeTruthy();
         const keep = within(dialog).getByRole('button', {name: 'Keep Floe open'});
         expect(document.activeElement).toBe(keep);
         await user.click(within(dialog).getByRole('button', {name: 'Close Floe'}));
@@ -1119,7 +1119,7 @@ describe('the request link in the app', () => {
         const first = mount();
         await allOn();
         await userEvent.click(receiveTab());
-        expect(await screen.findByText('This link stopped when Floe closed. Make a new one.')).toBeTruthy();
+        expect(await screen.findByText('Link stopped when Floe closed.')).toBeTruthy();
         expect(localStorage.getItem('floe:requestLinkOpenUntil')).toBeNull();
         first.unmount();
 
@@ -1129,7 +1129,7 @@ describe('the request link in the app', () => {
         await userEvent.click(receiveTab());
         await waitFor(() => expect(requestButton()).toBeTruthy());
         await userEvent.click(requestButton());
-        expect(screen.queryByText('This link stopped when Floe closed. Make a new one.')).toBeNull();
+        expect(screen.queryByText('Link stopped when Floe closed.')).toBeNull();
         expect(screen.getByRole('button', {name: 'Make link'})).toBeTruthy();
     });
 
@@ -1160,7 +1160,7 @@ describe('the request link in the app', () => {
         await user.click(screen.getByRole('button', {name: 'Make link'}));
         expect(wails.go.MakeRequestLink).toHaveBeenCalledWith('Acme footage', 'D:\\Footage\\Floe requests', '24h');
         // The stub refuses (FT-03): the disabled sentence, never a link.
-        expect(await screen.findByText('Request links are turned off on the Floe server right now. Nothing else is affected.')).toBeTruthy();
+        expect(await screen.findByText('Request links are turned off on this server right now.')).toBeTruthy();
         expect(screen.queryByRole('button', {name: 'Copy link'})).toBeNull();
     });
 });
