@@ -191,19 +191,24 @@ function isObject(value: unknown): value is Record<string, unknown> {
 // Server and edge events carry what a browser event never does: the request's
 // headers and query string, and on an error from captureRequestError,
 // contexts.nextjs.request_path, the raw path and query. sendDefaultPii false
-// drops cookies, IP addresses and a few forwarding headers; every other header
-// stays. Next's RSC requests name the page they were made from in Next-Url and
-// Next-Router-State-Tree, so from /r they name /r/<linkId>: five prefetch
-// transactions per /r view on a production build (CP-QA F3-01), and a render
-// fault on /r sent the path in request_path (F3-03). A legacy ?room= page
-// sends its whole URL, room id included, as the Referer of every same-origin
-// request and as the query string of its own (skeptic S2, O-2).
+// drops only the headers that carry an IP address. Every other header stays,
+// Cookie included, and @sentry/core 10.72.0 also parses that header into
+// request.cookies, unfiltered, and attaches any body the scope holds as
+// request.data. Next's RSC requests name the page they were made from in
+// Next-Url and Next-Router-State-Tree, so from /r they name /r/<linkId>: five
+// prefetch transactions per /r view on a production build (CP-QA F3-01), and a
+// render fault on /r sent the path in request_path (F3-03). A legacy ?room=
+// page sends its whole URL, room id included, as the Referer of every
+// same-origin request and as the query string of its own (skeptic S2, O-2).
 //
 // So a server event keeps one header, the user agent (Sentry reads the browser
 // and OS from it, and the privacy page says each report carries it), and its
-// query string and request path take request.url's rules. An allowlist rather
-// than a denylist: Next can add a header, and a new one must arrive dropped.
+// query string and request path take request.url's rules. Of the request
+// block it keeps the url, method, query string and headers: cookies, the body
+// and anything the SDK adds later go. Allowlists rather than denylists: Next
+// can add a header and the SDK a field, and a new one must arrive dropped.
 const KEPT_REQUEST_HEADERS = new Set(['user-agent']);
+const KEPT_REQUEST_FIELDS = new Set(['url', 'method', 'query_string', 'headers']);
 
 export interface ScrubbableServerRequest {
     request?: { url?: string; headers?: Record<string, string>; query_string?: unknown };
@@ -236,6 +241,9 @@ export function scrubServerTransactionEvent<T extends ScrubbableTransaction & Sc
 function scrubServerRequest(event: ScrubbableServerRequest): void {
     const request: unknown = event.request;
     if (isObject(request)) {
+        for (const field of Object.keys(request)) {
+            if (!KEPT_REQUEST_FIELDS.has(field)) delete request[field];
+        }
         const headers = request.headers;
         if (isObject(headers)) {
             for (const name of Object.keys(headers)) {

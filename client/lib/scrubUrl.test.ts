@@ -644,8 +644,8 @@ describe('scrubSpanJson', () => {
 describe('server and edge events', () => {
     // What server-side Sentry sent for a browser on /r, captured on a
     // production build of d0f0c93 with a local sink (CP-QA F3-01 and F3-03,
-    // skeptic S2), ids replaced. sendDefaultPii false keeps every request
-    // header but cookies, IPs and a few forwarding ones.
+    // skeptic S2), ids replaced. sendDefaultPii false drops only the headers
+    // that carry an IP address; every other header stays, Cookie included.
     const LINK_ID = 'Ab3dE_f9-xY';
     const ROOM_ID = '6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f';
     const TREE = () =>
@@ -804,6 +804,33 @@ describe('server and edge events', () => {
             },
         });
         expect(out.request.headers).toEqual({ 'User-Agent': 'Mozilla/5.0' });
+    });
+
+    it('drops cookies, the body and every request field but the url, method, query string and headers', () => {
+        // sendDefaultPii false does not drop cookies in @sentry/core 10.72.0:
+        // the Cookie header stays and is parsed into request.cookies unfiltered,
+        // and a body the scope holds is attached as request.data.
+        const out = scrubServerErrorEvent({
+            request: {
+                url: 'http://127.0.0.1:64805/privacy',
+                method: 'GET',
+                query_string: 'x=1',
+                headers: { 'user-agent': 'Mozilla/5.0', cookie: 'plain=abc; session_id=zzz' },
+                cookies: { plain: 'abc', session_id: 'zzz' },
+                data: { next: `/r/${LINK_ID}` },
+                env: { REMOTE_ADDR: '203.0.113.7' },
+            },
+        });
+        expect(out.request).toEqual({
+            url: 'http://127.0.0.1:64805/privacy',
+            method: 'GET',
+            query_string: 'x=1',
+            headers: { 'user-agent': 'Mozilla/5.0' },
+        });
+        const transaction = scrubServerTransactionEvent({
+            request: { url: 'http://127.0.0.1:64805/', cookies: { plain: 'abc' }, data: 'plain=abc' },
+        });
+        expect(transaction.request).toEqual({ url: 'http://127.0.0.1:64805/' });
     });
 
     it('a server event anywhere else keeps its URL, query string and request path', () => {
