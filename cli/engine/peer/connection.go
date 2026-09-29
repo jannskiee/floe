@@ -347,10 +347,20 @@ func (conn *Connection) SetupAsSender() (*webrtc.DataChannel, error) {
 		if err != nil {
 			return nil, &SetupError{Stage: StageConnect, Err: err}
 		}
-		// Reached "connected"; give the data channel a brief grace to open.
+		// Reached "connected"; give the data channel a brief grace to open. A
+		// peer leaving or a local Close ends this wait too, as every other
+		// setup wait: a desktop cancel, or the close on an extra channel from
+		// the answerer, can land here (review A R2).
 		select {
 		case <-dcOpen:
 			return dc, nil
+		case <-conn.sc.PeerLeft:
+			if conn.signalingLost() {
+				return nil, &SetupError{Stage: StageSignalingLost, Err: ErrSignalingLost}
+			}
+			return nil, &SetupError{Stage: StagePeerLeft, Err: ErrPeerLeft}
+		case <-conn.done:
+			return nil, &SetupError{Stage: StageClosed, Err: ErrClosed}
 		case <-time.After(connectGrace):
 			return nil, &SetupError{Stage: StageChannel, Err: fmt.Errorf("connected but the data channel did not open")}
 		}
@@ -442,9 +452,18 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 		if err != nil {
 			return nil, &SetupError{Stage: StageConnect, Err: err}
 		}
+		// The grace wait ends on a peer leaving or a local Close too (review
+		// A R2), as in SetupAsSender.
 		select {
 		case dc := <-dcChan:
 			return dc, nil
+		case <-conn.sc.PeerLeft:
+			if conn.signalingLost() {
+				return nil, &SetupError{Stage: StageSignalingLost, Err: ErrSignalingLost}
+			}
+			return nil, &SetupError{Stage: StagePeerLeft, Err: ErrPeerLeft}
+		case <-conn.done:
+			return nil, &SetupError{Stage: StageClosed, Err: ErrClosed}
 		case <-time.After(connectGrace):
 			return nil, &SetupError{Stage: StageChannel, Err: fmt.Errorf("connected but the data channel did not open")}
 		}
