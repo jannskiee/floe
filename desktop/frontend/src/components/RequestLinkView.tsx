@@ -9,11 +9,12 @@
 // as a React text node; the prompt shows numbers and host-computed values only.
 
 import {useEffect, useRef, useState, type MouseEvent} from 'react';
-import {AlertCircle, Check, ChevronDown, Folder, FolderOpen, Loader2, X} from 'lucide-react';
+import {AlertCircle, ChevronDown, Folder, FolderOpen, Loader2, X} from 'lucide-react';
 import {Button, cn, Eyebrow, Input} from './ui';
 import * as copy from '../requestCopy';
 import {etaLines, guardActive, GUARD_MS, type Phase, type RequestLinkSnapshot} from '../requestLink';
 import {fmtEta, fmtSpeed, type Prog} from '../progress';
+import {shortPath} from '../paths';
 
 /** The link block and the activity slot below it: the phases in which a link
  *  exists on screen. Close link keeps one box across all of them (spec 06 5.5:
@@ -21,14 +22,19 @@ import {fmtEta, fmtSpeed, type Prog} from '../progress';
 export const LINK_PHASES = new Set<Phase>(['waiting', 'reconnecting', 'connecting', 'deciding', 'declined']);
 
 export const PROMPT_HEADING_ID = 'floe-request-prompt-heading';
+/** The Accept and Decline row: Review scrolls it into view (the notice hides
+ *  only while this whole row is on screen). */
+export const PROMPT_ACTIONS_ID = 'floe-request-prompt-actions';
 export const LABEL_INPUT_ID = 'floe-request-label';
 
 // Shared pieces of the canvas grammar.
-const headClass = 'font-mono text-[10px] font-medium uppercase leading-4 tracking-[0.2em] text-zinc-300';
+const headClass = 'px-0.5 font-mono text-[10px] font-medium uppercase leading-4 tracking-[0.2em] text-zinc-300';
 const t1Class = 'text-sm leading-normal text-zinc-200';
 const t2Class = 'text-xs leading-relaxed text-zinc-400';
 const t3Class = 'text-xs leading-relaxed text-zinc-500';
 const warnClass = 'text-xs leading-relaxed text-amber-300/80';
+// The Done folder name, in characters (12 px mono beside Show in folder).
+const DONE_FOLDER_MAX = 34;
 // The quiet right-rail text action (Dismiss), the History row's Remove look.
 const quietClass = '-mr-2 rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice/60';
 
@@ -56,8 +62,12 @@ export interface RequestLinkViewProps {
     onEdit: () => void;
     /** The guard lifted on a prompt (A2 is announced once, by App). */
     onGuardLift: () => void;
-    /** Whether the prompt block is in view (the notice hides while it is). */
+    /** Whether the whole Accept and Decline row is in view (the notice hides
+     *  while it is). */
     onPromptVisible: (visible: boolean) => void;
+    /** The count and folder of the prompt this drop answered, for Receiving
+     *  before the first progress event (requestLink.ts acceptedPrompt). */
+    accepted?: {files: number; folder: string} | null;
 }
 
 export default function RequestLinkView(props: RequestLinkViewProps) {
@@ -66,7 +76,7 @@ export default function RequestLinkView(props: RequestLinkViewProps) {
     if (LINK_PHASES.has(phase)) {
         return (
             <div className="space-y-4">
-                <LinkBlock snap={snap} onClose={props.onClose}/>
+                <LinkBlock phase={phase} snap={snap} onClose={props.onClose}/>
                 <div aria-hidden className="-mx-5 h-px bg-white/[0.06]"/>
                 <ActivitySlot {...props}/>
             </div>
@@ -77,7 +87,9 @@ export default function RequestLinkView(props: RequestLinkViewProps) {
     if (phase === 'ended') {
         return (
             <div className="space-y-4">
-                <p className={headClass}>{copy.linkHeading(snap.label)}</p>
+                {/* With no label, REQUEST LINK stays for screen readers only:
+                    the sub-tab row right above already says it. */}
+                <p className={snap.label ? headClass : 'sr-only'}>{copy.linkHeading(snap.label)}</p>
                 <p className={t1Class}>{copy.endedLine(snap.code, snap.expiresAt)}</p>
                 <Button className="w-full" onClick={props.onMakeAnother}>{copy.MAKE_ANOTHER_LINK}</Button>
             </div>
@@ -144,7 +156,12 @@ function ReadyForm({phase, errorCode, hideIP, saveDir, onSaveDirChange, onMake, 
                     <ChevronDown aria-hidden className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-zinc-500"/>
                 </div>
             </div>
-            {hideIP && <p className={warnClass}>{copy.READY_HIDE_IP_LINE}</p>}
+            {/* The one IP line, read before the commit (R15, D-136). With Hide
+                my IP on it would warn of something that does not apply, so R17
+                says the state instead. */}
+            {hideIP
+                ? <p className={warnClass}>{copy.READY_HIDE_IP_LINE}</p>
+                : <p className={t2Class}>{copy.READY_IP_LINE}</p>}
             {making ? (
                 <Button className="w-full" disabled>
                     <Loader2 className="animate-spin"/> {copy.MAKING_LINK}
@@ -158,13 +175,12 @@ function ReadyForm({phase, errorCode, hideIP, saveDir, onSaveDirChange, onMake, 
                     <span>{copy.errorLine(errorCode)}</span>
                 </p>
             )}
-            <p className={t3Class}>{copy.READY_IP_LINE}</p>
         </div>
     );
 }
 
 // ---- The link block (DW-01): the fixed geometry of every link phase --------
-function LinkBlock({snap, onClose}: {snap: RequestLinkSnapshot; onClose: () => void}) {
+function LinkBlock({phase, snap, onClose}: {phase: Phase; snap: RequestLinkSnapshot; onClose: () => void}) {
     const [copied, setCopied] = useState(false);
     const timer = useRef<number | null>(null);
     useEffect(() => () => { if (timer.current !== null) clearTimeout(timer.current); }, []);
@@ -179,28 +195,27 @@ function LinkBlock({snap, onClose}: {snap: RequestLinkSnapshot; onClose: () => v
         }
     }
     return (
-        <div className="space-y-4">
-            <div className="space-y-2">
-                <p id="floe-request-link-heading" className={headClass}>{copy.linkHeading(snap.label)}</p>
-                <Input
-                    readOnly
-                    value={snap.link}
-                    aria-labelledby="floe-request-link-heading"
-                    className="font-mono text-xs"
-                    onFocus={(e) => e.currentTarget.select()}
-                />
-                <div className="flex gap-3">
-                    <Button className="flex-1" onClick={copyLink}>{copied ? copy.COPIED : copy.COPY_LINK}</Button>
-                    {/* The one Close link, on the right rail, in the same box in
-                        every link phase (the prompt mounts below the hairline). */}
-                    <Button id="floe-close-link" variant="secondary" className="min-w-24" onClick={onClose}>{copy.CLOSE_LINK}</Button>
-                </div>
-                <p className={t3Class}>{copy.scopeLine(snap.expiresAt, Date.now())}</p>
+        <div className="space-y-2">
+            {/* With no label the heading is for screen readers only; it still
+                names the link field (aria-labelledby), by which the harnesses
+                find it. */}
+            <p id="floe-request-link-heading" className={snap.label ? headClass : 'sr-only'}>{copy.linkHeading(snap.label)}</p>
+            <Input
+                readOnly
+                value={snap.link}
+                aria-labelledby="floe-request-link-heading"
+                className="font-mono text-xs"
+                onFocus={(e) => e.currentTarget.select()}
+            />
+            <div className="flex gap-3">
+                {/* White only while the link waits: the view's one job then.
+                    Once someone connects, Accept (or nothing) is the white one. */}
+                <Button variant={phase === 'waiting' ? 'primary' : 'secondary'} className="flex-1" onClick={copyLink}>{copied ? copy.COPIED : copy.COPY_LINK}</Button>
+                {/* The one Close link, on the right rail, in the same box in
+                    every link phase (the prompt mounts below the hairline). */}
+                <Button id="floe-close-link" variant="secondary" className="min-w-24" onClick={onClose}>{copy.CLOSE_LINK}</Button>
             </div>
-            <div className="flex min-w-0 items-baseline gap-3 px-0.5">
-                <Eyebrow className="shrink-0">{copy.SAVE_TO_EYEBROW}</Eyebrow>
-                <span className="truncate font-mono text-xs text-zinc-400" title={snap.saveDir}>{snap.saveDir}</span>
-            </div>
+            <p className={t2Class}>{copy.scopeLine(snap.expiresAt, Date.now())}</p>
         </div>
     );
 }
@@ -212,47 +227,48 @@ function ActivitySlot(props: RequestLinkViewProps) {
         // Keyed on the prompt, so a new request gets a fresh guard.
         return <Prompt key={snap.promptGen} {...props}/>;
     }
+    // Two gaps only: 8 px inside a group of lines, 16 px between a group and
+    // the control under it.
     if (phase === 'declined') {
         return (
-            <div className="space-y-1.5">
-                <p className={t1Class}>{copy.DECLINED_LINE}</p>
-                <p className={t2Class}>{copy.DECLINED_QUESTION}</p>
-                <div className="h-0.5"/>
+            <div className="space-y-4">
+                <div className="space-y-2">
+                    <p className={t1Class}>{copy.DECLINED_LINE}</p>
+                    <p className={t2Class}>{copy.DECLINED_QUESTION}</p>
+                </div>
                 <Button variant="outline" className="w-full" onClick={() => props.onAnswer(snap.promptGen, 'keep-waiting')}>{copy.KEEP_WAITING}</Button>
             </div>
         );
     }
     if (phase === 'reconnecting') {
         return (
-            <div className="space-y-1.5">
-                <p className={t1Class}>{copy.RECONNECTING_LINE}</p>
-                <p className={t3Class}>{copy.RECONNECTING_NOTE}</p>
-                <div className="h-0.5"/>
+            <div className="space-y-4">
+                <div className="space-y-2">
+                    <p className={t1Class}>{copy.RECONNECTING_LINE}</p>
+                    <p className={t3Class}>{copy.RECONNECTING_NOTE}</p>
+                </div>
                 <Button variant="outline" className="w-full" onClick={props.onRetry}>{copy.RETRY_NOW}</Button>
             </div>
         );
     }
     if (phase === 'connecting') {
         return (
-            <div className="space-y-1.5">
-                <p className="flex items-center gap-2 text-sm text-zinc-200">
-                    <Loader2 className="size-3.5 shrink-0 animate-spin"/>
-                    <span>{copy.CONNECTING_LINE}</span>
-                </p>
-            </div>
+            <p className="flex items-center gap-2 text-sm text-zinc-200">
+                <Loader2 className="size-3.5 shrink-0 animate-spin"/>
+                <span>{copy.CONNECTING_LINE}</span>
+            </p>
         );
     }
-    // Waiting, or deciding without a prompt yet.
+    // Waiting, or deciding without a prompt yet. On a reopened link the news
+    // comes first and "Waiting for files." is the quiet reassurance under it.
     const reopened = copy.reopenLine(snap);
     return reopened ? (
-        <div className="space-y-1.5">
+        <div className="space-y-2">
             <p className={t1Class}>{reopened}</p>
-            <p className={t2Class}>{copy.WAITING_LINE}</p>
+            <p className={t3Class}>{copy.WAITING_LINE}</p>
         </div>
     ) : (
-        <div className="space-y-1.5">
-            <p className={t1Class}>{copy.WAITING_LINE}</p>
-        </div>
+        <p className={t1Class}>{copy.WAITING_LINE}</p>
     );
 }
 
@@ -309,14 +325,17 @@ function Prompt({snap, onAnswer, onGuardLift, onPromptVisible}: RequestLinkViewP
         return () => clearInterval(id);
     }, []);
 
-    // Whether the prompt is on screen, for the notice (spec 06 5.4). WebView2
-    // has IntersectionObserver; where it is missing the notice simply stays.
+    // Whether the whole Accept and Decline row is on screen, for the notice
+    // (spec 06 5.4): one visible pixel of the prompt used to hide it while
+    // Accept sat half cut below the window. 0.99, not 1: a row at a fractional
+    // y can report 0.9999. WebView2 has IntersectionObserver; where it is
+    // missing the notice simply stays.
     useEffect(() => {
         const el = block.current;
         if (!el || typeof IntersectionObserver === 'undefined') return;
         const io = new IntersectionObserver((entries) => {
-            for (const e of entries) onPromptVisible(e.isIntersecting);
-        });
+            for (const e of entries) onPromptVisible(e.intersectionRatio >= 0.99);
+        }, {threshold: [0, 0.99]});
         io.observe(el);
         return () => { io.disconnect(); onPromptVisible(false); };
     }, []);
@@ -337,17 +356,21 @@ function Prompt({snap, onAnswer, onGuardLift, onPromptVisible}: RequestLinkViewP
     const guardClass = guarded ? 'cursor-not-allowed opacity-50' : '';
 
     return (
-        <div ref={block} className="space-y-2">
-            <h3 id={PROMPT_HEADING_ID} tabIndex={-1} className={cn(headClass, 'outline-none')}>{copy.promptHeading(snap.label)}</h3>
-            <p className="text-sm font-medium text-zinc-100">{copy.promptSize(prompt.files, prompt.totalBytes)}</p>
-            <p className={t2Class}>{copy.INTO} <span className="font-mono text-zinc-300">{prompt.folder}</span></p>
-            {prompt.warnings.map((w) => {
-                const line = copy.warningLine(w, prompt, snap.saveDir);
-                return line ? <p key={w} className={warnClass}>{line}</p> : null;
-            })}
-            <p className={t3Class}>{copy.answerWithin(prompt.answerBy, now)}</p>
-            <div className="h-1"/>
-            <div className="flex gap-3">
+        <div className="space-y-4">
+            <div className="space-y-2">
+                <h3 id={PROMPT_HEADING_ID} tabIndex={-1} className={cn(headClass, 'outline-none')}>{copy.promptHeading(snap.label)}</h3>
+                <p className="text-sm font-medium text-zinc-100">{copy.promptSize(prompt.files, prompt.totalBytes)}</p>
+                <p className={t2Class}>{copy.INTO} <span className="break-all font-mono text-zinc-300">{prompt.folder}</span></p>
+                {prompt.warnings.map((w) => {
+                    const line = copy.warningLine(w, prompt, snap.saveDir);
+                    // P11 is advice, not a fact about this drop, so it is not amber.
+                    return line ? <p key={w} className={w === 'laptop-power' ? t2Class : warnClass}>{line}</p> : null;
+                })}
+                <p className={t2Class}>{copy.answerWithin(prompt.answerBy, now)}</p>
+                {/* P10 is read before the decision, above the buttons. */}
+                <p className={t2Class}>{copy.PROMPT_CAUTION}</p>
+            </div>
+            <div ref={block} id={PROMPT_ACTIONS_ID} className="flex gap-3">
                 <Button className={cn('flex-1', guardClass)} aria-disabled={guarded} onPointerDown={onDown} onClick={answer('accept')}>
                     {copy.ACCEPT}
                 </Button>
@@ -355,13 +378,12 @@ function Prompt({snap, onAnswer, onGuardLift, onPromptVisible}: RequestLinkViewP
                     {copy.DECLINE}
                 </Button>
             </div>
-            <p className={t3Class}>{copy.PROMPT_CAUTION}</p>
         </div>
     );
 }
 
 // ---- Receiving (DV-01 to DV-03) ---------------------------------------------
-function Receiving({snap, progress, onCancelDrop}: RequestLinkViewProps) {
+function Receiving({snap, progress, accepted, onCancelDrop}: RequestLinkViewProps) {
     // Speed and time left, averaged since this drop's first progress event
     // (the track() rule in progress.ts), keyed on the lane generation.
     const start = useRef<{gen: number; t: number; bytes: number} | null>(null);
@@ -373,13 +395,20 @@ function Receiving({snap, progress, onCancelDrop}: RequestLinkViewProps) {
     const speed = start.current && dt > 0.2 ? (done - start.current.bytes) / dt : 0;
     const eta = speed > 0 ? (total - done) / speed : Infinity;
     const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
-    const count = progress?.fileCount || snap.result?.files || snap.prompt?.files || 0;
+    // Before the first progress event the accepted prompt names the count, so
+    // the heading never reads RECEIVING 0 OF 0.
+    const count = progress?.fileCount || snap.result?.files || snap.prompt?.files || accepted?.files || 0;
     const index = progress?.fileIndex || (count ? 1 : 0);
+    // Where the files land, in P3's words, from Accept to Done.
+    const folder = snap.prompt?.folder || accepted?.folder || '';
     const speedText = fmtSpeed(speed);
     const etaText = fmtEta(eta);
     return (
         <div className="space-y-4">
-            <p className={headClass}>{copy.receivingHeading(index, count, snap.label)}</p>
+            <div className="space-y-2">
+                <p className={headClass}>{copy.receivingHeading(index, count, snap.label)}</p>
+                {folder && <p className={t2Class}>{copy.INTO} <span className="break-all font-mono text-zinc-300">{folder}</span></p>}
+            </div>
             <div className="space-y-2">
                 <div className="flex items-baseline justify-between gap-3 font-mono text-[11px] text-zinc-400">
                     {/* The engine's display-safe name (displayText, 200 max), as text. */}
@@ -389,11 +418,15 @@ function Receiving({snap, progress, onCancelDrop}: RequestLinkViewProps) {
                 <div className="h-1 w-full overflow-hidden rounded-full bg-white/10">
                     <div className="h-full rounded-full bg-white transition-[width] duration-150" style={{width: `${pct}%`}}/>
                 </div>
-                <div className="flex gap-3.5 font-mono text-[11px] text-zinc-500">
-                    <span>{copy.receivedOf(done, total)}</span>
-                    {speedText && <span>{speedText}</span>}
-                    {etaText && pct < 100 && <span>{copy.timeLeft(etaText)}</span>}
-                </div>
+                {/* The numbers wait for the first progress event ("0 B of 0 B"
+                    said nothing). */}
+                {progress && (
+                    <div className="flex gap-4 font-mono text-[11px] text-zinc-500">
+                        <span>{copy.receivedOf(done, total)}</span>
+                        {speedText && <span>{speedText}</span>}
+                        {etaText && pct < 100 && <span>{copy.timeLeft(etaText)}</span>}
+                    </div>
+                )}
             </div>
             {etaLines(snap, eta, dt).map((l) => <p key={l} className={warnClass}>{l}</p>)}
             <div className="flex justify-end">
@@ -420,14 +453,10 @@ function Result({phase, snap, onDismiss, onMakeAnother, onShowInFolder}: Request
             </div>
             {done ? (
                 <div className="space-y-2">
-                    {copy.verifiedAll(r) && (
-                        <p className="flex items-start gap-2 text-xs leading-relaxed text-zinc-400">
-                            <Check className="mt-0.5 size-3.5 shrink-0 text-green-500" strokeWidth={2.5}/>
-                            <span>{copy.VERIFIED_LINE}</span>
-                        </p>
-                    )}
+                    {/* The same plain line as the code receive: one left edge. */}
+                    {copy.verifiedAll(r) && <p className={t2Class}>{copy.VERIFIED_LINE}</p>}
                     {r.renamed > 0 && <p className={warnClass}>{copy.renamedLine(r.renamed)}</p>}
-                    <p className={t3Class}>{copy.NOT_SCANNED_LINE}</p>
+                    <p className={t2Class}>{copy.NOT_SCANNED_LINE}</p>
                 </div>
             ) : (
                 <p className={t1Class}>{copy.stoppedCard(snap.code, r.saved, r.files)}</p>
@@ -436,13 +465,17 @@ function Result({phase, snap, onDismiss, onMakeAnother, onShowInFolder}: Request
             {!done && copy.keptPartLine(snap.code) && <p className={t1Class}>{copy.keptPartLine(snap.code)}</p>}
             {showFolder && (
                 <div className="flex min-w-0 items-center justify-between gap-3">
-                    <span className="truncate font-mono text-xs text-zinc-300" title={r.folder}>{copy.folderName(r.folder)}</span>
+                    {/* The drop's own folder name, cut in the middle so its
+                        timestamp stays; the full path is shown nowhere else, so
+                        it is always the title. */}
+                    <span className="truncate font-mono text-xs text-zinc-300" title={r.folder}>{shortPath(copy.folderName(r.folder), DONE_FOLDER_MAX)}</span>
                     <Button variant="outline" className="h-[30px] shrink-0 text-xs" onClick={show}>
                         <FolderOpen/> {copy.SHOW_IN_FOLDER}
                     </Button>
                 </div>
             )}
-            <Button className="w-full" onClick={onMakeAnother}>{copy.MAKE_ANOTHER_LINK}</Button>
+            {/* Outline: Dismiss already puts the result away, so no white slab. */}
+            <Button variant="outline" className="w-full" onClick={onMakeAnother}>{copy.MAKE_ANOTHER_LINK}</Button>
             {confirming && (
                 <RenamedConfirm
                     onCancel={() => setConfirming(false)}

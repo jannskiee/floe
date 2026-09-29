@@ -1053,64 +1053,88 @@ describe('the request link in the app', () => {
         expect(screen.getByText('ACME FOOTAGE WANTS TO SEND YOU FILES')).toBeTruthy();
     });
 
+    it('Review brings the whole Accept row into view, then focuses the heading without scrolling again', async () => {
+        // jsdom has no scrollIntoView; record who is asked to scroll, and how.
+        const proto = HTMLElement.prototype as unknown as {scrollIntoView?: (arg?: unknown) => void};
+        const had = proto.scrollIntoView;
+        const scrolled: Array<{id: string; arg: unknown}> = [];
+        proto.scrollIntoView = function (this: HTMLElement, arg?: unknown) { scrolled.push({id: this.id, arg}); };
+        const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+        try {
+            switchOn();
+            const user = userEvent.setup();
+            mount();
+            await allOn();
+            push(lane('deciding', {gen: 2, promptGen: 1, prompt}));
+            const notice = await screen.findByRole('group', {name: 'Someone wants to send you files.'});
+            await user.click(within(notice).getByRole('button', {name: 'Review'}));
+            await waitFor(() => expect(document.activeElement?.id).toBe('floe-request-prompt-heading'));
+            expect(scrolled).toEqual([{id: 'floe-request-prompt-actions', arg: {block: 'nearest'}}]);
+            const heading = document.getElementById('floe-request-prompt-heading');
+            const calls = focus.mock.calls.filter((_, i) => focus.mock.contexts[i] === heading);
+            expect(calls).toEqual([[{preventScroll: true}]]);
+        } finally {
+            proto.scrollIntoView = had;
+        }
+    });
+
     it('the card keeps its top when a request mounts on REQUEST LINK', async () => {
         // Spec 06 5.5 and VR3-D03: Close link does not move when a request
-        // mounts. m-auto centers the card, so a prompt that grows it would
-        // re-center it and carry Close link up by half the growth (65 px at
-        // 1000 x 640 in Chromium). jsdom has no layout, so this rect stands in
-        // for m-auto: the card's top is wherever centering puts it for what
-        // it holds right now, and the pin must keep the one read on entry.
-        let centered = 163.5;
-        vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-            const top = this.classList.contains('m-auto') ? centered : 0;
-            return {top, bottom: top, left: 0, right: 0, x: 0, y: top, width: 0, height: 0, toJSON: () => ({})} as DOMRect;
+        // mounts; D-136: the card's top is one anchored spot for the whole
+        // REQUEST LINK view, 103 px at 1000 x 640. jsdom has no layout, so
+        // <main>'s height is mocked (the window less the 36 px title bar) and
+        // the box gets its py-8 padding inline: room 540 px, margin 35 px.
+        let mainHeight = 604;
+        vi.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(function (this: Element) {
+            return this.tagName === 'MAIN' ? mainHeight : 0;
         });
         switchOn();
         const user = userEvent.setup();
         mount();
         await allOn();
         const card = () => document.querySelector<HTMLElement>('main .m-auto')!;
+        card().parentElement!.style.padding = '32px';
 
-        // A link open behind the Send view pins nothing there.
+        // A link open behind the Send view anchors nothing there.
         push(lane('waiting', {seq: 1}));
         expect(card().style.marginTop).toBe('');
         // Entering Receive opens REQUEST LINK while the link is live (the header
         // has no marker to click since D-135).
         await user.click(receiveTab());
         expect(await screen.findByRole('button', {name: 'Close link'})).toBeTruthy();
-        expect(card().style.marginTop).toBe('163.5px');
+        expect(card().style.marginTop).toBe('35px');
         expect(card().style.marginBottom).toBe('auto');
 
-        // The prompt mounts and would re-center the card 65 px higher.
-        centered = 98.1;
-        push(lane('deciding', {seq: 2, promptGen: 1, prompt}));
-        expect(screen.getByRole('button', {name: 'Accept'})).toBeTruthy();
-        expect(card().style.marginTop).toBe('163.5px');
+        // Every state of the view keeps the same top: the prompt that would
+        // have re-centered the card 65 px higher, declined, waiting again, a
+        // drop moving, and its result.
+        const states: Array<[string, Record<string, unknown>]> = [
+            ['deciding', {seq: 2, promptGen: 1, prompt}], ['declined', {seq: 3, promptGen: 1}], ['waiting', {seq: 4}],
+            ['receiving', {seq: 5, route: 'direct'}],
+            ['done', {seq: 6, result: {files: 1, saved: 1, bytes: 1, verified: 1, renamed: 0, folder: 'D:\\x', names: ['a']}}],
+        ];
+        for (const [state, over] of states) {
+            push(lane(state, over));
+            expect(card().style.marginTop, state).toBe('35px');
+        }
+        // The Ready form after Dismiss, too.
+        await user.click(screen.getByRole('button', {name: 'Dismiss'}));
+        expect(await screen.findByRole('button', {name: 'Make link'})).toBeTruthy();
+        expect(card().style.marginTop).toBe('35px');
 
-        // Declined and back to waiting: the card shrinks, and still holds.
-        centered = 163.5;
-        push(lane('declined', {seq: 3, promptGen: 1}));
-        push(lane('waiting', {seq: 4}));
-        centered = 150;
-        expect(card().style.marginTop).toBe('163.5px');
-
-        // A resize re-centers and pins again.
+        // A resize recomputes: 1140 x 720 puts the card's top at 143 px.
+        mainHeight = 684;
         act(() => { window.dispatchEvent(new Event('resize')); });
-        expect(card().style.marginTop).toBe('150px');
+        expect(card().style.marginTop).toBe('75px');
 
-        // Another tab centers as before; coming back re-reads the spot.
-        await user.click(screen.getByRole('button', {name: 'Send'}));
-        expect(card().style.marginTop).toBe('');
-        centered = 140;
-        await user.click(receiveTab());
-        expect(screen.getByRole('button', {name: 'Close link'})).toBeTruthy();
-        expect(card().style.marginTop).toBe('140px');
-
-        // Leaving the link phases hands the card back to m-auto.
-        push(lane('receiving', {seq: 5, route: 'direct'}));
+        // Another tab centers as before; coming back anchors again.
+        await user.click(screen.getAllByRole('button', {name: 'Send'})[0]);
         expect(card().style.marginTop).toBe('');
         expect(card().style.marginBottom).toBe('');
         expect(card().className).toContain('m-auto');
+        await user.click(receiveTab());
+        await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
+        expect(card().style.marginTop).toBe('75px');
     });
 
     it('the link stopped when Floe closed line shows once after relaunch', async () => {

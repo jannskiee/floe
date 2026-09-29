@@ -51,6 +51,7 @@ import {UNDO_WINDOW_MS, clearLabel, clearedAnnouncement, clearedLabel, restorabl
 import {resetWarning} from './reset';
 import {friendlyError} from './errors';
 import {
+    acceptedPrompt,
     errorCode as requestErrorCode,
     initialRequestUI,
     linkOpen,
@@ -92,7 +93,7 @@ import {SettingRow, SettingField} from './components/SettingsPrimitives';
 import {ProgressRow, StatusLine, FooterNote, Dropzone, FileList, FileSummary} from './components/TransferBits';
 import SharePanel from './components/SharePanel';
 import HistoryView from './components/HistoryView';
-import RequestLinkView, {LABEL_INPUT_ID, LINK_PHASES, PROMPT_HEADING_ID} from './components/RequestLinkView';
+import RequestLinkView, {LABEL_INPUT_ID, PROMPT_ACTIONS_ID, PROMPT_HEADING_ID} from './components/RequestLinkView';
 import {useCardPin} from './cardPin';
 
 type Mode = 'send' | 'receive' | 'history';
@@ -1624,10 +1625,11 @@ function App() {
     // longer holds the row open once request-1 is gone.
     const rowVisible = showRow(requestLinksOn, reqUI.featurePresent, reqPhase);
     const onRequestView = !settingsOpen && mode === 'receive' && rowVisible && receiveKind === 'request';
-    // While REQUEST LINK shows a link, the card holds the top m-auto gave it,
-    // so a prompt mounting below cannot re-center it and move Close link
-    // (VR3-D03). cardPin.ts has the why.
-    const cardPin = useCardPin(onRequestView && LINK_PHASES.has(reqPhase));
+    // On REQUEST LINK the card's top is one anchored spot for every state, so
+    // a prompt mounting below cannot re-center it and move Close link
+    // (VR3-D03), and no state starts the card higher or lower than another
+    // (D-136). cardPin.ts has the why.
+    const cardPin = useCardPin(onRequestView);
 
     // What the send tab is holding, or null when it is empty. One rule, read by
     // three places: whether Send is enabled, whether Clear is offered at all, and
@@ -1770,17 +1772,17 @@ function App() {
         dispatchReq({type: 'MAKE_ANOTHER'});
         requestAnimationFrame(() => document.getElementById(LABEL_INPUT_ID)?.focus());
     }
-    // Review opens Receive > REQUEST LINK, brings the prompt into view and
-    // focuses its heading: the only automatic focus move, and one the owner
-    // pressed a button for.
+    // Review opens Receive > REQUEST LINK, brings the whole Accept and Decline
+    // row into view (so the notice hides) and focuses the prompt's heading
+    // without scrolling again: the only automatic focus move, and one the
+    // owner pressed a button for.
     function openRequestView() {
         setSettingsOpen(false);
         setMode('receive');
         setReceiveKind('request');
         requestAnimationFrame(() => {
-            const h = document.getElementById(PROMPT_HEADING_ID);
-            h?.scrollIntoView?.({block: 'center'});
-            h?.focus();
+            document.getElementById(PROMPT_ACTIONS_ID)?.scrollIntoView?.({block: 'nearest'});
+            document.getElementById(PROMPT_HEADING_ID)?.focus({preventScroll: true});
         });
     }
 
@@ -2521,6 +2523,7 @@ function App() {
                                             onEdit={() => dispatchReq({type: 'ACK_ERROR'})}
                                             onGuardLift={() => setReqAnnounce(ANNOUNCE_GUARD_LIFTED)}
                                             onPromptVisible={setPromptInView}
+                                            accepted={acceptedPrompt(reqUI)}
                                         />
                                     </div>
 

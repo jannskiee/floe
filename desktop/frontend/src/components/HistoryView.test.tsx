@@ -240,4 +240,26 @@ describe('request rows', () => {
         const calls = JSON.stringify(Object.values(wails.go).map((f) => f.mock.calls));
         for (const name of hostile) expect(calls.includes(JSON.stringify(name).slice(1, -1))).toBe(false);
     });
+
+    it('a long folder is cut in the middle, keeping its end, with the full path as its title (D-136)', async () => {
+        const long = `D:\\Footage\\Floe requests\\${'A'.repeat(40)} 2026-09-14 1405`;
+        mount([request({dir: long})]);
+        await openRow();
+        const line = screen.getByTitle(long);
+        expect(line.textContent).toContain('...');
+        expect(line.textContent!.startsWith('D:\\')).toBe(true);
+        expect(line.textContent!.endsWith(' 2026-09-14 1405')).toBe(true);
+        expect(line.textContent!.length).toBeLessThanOrEqual(48);
+        // Show in folder still gets the whole path.
+        await userEvent.click(screen.getByRole('button', {name: 'Show in folder'}));
+        expect(wails.go.OpenFolder).toHaveBeenCalledWith(long);
+    });
+
+    it('a folder that fits shows whole, with no title', async () => {
+        const short = 'D:\\Floe requests\\Acme 2026-09-14 1405';
+        mount([request({dir: short})]);
+        await openRow();
+        const line = screen.getByText(short);
+        expect(line.getAttribute('title')).toBeNull();
+    });
 });

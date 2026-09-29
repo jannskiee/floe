@@ -137,11 +137,31 @@ export interface RequestUI {
     /** Floe closed last time with a link open (X5, O7): shown as an ended
      *  link until the owner moves on, and only while Go has nothing to say. */
     relaunch: boolean;
+    /** The last prompt this lane generation showed, as numbers and the
+     *  host-computed folder: Receiving names the count and the folder from it
+     *  before the first progress event, since a receiving snapshot need not
+     *  carry the prompt (D-136). Never a visitor string (OD-04). */
+    accepted: {gen: number; files: number; folder: string} | null;
 }
 
 export const initialRequestUI: RequestUI = {
     snap: OFF_SNAPSHOT, switchOn: false, featurePresent: false, making: false, hiddenKey: '', localError: '', relaunch: false,
+    accepted: null,
 };
+
+/** keepAccepted is the accepted field after adopting `snap`: its prompt when it
+ *  carries one, the one already kept while the generation holds, else none. */
+function keepAccepted(prev: RequestUI['accepted'], snap: RequestLinkSnapshot): RequestUI['accepted'] {
+    if (snap.prompt) return {gen: snap.gen, files: snap.prompt.files, folder: snap.prompt.folder};
+    return prev && prev.gen === snap.gen ? prev : null;
+}
+
+/** acceptedPrompt is what Receiving shows before the first progress event: the
+ *  count and folder of the prompt this generation answered, or null. */
+export function acceptedPrompt(ui: RequestUI): {files: number; folder: string} | null {
+    const a = ui.accepted;
+    return a && a.gen === ui.snap.gen ? {files: a.files, folder: a.folder} : null;
+}
 
 export type RequestEvent =
     | {type: 'FEATURE'; switchOn?: boolean; requestLinks?: boolean}
@@ -247,6 +267,7 @@ export function reduce(ui: RequestUI, ev: RequestEvent): RequestUI {
                 making: newer ? false : ui.making,
                 localError: newer ? '' : ui.localError,
                 relaunch: newer ? false : ui.relaunch,
+                accepted: keepAccepted(ui.accepted, ev.snap),
             };
         }
         case 'MAKE':

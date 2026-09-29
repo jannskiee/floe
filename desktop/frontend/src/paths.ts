@@ -20,6 +20,34 @@ export const baseName = (p: string) => p.split(/[\\/]/).pop();
  *  the Go side, so this result must never be stored. */
 export const normPath = (p: string, windows: boolean) => (windows ? p.toLowerCase() : p);
 
+const ELLIPSIS = '...';
+// A drive ("D:\"), a network share ("\\server\share\") or a POSIX root.
+const ROOT = /^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+[\\/]|\/)/;
+
+/** shortPath fits a path, or a single folder name, into `max` characters by
+ *  cutting its middle: the drive root and the last folders stay
+ *  ("D:\...\Acme footage 2026-09-14 1405"), and when even the last folder is
+ *  too long, the start and the end of the whole string do. End truncation
+ *  would hide exactly the part that tells two drops apart, the timestamp in
+ *  the folder name. A path that fits comes back unchanged, so a caller knows
+ *  it was shortened when the result differs; the full path then belongs in a
+ *  native title beside it. Display only. */
+export function shortPath(p: string, max: number): string {
+    if (p.length <= max) return p;
+    const root = ROOT.exec(p)?.[0] ?? '';
+    const sep = p.includes('\\') ? '\\' : '/';
+    const parts = p.slice(root.length).split(/[\\/]+/).filter(Boolean);
+    if (root) {
+        for (let k = parts.length - 1; k >= 1; k--) {
+            const s = `${root}${ELLIPSIS}${sep}${parts.slice(-k).join(sep)}`;
+            if (s.length <= max) return s;
+        }
+    }
+    const room = Math.max(2, max - ELLIPSIS.length);
+    const head = Math.floor(room / 2);
+    return `${p.slice(0, head)}${ELLIPSIS}${p.slice(p.length - (room - head))}`;
+}
+
 /** mergePaths appends `add` to `prev`, skipping anything already present under
  *  normPath comparison. Order is preserved and the original spelling is kept. */
 export function mergePaths(prev: string[], add: string[], windows: boolean): string[] {

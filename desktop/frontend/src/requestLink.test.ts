@@ -1,6 +1,7 @@
 import {describe, expect, it} from 'vitest';
 import {
     OFF_SNAPSHOT,
+    acceptedPrompt,
     acceptStale,
     canMake,
     errorCode,
@@ -275,6 +276,26 @@ describe('the request lane reducer', () => {
         expect(phase(reduce(x, {type: 'SNAPSHOT', snap: snap({state: 'waiting', gen: 1})}))).toBe('waiting');
         // Never over a lane that has something to say.
         expect(reduce(waiting, {type: 'RELAUNCH'})).toBe(waiting);
+    });
+
+    it('keeps the accepted prompt count and folder for this generation only (D-136)', () => {
+        // Receiving names them before the first progress event, from the
+        // prompt the owner answered, since the receiving snapshot need not
+        // carry it.
+        expect(acceptedPrompt(waiting)).toBeNull();
+        expect(acceptedPrompt(deciding)).toEqual({files: 12, folder: 'f'});
+        expect(receiving.snap.prompt).toBeUndefined();
+        expect(acceptedPrompt(receiving)).toEqual({files: 12, folder: 'f'});
+        // A later prompt of the same link replaces it.
+        const second = at('deciding', {promptGen: 2, prompt: {files: 3, totalBytes: 1, folder: 'g', freeBytes: 1, warnings: [], answerBy: 1}})(at('waiting')(deciding));
+        expect(acceptedPrompt(at('receiving')(second))).toEqual({files: 3, folder: 'g'});
+        // A new link generation forgets it.
+        const next = reduce(receiving, {type: 'SNAPSHOT', snap: snap({state: 'waiting', gen: 2})});
+        expect(acceptedPrompt(next)).toBeNull();
+        expect(acceptedPrompt(reduce(next, {type: 'SNAPSHOT', snap: snap({state: 'receiving', gen: 2})}))).toBeNull();
+        // A stale snapshot changes nothing, the kept prompt included.
+        const stale = snap({state: 'deciding', gen: 0, prompt: {files: 99, totalBytes: 1, folder: 'x', freeBytes: 1, warnings: [], answerBy: 1}});
+        expect(reduce(receiving, {type: 'SNAPSHOT', snap: stale})).toBe(receiving);
     });
 });
 
