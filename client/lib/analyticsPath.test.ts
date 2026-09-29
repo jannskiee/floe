@@ -92,8 +92,15 @@ describe('umamiBeforeSend', () => {
             fileURLToPath(new URL('../components/UmamiScript.tsx', import.meta.url)),
             'utf8'
         );
-        expect(src).toContain('data-before-send={UMAMI_BEFORE_SEND}');
-        expect(src).toContain('[UMAMI_BEFORE_SEND] = umamiBeforeSend;');
+        // Whole code lines, so a line commented out with // fails; substring
+        // checks passed with both lines commented out.
+        expect(src).toMatch(/^\s+data-before-send=\{UMAMI_BEFORE_SEND\}\r?$/m);
+        const install =
+            /^\s+\(window as unknown as Record<string, unknown>\)\[UMAMI_BEFORE_SEND\] = umamiBeforeSend;\r?$/m.exec(src);
+        expect(install, 'the window install').not.toBeNull();
+        // At module scope, ahead of the component: it runs when the module
+        // loads, before any render can append the script.
+        expect(install?.index ?? Infinity).toBeLessThan(src.indexOf('export function UmamiScript'));
         expect(UMAMI_BEFORE_SEND).toMatch(/^[A-Za-z_$][\w$]*$/);
     });
 });

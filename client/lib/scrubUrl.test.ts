@@ -943,7 +943,8 @@ describe('server and edge events', () => {
             const src = readFileSync(fileURLToPath(new URL(`../${file}`, import.meta.url)), 'utf8');
             expect(src, file).toMatch(/beforeSend\(event\) \{\s*return scrubServerErrorEvent\(event\);\s*\}/);
             expect(src, file).toMatch(/beforeSendTransaction\(event\) \{\s*return scrubServerTransactionEvent\(event\);\s*\}/);
-            expect(src, file).toContain('sendDefaultPii: false');
+            // A whole code line, so a commented-out one fails.
+            expect(src, file).toMatch(/^\s+sendDefaultPii: false,\r?$/m);
         }
     });
 });
