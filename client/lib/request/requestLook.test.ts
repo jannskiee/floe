@@ -62,14 +62,17 @@ describe('the /r look', () => {
         expect(classesBefore(read('ReadyHeader.tsx'), '{visitorCopy.betaSupport}')).toContain('text-zinc-400');
         expect(classesBefore(read('ReportLink.tsx'), '{visitorCopy.reportLink}')).toContain('text-zinc-400');
         expect(classesBefore(read('RequestProgress.tsx'), '{visitorCopy.keepInFront}')).toContain('text-zinc-400');
-        // What stays dim on purpose: the mono eyebrow, the Privacy and Terms
-        // footer, and the dropzone's plus icon, which is not text.
+        // The page heading too: since C-02 lost "This is a Floe request
+        // link.", the heading is one of the lines that say what the page is.
+        expect(classesBefore(read('ReadyHeader.tsx'), '{visitorCopy.readyEyebrow}')).toContain('text-zinc-400');
+        // What stays dim on purpose: the Privacy and Terms footer, and the
+        // dropzone's plus icon, which is not text.
         const dim: string[] = [];
         for (const name of readdirSync(DIR).filter((f) => f.endsWith('.tsx')).sort()) {
             for (const line of read(name).split(/\r?\n/)) {
                 if (line.includes('text-zinc-500')) dim.push(`${name} ${line.trim().split(' ')[0]}`);
             }
         }
-        expect(dim).toEqual(['ReadyHeader.tsx <h1', 'RequestDropzone.tsx <Plus', 'RequestShell.tsx <footer']);
+        expect(dim).toEqual(['RequestDropzone.tsx <Plus', 'RequestShell.tsx <footer']);
     });
 });

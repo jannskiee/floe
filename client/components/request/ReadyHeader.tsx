@@ -15,8 +15,11 @@ export function ReadyHeader() {
                     frame shows. A heading element rather than a paragraph so
                     the Ready state has one, like the two notice states do. It
                     starts on the text edge like every line under it: a
-                    pl-[0.2em] repays tracking only on a centered label. */}
-                <h1 className="font-mono text-[11px] leading-none tracking-[0.2em] text-zinc-500">
+                    pl-[0.2em] repays tracking only on a centered label.
+                    zinc-400 (7.34:1 on the card, where zinc-500 was 4.00:1):
+                    with the intro no longer naming the page, the heading is
+                    one of the lines that say what it is. */}
+                <h1 className="font-mono text-[11px] leading-none tracking-[0.2em] text-zinc-400">
                     {visitorCopy.readyEyebrow}
                 </h1>
                 <span className="shrink-0 rounded-full border border-white/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.15em] text-zinc-400">

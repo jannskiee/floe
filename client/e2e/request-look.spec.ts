@@ -155,6 +155,8 @@ test.describe('request look', () => {
         await expectReadableText(page.getByText(visitorCopy.betaSupport, { exact: true }), 'the Beta line');
         await expectReadableText(page.getByText(visitorCopy.betaChip, { exact: true }), 'the Beta chip');
         await expectReadableText(page.getByRole('link', { name: visitorCopy.reportLink }), 'Report this link');
+        // The page heading says what the page is now that the intro does not.
+        await expectReadableText(page.getByRole('heading', { name: visitorCopy.readyEyebrow }), 'the page heading');
 
         await page
             .locator('input[type=file]:not([webkitdirectory])')
