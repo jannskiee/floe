@@ -58,9 +58,11 @@ export function RequestShell() {
  *  Next-Url: /r/<linkId> to the server with no click at all; the Umami tracker
  *  the next page loads stays in the document, so Back reports /r/<linkId> as a
  *  pageview and the following page reports it as the referrer. The same soft
- *  hop also skips beforeunload, so the Stop confirmation never shows mid-drop
- *  (F5-02), and it carries the socket singleton the page disconnected over to
- *  / (F5-04).
+ *  hop also skipped beforeunload, so leaving by the footer mid-drop ended the
+ *  drop with no prompt at all (F5-02); as a page load it raises the browser's
+ *  own leave-page prompt from useVisitorGuards (spec 07 4.14), just as closing
+ *  the tab does. The in-page Stop dialog stays the Stop button's. The soft hop
+ *  also carried the socket singleton the page disconnected over to / (F5-04).
  *
  *  rel="noreferrer" on both. They are same-origin today and the no-referrer
  *  response header already covers them, so this is the belt to that header's

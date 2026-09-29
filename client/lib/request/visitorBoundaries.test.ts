@@ -259,9 +259,11 @@ describe('the /r page boundaries', () => {
         // in-viewport prefetches send Next-Url: /r/<linkId> to the server, and
         // so to server-side Sentry (CP-QA F3-01); after Back, the tracker the
         // next page loaded into that document reports /r/<linkId> (F3-02). The
-        // same hop skips beforeunload, so the Stop confirmation never shows
-        // (F5-02), and it hands the disconnected socket singleton to / (F5-04).
-        // A plain anchor is a page load and does none of that.
+        // same hop skips beforeunload, so leaving mid-drop raises no
+        // leave-page prompt (F5-02), and it hands the disconnected socket
+        // singleton to / (F5-04). A plain anchor is a page load and does none
+        // of that; mid-drop it raises the browser's leave-page prompt (spec 07
+        // 4.14), as closing the tab does.
         for (const [file, src] of Object.entries(requestSources())) {
             expect(/from\s+['"]next\/link['"]/.test(src), `${file} imports next/link`).toBe(false);
             expect(/\buseRouter\b/.test(src), `${file} uses the router`).toBe(false);
