@@ -6,6 +6,7 @@ package main
 // registered first.
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -56,6 +57,14 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	//    Input can be: "olive-tiger-castle" (code) or a full URL
 	roomId, err := code.Resolve(flagServer, input)
 	if err != nil {
+		// A request or drop link (TL-33, E-10) comes back as the engine's
+		// sentinel, whose text is the approved sentence. Returned bare, never
+		// wrapped: the wrapper below quotes the pasted input, which for a
+		// request link is the room id in the fragment (desktop/transfer.go
+		// does the same).
+		if errors.Is(err, code.ErrRequestLink) || errors.Is(err, code.ErrDropLink) {
+			return err
+		}
 		return fmt.Errorf("could not resolve %q: %w", input, err)
 	}
 
