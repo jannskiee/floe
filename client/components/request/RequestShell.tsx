@@ -28,7 +28,12 @@ export function RequestShell() {
         // tokens (near-white outline buttons under near-white text, a
         // near-black Send on the near-black card) and the native Hide my IP
         // checkbox drew white (R4 F1, F2).
-        <div className="dark scheme-dark flex min-h-dvh flex-col items-center bg-zinc-950 font-sans text-zinc-100 px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-[max(1.5rem,env(safe-area-inset-left),env(safe-area-inset-right))] sm:pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        //
+        // *:[--ring:...] gives every control the ice focus ring (3.99:1 against
+        // the card at the Button's 50%, where the dark token gave 1.88:1). It
+        // sets --ring on the shell's children because .dark sets it on the
+        // shell itself from an unlayered rule, which beats any utility there.
+        <div className="dark scheme-dark *:[--ring:var(--color-ice)] flex min-h-dvh flex-col items-center bg-zinc-950 font-sans text-zinc-100 px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-[max(1.5rem,env(safe-area-inset-left),env(safe-area-inset-right))] sm:pb-[max(1.5rem,env(safe-area-inset-bottom))]">
             {/* A wordmark, not a link. It tells the visitor where they are,
                 which is half of why the links live on floe.one at all, and it
                 goes nowhere: one task on this page. */}

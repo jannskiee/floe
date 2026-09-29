@@ -32,4 +32,16 @@ describe('the /r shell', () => {
         expect(classes).toContain('dark');
         expect(classes).toContain('scheme-dark');
     });
+
+    it('gives every control on /r the ice focus ring', () => {
+        // The dark ring token, oklch(0.556 0 0), drawn at 50% by the Button's
+        // ring-ring/50, is 1.88:1 against the card; WCAG 1.4.11 asks 3:1 of a
+        // focus indicator. Ice at 50% is 3.99:1. It is set on the shell's
+        // children, not on the shell: .dark sets --ring on its own element
+        // from an unlayered rule, which beats any utility there.
+        // e2e/request-look.spec.ts measures the ring as drawn.
+        const classes = shellRootClasses();
+        expect(classes).toContain('*:[--ring:var(--color-ice)]');
+        expect(classes).not.toContain('[--ring:var(--color-ice)]');
+    });
 });

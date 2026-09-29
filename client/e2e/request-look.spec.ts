@@ -29,6 +29,8 @@ interface Seen {
     background: Rgb;
     /** What is behind the element, without its own background. */
     surround: Rgb;
+    /** The focus ring as drawn over the surround, or null when none is. */
+    ring: Rgb | null;
 }
 
 /** The colors the eye gets at an element. getComputedStyle hands back oklch,
@@ -72,10 +74,38 @@ async function seen(locator: Locator): Promise<Seen> {
             return color;
         };
         const background = behind(el);
+        const surround = behind(el.parentElement);
+        // Tailwind draws the ring as a box-shadow spread around the border box,
+        // so it lies on the surround. The computed value lists each shadow as
+        // its color, then x, y, blur and spread; the ring is the widest spread
+        // with no offset and no blur that has any alpha.
+        const shadows: string[] = [];
+        let depth = 0;
+        let current = '';
+        for (const ch of getComputedStyle(el).boxShadow) {
+            if (ch === '(') depth++;
+            if (ch === ')') depth--;
+            if (ch === ',' && depth === 0) {
+                shadows.push(current.trim());
+                current = '';
+            } else current += ch;
+        }
+        shadows.push(current.trim());
+        let ring: [number, number, number] | null = null;
+        let widest = 0;
+        for (const shadow of shadows) {
+            const m = /^(.*\S)\s+(-?[\d.]+)px\s+(-?[\d.]+)px\s+(-?[\d.]+)px\s+(-?[\d.]+)px$/.exec(shadow);
+            if (!m || +m[2] !== 0 || +m[3] !== 0 || +m[4] !== 0 || +m[5] <= widest) continue;
+            const color = rgba(m[1]);
+            if (color[3] === 0) continue;
+            widest = +m[5];
+            ring = over(color, surround);
+        }
         return {
             text: over(rgba(getComputedStyle(el).color), background),
             background,
-            surround: behind(el.parentElement),
+            surround,
+            ring,
         };
     });
 }
@@ -121,6 +151,22 @@ test.describe('request look', () => {
         // one: WCAG 1.4.11 asks 3:1 of a component against what is around it.
         const send = await seen(page.getByRole('button', { name: sendLabel(1), exact: true }));
         expect(contrast(send.background, send.surround), 'Send against the card').toBeGreaterThanOrEqual(3);
+    });
+
+    test('the keyboard focus ring stands out from the card', async ({ page }) => {
+        await page.goto(LINK);
+        const button = page.getByRole('button', { name: visitorCopy.chooseFiles, exact: true });
+        await expect(button).toBeVisible();
+        // Keyboard focus, so :focus-visible, and with it the ring, applies.
+        for (let i = 0; i < 20 && !(await button.evaluate((el) => el === document.activeElement)); i++) {
+            await page.keyboard.press('Tab');
+        }
+        expect(await button.evaluate((el) => el.matches(':focus-visible')), 'Choose files has keyboard focus').toBe(true);
+        const { ring, surround } = await seen(button);
+        expect(ring, 'a focus ring is drawn').not.toBeNull();
+        // WCAG 1.4.11: 3:1 against what is around it. The dark ring token drew
+        // 1.88:1 here; the ice ring RequestShell sets computes to 3.99:1.
+        expect(contrast(ring ?? surround, surround), 'focus ring against the card').toBeGreaterThanOrEqual(3);
     });
 
     test('the Hide my IP checkbox draws in the dark scheme', async ({ page }) => {
