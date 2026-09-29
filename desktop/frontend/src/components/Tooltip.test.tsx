@@ -50,4 +50,35 @@ describe('the Tooltip', () => {
         await settle();
         expect(screen.queryByRole('tooltip')).toBeNull();
     });
+
+    it('an open bubble goes away when its label goes empty while still hovered', async () => {
+        // The amber READY's bubble is open when a drop starts: the chip turns
+        // RELAY, the label empties, and no empty pill may stay behind.
+        const user = userEvent.setup();
+        await settle();
+        const {rerender} = render(<Tooltip label="Hide my IP is on."><span>Ready</span></Tooltip>);
+        const word = screen.getByText('Ready');
+        await user.hover(word);
+        expect(await screen.findByRole('tooltip')).toBeTruthy();
+        rerender(<Tooltip label=""><span>Relay</span></Tooltip>);
+        expect(screen.queryByRole('tooltip')).toBeNull();
+        expect(word.parentElement!.getAttribute('aria-describedby')).toBeNull();
+        await user.unhover(word);
+    });
+
+    it('a label that fills in under a resting pointer opens nothing by itself', async () => {
+        // The pointer rests on a green READY (no label) and a drop ends with
+        // Hide my IP on, so the label fills: the hover that found nothing to
+        // show never armed the bubble, so it waits for the next hover.
+        const user = userEvent.setup();
+        await settle();
+        const {rerender} = render(<Tooltip label=""><span>Ready</span></Tooltip>);
+        const word = screen.getByText('Ready');
+        await user.hover(word);
+        await settle();
+        rerender(<Tooltip label="Hide my IP is on."><span>Ready</span></Tooltip>);
+        await settle();
+        expect(screen.queryByRole('tooltip')).toBeNull();
+        expect(word.parentElement!.getAttribute('aria-describedby')).toBeNull();
+    });
 });

@@ -124,11 +124,16 @@ export function Tooltip({label, keys, align = 'center', className, children}: {
         };
     }, [anchor, hide]);
 
+    // A bubble already open when its label goes empty (the amber READY turning
+    // RELAY under a resting pointer) must not stay as an empty pill: it shows,
+    // and describes the trigger, only while there is something to say.
+    const open = anchor !== null && label !== '';
+
     return (
         <span
             ref={ref}
             className={cn('inline-flex', className)}
-            aria-describedby={anchor ? id : undefined}
+            aria-describedby={open ? id : undefined}
             onMouseEnter={() => show(false)}
             onMouseLeave={hide}
             onFocusCapture={(e) => {
@@ -140,7 +145,7 @@ export function Tooltip({label, keys, align = 'center', className, children}: {
             onPointerDown={hide}
         >
             {children}
-            {anchor && createPortal(
+            {open && createPortal(
                 <div
                     ref={bubbleRef}
                     id={id}
