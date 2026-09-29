@@ -44,3 +44,8 @@ overrides:
   # sharp` also re-resolved rollup, postcss, nanoid and more, so the floor lives
   # here instead. Drop this once next is 16.3.4 or later, which declares ^0.35.4.
   sharp: ^0.35.4
+  # GHSA-58mr-gqgx-xq4g (CVE-2026-84394) and GHSA-qw65-cvwx-89v3: host confusion
+  # and authority injection in fast-uri 3.1.6, reached only through ajv 8 in
+  # webpack's schema-utils (Sentry's build plugin). ajv declares ^3.0.1, but a
+  # bare `pnpm update fast-uri` re-resolved rollup, postcss and more. Build-time only.
+  fast-uri@3: ^3.1.7
