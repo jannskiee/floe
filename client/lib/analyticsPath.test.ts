@@ -58,6 +58,38 @@ describe('umamiPayloadAllowed', () => {
         }
     });
 
+    it('judges a referrer only from a Floe host, and a page url from anywhere', () => {
+        // A link id can only be a same-site referrer: after a soft navigation
+        // Umami's referrer is the previous in-app URL, a same-origin path, and
+        // /r sends no referrer at all (Referrer-Policy no-referrer). A /r path
+        // on another site is that site's page.
+        for (const referrer of [
+            'https://www.reddit.com/r/programming/comments/1abc/floe/',
+            'https://old.reddit.com/r/selfhosted',
+            'https://example.com/%72/x',
+        ]) {
+            expect(umamiPayloadAllowed(pageview('https://floe.one/', referrer)), referrer).toBe(true);
+        }
+        // floe.one, apex and www, from either one.
+        for (const [page, referrer] of [
+            ['https://floe.one/download', `https://floe.one/r/${LINK_ID}`],
+            ['https://floe.one/download', `https://www.floe.one/r/${LINK_ID}`],
+            ['https://www.floe.one/download', `https://floe.one/r/${LINK_ID}`],
+            ['https://floe.one/download', `http://WWW.FLOE.ONE/r/${LINK_ID}`],
+        ]) {
+            expect(umamiPayloadAllowed(pageview(page, referrer)), `${page} from ${referrer}`).toBe(false);
+        }
+        // A self-hosted Floe: the page's own host, from its url or its hostname.
+        const selfHosted = { ...pageview('https://send.example.org/', `https://send.example.org/r/${LINK_ID}`) };
+        expect(umamiPayloadAllowed({ ...selfHosted, hostname: 'send.example.org' })).toBe(false);
+        expect(umamiPayloadAllowed({ ...selfHosted, hostname: undefined })).toBe(false);
+        expect(
+            umamiPayloadAllowed({ ...pageview('/', `https://send.example.org/r/${LINK_ID}`), hostname: 'send.example.org' })
+        ).toBe(false);
+        // The page url itself is judged from any origin, as before.
+        expect(umamiPayloadAllowed(pageview(`https://mirror.example/r/${LINK_ID}`))).toBe(false);
+    });
+
     it('lets /rx, /relay and /robots.txt through, as loadsUmami does', () => {
         for (const path of ['/rx/abc', '/relay', '/robots.txt', '/r-archive']) {
             expect(umamiPayloadAllowed(pageview(`https://floe.one${path}`, path)), path).toBe(true);
@@ -73,6 +105,8 @@ describe('umamiPayloadAllowed', () => {
         expect(umamiPayloadAllowed({ ...pageview('https://floe.one/'), url: 42 })).toBe(false);
         expect(umamiPayloadAllowed({ ...pageview('https://floe.one/'), referrer: ['/r/x'] })).toBe(false);
         expect(umamiPayloadAllowed(pageview('https://floe.one/%E0%A4%A'))).toBe(false);
+        // A referrer whose host cannot be read cannot be ruled out as Floe's.
+        expect(umamiPayloadAllowed(pageview('https://floe.one/', `http://[floe.one/r/${LINK_ID}`))).toBe(false);
     });
 });
 
