@@ -6,6 +6,7 @@ package peer_test
 // hostreceive_test.go).
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
@@ -99,9 +100,21 @@ func TestReceiverClosesWhenTheSenderOpensASecondChannel(t *testing.T) {
 	host, visitor := pairHostVisitor(t, relayURL)
 
 	opened := time.Now()
+	// The first extra channel must open. The visitor may end the connection
+	// as soon as it sees that one, which is the behavior under test, and its
+	// close can reach the host before this loop is done (ubuntu-latest CI,
+	// 2026-09-29: "InvalidStateError: connection closed" on a later channel),
+	// so a later channel that finds the connection closed stops the loop.
 	for i := 0; i < 4; i++ {
 		if _, err := host.conn.PeerConnectionForTest().CreateDataChannel(fmt.Sprintf("extra-%d", i), nil); err != nil {
-			t.Fatalf("host CreateDataChannel: %v", err)
+			// pion closes the host's own connection when the visitor's DTLS
+			// close arrives (dtlsTransport's close handler), so only that
+			// error may end the loop, and never on the first channel.
+			if i == 0 || !errors.Is(err, webrtc.ErrConnectionClosed) {
+				t.Fatalf("host CreateDataChannel: %v", err)
+			}
+			t.Logf("extra channel %d found the connection already closed (%v): the visitor ended it", i, err)
+			break
 		}
 	}
 	select {
