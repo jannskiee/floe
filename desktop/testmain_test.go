@@ -49,13 +49,24 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// The settings file, the WebView2 profile and the temp directory all resolve
-// inside the temporary home while tests run.
+// The settings file, the WebView2 profile, the update cache, the default save
+// folder (Downloads, taken here since the home has one for this test) and the
+// temp directory all resolve inside the temporary home while tests run.
 func TestConfigPathsStayInTheTestHome(t *testing.T) {
+	downloads := filepath.Join(testConfigHome, "Downloads")
+	if err := os.Mkdir(downloads, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(downloads) })
+	if got := defaultReceiveDir(); got != downloads {
+		t.Fatalf("defaultReceiveDir = %q, want the test home's Downloads %q", got, downloads)
+	}
 	for name, p := range map[string]string{
-		"configPath":      configPath(),
-		"webviewDataPath": webviewDataPath(),
-		"os.TempDir":      os.TempDir(),
+		"configPath":        configPath(),
+		"webviewDataPath":   webviewDataPath(),
+		"updateCachePath":   updateCachePath(),
+		"defaultReceiveDir": defaultReceiveDir(),
+		"os.TempDir":        os.TempDir(),
 	} {
 		if p == "" {
 			t.Fatalf("%s is empty", name)
