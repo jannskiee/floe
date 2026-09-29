@@ -848,7 +848,7 @@ describe('server and edge events', () => {
                 data: {
                     logger: 'console',
                     arguments: [
-                        '⨯',
+                        '\u2a2f',
                         { name: 'Error', stack: `Error: boom\n    at render (https://floe.one/r/${LINK_ID}#room=${ROOM_ID})` },
                         7,
                     ],
@@ -871,7 +871,7 @@ describe('server and edge events', () => {
                     logger: 'console',
                     // The description rule's shape for a URL in parentheses
                     // (see "a fragment-less /r URL wrapped" above).
-                    arguments: ['⨯', { name: 'Error', stack: 'Error: boom\n    at render /(https://floe.one/r/redacted' }, 7],
+                    arguments: ['\u2a2f', { name: 'Error', stack: 'Error: boom\n    at render /(https://floe.one/r/redacted' }, 7],
                 },
             },
             { category: 'http', type: 'http', data: { url: 'https://floe.one/r/redacted', method: 'GET', status_code: 200 } },
