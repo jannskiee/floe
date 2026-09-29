@@ -32,15 +32,31 @@ func TestMain(m *testing.M) {
 	for _, k := range []string{"APPDATA", "LOCALAPPDATA", "USERPROFILE", "HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"} {
 		os.Setenv(k, dir)
 	}
+	// The temp directory too (review A R4): TestSweepPasteTemps removes every
+	// floe-paste-* folder under os.TempDir, which outside the test home is
+	// where a running Floe Desktop stages a pasted image for a send. The home
+	// itself was made in the real temp directory above, before this override.
+	tmp := filepath.Join(dir, "tmp")
+	if err := os.Mkdir(tmp, 0o700); err != nil {
+		fmt.Fprintln(os.Stderr, "TestMain: temporary temp dir:", err)
+		os.Exit(1)
+	}
+	for _, k := range []string{"TMP", "TEMP", "TMPDIR"} {
+		os.Setenv(k, tmp)
+	}
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)
 }
 
-// The settings file, the WebView2 profile and the update cache all resolve
+// The settings file, the WebView2 profile and the temp directory all resolve
 // inside the temporary home while tests run.
 func TestConfigPathsStayInTheTestHome(t *testing.T) {
-	for name, p := range map[string]string{"configPath": configPath(), "webviewDataPath": webviewDataPath()} {
+	for name, p := range map[string]string{
+		"configPath":      configPath(),
+		"webviewDataPath": webviewDataPath(),
+		"os.TempDir":      os.TempDir(),
+	} {
 		if p == "" {
 			t.Fatalf("%s is empty", name)
 		}
