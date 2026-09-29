@@ -1,11 +1,13 @@
 import * as Sentry from '@sentry/nextjs';
 import { scrubServerErrorEvent, scrubServerTransactionEvent } from './lib/scrubUrl';
+import { tracesSampler } from './lib/traceSampling';
 
 Sentry.init({
     // Set SENTRY_DSN in your environment to enable edge-side error tracking.
     // Leave empty (or omit) to disable Sentry.
     dsn: process.env.SENTRY_DSN || '',
-    tracesSampleRate: 1.0,
+    // The same 10% sampler as sentry.server.config.ts. See lib/traceSampling.ts.
+    tracesSampler,
     debug: false,
 
     // Scrub any room secret out of request URLs (covers old ?room= links).

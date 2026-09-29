@@ -1,11 +1,16 @@
 import * as Sentry from '@sentry/nextjs';
 import { scrubServerErrorEvent, scrubServerTransactionEvent } from './lib/scrubUrl';
+import { tracesSampler } from './lib/traceSampling';
 
 Sentry.init({
     // Set SENTRY_DSN in your environment to enable server-side error tracking.
     // Leave empty (or omit) to disable Sentry.
     dsn: process.env.SENTRY_DSN || '',
-    tracesSampleRate: 1.0,
+    // 10% of traces, with the browser's sampler. It was 1.0, and /r's
+    // pageloads inherited that decision (CP-QA F3-04). A sampler rather than
+    // tracesSampleRate, so no incoming sentry-trace header can raise the rate.
+    // See lib/traceSampling.ts.
+    tracesSampler,
     debug: false,
 
     // The server never sees the URL fragment, but an old-style ?room= link can

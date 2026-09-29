@@ -5,6 +5,7 @@ import { isInjectedScriptError } from './lib/injectedScripts';
 import { isNonBrowserRuntimeError } from './lib/nonBrowserRuntimes';
 import { isStaleBundleError } from './lib/staleBundle';
 import { scrubErrorEvent, scrubSpanJson, scrubTransactionEvent, scrubUrl } from './lib/scrubUrl';
+import { tracesSampler } from './lib/traceSampling';
 
 Sentry.init({
     // Set NEXT_PUBLIC_SENTRY_DSN in your environment to enable error tracking.
@@ -35,7 +36,13 @@ Sentry.init({
     // performance detectors with low-signal "Degraded HTTP Operation" issues on
     // slow first/cold loads and added per-session overhead. 10% keeps enough
     // signal to spot real regressions without the noise.
-    tracesSampleRate: 0.1,
+    //
+    // A sampler, not tracesSampleRate: the SDK lets a parent's decision
+    // override the rate, and /r's server render handed every pageload a
+    // sampled parent at the server's old 1.0, which made every /r visit a trace
+    // (CP-QA F3-04). The sampler returns 10% whatever the parent says; the
+    // server and edge now use it too. See lib/traceSampling.ts.
+    tracesSampler,
 
     // Stale-bundle/chunk-load errors are expected deploy churn, not bugs: an old
     // tab requests chunks a new deploy removed. The browser auto-reloads onto the
