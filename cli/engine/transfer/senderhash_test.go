@@ -235,7 +235,13 @@ func TestLoopbackVerifiedEveryFile(t *testing.T) {
 	}()
 	time.Sleep(300 * time.Millisecond)
 
-	sendErr := SendFiles(sender, paths, "")
+	// RequireReceived: the sender's Verified row comes from the receiver's
+	// "received" frame, and a plain send may end on the first drained tick
+	// before that frame arrives (FT-GO-CONFIRMS), which a slow CI runner did
+	// (windows-latest, 2026-09-29: the sender printed no row while the
+	// receiver printed its own). Both ends here are Go, and a Go receiver
+	// always answers "received", so waiting for it is exact, not a timeout.
+	sendErr := SendFilesWithOptions(sender, paths, "", SendOptions{RequireReceived: true})
 	// Close as the CLI's deferred Close does; left open, the receive waits out
 	// its 5 s post-completion grace.
 	_ = sender.Close()
