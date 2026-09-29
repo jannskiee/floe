@@ -263,7 +263,9 @@ func joinedConnection(t *testing.T, role string) (*Connection, *setupWS) {
 	return conn, s
 }
 
-// shrinkSignalWait shrinks the offer and answer wait for one test.
+// shrinkSignalWait shrinks the offer and answer wait for one test. Call it
+// before any setup starts: its restore is a cleanup, and cleanups run last in,
+// first out, so the join runSetup registers later runs before the restore.
 func shrinkSignalWait(t *testing.T, d time.Duration) {
 	t.Helper()
 	if signalWait != signalWaitTimeout {
@@ -273,13 +275,30 @@ func shrinkSignalWait(t *testing.T, d time.Duration) {
 	t.Cleanup(func() { signalWait = signalWaitTimeout })
 }
 
-// runSetup runs one Setup call on its own goroutine.
-func runSetup(setup func() (*webrtc.DataChannel, error)) <-chan error {
+// runSetup runs one Setup call on its own goroutine, and its cleanup closes
+// conn and waits for that goroutine to end, so no setup outlives its test.
+// Without the join, a test could return while SetupAsSender still waited for
+// an answer that never came, and shrinkSignalWait's restore then wrote
+// signalWait with no happens-before edge to the setup's read of it: the
+// Docker race line on H3 reported it in TestCandidateFloodBeforeTheAnswerIsBounded.
+// Every test that starts a Setup call on a goroutine goes through here.
+func runSetup(t *testing.T, conn *Connection, setup func() (*webrtc.DataChannel, error)) <-chan error {
+	t.Helper()
 	done := make(chan error, 1)
+	ended := make(chan struct{})
 	go func() {
+		defer close(ended)
 		_, err := setup()
 		done <- err
 	}()
+	t.Cleanup(func() {
+		conn.Close()
+		select {
+		case <-ended:
+		case <-time.After(10 * time.Second):
+			t.Errorf("the setup goroutine was still running 10 s after Close")
+		}
+	})
 	return done
 }
 
@@ -351,7 +370,7 @@ func peerLeaves(t *testing.T, s *setupWS) time.Time {
 func TestSetupAsReceiverReturnsAtOnceWhenPeerLeaves(t *testing.T) {
 	shrinkSignalWait(t, 2*time.Second)
 	conn, s := joinedConnection(t, "receiver")
-	done := runSetup(conn.SetupAsReceiver)
+	done := runSetup(t, conn, conn.SetupAsReceiver)
 	time.Sleep(100 * time.Millisecond)
 	left := peerLeaves(t, s)
 
@@ -368,7 +387,7 @@ func TestSetupAsReceiverReturnsAtOnceWhenPeerLeaves(t *testing.T) {
 func TestSetupAsSenderReturnsAtOnceWhenPeerLeaves(t *testing.T) {
 	shrinkSignalWait(t, 2*time.Second)
 	conn, s := joinedConnection(t, "sender")
-	done := runSetup(conn.SetupAsSender)
+	done := runSetup(t, conn, conn.SetupAsSender)
 	waitSignal(t, s, "offer")
 	left := peerLeaves(t, s)
 
@@ -385,7 +404,7 @@ func TestSetupAsSenderReturnsAtOnceWhenPeerLeaves(t *testing.T) {
 func TestSetupReturnsSignalingLostWhenTheSocketCloses(t *testing.T) {
 	shrinkSignalWait(t, 2*time.Second)
 	conn, s := joinedConnection(t, "sender")
-	done := runSetup(conn.SetupAsSender)
+	done := runSetup(t, conn, conn.SetupAsSender)
 	waitSignal(t, s, "offer")
 	lost := time.Now()
 	_ = s.ws.Close()
@@ -403,7 +422,7 @@ func TestSetupReturnsSignalingLostWhenTheSocketCloses(t *testing.T) {
 func TestSetupReturnsClosedOnLocalClose(t *testing.T) {
 	shrinkSignalWait(t, 2*time.Second)
 	conn, _ := joinedConnection(t, "receiver")
-	done := runSetup(conn.SetupAsReceiver)
+	done := runSetup(t, conn, conn.SetupAsReceiver)
 	time.Sleep(200 * time.Millisecond)
 	closed := time.Now()
 	go conn.Close()
@@ -559,7 +578,7 @@ func TestSetupDataChannelWaitStopsAtOnce(t *testing.T) {
 	}
 	t.Run("sender, peer leaves", func(t *testing.T) {
 		conn, s := joinedConnection(t, "sender")
-		done := runSetup(conn.SetupAsSender)
+		done := runSetup(t, conn, conn.SetupAsSender)
 		sendSignal(t, s, "answer", newAnswerer(t, waitSignal(t, s, "offer")))
 		notYet(t, done)
 		left := peerLeaves(t, s)
@@ -569,7 +588,7 @@ func TestSetupDataChannelWaitStopsAtOnce(t *testing.T) {
 	})
 	t.Run("receiver, peer leaves", func(t *testing.T) {
 		conn, s := joinedConnection(t, "receiver")
-		done := runSetup(conn.SetupAsReceiver)
+		done := runSetup(t, conn, conn.SetupAsReceiver)
 		sendSignal(t, s, "offer", newOfferer(t))
 		waitSignal(t, s, "answer")
 		notYet(t, done)
@@ -580,7 +599,7 @@ func TestSetupDataChannelWaitStopsAtOnce(t *testing.T) {
 	})
 	t.Run("sender, local close", func(t *testing.T) {
 		conn, s := joinedConnection(t, "sender")
-		done := runSetup(conn.SetupAsSender)
+		done := runSetup(t, conn, conn.SetupAsSender)
 		sendSignal(t, s, "answer", newAnswerer(t, waitSignal(t, s, "offer")))
 		notYet(t, done)
 		closed := time.Now()
@@ -611,14 +630,14 @@ func TestSetupChannelGraceStopsAtOnce(t *testing.T) {
 	}
 	sender := func(t *testing.T) (*Connection, *setupWS, <-chan error) {
 		conn, s := joinedConnection(t, "sender")
-		done := runSetup(conn.SetupAsSender)
+		done := runSetup(t, conn, conn.SetupAsSender)
 		sendSignal(t, s, "answer", newAnswerer(t, waitSignal(t, s, "offer")))
 		inGrace(t, conn, done)
 		return conn, s, done
 	}
 	receiver := func(t *testing.T) (*Connection, *setupWS, <-chan error) {
 		conn, s := joinedConnection(t, "receiver")
-		done := runSetup(conn.SetupAsReceiver)
+		done := runSetup(t, conn, conn.SetupAsReceiver)
 		sendSignal(t, s, "offer", newOfferer(t))
 		waitSignal(t, s, "answer")
 		inGrace(t, conn, done)
