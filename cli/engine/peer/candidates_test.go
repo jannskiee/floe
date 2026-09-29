@@ -1,10 +1,11 @@
 package peer
 
-// F2-CPQA-01 (DV-AUDIT CP-QA): the ICE candidates a peer trickles before the
-// remote description is set wait in pendingCandidates, and the peer chooses how
-// many and how large they are. The bounds are literals here, as in
-// flood_test.go, so these tests also run against code that predates the
-// constants (maxPendingCandidates, maxPendingCandidateBytes).
+// F2-CPQA-01 (DV-AUDIT CP-QA): the ICE candidates a peer trickles, and the
+// peer chooses how many and how large they are. Those that arrive before the
+// remote description is set wait in pendingCandidates; the rest go straight
+// to pion. The bounds are literals here, as in flood_test.go, so these tests
+// also run against code that predates the constants (maxPendingCandidates,
+// maxRemoteCandidates, maxCandidateBytes).
 
 import (
 	"fmt"
@@ -20,6 +21,8 @@ import (
 const (
 	pendingCountBound = 64
 	pendingByteBound  = 64 << 10
+	remoteCountBound  = 256
+	candidateByteCap  = 1 << 10
 )
 
 // pendingNow is the buffered count and the peer-chosen bytes it holds (the
@@ -244,5 +247,211 @@ func TestBufferedCandidatesStillConnect(t *testing.T) {
 		t.Logf("connected from %d candidates that all waited in the buffer", len(cands))
 	case <-time.After(20 * time.Second):
 		t.Fatal("setup did not connect within 20 s")
+	}
+}
+
+// sizedCandidate is a valid host candidate at 198.51.100.i (TEST-NET-2, never
+// routable), port 40000+i, padded with one extension so that its three
+// strings come to exactly total bytes.
+func sizedCandidate(i, total int) webrtc.ICECandidateInit {
+	mid, line := "0", uint16(0)
+	base := fmt.Sprintf("candidate:%d 1 udp 2130706431 198.51.100.%d %d typ host generation 0 x-pad ", 2000+i, i, 40000+i)
+	return webrtc.ICECandidateInit{
+		Candidate:     base + strings.Repeat("p", total-len(base)-len(mid)),
+		SDPMid:        &mid,
+		SDPMLineIndex: &line,
+	}
+}
+
+// signaledRemotes is pion's own list of the remote candidates it holds that a
+// peer signaled, as ip:port. Peer-reflexive ones, which pion learns by itself
+// from the peer's checks, are left out.
+func signaledRemotes(pc *webrtc.PeerConnection) []string {
+	var out []string
+	for _, st := range pc.GetStats() {
+		if v, ok := st.(webrtc.ICECandidateStats); ok && v.Type == webrtc.StatsTypeRemoteCandidate &&
+			v.CandidateType != webrtc.ICECandidateTypePrflx {
+			out = append(out, fmt.Sprintf("%s:%d", v.IP, v.Port))
+		}
+	}
+	return out
+}
+
+// settledRemotes waits until pion's signaled remote count has not changed for
+// 500 ms (at most most) and returns the list. pion adds each candidate on a
+// goroutine of its own, so the count lags the hand-off.
+func settledRemotes(pc *webrtc.PeerConnection, most time.Duration) []string {
+	last, since := -1, time.Now()
+	for deadline := time.Now().Add(most); time.Now().Before(deadline); {
+		time.Sleep(50 * time.Millisecond)
+		if n := len(signaledRemotes(pc)); n != last {
+			last, since = n, time.Now()
+		} else if time.Since(since) >= 500*time.Millisecond {
+			break
+		}
+	}
+	return signaledRemotes(pc)
+}
+
+// connectedSender is TestBufferedCandidatesStillConnect's setup carried to a
+// connected host: the offerer from New and SetupAsSender, an answerer shaped
+// like the engine's own (the same address filter, IPv4 UDP), its candidates
+// all buffered before its answer. It returns the host, the fake server's
+// socket and how many candidates the buffer took. The host's own candidates
+// never reach the answerer, and pion checks no pair once one is selected, so
+// the candidates a test sends after this cause no traffic.
+func connectedSender(t *testing.T) (*Connection, *setupWS, int) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping ICE loopback setup in -short mode")
+	}
+	conn, s := joinedConnection(t, "sender")
+	done := runSetup(conn.SetupAsSender)
+	offer := waitSignal(t, s, "offer")
+
+	se := webrtc.SettingEngine{}
+	se.SetIPFilter(keepICEIP)
+	se.SetNetworkTypes([]webrtc.NetworkType{webrtc.NetworkTypeUDP4})
+	pc, err := webrtc.NewAPI(webrtc.WithSettingEngine(se)).NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatalf("answerer: %v", err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	pc.OnDataChannel(func(*webrtc.DataChannel) {}) // keep the floe channel open
+	if err := pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: offer}); err != nil {
+		t.Fatalf("answerer remote description: %v", err)
+	}
+	answer, err := pc.CreateAnswer(nil)
+	if err != nil {
+		t.Fatalf("answerer answer: %v", err)
+	}
+	var mu sync.Mutex
+	var cands []webrtc.ICECandidateInit
+	gathered := make(chan struct{})
+	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
+		mu.Lock()
+		defer mu.Unlock()
+		if c == nil {
+			close(gathered)
+			return
+		}
+		cands = append(cands, c.ToJSON())
+	})
+	if err := pc.SetLocalDescription(answer); err != nil {
+		t.Fatalf("answerer local description: %v", err)
+	}
+	select {
+	case <-gathered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the answerer never finished gathering")
+	}
+	mu.Lock()
+	cands = append([]webrtc.ICECandidateInit(nil), cands...)
+	mu.Unlock()
+	if len(cands) == 0 {
+		t.Skip("no IPv4 host candidate on this machine")
+	}
+	for _, c := range cands {
+		if err := s.ws.WriteJSON(map[string]any{"type": "signal", "signal": map[string]any{"candidate": c}}); err != nil {
+			t.Fatalf("write candidate: %v", err)
+		}
+	}
+	buffered, _ := settledPending(conn, 5*time.Second)
+	if buffered != len(cands) {
+		t.Fatalf("%d of the answerer's %d candidates buffered before its answer", buffered, len(cands))
+	}
+	sendSignal(t, s, "answer", answer.SDP)
+	if _, err := waitSetup(t, done, time.Now(), 20*time.Second); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	return conn, s, buffered
+}
+
+// sendCandidate relays one candidate from the answerer through the fake server.
+func sendCandidate(t *testing.T, s *setupWS, c webrtc.ICECandidateInit) {
+	t.Helper()
+	if err := s.ws.WriteJSON(map[string]any{"type": "signal", "sender": "visitor", "signal": map[string]any{"candidate": c}}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+}
+
+// TestSignaledCandidatesAreCappedForTheConnection: after the answer, a
+// connected peer that keeps sending distinct candidates gets exactly 256 into
+// pion over the connection's life, the ones buffered before the answer
+// included; before, every one was handed to pion and kept.
+func TestSignaledCandidatesAreCappedForTheConnection(t *testing.T) {
+	conn, s, buffered := connectedSender(t)
+	const sent = 1000
+	for i := 0; i < sent; i++ {
+		sendCandidate(t, s, hostCandidate(i)) // 192.0.2.x (TEST-NET-1), distinct ports
+		// Paced so neither of the engine's non-blocking hand-offs (the
+		// signaling client's and the dispatcher's) decides the count.
+		if i%8 == 7 {
+			time.Sleep(time.Millisecond)
+		}
+	}
+	got := settledRemotes(conn.pc, 15*time.Second)
+	after := 0
+	for _, r := range got {
+		if strings.HasPrefix(r, "192.0.2.") {
+			after++
+		}
+	}
+	t.Logf("%d buffered before the answer, %d sent after it: pion holds %d signaled remote candidates, %d of them sent after",
+		buffered, sent, len(got), after)
+	if len(got) > remoteCountBound {
+		t.Fatalf("pion holds %d signaled remote candidates, want at most %d over the connection's life", len(got), remoteCountBound)
+	}
+	if len(got) < remoteCountBound {
+		t.Fatalf("pion holds %d signaled remote candidates, want exactly %d: the candidates after the answer did not all reach addRemoteCandidate", len(got), remoteCountBound)
+	}
+}
+
+// TestOversizeCandidateDroppedBeforeTheAnswer: a candidate whose three strings
+// pass 1 KiB is never buffered, whichever string carries the bytes, while one
+// of exactly 1 KiB is.
+func TestOversizeCandidateDroppedBeforeTheAnswer(t *testing.T) {
+	conn := &Connection{}
+	conn.addRemoteCandidate(sizedCandidate(1, candidateByteCap+1))
+	ufrag := strings.Repeat("u", candidateByteCap)
+	conn.addRemoteCandidate(webrtc.ICECandidateInit{Candidate: "candidate:1 1 udp 1 198.51.100.3 9 typ host", UsernameFragment: &ufrag})
+	mid := strings.Repeat("m", candidateByteCap)
+	conn.addRemoteCandidate(webrtc.ICECandidateInit{Candidate: "candidate:1 1 udp 1 198.51.100.4 9 typ host", SDPMid: &mid})
+	if n, held := pendingNow(conn); n != 0 {
+		t.Fatalf("%d candidates of over %d bytes buffered (%d bytes), want none", n, candidateByteCap, held)
+	}
+	conn.addRemoteCandidate(sizedCandidate(2, candidateByteCap))
+	if n, held := pendingNow(conn); n != 1 || held != candidateByteCap {
+		t.Fatalf("a candidate of exactly %d bytes: %d buffered, %d bytes; want 1 of %d", candidateByteCap, n, held, candidateByteCap)
+	}
+}
+
+// TestOversizeCandidateDroppedAfterTheAnswer: after the answer, a candidate
+// whose three strings pass 1 KiB never reaches pion, while one of exactly
+// 1 KiB sent after it does.
+func TestOversizeCandidateDroppedAfterTheAnswer(t *testing.T) {
+	conn, s, _ := connectedSender(t)
+	big, fits := sizedCandidate(1, candidateByteCap+1), sizedCandidate(2, candidateByteCap)
+	sendCandidate(t, s, big)
+	sendCandidate(t, s, fits)
+	const bigAt, fitsAt = "198.51.100.1:40001", "198.51.100.2:40002"
+	has := func(list []string, want string) bool {
+		for _, r := range list {
+			if r == want {
+				return true
+			}
+		}
+		return false
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for !has(signaledRemotes(conn.pc), fitsAt) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the candidate of exactly %d bytes never reached pion", candidateByteCap)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	time.Sleep(500 * time.Millisecond) // the larger one was sent first; give it time to land if it is taken
+	if has(signaledRemotes(conn.pc), bigAt) {
+		t.Fatalf("pion holds the candidate of %d bytes, want it dropped before pion", candidateByteCap+1)
 	}
 }
