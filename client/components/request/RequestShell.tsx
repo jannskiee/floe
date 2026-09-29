@@ -22,7 +22,13 @@ export function RequestShell() {
         // The same centering shell as /, /download and not-found: the root
         // layout's <body> carries only the font variables, so a page that omits
         // this renders zinc text on white.
-        <div className="flex min-h-dvh flex-col items-center bg-zinc-950 font-sans text-zinc-100 px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-[max(1.5rem,env(safe-area-inset-left),env(safe-area-inset-right))] sm:pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        //
+        // dark and scheme-dark put everything inside in the dark theme. Nothing
+        // above sets .dark, so without them the shadcn Button read the light
+        // tokens (near-white outline buttons under near-white text, a
+        // near-black Send on the near-black card) and the native Hide my IP
+        // checkbox drew white (R4 F1, F2).
+        <div className="dark scheme-dark flex min-h-dvh flex-col items-center bg-zinc-950 font-sans text-zinc-100 px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-[max(1.5rem,env(safe-area-inset-left),env(safe-area-inset-right))] sm:pb-[max(1.5rem,env(safe-area-inset-bottom))]">
             {/* A wordmark, not a link. It tells the visitor where they are,
                 which is half of why the links live on floe.one at all, and it
                 goes nowhere: one task on this page. */}
