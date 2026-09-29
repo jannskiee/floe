@@ -350,6 +350,9 @@ export interface StatusCopy {
     learnMore: boolean;
     /** V7 and V10 show the route badge. */
     badge: boolean;
+    /** The "one" title style (15 px, medium) for a card whose whole message
+     *  is one sentence, which keeps its period: V5c, V6a, V8a, V8b, V12a. */
+    one: boolean;
 }
 
 function card(
@@ -359,7 +362,7 @@ function card(
     action: StatusCopy['action'] = null,
     extra: Partial<StatusCopy> = {}
 ): StatusCopy {
-    return { marker, title, lines, action, showArrived: false, learnMore: false, badge: false, ...extra };
+    return { marker, title, lines, action, showArrived: false, learnMore: false, badge: false, one: false, ...extra };
 }
 
 /** The status card for every state that is not the Ready view (V3, V3c, V6b,
@@ -376,13 +379,13 @@ export function statusCopy(model: VisitorModel, ctx: StatusContext): StatusCopy 
         case 'V5b':
             return card('ended', visitorCopy.turnedOff);
         case 'V5c':
-            return card('ended', visitorCopy.notAvailable);
+            return card('ended', visitorCopy.notAvailable, [], null, { one: true });
         case 'V6':
             return card('active', visitorCopy.connecting, [], 'cancel');
         case 'V6c':
             return card('active', visitorCopy.connecting, [visitorCopy.limiterRetry], 'cancel');
         case 'V6a':
-            return card('ended', visitorCopy.couldNotConnect, [], 'try-again');
+            return card('ended', visitorCopy.couldNotConnect, [], 'try-again', { one: true });
         case 'V7': {
             const elapsed = model.firstMetadataAt === null ? 0 : ctx.now - model.firstMetadataAt;
             return card('active', visitorCopy.waitingTitle, [countdownLine(answerMinutesLeft(elapsed))], 'cancel', {
@@ -390,9 +393,9 @@ export function statusCopy(model: VisitorModel, ctx: StatusContext): StatusCopy 
             });
         }
         case 'V8a':
-            return card('ended', visitorCopy.declined, [], 'back-to-files');
+            return card('ended', visitorCopy.declined, [], 'back-to-files', { one: true });
         case 'V8b':
-            return card('ended', visitorCopy.timedOut, [], 'back-to-files');
+            return card('ended', visitorCopy.timedOut, [], 'back-to-files', { one: true });
         case 'V9':
             return card('ended', visitorCopy.relayBlocked, [], 'back-to-files', { learnMore: true });
         case 'V11': {
@@ -418,7 +421,7 @@ export function statusCopy(model: VisitorModel, ctx: StatusContext): StatusCopy 
             return card('ended', visitorCopy.lostTitle, [lostLine(arrived, total)], null, { showArrived: arrived > 0 });
         }
         case 'V12a':
-            return card('ended', visitorCopy.lostBeforeAccept, [], 'try-again');
+            return card('ended', visitorCopy.lostBeforeAccept, [], 'try-again', { one: true });
         case 'V13': {
             const seconds =
                 model.acceptedAt !== null && model.deliveredAt !== null

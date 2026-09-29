@@ -76,7 +76,7 @@ export function RequestReady(props: RequestReadyProps) {
             )}
             {hasFiles && (
                 <div className="mt-4 flex gap-2">
-                    <Button type="button" className="flex-1" disabled={props.block !== null} onClick={props.onSend}>
+                    <Button type="button" className="flex-1 font-semibold" disabled={props.block !== null} onClick={props.onSend}>
                         {sendLabel(props.rows.length)}
                     </Button>
                     <Button type="button" variant="outline" onClick={props.onClear}>
@@ -85,7 +85,7 @@ export function RequestReady(props: RequestReadyProps) {
                 </div>
             )}
             <div className="mt-4 flex items-end justify-between gap-4">
-                <p className="text-xs leading-relaxed text-zinc-500">{visitorCopy.ipNotice}</p>
+                <p className="text-xs leading-relaxed text-zinc-400">{visitorCopy.ipNotice}</p>
                 {props.footerEnd}
             </div>
         </section>

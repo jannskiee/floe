@@ -1,5 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { sendLabel, visitorCopy } from '../lib/request/visitorCopy';
+import { formatBytes } from '../lib/utils';
 
 // ---------------------------------------------------------------------------
 // The /r visitor page's colors, measured in the browser.
@@ -129,6 +130,13 @@ async function expectReadable(page: Page, name: string | RegExp) {
     expect(contrast(text, background), `${name}: label on its background`).toBeGreaterThanOrEqual(4.5);
 }
 
+/** A line of text, not a button: the same AA bar on whatever is behind it. */
+async function expectReadableText(locator: Locator, what: string) {
+    await expect(locator).toBeVisible();
+    const { text, background } = await seen(locator);
+    expect(contrast(text, background), `${what} on the card`).toBeGreaterThanOrEqual(4.5);
+}
+
 test.describe('request look', () => {
     test('every Ready button label is readable, and Send stands out from the card', async ({ page }) => {
         await page.goto(LINK);
@@ -140,17 +148,30 @@ test.describe('request look', () => {
         await expectReadable(page, visitorCopy.chooseFiles);
         await expectReadable(page, visitorCopy.chooseFolder);
 
+        // The fine print carries the page's one privacy disclosure before Send
+        // and the support line, so it is held to AA as well (D-136 D5):
+        // zinc-500 on the card measured 3.99:1.
+        await expectReadableText(page.getByText(visitorCopy.ipNotice, { exact: true }), 'the IP notice');
+        await expectReadableText(page.getByText(visitorCopy.betaSupport, { exact: true }), 'the Beta line');
+        await expectReadableText(page.getByText(visitorCopy.betaChip, { exact: true }), 'the Beta chip');
+        await expectReadableText(page.getByRole('link', { name: visitorCopy.reportLink }), 'Report this link');
+
         await page
             .locator('input[type=file]:not([webkitdirectory])')
             .first()
             .setInputFiles({ name: 'look.txt', mimeType: 'text/plain', buffer: Buffer.from('look') });
         await expectReadable(page, sendLabel(1));
         await expectReadable(page, visitorCopy.clear);
+        await expectReadableText(page.getByText(formatBytes(4), { exact: true }), 'a file size');
 
         // The primary is a filled button. On the dark card it must read as
         // one: WCAG 1.4.11 asks 3:1 of a component against what is around it.
-        const send = await seen(page.getByRole('button', { name: sendLabel(1), exact: true }));
+        const sendButton = page.getByRole('button', { name: sendLabel(1), exact: true });
+        const send = await seen(sendButton);
         expect(contrast(send.background, send.surround), 'Send against the card').toBeGreaterThanOrEqual(3);
+        // And it carries the primary's weight, as drawn.
+        const weight = Number(await sendButton.evaluate((el) => getComputedStyle(el).fontWeight));
+        expect(weight, 'Send weight').toBeGreaterThanOrEqual(600);
     });
 
     test('the keyboard focus ring stands out from the card', async ({ page }) => {

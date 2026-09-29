@@ -159,6 +159,18 @@ describe('visitor copy: server answers and the attempt states', () => {
         expect(announcement(model('V5a'), CTX)).toBe('This link has already been used');
     });
 
+    it('a card whose whole message is one sentence takes the one style, and only those (D-136 D5)', () => {
+        // WV-14, WV-16, WV-21, WV-22 and WV-44 draw these five in the 15 px
+        // medium "one" style; every other title is a heading.
+        const ONE = ['V5c', 'V6a', 'V8a', 'V8b', 'V12a'];
+        const states = ['V4', 'V5a', 'V5b', 'V5c', 'V6', 'V6a', 'V6c', 'V7', 'V8a', 'V8b', 'V9', 'V11', 'V11a', 'V11b', 'V12', 'V12a', 'V13'] as const;
+        for (const s of states) {
+            const copy = statusCopy(model(s, { ackIndex: 3, stop: { refusal: 'disk-full', savedCount: 2 } }), CTX);
+            expect(copy?.one, s).toBe(ONE.includes(s));
+            if (copy?.one) expect(copy.title.endsWith('.'), s).toBe(true);
+        }
+    });
+
     it('connecting, waiting and the limiter retry', () => {
         expect(statusCopy(model('V6'), CTX)).toMatchObject({ title: 'Connecting to their computer', action: 'cancel' });
         expect(statusCopy(model('V6c'), CTX)).toMatchObject({

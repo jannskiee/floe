@@ -20,7 +20,7 @@ export function RequestFileList({
                 {countLine(rows.length, size)}
             </p>
             {emptyFolders > 0 && (
-                <p className="mt-1 text-xs text-zinc-500">{visitorCopy.emptyFoldersSkipped}</p>
+                <p className="mt-1 text-xs text-zinc-400">{visitorCopy.emptyFoldersSkipped}</p>
             )}
             <PathRows rows={rows} />
         </div>
