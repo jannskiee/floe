@@ -378,32 +378,52 @@ func sendCandidate(t *testing.T, s *setupWS, c webrtc.ICECandidateInit) {
 // TestSignaledCandidatesAreCappedForTheConnection: after the answer, a
 // connected peer that keeps sending distinct candidates gets exactly 256 into
 // pion over the connection's life, the ones buffered before the answer
-// included; before, every one was handed to pion and kept.
+// included, and pion never holds more on the way; before, every one was
+// handed to pion and kept.
+//
+// The count must not depend on the runner's speed (review A R6): the engine's
+// two hand-offs ahead of addRemoteCandidate (the signaling client's and the
+// dispatcher's channels) drop a frame when full, so the candidates go in
+// batches smaller than either, each sent only once both channels have
+// drained. No frame can be dropped however slow the runner is.
 func TestSignaledCandidatesAreCappedForTheConnection(t *testing.T) {
 	conn, s, buffered := connectedSender(t)
-	const sent = 1000
-	for i := 0; i < sent; i++ {
-		sendCandidate(t, s, hostCandidate(i)) // 192.0.2.x (TEST-NET-1), distinct ports
-		// Paced so neither of the engine's non-blocking hand-offs (the
-		// signaling client's and the dispatcher's) decides the count.
-		if i%8 == 7 {
+	const sent, batch = 1000, 16
+	drained := func() {
+		for deadline := time.Now().Add(10 * time.Second); len(conn.sc.Signal) > 0 || len(conn.candidates) > 0; {
+			if time.Now().After(deadline) {
+				t.Fatal("the engine's hand-offs did not drain within 10 s")
+			}
 			time.Sleep(time.Millisecond)
 		}
 	}
+	most := 0
+	for i := 0; i < sent; i++ {
+		sendCandidate(t, s, hostCandidate(i)) // 192.0.2.x (TEST-NET-1), distinct ports
+		if i%batch == batch-1 || i == sent-1 {
+			drained()
+			if n := len(signaledRemotes(conn.pc)); n > most {
+				most = n
+			}
+		}
+	}
 	got := settledRemotes(conn.pc, 15*time.Second)
+	if len(got) > most {
+		most = len(got)
+	}
 	after := 0
 	for _, r := range got {
 		if strings.HasPrefix(r, "192.0.2.") {
 			after++
 		}
 	}
-	t.Logf("%d buffered before the answer, %d sent after it: pion holds %d signaled remote candidates, %d of them sent after",
-		buffered, sent, len(got), after)
-	if len(got) > remoteCountBound {
-		t.Fatalf("pion holds %d signaled remote candidates, want at most %d over the connection's life", len(got), remoteCountBound)
+	t.Logf("%d buffered before the answer, %d sent after it: pion holds %d signaled remote candidates, %d of them sent after, at most %d on the way",
+		buffered, sent, len(got), after, most)
+	if most > remoteCountBound {
+		t.Fatalf("pion held %d signaled remote candidates on the way, want never more than %d over the connection's life", most, remoteCountBound)
 	}
-	if len(got) < remoteCountBound {
-		t.Fatalf("pion holds %d signaled remote candidates, want exactly %d: the candidates after the answer did not all reach addRemoteCandidate", len(got), remoteCountBound)
+	if len(got) != remoteCountBound {
+		t.Fatalf("pion holds %d signaled remote candidates once settled, want exactly %d", len(got), remoteCountBound)
 	}
 }
 
