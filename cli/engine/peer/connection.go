@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jannskiee/floe/cli/engine/signaling"
@@ -383,7 +384,22 @@ func (conn *Connection) SetupAsSender() (*webrtc.DataChannel, error) {
 func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 	// The receiver waits for a data channel from the sender.
 	dcChan := make(chan *webrtc.DataChannel, 1)
+	// No Floe offerer opens more than one data channel: SetupAsSender creates
+	// only "floe", and the browser, as simple-peer's initiator, creates one in
+	// its constructor and none after; so does every release, each checked at
+	// its tag (review A R3). So the first remote channel is the transfer's, and
+	// a further one ends this connection, as SetupAsSender does for a channel
+	// the answerer opens: it gets no pump, Early keeps naming the first, and
+	// only the first OnOpen ever sends on dcChan, so none is left waiting there.
+	var taken atomic.Bool
 	conn.pc.OnDataChannel(func(dc *webrtc.DataChannel) {
+		if taken.Swap(true) {
+			_ = dc.Close()
+			// On its own goroutine, never inside the callback: pion's accept
+			// loop waits for this handler to return, and Close tears it down.
+			go conn.Close()
+			return
+		}
 		// attach FIRST, and in this callback rather than in OnOpen. pion runs
 		// OnDataChannel synchronously before it starts the channel's read loop,
 		// and it has already ACKed the channel by this point, so the sender may
