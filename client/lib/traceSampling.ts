@@ -19,9 +19,12 @@
 // header its caller sent; under tracesSampleRate any caller could have its
 // requests traced at 100%, and under the sampler none can. Traces still stay
 // whole: every runtime samples when sample_rand < rate, and sample_rand
-// travels in baggage (or, when missing, is derived to agree with the parent's
-// decision), so with one rate everywhere a browser trace and the server spans
-// it causes are kept or dropped together.
+// travels in baggage, so with one rate everywhere a browser trace and the
+// server spans it causes are kept or dropped together. The browser SDK adds
+// baggage to the same-origin fetches it instruments. When baggage carries a
+// sample_rate but no sample_rand, the SDK derives one that agrees with the
+// parent's decision; with no baggage at all, a request draws a fresh random
+// value and starts its own decision.
 //
 // Pure and SDK-free so client/vitest.config.ts can cover it; the callers are
 // sentry.client.config.ts, sentry.server.config.ts and sentry.edge.config.ts.
