@@ -27,9 +27,9 @@ const ROOT = /^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+[\\/]|\/)/;
 /** shortPath fits a path, or a single folder name, into `max` characters by
  *  cutting its middle: the drive root and the last folders stay
  *  ("D:\...\Acme footage 2026-09-14 1405"), and when even the last folder is
- *  too long, the start and the end of the whole string do. End truncation
- *  would hide exactly the part that tells two drops apart, the timestamp in
- *  the folder name. A path that fits comes back unchanged, so a caller knows
+ *  too long, the start and the end of the whole string do. Cutting the end
+ *  instead would hide exactly the part that tells two drops apart, the
+ *  timestamp in the folder name. A path that fits comes back unchanged, so a caller knows
  *  it was shortened when the result differs; the full path then belongs in a
  *  native title beside it. Display only. */
 export function shortPath(p: string, max: number): string {
