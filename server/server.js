@@ -264,6 +264,23 @@ function forgetCode(roomId) {
     if (entry && entry.roomId === roomId) codeToRoom.delete(code);
 }
 
+// Retire every code registered for id in any spelling of its case, for a
+// request room being created there (CP-QA F1-Q5, VR1-16). registerCodeHandler
+// refuses an id a reservation holds, whatever its case, but a code registered
+// while the id was free (a link whose reservation ended, then its holder asked
+// for a code) outlived the host re-creating the room, and request-join
+// lowercases, so an upper-case alias reached the room too. forgetCode(id)
+// alone finds only the exact spelling. A walk of the code table, which
+// MAX_ACTIVE_CODES bounds, on a create only, which the create limits bound.
+function forgetCodesFor(id) {
+    for (const [code, entry] of codeToRoom) {
+        if (entry.roomId.toLowerCase() === id) dropCode(code, entry.roomId);
+    }
+    for (const roomId of roomToCode.keys()) {
+        if (roomId.toLowerCase() === id) roomToCode.delete(roomId);
+    }
+}
+
 // `pick` is injectable so tests can force deterministic collisions; production
 // uses crypto.randomInt (a CSPRNG, and free of modulo bias) because the code
 // phrase is the only secret guarding a transfer.
@@ -1055,6 +1072,7 @@ function handleHostJoin(peer, roomId, hostToken, now = Date.now()) {
         hostAbsentSince: null,
     });
     requestRoomIds.add(id);
+    forgetCodesFor(id); // no phrase may alias a request room
     rooms.set(id, [peer]);
     peer.roomId = id;
     recordCreate(peer.key, now);

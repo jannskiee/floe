@@ -2529,6 +2529,49 @@ describe('handleHostJoin', () => {
         assert.equal(roomMeta.has(plain), false);
     });
 
+    // CP-QA F1-Q5 (VR1-16): the reserved check at registration cannot see a
+    // code registered while the id was free, as when a link's reservation
+    // ended (the host slept past the grace) and its holder asked for a code
+    // before the host came back. Creating the room there must retire it, in
+    // any spelling of the id's case, since request-join lowercases.
+    it('creating a request room retires every code registered at its id while it was free', () => {
+        codeFailures.clear();
+        const token = newToken();
+        const id = roomIdFromToken(token);
+        const host = makePeer('host-1', 'k1');
+        hostJoin(host, token, T0);
+        handleDisconnect(host);
+        endReservation(id, T0 + REQUEST_GRACE_MS + 1); // the sweep after the grace
+        assert.equal(roomMeta.has(id), false);
+
+        const other = randomUUID();
+        const codes = [];
+        for (const roomId of [id, id.toUpperCase(), other]) {
+            const res = fakeRes();
+            registerCodeHandler({ body: { roomId } }, res);
+            assert.equal(res.statusCode, 200);
+            codes.push(res.body.code);
+        }
+
+        const back = makePeer('host-2', 'k1');
+        assert.deepEqual(hostJoin(back, token, T0 + REQUEST_GRACE_MS + 2), { type: 'room-joined', data: { role: 'host' } });
+
+        for (const code of codes.slice(0, 2)) {
+            const res = fakeRes();
+            resolveCodeHandler({ params: { code }, ip: '198.51.100.45' }, res);
+            assert.equal(res.statusCode, 404);
+            assert.equal(res.body.roomId, undefined);
+        }
+        for (const entry of codeToRoom.values()) assert.notEqual(entry.roomId.toLowerCase(), id);
+        for (const roomId of roomToCode.keys()) assert.notEqual(roomId.toLowerCase(), id);
+
+        // Another room's code is left alone.
+        const res = fakeRes();
+        resolveCodeHandler({ params: { code: codes[2] }, ip: '198.51.100.45' }, res);
+        assert.equal(res.statusCode, 200);
+        assert.deepEqual(res.body, { roomId: other });
+    });
+
     // FT-CODE-RANGE review F4: before the string check, an array holding a
     // reserved request room id stringified to that id for UUID_REGEX, then
     // missed the reserved lookup (a string-only guard), so a code could alias a
