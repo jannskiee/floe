@@ -188,6 +188,11 @@ func TestBufferedCandidatesStillConnect(t *testing.T) {
 		t.Fatalf("answerer: %v", err)
 	}
 	t.Cleanup(func() { _ = pc.Close() })
+	// Keep the floe channel open once it arrives. With no handler, pion's
+	// default OnDataChannel closes an undeclared channel at once, and that
+	// close raced the ReadyState check above: 4 of 120 runs saw the channel
+	// SetupAsSender returned already closed.
+	pc.OnDataChannel(func(*webrtc.DataChannel) {})
 	if err := pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: offer}); err != nil {
 		t.Fatalf("answerer remote description: %v", err)
 	}
