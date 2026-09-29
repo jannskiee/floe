@@ -1220,15 +1220,19 @@ func (l *requestLane) closeForQuit() {
 	}
 }
 
-// withLaptopPower returns warnings with the laptop-power code once, last
-// (E-27): no power-state API is asked, so every prompt carries the generic
-// line. The display is never held on; the lane warns only (E-47, OD-31).
-func withLaptopPower(warnings []string) []string {
+// withLaptopPower returns warnings with the laptop-power code once, last,
+// when battery says this PC may run on one (P11, superseding E-27's "no
+// power-state API is asked"), and without it otherwise. The display is never
+// held on; the lane warns only (E-47, OD-31).
+func withLaptopPower(warnings []string, battery bool) []string {
 	out := make([]string, 0, len(warnings)+1)
 	for _, w := range warnings {
 		if w != "laptop-power" {
 			out = append(out, w)
 		}
+	}
+	if !battery {
+		return out
 	}
 	return append(out, "laptop-power")
 }
@@ -1240,6 +1244,8 @@ func withLaptopPower(warnings []string) []string {
 func (a *App) openPrompt(rg uint64, p RequestPrompt) uint64 {
 	var pg uint64
 	var quiet bool
+	// Asked before the lane lock, like every question to the OS.
+	battery := hasBatteryFn()
 	if !a.reqUpdate(rg, func(l *requestLane) {
 		select {
 		case <-l.decision:
@@ -1247,7 +1253,7 @@ func (a *App) openPrompt(rg uint64, p RequestPrompt) uint64 {
 		}
 		l.promptGen++
 		pg = l.promptGen
-		p.Warnings = withLaptopPower(p.Warnings)
+		p.Warnings = withLaptopPower(p.Warnings, battery)
 		l.prompt = &p
 		l.setStateLocked("deciding", "")
 		quiet = l.pruneEndsLocked()

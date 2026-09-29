@@ -1326,9 +1326,11 @@ func TestTransferReleaseDoesNotReleaseRequestHold(t *testing.T) {
 	}
 }
 
-// TestPromptCarriesLaptopPowerWarning (E-27): every prompt carries the
-// generic laptop line exactly once, as a code.
+// TestPromptCarriesLaptopPowerWarning (E-27, P11): on a PC that may run on a
+// battery, every prompt carries the generic laptop line exactly once, as a
+// code.
 func TestPromptCarriesLaptopPowerWarning(t *testing.T) {
+	setVar(t, &hasBatteryFn, func() bool { return true })
 	a := &App{notifyFn: func(string, string) {}}
 	a.lane().emitFn = func(string, any) {}
 	forceGen(a, 1)
