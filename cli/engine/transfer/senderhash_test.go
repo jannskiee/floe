@@ -348,6 +348,12 @@ func sendOneAndAnswerWithOptions(t *testing.T, answer string, opts SendOptions) 
 		t.Fatal("receiver data channel never opened")
 	}
 	restore := captureStdout(t)
+	// Every caller answers with a "received" frame and asserts what it
+	// carried, so wait for it: a plain send may end on its first drained
+	// tick before the answer lands (FT-GO-CONFIRMS), which a slow runner hits
+	// (review of 525c019: an 80 ms receiver delay failed three tests here).
+	// The received-frame parsing under test is the same in both modes.
+	opts.RequireReceived = true
 	sendErr := make(chan error, 1)
 	go func() { sendErr <- SendFilesWithOptions(sender, []string{src}, "", opts) }()
 
