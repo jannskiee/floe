@@ -28,7 +28,11 @@ func filterSDPCandidates(sdp string, room int) (string, int) {
 	b.Grow(len(sdp))
 	kept := 0
 	for _, line := range strings.SplitAfter(sdp, "\n") {
-		value := strings.TrimRight(line, "\r\n")
+		// Both ends: pion's SDP lexer skips any \r or \n before a line's type
+		// letter, so a line led by carriage returns is still a candidate line
+		// to pion and must be one here (review A-2 R9). A kept line is written
+		// back as it came, leading \r and all.
+		value := strings.Trim(line, "\r\n")
 		if value == "a=candidate" || strings.HasPrefix(value, "a=candidate:") {
 			if kept >= room || len(value)-len("a=") > maxCandidateBytes {
 				continue

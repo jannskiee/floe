@@ -93,4 +93,14 @@ func TestFilterSDPCandidatesHoldsTheBounds(t *testing.T) {
 	if want := head + "a=end-of-candidates\r\na=mid:0\r\n"; out != want || kept != 0 {
 		t.Fatalf("room 0: kept %d, got\n%q\nwant\n%q", kept, out, want)
 	}
+
+	// Lines led by carriage returns (review A-2 R9): pion's SDP lexer skips any
+	// \r before a line's type letter, so each is a candidate line here too,
+	// counted and bounded like any other; a kept one comes back with its \r.
+	led := head + "\ra=candidate:1 1 udp 1 192.0.2.1 1 typ host\r\n" + "\r\r" + big + "\r\n" +
+		"\r\ra=candidate:2 1 udp 1 192.0.2.2 2 typ host\r\na=mid:0\r\n"
+	out, kept = filterSDPCandidates(led, 1)
+	if want := head + "\ra=candidate:1 1 udp 1 192.0.2.1 1 typ host\r\na=mid:0\r\n"; out != want || kept != 1 {
+		t.Fatalf("carriage-return-led lines, room 1: kept %d, got\n%q\nwant\n%q", kept, out, want)
+	}
 }

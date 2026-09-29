@@ -7,6 +7,7 @@ package peer
 // the answer for SetupAsSender, the offer for SetupAsReceiver.
 
 import (
+	"fmt"
 	"net"
 	"strings"
 	"testing"
@@ -86,13 +87,21 @@ func candidateLine(i, valueLen int) string {
 // TestSDPCandidatesShareTheCap: a remote description that carries far more
 // a=candidate lines than the cap leaves pion holding exactly 256 signaled
 // candidates, counted together with the ones buffered before it and the ones
-// trickled after it; the rest of the description reaches pion intact.
+// trickled after it; the rest of the description reaches pion intact. Also
+// with every candidate line led by carriage returns (review A-2 R9): pion's
+// SDP lexer skips any \r or \n before a line's type letter, so such a line is
+// still a candidate to pion and must be one to the filter too.
 func TestSDPCandidatesShareTheCap(t *testing.T) {
-	for _, asOfferer := range []bool{true, false} {
+	for _, tc := range []struct {
+		asOfferer bool
+		prefix    string
+	}{{true, ""}, {false, ""}, {true, "\r"}, {false, "\r"}, {true, "\r\r"}, {false, "\r\r"}} {
+		asOfferer := tc.asOfferer
 		name := "in the answer (SetupAsSender)"
 		if !asOfferer {
 			name = "in the offer (SetupAsReceiver)"
 		}
+		name += fmt.Sprintf(", lines led by %q", tc.prefix)
 		t.Run(name, func(t *testing.T) {
 			conn, desc := quietPair(t, asOfferer)
 			const buffered, inSDP = 10, 2000
@@ -101,7 +110,7 @@ func TestSDPCandidatesShareTheCap(t *testing.T) {
 			}
 			lines := make([]string, inSDP)
 			for i := range lines {
-				lines[i] = "a=" + hostCandidate(i).Candidate // 192.0.2.x (TEST-NET-1), distinct ports
+				lines[i] = tc.prefix + "a=" + hostCandidate(i).Candidate // 192.0.2.x (TEST-NET-1), distinct ports
 			}
 			desc.SDP = withCandidateLines(desc.SDP, lines)
 			if err := conn.setRemoteDesc(desc); err != nil {
@@ -124,14 +133,19 @@ func TestSDPCandidatesShareTheCap(t *testing.T) {
 }
 
 // TestOversizeSDPCandidateDropped: an a=candidate line whose value passes
-// 1 KiB never reaches pion, while one of exactly 1 KiB does.
+// 1 KiB never reaches pion, also when led by a carriage return (review A-2
+// R9), while one of exactly 1 KiB does.
 func TestOversizeSDPCandidateDropped(t *testing.T) {
 	conn, desc := quietPair(t, true)
-	desc.SDP = withCandidateLines(desc.SDP, []string{candidateLine(1, candidateByteCap+1), candidateLine(2, candidateByteCap)})
+	desc.SDP = withCandidateLines(desc.SDP, []string{
+		candidateLine(1, candidateByteCap+1),
+		candidateLine(2, candidateByteCap),
+		"\r" + candidateLine(3, candidateByteCap+1),
+	})
 	if err := conn.setRemoteDesc(desc); err != nil {
 		t.Fatalf("setRemoteDesc: %v", err)
 	}
-	const bigAt, fitsAt = "198.51.100.1:40001", "198.51.100.2:40002"
+	const bigAt, fitsAt, bigLedAt = "198.51.100.1:40001", "198.51.100.2:40002", "198.51.100.3:40003"
 	got := settledRemotes(conn.pc, 10*time.Second)
 	t.Logf("pion holds %q", got)
 	has := map[string]bool{}
@@ -143,6 +157,9 @@ func TestOversizeSDPCandidateDropped(t *testing.T) {
 	}
 	if has[bigAt] {
 		t.Fatalf("pion holds the SDP candidate of %d bytes, want it dropped before pion", candidateByteCap+1)
+	}
+	if has[bigLedAt] {
+		t.Fatalf("pion holds the SDP candidate of %d bytes led by a carriage return, want it dropped before pion", candidateByteCap+1)
 	}
 }
 
