@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { scrubErrorEvent, scrubSpanJson, scrubTransactionEvent, scrubUrl } from './scrubUrl';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import {
+    scrubErrorEvent,
+    scrubServerErrorEvent,
+    scrubServerTransactionEvent,
+    scrubSpanJson,
+    scrubTransactionEvent,
+    scrubUrl,
+} from './scrubUrl';
 import type { ScrubbableErrorEvent } from './scrubUrl';
 
 describe('scrubUrl', () => {
@@ -498,13 +507,16 @@ describe('scrubTransactionEvent', () => {
     it('scrubs the page URL out of every other string in span data', () => {
         // Beyond the four URL attributes: a long-animation-frame span's script
         // attributes on a child span, a legacy ?room= referer on the segment
-        // (contexts.trace.data), and a string inside an array value.
+        // (contexts.trace.data), and a string inside an array value. A header
+        // attribute is no longer scrubbed but dropped whole (CP-QA F3-01; see
+        // the server and edge describe below).
         const event = {
             contexts: {
                 trace: {
                     data: {
                         'sentry.op': 'pageload',
                         'http.request.header.referer': `https://www.floe.one/?room=${ROOM}`,
+                        'custom.referer': `https://www.floe.one/?room=${ROOM}`,
                     },
                 },
             },
@@ -517,7 +529,7 @@ describe('scrubTransactionEvent', () => {
         expect(JSON.stringify(out)).not.toContain(ROOM);
         expect(out.contexts.trace.data).toEqual({
             'sentry.op': 'pageload',
-            'http.request.header.referer': 'https://www.floe.one/?room=redacted',
+            'custom.referer': 'https://www.floe.one/?room=redacted',
         });
         expect(out.spans[0].data).toEqual({ ...LOAF_DATA, ...LOAF_URLS(RECEIVER_SCRUBBED) });
         expect(out.spans[1].data).toEqual({ 'custom.list': ['plain', RECEIVER_SCRUBBED, 7] });
@@ -608,6 +620,245 @@ describe('scrubSpanJson', () => {
     it('fails closed on a standalone span description carrying a fragment or a room query', () => {
         for (const [description, want] of FAIL_CLOSED) {
             expect(scrubSpanJson({ description, data: {} }).description).toBe(want);
+        }
+    });
+
+    it('drops every request and response header attribute', () => {
+        // httpHeadersToSpanAttributes writes http.<request|response>.header.<name>
+        // for each header it keeps. A header can carry any URL, and the router
+        // tree is URL-encoded JSON the string rule cannot read (CP-QA F3-01).
+        const span = {
+            data: {
+                'http.request.method': 'GET',
+                'http.request.header.user_agent': 'Mozilla/5.0',
+                'http.request.header.next_url': '/r/Ab3dE_f9-xY',
+                'http.request.header.next_router_state_tree': '%5B%22%22%2C%7B%22children%22%3A%5B%22r%22',
+                'http.response.header.location': '/r/Ab3dE_f9-xY',
+                'http.response.status_code': 308,
+            },
+        };
+        expect(scrubSpanJson(span).data).toEqual({ 'http.request.method': 'GET', 'http.response.status_code': 308 });
+    });
+});
+
+describe('server and edge events', () => {
+    // What server-side Sentry sent for a browser on /r, captured on a
+    // production build of d0f0c93 with a local sink (CP-QA F3-01 and F3-03,
+    // skeptic S2), ids replaced. sendDefaultPii false keeps every request
+    // header but cookies, IPs and a few forwarding ones.
+    const LINK_ID = 'Ab3dE_f9-xY';
+    const ROOM_ID = '6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f';
+    const TREE = () =>
+        encodeURIComponent(
+            JSON.stringify(['', { children: ['r', { children: [['linkId', LINK_ID, 'd'], { children: ['__PAGE__', {}] }] }] }, null, null, true])
+        );
+
+    /** The transaction of one footer prefetch (or click) from /r: GET /privacy
+     *  as an RSC request, which names its page in Next-Url and the router tree. */
+    function prefetchTransaction() {
+        return {
+            type: 'transaction',
+            transaction: 'GET /privacy',
+            request: {
+                url: 'http://127.0.0.1:64805/privacy?_rsc=1x2y3',
+                method: 'GET',
+                query_string: '_rsc=1x2y3',
+                headers: {
+                    host: '127.0.0.1:64805',
+                    'user-agent': 'Mozilla/5.0',
+                    accept: '*/*',
+                    rsc: '1',
+                    'next-router-prefetch': '1',
+                    'next-router-segment-prefetch': '/_tree',
+                    'next-url': `/r/${LINK_ID}`,
+                    'next-router-state-tree': TREE(),
+                    referer: `http://127.0.0.1:64805/r/${LINK_ID}`,
+                },
+            },
+            contexts: {
+                trace: {
+                    op: 'http.server',
+                    data: {
+                        'sentry.op': 'http.server',
+                        'http.method': 'GET',
+                        'http.target': '/privacy?_rsc=1x2y3',
+                        'http.request.header.next_url': `/r/${LINK_ID}`,
+                        'http.request.header.next_router_state_tree': TREE(),
+                    },
+                },
+            },
+            spans: [
+                {
+                    description: 'render route (app) /privacy',
+                    data: { 'http.request.header.next_url': `/r/${LINK_ID}`, 'next.route': '/privacy' },
+                },
+            ],
+        };
+    }
+
+    /** captureRequestError's event for a render fault on /r: the parameterized
+     *  transaction, the headers, and the raw path in contexts.nextjs. */
+    function renderError() {
+        return {
+            level: 'error',
+            transaction: 'GET /r/[linkId]/page',
+            request: {
+                url: `http://127.0.0.1:64805/r/${LINK_ID}?_rsc=Q1vRyY7h`,
+                method: 'GET',
+                query_string: '_rsc=Q1vRyY7h',
+                headers: { 'user-agent': 'Mozilla/5.0', rsc: '1', 'next-router-state-tree': '%5Bbroken' },
+            },
+            contexts: {
+                nextjs: {
+                    request_path: `/r/${LINK_ID}?_rsc=Q1vRyY7h`,
+                    router_kind: 'App Router',
+                    router_path: '/r/[linkId]/page',
+                    route_type: 'render',
+                },
+                trace: { trace_id: '0123456789abcdef0123456789abcdef', span_id: '0123456789abcdef' },
+            },
+            exception: {
+                values: [
+                    {
+                        type: 'Error',
+                        value: 'The router state header was sent but could not be parsed.',
+                        mechanism: { type: 'auto.function.nextjs.on_request_error', handled: false },
+                        stacktrace: {
+                            frames: [
+                                {
+                                    filename:
+                                        '/var/task/client/node_modules/next/dist/compiled/next-server/app-page-turbo.runtime.prod.js',
+                                    function: 's_',
+                                    in_app: true,
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        };
+    }
+
+    it('a footer RSC request from /r leaves no link id in its transaction (F3-01)', () => {
+        const out = scrubServerTransactionEvent(prefetchTransaction());
+        const json = JSON.stringify(out);
+        expect(json).not.toContain(LINK_ID);
+        expect(json).not.toContain(encodeURIComponent(LINK_ID));
+        expect(out.request.headers).toEqual({ 'user-agent': 'Mozilla/5.0' });
+        expect(out.request.query_string).toBe('_rsc=1x2y3');
+        expect(out.request.url).toBe('http://127.0.0.1:64805/privacy?_rsc=1x2y3');
+        expect(out.contexts.trace.data).toEqual({
+            'sentry.op': 'http.server',
+            'http.method': 'GET',
+            'http.target': '/privacy?_rsc=1x2y3',
+        });
+        expect(out.spans[0].data).toEqual({ 'next.route': '/privacy' });
+        expect(out.transaction).toBe('GET /privacy');
+    });
+
+    it('a render fault on /r leaves no link id in its error event (F3-03)', () => {
+        const out = scrubServerErrorEvent(renderError());
+        expect(JSON.stringify(out)).not.toContain(LINK_ID);
+        expect(out.contexts.nextjs).toEqual({
+            request_path: '/r/redacted?_rsc=Q1vRyY7h',
+            router_kind: 'App Router',
+            router_path: '/r/[linkId]/page',
+            route_type: 'render',
+        });
+        expect(out.request.headers).toEqual({ 'user-agent': 'Mozilla/5.0' });
+        expect(out.request.url).toBe('http://127.0.0.1:64805/r/redacted?_rsc=Q1vRyY7h');
+        expect(out.request.query_string).toBe('_rsc=Q1vRyY7h');
+        // The server runtime's frames name no page and come back as they were.
+        expect(out.exception).toEqual(renderError().exception);
+    });
+
+    it('a legacy ?room= request leaves no room id in the query string or a Referer (S2 O-2)', () => {
+        const home = scrubServerTransactionEvent({
+            transaction: 'GET /',
+            request: { url: `http://127.0.0.1:64805/?room=${ROOM_ID}`, query_string: `room=${ROOM_ID}` },
+        });
+        expect(home.request.query_string).toBe('room=redacted');
+        const icon = scrubServerTransactionEvent({
+            transaction: 'GET /icon.svg',
+            request: { url: 'http://127.0.0.1:64805/icon.svg', headers: { referer: `http://127.0.0.1:64805/?room=${ROOM_ID}` } },
+        });
+        expect(icon.request.headers).toEqual({});
+        const error = scrubServerErrorEvent({
+            request: { query_string: `next=/r/${LINK_ID}&room=${ROOM_ID}` },
+            contexts: { nextjs: { request_path: `/?room=${ROOM_ID}` } },
+        });
+        expect(JSON.stringify([home, icon, error])).not.toMatch(new RegExp(`${ROOM_ID}|${LINK_ID}`));
+        expect(error.contexts.nextjs.request_path).toBe('/?room=redacted');
+    });
+
+    it('keeps the user agent under any spelling and no other header', () => {
+        const out = scrubServerErrorEvent({
+            request: {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0',
+                    Referer: 'https://floe.one/r/x',
+                    'Next-Url': '/r/x',
+                    Cookie: 'a=b',
+                    Host: 'floe.one',
+                },
+            },
+        });
+        expect(out.request.headers).toEqual({ 'User-Agent': 'Mozilla/5.0' });
+    });
+
+    it('a server event anywhere else keeps its URL, query string and request path', () => {
+        const out = scrubServerErrorEvent({
+            transaction: 'GET /api/config',
+            request: { url: 'http://127.0.0.1:64805/api/config?x=1', query_string: 'x=1', headers: { accept: '*/*' } },
+            contexts: { nextjs: { request_path: '/api/config?x=1', router_path: '/api/config' } },
+        });
+        expect(out).toEqual({
+            transaction: 'GET /api/config',
+            request: { url: 'http://127.0.0.1:64805/api/config?x=1', query_string: 'x=1', headers: {} },
+            contexts: { nextjs: { request_path: '/api/config?x=1', router_path: '/api/config' } },
+        });
+    });
+
+    it('never throws on an odd server event, and drops a header, query or path it cannot read', () => {
+        const shapes: unknown[] = [
+            {},
+            { request: null },
+            { request: 'x' },
+            { request: { headers: null } },
+            { request: { headers: `next-url: /r/${LINK_ID}` } },
+            { request: { headers: [`/r/${LINK_ID}`] } },
+            { request: { query_string: { next: `/r/${LINK_ID}` } } },
+            { request: { query_string: [['next', `/r/${LINK_ID}`]] } },
+            { contexts: null },
+            { contexts: 'x' },
+            { contexts: { nextjs: null } },
+            { contexts: { nextjs: { request_path: [`/r/${LINK_ID}`] } } },
+        ];
+        for (const shape of shapes) {
+            const event = structuredClone(shape) as Parameters<typeof scrubServerErrorEvent>[0];
+            expect(() => scrubServerErrorEvent(event), JSON.stringify(shape)).not.toThrow();
+            expect(JSON.stringify(event), JSON.stringify(shape)).not.toContain(LINK_ID);
+            const transaction = structuredClone(shape) as Parameters<typeof scrubServerTransactionEvent>[0];
+            expect(() => scrubServerTransactionEvent(transaction), JSON.stringify(shape)).not.toThrow();
+            expect(JSON.stringify(transaction), JSON.stringify(shape)).not.toContain(LINK_ID);
+        }
+    });
+
+    it('is idempotent', () => {
+        const once = scrubServerTransactionEvent(prefetchTransaction());
+        expect(scrubServerTransactionEvent(structuredClone(once))).toEqual(once);
+        const error = scrubServerErrorEvent(renderError());
+        expect(scrubServerErrorEvent(structuredClone(error))).toEqual(error);
+    });
+
+    it('the server and edge configs run these scrubs', () => {
+        // The configs import the SDK and cannot load here; their wiring is
+        // read as text, as visitorBoundaries.test.ts reads the /r sources.
+        for (const file of ['sentry.server.config.ts', 'sentry.edge.config.ts']) {
+            const src = readFileSync(fileURLToPath(new URL(`../${file}`, import.meta.url)), 'utf8');
+            expect(src, file).toMatch(/beforeSend\(event\) \{\s*return scrubServerErrorEvent\(event\);\s*\}/);
+            expect(src, file).toMatch(/beforeSendTransaction\(event\) \{\s*return scrubServerTransactionEvent\(event\);\s*\}/);
+            expect(src, file).toContain('sendDefaultPii: false');
         }
     });
 });

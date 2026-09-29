@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/nextjs';
-import { scrubTransactionEvent, scrubUrl } from './lib/scrubUrl';
+import { scrubServerErrorEvent, scrubServerTransactionEvent } from './lib/scrubUrl';
 
 Sentry.init({
     // Set SENTRY_DSN in your environment to enable server-side error tracking.
@@ -12,16 +12,17 @@ Sentry.init({
     // still land in a request URL. Scrub it (and disable default PII) so the
     // room secret never reaches Sentry.
     sendDefaultPii: false,
+    // Everything the client scrub does, plus what only a server event carries:
+    // request headers (all but the user agent go; an RSC request from /r names
+    // /r/<linkId> in two of them), the query string and, on an error from
+    // captureRequestError, contexts.nextjs.request_path. See lib/scrubUrl.ts.
     beforeSend(event) {
-        if (event.request?.url) {
-            event.request.url = scrubUrl(event.request.url);
-        }
-        return event;
+        return scrubServerErrorEvent(event);
     },
     // Transactions skip beforeSend, and a traced request carries its URL in
     // the trace context and span attributes just as an error carries it in
     // request.url. Same scrub, same reason.
     beforeSendTransaction(event) {
-        return scrubTransactionEvent(event);
+        return scrubServerTransactionEvent(event);
     },
 });

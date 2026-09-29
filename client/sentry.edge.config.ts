@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/nextjs';
-import { scrubTransactionEvent, scrubUrl } from './lib/scrubUrl';
+import { scrubServerErrorEvent, scrubServerTransactionEvent } from './lib/scrubUrl';
 
 Sentry.init({
     // Set SENTRY_DSN in your environment to enable edge-side error tracking.
@@ -10,16 +10,16 @@ Sentry.init({
 
     // Scrub any room secret out of request URLs (covers old ?room= links).
     sendDefaultPii: false,
+    // The same server scrub as sentry.server.config.ts: request headers but the
+    // user agent, the query string and contexts.nextjs.request_path as well as
+    // request.url. See lib/scrubUrl.ts.
     beforeSend(event) {
-        if (event.request?.url) {
-            event.request.url = scrubUrl(event.request.url);
-        }
-        return event;
+        return scrubServerErrorEvent(event);
     },
     // Transactions skip beforeSend, and a traced request carries its URL in
     // the trace context and span attributes just as an error carries it in
     // request.url. Same scrub, same reason.
     beforeSendTransaction(event) {
-        return scrubTransactionEvent(event);
+        return scrubServerTransactionEvent(event);
     },
 });
