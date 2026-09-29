@@ -42,9 +42,17 @@ async function seen(locator: Locator): Promise<Seen> {
         canvas.height = 1;
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
         if (!ctx) throw new Error('no 2d context');
+        // fillStyle ignores a color it cannot parse and keeps the old one, so
+        // an unreadable value would be measured as whatever was set before,
+        // opaque black at first, and a check could pass on a color nobody
+        // read. It is set to a sentinel no /r surface uses first, and a value
+        // that leaves the sentinel in place fails the test.
+        const SENTINEL = '#010203';
         const rgba = (css: string): [number, number, number, number] => {
-            ctx.clearRect(0, 0, 1, 1);
+            ctx.fillStyle = SENTINEL;
             ctx.fillStyle = css;
+            if (ctx.fillStyle === SENTINEL) throw new Error(`the canvas cannot read the color ${JSON.stringify(css)}`);
+            ctx.clearRect(0, 0, 1, 1);
             ctx.fillRect(0, 0, 1, 1);
             const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
             return [r, g, b, a / 255];
