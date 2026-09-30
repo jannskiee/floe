@@ -36,6 +36,20 @@ env:
   CLIENT: ghcr.io/jannskiee/floe-client
 
 jobs:
+  # A manual dispatch republishes only from main. On a branch it used to push that
+  # branch's images to ghcr.io under a branch tag; on a v* tag it re-tags that
+  # release and moves `latest` and `X.Y`, so dispatching an older tag rolls every
+  # self-hoster back. A failed tag run is rerun in place instead. This job makes a
+  # refused dispatch a visible red run rather than a silent skip.
+  refuse:
+    if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - run: |
+          echo "::error::images.yml publishes from a manual dispatch only on main; rerun a failed tag run in place instead"
+          exit 1
+
   # Four legs: two images across two architectures. Each pushes BY DIGEST with no
   # tag attached, so nothing a user can pull by name exists until every leg has
   # passed its own smoke test.
@@ -47,10 +61,9 @@ jobs:
   # image behaves on a Raspberry Pi. Native runners are free for public repos.
   build:
     name: Build ${{ matrix.image }} (${{ matrix.platform }})
-    # A manual dispatch publishes only from main or a v* tag. Dispatched on any
-    # other ref, this job used to push that branch's images to ghcr.io under a
-    # branch tag; now build is skipped, and publish (needs: build) skips with it.
-    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    # A manual dispatch builds only on main (see refuse above); publish
+    # (needs: build) is skipped whenever build is.
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
     runs-on: ${{ matrix.platform == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 45
     permissions:
