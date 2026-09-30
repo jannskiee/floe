@@ -9,7 +9,8 @@ package transfer
 // buffer is empty (the sender's SCTP acknowledged the frame), and while the
 // buffer still holds it the wait goes on, up to receivedLinger from the send.
 // The buffer read is the receivedBuffered seam, because a real SACK cannot be
-// held back on demand; the hand sender never closes here.
+// held back on demand; the hand sender closes only in the test of the linger's
+// own close arm.
 
 import (
 	"sync/atomic"
@@ -142,5 +143,42 @@ func TestReceiveReturnsAtGraceOnceAcknowledged(t *testing.T) {
 		t.Logf("the receive returned %v after its received (grace 300ms)", took.Round(time.Millisecond))
 	case <-time.After(5 * time.Second):
 		t.Fatal("the receive was still waiting 5s after an acknowledged received, far past its 300ms grace")
+	}
+}
+
+// TestReceiveLingerEndsOnTheSendersClose: a close that arrives while the
+// receive lingers (past its grace, the frame still unacknowledged) ends the
+// wait at once. pion never releases the buffer after a close, so without the
+// loop's own close arm the receive would sit out the whole ceiling: the FU-16
+// watcher's close in a drop whose visitor vanished, or a sender whose close
+// outran its own SACK (review A2 N1).
+func TestReceiveLingerEndsOnTheSendersClose(t *testing.T) {
+	lingerTimes(t, 200*time.Millisecond, 20*time.Second)
+	var held atomic.Bool
+	held.Store(true)
+	holdBuffer(t, &held)
+	h, at := receiveToReceived(t)
+	defer h.restore()
+	select {
+	case err := <-h.recvErr:
+		t.Fatalf("the receive returned %v %v after its received, before the close, with the frame unacknowledged", err, time.Since(at).Round(time.Millisecond))
+	case <-time.After(500 * time.Millisecond): // past the 200ms grace: inside the linger
+	}
+	closed := time.Now()
+	if err := h.sender.Close(); err != nil {
+		t.Fatalf("close the sender's channel: %v", err)
+	}
+	select {
+	case err := <-h.recvErr:
+		took := time.Since(closed)
+		if err != nil {
+			t.Fatalf("the receive returned %v after the sender closed; want nil", err)
+		}
+		if took > time.Second {
+			t.Fatalf("the receive returned %v after the sender closed; want it within 1s", took.Round(time.Millisecond))
+		}
+		t.Logf("the receive returned %v after the sender closed (ceiling 20s)", took.Round(time.Millisecond))
+	case <-time.After(3 * time.Second):
+		t.Fatal("the receive was still lingering 3s after the sender closed, with the frame unacknowledged and a 20s ceiling")
 	}
 }
