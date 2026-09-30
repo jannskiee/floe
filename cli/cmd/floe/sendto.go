@@ -510,32 +510,47 @@ func requestJoin(sc *signaling.Client, roomID string) signaling.RequestJoinResul
 // the watcher closes the connection, which ends the setup at once instead of
 // at its 30 s wait. ended names which one did it, "" for none.
 func setupWatched(sc *signaling.Client, conn *peer.Connection) (dc *webrtc.DataChannel, ended string, err error) {
+	return watchSetup(sc.RoomFull, sc.HostAbsent, sc.Disabled, conn.Close, conn.SetupAsReceiver)
+}
+
+// watchSetup is setupWatched over its parts, so a test can take the seat away
+// at the moment the setup succeeds. The watcher has returned before the answer
+// is read, so there are two answers only: the watcher closed the connection,
+// and the setup ends on its reason whatever the setup itself returned (a
+// channel that opened just as its connection was closed would print Connected
+// and WAIT, then C-112; review lens A, nit 10), or it did not and never will.
+func watchSetup(roomFull, hostAbsent, disabled <-chan struct{}, closeConn func(), setup func() (*webrtc.DataChannel, error)) (*webrtc.DataChannel, string, error) {
 	why := make(chan string, 1)
 	stop := make(chan struct{})
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		var w string
 		select {
-		case <-sc.RoomFull:
+		case <-roomFull:
 			w = "room-full"
-		case <-sc.HostAbsent:
+		case <-hostAbsent:
 			w = "host-absent"
-		case <-sc.Disabled:
+		case <-disabled:
 			w = "disabled"
 		case <-stop:
 			return
 		}
 		why <- w
-		conn.Close()
+		closeConn()
 	}()
-	dc, err = conn.SetupAsReceiver()
+	dc, err := setup()
 	close(stop)
-	if err != nil {
-		select {
-		case ended = <-why:
-		default:
+	<-done
+	select {
+	case w := <-why:
+		if err == nil {
+			err = peer.ErrClosed
 		}
+		return nil, w, err
+	default:
 	}
-	return dc, ended, err
+	return dc, "", err
 }
 
 // sendToOutcome maps a failed send to the lines that end the command, or to

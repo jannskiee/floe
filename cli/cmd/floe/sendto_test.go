@@ -1024,6 +1024,66 @@ func TestSendToHostLeftDuringSetupEndsAtOnce(t *testing.T) {
 	})
 }
 
+// TestWatchSetupReportsASeatTakenAsSetupSucceeds: a seat taken away at the
+// moment the setup succeeds ends the setup on its reason, because the watcher
+// has already closed the connection; with no event the channel comes back
+// untouched, and an event after the answer closes nothing (review lens A,
+// nit 10). No network: the setup is a func the test controls.
+func TestWatchSetupReportsASeatTakenAsSetupSucceeds(t *testing.T) {
+	type watch struct {
+		roomFull, hostAbsent, disabled chan struct{}
+		closed                         chan struct{}
+		closeOnce                      sync.Once
+	}
+	newWatch := func() *watch {
+		return &watch{
+			roomFull: make(chan struct{}, 1), hostAbsent: make(chan struct{}, 1), disabled: make(chan struct{}, 1),
+			closed: make(chan struct{}),
+		}
+	}
+	run := func(w *watch, setup func() (*webrtc.DataChannel, error)) (*webrtc.DataChannel, string, error) {
+		return watchSetup(w.roomFull, w.hostAbsent, w.disabled, func() { w.closeOnce.Do(func() { close(w.closed) }) }, setup)
+	}
+	open := &webrtc.DataChannel{}
+
+	for _, event := range []string{"room-full", "host-absent", "disabled"} {
+		w := newWatch()
+		fire := map[string]chan struct{}{"room-full": w.roomFull, "host-absent": w.hostAbsent, "disabled": w.disabled}[event]
+		// The setup succeeds, but only once the event is in and the watcher
+		// has closed the connection under it.
+		dc, ended, err := run(w, func() (*webrtc.DataChannel, error) {
+			fire <- struct{}{}
+			<-w.closed
+			return open, nil
+		})
+		if dc != nil || ended != event || !errors.Is(err, peer.ErrClosed) {
+			t.Fatalf("%s as setup succeeded: (%v, %q, %v), want no channel, %q, peer.ErrClosed", event, dc, ended, err, event)
+		}
+		// The usual order: the watcher's close is what ends the setup.
+		w = newWatch()
+		fire = map[string]chan struct{}{"room-full": w.roomFull, "host-absent": w.hostAbsent, "disabled": w.disabled}[event]
+		if _, ended, err := run(w, func() (*webrtc.DataChannel, error) {
+			fire <- struct{}{}
+			<-w.closed
+			return nil, peer.ErrClosed
+		}); ended != event || err == nil {
+			t.Fatalf("%s during setup: (%q, %v)", event, ended, err)
+		}
+	}
+
+	w := newWatch()
+	dc, ended, err := run(w, func() (*webrtc.DataChannel, error) { return open, nil })
+	if dc != open || ended != "" || err != nil {
+		t.Fatalf("no event: (%v, %q, %v), want the channel back", dc, ended, err)
+	}
+	w.roomFull <- struct{}{}
+	select {
+	case <-w.closed:
+		t.Fatal("an event after the answer closed the connection")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 // ── Refusals ─────────────────────────────────────────────────────────────────
 
 // approvedRefusal is every code's block at saved 0 (TL-14 to TL-26); the
