@@ -55,15 +55,17 @@ export const HASH_IDS = Object.freeze([
     'H-DIR-C2D-hashbad',
 ]);
 
-// The request link cells (S1-REL-03a, spec 09 2.7.2). The visitor is a web
-// page on /r (W) and the host is the desktop (D), so every one is a W2D
-// cell except TA-17, which is the six quick cells run while the desktop
-// holds an open link. Like HASH_IDS they are outside DEFAULT_IDS and
-// DEEP_IDS: a run reaches them through --cells, and each SKIPs
-// `server-no-request-1` until probe P10 finds request-1 in the server's
-// /health features. TA-14 (reqcaddy) is planned and SKIPs unless the run
-// names --caddy (a local Docker Caddy, lib/caddy.mjs); TA-16 (the CLI
-// visitor) is deferred with B6.
+// The request link cells (S1-REL-03a, spec 09 2.7.2). The host is always
+// the desktop (D). The visitor is a web page on /r (W), so those are W2D
+// cells, or the CLI's `floe send --to` (C) for TA-16's C2D cell; TA-17 is
+// the six quick cells run while the desktop holds an open link. Like
+// HASH_IDS they are outside DEFAULT_IDS and DEEP_IDS: a run reaches them
+// through --cells, and each SKIPs `server-no-request-1` until probe P10
+// finds request-1 in the server's /health features. TA-16 is head only
+// (H-DIR-C2D-req): no released CLI has --to yet, and S-DIR-C2D-req returns
+// to the shipped profile with the release that ships it. TA-14 (reqcaddy)
+// is planned and SKIPs unless the run names --caddy (a local Docker Caddy,
+// lib/caddy.mjs).
 export const REQUEST_VARIANTS = Object.freeze([
     'req', // TA-10, TA-11 and the head twins: one visitor, Accept, delivered
     'reqhideip', // TA-12: relay forced by the host's Hide my IP
@@ -86,6 +88,7 @@ export const REQUEST_IDS = Object.freeze([
     'H-DIR-W2D-req', // head twin of TA-10
     'H-REL-W2D-req', // head twin of TA-11
     ...REQUEST_OPEN_IDS.map((id) => `H-${id.slice(2)}`), // head twins of TA-17
+    'H-DIR-C2D-req', // TA-16: the CLI visitor, floe send --to (head only)
 ]);
 /** The cut TA-13 makes in the host's /ws while the link waits (09 2.7.2). */
 export const REQUEST_BLIP_MS = 5_000;
@@ -478,7 +481,7 @@ function buildCell(id, { cliHasRelayOnly }) {
     const fixture = fixtureSpec(parsed);
     const expect = expectOf(variant);
     const timeouts = phaseTimeouts({ path: p, snd, rcv, expect, fixture });
-    const request = flow ? requestSpec(variant, flow) : null;
+    const request = flow ? requestSpec(variant, flow, snd) : null;
     if (request && flow !== 'open-link-precondition') {
         // Make link and the prompt: 30 s plus the Accept wait; a blip adds
         // its cut and a reclaim; a decline adds the second visitor.
@@ -530,11 +533,34 @@ function buildCell(id, { cliHasRelayOnly }) {
 }
 
 /**
+ * The CLI visitor's oracles (TA-16, spec 09 2.7.2 and S1-CLI-02): the prompt
+ * as for any visitor; `floe send --to` exits 0; the drop's bytes inside the
+ * exclusive subfolder; TL-03's arrived line, and its SHA line only when the
+ * host's verified count equals N; the desktop's Done copy; the route pair;
+ * the desktop.json proof. A sender has no stats path at all: the visitor's
+ * attempts are 0 by construction, FLOE_NO_STATS=1 is on it anyway, and the
+ * local /api/stats delta must stay 0. The used-up check needs a second
+ * visitor and stays with the web cells.
+ */
+export const CLI_VISITOR_ORACLES = Object.freeze([
+    'prompt-counts-match-no-relay-warning',
+    'visitor-exit-0',
+    'sha256-in-drop-subfolder',
+    'visitor-arrived-line',
+    'visitor-sha-line-only-when-verified-equals-n',
+    'desktop-received-n-files',
+    'route',
+    'desktop-json-proof',
+    'visitor-stats-attempts-0',
+]);
+
+/**
  * What a request link cell asks of the runner. Every oracle is from 09
  * 2.7.2; the visitor's stats attempts must be 0 in every one, and the link
- * (with its room fragment) stays inside the run folder.
+ * (with its room fragment) stays inside the run folder. snd picks the
+ * visitor: the CLI (C, TA-16) or a web page on /r.
  */
-function requestSpec(variant, flow) {
+function requestSpec(variant, flow, snd) {
     if (flow === 'open-link-precondition')
         return {
             flow,
@@ -543,6 +569,18 @@ function requestSpec(variant, flow) {
             linkOpen: true,
             loopbackOnly: false,
             oracles: ['quick-cell-oracles', 'link-still-waiting-after'],
+        };
+    if (snd === 'C')
+        return {
+            flow,
+            feature: 'request-1',
+            host: 'desktop',
+            visitor: 'cli',
+            visitors: 1,
+            acceptWaitMs: REQUEST_ACCEPT_WAIT_MS,
+            blipMs: null,
+            loopbackOnly: false,
+            oracles: [...CLI_VISITOR_ORACLES],
         };
     const oracles = [
         'prompt-counts-match-no-relay-warning',

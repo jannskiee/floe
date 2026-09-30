@@ -88,6 +88,16 @@ function ctxFor(world, extra = {}) {
                             ? world.adapters.desktop.createLeg(o)
                             : plain.desktop.createLeg(o),
                 };
+            // TA-16's CLI visitor comes from the request world; a quick
+            // cell's own CLI legs stay the plain fakes.
+            if (name === 'cli')
+                return {
+                    ...plain.cli,
+                    createLeg: (o) =>
+                        o.requestLink
+                            ? world.adapters.cli.createLeg(o)
+                            : plain.cli.createLeg(o),
+                };
             return plain[name];
         },
         ledger: Ledger.relaxed({ now: () => Date.now() }),
@@ -253,6 +263,72 @@ test('a request link cell never runs as a plain cell: no plain web, CLI or deskt
     const r = await runCell(small('H-DIR-W2D-req'), ctx);
     assert.equal(r.verdict, 'PASS', r.note);
     assert.equal(plainLegs, 0);
+});
+
+test('TA-16 H-DIR-C2D-req: the CLI visitor joins by itself, the host accepts, and the drop is the manifest in its subfolder; the link never reaches the record', async () => {
+    const w = fakeRequestWorld();
+    const ctx = ctxFor(w);
+    const r = await runCell(small('H-DIR-C2D-req'), ctx);
+    assert.equal(r.verdict, 'PASS', r.note);
+    const a = r.attempts[0];
+    assert.equal(w.cliVisitors.length, 1, 'one CLI visitor');
+    assert.equal(w.visitors.length, 0, 'no web visitor, not even a used-link checker');
+    // Accept no earlier than the guard allows, on a prompt with the
+    // visitor's own count and bytes.
+    const acceptClick = clicksOf(w, 'Accept');
+    assert.equal(acceptClick.length, 1);
+    assert.ok(acceptClick[0].t - w.dom.promptMountedAt >= ACCEPT_WAIT_MS);
+    assert.deepEqual(a.request.prompts, [{ files: 1, totalBytes: 4096, warnings: [] }]);
+    // The oracles: exit 0, TL-03's arrived line, the SHA line with every
+    // file verified, the host's Done copy, the files in their subfolder.
+    assert.equal(a.request.visitorExit, 0);
+    assert.equal(r.completion.sender.text, '1 file arrived (4 KB in 0s, direct).');
+    assert.deepEqual(a.request.result, { files: 1, saved: 1, verified: 1, renamed: 0 });
+    assert.equal(a.request.hostView.heading, 'RECEIVED 1 FILE, 0.0 MB');
+    assert.equal(a.request.hostView.verifiedLine, true);
+    assert.equal(a.request.usedUp, null, 'the used-up check stays with the web cells');
+    assert.equal(r.integrity.ok, true);
+    assert.equal(r.integrity.subfolder, 'Floe request 1');
+    assert.equal(r.route.observed, 'direct');
+    // Safety: the host is an opted-out receiver and the CLI ran with
+    // FLOE_NO_STATS=1; nothing tried to report.
+    assert.deepEqual(
+        { ok: ctx.safety.desktopReceiversOptedOut.ok, total: ctx.safety.desktopReceiversOptedOut.total },
+        { ok: 1, total: 1 }
+    );
+    assert.equal(ctx.safety.statsReportAttempts, 0);
+    assert.equal(w.cliVisitors[0].opts.requestLink.includes(FAKE_ROOM), true, 'the CLI got the whole link');
+    // The link went to the CLI's argv, and every record keeps it redacted.
+    assertNoRoom(ctx, r, 'H-DIR-C2D-req');
+    const sender = attemptJson(a).evidence.sender;
+    assert.ok(sender.argv.includes('--to'));
+    assert.ok(sender.argv.some((x) => /\/r\/Xk3p9Q0aB1c#<room>$/.test(x)), 'the link in argv is redacted');
+    assert.deepEqual(sender.statsProof, { kind: 'sender-env', floeNoStats: '1' });
+    // Left as found: the result put away, the Beta switch off, the CLI stopped.
+    assert.equal(a.request.released, 'ready');
+    assert.equal(w.dom.settings.requestLinks, false);
+    assert.equal(w.cliVisitors[0].stopped, 'done');
+    assert.equal(w.dom.closed, true);
+});
+
+test('TA-16 failures name what broke: the CLI exits 1 on its line, exits 0 without TL-03, prints the SHA line over a short verify, the host verified short, runs without FLOE_NO_STATS, or the host stops the drop', async () => {
+    for (const [faults, re] of [
+        [['cli-exit'], /the CLI visitor exited 1 on "Connection lost\. 0 of 1 file arrived/],
+        [['cli-no-arrived'], /the CLI visitor exited 0 with no arrived line/],
+        [['verified-short', 'sha-line-lie'], /the visitor's SHA line shows with 0 of 1 verified/],
+        [['verified-short'], /the host verified 0 of 1 file/],
+        [['cli-stats-env'], /stats-attempt: the CLI visitor ran without FLOE_NO_STATS=1/],
+        [['stopped'], /hash-mismatch: the host stopped the drop \(hash-mismatch\)/],
+    ]) {
+        const w = fakeRequestWorld({ faults });
+        const ctx = ctxFor(w);
+        const r = await runCell(small('H-DIR-C2D-req'), ctx);
+        assert.equal(r.verdict, 'FAIL', `${faults}: ${r.note}`);
+        assert.match(r.note, re, `${faults}`);
+        assertNoRoom(ctx, r, 'H-DIR-C2D-req');
+        assert.equal(w.cliVisitors.at(-1).stopped, 'failed', `${faults}: the CLI visitor was stopped`);
+        assert.equal(r.attempts.length, 1, `${faults}: a request-flow finding is never retried`);
+    }
 });
 
 test('TA-11 H-REL-W2D-req: the relay-forced visitor reads local=relay and the host agrees', async () => {

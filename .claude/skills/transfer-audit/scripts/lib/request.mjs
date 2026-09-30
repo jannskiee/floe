@@ -8,8 +8,12 @@
 // runRequestAttempt runs TA-10, TA-11 and TA-12 (flow accept), TA-13
 // (blip-then-accept) and TA-15 (decline-then-accept) and returns the same
 // attempt record runAttempt does, so runCell's verdicts, retry and report
-// rows apply unchanged. runOpenLinkAttempt runs TA-17: the quick cell's own
-// attempt, with the host holding a link open beside it (runAttempt hooks).
+// rows apply unchanged. TA-16 (flow accept, request.visitor 'cli') runs the
+// same attempt with the CLI as the visitor: `floe send <files> --to <link>`
+// through the CLI adapter's own leg (lib/cli.mjs, opts.requestLink), whose
+// exit and printed lines stand in for the web visitor's status card.
+// runOpenLinkAttempt runs TA-17: the quick cell's own attempt, with the host
+// holding a link open beside it (runAttempt hooks).
 //
 // The link is a secret for its life: the full value goes to the visitor's
 // page.goto and nowhere else. The record carries the redacted form, every
@@ -578,6 +582,75 @@ async function accept(host, rec, st, T) {
     st.acceptedAt = st.clock.now();
 }
 
+/**
+ * TA-16's visitor: `floe send <files> --to <link> --server <s>`, the CLI
+ * adapter's own leg in its request-visitor mode, started once the CLI prints
+ * WAIT (joined, connected, waiting for the Accept). The link goes to its argv
+ * only; the CLI never prints it back, and the leg's evidence, argv included,
+ * passes through scrubDeep with every other.
+ */
+async function newCliVisitor(cell, ctx, rec, st, fixture) {
+    const mod = await ctx.getAdapter('cli');
+    const leg = mod.createLeg({
+        cellId: cell.id,
+        attempt: rec.n,
+        role: 'sender',
+        requestLink: st.link,
+        files: fixture.paths,
+        infra: ctx.infra,
+        build: ctx.buildFor ? ctx.buildFor('cli', 'sender') : null,
+        relayOnly: Boolean(cell.sender.relayOnly),
+        noRelay: false,
+        cliHasRelayOnly: Boolean(ctx.cliHasRelayOnly),
+        deadlineAt: rec.deadlineAt,
+        ledger: ctx.ledger,
+        label: 'visitor-cli',
+        evidenceDir: path.join(rec.evidenceDir, 'visitor-cli'),
+        iface: ctx.iface || [],
+        log: ctx.log,
+    });
+    st.cliVisitor = leg;
+    await leg.start();
+    if (ctx.onPid) ctx.onPid(leg.pid ?? leg.h?.pid ?? null, `${cell.id}:visitor-cli`);
+    return leg;
+}
+
+/**
+ * The CLI visitor's end: its exit, raced against the attempt ending. It
+ * resolves with the leg's result either way, because the CLI exits the
+ * moment the host refuses, and the host's own account (its stop code) must
+ * still get to be the finding; cliVisitorFailed words a failed one.
+ */
+async function awaitCliVisitor(leg, timeoutMs, live, clock) {
+    // The poll stops once the race is decided: on the tests' fake clock nap
+    // resolves at once, and a poll left running would spin forever.
+    let settled = false;
+    const ended = (async () => {
+        while (!settled) {
+            if (live && !live.on) throw flow('done', 'the attempt ended');
+            await clock.nap(HOST_POLL_MS);
+        }
+    })();
+    ended.catch(() => {});
+    try {
+        return await Promise.race([leg.awaitDone(timeoutMs), ended]);
+    } finally {
+        settled = true;
+    }
+}
+
+/**
+ * A CLI visitor that did not end on exit 0 and TL-03's arrived line: FAIL
+ * request-flow with the one fixed line it printed (approved copy, never a
+ * peer's text).
+ */
+function cliVisitorFailed(r) {
+    return flow(
+        'done',
+        `the CLI visitor exited ${r.exitCode} ${r.detail?.outcome ? `on "${r.detail.outcome}"` : 'with no arrived line'}`
+    );
+}
+
 // ---------------------------------------------------------------- flows
 
 /** The request phase of each flow; returns the visitor that delivers. */
@@ -590,6 +663,13 @@ async function runFlow(cell, ctx, rec, st, fixture, T) {
         await v.addFiles(fixture.paths, st.clock);
         return v;
     };
+    if (req.visitor === 'cli' && req.flow === 'accept') {
+        // TA-16: the CLI joins and waits by itself; no Send to click.
+        const v = await newCliVisitor(cell, ctx, rec, st, fixture);
+        await awaitPrompt(host, rec, st, fixture, T);
+        await accept(host, rec, st, T);
+        return v;
+    }
     if (req.flow === 'accept') {
         const v = await open('visitor-1');
         await v.send(st.clock);
@@ -901,6 +981,7 @@ async function manifestMatch(fixture, outDir, folder, rec) {
 async function verifyRequest(cell, ctx, rec, st, fixture, T) {
     const { host, deliverer, delivered, snap } = st;
     const N = fixture.files.length;
+    const cli = cell.request.visitor === 'cli';
 
     // Route: the visitor's nominated pair and the host's pill (or the lane's
     // own route), read as a pair the way every other cell is.
@@ -928,6 +1009,19 @@ async function verifyRequest(cell, ctx, rec, st, fixture, T) {
     // host's config as GetSettings read it, and every visitor so far.
     rec.stats = statsProofCheck(cell, safeEvidence(host), rec, ctx);
     rec.stats.proof.browserAttempts = visitorStats(st.visitors, rec);
+    if (cli) {
+        // A sender has no stats path at all; FLOE_NO_STATS=1 rides along
+        // anyway (the build's hard line for every CLI run), and the local
+        // /api/stats delta below must stay 0.
+        const proof = safeEvidence(deliverer)?.statsProof ?? null;
+        rec.stats.proof.cliVisitor = proof;
+        if (proof?.floeNoStats !== '1')
+            throw new PhaseError(
+                'verify',
+                'stats-attempt: the CLI visitor ran without FLOE_NO_STATS=1',
+                { signatureKey: 'stats-attempt' }
+            );
+    }
 
     // The host's account and the done view the owner reads. On the UIA lane
     // the account IS the done view (source uia): DN1 carries the saved count,
@@ -961,14 +1055,28 @@ async function verifyRequest(cell, ctx, rec, st, fixture, T) {
             'verify',
             `the host's SHA sentence ${view.verifiedLine ? 'shows' : 'is missing'} with ${r.verified ?? 'not all'} of ${N} verified`
         );
-    const shaLine = delivered.lines.some((l) => l.includes(VISITOR_TEXT.shaMatched));
+    if (cli) {
+        // TA-16: exit 0 and TL-03's arrived line naming the visitor's own N.
+        rec.request.visitorExit = delivered.exitCode;
+        if (delivered.exitCode !== 0)
+            throw flow('verify', `the CLI visitor exited ${delivered.exitCode}`);
+        if (delivered.detail.arrived?.files !== N)
+            throw flow(
+                'verify',
+                `the CLI visitor's arrived line names ${delivered.detail.arrived?.files ?? 'no'} file(s), not ${N}`
+            );
+    }
+    const shaLine = cli
+        ? delivered.detail.shaLine === true
+        : delivered.lines.some((l) => l.includes(VISITOR_TEXT.shaMatched));
     if (shaLine !== allVerified)
         throw flow(
             'verify',
             `the visitor's SHA line ${shaLine ? 'shows' : 'is missing'} with ${r.verified ?? (allVerified ? N : 'not all')} of ${N} verified`
         );
-    // A web visitor always sends its digests (P0-27), so fewer verified
-    // files than sent ones is a finding even when both screens agree.
+    // A web visitor, and the CLI, always send their digests (P0-27, P0-22),
+    // so fewer verified files than sent ones is a finding even when both
+    // ends agree.
     if (!allVerified)
         throw flow('verify', `the host verified ${r.verified ?? 'not all'} of ${N} file(s)`);
 
@@ -976,24 +1084,27 @@ async function verifyRequest(cell, ctx, rec, st, fixture, T) {
     await manifestMatch(fixture, st.outDir, r.folder, rec);
 
     // The link reads used up: a fresh visitor gets the used copy, and the
-    // host never shows a second prompt.
-    const checker = await newVisitor(ctx, rec, st, 'visitor-used', false);
-    await checker.addFiles([fixture.paths[0]], st.clock);
-    await checker.send(st.clock);
-    try {
-        const seen = await checker.awaitTitle([VISITOR_TEXT.used], {
-            timeoutMs: T.join + T.connect,
-            ...st.clock,
-            live: st.live,
-        });
-        rec.request.usedUp = seen.title;
-    } catch (e) {
-        throw flow('verify', `the link is not used up after the drop (${e.message.replace(/^request-flow: /, '')})`);
+    // host never shows a second prompt. It takes a second (web) visitor, so
+    // TA-16's CLI cell leaves it to the web cells.
+    if (!cli) {
+        const checker = await newVisitor(ctx, rec, st, 'visitor-used', false);
+        await checker.addFiles([fixture.paths[0]], st.clock);
+        await checker.send(st.clock);
+        try {
+            const seen = await checker.awaitTitle([VISITOR_TEXT.used], {
+                timeoutMs: T.join + T.connect,
+                ...st.clock,
+                live: st.live,
+            });
+            rec.request.usedUp = seen.title;
+        } catch (e) {
+            throw flow('verify', `the link is not used up after the drop (${e.message.replace(/^request-flow: /, '')})`);
+        }
+        const after = await snapshotOf(host);
+        if (after.state !== 'done')
+            throw flow('verify', `the host left done (${after.state}) when a second visitor tried the used link`);
+        rec.stats.proof.browserAttempts = visitorStats(st.visitors, rec);
     }
-    const after = await snapshotOf(host);
-    if (after.state !== 'done')
-        throw flow('verify', `the host left done (${after.state}) when a second visitor tried the used link`);
-    rec.stats.proof.browserAttempts = visitorStats(st.visitors, rec);
 
     if (ctx.statsOracle) {
         if (ctx.safety) ctx.safety.localReceives += 1;
@@ -1031,6 +1142,8 @@ function newRequestRecord(cell) {
         result: null,
         hostView: null,
         usedUp: null,
+        // TA-16: the CLI visitor's exit code (web cells leave it null).
+        visitorExit: null,
         released: null,
         swept: null,
     };
@@ -1253,15 +1366,20 @@ export async function runRequestAttempt(cell, ctx, n) {
                 failed = true;
                 throw e;
             };
+            // TA-16's CLI resolves on its exit whatever it was, and only then
+            // is judged, below: its failure never stops the host's wait.
+            const cli = cell.request.visitor === 'cli';
             const [h, v] = await Promise.allSettled([
                 awaitHostDrop(st.host, rec, st, budget, both).catch(stopOther),
-                st.deliverer
-                    .awaitTitle([arrivedTitle(fixture.files.length)], {
-                        timeoutMs: budget,
-                        ...clock,
-                        live: both,
-                    })
-                    .catch(stopOther),
+                cli
+                    ? awaitCliVisitor(st.deliverer, budget, both, clock)
+                    : st.deliverer
+                          .awaitTitle([arrivedTitle(fixture.files.length)], {
+                              timeoutMs: budget,
+                              ...clock,
+                              live: both,
+                          })
+                          .catch(stopOther),
             ]);
             const ended = (x) => /the attempt ended$/.test(x.reason?.message || '');
             if (h.status === 'rejected' && !ended(h)) throw h.reason;
@@ -1270,14 +1388,15 @@ export async function runRequestAttempt(cell, ctx, n) {
             if (v.status === 'rejected') throw v.reason;
             const snap = h.value;
             const delivered = v.value;
+            if (cli && !delivered.ok) throw cliVisitorFailed(delivered);
             st.snap = snap;
             st.delivered = delivered;
             st.doneAt = clock.now();
             rec.completion = {
                 sender: {
-                    text: delivered.title,
-                    seenAt: delivered.at - (st.acceptedAt ?? delivered.at),
-                    exitCode: null,
+                    text: cli ? delivered.detail.arrived.line : delivered.title,
+                    seenAt: cli ? null : delivered.at - (st.acceptedAt ?? delivered.at),
+                    exitCode: cli ? delivered.exitCode : null,
                     kind: 'transfer',
                     ok: true,
                     synthesized: false,
@@ -1308,6 +1427,14 @@ export async function runRequestAttempt(cell, ctx, n) {
                         await v.close();
                     } catch (e) {
                         rec.notes.push(scrub(`close ${v.tag}: ${e.message}`));
+                    }
+                }
+                // TA-16's CLI visitor, if it is still running (a failed cell).
+                if (st.cliVisitor) {
+                    try {
+                        await st.cliVisitor.stop(rec.ok ? 'done' : 'failed');
+                    } catch (e) {
+                        rec.notes.push(scrub(`stop the CLI visitor: ${e.message}`));
                     }
                 }
                 if (st.host) {
@@ -1357,7 +1484,11 @@ export async function runRequestAttempt(cell, ctx, n) {
         const hostEv = st.host ? safeEvidence(st.host) : null;
         const visitorsEv = st.visitors.map((v) => safeEvidence(v));
         rec.evidence = scrubDeep({
-            sender: st.deliverer ? safeEvidence(st.deliverer) : (visitorsEv.at(-1) ?? null),
+            sender: st.deliverer
+                ? safeEvidence(st.deliverer)
+                : st.cliVisitor
+                  ? safeEvidence(st.cliVisitor)
+                  : (visitorsEv.at(-1) ?? null),
             receiver: hostEv,
             visitors: visitorsEv,
         });
