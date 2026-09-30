@@ -7,6 +7,7 @@ package transfer
 import (
 	"bytes"
 	"crypto/sha256"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -217,6 +218,9 @@ func TestSenderAckTimeoutHonored(t *testing.T) {
 	case err := <-sendErr:
 		if err == nil || !strings.Contains(err.Error(), "timed out waiting for ack") {
 			t.Fatalf("expected an ack timeout, got: %v", err)
+		}
+		if !errors.Is(err, ErrAckTimeout) {
+			t.Fatalf("the ack timeout %v is not ErrAckTimeout", err)
 		}
 		// The only other value this wait could have taken is the 120 s
 		// default, so a generous bound still discriminates. It is generous on
