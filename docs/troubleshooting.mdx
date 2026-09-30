@@ -375,11 +375,13 @@ services sit behind [one reverse proxy](/self-hosting/reverse-proxy). Otherwise 
 reachable from your users' browsers: `http://localhost:3001` only works when the browser is on the
 same machine as the server.
 
-### Browser requests are blocked, and the server answers HTTP 500
+### Browser requests are blocked, and the server answers HTTP 403
 
-A rejected CORS origin does not come back as a recognizable CORS error. The server answers `500`
-with `{"error":"Internal server error"}` and logs the stack, while the browser reports a generic
-CORS failure. If you see that pairing, check `CLIENT_URL` first.
+A rejected CORS origin does not come back as a recognizable CORS error. The server answers `403`
+with `{"error":"Bad request"}` and logs one line, `Refused a request with 403.`, while the browser
+reports a generic CORS failure. If you see that pairing, check `CLIENT_URL` first. The log line
+does not name the refused origin. Older server releases answer `500` with
+`{"error":"Internal server error"}` and log a stack trace instead.
 
 It must match your client's public origin exactly, including the scheme and with no trailing
 slash, and it holds **one** origin. A comma-separated list matches nothing. `https://floe.one`,
