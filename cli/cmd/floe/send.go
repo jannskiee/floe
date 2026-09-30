@@ -25,7 +25,23 @@ var sendCmd = &cobra.Command{
 	RunE:  runSend,
 }
 
+// flagTo is the request link a send goes to instead of a new code (sendto.go).
+var flagTo string
+
+func init() {
+	// The help line is the approved copy's (TL-34), byte for byte.
+	sendCmd.Flags().StringVar(&flagTo, "to", "",
+		"send through a request link made in Floe Desktop instead of creating a code")
+}
+
 func runSend(cmd *cobra.Command, args []string) error {
+	// Typed at all, even empty: an unset shell variable in --to "$LINK" must
+	// end on the incomplete-link line, never fall through to a code nobody
+	// asked for.
+	if cmd.Flags().Changed("to") {
+		return runSendTo(cmd, args)
+	}
+
 	// Validate that all paths exist
 	for _, p := range args {
 		if _, err := os.Stat(p); err != nil {
