@@ -6,7 +6,7 @@ Read from the workflow files on `main` on 2026-08-28. When a workflow changes, r
 | ------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `v*` push           | `.github/workflows/release.yml`         | CLI release, marked Latest, plus package manager manifests                                              |
 | `v*` push           | `.github/workflows/images.yml`          | `ghcr.io/jannskiee/floe-server` and `floe-client`, tagged `X.Y.Z`, `X.Y`, `latest`                      |
-| `workflow_dispatch` | `.github/workflows/images.yml`          | Rebuilds and republishes the branch tags (`main`, `sha-*`) for the ref it runs on; `latest` never moves |
+| `workflow_dispatch` | `.github/workflows/images.yml`          | Republishes `main` and `sha-*` from `main` or a `v*` tag only (other refs skip); `latest` never moves   |
 | `desktop-v*` push   | `.github/workflows/desktop-release.yml` | Desktop pre-release (exe, zip, `SHA256SUMS.txt`) and the MSIX artifact                                  |
 | `workflow_dispatch` | `.github/workflows/desktop-release.yml` | Dry run: same build and checks, MSIX artifact still uploaded, nothing published                         |
 
@@ -21,7 +21,7 @@ Read from the workflow files on `main` on 2026-08-28. When a workflow changes, r
 
 ## `v*` and images.yml
 
-- Runs on `v*` tags and on pushes to `main` that touch `client/`, `server/`, the workflow, or `.github/scripts/*.sh`, plus `workflow_dispatch`. Path filters are not evaluated for tag pushes, so a tag always publishes.
+- Runs on `v*` tags and on pushes to `main` that touch `client/`, `server/`, the workflow, or `.github/scripts/*.sh`, plus `workflow_dispatch`. Path filters are not evaluated for tag pushes, so a tag always publishes. A dispatch builds only on `main` or a `v*` tag: on any other ref the `build` job's `if:` skips it and `publish` skips with it, so a branch can never push its images to ghcr.io.
 - Tags: `type=semver` gives `1.10.5` and `1.10`; the default `latest=auto` flavor moves `latest` only on a semver tag, never on a branch push or a dispatch; branch pushes and dispatches get `main` and `sha-<short>`.
 - Four native legs (two images, amd64 and arm64) each push by digest and smoke-test before a single tag moves; both images publish together or not at all.
 

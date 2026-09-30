@@ -47,6 +47,10 @@ jobs:
   # image behaves on a Raspberry Pi. Native runners are free for public repos.
   build:
     name: Build ${{ matrix.image }} (${{ matrix.platform }})
+    # A manual dispatch publishes only from main or a v* tag. Dispatched on any
+    # other ref, this job used to push that branch's images to ghcr.io under a
+    # branch tag; now build is skipped, and publish (needs: build) skips with it.
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ${{ matrix.platform == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 45
     permissions:
