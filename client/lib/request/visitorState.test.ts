@@ -7,14 +7,17 @@ import {
     answerMinutesLeft,
     peerConfigFor,
     peerOptionsFor,
+    lostRecordOf,
     ATTEMPT_ENDING_STATES,
     type VisitorModel,
     type VisitorEvent,
     type VisitorState,
 } from './visitorState';
+import { announcement, statusCopy, type StatusContext } from './visitorCopy';
 import { RELAY_SIZE_LIMIT } from '../relay';
 import {
     ANSWER_WINDOW_MS,
+    MAX_REQUEST_FILES,
     ROOM_FULL_RETRY_DELAY_MS,
     ROOM_FULL_SEALED_RETRIES,
     ROOM_FULL_SEALED_WINDOW_MS,
@@ -598,6 +601,82 @@ describe('visitor state: visibility and hash rows', () => {
         for (const s of ['V6', 'V6c', 'V7', 'V10'] as VisitorState[]) {
             expect(step(modelIn(s), { type: 'HASHCHANGE', roomId: null }).effects).toEqual([]);
         }
+    });
+});
+
+describe("visitor state: a discarded tab's reload (FT-R-DISCARD)", () => {
+    // Chrome reloads a tab it discarded mid-drop, and the page reads the
+    // counts the tab kept (lostRecord.ts) right after the link: Ready, then
+    // RESTORE_LOST, before anything else can happen.
+    const OTHER_ROOM = '11111111-1111-4111-8111-111111111111';
+    const CTX: StatusContext = { pathAt: () => undefined, route: null, now: 0 };
+    const ready = () => step(initialModel, { type: 'LINK_OK', roomId: ROOM }).model;
+    const EVERY_STATE: VisitorState[] = [
+        'load', 'V1', 'V2', 'V3', 'V3c', 'V4', 'V5a', 'V5b', 'V5c', 'V6', 'V6a', 'V6b', 'V6c', 'V6d',
+        'V7', 'V8a', 'V8b', 'V9', 'V10', 'V11', 'V11a', 'V11b', 'V12', 'V12a', 'V13',
+    ];
+
+    it('V3 + RESTORE_LOST goes to V12 with the counts and no effects', () => {
+        const r = step(ready(), { type: 'RESTORE_LOST', arrived: 1, total: 2 });
+        expect(r.model.state).toBe('V12');
+        expect(r.model.lost).toBe('discarded');
+        expect(r.model.total).toBe(2);
+        expect(r.model.ackIndex).toBe(2);
+        expect(arrivedCount(r.model)).toBe(1);
+        expect(r.model.roomId).toBe(ROOM);
+        // Nothing is live and nothing is sent: no attempt, no teardown.
+        expect(r.effects).toEqual([]);
+        expect(r.model.attempt).toBe(0);
+    });
+
+    it('statusCopy gives C-110 and C-111, with no button and no names', () => {
+        const lost = step(ready(), { type: 'RESTORE_LOST', arrived: 1, total: 2 }).model;
+        expect(statusCopy(lost, CTX)).toMatchObject({
+            marker: 'ended',
+            title: 'Connection lost',
+            lines: ['1 of 2 files arrived. Ask them for a new link to send the other 1.'],
+            action: null,
+        });
+        expect(announcement(lost, CTX)).toBe('Connection lost. 1 of 2 files arrived.');
+        // Singular when N is 1 (D-123).
+        const one = step(ready(), { type: 'RESTORE_LOST', arrived: 0, total: 1 }).model;
+        expect(statusCopy(one, CTX)?.lines).toEqual(['0 of 1 file arrived. Ask them for a new link to send it.']);
+        expect(announcement(one, CTX)).toBe('Connection lost. 0 of 1 file arrived.');
+    });
+
+    it('V6 and V10 ignore RESTORE_LOST, as every state but V3 does', () => {
+        for (const s of EVERY_STATE.filter((x) => x !== 'V3')) {
+            const before = modelIn(s);
+            expect(step(before, { type: 'RESTORE_LOST', arrived: 1, total: 2 }), s).toEqual({
+                model: before,
+                effects: [],
+            });
+        }
+    });
+
+    it('a pair the Lost card cannot show is ignored', () => {
+        const bad: Array<[number, number]> = [[2, 2], [3, 2], [-1, 2], [0, 0], [1.5, 3], [0, MAX_REQUEST_FILES + 1]];
+        for (const [arrived, total] of bad) {
+            const before = ready();
+            expect(step(before, { type: 'RESTORE_LOST', arrived, total }), `${arrived} of ${total}`).toEqual({
+                model: before,
+                effects: [],
+            });
+        }
+    });
+
+    it('the page keeps a record only in Sending, while the fragment names its room', () => {
+        expect(lostRecordOf(modelIn('V10'), ROOM)).toEqual({ arrived: 0, total: 3 });
+        expect(lostRecordOf(modelIn('V10', { ackIndex: 3 }), ROOM)).toEqual({ arrived: 2, total: 3 });
+        for (const s of EVERY_STATE.filter((x) => x !== 'V10')) {
+            expect(lostRecordOf(modelIn(s, { ackIndex: 2 }), ROOM), s).toBeNull();
+        }
+        // E29 keeps a live drop in the room it joined, and Chrome reloads a
+        // discarded tab at the address it shows: another room, or none, gets
+        // no record.
+        expect(lostRecordOf(modelIn('V10'), OTHER_ROOM)).toBeNull();
+        expect(lostRecordOf(modelIn('V10'), null)).toBeNull();
+        expect(lostRecordOf(modelIn('V10', { roomId: null }), null)).toBeNull();
     });
 });
 

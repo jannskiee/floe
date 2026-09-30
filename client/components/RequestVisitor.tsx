@@ -36,6 +36,7 @@ import {
     reduce,
     initialModel,
     arrivedCount,
+    lostRecordOf,
     peerOptionsFor,
     sendBlock,
     ATTEMPT_ENDING_STATES,
@@ -43,6 +44,7 @@ import {
     type VisitorEvent,
     type VisitorModel,
 } from '@/lib/request/visitorState';
+import { clearLost, recordLost, sessionStore, takeLost } from '@/lib/request/lostRecord';
 import { createAttemptGate } from '@/lib/request/attempt';
 import { createFlushTracker } from '@/lib/request/flushes';
 import { deliveredBytes, dropEtaSeconds, dropPercent, etaAdvice } from '@/lib/request/eta';
@@ -127,6 +129,11 @@ function createVisitorController(deps: ControllerDeps) {
     // Send or Try again may start an attempt to the old room meanwhile
     // (WP-W1 review R3-1).
     let reloadPending = false;
+    // FT-R-DISCARD (lostRecord.ts): the room the address's fragment names now,
+    // which E29 lets differ from the room a live drop joined, and the discard
+    // record this page last wrote ("arrived/total"), or null while none.
+    let fragmentRoom: string | null = null;
+    let lostWritten: string | null = null;
 
     function arm(name: TimerName, ms: number, fire: () => void) {
         clearTimer(name);
@@ -145,17 +152,39 @@ function createVisitorController(deps: ControllerDeps) {
     }
 
     function dispatch(event: VisitorEvent) {
+        if (event.type === 'LINK_OK' || event.type === 'HASHCHANGE') fragmentRoom = event.roomId;
         const before = model;
         const { model: next, effects } = reduce(model, event);
-        if (next === before && effects.length === 0) return;
+        if (next === before && effects.length === 0) {
+            // A fragment change mid-drop moves no state, but it can end the
+            // record.
+            syncLost();
+            return;
+        }
         model = next;
         deps.setModel(next);
+        syncLost();
         const ending = ATTEMPT_ENDING_STATES.includes(next.state) && !ATTEMPT_ENDING_STATES.includes(before.state);
         if (ending) {
             gate.end();
             lastEndedAt = Date.now();
         }
         for (const effect of effects) run(effect);
+    }
+
+    /** The tab's discard record, kept in step with the model: written as each
+     *  ack lands in Sending (V10), cleared in every other state, which covers
+     *  the V6 a startAttempt enters and every ending, and cleared when the
+     *  fragment names another room. Storage is touched only when the record
+     *  changes, never on a progress tick. The load has already taken any record
+     *  an earlier page left (takeLost), so this page's own is the only one. */
+    function syncLost() {
+        const counts = lostRecordOf(model, fragmentRoom);
+        const next = counts ? `${counts.arrived}/${counts.total}` : null;
+        if (next === lostWritten) return;
+        lostWritten = next;
+        if (counts) recordLost(sessionStore(), counts.arrived, counts.total);
+        else clearLost(sessionStore());
     }
 
     /** Dispatch only while `a` is the live attempt. */
@@ -594,7 +623,16 @@ export function RequestVisitor() {
     // both inputs exist only there; a changed fragment reloads (E29); and the
     // whole attempt is torn down on unmount.
     useEffect(() => {
-        controller.dispatch(readLink(window));
+        const link = readLink(window);
+        // FT-R-DISCARD, on every load and before anything is dispatched:
+        // takeLost always removes the tab's discard record and hands its
+        // counts back only to the reload Chrome makes of a tab it discarded.
+        // The reducer takes them from Ready alone, so an incomplete link or an
+        // unsupported browser keeps its own card. Both dispatches land in one
+        // render, so the Lost card has no Ready frame before it.
+        const lost = takeLost(sessionStore(), (document as Document & { wasDiscarded?: boolean }).wasDiscarded === true);
+        controller.dispatch(link);
+        if (lost) controller.dispatch({ type: 'RESTORE_LOST', arrived: lost.arrived, total: lost.total });
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setEnv({
             canPickFolders: canPickFolders(window, navigator.userAgent),

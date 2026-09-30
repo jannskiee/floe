@@ -25,6 +25,7 @@ import {
     ROOM_FULL_SEALED_RETRIES,
     ROOM_FULL_SEALED_WINDOW_MS,
 } from './constants';
+import { isLostPair, type LostCounts } from './lostRecord';
 
 export type VisitorState =
     | 'load'
@@ -53,12 +54,14 @@ export type VisitorState =
     | 'V12a' // Lost before accept
     | 'V13'; // Delivered
 
-/** Events, with the spec's numbers. Three are the page's own and carry none:
+/** Events, with the spec's numbers. Four are the page's own and carry none:
  *  SOCKET_CONNECTED (the socket's connect, which is when request-join goes
- *  out), BACK_TO_FILES (the C-72 and C-81 button) and VERIFIED_COUNT (the
- *  display-only count from onDelivered). UNREADABLE is onFailed's third
- *  kind. SIGNAL_SENT is the answering peer's own signal going out, which is
- *  when the server may seal the room on this seat (review 2a L1). */
+ *  out), BACK_TO_FILES (the C-72 and C-81 button), VERIFIED_COUNT (the
+ *  display-only count from onDelivered) and RESTORE_LOST (the counts a tab
+ *  the browser discarded mid-drop kept, read on its reload, lostRecord.ts).
+ *  UNREADABLE is onFailed's third kind. SIGNAL_SENT is the answering peer's
+ *  own signal going out, which is when the server may seal the room on this
+ *  seat (review 2a L1). */
 export type VisitorEvent =
     | { type: 'LINK_OK'; roomId: string } // E01
     | { type: 'LINK_INCOMPLETE' } // E02
@@ -101,7 +104,8 @@ export type VisitorEvent =
     | { type: 'BACK_TO_FILES' }
     | { type: 'VERIFIED_COUNT'; verifiedCount: number | null }
     | { type: 'UNREADABLE'; index: number }
-    | { type: 'SIGNAL_SENT' };
+    | { type: 'SIGNAL_SENT' }
+    | { type: 'RESTORE_LOST'; arrived: number; total: number };
 
 /** What the page must do, in order. */
 export type VisitorEffect =
@@ -162,8 +166,9 @@ export interface VisitorModel {
     route: 'direct' | 'relay' | null;
     /** V11: the allowlisted refusal (or null) and the clamped saved count. */
     stop: { refusal: RefusalCode | null; savedCount: number } | null;
-    /** V12: how the drop was lost. */
-    lost: 'closed' | 'ack-timeout' | 'silent' | null;
+    /** V12: how the drop was lost; 'discarded' is a reload of a tab the
+     *  browser discarded mid-drop, restored from its record. */
+    lost: 'closed' | 'ack-timeout' | 'silent' | 'discarded' | null;
     /** V11 by an unreadable local file (C-130): the file's own 1-based index;
      *  0 otherwise. */
     unreadableIndex: number;
@@ -243,6 +248,16 @@ export function sendBlock(input: { count: number; size: number; hideIp: boolean;
 export function arrivedCount(model: VisitorModel): number {
     if (model.state === 'V13') return model.total;
     return Math.max(0, model.ackIndex - 1);
+}
+
+/** The discard record this model calls for (lostRecord.ts): the counts while
+ *  a drop is past Accept (V10) and the fragment still names the room it runs
+ *  in, null in every other case. Chrome reloads a discarded tab at the address
+ *  it shows, and E29 keeps a live drop in the room it joined, so under a
+ *  fragment that names another room the counts would land on the wrong link. */
+export function lostRecordOf(model: VisitorModel, fragmentRoom: string | null): LostCounts | null {
+    if (model.state !== 'V10' || model.roomId === null || fragmentRoom !== model.roomId) return null;
+    return { arrived: arrivedCount(model), total: model.total };
 }
 
 /** Whole minutes left in the host's answer window, counted from the first
@@ -346,6 +361,16 @@ export function reduce(model: VisitorModel, event: VisitorEvent): Step {
     }
     // E28: the guards hook owns what visibility does; the state never moves.
     if (event.type === 'VISIBILITY') return stay(model);
+
+    // A tab the browser discarded mid-drop, reloaded: its record's counts
+    // restore the Lost card from Ready, read right after the link. No effects:
+    // nothing is live and nothing is sent, and no name was kept, so the
+    // Arrived list stays empty. The pair is checked again on this side of the
+    // storage boundary. Every other state ignores it.
+    if (event.type === 'RESTORE_LOST') {
+        if (s !== 'V3' || !isLostPair(event.arrived, event.total)) return stay(model);
+        return to(model, 'V12', { total: event.total, ackIndex: event.arrived + 1, lost: 'discarded' });
+    }
 
     if (s === 'load') {
         if (event.type === 'LINK_OK') return to(model, 'V3', { roomId: event.roomId });

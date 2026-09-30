@@ -23,7 +23,9 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createHash, randomBytes, randomUUID } from 'crypto';
-import { visitorCopy, refusalCopy, sendingHeader } from '../lib/request/visitorCopy';
+import { visitorCopy, refusalCopy, sendingHeader, statusCopy } from '../lib/request/visitorCopy';
+import { initialModel, reduce } from '../lib/request/visitorState';
+import { LOST_KEY } from '../lib/request/lostRecord';
 import { metadataFrameBytes } from '../lib/request/metadataBudget';
 import { CONTROL_MSG_MAX, REQUEST_ACK_TIMEOUT_MS, REQUEST_ACK_GRACE_MS } from '../lib/transfer/protocol';
 import {
@@ -116,6 +118,37 @@ async function expectDelivered(page: Page, h: RequestHost, sent: Record<string, 
 /** A link of the right shape that no host holds. */
 function strayLink(): string {
     return `/r/AAAAAAAAAAA#${randomUUID()}`;
+}
+
+/** C-111 as the page words it after a discard's reload with these counts,
+ *  from the reducer and the copy module the page itself uses. */
+function restoredLostLine(arrived: number, total: number): string {
+    const ready = reduce(initialModel, { type: 'LINK_OK', roomId: randomUUID() }).model;
+    const lost = reduce(ready, { type: 'RESTORE_LOST', arrived, total }).model;
+    const copy = statusCopy(lost, { pathAt: () => undefined, route: null, now: 0 });
+    if (copy?.lines.length !== 1) throw new Error(`no Lost card for ${arrived} of ${total}`);
+    return copy.lines[0];
+}
+
+/** The document.wasDiscarded a discard's reload reads. No CDP command discards
+ *  a tab, and chrome://discards refuses while DevTools is attached, so the flag
+ *  is stubbed; the record the page reads is the one it wrote, or a seed. */
+function stubDiscard(): void {
+    Object.defineProperty(Document.prototype, 'wasDiscarded', { configurable: true, get: () => true });
+}
+
+/** Every key and value in the page's sessionStorage and localStorage. */
+async function storedPairs(page: Page): Promise<Array<[string, string]>> {
+    return page.evaluate(() => {
+        const out: Array<[string, string]> = [];
+        for (const store of [sessionStorage, localStorage]) {
+            for (let i = 0; i < store.length; i++) {
+                const key = store.key(i) ?? '';
+                out.push([key, store.getItem(key) ?? '']);
+            }
+        }
+        return out;
+    });
 }
 
 test.describe('request-link', () => {
@@ -400,6 +433,85 @@ test.describe('request-link', () => {
         await pickFiles(page, ['a.bin']);
         await expect(page.getByRole('button', { name: SEND })).toBeEnabled();
         expect(seen).toEqual([]);
+        expect(await stats()).toBe(0);
+    });
+
+    test('request-link: a discarded tab comes back to the Lost copy with its count', async ({ page, context }) => {
+        // FT-R-DISCARD: Chrome reloads a tab it discarded mid-drop. The seed is
+        // the record the tab keeps in Sending (counts only); the page reads it
+        // once, shows C-110 and C-111, and starts nothing.
+        const stats = await guard(context);
+        const seen: string[] = [];
+        page.on('request', (r) => {
+            if (/socket\.io|turn-credentials/.test(r.url())) seen.push(r.url());
+        });
+        page.on('websocket', (ws) => {
+            if (/socket\.io/.test(ws.url())) seen.push(ws.url());
+        });
+        const record = JSON.stringify({ v: 1, arrived: 1, total: 2 });
+        const seed = ([key, value]: readonly [string, string]) => sessionStorage.setItem(key, value);
+        await page.addInitScript(stubDiscard);
+        await page.addInitScript(seed, [LOST_KEY, record] as const);
+        await page.goto(strayLink());
+        await expect(page.getByRole('heading', { name: visitorCopy.lostTitle })).toBeVisible({ timeout: 20_000 });
+        await expect(page.getByText(restoredLostLine(1, 2))).toBeVisible();
+        // No name was kept, so no Arrived list; the card has no button.
+        await expect(page.getByText(visitorCopy.arrivedHeading, { exact: true })).toHaveCount(0);
+        await expect(page.getByRole('main').getByRole('button')).toHaveCount(0);
+        // Read once: the record is gone.
+        expect(await page.evaluate((key) => sessionStorage.getItem(key), LOST_KEY)).toBeNull();
+        // Nothing starts: the privacy spec's settle, then no socket and no TURN.
+        await page.waitForTimeout(1_000);
+        expect(seen).toEqual([]);
+
+        // Any other load: the same record without the flag opens on Ready, and
+        // the record is removed all the same.
+        const plain = await context.newPage();
+        await plain.addInitScript(seed, [LOST_KEY, record] as const);
+        await plain.goto(strayLink());
+        await expect(plain.getByRole('heading', { name: visitorCopy.readyEyebrow })).toBeVisible();
+        await expect(plain.getByRole('heading', { name: visitorCopy.lostTitle })).toHaveCount(0);
+        expect(await plain.evaluate((key) => sessionStorage.getItem(key), LOST_KEY)).toBeNull();
+        expect(await stats()).toBe(0);
+    });
+
+    test('request-link: in Sending the tab keeps counts only, and a discard reload shows them', async ({ page, context }) => {
+        test.setTimeout(120_000);
+        const stats = await guard(context);
+        makeFiles({ 'a.bin': 256 * 1024, 'b.bin': 256 * 1024 });
+        // The harness holds its receive loop after file 1, so the page sits in
+        // Sending (file 1's ack landed, file 2's has not) with its record
+        // written by the page itself.
+        const h = host({ decide: 'accept', holdAfterFile: 20_000 });
+        const link = await requestLink(h);
+        const url = new URL(link);
+        const linkId = url.pathname.split('/').pop() ?? '';
+        const room = url.hash.slice(1);
+        expect(linkId.length > 0 && room.length > 0).toBe(true);
+        await page.goto(link);
+        await pickFiles(page, ['a.bin', 'b.bin']);
+        await send(page);
+        await waitForHostEvent(h, 'holding', 60_000);
+        await expect(page.getByRole('heading', { name: sendingHeader(1, 2) })).toBeVisible();
+        const stored = await storedPairs(page);
+        // Checked before any value can be printed: a failure message must never
+        // carry the link id or the room (describeHarness's rule).
+        for (const [key, value] of stored) {
+            expect(key.includes(linkId) || value.includes(linkId), 'a stored key or value holds the link id').toBe(false);
+            expect(key.includes(room) || value.includes(room), 'a stored key or value holds the room').toBe(false);
+        }
+        expect(stored.filter(([key]) => key.startsWith('floe:'))).toEqual([[LOST_KEY, '{"v":1,"arrived":0,"total":2}']]);
+
+        // The discard: Chrome reloads the tab at its address with
+        // document.wasDiscarded true. The drop is live, so the leave-page
+        // prompt is accepted first, or Playwright's auto-dismiss would cancel
+        // the reload.
+        await page.addInitScript(stubDiscard);
+        page.on('dialog', (d) => void d.accept());
+        await page.reload();
+        await expect(page.getByRole('heading', { name: visitorCopy.lostTitle })).toBeVisible({ timeout: 20_000 });
+        await expect(page.getByText(restoredLostLine(0, 2))).toBeVisible();
+        expect(await page.evaluate((key) => sessionStorage.getItem(key), LOST_KEY)).toBeNull();
         expect(await stats()).toBe(0);
     });
 
