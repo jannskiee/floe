@@ -24,6 +24,10 @@ import (
 var (
 	fuzzLinkIDShape = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
 	fuzzRoomShape   = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	// A lookup's code: hyphen-joined words of letters or digits, with no room
+	// id anywhere in it (no %, =, ?, ., space or any other punctuation).
+	fuzzCodeShape  = regexp.MustCompile(`^[\p{L}\p{Nd}]+(?:-[\p{L}\p{Nd}]+)*$`)
+	fuzzRoomInside = regexp.MustCompile(`(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
 )
 
 // writeSeed writes one corpus file in the go test fuzz v1 encoding when
@@ -128,18 +132,21 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-// FuzzResolve (FT-LINK-ECHO-F2): Resolve never panics, and an input with a
-// slash or a hash never reaches the code API, since every server code is
-// lowercase words joined by hyphens: such an input is a link, resolved or
-// refused here. A refusal is one of the fixed texts, so no part of the paste
-// can reach a caller that prints it. The code API is a counting transport in
-// memory, so the target binds nothing and reaches no server.
+// FuzzResolve (FT-LINK-ECHO-F2): Resolve never panics, an input with a slash
+// or a hash never reaches the code API (every server code is lowercase words
+// joined by hyphens, so such an input is a link, resolved or refused here),
+// and whatever does reach it is shaped like a code with no room id in it
+// (review round 1). A refusal is one of the fixed texts, so no part of the
+// paste can reach a caller that prints it. The code API is a counting
+// transport in memory, so the target binds nothing and reaches no server.
 func FuzzResolve(f *testing.F) {
 	const room = "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
 	const id = "Xk3p9Q0aB1c"
 	var lookups atomic.Int64
+	var lastPath atomic.Value // string: the path of the newest lookup
 	orig := client
 	client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		lastPath.Store(r.URL.Path)
 		lookups.Add(1)
 		return &http.Response{StatusCode: http.StatusNotFound, Body: http.NoBody, Request: r}, nil
 	})}
@@ -159,6 +166,11 @@ func FuzzResolve(f *testing.F) {
 		"bare room id fragment":      "#" + room,
 		"word code":                  "olive-tiger-castle",
 		"empty":                      "",
+		"room id alone":              room,
+		"room query without a slash": "floe.one?room=" + room,
+		"percent-encoded link":       "https%3A%2F%2Ffloe.one%2Fr%2F" + id + "%23" + room,
+		"code with capitals":         "Olive-Tiger-Castle",
+		"code with a digit":          "olive-tiger-2nd",
 	}
 	names := make([]string, 0, len(seeds))
 	for name := range seeds {
@@ -170,8 +182,8 @@ func FuzzResolve(f *testing.F) {
 		writeSeed(f, "FuzzResolve", seedName(name), "string("+strconv.Quote(seeds[name])+")")
 	}
 
-	// Every text a link-shaped input can fail with. ErrDropLink carries the
-	// same sentence as ErrRequestLink.
+	// Every text an input can fail with when it is not looked up. ErrDropLink
+	// carries the same sentence as ErrRequestLink.
 	fixed := map[string]bool{
 		ErrRequestLink.Error():                              true,
 		errInvalidURL.Error():                               true,
@@ -180,11 +192,16 @@ func FuzzResolve(f *testing.F) {
 	f.Fuzz(func(t *testing.T, input string) {
 		before := lookups.Load()
 		roomID, err := Resolve("http://code.invalid", input)
-		if !strings.ContainsAny(input, "/#") {
-			return // a code-shaped input may be looked up: that is what a code is for
-		}
 		if lookups.Load() != before {
-			t.Fatal("an input with a slash or a hash reached the code API")
+			if strings.ContainsAny(input, "/#") {
+				t.Fatal("an input with a slash or a hash reached the code API")
+			}
+			code, _ := lastPath.Load().(string)
+			code = strings.TrimPrefix(code, "/api/code/")
+			if !fuzzCodeShape.MatchString(code) || fuzzRoomInside.MatchString(code) {
+				t.Fatal("a lookup was sent for text that is not shaped like a code")
+			}
+			return // the answer to a code: a 404 that quotes a code-shaped input
 		}
 		if err == nil {
 			return // a room link, resolved here
@@ -193,7 +210,7 @@ func FuzzResolve(f *testing.F) {
 			t.Fatal("a refusal also returned a room id")
 		}
 		if !fixed[err.Error()] {
-			t.Fatalf("a refused link came back as text that is not fixed: %q", err)
+			t.Fatalf("a refusal came back as text that is not fixed: %q", err)
 		}
 	})
 }

@@ -195,6 +195,36 @@ func TestResolveNeverSendsALinkToTheCodeAPI(t *testing.T) {
 		}
 	})
 
+	// Review round 1 (rev-eng-a L1, rev-eng-b E1): pastes with neither a slash
+	// nor a hash went to the code API too, several with the room id or the
+	// link id in the path. Only a code-shaped input is looked up now; these
+	// are refused here with the fixed "invalid URL" text.
+	pastes := []struct{ name, input string }{
+		{"a room id alone", room},
+		{"a room id in angle brackets", "<" + room + ">"},
+		{"room= and a room id", "room=" + room},
+		{"?room= and a room id", "?room=" + room},
+		{"a room link with neither a slash nor a hash", "floe.one?room=" + room},
+		{"a link id, %23 and a room id", id + "%23" + room},
+		{"a whole request link percent-encoded", "https%3A%2F%2Ffloe.one%2Fr%2F" + id + "%23" + room},
+		{"a link id and a room id with a space", id + " " + room},
+	}
+	for _, tc := range pastes {
+		t.Run(tc.name, func(t *testing.T) {
+			hits.Store(0)
+			roomID, err := Resolve(srv.URL, tc.input)
+			if n := hits.Load(); n != 0 {
+				t.Errorf("%d requests reached the code API, want 0", n)
+			}
+			if !errors.Is(err, errInvalidURL) {
+				t.Fatalf("Resolve returned %q, %v; want the fixed \"invalid URL\"", roomID, err)
+			}
+			if anyUUID.MatchString(err.Error()) || strings.Contains(strings.ToLower(err.Error()), strings.ToLower(id)) {
+				t.Fatalf("the error quotes the paste: %q", err.Error())
+			}
+		})
+	}
+
 	t.Run("a word code makes exactly one request", func(t *testing.T) {
 		hits.Store(0)
 		roomID, err := Resolve(srv.URL, "olive-tiger-castle")
@@ -205,6 +235,27 @@ func TestResolveNeverSendsALinkToTheCodeAPI(t *testing.T) {
 			t.Fatalf("%d requests reached the code API, want exactly 1", n)
 		}
 	})
+
+	// A code still reaches the API, once, in every form a word list can give
+	// it: typed with capitals (folded before the lookup), and with a digit or
+	// a letter outside ASCII in a word, which a self-hosted words.json may hold.
+	codes := []struct{ name, input string }{
+		{"a code typed with capitals makes exactly one request", "Olive-Tiger-Castle"},
+		{"a code with a digit in a word makes exactly one request", "olive-tiger-2nd"},
+		{"a code with a letter outside ASCII makes exactly one request", "grün-tiger-castle"},
+	}
+	for _, tc := range codes {
+		t.Run(tc.name, func(t *testing.T) {
+			hits.Store(0)
+			roomID, err := Resolve(srv.URL, tc.input)
+			if err != nil || roomID != "room-1" {
+				t.Fatalf("Resolve returned %q, %v; want room-1", roomID, err)
+			}
+			if n := hits.Load(); n != 1 {
+				t.Fatalf("%d requests reached the code API, want exactly 1", n)
+			}
+		})
+	}
 }
 
 // An input that does not parse as a URL gets the fixed text "invalid URL"
