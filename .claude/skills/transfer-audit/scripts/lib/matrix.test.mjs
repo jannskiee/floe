@@ -479,9 +479,10 @@ const WITH_FEATURE = {
     desktop: { available: true },
 };
 const LOCAL = 'http://localhost:3001';
-// The request host is driven on the wailsdev lane only (a head lane), so
-// the head plans here take --desktop wailsdev and the shipped ones keep the
-// default, which is what a real run can ask for.
+// The request host is the wailsdev dev page (a head lane) or, away-only, an
+// exe driven through the UIA verbs (FU-26); the head plans here take
+// --desktop wailsdev and the shipped ones keep the default, which is what a
+// real run can ask for.
 const requestPlan = (profile, probe = WITH_FEATURE) =>
     cellPlan({
         profile,
@@ -661,24 +662,49 @@ test('reqblip refuses any server that is not loopback, as a usage error before a
         assert.equal(c.request.loopbackOnly, c.id === 'H-DIR-W2D-reqblip', c.id);
 });
 
-test('request cells SKIP request-host-uia-pending off the wailsdev lane, so a shipped run skips them all today', () => {
-    assert.match(SKIP_REASONS['request-host-uia-pending'], /wailsdev only/);
+test('request cells on an exe host SKIP request-host-away-only without --user-away; with it they run, and TA-17 with a desktop side is NA single-instance (FU-26, G2-F1)', () => {
+    assert.match(SKIP_REASONS['request-host-away-only'], /activate its window/);
+    assert.equal(SKIP_REASONS['request-host-uia-pending'], undefined, 'the UIA verbs landed');
+    const deskSide = (c) => c.sender.surface === 'desktop' || c.receiver.surface === 'desktop';
     for (const desktopMode of ['auto', 'store', 'portable']) {
-        const rows = cellPlan({
+        const present = cellPlan({
             profile: 'head',
             cells: REQUEST_IDS,
             probe: WITH_FEATURE,
             server: LOCAL,
             desktopMode,
         }).filter((c) => REQUEST_IDS.includes(c.id) && c.reason !== 'head-only');
-        assert.ok(rows.length > 0);
-        for (const c of rows)
-            assert.equal(c.reason, 'request-host-uia-pending', `${c.id} on ${desktopMode}`);
+        assert.ok(present.length > 0);
+        for (const c of present)
+            assert.equal(c.reason, 'request-host-away-only', `${c.id} on ${desktopMode}`);
+        const away = cellPlan({
+            profile: 'head',
+            cells: REQUEST_IDS,
+            probe: WITH_FEATURE,
+            server: LOCAL,
+            desktopMode,
+            userAway: true,
+        }).filter((c) => REQUEST_IDS.includes(c.id) && c.reason !== 'head-only');
+        for (const c of away) {
+            if (c.request.flow === 'open-link-precondition' && deskSide(c)) {
+                assert.equal(c.verdict, 'NA', `${c.id} on ${desktopMode}`);
+                assert.equal(c.reason, 'single-instance', c.id);
+            } else assert.equal(c.verdict, null, `${c.id} on ${desktopMode} runs away-only`);
+        }
     }
     // The shipped profile cannot take --desktop wailsdev (audit.mjs refuses
-    // it), so every shipped request cell SKIPs until the UIA verbs land.
+    // it), so a shipped request cell runs only on an exe host, away-only.
     for (const c of requestPlan('shipped').filter((c) => c.reason !== 'head-only'))
-        assert.equal(c.reason, 'request-host-uia-pending', c.id);
+        assert.equal(c.reason, 'request-host-away-only', c.id);
+    // The wailsdev lane is not affected by the flag.
+    const dev = cellPlan({
+        profile: 'head',
+        cells: ['H-DIR-W2D-req', 'H-DIR-C2D-reqopen'],
+        probe: WITH_FEATURE,
+        server: LOCAL,
+        desktopMode: 'wailsdev',
+    }).filter((c) => c.request);
+    for (const c of dev) assert.equal(c.verdict, null, c.id);
     // The feature gate still comes first, and --desktop none still wins.
     const noFeature = cellPlan({
         profile: 'head',

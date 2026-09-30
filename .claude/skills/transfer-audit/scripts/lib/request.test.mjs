@@ -17,7 +17,7 @@ import { ACCEPT_WAIT_MS, PlaywrightDriver } from './desktop.mjs';
 import { cellPlan } from './matrix.mjs';
 import { Ledger } from './pacing.mjs';
 import { buildRunJson, newSafety, renderMarkdown } from './report.mjs';
-import { UIA_PENDING, scrubDeep } from './request.mjs';
+import { AWAY_ONLY, scrubDeep } from './request.mjs';
 import { SafetyError } from './surfaces.mjs';
 import { FAKE_ROOM } from './tests/fake-request-dom.mjs';
 import { fakeWorld, makeFakeAdapters } from './tests/fake-legs.mjs';
@@ -555,19 +555,21 @@ test('a Save to field that does not take SKIPs desktop-savedir and makes no link
     assert.equal(clicksOf(w, 'Make link').length, 0);
 });
 
-test('a host that is not on the wailsdev lane SKIPs request-host-uia-pending before anything opens', async () => {
-    const w = fakeRequestWorld();
-    const ctx = ctxFor(w, {
-        buildFor: (surface) => ({
-            kind: 'head',
-            version: 'head',
-            path: 'x.exe',
-            launch: surface === 'desktop' ? 'portable' : undefined,
-        }),
-    });
+// An exe host (FU-26): the UIA request verbs over the same scripted view.
+const EXE_BUILD = (surface) => ({
+    kind: 'head',
+    version: 'head',
+    path: 'x.exe',
+    launch: surface === 'desktop' ? 'portable' : undefined,
+});
+
+test('an exe host without --user-away SKIPs request-host-away-only before anything opens, in the plan and in the runner (G2-F1)', async () => {
+    const w = fakeRequestWorld({ lane: 'uia' });
+    const ctx = ctxFor(w, { buildFor: EXE_BUILD });
     const r = await runCell(small('H-DIR-W2D-req'), ctx);
     assert.equal(r.verdict, 'SKIP');
-    assert.equal(r.reason, UIA_PENDING);
+    assert.equal(r.reason, AWAY_ONLY);
+    assert.equal(w.launchEdits.length, 0, 'nothing launched');
     assert.equal(w.dom.clicks.length, 0);
     assert.equal(w.visitors.length, 0);
     // And the plan says so before any run: a request cell off wailsdev.
@@ -578,7 +580,99 @@ test('a host that is not on the wailsdev lane SKIPs request-host-uia-pending bef
         server: LOCAL,
         desktopMode: 'auto',
     }).find((c) => c.id === 'H-DIR-W2D-req');
-    assert.equal(off.reason, UIA_PENDING);
+    assert.equal(off.reason, AWAY_ONLY);
+    const away = cellPlan({
+        profile: 'head',
+        cells: ['H-DIR-W2D-req'],
+        probe: FEATURE,
+        server: LOCAL,
+        desktopMode: 'auto',
+        userAway: true,
+    }).find((c) => c.id === 'H-DIR-W2D-req');
+    assert.equal(away.verdict, null, 'with --user-away the exe host runs');
+});
+
+test('TA-10 on an exe host (UIA, away-only): the Beta switch rides desktop.json, Accept waits out the guard, the prompt size is read as the view renders it, and the drop verifies from the done view', async () => {
+    const w = fakeRequestWorld({ lane: 'uia', host: { settings: { requestLinks: false } } });
+    const ctx = ctxFor(w, { buildFor: EXE_BUILD, userAway: true });
+    const r = await runCell(small('H-DIR-W2D-req'), ctx);
+    assert.equal(r.verdict, 'PASS', r.note);
+    const a = r.attempts[0];
+    assert.equal(w.launchEdits[0].requestLinks, true, 'the host launched with the Beta switch on');
+    assert.equal(w.dom.madeWith.requestLinks, true);
+    assert.equal(a.request.beta.via, 'uia-toggle');
+    assert.equal(a.request.beta.changed, false, 'the switch already read on: no Toggle');
+    // The prompt's size as P2 renders it, compared in that form.
+    assert.deepEqual(a.request.prompts, [
+        { files: 1, totalBytes: null, sizeText: '4.0 KB', warnings: [] },
+    ]);
+    // Every Accept came at least 1.2 s after the prompt mounted.
+    const accepts = w.uiaClient.calls.filter(([c, p]) => c === 'click' && p.name === 'Accept');
+    assert.ok(accepts.length >= 1);
+    for (const [, , t] of accepts) assert.ok(t - w.dom.promptMountedAt >= ACCEPT_WAIT_MS);
+    assert.deepEqual(w.dom.ignored, []);
+    // The done view is the host's account on this lane.
+    assert.deepEqual(a.request.result, { files: 1, saved: 1, verified: 1, renamed: 0 });
+    assert.equal(a.request.hostView.verifiedLine, true);
+    assert.equal(r.integrity.ok, true);
+    assert.equal(r.integrity.subfolder, 'Floe request 1');
+    assert.equal(a.request.usedUp, 'This link has already been used');
+    // Every pattern call was preceded by an idle check, and the host was
+    // left as found: the result put away.
+    const calls = w.uiaClient.calls.map(([c]) => c);
+    const patterns = calls.filter((c) => ['click', 'set-value', 'toggle'].includes(c)).length;
+    assert.ok(calls.filter((c) => c === 'foreground-check').length >= patterns);
+    assert.equal(a.request.released, 'ready');
+    assertNoRoom(ctx, r, 'H-DIR-W2D-req');
+});
+
+test('TA-10 on an exe host whose window lost the foreground: the first Accept is swallowed by the re-armed guard and the second lands (G2-F1)', async () => {
+    const w = fakeRequestWorld({ lane: 'uia' });
+    // Once a visitor sends, the window is no longer the foreground one.
+    const origSend = w.visitorSend;
+    w.visitorSend = (v) => {
+        if (w.uiaClient) w.uiaClient.state.focused = false;
+        return origSend(v);
+    };
+    const ctx = ctxFor(w, { buildFor: EXE_BUILD, userAway: true });
+    const r = await runCell(small('H-DIR-W2D-req'), ctx);
+    assert.equal(r.verdict, 'PASS', r.note);
+    assert.equal(w.uiaClient.state.swallowed.length, 1);
+    const at = w.uiaClient.calls
+        .filter(([c, p]) => c === 'click' && p.name === 'Accept')
+        .map(([, , t]) => t);
+    assert.equal(at.length, 2);
+    assert.ok(at[1] - at[0] >= ACCEPT_WAIT_MS);
+});
+
+test('an exe host whose owner comes back mid-cell stops as SKIP present before the next pattern call', async () => {
+    const w = fakeRequestWorld({ lane: 'uia' });
+    const origSend = w.visitorSend;
+    w.visitorSend = (v) => {
+        if (w.uiaClient) w.uiaClient.state.idle = 12;
+        return origSend(v);
+    };
+    const ctx = ctxFor(w, { buildFor: EXE_BUILD, userAway: true });
+    const r = await runCell(small('H-DIR-W2D-req'), ctx);
+    assert.equal(r.verdict, 'SKIP', r.note);
+    assert.equal(r.reason, 'present');
+    assert.equal(
+        w.uiaClient.calls.filter(([c, p]) => c === 'click' && p.name === 'Accept').length,
+        0,
+        'no Accept once the owner was back'
+    );
+});
+
+test('TA-13 on an exe host: the blip proxy address rides desktop.json at launch, and the cut still reaches the host', async () => {
+    const w = fakeRequestWorld({ lane: 'uia' });
+    const ctx = ctxFor(w, { buildFor: EXE_BUILD, userAway: true });
+    const r = await runCell(small('H-DIR-W2D-reqblip'), ctx);
+    assert.equal(r.verdict, 'PASS', r.note);
+    assert.equal(w.launchEdits[0].server, BLIP_URL);
+    const a = r.attempts[0];
+    assert.equal(a.request.addresses.via, 'desktop.json at launch');
+    assert.equal(a.request.blip.reconnecting, true);
+    assert.equal(a.request.blip.reclaimed, true);
 });
 
 test('a wailsdev host that may report stats is an ERROR wailsdev-config, never driven', async () => {

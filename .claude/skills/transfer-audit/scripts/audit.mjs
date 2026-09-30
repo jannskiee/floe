@@ -2117,6 +2117,8 @@ export async function runCmd(opts, io = {}) {
             cells: opts.cells,
             desktopMode: opts.desktop,
             server: serverFor(opts.profile),
+            // An exe request host is away-only (G2-F1, FU-26).
+            userAway: Boolean(opts.userAway),
         });
         if (typeof io.cellHook === 'function') io.cellHook(cells);
         log(

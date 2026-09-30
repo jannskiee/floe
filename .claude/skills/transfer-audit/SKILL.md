@@ -295,7 +295,7 @@ counts as PASS. SKIP names a machine or run precondition (`uia-setvalue`,
 `head-desktop-pending`, `present`, `local-stun-only`, `prod-turn-absent`,
 `browser-relay-na`, `firewall-block`, `wsl-stopped`, `wsl-sideload`,
 `disk-space`, `infra-down`, `budget-exhausted`, `server-no-request-1`,
-`request-host-uia-pending`; `filtered` marks cells
+`request-host-away-only`; `filtered` marks cells
 dropped by `--cells` and is never counted). NA is impossible with the
 shipped product (`single-instance`, `no-cli-relay-forcer`). ERROR is a
 harness fault (for example `init-script-not-applied`), never a product
@@ -474,12 +474,28 @@ each SKIPs `server-no-request-1` until probe P10 finds `request-1`.
 `scripts/lib/request.mjs` runs them; `runCell` hands every request cell
 to it, so none ever runs as a plain cell.
 
-- The host is the desktop on the wailsdev lane, driven through the DOM
-  verbs on `PlaywrightDriver` (the table in matrix.md). On any other lane
-  a request cell SKIPs `request-host-uia-pending`: the UIA verbs for the
-  Store and portable builds are Phase F prep, and so are TA-14 (Caddy
-  reload) and TA-16 (the CLI visitor). A shipped run cannot take
-  `--desktop wailsdev`, so today every shipped request cell SKIPs.
+- The host is the desktop: on the wailsdev lane through the DOM verbs on
+  `PlaywrightDriver` (the table in matrix.md), and on an exe (the Store
+  build, a portable or a head `wails build`) through the same verbs on
+  `UiaDriver` (FU-26), which read the lane from one UIA `snapshot` of the
+  window (`requestStateFromItems`: the buttons each phase shows and its
+  fixed copy; the prompt's size as the view renders it, compared with
+  `desktopFmtBytes` of the fixture; the drop folder by the name the Done
+  view shows under the run's own save folder) and drive it with Invoke,
+  SetValue and the new `toggle` command. UIA pattern calls activate the
+  exe's window (G2-F1), so an exe host is away-only: without `--user-away`
+  its cells SKIP `request-host-away-only`, and with it every pattern call
+  first re-reads `GetLastInputInfo` and stops as SKIP `present` below
+  120 s of idle input. The Invoke that activates the window can be
+  swallowed by the prompt's guard, which re-arms on focus, so Accept and
+  Decline are repeated (three Invokes at most), never sooner than 1.2 s
+  after the prompt was first seen or after the previous Invoke. An exe has
+  no bound GetSettings or SetSettings: the Beta switch and a proxy's server
+  address ride the desktop.json it launches with (`requestLinks:true`,
+  `serverOverride`), and the switch's TogglePattern state is the read-back.
+  On an exe lane the TA-17 cells with a desktop side are NA
+  `single-instance` (the host holds the one app instance). TA-16 (the CLI
+  visitor) is deferred with B6.
 - Before the run: the operator's `wails dev` app must already read
   `reportStats:false`, `migrated:true` and the local server
   (`GetSettings`), as for any wailsdev receiver; otherwise the cell is

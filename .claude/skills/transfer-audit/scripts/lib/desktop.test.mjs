@@ -2662,13 +2662,14 @@ test('openReceiveCode opens RECEIVE and then its Code sub-view, on either driver
 test('every code-receive path in DesktopLeg goes through openReceiveCode', () => {
     // A bare RECEIVE click followed by a read of the code or Save to field is
     // the shape that timed out; the request views reach RECEIVE through
-    // _toRequestView and makeRequestLink, which pick their own sub-view.
+    // _toRequestView and makeRequestLink, which pick their own sub-view, on
+    // the dev page (PlaywrightDriver) and on an exe (UiaDriver, FU-26).
     const src = readFileSync(fileURLToPath(new URL('./desktop.mjs', import.meta.url)), 'utf8');
     const bare = src
         .split('\n')
         .map((l, i) => [i + 1, l.trim()])
         .filter(([, l]) => /click\(STRINGS\.tabReceive\b/.test(l));
-    const allowed = /^await this\._button\(STRINGS\.tabReceive\)\.first\(\)\.click\(\);$|^await driver\.click\(STRINGS\.tabReceive, \{ index: 0 \}\);$/;
+    const allowed = /^await this\._button\(STRINGS\.tabReceive\)\.first\(\)\.click\(\);$|^await driver\.click\(STRINGS\.tabReceive, \{ index: 0 \}\);$|^await this\.click\(STRINGS\.tabReceive, \{ index: 0, controlType: 'Button' \}\);$/;
     const stray = bare.filter(([, l]) => !allowed.test(l));
     assert.deepEqual(stray, [], 'a RECEIVE click outside openReceiveCode and the request views');
 });

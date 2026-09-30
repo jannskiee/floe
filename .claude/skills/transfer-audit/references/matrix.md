@@ -82,19 +82,27 @@ outside `DEFAULT_IDS` and `DEEP_IDS`: a run reaches them through `--cells`.
 Every one SKIPs `server-no-request-1` until probe P10 (`GET <server>/health`)
 finds `request-1` in the server's `features`; an absent, malformed or
 unreachable answer counts as absent. The host is always the desktop (D), so
-`--desktop none` drops them all, TA-17's W2W included, and every lane but
-`--desktop wailsdev` SKIPs them `request-host-uia-pending` (the UIA verbs
-are Phase F prep; a shipped run cannot take wailsdev, so every shipped
-request cell SKIPs today). `scripts/lib/request.mjs` runs them: each attempt
-makes its own link into its own folder, and a failed step is FAIL
-`request-flow` or `request-manifest`, never retried.
+`--desktop none` drops them all, TA-17's W2W included. On `--desktop
+wailsdev` the host is the dev page (DOM verbs); on an exe (store, portable,
+a head `wails build`) it is driven through the UIA request verbs (FU-26),
+whose pattern calls activate its window (G2-F1), so without `--user-away`
+every exe request cell SKIPs `request-host-away-only`, and with it the
+TA-17 cells with a desktop side are NA `single-instance` (the host holds
+the one app instance). A shipped run cannot take wailsdev, so a shipped
+request cell runs only on an exe host with the owner away.
+`scripts/lib/request.mjs` runs them: each attempt makes its own link into
+its own folder, and a failed step is FAIL `request-flow` or
+`request-manifest`, never retried.
 
 The visitor (W) opens `<web>/r/<linkId>#<roomId>` in a fresh Chromium
 context, picks the files through the hidden "Choose files" input, clicks
 `Send N files` and reads the page's status card (`lib/visitor.mjs`). The
 link comes from the host's `GetRequestLink` on the wailsdev lane
 (`PlaywrightDriver.readRequestLink`, checked against the link block's
-input) and goes to the visitor's `page.goto` only: `redactRequestLinks`
+input) or from the link block's read-only field on an exe
+(`UiaDriver.readRequestLink`, its UIA value; the host's `uia.log` sits
+under `private/host/` with the captures) and goes to the visitor's
+`page.goto` only: `redactRequestLinks`
 replaces the room with `<room>` in every message, note, log line and
 evidence file, the report applies the same net to audit.md and run.json,
 and the host's captures sit under the attempt's `private/host/` folder. The visitor seeds

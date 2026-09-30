@@ -178,8 +178,8 @@ export const SKIP_REASONS = Object.freeze({
     'head-desktop-pending': 'HEAD desktop build not available in this run',
     'server-no-request-1':
         'the server under test does not list request-1 in its /health features (probe P10)',
-    'request-host-uia-pending':
-        'the request link host verbs run on --desktop wailsdev only; the UIA verbs for the Store and portable builds are Phase F prep',
+    'request-host-away-only':
+        'an exe request host (store, portable or a head wails build) is driven through UIA pattern calls, which activate its window (G2-F1): it runs only with --user-away',
     filtered: 'excluded by --cells',
 });
 
@@ -577,7 +577,7 @@ const FOUR_GIB = 4 * 1024 * 1024 * 1024;
 /** Apply machine and run gates from the probe record. */
 export function gateCell(
     cell,
-    { probe = {}, desktopMode = 'auto', profile = 'shipped' } = {}
+    { probe = {}, desktopMode = 'auto', profile = 'shipped', userAway = false } = {}
 ) {
     if (cell.verdict === 'NA') return cell;
     const p = probe || {};
@@ -597,11 +597,25 @@ export function gateCell(
         cell.sender.surface === 'wsl' || cell.receiver.surface === 'wsl';
     if (hasDesktop) {
         if (desktopMode === 'none') return skip(cell, 'desktop-none');
-        // The host of every request cell is driven through the wailsdev DOM
-        // verbs (lib/request.mjs); no other lane can make or answer a link
-        // yet, so the cell SKIPs rather than running a lane it cannot drive.
-        if (cell.request && desktopMode !== 'wailsdev')
-            return skip(cell, 'request-host-uia-pending');
+        // The host of a request cell is the wailsdev dev page (DOM verbs,
+        // activates nothing) or an exe (store, portable, a head wails build)
+        // driven through the UIA request verbs (FU-26), whose pattern calls
+        // activate its window (G2-F1): away-only.
+        if (cell.request && desktopMode !== 'wailsdev') {
+            if (!userAway) return skip(cell, 'request-host-away-only');
+            // TA-17 with a desktop side: the host already holds the one app
+            // instance, so the quick cell's own desktop leg cannot launch
+            // beside it (the dev page lane has one app and a page per leg).
+            if (
+                cell.request.flow === 'open-link-precondition' &&
+                (cell.sender.surface === 'desktop' || cell.receiver.surface === 'desktop')
+            ) {
+                cell.verdict = 'NA';
+                cell.reason = 'single-instance';
+                cell.note = NA_REASONS['single-instance'];
+                return cell;
+            }
+        }
         if (p.desktop?.available === false)
             return skip(cell, 'desktop-unavailable');
         if (profile === 'head' && p.desktop?.headBuild === false)
@@ -655,6 +669,7 @@ export function cellPlan({
     cells = null,
     desktopMode = 'auto',
     server = null,
+    userAway = false,
 } = {}) {
     if (!['shipped', 'head'].includes(profile))
         throw new Error(`unknown profile ${profile}`);
@@ -697,7 +712,7 @@ export function cellPlan({
         // (P0-27 review F3).
         else if (cell.profile === 'H' && profile !== 'head')
             skip(cell, 'head-only');
-        else gateCell(cell, { probe, desktopMode, profile });
+        else gateCell(cell, { probe, desktopMode, profile, userAway });
         rows.push(cell);
     }
     // TA-13 cuts the host's sockets through a proxy on this machine: a
