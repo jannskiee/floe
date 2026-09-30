@@ -1645,7 +1645,10 @@ function App() {
     const showUpdate = updateAvailable && !updateDismissed && !busy && !dropMoving && !confirmReset && !confirmDefaults;
     // The request notice keeps the update notice's manners: never behind a
     // dialog's scrim. It stands on every screen, Settings included, except
-    // REQUEST LINK with the prompt in view.
+    // REQUEST LINK with the prompt in view. A prompt that arrives there already
+    // in view still mounts the notice until the IntersectionObserver's first
+    // report, 8 to 23 ms later (FU-04): a frame or so into a 0.32 s fade-in
+    // that starts at opacity 0, so it is left as it is.
     const showRequestNotice = noticeVisible(reqUI.snap, onRequestView, promptInView) && !closeGuard && !confirmReset && !confirmDefaults;
     // What Start over would destroy, phrased for its own dialog, so the decision
     // to interrupt and the sentence explaining why can never drift apart. Empty
