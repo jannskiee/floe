@@ -1,6 +1,7 @@
 package peer
 
-// pion's log lines, made safe for the terminal they reach (FU-40).
+// pion's log lines and setup errors, made safe for the terminal they reach
+// (FU-40).
 
 import (
 	"fmt"
@@ -59,6 +60,15 @@ func (l logLineWriter) Write(p []byte) (int, error) {
 		return 0, err
 	}
 	return len(p), nil
+}
+
+// EscapeText returns s as escapeLogLine writes a log line: every rune a
+// terminal could act on, or that hides text, as a visible escape, newlines
+// included. A WebRTC setup error can quote the remote peer's SDP, since
+// pion/sdp puts the token it refused in the message ("sdp: invalid value"),
+// so floe send and floe receive print theirs through this.
+func EscapeText(s string) string {
+	return string(escapeLogLine([]byte(s)))
 }
 
 // escapeLogLine returns line with every rune a terminal could act on, or that
