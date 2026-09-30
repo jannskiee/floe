@@ -1509,40 +1509,22 @@ func TestSendToCtrlCAfterAcceptTellsTheHost(t *testing.T) {
 	}
 }
 
-// fakeConn is a connection whose failure a test chooses.
-type fakeConn struct {
-	failed chan struct{}
-	closed atomic.Int32
-}
-
-func (f *fakeConn) Failed() <-chan struct{} { return f.failed }
-func (f *fakeConn) Close()                  { f.closed.Add(1) }
-
-// TestSendToFailedWatcherClosesTheConnection: a failed peer connection closes
-// the connection, which ends the wait for received as a lost connection; once
-// the send is over, a later failure closes nothing.
-func TestSendToFailedWatcherClosesTheConnection(t *testing.T) {
-	c := &fakeConn{failed: make(chan struct{})}
-	stop := make(chan struct{})
-	watchFailed(c, stop)
-	close(c.failed)
-	deadline := time.Now().Add(2 * time.Second)
-	for c.closed.Load() == 0 && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	if c.closed.Load() != 1 {
-		t.Fatalf("Close ran %d times after Failed, want 1", c.closed.Load())
-	}
-
-	c = &fakeConn{failed: make(chan struct{})}
-	stop = make(chan struct{})
-	watchFailed(c, stop)
-	close(stop)
-	time.Sleep(50 * time.Millisecond)
-	close(c.failed)
-	time.Sleep(100 * time.Millisecond)
-	if c.closed.Load() != 0 {
-		t.Fatalf("Close ran %d times after the watch ended", c.closed.Load())
+// TestRunSendToWatchesTheConnection pins the Failed watcher's place in
+// runSendTo as TestRunSendWatchesTheConnection pins it in runSend: a
+// closeOnFailed call before the SendFilesWithOptions call, its quit closed by
+// a defer, so the wait for the host's received has its bound and the watch
+// ends with the command.
+func TestRunSendToWatchesTheConnection(t *testing.T) {
+	watchAt, sendAt, quitDeferred := watcherShape(t, "sendto.go", "runSendTo", "closeOnFailed", "SendFilesWithOptions")
+	switch {
+	case !watchAt.IsValid():
+		t.Fatal("runSendTo never calls closeOnFailed: an ICE failure would leave the wait for the host's received open")
+	case !sendAt.IsValid():
+		t.Fatal("runSendTo no longer calls SendFilesWithOptions; re-anchor this test")
+	case watchAt > sendAt:
+		t.Fatal("runSendTo calls closeOnFailed after SendFilesWithOptions, when the wait it bounds is already over")
+	case !quitDeferred:
+		t.Fatal("closeOnFailed's quit is not closed by a defer in runSendTo, so the watch could outlive the command")
 	}
 }
 

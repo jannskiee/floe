@@ -260,11 +260,15 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 		}
 		run.acked.Store(int64(index))
 	}
-	stopWatch := make(chan struct{})
-	watchFailed(conn, stopWatch)
+	// The wait for the host's received has no deadline of its own
+	// (RequireReceived), so an ICE failure closes the connection and ends it
+	// (closeOnFailed, connfailed.go). Watched from WAIT on, it also bounds a
+	// host that vanishes while it decides.
+	quit := make(chan struct{})
+	defer close(quit)
+	closeOnFailed(conn, quit)
 	err = transfer.SendFilesWithOptions(dc, args, version,
 		sendToOptions(conn.Early(), onAck, func(d transfer.Delivered) { delivered = d }))
-	close(stopWatch)
 
 	if err != nil {
 		lines, keep := sendToOutcome(err, files, int(run.acked.Load()))
@@ -357,28 +361,6 @@ func setupWatched(sc *signaling.Client, conn *peer.Connection) (dc *webrtc.DataC
 		}
 	}
 	return dc, ended, err
-}
-
-// failer is what watchFailed needs of a connection.
-type failer interface {
-	Failed() <-chan struct{}
-	Close()
-}
-
-// watchFailed closes conn when its peer connection fails, until stop is
-// closed. The wait for the host's received has no deadline of its own
-// (SendOptions.RequireReceived), and a host that vanished without a close
-// this side can hear (a crash, a network gone) would hold it open for good.
-// Failed fires about 30 s after the last packet (peer.Connection.Failed), and
-// the close ends the send as a lost connection (TL-27).
-func watchFailed(conn failer, stop <-chan struct{}) {
-	go func() {
-		select {
-		case <-conn.Failed():
-			conn.Close()
-		case <-stop:
-		}
-	}()
 }
 
 // sendToOutcome maps a failed send to the lines that end the command, or to
