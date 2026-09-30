@@ -135,13 +135,17 @@ func deliverTwo(t *testing.T, opts SendOptions) (printed string, err error) {
 		t.Fatal("receiver data channel never opened")
 	}
 	out := t.TempDir()
+	// Swapped before the receiver starts and put back only after it returned
+	// (the recvErr receive below): the receiver prints too, and the loopback
+	// between it and this goroutine is UDP, which gives the race detector no
+	// order between its prints and the swap (race line FU-B6, 2e7d459).
+	restore := captureStdout(t)
 	recvErr := make(chan error, 1)
 	go func() {
 		recvErr <- ReceiveFilesWithOptions(rdc, out, true, "", "", ReceiveOptions{
 			OnProgress: func(Progress) {}, Messages: msgs, Closed: closed,
 		})
 	}()
-	restore := captureStdout(t)
 	opts.OnProgress = func(Progress) {}
 	err = SendFilesWithOptions(sender, paths, "", opts)
 	// What the CLI's deferred close does the instant the send returns; the
