@@ -1137,6 +1137,21 @@ describe('the request link in the app', () => {
         expect(card().style.marginTop).toBe('75px');
     });
 
+    it('<main> keeps its scrollbar gutter, so a prompt that makes it scroll never moves the card sideways (FU-38)', async () => {
+        // WebView2 draws the 6 px custom scrollbar inside <main> once a prompt
+        // makes it scroll, and the centered box moved 3 px left (FU-04). A
+        // stable gutter is the same 6 px, reserved whether it scrolls or not,
+        // and on the inline axis only: clientHeight, and so the anchored top
+        // above, is untouched. jsdom has no layout, so the class is what is
+        // checked here; the pixels are cell-08's arrival shift (--scrollbars).
+        switchOn();
+        mount();
+        await allOn();
+        const main = document.querySelectorAll('main');
+        expect(main).toHaveLength(1);
+        expect(main[0].className.split(' ')).toContain('[scrollbar-gutter:stable]');
+    });
+
     it('the link stopped when Floe closed line shows once after relaunch', async () => {
         switchOn();
         localStorage.setItem('floe:requestLinkOpenUntil', String(Date.now() + 3600_000));
