@@ -58,7 +58,9 @@ app.use(
         origin: (origin, callback) => {
             if (!origin) return callback(null, true);
             if (allowedOrigins.includes(origin)) return callback(null, true);
-            return callback(new Error('Not allowed by CORS'));
+            // A 403 through errorHandler: the generic body and one log line. With
+            // no status it read as a 500 and logged a stack per request.
+            return callback(Object.assign(new Error('Not allowed by CORS'), { status: 403 }));
         },
         credentials: true,
     })
@@ -318,14 +320,21 @@ app.get('/api/code/:code', codeRateLimiter, resolveCodeHandler);
  * regressing, and a blank NODE_ENV= reads the same as unset.
  *
  * So the response never depends on the environment: always JSON (every client
- * in this repo calls resp.json()), always a generic message. The stack still
+ * in this repo calls resp.json()), always a generic message. A 5xx stack still
  * goes to the process log, which is the only place it is useful.
+ *
+ * A 4xx is the caller's doing, so its stack says nothing and would let any
+ * caller grow the log by a kilobyte a request. It gets one line built from the
+ * checked status alone, never err.message: body-parser's 400 carries the
+ * request body in it (V8's JSON.parse quotes its input, newlines included), so
+ * printing it would let a request forge log lines.
  */
 function errorHandler(err, _req, res, _next) {
     const raw = err && err.status;
     const status = Number.isInteger(raw) && raw >= 400 && raw < 600 ? raw : 500;
 
-    console.error(err && err.stack ? err.stack : err);
+    if (status < 500) console.error(`Refused a request with ${status}.`);
+    else console.error(err && err.stack ? err.stack : err);
 
     // Headers already flushed means a route failed mid-response; anything we
     // write now would corrupt it.

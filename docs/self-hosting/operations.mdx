@@ -42,18 +42,26 @@ Setting `COMPOSE_PROFILES=turn` in your `.env` applies it to every later `docker
 
 Changing `NEXT_PUBLIC_SOCKET_URL` needs only `docker compose up -d`; the client reads it at runtime. See [How the client finds the server](/self-hosting/build-time-url). `NEXT_PUBLIC_SITE_URL` is the exception: it is written into the page at build time, so the published image omits those tags entirely rather than pointing them at somebody else's domain. See [Container images](/self-hosting/images) if you want your own.
 
-## The server does not log anything
+## The server logs very little
 
 Worth knowing before you go looking. The signaling server has no access log, no request log, and
 no startup banner, not even a line saying which port it bound. `docker compose logs server` on a
-perfectly healthy instance is empty, and that is expected rather than a symptom.
+healthy instance is usually empty, and that is expected rather than a symptom.
 
-It writes a stack trace in exactly two cases: when an unhandled error reaches its error handler,
-and when an unexpected exception reaches the process-level backstop. The second kind is prefixed
-`Unhandled error` and means the server caught something it did not anticipate and kept serving
-rather than exiting, so the transfers in progress survived. It is worth reporting. To confirm the
-server is alive, or that a restart actually landed, use the health endpoint below rather than the
-logs.
+A request its error handler refuses gets one fixed line and no stack trace:
+`Refused a request with 403.` for a browser request from an origin it does not allow, or the same
+line with another status under 500, such as `400` for malformed JSON or `413` for a body over the
+size limit. The line carries the status and nothing else, never the origin, the path, or any of the
+request's text. An occasional one is some page or client sending a bad request, not a fault. If
+`403` lines show up each time someone uses your own web client, check `CLIENT_URL`.
+
+It writes a stack trace in exactly three cases: when a server-side error (a `5xx`) reaches its
+error handler, when it cannot bind its port at startup (prefixed `HTTP server error:`, after which
+it exits), and when an unexpected exception reaches the process-level backstop. The last kind is
+prefixed `Unhandled error` and means the server caught something it did not anticipate and kept
+serving rather than exiting, so the transfers in progress survived. It is worth reporting. To
+confirm the server is alive, or that a restart actually landed, use the health endpoint below
+rather than the logs.
 
 `docker compose ps` is a similar case: **the client image ships no healthcheck**, so it never
 reports a health state. Only the server does.
