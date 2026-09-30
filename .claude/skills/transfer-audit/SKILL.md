@@ -248,7 +248,10 @@ under `WindowsApps` with the files as argv (P6: `explorer.exe
 shell:AppsFolder` drops the argument), with `desktop.json` backed up, edited
 (`server`, `web`, `hideIP`, `reportStats:false`, `noUpdateCheck:true`,
 `migrated:true`) while no Floe process exists, and restored byte-identical
-after (sha256 compared, exit 4 on mismatch); the portable and head exes
+after (sha256 compared, exit 4 on mismatch) with its original mtime put back
+through `utimesSync` and read again (an mtime that will not come back is
+reported as `mtime changed`, never a failure; the run manifest carries it,
+so `cleanup` puts it back too); the portable and head exes
 launch with `APPDATA` redirected; the per-user Explorer entry
 `HKCU\Software\Classes\*\shell\Floe`, which an unpackaged exe points at
 itself on startup, is snapshotted at the first such launch in the process
@@ -308,7 +311,10 @@ interrupted. Precedence 2, 4, 3, 130, 1, 5, 6, 0. `versions` exits 0 or 6,
 The Safety section is printed every run and must read: browser stats
 attempts 0 (all aborted), `floe:bytes-reported` events 0, CLI receivers
 opted out k/k, desktop receivers `reportStats:false, migrated:true` k/k with
-the config restored byte-identical, local `/api/stats` 0/0 on the head
+`desktop.json: contents and mtime restored` after a Store-mode leg
+(`contents restored byte-identical, mtime changed` when the mtime would not
+come back, `restored byte-identical: NO` on a mismatch, `not edited (no
+Store-mode leg)` when only portable, head or wailsdev ran), local `/api/stats` 0/0 on the head
 profile, TURN bodies never, `server/.env` never read, captures N (desktop
 PrintWindow captures; browser page screenshots are not counted) all
 window-cropped, forced foreground 0, killed pids own only, working tree
@@ -585,7 +591,7 @@ staged path.
   signature, a triage key and both transcripts, and whose SKIP and NA rows
   each carry a reason key.
 - The Safety section reading zero everywhere it must, and `desktop.json`
-  restored byte-identical.
+  restored byte-identical with its mtime (or the changed mtime named).
 - `cleanup` run; no Floe process left; the working tree unchanged.
 
 Green is a gate, not a proof: a cell passes on this machine, today, against

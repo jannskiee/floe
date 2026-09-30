@@ -15,6 +15,7 @@ import {
     redactRooms,
     relayBytesOf,
     renderMarkdown,
+    safetyRows,
     totalsOf,
 } from './report.mjs';
 
@@ -676,4 +677,30 @@ test('the FAIL block prints the attempt notes and always names a triage key', ()
         failureSections([undoc])[0],
         /"brand-new-key" \(no row: read the phase/
     );
+});
+
+// S1-REL-03a harness fix 14: the line says what happened to the owner's
+// desktop.json instead of a bare "yes".
+test('the Safety desktop line says contents and mtime restored, mtime changed, a mismatch, or not edited (fix 14)', () => {
+    const line = (patch) => {
+        const s = newSafety();
+        Object.assign(s.desktopReceiversOptedOut, patch);
+        return safetyRows(s).find(([k]) => k.startsWith('desktop receivers'))[1];
+    };
+    assert.equal(
+        line({ ok: 1, total: 1, configMtimeRestored: true }),
+        '1/1; desktop.json: contents and mtime restored'
+    );
+    assert.equal(
+        line({ ok: 1, total: 1, configMtimeRestored: false }),
+        '1/1; desktop.json: contents restored byte-identical, mtime changed'
+    );
+    assert.equal(
+        line({ ok: 1, total: 1, configRestoredIdentical: false, configMtimeRestored: true }),
+        '1/1; desktop.json restored byte-identical: NO'
+    );
+    assert.equal(line({}), '0/0; desktop.json: not edited (no Store-mode leg)');
+    assert.equal(newSafety().desktopReceiversOptedOut.configMtimeRestored, null);
+    for (const p of [{ configMtimeRestored: true }, { configMtimeRestored: false }, {}])
+        assert.ok(!/: yes$/.test(line(p)), 'never a bare yes');
 });

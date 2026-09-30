@@ -75,6 +75,7 @@ import {
     readFileSync,
     readdirSync,
     statSync,
+    utimesSync,
     writeFileSync,
 } from 'node:fs';
 import http from 'node:http';
@@ -652,6 +653,11 @@ export function classifyStatus(text) {
  * apply() refuses when any floe-desktop.exe exists (not ours) or the file is
  * missing (never create or delete under %APPDATA%\floe). restore() writes
  * the backup bytes back and compares sha256; a mismatch is a SafetyError.
+ * It then puts the original access and modification times back with
+ * utimesSync and reads the mtime again (S1-REL-03a harness fix 14): an mtime
+ * that will not come back (a refused utime, a volume that drops it) is
+ * reported as changed, never as a mismatch, because the contents are what
+ * the app reads.
  */
 export class DesktopConfigGuard {
     constructor({
@@ -670,6 +676,8 @@ export class DesktopConfigGuard {
             writeFileSync,
             existsSync,
             mkdirSync,
+            statSync,
+            utimesSync,
         };
         this.backup = null;
         this.backupPath = null;
@@ -678,6 +686,18 @@ export class DesktopConfigGuard {
         this.restoredSha = null;
         this.applied = false;
         this.restored = false;
+        this.mtimeMs = null;
+        this.atimeMs = null;
+        this.mtimeRestored = null;
+        this.mtimeNote = null;
+    }
+
+    // A test may hand in an fs without the time calls; the real ones then serve.
+    _stat(p) {
+        return (this.fs.statSync ?? statSync)(p);
+    }
+    _utimes(p, atime, mtime) {
+        return (this.fs.utimesSync ?? utimesSync)(p, atime, mtime);
     }
 
     async apply() {
@@ -698,6 +718,10 @@ export class DesktopConfigGuard {
                 `desktop.json missing at ${this.configPath}; the guard never creates it`
             );
         }
+        // The times first: every later write moves the mtime.
+        const st = this._stat(this.configPath);
+        this.mtimeMs = st.mtimeMs;
+        this.atimeMs = st.atimeMs;
         this.backup = this.fs.readFileSync(this.configPath);
         this.sha = sha256(this.backup);
         if (this.evidenceDir) {
@@ -716,6 +740,7 @@ export class DesktopConfigGuard {
     restore() {
         if (!this.applied || this.restored) return this.state();
         this.fs.writeFileSync(this.configPath, this.backup);
+        this.restoreTimes();
         this.restoredSha = sha256(this.fs.readFileSync(this.configPath));
         this.restored = true;
         activeGuards.delete(this);
@@ -733,6 +758,31 @@ export class DesktopConfigGuard {
         return this.state();
     }
 
+    /**
+     * utimesSync with the times read at apply(), in seconds with their
+     * fraction, then one stat: within a millisecond is restored. Never
+     * throws; the outcome is mtimeRestored and, when false, mtimeNote.
+     */
+    restoreTimes() {
+        if (!Number.isFinite(this.mtimeMs)) return;
+        const want = this.mtimeMs;
+        try {
+            this._utimes(
+                this.configPath,
+                (Number.isFinite(this.atimeMs) ? this.atimeMs : want) / 1000,
+                want / 1000
+            );
+            const got = this._stat(this.configPath).mtimeMs;
+            this.mtimeRestored = Math.abs(got - want) < 1;
+            this.mtimeNote = this.mtimeRestored
+                ? null
+                : `mtime reads ${new Date(got).toISOString()} after the restore, not ${new Date(want).toISOString()}`;
+        } catch (err) {
+            this.mtimeRestored = false;
+            this.mtimeNote = `mtime not restored: ${err.message}`;
+        }
+    }
+
     state() {
         return {
             configPath: this.configPath,
@@ -743,6 +793,11 @@ export class DesktopConfigGuard {
             applied: this.applied,
             restored: this.restored,
             match: this.restored ? this.restoredSha === this.sha : null,
+            mtimeBefore: Number.isFinite(this.mtimeMs)
+                ? new Date(this.mtimeMs).toISOString()
+                : null,
+            mtimeRestored: this.mtimeRestored,
+            mtimeNote: this.mtimeNote,
         };
     }
 }
@@ -2111,6 +2166,8 @@ export class DesktopLeg extends Leg {
             backup: this.guard.backupPath,
             configPath: this.guard.configPath,
             sha256: this.guard.sha,
+            // So `cleanup` can put the owner's mtime back as well (fix 14).
+            mtimeMs: this.guard.mtimeMs,
             restored: this.guard.restored ? this.guard.state().match : null,
         };
         if (typeof shared.writeManifest === 'function') {
@@ -3285,11 +3342,13 @@ export async function buildHead({
 
 /**
  * cleanup: put desktop.json back from the backup a run recorded in its
- * manifest ({ backup, configPath, sha256 }). Refuses while any
+ * manifest ({ backup, configPath, sha256, mtimeMs }). Refuses while any
  * floe-desktop.exe runs (the app rewrites the file on exit) and writes
  * nothing when the file already matches the backup. With a fence the
  * target must be the fence's own desktop.json (the guard exception), so a
  * manifest edited to name another file is a SafetyError, never a write.
+ * After a write it puts the recorded mtime back (fix 14; mtimeRestored is
+ * null when the manifest predates the field).
  */
 export async function restoreConfig(
     record,
@@ -3330,11 +3389,24 @@ export async function restoreConfig(
         };
     if (fence) fence.assertWritable(configPath, { viaGuard: true });
     writeFileSync(configPath, backup);
+    let mtimeRestored = null;
+    let mtimeText = '';
+    if (Number.isFinite(record.mtimeMs)) {
+        try {
+            utimesSync(configPath, record.mtimeMs / 1000, record.mtimeMs / 1000);
+            mtimeRestored =
+                Math.abs(statSync(configPath).mtimeMs - record.mtimeMs) < 1;
+        } catch {
+            mtimeRestored = false;
+        }
+        mtimeText = mtimeRestored ? ', mtime restored' : ', mtime changed';
+    }
     const got = sha256(readFileSync(configPath));
     return {
         ok: got === want,
         written: true,
-        detail: `desktop.json restored from ${record.backup}: want ${want.slice(0, 8)}, got ${got.slice(0, 8)}`,
+        mtimeRestored,
+        detail: `desktop.json restored from ${record.backup}: want ${want.slice(0, 8)}, got ${got.slice(0, 8)}${mtimeText}`,
     };
 }
 

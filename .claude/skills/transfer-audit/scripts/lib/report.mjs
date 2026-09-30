@@ -288,6 +288,22 @@ export function versionRows(rows) {
     ]);
 }
 
+/**
+ * What happened to the owner's real desktop.json, which only a Store-mode
+ * leg edits (S1-REL-03a harness fix 14): the contents and the mtime put
+ * back, the contents only, a restore that did not match (a SafetyError, exit
+ * 4), or not edited at all. Never a bare "yes".
+ */
+function desktopJsonState(d = {}) {
+    if (d?.configRestoredIdentical === false)
+        return 'desktop.json restored byte-identical: NO';
+    if (d?.configMtimeRestored === true)
+        return 'desktop.json: contents and mtime restored';
+    if (d?.configMtimeRestored === false)
+        return 'desktop.json: contents restored byte-identical, mtime changed';
+    return 'desktop.json: not edited (no Store-mode leg)';
+}
+
 export function safetyRows(s) {
     const ok = (v) => (v === null || v === undefined ? 'n/a' : v);
     const killed =
@@ -306,7 +322,7 @@ export function safetyRows(s) {
         ],
         [
             'desktop receivers reportStats:false, migrated',
-            `${s.desktopReceiversOptedOut?.ok ?? 0}/${s.desktopReceiversOptedOut?.total ?? 0}; desktop.json restored byte-identical: ${s.desktopReceiversOptedOut?.configRestoredIdentical === false ? 'NO' : 'yes'}`,
+            `${s.desktopReceiversOptedOut?.ok ?? 0}/${s.desktopReceiversOptedOut?.total ?? 0}; ${desktopJsonState(s.desktopReceiversOptedOut)}`,
         ],
         [
             'local /api/stats before/after (head)',
@@ -590,6 +606,9 @@ export function newSafety() {
             ok: 0,
             total: 0,
             configRestoredIdentical: true,
+            // null until a Store-mode guard reports; false once any leg's
+            // mtime would not come back (fix 14).
+            configMtimeRestored: null,
         },
         localStatsDeltaZero: null,
         localReceives: 0,

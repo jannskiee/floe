@@ -15,6 +15,7 @@ import {
     readFileSync,
     readdirSync,
     rmSync,
+    statSync,
     utimesSync,
     writeFileSync,
 } from 'node:fs';
@@ -491,6 +492,78 @@ test('the guard refuses a foreign floe-desktop.exe and a missing file, and never
             processes: NO_PROCS,
         });
         assert.equal(g.restore().applied, false);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+// S1-REL-03a harness fix 14: the byte restore used to leave the owner's
+// desktop.json with the mtime of the restore write, and the Safety line
+// still said a bare "yes".
+test('withDesktopConfig puts the original mtime back after the byte restore and says so (fix 14)', async () => {
+    const dir = tmp();
+    try {
+        const cfg = path.join(dir, 'desktop.json');
+        const original = Buffer.from('{\n  "migrated": true\n}\n');
+        writeFileSync(cfg, original);
+        const then = new Date('2026-01-02T03:04:05.000Z');
+        utimesSync(cfg, then, then);
+        const r = await withDesktopConfig(
+            cfg,
+            { hideIP: true },
+            async () => {
+                // The edit is a write, so it moves the mtime like any write.
+                assert.notEqual(statSync(cfg).mtimeMs, then.getTime());
+                return 1;
+            },
+            { processes: NO_PROCS }
+        );
+        assert.ok(readFileSync(cfg).equals(original));
+        assert.equal(r.state.match, true);
+        assert.equal(r.state.mtimeBefore, then.toISOString());
+        assert.equal(r.state.mtimeRestored, true, r.state.mtimeNote);
+        assert.ok(
+            Math.abs(statSync(cfg).mtimeMs - then.getTime()) < 1,
+            `mtime reads ${statSync(cfg).mtime.toISOString()}`
+        );
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('an mtime that cannot be put back reads as changed, never as a mismatch, and the bytes still match (fix 14)', async () => {
+    const dir = tmp();
+    try {
+        const cfg = path.join(dir, 'desktop.json');
+        const original = Buffer.from('{"migrated":true}\n');
+        const then = new Date('2026-01-02T03:04:05.000Z');
+        // A refused utime (EPERM), and a utime that returns without taking
+        // (a volume whose mtime granularity drops it): both read changed.
+        const refusing = {
+            existsSync,
+            mkdirSync,
+            readFileSync,
+            writeFileSync,
+            statSync,
+            utimesSync: () => {
+                const err = new Error('EPERM: operation not permitted, utime');
+                err.code = 'EPERM';
+                throw err;
+            },
+        };
+        const ignoring = { ...refusing, utimesSync: () => {} };
+        for (const fsImpl of [refusing, ignoring]) {
+            writeFileSync(cfg, original);
+            utimesSync(cfg, then, then);
+            const r = await withDesktopConfig(cfg, {}, async () => 1, {
+                processes: NO_PROCS,
+                fsImpl,
+            });
+            assert.ok(readFileSync(cfg).equals(original));
+            assert.equal(r.state.match, true);
+            assert.equal(r.state.mtimeRestored, false);
+            assert.match(r.state.mtimeNote, /mtime/);
+        }
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
@@ -1091,6 +1164,7 @@ test('stop() restores the guard in finally even when the close path throws, writ
             state
         );
         await leg.launch();
+        const mtimeMs = statSync(cfg).mtimeMs;
         leg.guard = new DesktopConfigGuard({
             configPath: cfg,
             evidenceDir: path.join(dir, 'ev'),
@@ -1098,10 +1172,12 @@ test('stop() restores the guard in finally even when the close path throws, writ
         });
         await leg.guard.apply();
         leg.recordGuard();
+        // mtimeMs (fix 14) lets `cleanup` put the owner's mtime back as well.
         assert.deepEqual(manifest.desktop, {
             backup: path.join(dir, 'ev', 'desktop.json.bak'),
             configPath: cfg,
             sha256: sha256(original),
+            mtimeMs,
             restored: null,
         });
         assert.equal(
@@ -2052,6 +2128,36 @@ test('restoreConfig puts the backup back only when safe, and says when it wrote 
             ).ok,
             false
         );
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('cleanup restoreConfig puts the recorded mtime back too, and a manifest without one leaves it alone (fix 14)', async () => {
+    const dir = tmp();
+    try {
+        const cfg = path.join(dir, 'desktop.json');
+        const bak = path.join(dir, 'desktop.json.bak');
+        writeFileSync(bak, '{"reportStats":true}\n');
+        const sha = sha256(readFileSync(bak));
+        const then = new Date('2026-01-02T03:04:05.000Z');
+        writeFileSync(cfg, '{"reportStats":false}\n');
+        const withTime = await restoreConfig(
+            { backup: bak, configPath: cfg, sha256: sha, mtimeMs: then.getTime() },
+            { lister: async () => [] }
+        );
+        assert.equal(withTime.ok, true);
+        assert.equal(withTime.mtimeRestored, true);
+        assert.match(withTime.detail, /mtime restored/);
+        assert.ok(Math.abs(statSync(cfg).mtimeMs - then.getTime()) < 1);
+        writeFileSync(cfg, '{"reportStats":false}\n');
+        const noTime = await restoreConfig(
+            { backup: bak, configPath: cfg, sha256: sha },
+            { lister: async () => [] }
+        );
+        assert.equal(noTime.ok, true);
+        assert.equal(noTime.mtimeRestored, null);
+        assert.notEqual(statSync(cfg).mtimeMs, then.getTime());
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
