@@ -555,10 +555,11 @@ func watchSetup(roomFull, hostAbsent, disabled <-chan struct{}, closeConn func()
 
 // sendToOutcome maps a failed send to the lines that end the command, or to
 // an error to hand cobra as it is: today's sentence for the relay gate
-// (TL-11), and a local file that could not be read or changed while it was
-// read. Only errors.As and errors.Is decide; no error's text is ever printed
-// from here, because the ones that came off the wire hold the host's words.
-// acked is the last file the host acked, 0 before it accepted.
+// (TL-11), a local file that could not be read or changed while it was read,
+// and a tree with no file left in it. Only errors.As and errors.Is decide; no
+// error's text is ever printed from here, because the ones that came off the
+// wire hold the host's words. acked is the last file the host acked, 0 before
+// it accepted.
 func sendToOutcome(err error, files, acked int) (lines []string, keep error) {
 	var stopped *transfer.PeerStoppedError
 	var ended *transfer.PeerEndedError
@@ -580,6 +581,10 @@ func sendToOutcome(err error, files, acked int) (lines []string, keep error) {
 		return []string{lineNeedsUpdate}, nil
 	case errors.Is(err, transfer.ErrRelayOverLimit),
 		errors.Is(err, transfer.ErrFileChanged),
+		// The tree emptied between the precheck and the send's own walk: the
+		// walk's error, as an empty tree at the first walk prints it, never a
+		// lost connection (review lens A, nit 7).
+		errors.Is(err, transfer.ErrNoFiles),
 		errors.As(err, &pathErr):
 		return nil, err
 	case acked == 0 && errors.Is(err, transfer.ErrAckTimeout):

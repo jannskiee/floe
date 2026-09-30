@@ -1196,6 +1196,53 @@ func TestSendToDeepFolderRefusedByHostLimits(t *testing.T) {
 	}
 }
 
+// TestSendToTreeEmptiedBeforeTheSendKeepsTheWalksError: a folder emptied
+// after the precheck, before the send's own walk, ends on the walk's error as
+// an empty folder at the first walk does ("Error: no files to send"), not on
+// "Connection lost. Nothing was sent." (review lens A, nit 7). The host holds
+// its offer until the test has emptied the folder.
+func TestSendToTreeEmptiedBeforeTheSendKeepsTheWalksError(t *testing.T) {
+	o := captureOutput(t)
+	s := newReqServer(t, "seat")
+	stubNetwork(t, s.URL)
+	folder := filepath.Join(t.TempDir(), "shoot")
+	file, _ := oneFile(t, folder, "a.bin", 16)
+	emptied := make(chan struct{})
+	h := startHost(t, s, func(h *testHost) error {
+		select {
+		case <-emptied:
+		case <-h.quit:
+			return errors.New("the folder was never emptied")
+		}
+		if err := h.offer(); err != nil {
+			return err
+		}
+		h.holdOpen()
+		return nil
+	})
+	r := startCLI(t, folder, "--to", linkFor(), "--server", s.URL)
+	select {
+	case <-s.seated:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the visitor was never seated")
+	}
+	if err := os.Remove(file); err != nil {
+		t.Fatal(err)
+	}
+	close(emptied)
+	r.wait(t, 30*time.Second)
+	if herr := h.wait(t); herr != nil {
+		t.Fatalf("host: %v", herr)
+	}
+	r.read(o)
+	if !errors.Is(r.err, transfer.ErrNoFiles) || !strings.Contains(r.stderr, "Error: no files to send") {
+		t.Fatalf("the command returned %v, want the walk's own error\nstderr:\n%s", r.err, r.stderr)
+	}
+	if strings.Contains(r.stderr, "Connection lost") {
+		t.Fatalf("an emptied folder blamed the connection:\n%s", r.stderr)
+	}
+}
+
 // TestSendToRelayOverCapEndsBeforeWait: a relayed drop over the 2 GB cap ends
 // right after the Connected line, before WAIT, on today's sentence through
 // cobra (TL-11), and the host's first frame is the gate's own abort, text
@@ -1476,6 +1523,7 @@ func TestSendToOutcomeLines(t *testing.T) {
 		{"relay gate (TL-11)", relay, 12, 0, want{keep: true}},
 		{"a file changed while read", wrapped(fmt.Errorf("the file grew while it was being sent (announced 4 bytes); %w", transfer.ErrFileChanged)), 12, 3, want{keep: true}},
 		{"a file gone", wrapped(&fs.PathError{Op: "open", Path: "shoot/a.mov", Err: fs.ErrNotExist}), 12, 3, want{keep: true}},
+		{"the tree emptied between the walks", transfer.ErrNoFiles, 12, 0, want{keep: true}},
 		{"ack timeout before accept (TL-15)", wrapped(transfer.ErrAckTimeout), 12, 0,
 			want{lines: []string{"They did not answer in time. Nothing was sent."}}},
 		{"ack timeout after accept", wrapped(transfer.ErrAckTimeout), 12, 5,
