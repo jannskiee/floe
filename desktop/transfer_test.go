@@ -12,6 +12,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -113,24 +115,43 @@ func TestRequireRelay(t *testing.T) {
 
 // requestLinkPasteLinks are the browser-only link shapes a person may paste
 // into Receive > CODE by mistake: request links on floe.one, on the local dev
-// pair and on a self-hosted base path, and the Stage 2 drop shapes. Resolving
-// them is local (a URL path match), so these tests make no network call.
+// pair and on a self-hosted base path, one without its scheme (X1 of
+// FT-LINK-ECHO-F2, which used to go to the server as a code lookup), and the
+// Stage 2 drop shapes. Resolving them is local, so these tests make no network
+// call, and the server is a counting stub (codeAPIStub) that proves it.
 var requestLinkPasteLinks = []string{
 	"https://floe.one/r/Xk3p9Q0aB1c#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f",
 	"http://localhost:3000/r/Xk3p9Q0aB1c#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f",
 	"https://files.example.com/floe/r/Xk3p9Q0aB1c/#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f",
+	"floe.one/r/Xk3p9Q0aB1c#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f",
 	"https://floe.one/d/aBcD1234#k=s3cr3t",
 	"https://floe.one/drop/aBcD1234",
+}
+
+// codeAPIStub is the paste tests' signaling server: it counts every request
+// and answers 404. A bare &App{} would resolve against the compiled default,
+// the production server, so a paste that regressed to a code lookup would
+// reach it from a unit test; this keeps every request on this machine.
+func codeAPIStub(t *testing.T) (server string, hits *atomic.Int32) {
+	t.Helper()
+	var n atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n.Add(1)
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL, &n
 }
 
 // TestReceiveByCodeMapsRequestLink: a pasted request or drop link comes back as
 // the one approved sentence (CP2), not as "could not resolve" wrapped around
 // the pasted text, which quoted the link, room id included, into the status
-// line.
+// line. No paste reaches the server.
 func TestReceiveByCodeMapsRequestLink(t *testing.T) {
 	const cp2 = "That is a request link for sending files to someone. Open it in a web browser."
+	server, hits := codeAPIStub(t)
 	for _, link := range requestLinkPasteLinks {
-		a := &App{wake: &wakeGuard{}, notifyFn: func(string, string) {}}
+		a := &App{wake: &wakeGuard{}, notifyFn: func(string, string) {}, cfg: appConfig{Server: server}}
 		_, err := a.ReceiveByCode(link, t.TempDir(), false, false)
 		if err == nil {
 			t.Fatalf("%s: ReceiveByCode succeeded", link)
@@ -142,6 +163,9 @@ func TestReceiveByCodeMapsRequestLink(t *testing.T) {
 			t.Errorf("%s: the error quotes the pasted link: %q", link, err.Error())
 		}
 	}
+	if n := hits.Load(); n != 0 {
+		t.Errorf("pasted links made %d requests to the server, want 0", n)
+	}
 }
 
 // TestReceiveByCodeRequestLinkSendsNoToast: a pasted request link is a mix-up
@@ -149,7 +173,8 @@ func TestReceiveByCodeMapsRequestLink(t *testing.T) {
 // toast must not fire for it.
 func TestReceiveByCodeRequestLinkSendsNoToast(t *testing.T) {
 	var got []string
-	a := &App{wake: &wakeGuard{}, notifyFn: func(title, body string) { got = append(got, title+"|"+body) }}
+	server, _ := codeAPIStub(t)
+	a := &App{wake: &wakeGuard{}, notifyFn: func(title, body string) { got = append(got, title+"|"+body) }, cfg: appConfig{Server: server}}
 	for _, link := range requestLinkPasteLinks {
 		if _, err := a.ReceiveByCode(link, t.TempDir(), false, false); err == nil {
 			t.Fatalf("%s: ReceiveByCode succeeded", link)

@@ -45,6 +45,13 @@ func TestReceiveRefusesALinkWithoutEchoingIt(t *testing.T) {
 	}{
 		{"request link", "https://floe.one/r/Xk3p9Q0aB1c#" + room, code.ErrRequestLink},
 		{"drop link", "https://floe.one/d/Xk3p9Q0aB1c", code.ErrDropLink},
+		// FT-LINK-ECHO-F2, the review's X1 to X4: shapes the path checks used
+		// to miss. X1 went to the server as a code lookup; all four came back
+		// inside the wrapper with the room id in it.
+		{"X1 a request link without its scheme", "floe.one/r/Xk3p9Q0aB1c#" + room, code.ErrRequestLink},
+		{"X2 a link id one character short", "https://floe.one/r/Xk3p9Q0aB1#" + room, code.ErrRequestLink},
+		{"X3 a request link in angle brackets", "<https://floe.one/r/Xk3p9Q0aB1c#" + room + ">", code.ErrRequestLink},
+		{"X4 an extra path segment", "https://floe.one/r/Xk3p9Q0aB1c/x#" + room, code.ErrRequestLink},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

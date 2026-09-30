@@ -2,19 +2,22 @@ package code
 
 // FuzzParseRequestLink is the DV-FUZZ target for the one decoder this
 // package owns (spec 05 8.9). ParseRequestLink is pure: no network, no disk.
-// The seeds are added with f.Add and the same values are committed under
-// testdata/fuzz/FuzzParseRequestLink/ so the corpus directory exists in git;
+// FuzzResolve holds Resolve to FT-LINK-ECHO-F2's rule with an in-memory code
+// API. The seeds are added with f.Add and the same values are committed under
+// testdata/fuzz/<target>/ so each corpus directory exists in git;
 // FLOE_WRITE_FUZZ_SEEDS=1 go test -run '^Fuzz' . rewrites those files, and
 // nothing else here writes.
 
 import (
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -116,6 +119,81 @@ func FuzzParseRequestLink(f *testing.F) {
 		// escapes, so %36f1c... is the room id 6f1c... (the browser agrees).
 		if l2, r2, err2 := ParseRequestLink(input); err2 != nil || l2 != linkID || r2 != roomID {
 			t.Fatalf("not deterministic: %q, %q then %q, %q (%v)", linkID, roomID, l2, r2, err2)
+		}
+	})
+}
+
+// roundTripFunc is an http.RoundTripper made of a function.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// FuzzResolve (FT-LINK-ECHO-F2): Resolve never panics, and an input with a
+// slash or a hash never reaches the code API, since every server code is
+// lowercase words joined by hyphens: such an input is a link, resolved or
+// refused here. A refusal is one of the fixed texts, so no part of the paste
+// can reach a caller that prints it. The code API is a counting transport in
+// memory, so the target binds nothing and reaches no server.
+func FuzzResolve(f *testing.F) {
+	const room = "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
+	const id = "Xk3p9Q0aB1c"
+	var lookups atomic.Int64
+	orig := client
+	client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		lookups.Add(1)
+		return &http.Response{StatusCode: http.StatusNotFound, Body: http.NoBody, Request: r}, nil
+	})}
+	f.Cleanup(func() { client = orig })
+
+	seeds := map[string]string{
+		"request link":               "https://floe.one/r/" + id + "#" + room,
+		"x1 no scheme":               "floe.one/r/" + id + "#" + room,
+		"x2 link id one short":       "https://floe.one/r/" + id[:10] + "#" + room,
+		"x3 angle brackets":          "<https://floe.one/r/" + id + "#" + room + ">",
+		"x4 extra path segment":      "https://floe.one/r/" + id + "/x#" + room,
+		"quoted without a scheme":    `"floe.one/r/` + id + "#" + room + `"`,
+		"room link":                  "https://floe.one/#room=" + room,
+		"room link without a scheme": "floe.one/#room=" + room,
+		"drop link":                  "https://floe.one/d/aBcD1234#k=s3cr3t",
+		"bad escape in the fragment": "https://floe.one/r/" + id + "#" + room + "%zz",
+		"bare room id fragment":      "#" + room,
+		"word code":                  "olive-tiger-castle",
+		"empty":                      "",
+	}
+	names := make([]string, 0, len(seeds))
+	for name := range seeds {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		f.Add(seeds[name])
+		writeSeed(f, "FuzzResolve", seedName(name), "string("+strconv.Quote(seeds[name])+")")
+	}
+
+	// Every text a link-shaped input can fail with. ErrDropLink carries the
+	// same sentence as ErrRequestLink.
+	fixed := map[string]bool{
+		ErrRequestLink.Error():                              true,
+		errInvalidURL.Error():                               true,
+		"URL does not contain a room id (#room= or ?room=)": true,
+	}
+	f.Fuzz(func(t *testing.T, input string) {
+		before := lookups.Load()
+		roomID, err := Resolve("http://code.invalid", input)
+		if !strings.ContainsAny(input, "/#") {
+			return // a code-shaped input may be looked up: that is what a code is for
+		}
+		if lookups.Load() != before {
+			t.Fatal("an input with a slash or a hash reached the code API")
+		}
+		if err == nil {
+			return // a room link, resolved here
+		}
+		if roomID != "" {
+			t.Fatal("a refusal also returned a room id")
+		}
+		if !fixed[err.Error()] {
+			t.Fatalf("a refused link came back as text that is not fixed: %q", err)
 		}
 	})
 }
