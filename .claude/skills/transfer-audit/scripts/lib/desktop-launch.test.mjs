@@ -94,7 +94,7 @@ test('listDesktopProcesses counts the wails dev app beside floe-desktop.exe, and
     );
 });
 
-function portableLeg(dir, { lister, launcher, secondInstanceWaitMs, cellId = 'T-FU26-SECOND' }) {
+function portableLeg(dir, { lister, launcher, secondInstanceWaitMs, cellId = 'T-FU26-SECOND', userAway = false, uia = null }) {
     return new DesktopLeg({
         role: 'receiver',
         cellId,
@@ -103,7 +103,8 @@ function portableLeg(dir, { lister, launcher, secondInstanceWaitMs, cellId = 'T-
         outDir: path.join(dir, 'out'),
         build: { launch: 'portable', path: 'C:\\bogus\\floe-desktop.exe' },
         scratch: dir,
-        uia: {
+        userAway,
+        uia: uia ?? {
             log() {},
             async findWindow() {
                 return { hwnd: 7, pid: 8181, exe: 'C:\\bogus\\floe-desktop.exe', minimized: false };
@@ -222,4 +223,60 @@ test('desktop.mjs starts no exe itself: no spawn import, no visible window optio
     const body = src.slice(src.indexOf('export async function launchProcess('), src.indexOf('function taskkill(pid)'));
     assert.equal((body.match(/await detach\(/g) || []).length, 2, 'the AUMID form and the exe form');
     assert.match(body, /detach = launchDetached/);
+});
+
+test('with --user-away every exe leg re-reads the idle time before each UIA pattern call; without it the leg does not (FU-28, G2-F1)', async () => {
+    const dir = tmp();
+    try {
+        const calls = [];
+        const client = {
+            idle: 10,
+            log() {},
+            async findWindow() {
+                return { hwnd: 7, pid: 8282, exe: 'C:\\bogus\\floe-desktop.exe', minimized: false };
+            },
+            async waitTree() {
+                return { ready: true };
+            },
+            async foregroundCheck() {
+                calls.push('foreground-check');
+                return { idleSeconds: this.idle, foreground: false };
+            },
+            async retry(cmd) {
+                calls.push(cmd);
+                return { ok: true };
+            },
+        };
+        const away = portableLeg(dir, {
+            cellId: 'T-FU28-AWAY',
+            lister: async () => [],
+            launcher: async () => ({ child: null, pid: 8282 }),
+            userAway: true,
+            uia: client,
+        });
+        await away.launch([]);
+        assert.equal(away.driver.awayOnly, true);
+        await assert.rejects(away.driver.click('Send'), (e) => e.verdict === 'SKIP' && e.reason === 'present');
+        assert.deepEqual(calls, ['foreground-check'], 'the idle read came first and nothing was clicked');
+        client.idle = 300;
+        await away.driver.click('Send');
+        assert.deepEqual(calls, ['foreground-check', 'foreground-check', 'click']);
+        activeLegs.delete(away);
+        started.delete(8282);
+
+        calls.length = 0;
+        const present = portableLeg(dir, {
+            cellId: 'T-FU28-PRESENT',
+            lister: async () => [],
+            launcher: async () => ({ child: null, pid: 8383 }),
+            uia: { ...client, async findWindow() { return { hwnd: 7, pid: 8383, exe: 'C:\\bogus\\floe-desktop.exe', minimized: false }; } },
+        });
+        await present.launch([]);
+        assert.equal(present.driver.awayOnly, false, 'no --user-away: the old presence model, unchanged');
+        activeLegs.delete(present);
+        started.delete(8383);
+    } finally {
+        for (const l of activeLegs) if (/^T-FU28/.test(l.opts.cellId ?? '')) activeLegs.delete(l);
+        rmSync(dir, { recursive: true, force: true });
+    }
 });

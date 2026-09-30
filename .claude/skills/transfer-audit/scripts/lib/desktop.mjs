@@ -1385,7 +1385,8 @@ export class UiaDriver {
         this.client = client;
         this.hwnd = hwnd;
         this.log = log;
-        // Set by lib/request.mjs on an exe request host (G2-F1).
+        // Set by lib/request.mjs on an exe request host, and by DesktopLeg
+        // on every exe leg of a --user-away run (G2-F1).
         this.awayOnly = false;
         this.pollMs = UIA_REQUEST_POLL_MS;
         // The links this driver made: the view shows neither a generation
@@ -2765,6 +2766,12 @@ export class DesktopLeg extends Leg {
         this.driver = new UiaDriver(client, this.hwnd, {
             log: (l) => this.note(l),
         });
+        // FU-28: a UIA pattern call activates an exe's window (G2-F1), so
+        // with --user-away every one re-reads the input idle time first,
+        // as the request host has since FU-26: an owner who comes back
+        // mid-cell stops the leg as SKIP present instead of losing the
+        // foreground to it.
+        if (this.userAway) this.driver.awayOnly = true;
         if (
             this.mode === 'store' &&
             !(win.exe || '').startsWith(WINDOWS_APPS)
