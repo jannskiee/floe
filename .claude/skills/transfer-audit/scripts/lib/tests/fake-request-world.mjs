@@ -33,11 +33,14 @@ import {
     seedRedirectedConfig,
     statsProofFor,
 } from '../desktop.mjs';
+import { PhaseError } from '../surfaces.mjs';
 import { fakeRequestDom } from './fake-request-dom.mjs';
 import { fakeRequestUiaClient } from './fake-request-uia.mjs';
 
 const BLIP_PORT = 45999;
 export const BLIP_URL = `http://${BLIP_HOST}:${BLIP_PORT}`;
+// TA-14's local Caddy (FU-26), as lib/caddy.mjs would publish it.
+export const CADDY_URL = 'http://127.0.0.1:45998';
 const SUB = 'Floe request 1';
 
 const TITLES = {
@@ -479,6 +482,37 @@ export function fakeRequestWorld({
             return leg.driver;
         };
         return leg;
+    };
+    // TA-14 (FU-26): a stand-in for lib/caddy.mjs startCaddy. A reload
+    // closes every WebSocket behind the proxy: a host whose link was made
+    // through it and waits goes Reconnecting and reclaims, as a blip does;
+    // a drop that receives carries on over its data channel. Faults:
+    // docker-absent (the SKIP startCaddy throws), no-reclaim.
+    world.caddies = [];
+    world.startCaddy = async ({ upstream, runDir }) => {
+        if (set.has('docker-absent'))
+            throw new PhaseError('caddy', 'docker-absent: fake Docker is not answering', {
+                verdict: 'SKIP',
+                reason: 'docker-absent',
+            });
+        const c = { url: CADDY_URL, upstream, runDir, reloads: [], stopped: false };
+        const hostBehind = () => !c.stopped && dom.madeWith?.server === c.url;
+        c.reload = async () => {
+            const at = h.now();
+            c.reloads.push({ at, state: dom.state, hostBehind: hostBehind() });
+            if (hostBehind() && dom.state === 'waiting')
+                dom.blip = {
+                    from: at,
+                    until: at,
+                    reclaimMs: set.has('no-reclaim') ? Infinity : reclaimMs,
+                };
+            return { at };
+        };
+        c.stop = async () => {
+            c.stopped = true;
+        };
+        world.caddies.push(c);
+        return c;
     };
     world.adapters = {
         desktop: {

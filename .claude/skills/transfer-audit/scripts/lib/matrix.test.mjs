@@ -490,6 +490,8 @@ const requestPlan = (profile, probe = WITH_FEATURE) =>
         probe,
         server: profile === 'head' ? LOCAL : 'https://api.floe.one',
         desktopMode: profile === 'head' ? 'wailsdev' : 'auto',
+        // TA-14 plans only with --caddy (its own test covers the SKIP).
+        caddy: true,
     }).filter((c) => REQUEST_IDS.includes(c.id));
 
 function requestTableIds() {
@@ -657,9 +659,74 @@ test('reqblip refuses any server that is not loopback, as a usage error before a
         server: 'https://api.floe.one',
     }).find((c) => c.id === 'H-DIR-W2D-reqblip');
     assert.equal(shipped.reason, 'head-only');
-    // Only the blip cell carries the loopback rule.
+    // Only the blip and Caddy cells carry the loopback rule.
     for (const c of requestPlan('head'))
-        assert.equal(c.request.loopbackOnly, c.id === 'H-DIR-W2D-reqblip', c.id);
+        assert.equal(
+            c.request.loopbackOnly,
+            c.id === 'H-DIR-W2D-reqblip' || c.id === 'H-DIR-W2D-reqcaddy',
+            c.id
+        );
+});
+
+// FU-26: TA-14 (the local Caddy reload) is planned, SKIP unless the run
+// names --caddy, head only, and a usage error against any server that is not
+// loopback, before anything is created (OD-33).
+test('TA-14 reqcaddy SKIPs caddy-not-enabled without --caddy, plans with it, stays head-only and loopback-only', () => {
+    assert.ok(REQUEST_IDS.includes('H-DIR-W2D-reqcaddy'));
+    assert.match(SKIP_REASONS['caddy-not-enabled'], /--caddy/);
+    assert.match(SKIP_REASONS['docker-absent'], /Docker/);
+    const off = cellPlan({
+        profile: 'head',
+        cells: ['H-DIR-W2D-reqcaddy'],
+        probe: WITH_FEATURE,
+        server: LOCAL,
+        desktopMode: 'wailsdev',
+    }).find((c) => c.id === 'H-DIR-W2D-reqcaddy');
+    assert.equal(off.reason, 'caddy-not-enabled');
+    const noFeature = cellPlan({
+        profile: 'head',
+        cells: ['H-DIR-W2D-reqcaddy'],
+        probe: { desktop: { available: true } },
+        server: LOCAL,
+        desktopMode: 'wailsdev',
+    }).find((c) => c.id === 'H-DIR-W2D-reqcaddy');
+    assert.equal(noFeature.reason, 'caddy-not-enabled', 'without --caddy nothing else is even asked');
+    const on = cellPlan({
+        profile: 'head',
+        cells: ['H-DIR-W2D-reqcaddy'],
+        probe: WITH_FEATURE,
+        server: LOCAL,
+        desktopMode: 'wailsdev',
+        caddy: true,
+    }).find((c) => c.id === 'H-DIR-W2D-reqcaddy');
+    assert.equal(on.verdict, null);
+    assert.equal(on.request.flow, 'caddy-reload');
+    assert.equal(on.request.caddy, true);
+    assert.equal(on.request.loopbackOnly, true);
+    assert.equal(on.fixture.totalBytes, 64 * 1024 * 1024);
+    assert.ok(on.request.oracles.includes('drop-survives-a-reload-while-receiving'));
+    assert.ok(on.request.oracles.includes('visitor-ignores-peer-disconnected'));
+    assert.ok(on.timeouts.hardCap > off.timeouts.accept);
+    assert.throws(
+        () =>
+            cellPlan({
+                profile: 'head',
+                cells: ['H-DIR-W2D-reqcaddy'],
+                probe: WITH_FEATURE,
+                server: 'https://api.floe.one',
+                desktopMode: 'wailsdev',
+                caddy: true,
+            }),
+        /loopback/
+    );
+    const shipped = cellPlan({
+        profile: 'shipped',
+        cells: ['H-DIR-W2D-reqcaddy'],
+        probe: WITH_FEATURE,
+        server: 'https://api.floe.one',
+        caddy: true,
+    }).find((c) => c.id === 'H-DIR-W2D-reqcaddy');
+    assert.equal(shipped.reason, 'head-only');
 });
 
 test('request cells on an exe host SKIP request-host-away-only without --user-away; with it they run, and TA-17 with a desktop side is NA single-instance (FU-26, G2-F1)', () => {
@@ -673,6 +740,7 @@ test('request cells on an exe host SKIP request-host-away-only without --user-aw
             probe: WITH_FEATURE,
             server: LOCAL,
             desktopMode,
+            caddy: true,
         }).filter((c) => REQUEST_IDS.includes(c.id) && c.reason !== 'head-only');
         assert.ok(present.length > 0);
         for (const c of present)
@@ -684,6 +752,7 @@ test('request cells on an exe host SKIP request-host-away-only without --user-aw
             server: LOCAL,
             desktopMode,
             userAway: true,
+            caddy: true,
         }).filter((c) => REQUEST_IDS.includes(c.id) && c.reason !== 'head-only');
         for (const c of away) {
             if (c.request.flow === 'open-link-precondition' && deskSide(c)) {

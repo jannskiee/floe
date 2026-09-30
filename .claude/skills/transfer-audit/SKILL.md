@@ -201,6 +201,10 @@ is the expected answer on an idle machine, not a fault. `--relaxed` (head only) 
 `floe-run` with `--relaxed` and relaxes the ledger to the local limits (1000
 for TURN, connections and codes, the stats limiter unchanged at 60
 per window, no floor); it is a usage error on the shipped profile.
+`--caddy` (head only, a usage error on the shipped profile) enables
+TA-14, the one cell that starts a Docker container: without it that cell
+is SKIP `caddy-not-enabled`, and with it the dry run adds a `docker`
+tool class (`docker version`) so a missing Docker shows before any cell.
 `--web-sha-file <json>` takes a recorded deployment record instead of
 `--web-sha`; `--root <dir>` and `--json` are common; `--pause-max` defaults
 to 10 minutes; `node audit.mjs --self-test` (a top-level form, not a `run`
@@ -295,7 +299,8 @@ counts as PASS. SKIP names a machine or run precondition (`uia-setvalue`,
 `head-desktop-pending`, `present`, `local-stun-only`, `prod-turn-absent`,
 `browser-relay-na`, `firewall-block`, `wsl-stopped`, `wsl-sideload`,
 `disk-space`, `infra-down`, `budget-exhausted`, `server-no-request-1`,
-`request-host-away-only`; `filtered` marks cells
+`request-host-away-only`, `caddy-not-enabled`, `docker-absent`; `filtered`
+marks cells
 dropped by `--cells` and is never counted). NA is impossible with the
 shipped product (`single-instance`, `no-cli-relay-forcer`). ERROR is a
 harness fault (for example `init-script-not-applied`), never a product
@@ -467,7 +472,7 @@ desktop cell SKIPs `desktop-unavailable`.
 
 ## 7a. Request-link cells (need request-1 on the server)
 
-TA-10 to TA-13, TA-15 and TA-17 of spec 09 2.7.2, listed in
+TA-10 to TA-15 and TA-17 of spec 09 2.7.2, listed in
 `references/matrix.md` (Request-link cells) and `REQUEST_IDS` in
 `scripts/lib/matrix.mjs`. A run reaches them only through `--cells`, and
 each SKIPs `server-no-request-1` until probe P10 finds `request-1`.
@@ -535,6 +540,22 @@ to it, so none ever runs as a plain cell.
   read back, or no live socket through it before the cut) is ERROR
   `blip-url` and nothing is cut: a cut of a proxy the host bypasses would
   read the host's correct Waiting as a product defect.
+- TA-14 (`H-DIR-W2D-reqcaddy`, head profile, `--caddy` only) starts a
+  local Docker Caddy (`scripts/lib/caddy.mjs`: `caddy:2`, published on
+  127.0.0.1 only, `reverse_proxy host.docker.internal:<port>` to the
+  loopback server) and points the host's server address at it, as TA-13
+  does with its blip; the visitor's page talks to the server directly.
+  A `caddy reload` while the link waits must read Reconnecting within
+  10 s, or the cell is ERROR `caddy-url` (the host was not behind the
+  proxy, so the reload proved nothing), then Waiting again within 60 s;
+  a 64 MiB drop is then accepted and a second reload lands while it is
+  receiving, so the visitor is sent `peer-disconnected` and must ignore
+  it (a drop that ends before that reload is ERROR
+  `caddy-reload-missed`, never a pass). Verify is the usual set. A
+  server that is not loopback is refused by `cellPlan`, by the runner
+  before any container, and by the upstream check; Docker not answering
+  is SKIP `docker-absent`; the container is removed at teardown and on
+  exit. Proven on fixtures only until it runs live.
 - TA-15 declines the first visitor, reads its declined copy, checks
   nothing was saved, clicks Keep waiting (`request-reopen`) and lets a
   second visitor context deliver.

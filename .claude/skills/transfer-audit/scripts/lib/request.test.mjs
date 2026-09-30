@@ -21,7 +21,7 @@ import { AWAY_ONLY, scrubDeep } from './request.mjs';
 import { SafetyError } from './surfaces.mjs';
 import { FAKE_ROOM } from './tests/fake-request-dom.mjs';
 import { fakeWorld, makeFakeAdapters } from './tests/fake-legs.mjs';
-import { BLIP_URL, fakeRequestWorld } from './tests/fake-request-world.mjs';
+import { BLIP_URL, CADDY_URL, fakeRequestWorld } from './tests/fake-request-world.mjs';
 
 const dir = mkdtempSync(path.join(tmpdir(), 'lta-request-'));
 after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 3 }));
@@ -41,6 +41,8 @@ const plan = Object.fromEntries(
             probe: FEATURE,
             server: LOCAL,
             desktopMode: 'wailsdev',
+            // TA-14 plans only when the run names --caddy.
+            caddy: true,
         }),
         // TA-12 exists as a shipped id only; the runner does not care.
         ...cellPlan({
@@ -858,4 +860,63 @@ test('TA-17 whose lane still reads waiting after Close link: ERROR host-release,
     assert.equal(r.reason, 'host-release', r.note);
     assert.match(r.note, /host release: the link this cell made still reads waiting/);
     assert.equal(r.attempts[0].request.released, 'waiting');
+});
+
+// ------------------------------------------------------------- TA-14 (FU-26)
+
+test('TA-14 H-DIR-W2D-reqcaddy: the host behind the local Caddy goes Reconnecting and back to Waiting on a reload, a reload while the drop receives does not stop it, and the container is stopped', async () => {
+    const w = fakeRequestWorld();
+    const ctx = ctxFor(w, { startCaddy: w.startCaddy });
+    const r = await runCell(small('H-DIR-W2D-reqcaddy'), ctx);
+    assert.equal(r.verdict, 'PASS', r.note);
+    const a = r.attempts[0];
+    const c = w.caddies[0];
+    assert.equal(c.upstream, LOCAL, 'the Caddy fronts the local server');
+    assert.equal(w.dom.madeWith.server, CADDY_URL, 'the link was made through the Caddy');
+    assert.deepEqual(
+        c.reloads.map((x) => [x.state, x.hostBehind]),
+        [['waiting', true], ['receiving', true]]
+    );
+    assert.deepEqual(
+        { reconnecting: a.request.caddy.reconnecting, reclaimed: a.request.caddy.reclaimed, receivingReload: a.request.caddy.receivingReload },
+        { reconnecting: true, reclaimed: true, receivingReload: true }
+    );
+    assert.equal(r.integrity.ok, true);
+    assert.equal(c.stopped, true, 'teardown stopped the container');
+    assert.ok(a.phases.caddy !== undefined, 'a caddy phase ran before host.start');
+    assert.deepEqual(a.request.addresses, { swapped: true, restored: true });
+    assertNoRoom(ctx, r, 'H-DIR-W2D-reqcaddy');
+});
+
+test('TA-14 without Docker SKIPs docker-absent before the host launches', async () => {
+    const w = fakeRequestWorld({ faults: ['docker-absent'] });
+    const r = await runCell(small('H-DIR-W2D-reqcaddy'), ctxFor(w, { startCaddy: w.startCaddy }));
+    assert.equal(r.verdict, 'SKIP', r.note);
+    assert.equal(r.reason, 'docker-absent');
+    assert.equal(w.dom.clicks.length, 0);
+    assert.equal(w.visitors.length, 0);
+});
+
+test('TA-14 whose host is not behind the Caddy is ERROR caddy-url, and a drop that ends before the second reload is ERROR caddy-reload-missed', async () => {
+    const w = fakeRequestWorld({ host: { ignoreServer: true } });
+    const r = await runCell(small('H-DIR-W2D-reqcaddy'), ctxFor(w, { startCaddy: w.startCaddy }));
+    assert.equal(r.verdict, 'ERROR', r.note);
+    assert.equal(r.reason, 'caddy-url');
+    assert.equal(w.caddies[0].stopped, true);
+    const fast = fakeRequestWorld({ transferMs: 0 });
+    const r2 = await runCell(small('H-DIR-W2D-reqcaddy'), ctxFor(fast, { startCaddy: fast.startCaddy }));
+    assert.equal(r2.verdict, 'ERROR', r2.note);
+    assert.equal(r2.reason, 'caddy-reload-missed');
+});
+
+test('TA-14 never fronts a server that is not loopback, whatever reached the runner: a safety stop before any container or page (OD-33)', async () => {
+    const w = fakeRequestWorld();
+    const ctx = ctxFor(w, { startCaddy: w.startCaddy });
+    ctx.infra = { ...ctx.infra, server: 'https://api.floe.one', web: 'https://floe.one' };
+    await assert.rejects(runCell(small('H-DIR-W2D-reqcaddy'), ctx), (e) =>
+        e instanceof SafetyError &&
+        e.message.includes('the Caddy proxy would front https://api.floe.one, which is not loopback; nothing was started')
+    );
+    assert.equal(w.caddies.length, 0, 'no Caddy started');
+    assert.equal(w.dom.clicks.length, 0, 'no host driven');
 });

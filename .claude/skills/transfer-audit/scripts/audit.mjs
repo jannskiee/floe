@@ -68,6 +68,7 @@ import {
     tryAdapter as realTryAdapter,
 } from './lib/adapters.mjs';
 import { USAGE, UsageError, parseArgs } from './lib/args.mjs';
+import { dockerVersion } from './lib/caddy.mjs';
 import { RETRY_CAP, baseResult, runCell } from './lib/cell.mjs';
 import { createFence, isUnder, normalizePath } from './lib/fence.mjs';
 import { formatBytes } from './lib/fixtures.mjs';
@@ -1603,6 +1604,14 @@ async function dryRun({ opts, io, out, log }) {
         return r.detail;
     });
     await step('go', () => exec('go', ['version']));
+    // TA-14's one tool class (FU-26): Docker must answer before a --caddy
+    // run starts a Caddy container.
+    if (opts.caddy)
+        await step('docker', () => {
+            const d = dockerVersion({ exec });
+            if (!d.ok) throw new Error(d.detail);
+            return `server ${d.version}`;
+        });
     let failed = 0;
     for (const [s, n, d] of results) {
         if (s === 'FAIL') failed += 1;
@@ -2119,6 +2128,8 @@ export async function runCmd(opts, io = {}) {
             server: serverFor(opts.profile),
             // An exe request host is away-only (G2-F1, FU-26).
             userAway: Boolean(opts.userAway),
+            // TA-14 runs only when asked (FU-26).
+            caddy: Boolean(opts.caddy),
         });
         if (typeof io.cellHook === 'function') io.cellHook(cells);
         log(

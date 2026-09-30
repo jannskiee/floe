@@ -32,7 +32,7 @@ import {
 } from './cell.mjs';
 import { RE, desktopFmtBytes, safeCode, samePath } from './desktop.mjs';
 import { compareOutputs, ensureFixture, walkOutputs } from './fixtures.mjs';
-import { isLoopbackUrl } from './matrix.mjs';
+import { REQUEST_CADDY_RECONNECT_MS, isLoopbackUrl } from './matrix.mjs';
 import { redactRequestLinks } from './report.mjs';
 import { classifyPair } from './route.mjs';
 import { PhaseError, SafetyError, sleep as defaultSleep } from './surfaces.mjs';
@@ -108,10 +108,22 @@ function flow(phase, message, extra = {}) {
  */
 export const BLIP_KEY = 'blip-url';
 function blipUnproven(phase, message) {
-    return new PhaseError(phase, `${BLIP_KEY}: ${message}`, {
+    return proxyUnproven(BLIP_KEY, phase, message);
+}
+
+/**
+ * TA-14's twin of blip-url (FU-26): the host is not behind the Caddy proxy
+ * (its server address did not read back, or it never read Reconnecting after
+ * a reload), so a reload proved nothing. A harness ERROR, never a FAIL.
+ */
+export const CADDY_KEY = 'caddy-url';
+/** TA-14's second reload never landed while the drop received. */
+export const CADDY_MISSED_KEY = 'caddy-reload-missed';
+function proxyUnproven(key, phase, message) {
+    return new PhaseError(phase, `${key}: ${message}`, {
         harness: true,
-        reason: BLIP_KEY,
-        signatureKey: BLIP_KEY,
+        reason: key,
+        signatureKey: key,
     });
 }
 
@@ -273,7 +285,13 @@ export async function setRequestLinks(host, on, { now = Date.now, nap = defaultS
  * `outDir` and read it. Returns the full link; the record keeps its shown
  * form only.
  */
-async function startHost(cell, ctx, rec, st, { outDir, relayOnly, blipUrl = null }) {
+async function startHost(
+    cell,
+    ctx,
+    rec,
+    st,
+    { outDir, relayOnly, blipUrl = null, proxyKey = BLIP_KEY }
+) {
     const { now, nap } = st.clock;
     const mod = await ctx.getAdapter('desktop');
     const host = mod.createLeg({
@@ -335,9 +353,10 @@ async function startHost(cell, ctx, rec, st, { outDir, relayOnly, blipUrl = null
         const after = await host.driver.setAddresses(blipUrl, web);
         rec.request.addresses = { swapped: true, restored: null };
         if (!after || after.server !== blipUrl || after.web !== web)
-            throw blipUnproven(
+            throw proxyUnproven(
+                proxyKey,
                 'host.start',
-                'the host did not take the blip proxy as its server address (SetSettings read back something else)'
+                `the host did not take the ${proxyKey === CADDY_KEY ? 'Caddy' : 'blip'} proxy as its server address (SetSettings read back something else)`
             );
     }
     // Only a link generation this cell made is ever closed or put away: the
@@ -656,6 +675,71 @@ async function runFlow(cell, ctx, rec, st, fixture, T) {
         await v.tryAgain(st.clock);
         await awaitPrompt(host, rec, st, fixture, T);
         await accept(host, rec, st, T);
+        return v;
+    }
+    if (req.flow === 'caddy-reload') {
+        // TA-14 (spec 09 2.7.2): Caddy closes every proxied WebSocket on a
+        // reload. The host is behind it; the visitor's page talks to the
+        // server directly, so at the second reload it stays connected and is
+        // sent peer-disconnected, which it must ignore while its channel is
+        // open. The first reload's Reconnecting is the proof that the host
+        // is behind the proxy at all (caddy-url otherwise).
+        const caddy = {
+            reloads: [],
+            reconnecting: false,
+            reclaimed: false,
+            receivingReload: false,
+        };
+        rec.request.caddy = caddy;
+        const r1 = await st.caddy.reload();
+        caddy.reloads.push({ while: 'waiting', at: r1.at });
+        try {
+            await awaitHostState(host, ['reconnecting'], REQUEST_CADDY_RECONNECT_MS, {
+                ...st.clock,
+                fail: ['ended', 'error'],
+                what: 'Reconnecting after the reload',
+                live: st.live,
+            });
+        } catch (e) {
+            if (!/ms on, not Reconnecting after the reload$/.test(e.message)) throw e;
+            throw proxyUnproven(
+                CADDY_KEY,
+                'request',
+                `the host never read Reconnecting within ${REQUEST_CADDY_RECONNECT_MS} ms of the reload, so it may not be behind the Caddy proxy and the reload proved nothing`
+            );
+        }
+        caddy.reconnecting = true;
+        await awaitHostState(host, ['waiting'], RECLAIM_MS, {
+            ...st.clock,
+            fail: ['ended', 'error'],
+            what: 'Waiting again after the reload (the reclaim)',
+            live: st.live,
+        });
+        caddy.reclaimed = true;
+        const v = await open('visitor-1');
+        await v.send(st.clock);
+        await awaitPrompt(host, rec, st, fixture, T);
+        await accept(host, rec, st, T);
+        const moving = await awaitHostState(
+            host,
+            (s) => ['receiving', 'done', 'stopped'].includes(s.state),
+            T.firstBytes,
+            {
+                ...st.clock,
+                fail: ['ended', 'error'],
+                what: 'the drop to start',
+                live: st.live,
+            }
+        );
+        if (moving.state !== 'receiving')
+            throw proxyUnproven(
+                CADDY_MISSED_KEY,
+                'request',
+                `the drop read ${moving.state} before the reload while receiving could land, so that half of TA-14 was not exercised`
+            );
+        const r2 = await st.caddy.reload();
+        caddy.reloads.push({ while: 'receiving', at: r2.at });
+        caddy.receivingReload = true;
         return v;
     }
     throw new PhaseError('request', `unknown request flow ${req.flow}`, {
@@ -1103,11 +1187,43 @@ export async function runRequestAttempt(cell, ctx, n) {
                     );
             });
         }
+        let proxyKey = BLIP_KEY;
+        if (cell.request.flow === 'caddy-reload') {
+            // TA-14: a local Docker Caddy in front of the local server, the
+            // host behind it (lib/caddy.mjs). Pulling caddy:2 on a first run
+            // is part of this budget.
+            await phase('caddy', 180_000, async () => {
+                // The runner's own lock after cellPlan's refusal and
+                // caddyUpstream's: never a reload in front of a server that
+                // is not on this machine (OD-33).
+                const server = ctx.infra?.server;
+                if (!cell.request.loopbackOnly || !isLoopbackUrl(server))
+                    throw new SafetyError(
+                        `${cell.id}: the Caddy proxy would front ${server ?? 'no server'}, which is not loopback; nothing was started`
+                    );
+                const start =
+                    ctx.startCaddy || (await import('./caddy.mjs')).startCaddy;
+                st.caddy = await start({
+                    upstream: server,
+                    runDir: rec.evidenceDir,
+                    log: ctx.log,
+                });
+                blipUrl = st.caddy.url;
+                proxyKey = CADDY_KEY;
+                if (!isLoopbackUrl(blipUrl))
+                    throw proxyUnproven(
+                        CADDY_KEY,
+                        'caddy',
+                        'the Caddy proxy handed back no loopback URL, so the host cannot be pointed at it'
+                    );
+            });
+        }
         await phase('host.start', T.link + 30_000, () =>
             startHost(cell, ctx, rec, st, {
                 outDir: st.outDir,
                 relayOnly: cell.receiver.relayOnly,
                 blipUrl,
+                proxyKey,
             })
         );
         const requestMs =
@@ -1116,6 +1232,9 @@ export async function runRequestAttempt(cell, ctx, n) {
             T.connect +
             (cell.request.flow === 'blip-then-accept'
                 ? cell.request.blipMs + RECLAIM_MS
+                : 0) +
+            (cell.request.flow === 'caddy-reload'
+                ? REQUEST_CADDY_RECONNECT_MS + RECLAIM_MS + T.firstBytes + 120_000
                 : 0) +
             (cell.request.flow === 'decline-then-accept'
                 ? T.accept + T.join + T.connect
@@ -1212,6 +1331,13 @@ export async function runRequestAttempt(cell, ctx, n) {
                         await st.blip.stop();
                     } catch (e) {
                         rec.notes.push(`blip stop: ${e.message}`);
+                    }
+                }
+                if (st.caddy) {
+                    try {
+                        await st.caddy.stop();
+                    } catch (e) {
+                        rec.notes.push(`caddy stop: ${e.message}`);
                     }
                 }
             });

@@ -1909,3 +1909,36 @@ test('a wailsdev build with no exe path leaves P7 at n/a instead of probing a mi
         `P7 names no exe on this lane: ${p7}`
     );
 });
+
+// FU-26: TA-14's one tool class. A --caddy dry run asks Docker once through
+// the injected exec (no container), and a run without --caddy never does.
+test('--dry-run with --caddy exercises the docker tool class once; without it docker is never asked', async () => {
+    const run = async (extra) => {
+        const docker = [];
+        const i = io(fakeWorld(), {
+            exec: (cmd, args) => {
+                if (cmd === 'docker') {
+                    docker.push(args.join(' '));
+                    return '27.3.1';
+                }
+                if (cmd === 'git' && args[0] === 'status') return '';
+                if (cmd === 'git' && args[0] === 'worktree') return `worktree ${root}\n`;
+                if (cmd === 'go') return 'go version go1.25 windows/amd64';
+                if (cmd === 'gh') return 'gh version 2.60.0';
+                return '5.1';
+            },
+            fetchImpl: async () => new Response('ok', { status: 200 }),
+        });
+        const code = await main(
+            ['run', '--profile', 'head', '--dry-run', '--root', root, '--out', out(`dry-${extra.length}`), ...extra],
+            i
+        );
+        return { code, docker, text: i.lines.join('\n') };
+    };
+    const withCaddy = await run(['--caddy']);
+    assert.deepEqual(withCaddy.docker, ['version --format {{.Server.Version}}']);
+    assert.match(withCaddy.text, /^ok\s+docker: server 27\.3\.1$/m);
+    const without = await run([]);
+    assert.deepEqual(without.docker, []);
+    assert.ok(!/docker/.test(without.text));
+});
