@@ -189,7 +189,9 @@ Cloudflare answers `204` when the credential is revoked; see its
 Every client that fetched credentials while that username was current holds the same one, so
 revoking it revokes theirs too. If `/api/turn-credentials` still returns the username you revoked,
 restart the server (`docker compose restart server`) so it mints a new one at once, or wait up to 5
-minutes for the next mint. A restart also ends every waiting room and room code.
+minutes for the next mint. A restart also forgets every short code, stops any CLI or Floe Desktop
+sender still waiting for its receiver, and cuts off any transfer running between two browsers; see
+[Operations](/self-hosting/operations#common-commands).
 
 ### Rotate the key
 
