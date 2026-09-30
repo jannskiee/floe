@@ -5,6 +5,7 @@ package peer
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -185,6 +186,9 @@ func New(iceServers []webrtc.ICEServer, sc *signaling.Client, opts ...Option) (*
 	if f := makeInterfaceAllowFilter(cfg.ifaceAllowlist); f != nil {
 		se.SetInterfaceFilter(f)
 	}
+	// Every pion logger writes through newLoggerFactory, which escapes the
+	// terminal controls a peer can put in a log line (logging.go).
+	se.LoggerFactory = newLoggerFactory(os.Stderr)
 	api := webrtc.NewAPI(webrtc.WithSettingEngine(se))
 
 	pc, err := api.NewPeerConnection(config)
