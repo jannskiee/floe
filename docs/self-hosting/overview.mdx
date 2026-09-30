@@ -44,7 +44,8 @@ pairing**, because the two peers can land on different replicas and never find e
 
 One instance goes a long way. File data never passes through it, so it is brokering a handshake
 and then getting out of the way. If you need redundancy, use a failover pair rather than a
-load-balanced set, and accept that transfers in flight do not survive the switch.
+load-balanced set, and accept that the switch loses every room and short code the old instance
+held, as a [restart](/self-hosting/operations#common-commands) does.
 
 `CLIENT_URL` governs browser traffic only. CLI and desktop peers connect over `/ws` and
 send your server's own address as their origin, which the server accepts when it is your
