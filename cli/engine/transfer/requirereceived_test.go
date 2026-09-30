@@ -435,3 +435,27 @@ func TestPlainSendWithoutConfirmsEndsAtDrain(t *testing.T) {
 		t.Fatal("the plain send waited 10s past the drain for a receiver whose ack carried no confirms; it must end at the drain")
 	}
 }
+
+// TestPlainSendCloseWithoutConfirms is the done arm's no-promise half (review
+// A1 F2). A receiver whose ack carried no confirms and that closes while bytes
+// are still unacknowledged keeps today's outcome, the error that counts them,
+// never ErrClosedBeforeReceived, which belongs to a receiver that promised its
+// word. The buffer holds at 4096 on every read, so no tick can end the wait
+// first and the close is the only way out.
+func TestPlainSendCloseWithoutConfirms(t *testing.T) {
+	useDelivery(t, &fakeDrain{left: 4096}, 0)
+	s := startScriptedSend(t, SendOptions{})
+	if returned, err := s.waitOrReturn(300 * time.Millisecond); returned {
+		t.Fatalf("the plain send returned %v %v after the end frame with 4096 bytes unacknowledged and the receiver open", err, s.sinceEnd())
+	}
+	if err := s.rdc.Close(); err != nil {
+		t.Fatalf("close the receiver's channel: %v", err)
+	}
+	err := s.result(t)
+	if errors.Is(err, ErrClosedBeforeReceived) {
+		t.Fatalf("the plain send returned %v for a receiver that promised nothing; want the unacknowledged-bytes error", err)
+	}
+	if err == nil || err.Error() != "connection closed before delivery was confirmed (4096 bytes unacknowledged)" {
+		t.Fatalf("the plain send returned %v; want connection closed before delivery was confirmed (4096 bytes unacknowledged)", err)
+	}
+}

@@ -19,14 +19,35 @@ import (
 	"time"
 
 	"github.com/jannskiee/floe/cli/engine/peer"
+	"github.com/jannskiee/floe/cli/engine/signaling"
 )
 
-// failOnDemand is a dropApp before hook that stands failed in for every
-// pairing's Failed channel. It runs before Make link, while no lane goroutine
-// exists yet, so the seam is set without racing the lane.
-func failOnDemand(t *testing.T, failed chan struct{}) func(*App) {
-	return func(*App) {
-		setVar(t, &requestConnFailed, func(*peer.Connection) <-chan struct{} { return failed })
+// failOnDemand stands failed in for every pairing's Failed channel. Call it
+// before dropApp, not as its before hook: t.Cleanup runs last in, first out,
+// so a restore registered after laneApp's cleanup ran while the lane goroutine
+// still ran, and a pairing started then would read the seam mid-restore
+// (review A1 F5). Registered first, the restore runs after laneApp's cleanup
+// has waited for the lane to end. No lane exists yet here, so setting it races
+// nothing either.
+func failOnDemand(t *testing.T, failed chan struct{}) {
+	setVar(t, &requestConnFailed, func(*peer.Connection) <-chan struct{} { return failed })
+}
+
+// TestRequestConnFailedIsTheConnectionsFailed pins the seam's default: the
+// very channel peer.Connection.Failed returns. The drop tests stand a channel
+// in for it, so a default that returned anything else left them green while
+// watchConnFailed watched a channel that never closes: the drop back on its
+// 60 s stall and the desktop's Send without a bound on its wait for a Go
+// receiver's word (review A1 F1, probe P3). Identity of the channel, on a
+// connection that binds nothing.
+func TestRequestConnFailedIsTheConnectionsFailed(t *testing.T) {
+	conn, err := peer.New(nil, &signaling.Client{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer conn.Close()
+	if got := requestConnFailed(conn); got == nil || got != conn.Failed() {
+		t.Fatalf("requestConnFailed(conn) = %v, want conn.Failed() (%v): watchConnFailed would never see an ICE failure", got, conn.Failed())
 	}
 }
 
@@ -36,7 +57,8 @@ func failOnDemand(t *testing.T, failed chan struct{}) func(*App) {
 // but the receive's 60 s stall watchdog ended it.
 func TestRunRequestDropEndsWhenTheConnectionFails(t *testing.T) {
 	failed := make(chan struct{})
-	a, _, f, room, _ := dropApp(t, failOnDemand(t, failed))
+	failOnDemand(t, failed)
+	a, _, f, room, _ := dropApp(t, nil)
 	v := joinVisitor(t, f, room)
 	v.connect(t)
 	one, two := []byte("first file"), randomBytes(t, 64<<10)
@@ -72,7 +94,8 @@ func TestRunRequestDropEndsWhenTheConnectionFails(t *testing.T) {
 // prompt stayed up for its whole answer window.
 func TestRequestDecideEndsWhenTheConnectionFails(t *testing.T) {
 	failed := make(chan struct{})
-	a, _, f, room, base := dropApp(t, failOnDemand(t, failed))
+	failOnDemand(t, failed)
+	a, _, f, room, base := dropApp(t, nil)
 	v := joinVisitor(t, f, room)
 	v.connect(t)
 	v.sendText(metaFrame(1, 1, "a.txt", 4, 4))

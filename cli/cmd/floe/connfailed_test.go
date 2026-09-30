@@ -52,6 +52,23 @@ func TestCloseOnFailedClosesTheConnection(t *testing.T) {
 	}
 }
 
+// TestConnFailedIsTheConnectionsFailed pins the seam's default: the very
+// channel peer.Connection.Failed returns. The watcher tests stand a channel in
+// for it, so a default that returned anything else (nil, a fresh channel) left
+// them green while closeOnFailed watched a channel that never closes and floe
+// send's wait for a receiver's word lost its only bound (review A1 F1, probe
+// P2). Identity of the channel, on a connection that binds nothing.
+func TestConnFailedIsTheConnectionsFailed(t *testing.T) {
+	conn, err := peer.New(nil, &signaling.Client{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer conn.Close()
+	if got := connFailed(conn); got == nil || got != conn.Failed() {
+		t.Fatalf("connFailed(conn) = %v, want conn.Failed() (%v): closeOnFailed would never see an ICE failure", got, conn.Failed())
+	}
+}
+
 // TestRunSendWatchesTheConnection pins the watcher's place in runSend: a
 // closeOnFailed call before the SendFilesWithOptions call, its quit closed by
 // a defer, so the wait for a Go receiver's word has its bound and the watch
