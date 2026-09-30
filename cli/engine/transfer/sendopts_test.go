@@ -166,8 +166,8 @@ func deliverTwo(t *testing.T, opts SendOptions) (printed string, err error) {
 // and calls nothing new, as before; NoSummary leaves the box out and OnAck
 // fires once per file in order, with OnDelivered unchanged either way.
 func TestNewSendOptionsAreOffByDefault(t *testing.T) {
-	if (SendOptions{}).NoSummary || (SendOptions{}).OnAck != nil {
-		t.Fatal("a zero SendOptions turns NoSummary or OnAck on")
+	if (SendOptions{}).NoSummary || (SendOptions{}).OnAck != nil || (SendOptions{}).Stop != nil {
+		t.Fatal("a zero SendOptions turns NoSummary, OnAck or Stop on")
 	}
 
 	var delivered []Delivered

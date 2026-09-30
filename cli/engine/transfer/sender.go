@@ -510,6 +510,15 @@ type SendOptions struct {
 	// it, so index minus 1 is how many had arrived. Nil for every caller that
 	// has no use for it.
 	OnAck func(index int)
+	// Stop, when closed, ends the send where it stands: once the send has
+	// seen it, it queues nothing more on the channel (no chunk, end marker or
+	// next file's metadata), and it returns ErrSendStopped at once from any
+	// wait (the ack, the backpressure, the wait for delivery). The caller
+	// tells the peer why after the send has returned (AbortSend), so that
+	// frame is the last one on the channel and the bounded flush waits for it
+	// and nothing queued behind it. A "received" the receiver had already
+	// sent still wins, because the files arrived. Nil never stops, as before.
+	Stop <-chan struct{}
 }
 
 // ErrClosedBeforeReceived is what a send under RequireReceived, or to a
@@ -532,6 +541,22 @@ var ErrAckTimeout = errors.New("timed out waiting for ack")
 // were, and it lets a caller with its own copy tell this local cause from the
 // peer's or the connection's with errors.Is.
 var ErrFileChanged = errors.New("send it again once it stops changing")
+
+// ErrSendStopped is what a send returns once SendOptions.Stop has closed. It
+// is this side's own doing, never the peer's, so nothing was said to the
+// peer: that is the caller's to do, after the send has returned.
+var ErrSendStopped = errors.New("the send was stopped")
+
+// stopRequested reports whether stop has closed, without waiting. A nil stop
+// never has.
+func stopRequested(stop <-chan struct{}) bool {
+	select {
+	case <-stop:
+		return true
+	default:
+		return false
+	}
+}
 
 // SendFiles sends all given file paths over the open data channel, rendering a
 // terminal progress bar. Folders are walked recursively. localVer is the human
@@ -556,6 +581,12 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 	var totalBytes int64
 	for _, e := range files {
 		totalBytes += e.size
+	}
+
+	// A stop that came before anything went out sends nothing, the relay
+	// gate's abort included: the caller's own abort is the one the peer reads.
+	if stopRequested(opts.Stop) {
+		return ErrSendStopped
 	}
 
 	// Relay size cap: decide before wiring acks or sending any metadata. The
@@ -687,7 +718,7 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 	var confirms bool
 	var sentSoFar int64
 	for i, entry := range files {
-		if err := sendFile(dc, ackCh, sendMore, done, flushed, entry, i+1, len(files), totalBytes, localVer, onProgress, opts.OnAck, opts.UpdateHint, ackTimeoutOrDefault(opts.AckTimeout), sentSoFar, chunk, &confirms); err != nil {
+		if err := sendFile(dc, ackCh, sendMore, done, flushed, entry, i+1, len(files), totalBytes, localVer, onProgress, opts.OnAck, opts.UpdateHint, ackTimeoutOrDefault(opts.AckTimeout), sentSoFar, chunk, &confirms, opts.Stop); err != nil {
 			// A refusal the PEER sent is returned as it came. The wrap named
 			// entry.displayName, which is the file the sender had already moved
 			// on to: a receiver refuses file N after its end marker, and the
@@ -810,6 +841,15 @@ drainLoop:
 				return fmt.Errorf("connection closed before delivery was confirmed (%d bytes unacknowledged)", left)
 			}
 			break drainLoop
+		case <-opts.Stop:
+			// A received already queued still wins: the files arrived, and a
+			// stop that lands with it must not report a finished drop as
+			// stopped. Anything else queued is moot once the caller stops.
+			if got, v, has, err := drainQueued(ackCh, localVer, opts.UpdateHint, len(files)); err == nil && got {
+				verified, hasVerified = v, has
+				break drainLoop
+			}
+			return ErrSendStopped
 		case <-stall.C:
 			// An empty buffer is the tick arm's to judge, within one tick, so
 			// the wait has one success exit on a drained buffer and it reads
@@ -852,7 +892,11 @@ drainLoop:
 
 // sendFile handles the full send sequence for a single file. confirms is set
 // from the first file's ack only (parseAckConfirms) and left alone after.
-func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, done <-chan struct{}, flushed <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onProgress ProgressFunc, onAck func(int), updateHint string, ackTimeout time.Duration, baseTotal int64, chunk int, confirms *bool) error {
+// stop is SendOptions.Stop: seen before every write and in every wait.
+func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, done <-chan struct{}, flushed <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onProgress ProgressFunc, onAck func(int), updateHint string, ackTimeout time.Duration, baseTotal int64, chunk int, confirms *bool, stop <-chan struct{}) error {
+	if stopRequested(stop) {
+		return ErrSendStopped
+	}
 	f, err := os.Open(entry.absPath)
 	if err != nil {
 		return err
@@ -978,6 +1022,8 @@ ackLoop:
 			return fmt.Errorf("connection closed while waiting for the receiver (transfer declined or receiver exited)")
 		case <-ackDeadline:
 			return ErrAckTimeout
+		case <-stop:
+			return ErrSendStopped
 		}
 	}
 
@@ -1060,7 +1106,15 @@ ackLoop:
 						return fmt.Errorf("backpressure stall: peer not draining (%d bytes buffered)", cur)
 					}
 					lastBuffered = cur
+				case <-stop:
+					return ErrSendStopped
 				}
+			}
+			// Last look before the write: a stop seen here queues nothing,
+			// so at most the one chunk already in dc.Send when it closed
+			// goes out after it.
+			if stopRequested(stop) {
+				return ErrSendStopped
 			}
 			if sendErr := dc.Send(buf[:n]); sendErr != nil {
 				if stop := refusalAfterSendError(done, ackCh, flushed, localVer, updateHint, total); stop != nil {
@@ -1089,6 +1143,12 @@ ackLoop:
 		if err != nil {
 			return fmt.Errorf("error reading file: %w", err)
 		}
+	}
+
+	// Stopped after the last chunk: no end marker, and no changed-file abort
+	// either, because the caller's abort is the one the peer should read.
+	if stopRequested(stop) {
+		return ErrSendStopped
 	}
 
 	// The file changed under the send. Say so here, where the cause is still
