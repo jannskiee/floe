@@ -549,6 +549,12 @@ var ErrAckTimeout = errors.New("timed out waiting for ack")
 // peer's or the connection's with errors.Is.
 var ErrFileChanged = errors.New("send it again once it stops changing")
 
+// ErrNoFiles is what the three walks of a send return when its paths hold no
+// file at all: PrecheckDrop, Summarize and SendFilesWithOptions, in the words
+// each has always used. One value, so a caller that walks first and sends
+// later tells a tree emptied between the walks from the connection's end.
+var ErrNoFiles = errors.New("no files to send")
+
 // ErrSendStopped is what a send returns once SendOptions.Stop has closed. It
 // is this side's own doing, never the peer's, so nothing was said to the
 // peer: that is the caller's to do, after the send has returned.
@@ -582,7 +588,7 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 		return err
 	}
 	if len(files) == 0 {
-		return fmt.Errorf("no files to send")
+		return ErrNoFiles
 	}
 
 	var totalBytes int64

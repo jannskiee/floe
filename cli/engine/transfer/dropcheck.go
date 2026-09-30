@@ -8,7 +8,6 @@ package transfer
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 )
 
 // MaxDropFiles is the most files one request-link drop may carry. The host
@@ -30,7 +29,7 @@ var (
 
 // PrecheckDrop walks paths exactly as SendFilesWithOptions will (collectFiles)
 // and returns how many files that is, or why the drop cannot be sent: a walk
-// error as collectFiles words it, "no files to send", ErrTooManyFiles, or
+// error as collectFiles words it, ErrNoFiles, ErrTooManyFiles, or
 // ErrMetadataTooLarge. localVer is the release string the metadata will carry.
 // It reads the file system only, so it runs before anything touches the
 // network.
@@ -40,7 +39,7 @@ func PrecheckDrop(paths []string, localVer string) (files int, err error) {
 		return 0, err
 	}
 	if len(entries) == 0 {
-		return 0, fmt.Errorf("no files to send")
+		return 0, ErrNoFiles
 	}
 	return precheckEntries(entries, localVer)
 }

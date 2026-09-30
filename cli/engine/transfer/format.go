@@ -217,7 +217,7 @@ func Summarize(paths []string) (Summary, error) {
 		return Summary{}, err
 	}
 	if len(files) == 0 {
-		return Summary{}, fmt.Errorf("no files to send")
+		return Summary{}, ErrNoFiles
 	}
 	var total int64
 	for _, f := range files {

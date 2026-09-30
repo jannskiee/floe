@@ -130,8 +130,25 @@ func TestPrecheckDropWalksLikeTheSend(t *testing.T) {
 	if err := os.Mkdir(empty, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := PrecheckDrop([]string{empty}, "1.10.11"); err == nil || err.Error() != "no files to send" {
+	if _, err := PrecheckDrop([]string{empty}, "1.10.11"); !errors.Is(err, ErrNoFiles) || err.Error() != "no files to send" {
 		t.Fatalf("an empty folder gave %v, want the send's own \"no files to send\"", err)
+	}
+}
+
+// TestTheThreeWalksNameAnEmptyTreeAlike: PrecheckDrop, Summarize and the send
+// itself all return ErrNoFiles for a tree with no file, in the words each has
+// always used, so the request-link send can tell a tree emptied between its
+// walks from a lost connection (review lens A, nit 7). The send returns
+// before it touches the channel, so none is needed here.
+func TestTheThreeWalksNameAnEmptyTreeAlike(t *testing.T) {
+	empty := t.TempDir()
+	_, pre := PrecheckDrop([]string{empty}, "1.10.11")
+	_, sum := Summarize([]string{empty})
+	send := SendFilesWithOptions(nil, []string{empty}, "1.10.11", SendOptions{})
+	for name, err := range map[string]error{"PrecheckDrop": pre, "Summarize": sum, "SendFilesWithOptions": send} {
+		if !errors.Is(err, ErrNoFiles) || err.Error() != "no files to send" {
+			t.Errorf("%s on an empty tree = %v, want ErrNoFiles as \"no files to send\"", name, err)
+		}
 	}
 }
 
