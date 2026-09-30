@@ -22,7 +22,7 @@ The sender runs this for each file, in order:
 The next file starts again at step 1. The final `received` comes once, after every file, and only
 from a Go receiver.
 
-Four things that order does not show.
+What that order does not show:
 
 - **Step 3 is zero or more frames.** An empty file is `metadata`, `ack`, `end`, with no binary
   frame between them at all.
