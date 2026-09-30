@@ -18,8 +18,10 @@ import (
 
 // capturedStderr is what reached os.Stderr while captureStderr held it.
 type capturedStderr struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
+	mu   sync.Mutex
+	buf  bytes.Buffer
+	once sync.Once
+	undo func()
 }
 
 func (c *capturedStderr) String() string {
@@ -28,9 +30,17 @@ func (c *capturedStderr) String() string {
 	return c.buf.String()
 }
 
-// captureStderr swaps os.Stderr for a pipe until the test ends. peer.New
-// hands pion the stderr of the moment, so the swap comes first. The package
-// has no t.Parallel, so a process-wide swap is safe.
+// stop hands os.Stderr back to what it was before the swap, waits for the
+// pipe to drain and returns everything it got. Stopping two captures in the
+// reverse of the order they were taken restores each one's predecessor.
+func (c *capturedStderr) stop() string {
+	c.once.Do(c.undo)
+	return c.String()
+}
+
+// captureStderr swaps os.Stderr for a pipe until stop, or the end of the
+// test. peer.New hands pion the stderr of the moment, so the swap comes
+// first. The package has no t.Parallel, so a process-wide swap is safe.
 func captureStderr(t *testing.T) *capturedStderr {
 	t.Helper()
 	r, w, err := os.Pipe()
@@ -39,8 +49,13 @@ func captureStderr(t *testing.T) *capturedStderr {
 	}
 	orig := os.Stderr
 	os.Stderr = w
-	c := &capturedStderr{}
 	drained := make(chan struct{})
+	c := &capturedStderr{undo: func() {
+		os.Stderr = orig
+		_ = w.Close()
+		<-drained
+		_ = r.Close()
+	}}
 	go func() {
 		defer close(drained)
 		b := make([]byte, 4096)
@@ -56,12 +71,7 @@ func captureStderr(t *testing.T) *capturedStderr {
 			}
 		}
 	}()
-	t.Cleanup(func() {
-		os.Stderr = orig
-		_ = w.Close()
-		<-drained
-		_ = r.Close()
-	})
+	t.Cleanup(func() { c.stop() })
 	return c
 }
 

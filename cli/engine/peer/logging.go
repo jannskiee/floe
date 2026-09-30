@@ -15,14 +15,24 @@ import (
 // levels read from PION_LOG_ERROR, PION_LOG_TRACE and the rest exactly as pion
 // reads them (ERROR when none is set), writing to w through escapeLogLine.
 //
-// Every pion logger comes from this one factory, the setting engine's: pc,
-// ice, DTLS, SCTP, the data channel, mux and the interceptors. Several print
-// values the remote peer chose. A trickled candidate's ufrag reaches "pc
-// ERROR: dropping candidate with ufrag %s" as it came, and PION_LOG_TRACE lines
-// carry whole remote candidates. pion's default factory wrote them straight to
-// stderr, so a peer could clear the screen, plant an OSC 8 link or write the
-// clipboard with OSC 52 on the other side's terminal (review lens B M2, in
-// every CLI release, floe send and floe receive alike).
+// Every logger pion/webrtc builds comes from this factory, the setting
+// engine's: pc, ice, DTLS, SCTP, the data channel, mux, api and the
+// interceptors. Several print values the remote peer chose. A trickled
+// candidate's ufrag reaches "pc ERROR: dropping candidate with ufrag %s" as it
+// came, and PION_LOG_TRACE lines carry whole remote candidates. pion's default
+// factory wrote them straight to stderr, so a peer could clear the screen,
+// plant an OSC 8 link or write the clipboard with OSC 52 on the other side's
+// terminal (review lens B M2, in every CLI release, floe send and floe receive
+// alike).
+//
+// Three loggers still skip it. pion/ice v4.4.0's WithLoggerFactory sets only
+// the agent's own logger, so the agent hands pion's default factory to its
+// mDNS server, its TURN client and the DTLS client for TURN over DTLS, and
+// those write to stderr unescaped. None of them prints a value the peer chose,
+// and logging_bypass_test.go fails if any other logger starts taking that
+// route. mDNS stays on all the same: the CLI needs it to resolve the .local
+// host candidates browsers send. pion/ice v4.4.3 fixes this (pion/ice#976);
+// pion/webrtc v4.2.21 is the first release that requires a fixed pion/ice.
 func newLoggerFactory(w io.Writer) logging.LoggerFactory {
 	f := logging.NewDefaultLoggerFactory()
 	f.Writer = logLineWriter{w: w}
