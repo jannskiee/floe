@@ -539,17 +539,24 @@ test.describe('request-link', () => {
         // A fragment naming another room mid-drop: the drop stays in the room
         // it joined (E29), but Chrome would reload a discarded tab at the
         // address it shows, so the record goes; back at the drop's room, the
-        // counts return (review 1 F1).
-        const readRecord = () => page.evaluate((key) => sessionStorage.getItem(key), LOST_KEY);
-        await page.evaluate((r) => {
-            location.hash = r;
-        }, randomUUID());
-        await expect.poll(readRecord, { timeout: 10_000 }).toBeNull();
+        // counts return (review 1 F1). The record is read by a hashchange
+        // listener added after the page's own, so it runs in the same dispatch
+        // right after it: what the page's handler did, before the sender's
+        // 500 ms progress tick could sync the record for it.
+        const hashThenRead = (next: string) =>
+            page.evaluate(
+                ([key, hash]) =>
+                    new Promise<string | null>((resolve) => {
+                        window.addEventListener('hashchange', () => resolve(sessionStorage.getItem(key)), {
+                            once: true,
+                        });
+                        location.hash = hash;
+                    }),
+                [LOST_KEY, next] as const
+            );
+        expect(await hashThenRead(randomUUID())).toBeNull();
         await expect(page.getByRole('heading', { name: sendingHeader(1, 2) })).toBeVisible();
-        await page.evaluate((r) => {
-            location.hash = r;
-        }, room);
-        await expect.poll(readRecord, { timeout: 10_000 }).toBe('{"v":1,"arrived":0,"total":2}');
+        expect(await hashThenRead(room)).toBe('{"v":1,"arrived":0,"total":2}');
 
         // The discard: Chrome reloads the tab at its address with
         // document.wasDiscarded true. The drop is live, so the leave-page
