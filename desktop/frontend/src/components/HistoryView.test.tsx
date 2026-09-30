@@ -249,10 +249,29 @@ describe('request rows', () => {
         expect(line.textContent).toContain('...');
         expect(line.textContent!.startsWith('D:\\')).toBe(true);
         expect(line.textContent!.endsWith(' 2026-09-14 1405')).toBe(true);
-        expect(line.textContent!.length).toBeLessThanOrEqual(48);
+        expect(line.textContent!.length).toBeLessThanOrEqual(47);
         // Show in folder still gets the whole path.
         await userEvent.click(screen.getByRole('button', {name: 'Show in folder'}));
         expect(wails.go.OpenFolder).toHaveBeenCalledWith(long);
+    });
+
+    it('the cap is 47 characters, what the expanded row holds while the list scrolls (FU-38)', async () => {
+        // Once the list outgrows its 320 px it scrolls, and its 6 px scrollbar
+        // leaves the folder line 342 px of its 348: room for 47 characters of
+        // 12 px mono at 7.2 px, not 48 (FU-04 saw the 48th cut).
+        const fits = 'D:\\Floe requests\\Acme footage I 2026-09-14 1405';
+        const over = 'D:\\Floe requests\\Acme footage II 2026-09-14 1405';
+        expect([fits.length, over.length]).toEqual([47, 48]);
+        const first = mount([request({dir: fits})]);
+        await openRow();
+        expect(screen.getByText(fits).getAttribute('title')).toBeNull();
+        first.unmount();
+        mount([request({dir: over})]);
+        await openRow();
+        const line = screen.getByTitle(over);
+        expect(line.textContent).not.toBe(over);
+        expect(line.textContent!.length).toBeLessThanOrEqual(47);
+        expect(line.textContent!.endsWith('Acme footage II 2026-09-14 1405')).toBe(true);
     });
 
     it('a folder that fits shows whole, with no title', async () => {
