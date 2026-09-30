@@ -1141,15 +1141,18 @@ describe('the request link in the app', () => {
         // WebView2 draws the 6 px custom scrollbar inside <main> once a prompt
         // makes it scroll, and the centered box moved 3 px left (FU-04). A
         // stable gutter is the same 6 px, reserved whether it scrolls or not,
-        // and on the inline axis only: clientHeight, and so the anchored top
+        // and on both edges, so the card stays centered where it always sat;
+        // on the inline end alone it would sit 3 px left for good (FU-38
+        // review F1). Inline axis only: clientHeight, and so the anchored top
         // above, is untouched. jsdom has no layout, so the class is what is
-        // checked here; the pixels are cell-08's arrival shift (--scrollbars).
+        // checked here; the pixels are cell-08's nothing-moved and
+        // card-centered checks (--scrollbars).
         switchOn();
         mount();
         await allOn();
         const main = document.querySelectorAll('main');
         expect(main).toHaveLength(1);
-        expect(main[0].className.split(' ')).toContain('[scrollbar-gutter:stable]');
+        expect(main[0].className.split(' ')).toContain('[scrollbar-gutter:stable_both-edges]');
     });
 
     it('the link stopped when Floe closed line shows once after relaunch', async () => {
