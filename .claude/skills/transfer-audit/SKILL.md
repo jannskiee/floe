@@ -228,6 +228,20 @@ default, and the primary screen when there is only one), `primary`, a
 browser runs headless and the CLI has no window, so nothing else in a
 run is on screen at all.
 
+Every exe the audit starts (the Store build by AUMID, the Store exe with
+files, a portable or a head build) starts detached through
+`scripts/lib/detached.mjs`: `Win32_Process.Create` makes the WMI provider
+host its parent, so it holds no foreground rights even while the
+operator's terminal is the foreground window, and its first window shows
+`SW_SHOWNOACTIVATE` (FU-26: a launch from the foreground terminal took the
+foreground twice on 2026-09-30). The cost is the app's stdout and stderr;
+`desktop.launch.txt` records the pid instead. A leg never starts a second
+instance: while any `floe-desktop.exe` or `floe-desktop-dev.exe` (the app
+`wails dev` runs) is up, the cell is SKIP `desktop-running` before
+anything starts, because the single-instance lock forwards a second
+launch to the running app, which raises its own window. An instance this
+run started and is still closing gets 5 s to go first.
+
 Pacing on production: a rolling 60 s ledger with 50 percent headroom (10
 TURN fetches, 15 connections, 30 code calls) and an 8 s floor between cell
 starts. A 429 symptom penalizes one window and retries once; two in a row
@@ -299,7 +313,8 @@ counts as PASS. SKIP names a machine or run precondition (`uia-setvalue`,
 `head-desktop-pending`, `present`, `local-stun-only`, `prod-turn-absent`,
 `browser-relay-na`, `firewall-block`, `wsl-stopped`, `wsl-sideload`,
 `disk-space`, `infra-down`, `budget-exhausted`, `server-no-request-1`,
-`request-host-away-only`, `caddy-not-enabled`, `docker-absent`; `filtered`
+`request-host-away-only`, `caddy-not-enabled`, `docker-absent`,
+`desktop-running`; `filtered`
 marks cells
 dropped by `--cells` and is never counted). NA is impossible with the
 shipped product (`single-instance`, `no-cli-relay-forcer`). ERROR is a
@@ -407,7 +422,13 @@ with `COREPACK_ENABLE_AUTO_PIN=0` (from the repo root corepack resolves
 after `npm run build` in `desktop/frontend`; it proves HEAD, not the shipped
 exe, and the report labels it. The lane expects `wails dev` to be started by
 the operator from that checkout's `desktop/` with its `desktop.json` pointed
-at the audit server and `reportStats:false`. A wailsdev receiver is refused
+at the audit server and `reportStats:false`, and started without foreground
+rights: `node .claude/skills/transfer-audit/scripts/launch-detached.mjs
+--cwd desktop --log <file> -- <wails.exe> dev` runs it through
+`Win32_Process.Create` in a hidden console that appends its output to
+`<file>` (stop it with `taskkill /PID <pid> /T /F`), so the app window it
+opens cannot take the foreground from the owner, and it refuses while any
+Floe desktop already runs. A wailsdev receiver is refused
 (exit 3) unless `GetSettings()` shows `reportStats:false`, `migrated:true`
 and the audit server.
 

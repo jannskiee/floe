@@ -20,7 +20,7 @@
 //             (sha256 compared) after the app exits. Refused while any
 //             floe-desktop.exe exists before the run (PreconditionError,
 //             exit 3). Nothing under %APPDATA%\floe is ever deleted.
-//   portable  the checksum-verified release exe, spawned with
+//   portable  the checksum-verified release exe, started with
 //   head      APPDATA=<scratch>\appdata and FLOE_NO_UPDATE_CHECK=1 so its
 //             desktop.json, WebView2 profile and history never reach the
 //             user's tree. Measured (P2, 2026-08-29): the redirected launch
@@ -29,7 +29,7 @@
 //             untouched (sha, mtime, file count), so the audit values are
 //             written into the redirected desktop.json BEFORE launch. The
 //             exe prints `[WebView2] Environment created successfully` on
-//             stdout, kept in desktop.stdout.txt.
+//             stdout, which a detached launch (below) no longer keeps.
 //   wailsdev  Playwright page on http://localhost:34115; the thinnest lane,
 //             kept for the HEAD receiver when UIA cannot drive the input.
 //
@@ -50,6 +50,18 @@
 // SKIP present. Files are staged on the first launch's argv wherever the
 // mode allows it.
 //
+// Launching (FU-26, from the FU-02 addendum): every exe, and the
+// explorer.exe that starts the Store build by AUMID, is started through
+// lib/detached.mjs (Win32_Process.Create), so the WMI provider host is its
+// parent and it holds no foreground rights even while the operator's
+// terminal is the foreground window; its first window shows
+// SW_SHOWNOACTIVATE. That gives up the stdout and stderr pipes. A leg never
+// starts a second instance: while any floe-desktop.exe or
+// floe-desktop-dev.exe (the app wails dev runs) is up, launch() is SKIP
+// desktop-running before anything starts, because the single-instance
+// lock (SINGLE_INSTANCE_ID) forwards a second launch to the running app,
+// which raises its own window (desktop/app.go onSecondInstanceLaunch).
+//
 // Interrupts: every applied desktop.json guard and every launched leg is
 // registered (activeGuards, activeLegs). audit.mjs calls shutdown() from
 // its signal handler and at the end of the run, stop() restores the guard
@@ -65,11 +77,10 @@
 //
 // Every expected string is quoted from desktop/frontend/src/App.tsx,
 // TitleBar.tsx, incoming.ts and desktop/transfer.go; see STRINGS and RE below.
-import { execFile, spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
     createReadStream,
-    createWriteStream,
     existsSync,
     mkdirSync,
     readFileSync,
@@ -80,8 +91,9 @@ import {
 } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { SW, launchDetached } from './detached.mjs';
 import { sha256OfFile } from './fixtures.mjs';
-import { registerPid } from './proc.mjs';
+import { registerPid, started } from './proc.mjs';
 import { Leg, PhaseError, SafetyError, sleep } from './surfaces.mjs';
 import { defaultExec } from './versions.mjs';
 
@@ -92,6 +104,9 @@ export const PACKAGE_NAME = 'JanCarloParedes.FloeDesktop';
 export const PACKAGE_FAMILY = 'JanCarloParedes.FloeDesktop_r1y5w9chaxnzc';
 export const WINDOWS_APPS = 'C:\\Program Files\\WindowsApps\\';
 export const EXE_NAME = 'floe-desktop.exe';
+// The app `wails dev` builds and runs; it holds the same single-instance
+// lock, so the second-instance refusal counts it too (FU-26).
+export const DEV_EXE_NAME = 'floe-desktop-dev.exe';
 export const WINDOW_CLASS = 'wailsWindow'; // wails v2.12.0 window.go:81
 export const WINDOW_TITLE = 'Floe'; // desktop/main.go, the wails.Run Title option
 export const SINGLE_INSTANCE_ID = 'one.floe.desktop'; // desktop/main.go, the wails.Run SingleInstanceLock.UniqueId option
@@ -468,6 +483,9 @@ export const CODE_AFTER_LINK_MS = 3_000;
 export const STATUS_MS = 10_000;
 export const CANCEL_MS = 10_000;
 export const EXIT_MS = 15_000;
+// How long launch() waits for an instance this process started, and is
+// still closing, before it reads as a second instance (FU-26).
+export const SECOND_INSTANCE_WAIT_MS = 5_000;
 export const SAMPLE_MS = 500;
 /**
  * A 12 MiB loopback transfer finishes about 0.4 s after connect (measured
@@ -645,17 +663,22 @@ function runText(file, args) {
     });
 }
 
-/** All floe-desktop.exe processes; injectable for tests. */
+/**
+ * Every running Floe desktop: floe-desktop.exe and the wails dev app
+ * floe-desktop-dev.exe (FU-26), which share the single-instance lock.
+ * Injectable for tests.
+ */
 export async function listDesktopProcesses(lister = defaultLister) {
     const rows = await lister();
-    return rows.filter((r) => r.image === EXE_NAME);
+    return rows.filter((r) => r.image === EXE_NAME || r.image === DEV_EXE_NAME);
 }
 
 async function defaultLister() {
     if (process.platform !== 'win32') return [];
     const out = await runText('tasklist', [
         '/FI',
-        `IMAGENAME eq ${EXE_NAME}`,
+        // Both images (EXE_NAME and DEV_EXE_NAME); tasklist takes a trailing *.
+        'IMAGENAME eq floe-desktop*',
         '/FO',
         'CSV',
         '/NH',
@@ -2399,56 +2422,43 @@ export class PlaywrightDriver {
 // ----------------------------------------------------------- launching
 
 /**
- * Spawn per the plan. Resolves { child, pid }; the explorer.exe AUMID form
- * resolves { child: null, pid: null } because explorer, not us, is the
- * parent and the window search that follows is the real handshake.
+ * Start per the plan, detached (FU-26): Win32_Process.Create through
+ * lib/detached.mjs, so the app holds no foreground rights and its first
+ * window shows SW_SHOWNOACTIVATE. Resolves { child: null, pid, detached };
+ * the explorer.exe AUMID form resolves pid null and launcherPid, because
+ * explorer hands the AUMID to the shell and exits, and the window search
+ * that follows is the real handshake. `detach` is injectable so tests
+ * never start anything.
  */
-export function launchProcess(plan, { evidenceDir = null } = {}) {
-    if (plan.mode === 'wailsdev')
-        return Promise.resolve({ child: null, pid: null });
+export async function launchProcess(
+    plan,
+    { evidenceDir = null, detach = launchDetached } = {}
+) {
+    if (plan.mode === 'wailsdev') return { child: null, pid: null };
     if (plan.command === 'explorer.exe') {
-        return new Promise((resolve) => {
-            const child = execFile(
-                plan.command,
-                plan.args,
-                { windowsHide: true },
-                () => {}
-            );
-            child.on('error', () => {});
-            // explorer.exe and Start-Process return before the app is up;
-            // the window search that follows is the real handshake.
-            setTimeout(
-                () =>
-                    resolve({
-                        child: null,
-                        pid: null,
-                        launcherPid: child.pid ?? null,
-                    }),
-                200
-            );
+        const { pid } = await detach({
+            command: 'explorer.exe',
+            args: plan.args,
+            env: null,
+            show: SW.SHOWNOACTIVATE,
         });
+        return { child: null, pid: null, launcherPid: pid, detached: true };
     }
-    const child = spawn(plan.command, plan.args, {
+    const { pid } = await detach({
+        command: plan.command,
+        args: plan.args,
         cwd: plan.cwd,
-        env: plan.env ?? process.env,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: false,
-        shell: false,
+        env: plan.env ?? null,
+        show: SW.SHOWNOACTIVATE,
     });
-    child.on('error', () => {});
     if (evidenceDir) {
         mkdirSync(evidenceDir, { recursive: true });
-        child.stdout.pipe(
-            createWriteStream(path.join(evidenceDir, 'desktop.stdout.txt'))
+        writeFileSync(
+            path.join(evidenceDir, 'desktop.launch.txt'),
+            `detached launch (FU-26): Win32_Process.Create pid ${pid}, first window SW_SHOWNOACTIVATE; no stdout or stderr pipe\n`
         );
-        child.stderr.pipe(
-            createWriteStream(path.join(evidenceDir, 'desktop.stderr.txt'))
-        );
-    } else {
-        child.stdout.resume();
-        child.stderr.resume();
     }
-    return Promise.resolve({ child, pid: child.pid ?? null });
+    return { child: null, pid, detached: true };
 }
 
 function taskkill(pid) {
@@ -2647,9 +2657,38 @@ export class DesktopLeg extends Leg {
         }
     }
 
+    /**
+     * Never a second instance (FU-26): the single-instance lock forwards a
+     * second launch to the running app, which raises its own window. An
+     * instance this process started and is still closing gets
+     * SECOND_INSTANCE_WAIT_MS (opts.secondInstanceWaitMs in tests) to go;
+     * anything else is SKIP desktop-running before a file is seeded or a
+     * launcher runs.
+     */
+    async refuseSecondInstance() {
+        const deadline =
+            Date.now() + (this.opts.secondInstanceWaitMs ?? SECOND_INSTANCE_WAIT_MS);
+        for (;;) {
+            const running = await listDesktopProcesses(this.lister);
+            if (!running.length) return;
+            const closing = running.every((r) => {
+                const own = started.get(r.pid);
+                return Boolean(own) && !own.exited;
+            });
+            if (!closing || Date.now() >= deadline)
+                throw new PhaseError(
+                    'start',
+                    `desktop-running: ${running.map((r) => `${r.image} pid ${r.pid}`).join(', ')} already runs; a second launch would forward to it and raise its window, so none is started`,
+                    { verdict: 'SKIP', reason: 'desktop-running' }
+                );
+            await sleep(250);
+        }
+    }
+
     /** Launch per mode, find the window, wait for the tree; sets this.driver. */
     async launch(files = []) {
         const { opts } = this;
+        if (this.mode !== 'wailsdev') await this.refuseSecondInstance();
         let storeExe = opts.storeExe ?? null;
         if (this.mode === 'store' && files.length && !storeExe) {
             const pkg = await storePackage();

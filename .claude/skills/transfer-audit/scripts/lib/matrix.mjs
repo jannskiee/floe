@@ -182,6 +182,8 @@ export const SKIP_REASONS = Object.freeze({
     'desktop-none': '--desktop none drops desktop cells',
     'desktop-unavailable':
         'no desktop build to drive (probe or preflight failed)',
+    'desktop-running':
+        'a Floe desktop (floe-desktop.exe, or the floe-desktop-dev.exe wails dev runs) was already up: a second launch forwards to it and raises its window, so the leg started none (FU-26)',
     'head-desktop-pending': 'HEAD desktop build not available in this run',
     'server-no-request-1':
         'the server under test does not list request-1 in its /health features (probe P10)',

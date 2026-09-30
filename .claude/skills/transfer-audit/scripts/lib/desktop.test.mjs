@@ -1062,6 +1062,7 @@ test('launch registers the app pid with lib/proc.mjs (spawned and window-found a
             scratch: dir,
             uia: client,
             launcher: async () => ({ child: null, pid }),
+            lister: NO_PROCS,
             // Keeps this pid test off the real registry.
             shellMenu: new ShellMenuGuard({ platform: 'linux' }),
             infra: { server: 'http://127.0.0.1:9', web: 'http://127.0.0.1:9' },
