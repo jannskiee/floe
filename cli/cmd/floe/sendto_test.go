@@ -244,6 +244,17 @@ func (s *reqServer) evict() {
 	}
 }
 
+// disable sends the seated visitor disabled, as the server's policy purge
+// does when request links are turned off (server.js applyPolicyChange).
+func (s *reqServer) disable() {
+	s.mu.Lock()
+	v := s.visitor
+	s.mu.Unlock()
+	if v != nil {
+		v.send(map[string]interface{}{"type": "disabled"})
+	}
+}
+
 // drop closes the host's or the visitor's socket from the server's side.
 func (s *reqServer) drop(host bool) {
 	s.mu.Lock()
@@ -840,6 +851,82 @@ func TestSendToNeverCallsStats(t *testing.T) {
 	}
 }
 
+// TestSendToOneFileArrivesInTheSingular: one delivered file reads "1 file
+// arrived", D-123's singular (approved-copy-web.md SR-04), never "All 1
+// files" (review lens A, M6: every other delivery test sends two).
+func TestSendToOneFileArrivesInTheSingular(t *testing.T) {
+	o := captureOutput(t)
+	s := newReqServer(t, "seat")
+	stubNetwork(t, s.URL)
+	p, _ := oneFile(t, t.TempDir(), "a.bin", 64*1024)
+	var mu sync.Mutex
+	var doneFiles []transfer.FileDone
+	h := startHost(t, s, deliveringHost(t.TempDir(), &doneFiles, &mu))
+	r := runCLI(t, p, "--to", linkFor(), "--server", s.URL)
+	herr := h.wait(t)
+	r.read(o)
+	if r.err != nil || herr != nil {
+		t.Fatalf("the drop failed: %v, host %v\nstderr:\n%s", r.err, herr, r.stderr)
+	}
+	if !regexp.MustCompile(`(?m)^  1 file arrived \(64 KB in \d+s, direct\)\.$`).MatchString(r.stdout) {
+		t.Fatalf("stdout lacks the singular arrived line:\n%s", r.stdout)
+	}
+}
+
+// TestSendToFailedConnectionEndsTheWaitForReceived: a host that took every
+// byte and then went silent (its machine gone, no close this side can hear)
+// holds the wait for received open, which has no deadline of its own. Only
+// the Failed watcher's close ends it, on TL-27 (review lens A, M1: no test
+// drove runSendTo's own watcher). The failure is stood in through connFailed.
+func TestSendToFailedConnectionEndsTheWaitForReceived(t *testing.T) {
+	o := captureOutput(t)
+	failed := make(chan struct{})
+	prev := connFailed
+	connFailed = func(*peer.Connection) <-chan struct{} { return failed }
+	t.Cleanup(func() { connFailed = prev })
+	s := newReqServer(t, "seat")
+	stubNetwork(t, s.URL)
+	p, _ := oneFile(t, t.TempDir(), "a.bin", 4096)
+	gotAll := make(chan struct{})
+	h := startHost(t, s, func(h *testHost) error {
+		if err := h.offer(); err != nil {
+			return err
+		}
+		id, err := h.awaitMetadata()
+		if err != nil {
+			return err
+		}
+		if err := h.ack(id); err != nil {
+			return err
+		}
+		if err := h.awaitEnd(); err != nil {
+			return err
+		}
+		close(gotAll)
+		h.holdOpen() // never answers
+		return nil
+	})
+	r := startCLI(t, p, "--to", linkFor(), "--server", s.URL)
+	select {
+	case <-gotAll:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the host never got the whole file")
+	}
+	time.Sleep(300 * time.Millisecond)
+	select {
+	case <-r.done:
+		t.Fatalf("the send ended with no received and no failure: %v", r.err)
+	default:
+	}
+	close(failed)
+	r.wait(t, 10*time.Second)
+	if herr := h.wait(t); herr != nil {
+		t.Fatalf("host: %v", herr)
+	}
+	r.read(o)
+	wantOutcome(t, r, "Connection lost. 0 of 1 file arrived. Ask them for a new link to send it.")
+}
+
 // ── The join ─────────────────────────────────────────────────────────────────
 
 // TestSendToServerAnswersPrintFixedLines: each answer to request-join ends the
@@ -951,6 +1038,70 @@ func TestSendToOtherServerLinkEndsWithoutANetworkCall(t *testing.T) {
 	}
 }
 
+// TestSendToRelayOnlyWithoutARelayEndsBeforeTheJoin: --relay-only against a
+// server that offers no TURN relay ends on today's TL-12 sentence right after
+// the ICE fetch and before any connect, so the link's one seat stays free
+// (review lens A, M3: otherwise the visitor takes the seat and ends on TL-10
+// at the 30 s setup bound).
+func TestSendToRelayOnlyWithoutARelayEndsBeforeTheJoin(t *testing.T) {
+	o := captureOutput(t)
+	s := newReqServer(t, "seat")
+	calls := stubNetwork(t, s.URL)
+	p, _ := oneFile(t, t.TempDir(), "a.bin", 16)
+	r := startCLI(t, p, "--to", linkFor(), "--server", s.URL, "--relay-only")
+	r.wait(t, 10*time.Second).read(o)
+	const want = "--relay-only needs a TURN relay and "
+	if r.err == nil || !strings.HasPrefix(r.err.Error(), want) || !strings.Contains(r.stderr, "Error: "+want) {
+		t.Fatalf("the command returned %v, want TL-12's sentence through cobra\nstderr:\n%s", r.err, r.stderr)
+	}
+	if ice, connect := calls.ice.Load(), calls.connect.Load(); ice != 1 || connect != 0 {
+		t.Fatalf("ICE fetches %d, connects %d; want the one fetch and no connect", ice, connect)
+	}
+}
+
+// TestSendToPickTimeLimitsEndBeforeAnyNetwork: over 10,000 files (TL-30) and
+// a file whose description cannot fit one control message (TL-31) end on
+// their own lines before the ICE fetch or any connect, through the command
+// (review lens A, M5: only the engine's precheck was tested, so nothing told
+// the two lines apart). Real files, walked as the send walks them: the
+// second's name is 150 ampersands, which JSON writes as & each.
+func TestSendToPickTimeLimitsEndBeforeAnyNetwork(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		pick  func(t *testing.T) string
+		lines []string
+	}{
+		{"over 10,000 files (TL-30)", func(t *testing.T) string {
+			dir := filepath.Join(t.TempDir(), "archive")
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			for i := 0; i <= transfer.MaxDropFiles; i++ {
+				if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("f%05d", i)), nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			return dir
+		}, []string{"This drop has more than 10,000 files. Zip them first."}},
+		{"a description over one control message (TL-31)", func(t *testing.T) string {
+			p, _ := oneFile(t, t.TempDir(), strings.Repeat("&", 150)+".bin", 16)
+			return p
+		}, []string{"A folder path is too long to send. Zip deeply nested folders first."}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			o := captureOutput(t)
+			s := newReqServer(t, "seat")
+			calls := stubNetwork(t, s.URL)
+			path := c.pick(t)
+			r := runCLI(t, path, "--to", linkFor(), "--server", s.URL).read(o)
+			wantOutcome(t, r, c.lines...)
+			if ice, connect := calls.ice.Load(), calls.connect.Load(); ice != 0 || connect != 0 {
+				t.Fatalf("ICE fetches %d, connects %d before a pick-time refusal; want none", ice, connect)
+			}
+		})
+	}
+}
+
 // ── Setup ────────────────────────────────────────────────────────────────────
 
 // silentHost is seated and never offers or prints, so the visitor waits in
@@ -964,6 +1115,12 @@ func silentHost(h *testHost) error {
 // the command to end on TL-10 within bound of it, far below the 30 s setup
 // timeouts. The host is silent, so nothing prints once the command is done.
 func endsWithin(t *testing.T, o *output, s *reqServer, bound time.Duration, trigger func()) {
+	t.Helper()
+	endsOn(t, o, s, bound, trigger, tlSetupFailed)
+}
+
+// endsOn is endsWithin for an ending of the test's choosing.
+func endsOn(t *testing.T, o *output, s *reqServer, bound time.Duration, trigger func(), line string) {
 	t.Helper()
 	stubNetwork(t, s.URL)
 	p, _ := oneFile(t, t.TempDir(), "a.bin", 16)
@@ -982,7 +1139,7 @@ func endsWithin(t *testing.T, o *output, s *reqServer, bound time.Duration, trig
 	if took := r.ended.Sub(fired); took > bound {
 		t.Fatalf("the command ended %v after the trigger, want within %v", took, bound)
 	}
-	wantOutcome(t, r, tlSetupFailed)
+	wantOutcome(t, r, line)
 	wantInOrder(t, r.stdout, tlJoining, tlConnecting)
 	if strings.Contains(r.stdout, tlWaiting) {
 		t.Fatalf("WAIT was printed although setup never finished:\n%s", r.stdout)
@@ -1022,6 +1179,18 @@ func TestSendToHostLeftDuringSetupEndsAtOnce(t *testing.T) {
 		startHost(t, s, silentHost)
 		endsWithin(t, o, s, 2*time.Second, func() { s.drop(false) })
 	})
+}
+
+// TestSendToDisabledDuringSetupEndsOnTL07: request links turned off while the
+// visitor is seated but not yet connected (the server's policy purge sends
+// disabled to a seated, unsealed visitor) end the setup at once on TL-07, not
+// TL-10: the one setup ending with an approved line of its own (handback 1,
+// D6; review lens A, M2).
+func TestSendToDisabledDuringSetupEndsOnTL07(t *testing.T) {
+	o := captureOutput(t)
+	s := newReqServer(t, "seat")
+	startHost(t, s, silentHost)
+	endsOn(t, o, s, 2*time.Second, s.disable, "Request links are turned off right now.")
 }
 
 // TestWatchSetupReportsASeatTakenAsSetupSucceeds: a seat taken away at the
