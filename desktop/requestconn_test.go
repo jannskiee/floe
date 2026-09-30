@@ -15,6 +15,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,12 +54,13 @@ func TestRequestConnFailedIsTheConnectionsFailed(t *testing.T) {
 
 // TestRunRequestDropEndsWhenTheConnectionFails: an accepted drop whose
 // connection fails after file 1 committed stops with the ST14 code, with the
-// committed file counted and kept, within 5 s of the failure. Before, nothing
-// but the receive's 60 s stall watchdog ended it.
+// committed file counted and kept, and the in-flight file's staging .part gone,
+// within 5 s of the failure. Before, nothing but the receive's 60 s stall
+// watchdog ended it.
 func TestRunRequestDropEndsWhenTheConnectionFails(t *testing.T) {
 	failed := make(chan struct{})
 	failOnDemand(t, failed)
-	a, _, f, room, _ := dropApp(t, nil)
+	a, _, f, room, base := dropApp(t, nil)
 	v := joinVisitor(t, f, room)
 	v.connect(t)
 	one, two := []byte("first file"), randomBytes(t, 64<<10)
@@ -71,7 +73,17 @@ func TestRunRequestDropEndsWhenTheConnectionFails(t *testing.T) {
 	v.sendText(metaFrame(2, 2, "two.bin", int64(len(two)), total))
 	v.frameOfType(t, "ack", 10*time.Second) // file 1 is committed before this ack
 	v.sendBin(two[:1<<10])
-	time.Sleep(100 * time.Millisecond)
+	// The in-flight file is on disk before the failure, so its absence after
+	// is the stop path's removal and not a file that never existed (review
+	// B-1 B2, as TestRunRequestDropCancelSendsStopped asserts for a Cancel).
+	waitFor(t, 5*time.Second, "the in-flight file on disk", func() bool {
+		for _, p := range treeUnder(t, base) {
+			if strings.Contains(p, "two.bin") {
+				return true
+			}
+		}
+		return false
+	})
 	if st := stateOf(a).State; st != "receiving" {
 		t.Fatalf("the drop is %q before the failure, want receiving", st)
 	}
@@ -85,6 +97,11 @@ func TestRunRequestDropEndsWhenTheConnectionFails(t *testing.T) {
 	}
 	if got, err := os.ReadFile(filepath.Join(s.Result.Folder, "one.txt")); err != nil || !bytes.Equal(got, one) {
 		t.Fatalf("the committed file is gone: %v", err)
+	}
+	for _, p := range treeUnder(t, base) {
+		if strings.HasSuffix(p, ".part") || strings.Contains(p, "two.bin") {
+			t.Fatalf("the failed drop left %q", p)
+		}
 	}
 }
 
