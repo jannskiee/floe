@@ -91,6 +91,16 @@ func relayGate(dc *webrtc.DataChannel, totalBytes int64) error {
 	return checkRelayGate(pathType, totalBytes)
 }
 
+// RelayGate is relayGate for a caller that must know before the send starts
+// whether the cap lets it through: the request-link send prints its WAIT
+// lines only for a drop the gate passes (TL-11 of the approved CLI copy shows
+// none before the relay sentence). The same decision, the same error text,
+// and it fails open the same way; SendFilesWithOptions still applies the gate
+// itself.
+func RelayGate(dc *webrtc.DataChannel, totalBytes int64) error {
+	return relayGate(dc, totalBytes)
+}
+
 // hostRelayVerdict is the receiving side's reading of its own connection for
 // Limits.HostRelayCheck: "relay" or "direct" through the same pathTypeFn walk
 // the sender gate and peer.ConnectionType use, or "unknown" when the probe
