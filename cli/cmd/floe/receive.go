@@ -6,6 +6,7 @@ package main
 // registered first.
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -56,6 +57,22 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	//    Input can be: "olive-tiger-castle" (code) or a full URL
 	roomId, err := code.Resolve(flagServer, input)
 	if err != nil {
+		// A request or drop link (TL-33, E-10) comes back as the engine's
+		// sentinel, whose text is the approved sentence. Returned bare, never
+		// wrapped: the wrapper below quotes the pasted input, which for a
+		// request link is the room id in the fragment (desktop/transfer.go
+		// does the same).
+		//
+		// It prints in the approved form (approved-copy-cli.txt, TL-33): the
+		// sentence alone on the two-space indent, without cobra's "Error: "
+		// prefix, because a refusal is an outcome and not a usage mistake.
+		// main still exits 1 on the returned error. Setting SilenceErrors on
+		// the command is safe because a process runs Execute once.
+		if errors.Is(err, code.ErrRequestLink) || errors.Is(err, code.ErrDropLink) {
+			cmd.SilenceErrors = true
+			cmd.PrintErrln("  " + err.Error())
+			return err
+		}
 		return fmt.Errorf("could not resolve %q: %w", input, err)
 	}
 
