@@ -668,7 +668,10 @@ function Select-TextMatches($nodes, $rx, [bool]$join, [int]$max, [scriptblock]$p
 # (SettingsPrimitives.tsx), so its Name carries the row description too and an
 # exact match would never hit.
 function Select-ToggleCandidates($nodes, $rx) {
-    return , @($nodes | Where-Object { $_.type -eq 'CheckBox' -and $rx.IsMatch([string]$_.name) })
+    # One node at a time, never a comma-wrapped array: every caller
+    # wraps the call in @(), which would take such an array as ONE
+    # item, so no match and two matches would both count as one.
+    return @($nodes | Where-Object { $_.type -eq 'CheckBox' -and $rx.IsMatch([string]$_.name) })
 }
 
 # snapshot values: the read-only state a request link verb needs from one tree
@@ -1311,6 +1314,8 @@ function Invoke-SelfTest {
     Check 'fixture-toggle-checkbox-only' ($togReq.Count -eq 1 -and $togReq[0].i -eq 1) "count=$($togReq.Count)"
     $rxAny = New-Object Text.RegularExpressions.Regex('e', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
     Check 'fixture-toggle-two-matches' (@(Select-ToggleCandidates $sw $rxAny).Count -eq 2) ''
+    $rxNone = New-Object Text.RegularExpressions.Regex('^No such switch$', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    Check 'fixture-toggle-no-match' (@(Select-ToggleCandidates $sw $rxNone).Count -eq 0) ''
     $togNoRx = ConvertFrom-Json -InputObject (Invoke-Request '{"id":22,"cmd":"toggle","hwnd":1,"value":true}')
     Check 'toggle-regex-required' ($togNoRx.ok -eq $false -and $togNoRx.reason -eq 'bad-request') "reason=$($togNoRx.reason)"
     $togNoValue = ConvertFrom-Json -InputObject (Invoke-Request '{"id":23,"cmd":"toggle","hwnd":1,"regex":"x"}')
