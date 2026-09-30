@@ -99,7 +99,7 @@ export function fakeVisitorContext(world, opts = {}) {
             return [`4.0 MB in 1s, ${v.route ?? 'direct'}.${sha}`];
         }
         if (v.state === 'absent')
-            return ['The person who made this link may have closed Floe. Your files stay selected.'];
+            return ['They may have closed Floe. Your files stay selected.'];
         return [];
     };
     const buttons = () => {

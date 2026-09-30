@@ -14,8 +14,10 @@ import path from 'node:path';
 export const FAKE_ROOM = '6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f';
 export const FAKE_LINK = `http://localhost:3000/r/Xk3p9Q0aB1c#${FAKE_ROOM}`;
 export const SAVE_TO = 'Downloads\\Floe requests';
-export const VERIFIED_LINE =
-    "Every file arrived intact: its SHA-256 matched the sender's.";
+export const VERIFIED_LINE = 'SHA-256 matched';
+// The amber READY's one sentence (App.tsx statusNote), which also rides a
+// screen-reader twin beside the chip's word while nothing moves.
+export const HIDE_IP_NOTE = 'Hide my IP is on. Transfers go through the relay (capped at 2 GB).';
 
 // The lane states that show the link block (RequestLinkView.tsx LINK_PHASES)
 // and the ones that lock the Beta switch (requestLink.ts HOLDS).
@@ -345,16 +347,27 @@ export function fakeRequestDom({
                       ? 'Direct'
                       : 'Active'
                 : 'Ready';
-        const out = [pill];
-        if (!onRequestView()) return out.map(node);
+        // The chip as App.tsx draws it: the word in an element of its own,
+        // and with Hide my IP on while nothing moves, the screen-reader twin
+        // as its sibling, both inside the chip's span. The reader keeps the
+        // innermost element whose whole text is one word.
+        const word = node(pill);
+        const twin =
+            dom.settings.hideIP && dom.state !== 'receiving' ? node(`, ${HIDE_IP_NOTE}`) : null;
+        const chip = {
+            textContent: twin ? `${pill}${twin.textContent}` : pill,
+            contains: (o) => o === word || (twin !== null && o === twin),
+        };
+        const head = twin ? [chip, word, twin] : [chip, word];
+        const out = [];
+        if (!onRequestView()) return head;
         switch (dom.state) {
             case 'waiting':
-                out.push('Waiting for them to open the link.');
+                out.push('Waiting for files.');
                 break;
             case 'reconnecting':
-                out.push(
-                    'No connection to the Floe server. Floe keeps trying until the link ends at 2:05 PM. Senders see: not connected.'
-                );
+                // C1 on two lines (D-136): the news, then the reassurance.
+                out.push('No connection to the Floe server.', 'Floe keeps trying.');
                 break;
             case 'deciding':
                 out.push('SOMEONE WANTS TO SEND YOU FILES');
@@ -386,7 +399,7 @@ export function fakeRequestDom({
             default:
                 break;
         }
-        return out.map(node);
+        return [...head, ...out.map(node)];
     };
     const inputNodes = () => {
         tick();

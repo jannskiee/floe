@@ -186,7 +186,7 @@ export const REQUEST_STRINGS = Object.freeze({
     saveToPlaceholder: 'Downloads\\Floe requests', // R9, the Save to field
     dismiss: 'Dismiss', // DN2, puts a result away
     cancelDrop: 'Cancel drop', // V4
-    verifiedLine: "Every file arrived intact: its SHA-256 matched the sender's.", // DN3
+    verifiedLine: 'SHA-256 matched', // DN3, the words the rest of Floe uses (D-136)
 });
 
 /**

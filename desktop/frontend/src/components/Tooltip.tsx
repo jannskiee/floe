@@ -92,14 +92,19 @@ export function Tooltip({label, keys, align = 'center', className, children}: {
         setCoords({left, top});
     }, [anchor, align]);
 
+    // An empty label shows nothing, so a trigger whose explanation comes and
+    // goes (the status chip) keeps one Tooltip around it in every state:
+    // swapping the wrapper in and out would change the element type and
+    // remount the trigger.
     const show = useCallback((instant: boolean) => {
+        if (!label) return;
         window.clearTimeout(timer.current);
         if (instant || Date.now() - lastClosed < SKIP) {
             place();
             return;
         }
         timer.current = window.setTimeout(place, DELAY);
-    }, [place]);
+    }, [label, place]);
 
     // Timers must be cleared on unmount: main.tsx renders under StrictMode, whose
     // double-invoked effects would otherwise leave a tooltip stuck open in dev.
@@ -119,11 +124,16 @@ export function Tooltip({label, keys, align = 'center', className, children}: {
         };
     }, [anchor, hide]);
 
+    // A bubble already open when its label goes empty (the amber READY turning
+    // RELAY under a resting pointer) must not stay as an empty pill: it shows,
+    // and describes the trigger, only while there is something to say.
+    const open = anchor !== null && label !== '';
+
     return (
         <span
             ref={ref}
             className={cn('inline-flex', className)}
-            aria-describedby={anchor ? id : undefined}
+            aria-describedby={open ? id : undefined}
             onMouseEnter={() => show(false)}
             onMouseLeave={hide}
             onFocusCapture={(e) => {
@@ -135,7 +145,7 @@ export function Tooltip({label, keys, align = 'center', className, children}: {
             onPointerDown={hide}
         >
             {children}
-            {anchor && createPortal(
+            {open && createPortal(
                 <div
                     ref={bubbleRef}
                     id={id}

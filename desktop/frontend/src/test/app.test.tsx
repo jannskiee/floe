@@ -668,9 +668,9 @@ describe('a request link pasted into CODE', () => {
 
 /**
  * Receive > REQUEST LINK in the app (S1-DSK-06): the events' own effect, the
- * row rules, the header marker, the close guard and Start over copy, and the
- * next-launch line. Go's side is the mock: a test plays the lane by emitting
- * request:state snapshots.
+ * row rules, the Receive tab's description, the close guard and Start over
+ * copy, and the next-launch line. Go's side is the mock: a test plays the lane
+ * by emitting request:state snapshots.
  */
 describe('the request link in the app', () => {
     const GB = 1024 ** 3;
@@ -682,9 +682,9 @@ describe('the request link in the app', () => {
     const lane = (state: string, over: Record<string, unknown> = {}) => ({...base, state, ...over});
     const prompt = {files: 12, totalBytes: 38 * GB, folder: 'Floe requests\\Acme footage 2026-09-14 1405', freeBytes: 500 * GB, warnings: [], answerBy: Date.now() + 9 * 60000};
 
-    function switchOn(feature = true) {
+    function switchOn(feature = true, hideIP = false) {
         wails.go.GetSettings.mockImplementation(async () => ({
-            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false, requestLinks: true, migrated: true,
+            server: '', web: '', hideIP, reportStats: true, noUpdateCheck: false, requestLinks: true, migrated: true,
         }));
         wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: feature}));
     }
@@ -874,7 +874,7 @@ describe('the request link in the app', () => {
         act(() => { wails.emit('close:blocked'); });
         const dialog = await screen.findByRole('dialog');
         expect(within(dialog).getByText('Close Floe?')).toBeTruthy();
-        expect(within(dialog).getByText('Your request link stops working until you make a new one.')).toBeTruthy();
+        expect(within(dialog).getByText('Your request link stops working.')).toBeTruthy();
         const keep = within(dialog).getByRole('button', {name: 'Keep Floe open'});
         expect(document.activeElement).toBe(keep);
         await user.click(within(dialog).getByRole('button', {name: 'Close Floe'}));
@@ -927,18 +927,115 @@ describe('the request link in the app', () => {
         expect(wails.go.CloseRequestLink).not.toHaveBeenCalled();
     });
 
-    it('the header marker opens REQUEST LINK and never switches tabs by itself', async () => {
+    it('no header marker: the Receive tab is described while a link is open, Send never', async () => {
+        // D-135 D1: READY carries an open link, so the header looks the same
+        // with no link and with a waiting one. H2 moves to the Receive tab's
+        // description, only while a link is open and no drop moves (the chip
+        // says that), and never on another tab.
         switchOn();
         const user = userEvent.setup();
         mount();
         await allOn();
+        const send = () => screen.getAllByRole('button', {name: 'Send'})[0];
+        expect(receiveTab().getAttribute('aria-describedby')).toBeNull();
         push(lane('waiting'));
-        // Still on Send: the marker appeared, the view did not move.
-        const marker = await screen.findByRole('button', {name: 'Request link is open'});
-        expect(marker.textContent).toBe('link open');
+        // Still on Send: no marker, and the view did not move.
+        expect(screen.queryByRole('button', {name: 'Request link is open'})).toBeNull();
+        expect(screen.queryByText(/link open/i)).toBeNull();
         expect(screen.getByRole('button', {name: 'Text'})).toBeTruthy();
-        await user.click(marker);
+        await waitFor(() => expect(receiveTab().getAttribute('aria-describedby')).toBe('floe-receive-link-open'));
+        const description = document.getElementById('floe-receive-link-open')!;
+        expect(description.textContent).toBe('Request link is open');
+        expect(description.hidden).toBe(true);
+        expect(receiveTab().textContent).toBe('Receive');
+        expect(send().getAttribute('aria-describedby')).toBeNull();
+        expect(screen.getByRole('button', {name: 'History'}).getAttribute('aria-describedby')).toBeNull();
+        // Entering Receive opens REQUEST LINK while the link is live.
+        await user.click(receiveTab());
         expect(await screen.findByRole('button', {name: 'Close link'})).toBeTruthy();
+        expect(receiveTab().getAttribute('aria-describedby')).toBe('floe-receive-link-open');
+        // A drop moving: the chip says it, so no description.
+        push(lane('receiving', {gen: 2, route: 'direct'}));
+        expect(receiveTab().getAttribute('aria-describedby')).toBeNull();
+        // The link gone: no description either.
+        push(lane('ended', {gen: 3, code: 'closed'}));
+        expect(receiveTab().getAttribute('aria-describedby')).toBeNull();
+        expect(send().getAttribute('aria-describedby')).toBeNull();
+    });
+
+    // The transfer-audit skill's desktop reader (desktop.mjs readText and
+    // RE.pill) keeps the innermost p, span, code, h2 or div whose whole trimmed
+    // text is one status word; every desktop cell samples the chip that way.
+    const PILL = /^(Ready|Active|Direct|Relay)$/i;
+    function pillReads(): string[] {
+        const hit = [...document.querySelectorAll('p, span, code, h2, div')].filter((e) => PILL.test((e.textContent || '').trim()));
+        return hit.filter((e) => !hit.some((o) => o !== e && e.contains(o))).map((e) => (e.textContent || '').trim());
+    }
+    const TIP2 = 'Hide my IP is on. Transfers go through the relay (capped at 2 GB).';
+    const pause = (ms: number) => act(async () => { await new Promise((r) => setTimeout(r, ms)); });
+
+    it('the chip word keeps an element of its own, with Hide my IP off and on', async () => {
+        for (const hideIP of [false, true]) {
+            switchOn(true, hideIP);
+            const {unmount} = mount();
+            await allOn();
+            const word = await screen.findByText('Ready');
+            await waitFor(() => expect(!!word.nextElementSibling).toBe(hideIP));
+            expect(pillReads(), `hideIP ${hideIP}`).toEqual(['Ready']);
+            expect(word.children.length).toBe(0);
+            if (hideIP) {
+                // The screen-reader twin is the word's sibling, never inside it.
+                const twin = word.nextElementSibling!;
+                expect(twin.textContent).toBe(`, ${TIP2}`);
+                expect(twin.className.split(' ')).toContain('sr-only');
+                expect(word.contains(twin)).toBe(false);
+                expect(word.parentElement!.querySelector('.bg-amber-500')).toBeTruthy();
+            } else {
+                expect(word.parentElement!.querySelector('.bg-green-500')).toBeTruthy();
+            }
+            unmount();
+        }
+    });
+
+    it('the amber READY explains itself on hover; with Hide my IP off READY shows nothing', async () => {
+        const user = userEvent.setup();
+        switchOn(true, true);
+        const amber = mount();
+        await allOn();
+        const word = await screen.findByText('Ready');
+        await waitFor(() => expect(word.nextElementSibling).toBeTruthy());
+        await user.hover(word);
+        expect((await screen.findByRole('tooltip')).textContent).toBe(TIP2);
+        await user.unhover(word);
+        amber.unmount();
+
+        switchOn(true, false);
+        mount();
+        await allOn();
+        await pause(400);
+        await user.hover(screen.getByText('Ready'));
+        await pause(600);
+        expect(screen.queryByRole('tooltip')).toBeNull();
+    });
+
+    it('hovering DIRECT or RELAY shows nothing, and the moving chip has no twin', async () => {
+        // D-135 D2: "Direct peer connection" and the relay lines are gone.
+        switchOn(true, true);
+        const user = userEvent.setup();
+        mount();
+        await allOn();
+        await waitFor(() => expect(screen.getByText('Ready').nextElementSibling).toBeTruthy());
+        for (const [route, name, seq] of [['direct', 'Direct', 1], ['relay', 'Relay', 2]] as const) {
+            push(lane('receiving', {gen: 2, seq, route}));
+            const word = await screen.findByText(name);
+            expect(word.nextElementSibling, name).toBeNull();
+            expect(pillReads(), name).toEqual([name]);
+            await pause(400);
+            await user.hover(word);
+            await pause(600);
+            expect(screen.queryByRole('tooltip'), name).toBeNull();
+            await user.unhover(word);
+        }
     });
 
     it('a prompt raises the notice elsewhere, announces once, and Review opens it', async () => {
@@ -956,62 +1053,88 @@ describe('the request link in the app', () => {
         expect(screen.getByText('ACME FOOTAGE WANTS TO SEND YOU FILES')).toBeTruthy();
     });
 
+    it('Review brings the whole Accept row into view, then focuses the heading without scrolling again', async () => {
+        // jsdom has no scrollIntoView; record who is asked to scroll, and how.
+        const proto = HTMLElement.prototype as unknown as {scrollIntoView?: (arg?: unknown) => void};
+        const had = proto.scrollIntoView;
+        const scrolled: Array<{id: string; arg: unknown}> = [];
+        proto.scrollIntoView = function (this: HTMLElement, arg?: unknown) { scrolled.push({id: this.id, arg}); };
+        const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+        try {
+            switchOn();
+            const user = userEvent.setup();
+            mount();
+            await allOn();
+            push(lane('deciding', {gen: 2, promptGen: 1, prompt}));
+            const notice = await screen.findByRole('group', {name: 'Someone wants to send you files.'});
+            await user.click(within(notice).getByRole('button', {name: 'Review'}));
+            await waitFor(() => expect(document.activeElement?.id).toBe('floe-request-prompt-heading'));
+            expect(scrolled).toEqual([{id: 'floe-request-prompt-actions', arg: {block: 'nearest'}}]);
+            const heading = document.getElementById('floe-request-prompt-heading');
+            const calls = focus.mock.calls.filter((_, i) => focus.mock.contexts[i] === heading);
+            expect(calls).toEqual([[{preventScroll: true}]]);
+        } finally {
+            proto.scrollIntoView = had;
+        }
+    });
+
     it('the card keeps its top when a request mounts on REQUEST LINK', async () => {
         // Spec 06 5.5 and VR3-D03: Close link does not move when a request
-        // mounts. m-auto centers the card, so a prompt that grows it would
-        // re-center it and carry Close link up by half the growth (65 px at
-        // 1000 x 640 in Chromium). jsdom has no layout, so this rect stands in
-        // for m-auto: the card's top is wherever centering puts it for what
-        // it holds right now, and the pin must keep the one read on entry.
-        let centered = 163.5;
-        vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-            const top = this.classList.contains('m-auto') ? centered : 0;
-            return {top, bottom: top, left: 0, right: 0, x: 0, y: top, width: 0, height: 0, toJSON: () => ({})} as DOMRect;
+        // mounts; D-136: the card's top is one anchored spot for the whole
+        // REQUEST LINK view, 103 px at 1000 x 640. jsdom has no layout, so
+        // <main>'s height is mocked (the window less the 36 px title bar) and
+        // the box gets its py-8 padding inline: room 540 px, margin 35 px.
+        let mainHeight = 604;
+        vi.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(function (this: Element) {
+            return this.tagName === 'MAIN' ? mainHeight : 0;
         });
         switchOn();
         const user = userEvent.setup();
         mount();
         await allOn();
         const card = () => document.querySelector<HTMLElement>('main .m-auto')!;
+        card().parentElement!.style.padding = '32px';
 
-        // A link open behind the Send view pins nothing there.
+        // A link open behind the Send view anchors nothing there.
         push(lane('waiting', {seq: 1}));
         expect(card().style.marginTop).toBe('');
-        await user.click(await screen.findByRole('button', {name: 'Request link is open'}));
+        // Entering Receive opens REQUEST LINK while the link is live (the header
+        // has no marker to click since D-135).
+        await user.click(receiveTab());
         expect(await screen.findByRole('button', {name: 'Close link'})).toBeTruthy();
-        expect(card().style.marginTop).toBe('163.5px');
+        expect(card().style.marginTop).toBe('35px');
         expect(card().style.marginBottom).toBe('auto');
 
-        // The prompt mounts and would re-center the card 65 px higher.
-        centered = 98.1;
-        push(lane('deciding', {seq: 2, promptGen: 1, prompt}));
-        expect(screen.getByRole('button', {name: 'Accept'})).toBeTruthy();
-        expect(card().style.marginTop).toBe('163.5px');
+        // Every state of the view keeps the same top: the prompt that would
+        // have re-centered the card 65 px higher, declined, waiting again, a
+        // drop moving, and its result.
+        const states: Array<[string, Record<string, unknown>]> = [
+            ['deciding', {seq: 2, promptGen: 1, prompt}], ['declined', {seq: 3, promptGen: 1}], ['waiting', {seq: 4}],
+            ['receiving', {seq: 5, route: 'direct'}],
+            ['done', {seq: 6, result: {files: 1, saved: 1, bytes: 1, verified: 1, renamed: 0, folder: 'D:\\x', names: ['a']}}],
+        ];
+        for (const [state, over] of states) {
+            push(lane(state, over));
+            expect(card().style.marginTop, state).toBe('35px');
+        }
+        // The Ready form after Dismiss, too.
+        await user.click(screen.getByRole('button', {name: 'Dismiss'}));
+        expect(await screen.findByRole('button', {name: 'Make link'})).toBeTruthy();
+        expect(card().style.marginTop).toBe('35px');
 
-        // Declined and back to waiting: the card shrinks, and still holds.
-        centered = 163.5;
-        push(lane('declined', {seq: 3, promptGen: 1}));
-        push(lane('waiting', {seq: 4}));
-        centered = 150;
-        expect(card().style.marginTop).toBe('163.5px');
-
-        // A resize re-centers and pins again.
+        // A resize recomputes: 1140 x 720 puts the card's top at 143 px.
+        mainHeight = 684;
         act(() => { window.dispatchEvent(new Event('resize')); });
-        expect(card().style.marginTop).toBe('150px');
+        expect(card().style.marginTop).toBe('75px');
 
-        // Another tab centers as before; coming back re-reads the spot.
-        await user.click(screen.getByRole('button', {name: 'Send'}));
-        expect(card().style.marginTop).toBe('');
-        centered = 140;
-        await user.click(receiveTab());
-        expect(screen.getByRole('button', {name: 'Close link'})).toBeTruthy();
-        expect(card().style.marginTop).toBe('140px');
-
-        // Leaving the link phases hands the card back to m-auto.
-        push(lane('receiving', {seq: 5, route: 'direct'}));
+        // Another tab centers as before; coming back anchors again.
+        await user.click(screen.getAllByRole('button', {name: 'Send'})[0]);
         expect(card().style.marginTop).toBe('');
         expect(card().style.marginBottom).toBe('');
         expect(card().className).toContain('m-auto');
+        await user.click(receiveTab());
+        await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
+        expect(card().style.marginTop).toBe('75px');
     });
 
     it('the link stopped when Floe closed line shows once after relaunch', async () => {
@@ -1020,7 +1143,7 @@ describe('the request link in the app', () => {
         const first = mount();
         await allOn();
         await userEvent.click(receiveTab());
-        expect(await screen.findByText('This link stopped when Floe closed. Make a new one.')).toBeTruthy();
+        expect(await screen.findByText('Link stopped when Floe closed.')).toBeTruthy();
         expect(localStorage.getItem('floe:requestLinkOpenUntil')).toBeNull();
         first.unmount();
 
@@ -1030,7 +1153,7 @@ describe('the request link in the app', () => {
         await userEvent.click(receiveTab());
         await waitFor(() => expect(requestButton()).toBeTruthy());
         await userEvent.click(requestButton());
-        expect(screen.queryByText('This link stopped when Floe closed. Make a new one.')).toBeNull();
+        expect(screen.queryByText('Link stopped when Floe closed.')).toBeNull();
         expect(screen.getByRole('button', {name: 'Make link'})).toBeTruthy();
     });
 
@@ -1061,7 +1184,7 @@ describe('the request link in the app', () => {
         await user.click(screen.getByRole('button', {name: 'Make link'}));
         expect(wails.go.MakeRequestLink).toHaveBeenCalledWith('Acme footage', 'D:\\Footage\\Floe requests', '24h');
         // The stub refuses (FT-03): the disabled sentence, never a link.
-        expect(await screen.findByText('Request links are turned off on the Floe server right now. Nothing else is affected.')).toBeTruthy();
+        expect(await screen.findByText('Request links are turned off on this server right now.')).toBeTruthy();
         expect(screen.queryByRole('button', {name: 'Copy link'})).toBeNull();
     });
 });
@@ -1231,9 +1354,10 @@ describe('reset all settings with a link open', () => {
         expect(sw().checked).toBe(true);
         expect(wails.listeners.has('request:state')).toBe(true);
 
-        // And the link is still reachable to close.
+        // And the link is still reachable to close: Back lands on Send, and
+        // entering Receive opens REQUEST LINK while the link is live.
         await user.click(screen.getByRole('button', {name: 'Back'}));
-        await user.click(screen.getByRole('button', {name: 'Request link is open'}));
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
         expect(await screen.findByRole('button', {name: 'Close link'})).toBeTruthy();
     });
 
@@ -1270,7 +1394,7 @@ describe('snapshot order (D-115)', () => {
         };
         const prompt = {files: 2, totalBytes: 2048, folder: 'Floe requests\\Acme footage 2026-09-14 1405', freeBytes: 1 << 30, warnings: [], answerBy: Date.now() + 9 * 60000};
         act(() => { wails.emit('request:state', {...base, seq: 3, state: 'deciding', prompt}); });
-        await user.click(screen.getByRole('button', {name: 'Request link is open'}));
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
         const accept = await screen.findByRole('button', {name: 'Accept'});
         await act(async () => { await new Promise((r) => setTimeout(r, 1100)); });
         await user.click(accept);

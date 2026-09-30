@@ -1,13 +1,14 @@
 import {describe, expect, it} from 'vitest';
 import {
     OFF_SNAPSHOT,
+    acceptedPrompt,
     acceptStale,
     canMake,
     errorCode,
     etaLines,
     guardActive,
     initialRequestUI,
-    markerVisible,
+    linkOpen,
     noticeVisible,
     normalizeSnapshot,
     phase,
@@ -82,11 +83,11 @@ describe('the request lane reducer', () => {
         expect(phase(reduce(ready, {type: 'FEATURE', requestLinks: false}))).toBe('off');
     });
 
-    it('T3 Make link then a waiting snapshot shows Waiting with the marker', () => {
+    it('T3 Make link then a waiting snapshot shows Waiting with the link open', () => {
         const making = reduce(ready, {type: 'MAKE'});
         expect(phase(making)).toBe('making');
         expect(phase(waiting)).toBe('waiting');
-        expect(markerVisible(waiting.snap)).toBe(true);
+        expect(linkOpen(waiting.snap.state)).toBe(true);
     });
 
     it('T4 a refusal snapshot shows Error with its code', () => {
@@ -116,13 +117,13 @@ describe('the request lane reducer', () => {
     it('T7 waiting to reconnecting', () => {
         const r = at('reconnecting', {reconnectUntil: 9})(waiting);
         expect(phase(r)).toBe('reconnecting');
-        expect(markerVisible(r.snap)).toBe(true);
+        expect(linkOpen(r.snap.state)).toBe(true);
     });
 
     it('T8 waiting ends as expired at the link end', () => {
         const x = at('ended', {code: 'expired'})(waiting);
         expect(phase(x)).toBe('ended');
-        expect(markerVisible(x.snap)).toBe(false);
+        expect(linkOpen(x.snap.state)).toBe(false);
     });
 
     it('reconnecting ends as expired at the link end (E-34)', () => {
@@ -276,6 +277,29 @@ describe('the request lane reducer', () => {
         // Never over a lane that has something to say.
         expect(reduce(waiting, {type: 'RELAUNCH'})).toBe(waiting);
     });
+
+    it('keeps the accepted prompt count and folder for this generation only (D-136)', () => {
+        // Receiving names them before the first progress event, from the
+        // prompt the owner answered, since the receiving snapshot need not
+        // carry it.
+        expect(acceptedPrompt(waiting)).toBeNull();
+        expect(acceptedPrompt(deciding)).toEqual({files: 12, folder: 'f'});
+        expect(receiving.snap.prompt).toBeUndefined();
+        expect(acceptedPrompt(receiving)).toEqual({files: 12, folder: 'f'});
+        // A later prompt of the same link replaces it.
+        const second = at('deciding', {promptGen: 2, prompt: {files: 3, totalBytes: 1, folder: 'g', freeBytes: 1, warnings: [], answerBy: 1}})(at('waiting')(deciding));
+        expect(acceptedPrompt(at('receiving')(second))).toEqual({files: 3, folder: 'g'});
+        // A new link generation forgets it: the reducer drops it from the
+        // state, and the selector never hands out another generation's.
+        const next = reduce(receiving, {type: 'SNAPSHOT', snap: snap({state: 'waiting', gen: 2})});
+        expect(next.accepted).toBeNull();
+        expect(acceptedPrompt(next)).toBeNull();
+        expect(acceptedPrompt(reduce(next, {type: 'SNAPSHOT', snap: snap({state: 'receiving', gen: 2})}))).toBeNull();
+        expect(acceptedPrompt({...next, accepted: {gen: 1, files: 12, folder: 'f'}})).toBeNull();
+        // A stale snapshot changes nothing, the kept prompt included.
+        const stale = snap({state: 'deciding', gen: 0, prompt: {files: 99, totalBytes: 1, folder: 'x', freeBytes: 1, warnings: [], answerBy: 1}});
+        expect(reduce(receiving, {type: 'SNAPSHOT', snap: stale})).toBe(receiving);
+    });
 });
 
 describe('the request lane selectors', () => {
@@ -315,7 +339,7 @@ describe('the request lane selectors', () => {
         const r = receiving.snap;
         expect(etaLines(r, 2 * 3600, 60)).toEqual([]);
         expect(etaLines(r, 2 * 3600 + 1, 60)).toEqual([
-            'If the connection drops, the file that was moving starts over. Windows may restart for updates outside your active hours.',
+            'If the connection drops, the file that was moving starts over.',
         ]);
         expect(etaLines(r, 24 * 3600, 60)).toHaveLength(1);
         expect(etaLines(r, 3 * 86400, 60)).toEqual([
@@ -323,12 +347,12 @@ describe('the request lane selectors', () => {
         ]);
     });
 
-    it('the marker shows from Waiting to Receiving only', () => {
+    it('a link is open from Waiting to Receiving only (the close guard and the Receive tab description)', () => {
         for (const s of ['waiting', 'reconnecting', 'connecting', 'deciding', 'declined', 'receiving']) {
-            expect(markerVisible(snap({state: s})), s).toBe(true);
+            expect(linkOpen(s), s).toBe(true);
         }
         for (const s of ['off', 'ready', 'making', 'error', 'done', 'stopped', 'ended']) {
-            expect(markerVisible(snap({state: s})), s).toBe(false);
+            expect(linkOpen(s), s).toBe(false);
         }
     });
 

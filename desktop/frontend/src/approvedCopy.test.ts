@@ -103,9 +103,6 @@ const SUB = 'Acme footage 2026-09-14 1405';
 // Rows this file does not check, each with the reason. Anything else that is
 // not cut must be checked above, so a row cannot be silently forgotten.
 const NOT_RENDERED_HERE: Record<string, string> = {
-    R5: 'placement A helper; neither helper renders since the owner cut R4 (2026-09-23)',
-    R18: 'needs the save folder file system, which no binding reports yet (reported gap)',
-    R19: 'needs the save folder file system, which no binding reports yet (reported gap)',
     V2: 'a value: the engine-cleaned file name, rendered as text',
     P1a: 'the one-sentence screen-reader form; A1 is the announcement that ships',
     DN11: 'the canvas draws DN1 without DN3 for this case (DO-02)',
@@ -171,14 +168,13 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.COPIED).toBe(approved('W3'));
         expect(c.CLOSE_LINK).toBe(approved('W4'));
         expect(c.scopeLine(END, NOW)).toBe(approved('W5'));
-        expect(`${c.SAVE_TO_EYEBROW.toUpperCase()}  ${SAVE}`).toBe(approved('W7'));
         expect(c.WAITING_LINE).toBe(approved('W8'));
-        expect(c.WAITING_IP_LINE).toBe(approved('W9'));
         expect(c.missedLine(MISSED)).toBe(approved('W10'));
         expect(c.SETUP_FAILED_LINE).toBe(approved('W11'));
         expect(c.CONNECTING_LINE).toBe(approved('W12'));
         expect(c.SUGGEST_CLOSE_LINE).toBe(approved('W13'));
-        expect(c.reconnectingLine(END)).toBe(approved('C1'));
+        // C1 is drawn on two lines: "line 1 / line 2" in the table.
+        expect(`${c.RECONNECTING_LINE} / ${c.RECONNECTING_NOTE}`).toBe(bare('C1'));
         expect(`${c.RETRY_NOW} / ${c.CLOSE_LINK}`).toBe(bare('C2'));
         expect(c.endedLine('expired', END)).toBe(approved('X1'));
         expect(c.endedLine('closed', END)).toBe(approved('X2'));
@@ -214,7 +210,6 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.CANCEL_DROP).toBe(approved('V4'));
         expect(c.ETA_OVER_2H_LINE).toBe(approved('V5'));
         expect(c.etaLongLine(3 * 86400)).toBe(approved('V6'));
-        expect(c.RELAY_DROP_TOOLTIP).toBe(approved('V8'));
     });
 
     it('Done rows match byte for byte', () => {
@@ -238,7 +233,8 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
             ['ST6', 'relay-cap'], ['ST7', 'file-too-large-for-folder'], ['ST8', 'write-failed'], ['ST9', 'save-blocked'],
             ['ST10', 'stopped'], ['ST11', 'peer-abort'], ['ST12', 'time-limit'], ['ST14', 'unknown'],
         ];
-        const st16 = approved('ST16');
+        const st16 = bare('ST16');
+        const whenSaved = ' plus ST16 when at least one file was saved';
         for (const [id, code] of stops) {
             const full = bare(id);
             const n = note(id);
@@ -247,6 +243,12 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
             else if (n === 'card body without the prefix, plus ST16') {
                 const rest = full.replace(/^Drop stopped: /, '');
                 card = `${rest[0].toUpperCase()}${rest.slice(1)} ${st16}`;
+            } else if (n.startsWith('card body: ') && n.endsWith(whenSaved)) {
+                // ST9: the count only when a file was saved, never "Nothing
+                // was saved." above the kept file (ST17).
+                const body = n.slice('card body: '.length, -whenSaved.length);
+                card = `${body} ${st16}`;
+                expect(c.stoppedCard(code, 0, 12), `${id} none saved`).toBe(body);
             } else if (n.startsWith('card body: ') && n.endsWith(' plus ST16')) {
                 card = `${n.slice('card body: '.length, -' plus ST16'.length)} ${st16}`;
             } else if (n.startsWith('card body: ')) {
@@ -256,12 +258,17 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
             expect(c.stoppedCard(code, saved, 12), id).toBe(card);
             expect(c.stoppedFull(code, saved, 12), id).toBe(full);
         }
-        expect(c.STOPPED_FOLLOW_UP).toBe(approved('ST15'));
+        // ST16 at the mock values, and the forms its note lists (D-136).
         expect(c.savedOf(4, 12)).toBe(st16);
-        // D-128: a save-blocked stop, on the card and in History, points at
-        // the kept .part with the code receive's approved sentence, RX10.
-        expect(c.SAVE_BLOCKED_KEPT_LINE).toBe(approved('RX10'));
-        expect(c.keptPartLine('save-blocked')).toBe(approved('RX10'));
+        expect(note('ST16')).toContain(`with 1 file: ${c.savedOf(1, 1)}`);
+        expect(note('ST16')).toContain(`With none saved: ${c.savedOf(0, 12)}`);
+        expect(c.savedOf(0, 1)).toBe(c.savedOf(0, 12));
+        expect(c.savedOf(0, 0)).toBe(c.savedOf(0, 12));
+        // D-128 and D-136: a save-blocked stop, on the card and in History,
+        // points at the kept .part with ST17, RX10's second sentence. The
+        // code receive keeps RX10 (checked with RX1 to RX9 below).
+        expect(c.SAVE_BLOCKED_KEPT_LINE).toBe(approved('ST17'));
+        expect(c.keptPartLine('save-blocked')).toBe(approved('ST17'));
     });
 
     it('CODE paste, dialog, header, notice and announcement rows match byte for byte', () => {
@@ -272,9 +279,7 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.CLOSE_DROP_RECEIVING_LINE).toBe(approved('CL4'));
         expect(c.CLOSE_LINK_ALSO_LINE).toBe(approved('CL5'));
         expect(c.START_OVER_LINK_LINE).toBe(approved('SO1'));
-        expect(c.MARKER_TEXT).toBe(approved('H1'));
-        expect(c.MARKER_NAME).toBe(approved('H2'));
-        expect(c.RELAY_DROP_DIRECT_SEND_TOOLTIP).toBe(approved('H3'));
+        expect(c.LINK_OPEN_DESCRIPTION).toBe(approved('H2'));
         expect(c.NOTICE_TEXT).toBe(approved('N1'));
         expect(c.NOTICE_REVIEW).toBe(approved('N2'));
         expect(c.ANNOUNCE_REQUEST).toBe(approved('A1'));
@@ -311,7 +316,9 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
 
     it('no cut row can come out of requestCopy.ts', () => {
         const cut = [...rows.values()].filter((r) => r.status.startsWith('CUT'));
-        expect(cut.map((r) => r.id).sort()).toEqual(['C3', 'DN10', 'E3', 'E8', 'P7', 'Q1', 'R4', 'ST2', 'V7', 'W6', 'X4']);
+        expect(cut.map((r) => r.id).sort()).toEqual([
+            'C3', 'DN10', 'E3', 'E8', 'H1', 'H3', 'P7', 'Q1', 'R18', 'R19', 'R4', 'R5', 'ST15', 'ST2', 'V7', 'V8', 'W6', 'W7', 'W9', 'X4',
+        ]);
         const out: string[] = [];
         for (const v of Object.values(c) as unknown[]) if (typeof v === 'string') out.push(v);
         for (const code of ['denied', 'too-slow', 'network', 'server-restart', 'battery-standby', 'pending-rename', 'web-address']) {
@@ -320,7 +327,11 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         }
         for (const r of cut) {
             const s = r.string.replace(/ \([^()]*\)$/, '');
-            for (const o of out) expect(o.includes(s), `${r.id} (${r.status}) renders`).toBe(false);
+            // A fragment under three words is compared by equality: H1's "link
+            // open" sat inside the old D2 ("Keep this link open for ..."), and a
+            // two-word cut must not forbid every sentence that happens to hold it.
+            const short = s.split(/\s+/).length < 3;
+            for (const o of out) expect(short ? o === s : o.includes(s), `${r.id} (${r.status}) renders`).toBe(false);
         }
     });
 });

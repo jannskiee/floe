@@ -162,7 +162,7 @@ describe('request rows', () => {
     it('request row Show in folder opens the folder directly when nothing was renamed', async () => {
         mount([request()]);
         await openRow();
-        expect(screen.getByText("Every file arrived intact: its SHA-256 matched the sender's.")).toBeTruthy();
+        expect(screen.getByText('SHA-256 matched')).toBeTruthy();
         await userEvent.click(screen.getByRole('button', {name: 'Show in folder'}));
         expect(wails.go.OpenFolder).toHaveBeenCalledTimes(1);
         expect(wails.go.OpenFolder).toHaveBeenCalledWith(FOLDER);
@@ -219,7 +219,7 @@ describe('request rows', () => {
         mount([request({stopped: 'save-blocked', names: [], count: 0, offered: 1, verified: 0, bytes: undefined})]);
         await openRow();
         expect(screen.getByText('Drop stopped: Windows would not let Floe save a file.')).toBeTruthy();
-        expect(screen.getByText('Received a file in full but could not finish saving it. The complete file was kept in the save folder with a .part ending.')).toBeTruthy();
+        expect(screen.getByText('The complete file was kept in the folder with a .part ending.')).toBeTruthy();
         expect(screen.queryByText(/SHA-256/)).toBeNull();
         await userEvent.click(screen.getByRole('button', {name: 'Show in folder'}));
         expect(wails.go.OpenFolder).toHaveBeenCalledWith(FOLDER);
@@ -239,5 +239,27 @@ describe('request rows', () => {
         await userEvent.click(screen.getByRole('button', {name: 'Show in folder'}));
         const calls = JSON.stringify(Object.values(wails.go).map((f) => f.mock.calls));
         for (const name of hostile) expect(calls.includes(JSON.stringify(name).slice(1, -1))).toBe(false);
+    });
+
+    it('a long folder is cut in the middle, keeping its end, with the full path as its title (D-136)', async () => {
+        const long = `D:\\Footage\\Floe requests\\${'A'.repeat(40)} 2026-09-14 1405`;
+        mount([request({dir: long})]);
+        await openRow();
+        const line = screen.getByTitle(long);
+        expect(line.textContent).toContain('...');
+        expect(line.textContent!.startsWith('D:\\')).toBe(true);
+        expect(line.textContent!.endsWith(' 2026-09-14 1405')).toBe(true);
+        expect(line.textContent!.length).toBeLessThanOrEqual(48);
+        // Show in folder still gets the whole path.
+        await userEvent.click(screen.getByRole('button', {name: 'Show in folder'}));
+        expect(wails.go.OpenFolder).toHaveBeenCalledWith(long);
+    });
+
+    it('a folder that fits shows whole, with no title', async () => {
+        const short = 'D:\\Floe requests\\Acme 2026-09-14 1405';
+        mount([request({dir: short})]);
+        await openRow();
+        const line = screen.getByText(short);
+        expect(line.getAttribute('title')).toBeNull();
     });
 });

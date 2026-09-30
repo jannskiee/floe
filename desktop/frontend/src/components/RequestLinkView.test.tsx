@@ -7,7 +7,7 @@
 import {act, fireEvent, render, screen, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import RequestLinkView, {type RequestLinkViewProps} from './RequestLinkView';
+import RequestLinkView, {PROMPT_ACTIONS_ID, type RequestLinkViewProps} from './RequestLinkView';
 import {OFF_SNAPSHOT, type Phase, type RequestLinkSnapshot} from '../requestLink';
 import type {Prog} from '../progress';
 
@@ -328,32 +328,45 @@ describe('the result card', () => {
 
     it('shows the SHA-256 line only when every file verified', () => {
         const {rerender} = render(<RequestLinkView {...at('done')}/>);
-        expect(screen.getByText("Every file arrived intact: its SHA-256 matched the sender's.")).toBeTruthy();
+        expect(screen.getByText('SHA-256 matched')).toBeTruthy();
         rerender(<RequestLinkView {...at('done')} snap={snap({state: 'done', result: {...result, verified: 11}})}/>);
         expect(screen.queryByText(/SHA-256/)).toBeNull();
         // No hash value or digest-shaped text anywhere.
         expect(document.body.textContent).not.toMatch(/[0-9a-f]{16,}/);
     });
 
-    it('a stop with nothing saved shows no folder and no follow-up (DT-05)', () => {
+    it('a stop with nothing saved shows no folder (DT-05) and no follow-up line (ST15 is cut)', () => {
         render(<RequestLinkView {...at('stopped')} snap={snap({state: 'stopped', code: 'relay-cap', result: {...result, saved: 0}})}/>);
-        expect(screen.getByText('Over 2 GB through the relay, so it stopped before any file was saved.')).toBeTruthy();
+        expect(screen.getByText('Over the 2 GB relay limit. Nothing was saved.')).toBeTruthy();
         expect(screen.queryByRole('button', {name: 'Show in folder'})).toBeNull();
-        expect(screen.queryByText('The sender can send the rest with a new link.')).toBeNull();
+        expect(document.body.textContent).not.toMatch(/send the rest/);
+    });
+
+    it('a stop reads its count in the web grammar (ST16, D-136)', () => {
+        const {rerender} = render(<RequestLinkView {...at('stopped')}/>);
+        expect(screen.getByText('The drive ran out of space. 4 of 12 files were saved.')).toBeTruthy();
+        rerender(<RequestLinkView {...at('stopped')} snap={snap({state: 'stopped', code: 'disk-full', result: {...result, files: 1, saved: 1}})}/>);
+        expect(screen.getByText('The drive ran out of space. 1 of 1 file was saved.')).toBeTruthy();
+        rerender(<RequestLinkView {...at('stopped')} snap={snap({state: 'stopped', code: 'path-too-long', result: {...result, saved: 0}})}/>);
+        expect(screen.getByText('A folder path was too long for Windows. Nothing was saved.')).toBeTruthy();
+        expect(document.body.textContent).not.toMatch(/send the rest/);
     });
 
     it('a save-blocked stop points at the kept file, even with nothing saved (D-128)', async () => {
         const user = userEvent.setup();
-        const kept = 'Received a file in full but could not finish saving it. The complete file was kept in the save folder with a .part ending.';
+        const kept = 'The complete file was kept in the folder with a .part ending.';
         for (const saved of [0, 4]) {
             const p = props({phase: 'stopped', snap: snap({state: 'stopped', code: 'save-blocked', result: {...result, saved, verified: saved, names: saved ? ['a.mov'] : []}})});
             const {unmount} = render(<RequestLinkView {...p}/>);
-            expect(screen.getByText(`Windows would not let Floe save a file, even after trying for 5 minutes. ${saved} of 12 files were saved.`)).toBeTruthy();
+            // ST9 carries a count only when a file was saved, so the card never
+            // says "Nothing was saved." above the kept file (ST17).
+            const card = saved ? `Windows would not let Floe finish saving a file. ${saved} of 12 files were saved.` : 'Windows would not let Floe finish saving a file.';
+            expect(screen.getByText(card)).toBeTruthy();
             expect(screen.getByText(kept)).toBeTruthy();
+            expect(document.body.textContent).not.toMatch(/Nothing was saved/);
             await user.click(screen.getByRole('button', {name: 'Show in folder'}));
             expect(p.onShowInFolder).toHaveBeenCalledWith(result.folder);
-            // ST15 keeps its approved state, at least one file saved.
-            expect(screen.queryByText('The sender can send the rest with a new link.') !== null, `saved ${saved}`).toBe(saved > 0);
+            expect(document.body.textContent).not.toMatch(/send the rest/);
             expect(document.body.textContent).not.toMatch(/[0-9a-f]{16,}/);
             unmount();
         }
@@ -361,6 +374,183 @@ describe('the result card', () => {
         render(<RequestLinkView {...at('stopped')} snap={snap({state: 'stopped', code: 'write-failed', result: {...result, saved: 0}})}/>);
         expect(screen.queryByRole('button', {name: 'Show in folder'})).toBeNull();
         expect(screen.queryByText(kept)).toBeNull();
+    });
+
+    it('the save-blocked stop and its kept-file line read as one statement, 8 px apart', () => {
+        // ST9 and ST17 are one group (space-y-2), not two blocks of the card's
+        // 16 px rhythm (D-136 L6).
+        render(<RequestLinkView {...at('stopped')} snap={snap({state: 'stopped', code: 'save-blocked', result: {...result, saved: 0}})}/>);
+        const stop = screen.getByText('Windows would not let Floe finish saving a file.');
+        const kept = screen.getByText('The complete file was kept in the folder with a .part ending.');
+        expect(stop.nextElementSibling).toBe(kept);
+        expect(stop.parentElement!.className.split(' ')).toContain('space-y-2');
+    });
+});
+
+describe('the link phases (D-136)', () => {
+    it('no IP line while the link waits, connects, reconnects, decides or is declined', () => {
+        // The IP line is said once, on the Ready form, with its timing (R15);
+        // W9 is cut.
+        for (const phase of ['waiting', 'connecting', 'reconnecting', 'deciding', 'declined'] as const) {
+            const {container, unmount} = render(<RequestLinkView {...at(phase)}/>);
+            expect(container.textContent, phase).not.toMatch(/IP address/);
+            unmount();
+        }
+    });
+
+    it('Waiting says Waiting for files. and nothing else in the slot', () => {
+        const {container} = render(<RequestLinkView {...at('waiting')}/>);
+        expect(screen.getByText('Waiting for files.')).toBeTruthy();
+        expect(container.textContent).not.toMatch(/open the link|still open/);
+    });
+
+    it('Reconnecting says C1 on two lines, the news first and the reassurance quieter', () => {
+        render(<RequestLinkView {...at('reconnecting')}/>);
+        const news = screen.getByText('No connection to the Floe server.');
+        const note = screen.getByText('Floe keeps trying.');
+        expect(news.nextElementSibling).toBe(note);
+        expect(news.className).toContain('text-zinc-200');
+        expect(note.className).toContain('text-zinc-500');
+        expect(document.body.textContent).not.toMatch(/Senders see|until the link ends/);
+    });
+});
+
+describe('the layout (D-136)', () => {
+    const PRIMARY = 'bg-white text-black';
+    const whites = () => screen.queryAllByRole('button').filter((b) => b.className.includes(PRIMARY)).map((b) => b.textContent?.trim());
+    const before = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+    it('one white button per view', () => {
+        const want: Record<Exclude<Phase, 'off'>, string[]> = {
+            ready: ['Make link'], making: ['Making the link...'], error: ['Make link'], waiting: ['Copy link'],
+            reconnecting: [], connecting: [], deciding: ['Accept'], declined: [], receiving: [], done: [], stopped: [],
+            ended: ['Make another link'],
+        };
+        for (const phase of Object.keys(want) as Exclude<Phase, 'off'>[]) {
+            const {unmount} = render(<RequestLinkView {...at(phase, {progress: progress('a.mov')})}/>);
+            expect(whites(), phase).toEqual(want[phase]);
+            unmount();
+        }
+    });
+
+    it('R15 sits above Make link while Hide my IP is off, and R17 alone while it is on', () => {
+        const R15 = 'Whoever sends sees your IP address, even if you decline, unless Hide my IP is on.';
+        const R17 = 'Hide my IP is on, so drops are capped at 2 GB.';
+        const {rerender} = render(<RequestLinkView {...at('ready')}/>);
+        const line = screen.getByText(R15);
+        expect(line.className).toContain('text-zinc-400');
+        expect(before(line, screen.getByRole('button', {name: 'Make link'}))).toBe(true);
+        expect(screen.queryByText(R17)).toBeNull();
+        rerender(<RequestLinkView {...at('ready', {hideIP: true})}/>);
+        expect(screen.queryByText(R15)).toBeNull();
+        expect(document.body.textContent).not.toMatch(/IP address/);
+        expect(before(screen.getByText(R17), screen.getByRole('button', {name: 'Make link'}))).toBe(true);
+        // The error line still shows under Make link with Hide my IP on (E5).
+        rerender(<RequestLinkView {...at('error', {hideIP: true, errorCode: 'no-relay'})}/>);
+        expect(before(screen.getByRole('button', {name: 'Make link'}), screen.getByRole('alert'))).toBe(true);
+        expect(screen.getByRole('alert').textContent).toMatch(/^Hide my IP needs a TURN relay/);
+    });
+
+    it('the prompt: P10 above Accept, every needed line at AA, the laptop line not amber', () => {
+        const warned = snap({state: 'deciding', prompt: {...prompt, freeBytes: 31 * GB, warnings: ['low-space', 'laptop-power']}});
+        render(<RequestLinkView {...at('deciding', {snap: warned})}/>);
+        const accept = screen.getByRole('button', {name: 'Accept'});
+        const p10 = screen.getByText('Accept only if you expect files from the person you sent this link to.');
+        expect(before(p10, accept)).toBe(true);
+        for (const el of [p10, screen.getByText(/^Answer within \d+ min$/), screen.getByText('On a laptop, plug in and keep the lid open.')]) {
+            expect(el.className, el.textContent!).toContain('text-zinc-400');
+        }
+        expect(screen.getByText(/^Only 31\.0 GB free on D:/).className).toContain('text-amber-300/80');
+        // The folder wraps inside the card instead of overflowing it.
+        expect(screen.getByText(prompt.folder).className).toContain('break-all');
+        // The Accept and Decline row carries the id Review scrolls to.
+        expect(accept.parentElement!.id).toBe(PROMPT_ACTIONS_ID);
+    });
+
+    it('the notice shows unless the whole Accept and Decline row is in view', () => {
+        type Entry = {intersectionRatio: number; isIntersecting: boolean};
+        let cb: ((entries: Entry[]) => void) | null = null;
+        let observed: Element | null = null;
+        let options: IntersectionObserverInit | undefined;
+        vi.stubGlobal('IntersectionObserver', class {
+            constructor(c: (entries: Entry[]) => void, o?: IntersectionObserverInit) { cb = c; options = o; }
+            observe(el: Element) { observed = el; }
+            disconnect() {}
+        });
+        try {
+            const p = at('deciding');
+            render(<RequestLinkView {...p}/>);
+            expect(observed).toBe(document.getElementById(PROMPT_ACTIONS_ID));
+            expect(options?.threshold).toEqual([0, 0.99]);
+            // Half the row showing, as in capture 14 where Accept was cut.
+            act(() => cb!([{intersectionRatio: 0.5, isIntersecting: true}]));
+            expect(p.onPromptVisible).toHaveBeenLastCalledWith(false);
+            act(() => cb!([{intersectionRatio: 1, isIntersecting: true}]));
+            expect(p.onPromptVisible).toHaveBeenLastCalledWith(true);
+            act(() => cb!([{intersectionRatio: 0.9999, isIntersecting: true}]));
+            expect(p.onPromptVisible).toHaveBeenLastCalledWith(true);
+            act(() => cb!([{intersectionRatio: 0, isIntersecting: false}]));
+            expect(p.onPromptVisible).toHaveBeenLastCalledWith(false);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('the link block: no SAVE TO row, W5 at AA, and with no label the heading is for screen readers only', () => {
+        const {rerender} = render(<RequestLinkView {...at('waiting')}/>);
+        expect(screen.queryByText(/save to/i)).toBeNull();
+        expect(screen.getByText(/^For one person\. Ends /).className).toContain('text-zinc-400');
+        expect(screen.getByText('ACME FOOTAGE').className).not.toContain('sr-only');
+        rerender(<RequestLinkView {...at('waiting')} snap={snap({state: 'waiting', label: ''})}/>);
+        expect(screen.getByText('REQUEST LINK').className).toBe('sr-only');
+        // The link field keeps its name, by which the harnesses find it.
+        expect(screen.getByRole('textbox', {name: 'REQUEST LINK'})).toBeTruthy();
+        rerender(<RequestLinkView {...at('ended')} snap={snap({state: 'ended', code: 'closed', label: ''})}/>);
+        expect(screen.getByText('REQUEST LINK').className).toBe('sr-only');
+        expect(screen.getByText('Link closed.')).toBeTruthy();
+        rerender(<RequestLinkView {...at('ended')}/>);
+        expect(screen.getByText('ACME FOOTAGE').className).not.toContain('sr-only');
+    });
+
+    it('every mono caps label sits on the +2 px edge', () => {
+        const heads: Array<[Exclude<Phase, 'off'>, string | RegExp]> = [
+            ['waiting', 'ACME FOOTAGE'], ['deciding', 'ACME FOOTAGE WANTS TO SEND YOU FILES'], ['receiving', /^RECEIVING /],
+            ['done', /^RECEIVED /], ['stopped', 'DROP STOPPED'], ['ended', 'ACME FOOTAGE'],
+        ];
+        for (const [phase, text] of heads) {
+            const {unmount} = render(<RequestLinkView {...at(phase, {progress: progress('a.mov')})}/>);
+            expect(screen.getByText(text).className.split(' '), phase).toContain('px-0.5');
+            unmount();
+        }
+    });
+
+    it('Receiving names the accepted count and folder before the first progress event', () => {
+        const accepted = {files: 12, folder: prompt.folder};
+        const {container, rerender} = render(<RequestLinkView {...at('receiving', {accepted})}/>);
+        expect(screen.getByText('RECEIVING 1 OF 12 FROM ACME FOOTAGE')).toBeTruthy();
+        const into = screen.getByText(prompt.folder);
+        expect(into.className).toContain('break-all');
+        expect(into.parentElement!.textContent).toBe(`Into ${prompt.folder}`);
+        expect(container.textContent).not.toMatch(/0 B of 0 B|RECEIVING 0 OF 0/);
+        rerender(<RequestLinkView {...at('receiving', {accepted, progress: progress('a.mov')})}/>);
+        expect(screen.getByText('RECEIVING 4 OF 12 FROM ACME FOOTAGE')).toBeTruthy();
+        expect(screen.getByText('1.2 GB of 2.5 GB')).toBeTruthy();
+        expect(screen.getByText(prompt.folder)).toBeTruthy();
+    });
+
+    it('Done: a plain SHA-256 line, DN5 at AA, and a folder name that keeps its end', () => {
+        const long = `D:\\Footage\\Floe requests\\${'A'.repeat(64)} 2026-09-14 1405`;
+        const {rerender} = render(<RequestLinkView {...at('done')} snap={snap({state: 'done', result: {...result, folder: long}})}/>);
+        const sha = screen.getByText('SHA-256 matched');
+        expect(sha.querySelector('svg')).toBeNull();
+        expect(sha.className).toContain('text-zinc-400');
+        expect(screen.getByText('Floe does not scan files for malware.').className).toContain('text-zinc-400');
+        const name = screen.getByTitle(long);
+        expect(name.textContent!.endsWith(' 2026-09-14 1405')).toBe(true);
+        expect(name.textContent!.length).toBeLessThanOrEqual(34);
+        // A name that fits shows whole, and the title is still the full path.
+        rerender(<RequestLinkView {...at('done')}/>);
+        expect(screen.getByTitle(result.folder).textContent).toBe('Acme footage 2026-09-14 1405');
     });
 });
 

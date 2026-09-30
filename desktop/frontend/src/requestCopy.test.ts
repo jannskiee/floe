@@ -32,7 +32,7 @@ const GB = 1024 ** 3;
 
 describe('error codes', () => {
     it.each([
-        ['disabled', 'Request links are turned off on the Floe server right now. Nothing else is affected.'],
+        ['disabled', 'Request links are turned off on this server right now.'],
         ['limited', 'This network made too many request links today. Try again tomorrow.'],
         ['unknown', 'Floe could not make a link. Try again later.'],
         ['already-open', 'You already have a request link open. Close it to make a new one.'],
@@ -63,7 +63,7 @@ describe('waiting, reconnecting and ended lines', () => {
     });
 
     it('maps missedAt to fixed copy', () => {
-        expect(reopenLine({code: '', missedAt: MISSED, suggestClose: false})).toBe('You missed a request at 2:14 PM. The link is still open.');
+        expect(reopenLine({code: '', missedAt: MISSED, suggestClose: false})).toBe('You missed a request at 2:14 PM.');
     });
 
     it('suggestClose shows the Close this link line', () => {
@@ -75,12 +75,13 @@ describe('waiting, reconnecting and ended lines', () => {
         expect(reopenLine({code: '', suggestClose: false})).toBe('');
     });
 
-    it('maps reconnecting to fixed copy (C1)', () => {
-        expect(copy.reconnectingLine(END)).toBe('No connection to the Floe server. Floe keeps trying until the link ends at 2:05 PM. Senders see: not connected.');
+    it('maps reconnecting to fixed copy (C1, two lines)', () => {
+        expect(copy.RECONNECTING_LINE).toBe('No connection to the Floe server.');
+        expect(copy.RECONNECTING_NOTE).toBe('Floe keeps trying.');
     });
 
     it('maps expired to fixed copy', () => {
-        expect(endedLine('expired', END)).toBe('This link ended at 2:05 PM.');
+        expect(endedLine('expired', END)).toBe('Link ended at 2:05 PM.');
     });
 
     it('maps closed to fixed copy', () => {
@@ -88,7 +89,7 @@ describe('waiting, reconnecting and ended lines', () => {
     });
 
     it('maps app-closed to fixed copy', () => {
-        expect(endedLine('app-closed', END)).toBe('This link stopped when Floe closed. Make a new one.');
+        expect(endedLine('app-closed', END)).toBe('Link stopped when Floe closed.');
     });
 
     it('has no network or server-restart ending (E-34)', () => {
@@ -119,7 +120,7 @@ describe('the prompt', () => {
 
     it.each([
         ['low-space', 'Only 31.0 GB free on D:. The drop will stop when the drive fills.'],
-        ['file-too-large-for-drive', 'This drive cannot save files over 4 GB. A larger file will stop the drop.'],
+        ['file-too-large-for-drive', 'This drive cannot save files over 4 GB, so this drop will stop.'],
         ['relay-over-cap', 'Hide my IP is on, so this 38.0 GB drop will stop before any file.'],
         ['laptop-power', 'On a laptop, plug in and keep the lid open.'],
     ])('maps %s to fixed copy', (code, want) => {
@@ -169,10 +170,10 @@ describe('stop codes', () => {
         ['hash-mismatch', 'A file did not match what was sent, so Floe deleted it. 4 of 12 files were saved.'],
         ['path-too-long', 'A folder path was too long for Windows. 4 of 12 files were saved.'],
         ['over-approved', 'More data arrived than you accepted. 4 of 12 files were saved.'],
-        ['relay-cap', 'Over 2 GB through the relay, so it stopped before any file was saved.'],
+        ['relay-cap', 'Over the 2 GB relay limit. Nothing was saved.'],
         ['file-too-large-for-folder', 'A file is too large for this drive. 4 of 12 files were saved.'],
         ['write-failed', 'Windows could not write to the folder. 4 of 12 files were saved.'],
-        ['save-blocked', 'Windows would not let Floe save a file, even after trying for 5 minutes. 4 of 12 files were saved.'],
+        ['save-blocked', 'Windows would not let Floe finish saving a file. 4 of 12 files were saved.'],
         ['stopped', 'You stopped this drop. 4 of 12 files were saved.'],
         ['peer-abort', 'The sender stopped this drop. 4 of 12 files were saved.'],
         ['time-limit', 'The drop reached the 24-hour limit. 4 of 12 files were saved.'],
@@ -203,28 +204,56 @@ describe('stop codes', () => {
         expect(blaming).toEqual(['peer-abort']);
     });
 
-    it('shows the folder and the follow-up only when a file was saved', () => {
+    it('shows the folder only when a file was saved', () => {
         expect(stoppedShowsFolder('disk-full', 4)).toBe(true);
         expect(stoppedShowsFolder('disk-full', 0)).toBe(false);
         expect(stoppedShowsFolder('relay-cap', 3)).toBe(false);
-        expect(savedOf(0, 12)).toBe('0 of 12 files were saved.');
+    });
+
+    it('counts saved files in the web grammar: a singular form, and Nothing was saved (ST16, D-136)', () => {
+        expect(savedOf(4, 12)).toBe('4 of 12 files were saved.');
+        expect(savedOf(1, 12)).toBe('1 of 12 files were saved.');
+        expect(savedOf(1, 1)).toBe('1 of 1 file was saved.');
+        for (const files of [0, 1, 12]) expect(savedOf(0, files), `0 of ${files}`).toBe('Nothing was saved.');
+        // Every stop that carries a count inherits the forms, card and History.
+        expect(stoppedCard('disk-full', 1, 1)).toBe('The drive ran out of space. 1 of 1 file was saved.');
+        expect(stoppedCard('disk-full', 0, 12)).toBe('The drive ran out of space. Nothing was saved.');
+        expect(stoppedCard('path-too-long', 0, 1)).toBe('A folder path was too long for Windows. Nothing was saved.');
+        expect(stoppedCard('unknown', 0, 0)).toBe('Nothing was saved.');
+        expect(stoppedFull('unknown', 1, 1)).toBe('Drop stopped. 1 of 1 file was saved.');
+        expect(stoppedFull('time-limit', 0, 3)).toBe('Drop stopped: it reached the 24-hour limit. Nothing was saved.');
+        // ST11's History form says "arrived", with the numbers and the singular.
+        expect(stoppedFull('peer-abort', 1, 1)).toBe('Drop stopped: the sender left. 1 of 1 file arrived.');
+        expect(stoppedFull('peer-abort', 3, 12)).toBe('Drop stopped: the sender left. 3 of 12 files arrived.');
+        expect(stoppedCard('peer-abort', 1, 1)).toBe('The sender stopped this drop. 1 of 1 file was saved.');
+    });
+
+    it('the save-blocked card carries a count only when a file was saved (ST9 beside ST17)', () => {
+        // "Nothing was saved." next to "The complete file was kept" would
+        // contradict itself: the file is whole and verified, under its .part.
+        expect(stoppedCard('save-blocked', 0, 12)).toBe('Windows would not let Floe finish saving a file.');
+        expect(stoppedCard('save-blocked', 0, 1)).toBe('Windows would not let Floe finish saving a file.');
+        expect(stoppedCard('save-blocked', 3, 12)).toBe('Windows would not let Floe finish saving a file. 3 of 12 files were saved.');
+        expect(stoppedCard('save-blocked', 1, 1)).toBe('Windows would not let Floe finish saving a file. 1 of 1 file was saved.');
+        // History keeps its own sentence, without a count, whatever was saved.
+        expect(stoppedFull('save-blocked', 0, 12)).toBe('Drop stopped: Windows would not let Floe save a file.');
+        expect(stoppedFull('save-blocked', 3, 12)).toBe('Drop stopped: Windows would not let Floe save a file.');
+        // Every other stop still says it when nothing was saved.
+        expect(stoppedCard('write-failed', 0, 12)).toBe('Windows could not write to the folder. Nothing was saved.');
+        expect(stoppedCard('relay-cap', 0, 12)).toBe('Over the 2 GB relay limit. Nothing was saved.');
     });
 
     it('a save-blocked stop shows the folder and the kept-file line whatever was saved (D-128)', () => {
         // The one exception to DT-05's rule for the folder: the engine keeps
         // the file it could not move into place, complete and verified, as a
-        // .part in the drop folder (E-36). The follow-up line (ST15) keeps its
-        // approved state, at least one file saved.
+        // .part in the drop folder (E-36).
         expect(stoppedShowsFolder('save-blocked', 0)).toBe(true);
         expect(stoppedShowsFolder('save-blocked', 3)).toBe(true);
-        expect(copy.stoppedShowsFollowUp('save-blocked', 0)).toBe(false);
-        expect(copy.stoppedShowsFollowUp('save-blocked', 3)).toBe(true);
-        expect(copy.stoppedShowsFollowUp('disk-full', 4)).toBe(true);
-        expect(copy.stoppedShowsFollowUp('disk-full', 0)).toBe(false);
-        expect(copy.stoppedShowsFollowUp('relay-cap', 3)).toBe(false);
-        // RX10 (D-123), the code receive's sentence for the same kept file.
-        expect(copy.SAVE_BLOCKED_KEPT_LINE).toBe('Received a file in full but could not finish saving it. The complete file was kept in the save folder with a .part ending.');
+        // ST17 (D-136), RX10's second sentence with "folder" for "save
+        // folder"; the code receive keeps RX10 (errors.ts COMMIT_KEPT_PART).
+        expect(copy.SAVE_BLOCKED_KEPT_LINE).toBe('The complete file was kept in the folder with a .part ending.');
         expect(copy.keptPartLine('save-blocked')).toBe(copy.SAVE_BLOCKED_KEPT_LINE);
+        expect(Object.values(copy)).not.toContain('Received a file in full but could not finish saving it. The complete file was kept in the save folder with a .part ending.');
         for (const code of ['disk-full', 'write-failed', 'relay-cap', 'stopped', 'peer-abort', 'unknown', '', '<img src=x onerror=alert(1)>']) {
             expect(copy.keptPartLine(code), code).toBe('');
         }

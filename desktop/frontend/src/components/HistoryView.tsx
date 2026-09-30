@@ -4,8 +4,13 @@ import {OpenFolder, RevealFile} from '../../wailsjs/go/main/App';
 import {cn, Eyebrow} from './ui';
 import {fmtWhen, histKey, type HistEntry} from '../history';
 import {fmtBytes} from '../incoming';
+import {shortPath} from '../paths';
 import {VERIFIED_LINE, keptPartLine, renamedLine, stoppedFull, verifiedAll} from '../requestCopy';
 import {RenamedConfirm} from './RequestLinkView';
+
+// The received folder, in characters: the expanded row's 350 px of 12 px mono
+// (Geist Mono advances 7.2 px) hold 48.
+const DIR_MAX = 48;
 
 /** HistoryView is the History console: the header with Clear and its inline
  *  confirm, the empty state, and the list of expandable rows.
@@ -73,6 +78,8 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
                         const panelId = `floe-hist-panel-${i}`;
                         const request = h.via === 'request';
                         const offered = h.offered ?? h.count;
+                        // Cut in the middle, so the drop's own folder and its time stay.
+                        const dir = h.dir ? shortPath(h.dir, DIR_MAX) : '';
                         return (
                             <li key={key} className="transition-colors hover:bg-white/[0.03]">
                                 {/* The whole row is one disclosure button, the same idiom as the
@@ -113,7 +120,7 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
                                             <p className="break-all pl-7 text-xs text-zinc-500">{h.names[0]}</p>
                                         ) : null}
                                         {h.kind === 'recv' && h.dir && (
-                                            <p className="truncate pl-7 font-mono text-xs text-zinc-500" title={h.dir}>{h.dir}</p>
+                                            <p className="truncate pl-7 font-mono text-xs text-zinc-500" title={dir !== h.dir ? h.dir : undefined}>{dir}</p>
                                         )}
                                         {request && !h.stopped && verifiedAll({files: offered, saved: h.count, verified: h.verified ?? 0}) && (
                                             <p className="pl-7 text-xs leading-relaxed text-zinc-500">{VERIFIED_LINE}</p>
