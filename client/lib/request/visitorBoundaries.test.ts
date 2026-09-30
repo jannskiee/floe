@@ -271,7 +271,14 @@ describe('the /r page boundaries', () => {
         // storage call, and the one value it writes is the counts object under
         // the fixed key, never a name, a path, the link id or the room
         // (lostRecord.test.ts checks the stored bytes; the privacy script
-        // r-privacy-check-v4 checks the live page).
+        // r-privacy-check-v4 checks the live page on load).
+        //
+        // What this pin cannot see (review 1 F8): it is a text match over
+        // /r's own sources, so an indirect access (a computed property name)
+        // passes it, and it does not follow imports: lib/staleBundle.ts, which
+        // is global, also writes sessionStorage on /r after a stale-bundle
+        // error. The live backstop is request-link.spec.ts's dump of every
+        // stored key and value in Sending.
         const sources = requestSources();
         expect(Object.keys(sources)).toContain('lib/request/lostRecord.ts');
         for (const [file, src] of Object.entries(sources)) {

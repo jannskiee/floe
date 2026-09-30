@@ -322,6 +322,9 @@ test.describe('request-link', () => {
         const copy = refusalCopy('over-approved', 1, 2);
         await expect(page.getByRole('heading', { name: copy.title })).toBeVisible({ timeout: 60_000 });
         for (const line of copy.lines) await expect(page.getByText(line, { exact: true })).toBeVisible();
+        // The refusal (V11) clears the counts the tab kept in Sending
+        // (FT-R-DISCARD): a discard from here must not reload to Lost.
+        expect(await page.evaluate((key) => sessionStorage.getItem(key), LOST_KEY)).toBeNull();
         expect(await waitForHostEvent(h, 'refused', 30_000)).toMatchObject({ code: 'over-approved' });
         await waitForHostEvent(h, 'done', 30_000);
         // Nothing of the reason reaches the page, as markup or as text.
@@ -466,12 +469,16 @@ test.describe('request-link', () => {
         // the record the tab keeps in Sending (counts only); the page reads it
         // once, shows C-110 and C-111, and starts nothing.
         const stats = await guard(context);
+        // What request-privacy.spec.ts's watchSignaling counts: a socket, a
+        // TURN fetch, or /api/config, the first sign of resolving a server.
         const seen: string[] = [];
+        const signaling = (u: string) =>
+            u.includes('socket.io') || u.includes('turn-credentials') || u.includes('/api/config');
         page.on('request', (r) => {
-            if (/socket\.io|turn-credentials/.test(r.url())) seen.push(r.url());
+            if (signaling(r.url())) seen.push(r.url());
         });
         page.on('websocket', (ws) => {
-            if (/socket\.io/.test(ws.url())) seen.push(ws.url());
+            if (signaling(ws.url())) seen.push(ws.url());
         });
         const record = JSON.stringify({ v: 1, arrived: 1, total: 2 });
         const seed = ([key, value]: readonly [string, string]) => sessionStorage.setItem(key, value);
@@ -524,8 +531,25 @@ test.describe('request-link', () => {
         for (const [key, value] of stored) {
             expect(key.includes(linkId) || value.includes(linkId), 'a stored key or value holds the link id').toBe(false);
             expect(key.includes(room) || value.includes(room), 'a stored key or value holds the room').toBe(false);
+            const named = ['a.bin', 'b.bin'].some((n) => key.includes(n) || value.includes(n));
+            expect(named, 'a stored key or value holds a picked file name').toBe(false);
         }
         expect(stored.filter(([key]) => key.startsWith('floe:'))).toEqual([[LOST_KEY, '{"v":1,"arrived":0,"total":2}']]);
+
+        // A fragment naming another room mid-drop: the drop stays in the room
+        // it joined (E29), but Chrome would reload a discarded tab at the
+        // address it shows, so the record goes; back at the drop's room, the
+        // counts return (review 1 F1).
+        const readRecord = () => page.evaluate((key) => sessionStorage.getItem(key), LOST_KEY);
+        await page.evaluate((r) => {
+            location.hash = r;
+        }, randomUUID());
+        await expect.poll(readRecord, { timeout: 10_000 }).toBeNull();
+        await expect(page.getByRole('heading', { name: sendingHeader(1, 2) })).toBeVisible();
+        await page.evaluate((r) => {
+            location.hash = r;
+        }, room);
+        await expect.poll(readRecord, { timeout: 10_000 }).toBe('{"v":1,"arrived":0,"total":2}');
 
         // The discard: Chrome reloads the tab at its address with
         // document.wasDiscarded true. The drop is live, so the leave-page
@@ -660,6 +684,10 @@ test.describe('request-link', () => {
         expect(dialogs).toEqual(['dismiss:beforeunload']);
         expect(new URL(page.url()).pathname.startsWith('/r/')).toBe(true);
         await expectDelivered(page, stay, sent);
+        // Delivered (V13) clears the counts the tab kept in Sending
+        // (FT-R-DISCARD): a finished tab that Chrome discards later must reload
+        // to Ready, never to "Connection lost".
+        expect(await page.evaluate((key) => sessionStorage.getItem(key), LOST_KEY)).toBeNull();
 
         // Accept. The page leaves for /privacy, and the host's drop stops at
         // file 1: the harness has no copy of its own, so what it shows is its
