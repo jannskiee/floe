@@ -206,8 +206,10 @@ func setupFailureLine(err error) string {
 }
 
 // interruptHook, when set, picks what Ctrl+C prints and what it stops before
-// the exit: the request-link send sets one while it runs (sendto.go, TL-28 and
-// TL-29). Unset, every command prints "Canceled." as it always has.
+// the exit: the request-link send sets one (sendto.go, TL-28 and TL-29). A
+// nil stop says the command already has its outcome and is ending on its
+// own, so the handler prints nothing and leaves the exit code to it. Unset,
+// every command prints "Canceled." as it always has.
 var interruptHook atomic.Pointer[func() (line string, stop func())]
 
 // interruptLine is what the Ctrl+C handler prints, and the stop it runs after
@@ -220,6 +222,35 @@ func interruptLine() (string, func()) {
 	return "\n  Canceled.", func() {}
 }
 
+// handleInterrupts is main's Ctrl+C and SIGTERM handler, with os.Exit passed
+// in so a test can run it as main runs it. The first signal prints the line,
+// runs the stop and exits 130; a second one while that runs exits 130 at
+// once, so a stop that stalls never holds the terminal. A nil stop leaves a
+// command that has its outcome to end on its own (interruptHook), and a
+// second signal still ends it at once.
+func handleInterrupts(sigCh <-chan os.Signal, exit func(int)) {
+	<-sigCh
+	go func() {
+		<-sigCh
+		exit(130)
+	}()
+	line, stop := interruptLine()
+	if stop == nil {
+		return
+	}
+	// Message first: feedback must be instant, and the cleanup below touches
+	// the disk (an AV scanner holding the file could stall it).
+	fmt.Fprintln(os.Stderr, line)
+	stop()
+	// os.Exit skips every defer, including the receiver's partial-file
+	// cleanup. Remove the in-flight .part staging file here so a Ctrl+C leaves
+	// the output directory as clean as any other failure. Safe at any moment:
+	// only .part files are ever registered, and a completed file's rename
+	// vacated that path.
+	transfer.AbandonPartials()
+	exit(130)
+}
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 func main() {
@@ -227,21 +258,7 @@ func main() {
 	// instead of an abrupt stop mid-transfer.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		line, stop := interruptLine()
-		// Message first: feedback must be instant, and the cleanup below
-		// touches the disk (an AV scanner holding the file could stall it).
-		fmt.Fprintln(os.Stderr, line)
-		stop()
-		// os.Exit skips every defer, including the receiver's partial-file
-		// cleanup. Remove the in-flight .part staging file here so a Ctrl+C
-		// leaves the output directory as clean as any other failure. Safe at
-		// any moment: only .part files are ever registered, and a completed
-		// file's rename vacated that path.
-		transfer.AbandonPartials()
-		os.Exit(130)
-	}()
+	go handleInterrupts(sigCh, os.Exit)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

@@ -4,8 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jannskiee/floe/cli/engine/peer"
 )
@@ -103,6 +106,115 @@ func TestInterruptLine(t *testing.T) {
 	interruptHook.Store(nil)
 	if line, _ := interruptLine(); line != "\n  Canceled." {
 		t.Fatalf("after the hook is cleared, Ctrl+C prints %q", line)
+	}
+}
+
+// exitRecorder stands in for os.Exit in handleInterrupts: it records the code
+// and ends the calling goroutine, because os.Exit never returns either.
+type exitRecorder chan int
+
+func (e exitRecorder) exit(code int) {
+	e <- code
+	runtime.Goexit()
+}
+
+// awaitExit returns the next recorded exit code, or fails at bound.
+func (e exitRecorder) awaitExit(t *testing.T, bound time.Duration, what string) int {
+	t.Helper()
+	select {
+	case code := <-e:
+		return code
+	case <-time.After(bound):
+		t.Fatalf("%s: no exit within %v", what, bound)
+		return 0
+	}
+}
+
+// startHandler runs main's handler on a test channel with a recording exit,
+// under a Ctrl+C hook of the test's own. Closing the channel at the end
+// frees the goroutine that waits for a second signal.
+func startHandler(t *testing.T, hook func() (string, func())) (chan os.Signal, exitRecorder) {
+	t.Helper()
+	interruptHook.Store(&hook)
+	sig := make(chan os.Signal, 1)
+	exits := make(exitRecorder, 4)
+	go handleInterrupts(sig, exits.exit)
+	t.Cleanup(func() {
+		close(sig)
+		interruptHook.Store(nil)
+	})
+	return sig, exits
+}
+
+// TestHandleInterruptsPrintsStopsAndExits130: the first signal prints the
+// hook's line, runs its stop and exits 130, as main always has.
+func TestHandleInterruptsPrintsStopsAndExits130(t *testing.T) {
+	o := captureOutput(t)
+	stopped := false
+	sig, exits := startHandler(t, func() (string, func()) {
+		return "\n  Hooked.", func() { stopped = true }
+	})
+	sig <- os.Interrupt
+	if code := exits.awaitExit(t, 5*time.Second, "one Ctrl+C"); code != 130 {
+		t.Fatalf("exit %d, want 130", code)
+	}
+	if !stopped {
+		t.Fatal("the hook's stop did not run before the exit")
+	}
+	if _, stderr := o.text(); stderr != "\n  Hooked.\n" {
+		t.Fatalf("stderr = %q, want the hook's line alone", stderr)
+	}
+}
+
+// TestHandleInterruptsSecondSignalEndsAtOnce: a second Ctrl+C while the stop
+// still runs exits 130 at once instead of waiting it out (review lens A,
+// nit 11).
+func TestHandleInterruptsSecondSignalEndsAtOnce(t *testing.T) {
+	o := captureOutput(t)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	sig, exits := startHandler(t, func() (string, func()) {
+		return "\n  Hooked.", func() {
+			close(entered)
+			<-release
+		}
+	})
+	sig <- os.Interrupt
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stop never ran")
+	}
+	sig <- os.Interrupt
+	if code := exits.awaitExit(t, 2*time.Second, "a second Ctrl+C during the stop"); code != 130 {
+		t.Fatalf("exit %d, want 130", code)
+	}
+	close(release)
+	exits.awaitExit(t, 5*time.Second, "the first handler after its stop")
+	if _, stderr := o.text(); stderr != "\n  Hooked.\n" {
+		t.Fatalf("stderr = %q, want the hook's line once", stderr)
+	}
+}
+
+// TestHandleInterruptsLeavesAFinishedCommandAlone: a hook with no stop (the
+// command already has its outcome) gets no line and no exit from the first
+// signal, so the command ends with its own code; a second signal still ends
+// it at once.
+func TestHandleInterruptsLeavesAFinishedCommandAlone(t *testing.T) {
+	o := captureOutput(t)
+	sig, exits := startHandler(t, func() (string, func()) { return "", nil })
+	sig <- os.Interrupt
+	select {
+	case code := <-exits:
+		t.Fatalf("exit %d on a command that already had its outcome", code)
+	case <-time.After(300 * time.Millisecond):
+	}
+	sig <- os.Interrupt
+	if code := exits.awaitExit(t, 2*time.Second, "a second Ctrl+C"); code != 130 {
+		t.Fatalf("exit %d, want 130", code)
+	}
+	if _, stderr := o.text(); stderr != "" {
+		t.Fatalf("stderr = %q, want nothing", stderr)
 	}
 }
 
