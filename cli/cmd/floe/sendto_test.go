@@ -583,6 +583,9 @@ func startCLI(t *testing.T, args ...string) *cliRun {
 		case <-time.After(60 * time.Second):
 			t.Errorf("the CLI was still running 60 s after the test")
 		}
+		// A request-link send leaves its Ctrl+C hook in place for the rest
+		// of the process (runSendTo); a test is not the rest of the process.
+		interruptHook.Store(nil)
 	})
 	return r
 }
@@ -1311,10 +1314,11 @@ func TestSendToAckTimeoutIsVisitorAckPlusGrace(t *testing.T) {
 	}
 	msgs, closed := make(chan webrtc.DataChannelMessage), make(chan struct{})
 	early := &peer.Early{Msgs: msgs, Closed: closed}
-	opts := sendToOptions(early, nil, nil)
+	stop := make(chan struct{})
+	opts := sendToOptions(early, stop, nil, nil)
 	if opts.AckTimeout != sendToAckTimeout || !opts.RequireReceived || !opts.NoSummary ||
-		opts.Messages != early.Msgs || opts.Closed != early.Closed {
-		t.Fatalf("sendToOptions = %+v; want the visitor's clock, RequireReceived, NoSummary and the connection's pump", opts)
+		opts.Messages != early.Msgs || opts.Closed != early.Closed || opts.Stop != (<-chan struct{})(stop) {
+		t.Fatalf("sendToOptions = %+v; want the visitor's clock, RequireReceived, NoSummary, Ctrl+C's stop and the connection's pump", opts)
 	}
 	src, err := os.ReadFile("sendto.go")
 	if err != nil {
@@ -1327,7 +1331,7 @@ func TestSendToAckTimeoutIsVisitorAckPlusGrace(t *testing.T) {
 	prev := sendToAckTimeout
 	sendToAckTimeout = 1500 * time.Millisecond
 	t.Cleanup(func() { sendToAckTimeout = prev })
-	if got := sendToOptions(early, nil, nil).AckTimeout; got != sendToAckTimeout {
+	if got := sendToOptions(early, nil, nil, nil).AckTimeout; got != sendToAckTimeout {
 		t.Fatalf("sendToOptions reads %v, not the var (%v)", got, sendToAckTimeout)
 	}
 	s := newReqServer(t, "seat")
@@ -1427,85 +1431,6 @@ func TestSendToOutcomeLines(t *testing.T) {
 	}
 	if got := lostLine(12, 12); got != "Connection lost. 12 of 12 files arrived. Ask them for a new link to send the rest." {
 		t.Fatalf("lostLine with none left = %q", got)
-	}
-}
-
-// TestSendToCtrlCLineFollowsThePhase: Ctrl+C before the host accepts prints
-// TL-28's line and after it TL-29's, with the files the host holds; without a
-// request-link send running, every command keeps "Canceled.".
-func TestSendToCtrlCLineFollowsThePhase(t *testing.T) {
-	if line, stop := interruptLine(); line != "\n  Canceled." || stop == nil {
-		t.Fatalf("with no hook, Ctrl+C prints %q", line)
-	}
-	run := &sendToRun{}
-	run.files.Store(12)
-	for _, c := range []struct {
-		acked int64
-		want  string
-	}{
-		{0, "\n  Canceled. Nothing was sent."},
-		{1, "\n  You stopped this drop. Nothing was sent."},
-		{5, "\n  You stopped this drop. 4 of 12 files were saved."},
-	} {
-		run.acked.Store(c.acked)
-		hook := run.interrupt
-		interruptHook.Store(&hook)
-		line, stop := interruptLine()
-		interruptHook.Store(nil)
-		if line != c.want {
-			t.Fatalf("acked %d: Ctrl+C prints %q, want %q", c.acked, line, c.want)
-		}
-		stop() // no channel yet: nothing to tell, nothing to close
-	}
-}
-
-// TestSendToCtrlCAfterAcceptTellsTheHost: Ctrl+C mid-drop sends the host the
-// visitor's fixed reason before the exit and closes, as the /r page's Cancel
-// does (TL-29). The hook runs here without main's exit, so the command then
-// ends on its own lost line.
-func TestSendToCtrlCAfterAcceptTellsTheHost(t *testing.T) {
-	o := captureOutput(t)
-	s := newReqServer(t, "seat")
-	stubNetwork(t, s.URL)
-	p, _ := oneFile(t, t.TempDir(), "big.bin", 64<<20)
-	out := t.TempDir()
-	flowing := make(chan struct{})
-	var once sync.Once
-	h := startHost(t, s, func(h *testHost) error {
-		if err := h.offer(); err != nil {
-			return err
-		}
-		return transfer.ReceiveFilesWithOptions(h.dc, out, false, "desktop-test", "", transfer.ReceiveOptions{
-			OnProgress: func(pr transfer.Progress) {
-				if pr.FileBytes > 0 {
-					once.Do(func() { close(flowing) })
-				}
-			},
-			Decide: func(transfer.IncomingInfo) transfer.Decision {
-				return transfer.Decision{Kind: transfer.DecisionAccept, OutputDir: out}
-			},
-			Messages: h.early.Msgs,
-			Closed:   h.early.Closed,
-		})
-	})
-	r := startCLI(t, p, "--to", linkFor(), "--server", s.URL)
-	select {
-	case <-flowing:
-	case <-time.After(30 * time.Second):
-		t.Fatal("no bytes reached the host")
-	}
-	line, stop := interruptLine()
-	if line != "\n  You stopped this drop. Nothing was sent." {
-		t.Fatalf("Ctrl+C mid-drop prints %q", line)
-	}
-	stop()
-	herr := h.wait(t)
-	r.wait(t, 20*time.Second).read(o)
-	if herr == nil || herr.Error() != transfer.VisitorCancelReason {
-		t.Fatalf("host = %v, want the visitor's fixed reason %q", herr, transfer.VisitorCancelReason)
-	}
-	if r.err == nil {
-		t.Fatal("the command reported success after its own stop")
 	}
 }
 

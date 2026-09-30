@@ -111,51 +111,216 @@ func sendToEnd(cmd *cobra.Command, lines ...string) error {
 	return errSendToEnded
 }
 
-// sendToRun is what one send shares with its Ctrl+C handler, which reads it
-// from the signal goroutine: how many files it announced, the last file the
-// host acked (0 until it accepts), and the connection once there is one.
+// sendToStopWait bounds how long Ctrl+C waits for the send to stop before it
+// prints its line. The send looks at its stop before every write and in
+// every wait (SendOptions.Stop), so it stops within one chunk; the bound is
+// for a disk read that stalls. A var only so a test can shrink it.
+var sendToStopWait = 500 * time.Millisecond
+
+// sendToStopBound bounds the stop that runs after the line: the engine's 2 s
+// flush while the abort frame leaves (controlFlushTimeout), then the close,
+// so neither can hold the exit 130 for long.
+const sendToStopBound = 3 * time.Second
+
+// parkUntilExit is where the command waits once Ctrl+C has taken its ending.
+// main's handler prints the one line and exits 130, so the command must print
+// nothing more and never return, or main's os.Exit(1) races the handler's
+// exit (review lens A finding 1, lens B M1). A var only so a test can let the
+// command return once the handler has exited.
+var parkUntilExit = func() { select {} }
+
+// sendToPhase is where one send stands, for its Ctrl+C.
+type sendToPhase int
+
+const (
+	// phaseSetup: no data channel yet (the walk, the join, the offer).
+	phaseSetup sendToPhase = iota
+	// phaseSending: the channel is open, from Connected to the send's end.
+	phaseSending
+	// phaseOver: the outcome is decided, and the command ends on its own.
+	phaseOver
+)
+
+// sendToRun is what one send shares with its Ctrl+C handler, which runs on
+// the signal goroutine. Exactly one of the two ends the command: the command
+// with its outcome, or the handler with TL-28 or TL-29 and exit 130. The
+// mutex decides which (finish, interrupt), and the side that loses prints
+// nothing.
 type sendToRun struct {
-	files atomic.Int64
-	acked atomic.Int64
+	files atomic.Int64 // the files announced
+	acked atomic.Int64 // the last file the host acked, 0 until it accepted
+
 	mu    sync.Mutex
-	dc    *webrtc.DataChannel
-	conn  *peer.Connection
+	phase sendToPhase
+	// stopping: Ctrl+C came, and the command prints nothing more unless its
+	// send succeeded anyway. committed: the handler has its line and ends the
+	// command, success or not.
+	stopping, committed bool
+	dc                  *webrtc.DataChannel
+	conn                *peer.Connection
+
+	stop       chan struct{} // SendOptions.Stop, closed by the first Ctrl+C
+	stopOnce   sync.Once
+	settled    chan struct{} // closed once the command has decided its ending
+	settleOnce sync.Once
 }
 
-// interrupt is the send's Ctrl+C (TL-28, TL-29): the phase line, and a stop
-// that tells the host with the visitor's fixed reason, as the /r page's
-// Cancel does, and then closes the connection so the host hears the end at
-// once instead of at its ICE timeout. Both run before main's exit 130.
+func newSendToRun() *sendToRun {
+	return &sendToRun{stop: make(chan struct{}), settled: make(chan struct{})}
+}
+
+// interrupt is the send's Ctrl+C (TL-28, TL-29), on the signal goroutine.
+// Once the outcome is decided it answers with no stop, and the command keeps
+// its line and its exit code (review lens A finding 4). Before that it takes
+// the ending: the command prints nothing more, and the send, once the
+// channel is open, queues nothing more (SendOptions.Stop). It then waits,
+// bounded, for the command to settle, so the bar has stopped redrawing, the
+// count is final and the abort frame goes out behind the last chunk. A drop
+// whose received arrives in that wait is still a success, and the handler
+// then prints nothing.
 func (r *sendToRun) interrupt() (string, func()) {
+	r.mu.Lock()
+	if r.phase == phaseOver {
+		r.mu.Unlock()
+		return "", nil
+	}
+	r.stopping = true
+	sending := r.phase == phaseSending
+	r.mu.Unlock()
+	r.stopOnce.Do(func() { close(r.stop) })
+	if sending {
+		select {
+		case <-r.settled:
+		case <-time.After(sendToStopWait):
+		}
+	}
+	r.mu.Lock()
+	if r.phase == phaseOver {
+		r.mu.Unlock()
+		return "", nil
+	}
+	r.committed = true
+	dc, conn := r.dc, r.conn
+	r.mu.Unlock()
 	line := "\n  " + lineCanceled
 	if acked := int(r.acked.Load()); acked > 0 {
 		line = "\n  " + lineYouStopped + " " + savedSentence(acked-1, int(r.files.Load()))
 	}
-	r.mu.Lock()
-	dc, conn := r.dc, r.conn
-	r.mu.Unlock()
-	return line, func() {
-		if dc != nil {
-			transfer.AbortSend(dc, version, transfer.VisitorCancelReason)
-		}
-		if conn != nil {
-			conn.Close()
-		}
+	return line, func() { abortDrop(dc, conn) }
+}
+
+// abortDrop is the stop main runs after the line: the visitor's fixed reason
+// to the host, as the /r page's Cancel sends it, then the engine's bounded
+// flush, which waits for that frame alone now that the send has stopped, and
+// the close, so the host hears the end at once instead of at its ICE timeout.
+// All of it within sendToStopBound. Before the channel opened there is
+// nothing to tell: the exit closes the socket, which frees the seat.
+func abortDrop(dc *webrtc.DataChannel, conn *peer.Connection) {
+	if dc == nil || conn == nil {
+		return
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		transfer.AbortSend(dc, version, transfer.VisitorCancelReason)
+		conn.Close()
+	}()
+	select {
+	case <-done:
+	case <-time.After(sendToStopBound):
 	}
 }
 
-func runSendTo(cmd *cobra.Command, args []string) error {
-	run := &sendToRun{}
-	hook := run.interrupt
-	interruptHook.Store(&hook)
-	defer interruptHook.Store(nil)
+// say prints one of the send's own progress lines, unless Ctrl+C has taken
+// the ending.
+func (r *sendToRun) say(line string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.stopping {
+		fmt.Println(line)
+	}
+}
 
+// enterSending records the open channel for Ctrl+C. It reports false when a
+// Ctrl+C during setup already took the ending.
+func (r *sendToRun) enterSending(dc *webrtc.DataChannel, conn *peer.Connection) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.stopping {
+		return false
+	}
+	r.phase, r.dc, r.conn = phaseSending, dc, conn
+	return true
+}
+
+// finish decides who ends the command. It reports false when Ctrl+C has the
+// ending: the command then prints nothing and parks. A success still wins
+// over a Ctrl+C that has not committed to its line, because the files
+// arrived. Either way the command has settled, which ends interrupt's wait.
+func (r *sendToRun) finish(success bool) bool {
+	r.mu.Lock()
+	mine := !r.committed && (!r.stopping || success)
+	if mine {
+		r.phase = phaseOver
+	}
+	r.mu.Unlock()
+	r.settleOnce.Do(func() { close(r.settled) })
+	return mine
+}
+
+// park ends the command once Ctrl+C has its ending: silently, and in the
+// binary never (parkUntilExit), so main's handler, which prints the one line
+// and exits 130, is the only one to end the process.
+func (r *sendToRun) park(cmd *cobra.Command) error {
+	parkUntilExit()
+	cmd.SilenceErrors = true
+	return errSendToEnded
+}
+
+// fail ends the command on approved lines: stderr, exit 1, no cobra prefix.
+func (r *sendToRun) fail(cmd *cobra.Command, lines ...string) error {
+	if !r.finish(false) {
+		return r.park(cmd)
+	}
+	return sendToEnd(cmd, lines...)
+}
+
+// keep ends the command on today's sentence: err goes to cobra as it is,
+// behind its "Error:" prefix (TL-11, TL-12, TL-32 and the walk's own errors).
+func (r *sendToRun) keep(cmd *cobra.Command, err error) error {
+	if !r.finish(false) {
+		return r.park(cmd)
+	}
+	return err
+}
+
+// succeed ends the command on the delivered lines: stdout, after one blank
+// line, exit 0.
+func (r *sendToRun) succeed(cmd *cobra.Command, lines ...string) error {
+	if !r.finish(true) {
+		return r.park(cmd)
+	}
 	fmt.Println()
+	for _, l := range lines {
+		fmt.Println("  " + l)
+	}
+	return nil
+}
+
+func runSendTo(cmd *cobra.Command, args []string) error {
+	r := newSendToRun()
+	hook := r.interrupt
+	// Left in place for the rest of the process: once the outcome is decided
+	// it answers with no stop, so a Ctrl+C in the teardown or after the last
+	// line adds nothing (review lens A finding 4, lens B I2).
+	interruptHook.Store(&hook)
+
+	r.say("")
 
 	// TL-32: the check and the sentence a plain send makes.
 	for _, p := range args {
 		if _, err := os.Stat(p); err != nil {
-			return fmt.Errorf("cannot read %s: %w", p, err)
+			return r.keep(cmd, fmt.Errorf("cannot read %s: %w", p, err))
 		}
 	}
 
@@ -164,93 +329,94 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 	// ever leaves this machine, in request-join.
 	_, roomID, err := code.ParseRequestLink(flagTo)
 	if err != nil {
-		return sendToEnd(cmd, lineIncompleteLink)
+		return r.fail(cmd, lineIncompleteLink)
 	}
 	if linkServerMismatch(flagTo, serverChosen(cmd, os.Getenv)) {
-		return sendToEnd(cmd, lineCouldNotConnect)
+		return r.fail(cmd, lineCouldNotConnect)
 	}
 
 	files, err := transfer.PrecheckDrop(args, version)
 	switch {
 	case errors.Is(err, transfer.ErrTooManyFiles):
-		return sendToEnd(cmd, lineTooManyFiles)
+		return r.fail(cmd, lineTooManyFiles)
 	case errors.Is(err, transfer.ErrMetadataTooLarge):
-		return sendToEnd(cmd, linePathTooLong)
+		return r.fail(cmd, linePathTooLong)
 	case err != nil:
-		return err
+		return r.keep(cmd, err)
 	}
-	run.files.Store(int64(files))
+	r.files.Store(int64(files))
 	summary, err := transfer.Summarize(args)
 	if err != nil {
-		return err
+		return r.keep(cmd, err)
 	}
-	fmt.Printf("  Sending   %s\n", sendToLabel(args, files, summary.TotalBytes))
+	r.say("  Sending   " + sendToLabel(args, files, summary.TotalBytes))
 
 	iceServers, degraded, err := fetchICE(flagServer)
 	if err != nil {
-		return sendToEnd(cmd, lineCouldNotConnect)
+		return r.fail(cmd, lineCouldNotConnect)
 	}
 	// TL-12: after the ICE fetch and before joining, so a visitor that could
 	// never connect does not take the link's one seat.
 	if err := requireRelay(ice.HasRelay(iceServers), degraded); err != nil {
-		return err
+		return r.keep(cmd, err)
 	}
 	if flagNoRelay {
 		iceServers = ice.StunOnly(iceServers)
 	}
 
-	fmt.Println("  " + lineJoining)
+	r.say("  " + lineJoining)
 	sc, err := connectSignaling(flagServer)
 	if err != nil {
-		return sendToEnd(cmd, lineCouldNotConnect)
+		return r.fail(cmd, lineCouldNotConnect)
 	}
 	defer sc.Close()
 	// The peer exists before the join (spec 07 4.8): the host offers the
 	// moment the server seats this visitor.
 	conn, err := peer.New(iceServers, sc, peerOptions()...)
 	if err != nil {
-		return sendToEnd(cmd, lineCouldNotConnect)
+		return r.fail(cmd, lineCouldNotConnect)
 	}
 	defer conn.Close()
 
 	switch requestJoin(sc, roomID) {
 	case signaling.VisitorJoined:
 	case signaling.VisitorHostAbsent:
-		return sendToEnd(cmd, lineHostAbsent)
+		return r.fail(cmd, lineHostAbsent)
 	case signaling.VisitorRoomFull:
-		return sendToEnd(cmd, lineRoomFull)
+		return r.fail(cmd, lineRoomFull)
 	case signaling.VisitorDisabled:
-		return sendToEnd(cmd, lineDisabled)
+		return r.fail(cmd, lineDisabled)
 	case signaling.VisitorTimeout:
-		return sendToEnd(cmd, lineNoAnswer)
+		return r.fail(cmd, lineNoAnswer)
 	default:
 		// An error frame, a seat that is not the visitor's, or the socket
 		// gone before an answer: no approved line of its own (D-144.8).
-		return sendToEnd(cmd, lineCouldNotConnect)
+		return r.fail(cmd, lineCouldNotConnect)
 	}
 
-	fmt.Println("  " + lineConnecting)
+	r.say("  " + lineConnecting)
 	dc, ended, err := setupWatched(sc, conn)
 	if err != nil {
 		if ended == "disabled" {
-			return sendToEnd(cmd, lineDisabled)
+			return r.fail(cmd, lineDisabled)
 		}
-		return sendToEnd(cmd, lineCouldNotConnect)
+		return r.fail(cmd, lineCouldNotConnect)
 	}
-	run.mu.Lock()
-	run.dc, run.conn = dc, conn
-	run.mu.Unlock()
+	if !r.enterSending(dc, conn) {
+		// A Ctrl+C during setup has the ending already, so fail parks.
+		return r.fail(cmd)
+	}
 
-	fmt.Println(connectedLine(conn.ConnectionType()))
+	r.say(connectedLine(conn.ConnectionType()))
 	// TL-11: a relayed drop over the cap ends here, before WAIT, on today's
 	// sentence, and the host is told why exactly as the send's own gate tells
 	// it (a text abort with the gate's words, then the flush).
 	if err := relayGateFor(dc, summary.TotalBytes); err != nil {
 		transfer.AbortSend(dc, version, err.Error())
-		return err
+		return r.keep(cmd, err)
 	}
-	fmt.Println("  " + lineWaiting)
-	fmt.Println("  " + lineNothingSaved)
+	r.say("  " + lineWaiting)
+	r.say("  " + lineNothingSaved)
 
 	var acceptedAt time.Time
 	var delivered transfer.Delivered
@@ -258,7 +424,7 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 		if index == 1 {
 			acceptedAt = time.Now()
 		}
-		run.acked.Store(int64(index))
+		r.acked.Store(int64(index))
 	}
 	// The wait for the host's received has no deadline of its own
 	// (RequireReceived), so an ICE failure closes the connection and ends it
@@ -268,41 +434,41 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 	defer close(quit)
 	closeOnFailed(conn, quit)
 	err = transfer.SendFilesWithOptions(dc, args, version,
-		sendToOptions(conn.Early(), onAck, func(d transfer.Delivered) { delivered = d }))
+		sendToOptions(conn.Early(), r.stop, onAck, func(d transfer.Delivered) { delivered = d }))
 
 	if err != nil {
-		lines, keep := sendToOutcome(err, files, int(run.acked.Load()))
+		lines, keep := sendToOutcome(err, files, int(r.acked.Load()))
 		if keep != nil {
-			return keep
+			return r.keep(cmd, keep)
 		}
-		return sendToEnd(cmd, lines...)
+		return r.fail(cmd, lines...)
 	}
 
 	if acceptedAt.IsZero() {
 		acceptedAt = time.Now()
 	}
-	fmt.Println()
-	fmt.Println("  " + arrivedLine(delivered.Files, summary.TotalBytes, time.Since(acceptedAt), routeOf(conn)))
+	lines := []string{arrivedLine(delivered.Files, summary.TotalBytes, time.Since(acceptedAt), routeOf(conn))}
 	// The host's report, not a proof made here, and only when it says every
 	// file matched (verified is the received frame's count, which the engine
 	// accepts only from 0 to the file count).
 	if delivered.HasVerified && delivered.Files > 0 && delivered.Verified == delivered.Files {
-		fmt.Println("  " + lineVerified)
+		lines = append(lines, lineVerified)
 	}
-	return nil
+	return r.succeed(cmd, lines...)
 }
 
 // sendToOptions is the one place the send's engine options are made: the
 // visitor's ack clock, success only on the host's received, no summary box
-// (TL-03 replaces it), the ack callback that tracks the phase, and the
-// connection's own pump (see peer.Early).
-func sendToOptions(early *peer.Early, onAck func(int), onDelivered func(transfer.Delivered)) transfer.SendOptions {
+// (TL-03 replaces it), the stop Ctrl+C closes, the ack callback that tracks
+// the phase, and the connection's own pump (see peer.Early).
+func sendToOptions(early *peer.Early, stop <-chan struct{}, onAck func(int), onDelivered func(transfer.Delivered)) transfer.SendOptions {
 	return transfer.SendOptions{
 		Messages:        early.Msgs,
 		Closed:          early.Closed,
 		AckTimeout:      sendToAckTimeout,
 		RequireReceived: true,
 		NoSummary:       true,
+		Stop:            stop,
 		OnAck:           onAck,
 		OnDelivered:     onDelivered,
 	}
