@@ -90,7 +90,7 @@ export const FIELDS = {
             'verifiedCountOf',
             'ackConfirmsOf',
         ],
-        member: ['ver', 'reason', 'code', 'saved', 'sha256', 'verified'],
+        member: ['ver', 'reason', 'code', 'saved', 'sha256', 'verified', 'confirms'],
     },
 };
 // Files the map keeps although no token appears in them, for either of two
