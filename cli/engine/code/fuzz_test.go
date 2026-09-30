@@ -19,16 +19,64 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"unicode"
 )
 
 var (
 	fuzzLinkIDShape = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
 	fuzzRoomShape   = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-	// A lookup's code: hyphen-joined words of letters or digits, with no room
-	// id anywhere in it (no %, =, ?, ., space or any other punctuation).
-	fuzzCodeShape  = regexp.MustCompile(`^[\p{L}\p{Nd}]+(?:-[\p{L}\p{Nd}]+)*$`)
-	fuzzRoomInside = regexp.MustCompile(`(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
 )
+
+// fuzzLookupProblem says what is wrong with a code that reached the code API,
+// or "" when nothing is: it must be one to four hyphen-joined words of 1 to 24
+// characters, each a letter or a digit and then letters, digits or combining
+// marks, with no run of 32 hex digits anywhere once fullwidth forms and the
+// Cyrillic lookalikes of a, c and e are read as ASCII and hyphens and marks
+// are set aside (a room id in disguise, rev-eng-b E3). Written with the
+// unicode package rather than Resolve's regexp, so the two can disagree.
+func fuzzLookupProblem(code string) string {
+	words := strings.Split(code, "-")
+	if len(words) > 4 {
+		return "five or more hyphen-joined groups, a room id's shape"
+	}
+	for _, w := range words {
+		rs := []rune(w)
+		if len(rs) == 0 || len(rs) > 24 {
+			return "a word that is empty or longer than 24 characters"
+		}
+		for i, r := range rs {
+			if unicode.IsLetter(r) || unicode.IsDigit(r) || (i > 0 && unicode.In(r, unicode.M)) {
+				continue
+			}
+			return "a character that is not a letter, a digit or a combining mark inside a word"
+		}
+	}
+	run := 0
+	for _, r := range code {
+		if r == '-' || unicode.In(r, unicode.M) {
+			continue
+		}
+		if r >= 0xFF01 && r <= 0xFF5E {
+			r -= 0xFEE0
+		}
+		switch r {
+		case 'а':
+			r = 'a'
+		case 'с':
+			r = 'c'
+		case 'е':
+			r = 'e'
+		}
+		if !unicode.In(r, unicode.ASCII_Hex_Digit) {
+			run = 0
+			continue
+		}
+		if run++; run >= 32 {
+			return "32 hex digits in a row, a room id in disguise"
+		}
+	}
+	return ""
+}
 
 // writeSeed writes one corpus file in the go test fuzz v1 encoding when
 // FLOE_WRITE_FUZZ_SEEDS=1.
@@ -135,10 +183,11 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { retu
 // FuzzResolve (FT-LINK-ECHO-F2): Resolve never panics, an input with a slash
 // or a hash never reaches the code API (every server code is lowercase words
 // joined by hyphens, so such an input is a link, resolved or refused here),
-// and whatever does reach it is shaped like a code with no room id in it
-// (review round 1). A refusal is one of the fixed texts, so no part of the
-// paste can reach a caller that prints it. The code API is a counting
-// transport in memory, so the target binds nothing and reaches no server.
+// and whatever does reach it is shaped like a code with no room id in it, not
+// even a disguised one (review round 1, and E3; see fuzzLookupProblem). A
+// refusal is one of the fixed texts, so no part of the paste can reach a
+// caller that prints it. The code API is a counting transport in memory, so
+// the target binds nothing and reaches no server.
 func FuzzResolve(f *testing.F) {
 	const room = "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
 	const id = "Xk3p9Q0aB1c"
@@ -171,6 +220,12 @@ func FuzzResolve(f *testing.F) {
 		"percent-encoded link":       "https%3A%2F%2Ffloe.one%2Fr%2F" + id + "%23" + room,
 		"code with capitals":         "Olive-Tiger-Castle",
 		"code with a digit":          "olive-tiger-2nd",
+		"four-word code":             "olive-tiger-castle-panda",
+		"code with combining marks":  "नमस्ते-घर",
+		"room id in fullwidth":       fullwidth(room, true, true),
+		"room id in cyrillic":        cyrillicACE.Replace(room),
+		"room id without hyphens":    bareRoom,
+		"room id hyphens moved":      bareRoom[:16] + "-" + bareRoom[16:],
 	}
 	names := make([]string, 0, len(seeds))
 	for name := range seeds {
@@ -198,8 +253,8 @@ func FuzzResolve(f *testing.F) {
 			}
 			code, _ := lastPath.Load().(string)
 			code = strings.TrimPrefix(code, "/api/code/")
-			if !fuzzCodeShape.MatchString(code) || fuzzRoomInside.MatchString(code) {
-				t.Fatal("a lookup was sent for text that is not shaped like a code")
+			if problem := fuzzLookupProblem(code); problem != "" {
+				t.Fatalf("a lookup was sent for text that is not shaped like a code: %s", problem)
 			}
 			return // the answer to a code: a 404 that quotes a code-shaped input
 		}
