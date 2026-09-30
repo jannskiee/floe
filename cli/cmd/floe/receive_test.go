@@ -28,7 +28,14 @@ const closedServer = "http://127.0.0.1:9"
 func TestReceiveRefusesALinkWithoutEchoingIt(t *testing.T) {
 	old := flagServer
 	flagServer = closedServer
-	t.Cleanup(func() { flagServer = old })
+	// runReceive prints the refusal itself and silences cobra for it (see
+	// TestReceiveLinkRefusalPrintsTheApprovedLine for what the terminal shows).
+	rootCmd.SetErr(io.Discard)
+	t.Cleanup(func() {
+		flagServer = old
+		rootCmd.SetErr(nil)
+		receiveCmd.SilenceErrors = false
+	})
 
 	const room = "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
 	cases := []struct {
@@ -55,6 +62,40 @@ func TestReceiveRefusesALinkWithoutEchoingIt(t *testing.T) {
 				if strings.Contains(err.Error(), part) {
 					t.Fatalf("error text echoes %q from the pasted link: %q", part, err.Error())
 				}
+			}
+		})
+	}
+}
+
+// What the terminal shows for a pasted request or drop link, byte for byte:
+// approved-copy-cli.txt, state receive-request-link (TL-33). runReceive's
+// opening blank line on stdout, then the sentence on its own line with the
+// two-space indent on stderr, and no cobra "Error: " prefix, because the
+// refusal is an outcome, not a usage mistake. Execute still returns the
+// sentinel, which main turns into exit 1.
+func TestReceiveLinkRefusalPrintsTheApprovedLine(t *testing.T) {
+	const room = "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
+	cases := []struct {
+		name  string
+		input string
+		want  error
+	}{
+		{"request link", "https://floe.one/r/Xk3p9Q0aB1c#" + room, code.ErrRequestLink},
+		{"request link on a self-hosted base path", "https://files.example.com/floe/r/Xk3p9Q0aB1c/#" + room, code.ErrRequestLink},
+		{"drop link", "https://floe.one/d/Xk3p9Q0aB1c", code.ErrDropLink},
+		{"legacy drop link", "https://floe.one/drop/Xk3p9Q0aB1c", code.ErrDropLink},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			stdout, stderr, err := receiveThroughCobra(t, c.input, closedServer)
+			if !errors.Is(err, c.want) {
+				t.Fatalf("Execute returned %v, want the link sentinel (main exits 1 on it)", err)
+			}
+			if stdout != "\n" {
+				t.Errorf("stdout is %q, want the one blank line", stdout)
+			}
+			if want := "  " + c.want.Error() + "\n"; stderr != want {
+				t.Errorf("stderr is %q, want the approved line %q", stderr, want)
 			}
 		})
 	}
@@ -131,15 +172,18 @@ func TestReceiveOtherResolveErrorsKeepTheirWrapper(t *testing.T) {
 // show: stdout (runReceive writes its blank line with fmt, straight to
 // os.Stdout) and stderr (the error writer cobra prints to), with the error main
 // turns into exit 1. Cobra keeps flag state, writers and arguments on the
-// package-level tree between Execute calls, so all three are put back after.
+// package-level tree between Execute calls, and runReceive sets receive's
+// SilenceErrors for a link refusal, so all four are put back after.
 func receiveThroughCobra(t *testing.T, input, server string) (stdout, stderr string, err error) {
 	t.Helper()
 	resetSharedFlags(t)
+	receiveCmd.SilenceErrors = false
 	t.Cleanup(func() {
 		if f := rootCmd.PersistentFlags().Lookup("server"); f != nil {
 			_ = f.Value.Set(f.DefValue)
 			f.Changed = false
 		}
+		receiveCmd.SilenceErrors = false
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
