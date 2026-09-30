@@ -1248,10 +1248,28 @@ func TestSendToHostileReasonNeverPrinted(t *testing.T) {
 			return nil
 		}
 	}
+	// A first ack that carries fields, as a hostile host would send it.
+	ackWith := func(fields string) func(*testHost) error {
+		return func(h *testHost) error {
+			if err := h.offer(); err != nil {
+				return err
+			}
+			id, err := h.awaitMetadata()
+			if err != nil {
+				return err
+			}
+			if err := h.dc.Send([]byte(`{"type":"ack","id":"` + id + `","offset":0,` + fields + `}`)); err != nil {
+				return err
+			}
+			h.holdOpen()
+			return nil
+		}
+	}
+	thisBehind := []string{"Your Floe needs an update to send to this link.", "Run `floe update` to upgrade."}
 	cases := []struct {
 		name  string
 		part  func(*testHost) error
-		lines []string // nil: this CLI's own version miss, today's sentence
+		lines []string
 	}{
 		{"unknown code", refuseAtMetadata(`{"type":"incompatible","reason":` + short + `,"pv":1,"pvMin":1,"code":"too-slow","saved":0}`),
 			[]string{"The drop stopped on their computer.", "Nothing was sent."}},
@@ -1261,7 +1279,10 @@ func TestSendToHostileReasonNeverPrinted(t *testing.T) {
 			[]string{"The drop stopped on their computer.", "Nothing was sent."}},
 		{"range miss, host behind", refuseAtMetadata(`{"type":"incompatible","reason":` + short + `,"pv":-1,"pvMin":-1}`),
 			[]string{"Their Floe needs an update to receive from this link."}},
-		{"range miss, this CLI behind", refuseAtMetadata(`{"type":"incompatible","reason":` + short + `,"pv":9,"pvMin":9,"ver":"desktop-v9"}`), nil},
+		// A host reaches this side's own version miss with any pv it likes
+		// (review lens B, L1): its ver and range stay off the terminal too.
+		{"range miss, this CLI behind", refuseAtMetadata(`{"type":"incompatible","reason":` + short + `,"pv":9,"pvMin":9,"ver":` + short + `}`), thisBehind},
+		{"range miss at the first ack, this CLI behind", ackWith(`"pv":9,"pvMin":9,"ver":` + short), thisBehind},
 		{"5,000 characters, over the cap", overCap(`{"type":"incompatible","reason":` + long + `,"pv":1,"pvMin":1,"code":"too-slow"}`),
 			[]string{"Connection lost. Nothing was sent."}},
 		{"unknown code after the last end", atEnd(`{"type":"incompatible","reason":` + short + `,"pv":1,"pvMin":1,"code":"too-slow","saved":0}`),
@@ -1280,19 +1301,9 @@ func TestSendToHostileReasonNeverPrinted(t *testing.T) {
 			if herr != nil {
 				t.Fatalf("host: %v", herr)
 			}
-			if c.lines == nil {
-				var compat *transfer.CompatError
-				if !errors.As(r.err, &compat) || !compat.LocalTooOld {
-					t.Fatalf("the command returned %v, want this CLI's own version miss", r.err)
-				}
-				if !strings.Contains(r.stderr, "floe update") {
-					t.Fatalf("today's remedy is missing:\n%s", r.stderr)
-				}
-			} else {
-				wantOutcome(t, r, c.lines...)
-			}
+			wantOutcome(t, r, c.lines...)
 			both := r.stdout + r.stderr
-			for _, bad := range []string{marker, "$(calc)", "‮", "\x1b", "whoami", "rm -rf"} {
+			for _, bad := range []string{marker, "$(calc)", "‮", "\x1b", "whoami", "rm -rf", "protocol 9"} {
 				if strings.Contains(both, bad) {
 					t.Fatalf("%q reached the terminal:\nstdout:\n%s\nstderr:\n%s", bad, r.stdout, r.stderr)
 				}
@@ -1398,7 +1409,10 @@ func TestSendToOutcomeLines(t *testing.T) {
 			want{lines: []string{"Their Floe needs an update to receive from this link."}}},
 		{"range miss at the first ack, host behind", wrapped(&transfer.CompatError{LocalTooOld: false}), 12, 1,
 			want{lines: []string{"Their Floe needs an update to receive from this link."}}},
-		{"range miss, this CLI behind", &transfer.CompatError{LocalTooOld: true}, 12, 0, want{keep: true}},
+		{"range miss, this CLI behind", &transfer.CompatError{LocalTooOld: true}, 12, 0,
+			want{lines: []string{"Your Floe needs an update to send to this link.", "Run `floe update` to upgrade."}}},
+		{"range miss at the first ack, this CLI behind", wrapped(&transfer.CompatError{LocalTooOld: true}), 12, 1,
+			want{lines: []string{"Your Floe needs an update to send to this link.", "Run `floe update` to upgrade."}}},
 		{"relay gate (TL-11)", relay, 12, 0, want{keep: true}},
 		{"a file changed while read", wrapped(fmt.Errorf("the file grew while it was being sent (announced 4 bytes); %w", transfer.ErrFileChanged)), 12, 3, want{keep: true}},
 		{"a file gone", wrapped(&fs.PathError{Op: "open", Path: "shoot/a.mov", Err: fs.ErrNotExist}), 12, 3, want{keep: true}},
@@ -1431,6 +1445,15 @@ func TestSendToOutcomeLines(t *testing.T) {
 	}
 	if got := lostLine(12, 12); got != "Connection lost. 12 of 12 files arrived. Ask them for a new link to send the rest." {
 		t.Fatalf("lostLine with none left = %q", got)
+	}
+}
+
+// TestSendToLocalTooOldKeepsTodaysRemedy: the fixed remedy for this side's
+// version miss is the engine's own last line for it, so the two cannot drift.
+func TestSendToLocalTooOldKeepsTodaysRemedy(t *testing.T) {
+	msg := transfer.CompatErrorMessage(true, "v1", "v9", 1, 1, 9, 9)
+	if !strings.HasSuffix(msg, "\n  "+lineRunUpdate) {
+		t.Fatalf("the engine's remedy for this side's version miss is no longer %q:\n%s", lineRunUpdate, msg)
 	}
 }
 

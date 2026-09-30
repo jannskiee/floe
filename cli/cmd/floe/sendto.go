@@ -88,6 +88,12 @@ const (
 	lineLostNothingSent = "Connection lost. Nothing was sent."
 	lineCanceled        = "Canceled. Nothing was sent."
 	lineYouStopped      = "You stopped this drop."
+	// This CLI is the side behind on the protocol. The copy has no line for
+	// it (pending the owner's word): TL-13's mirror, then today's remedy in
+	// compatErrorMessage's own words, and nothing from the frame, whose ver
+	// and pv range the host chooses (review lens B, L1).
+	lineThisFloeOld = "Your Floe needs an update to send to this link."
+	lineRunUpdate   = "Run `floe update` to upgrade."
 )
 
 // lineWaiting is WAIT's first line (D-144 (6)): the host's decision window
@@ -534,11 +540,10 @@ func setupWatched(sc *signaling.Client, conn *peer.Connection) (dc *webrtc.DataC
 
 // sendToOutcome maps a failed send to the lines that end the command, or to
 // an error to hand cobra as it is: today's sentence for the relay gate
-// (TL-11), a local file that could not be read or changed while it was read,
-// and a version miss that this side must fix. Only errors.As and errors.Is
-// decide; no error's text is ever printed from here, because the ones that
-// came off the wire hold the host's words. acked is the last file the host
-// acked, 0 before it accepted.
+// (TL-11), and a local file that could not be read or changed while it was
+// read. Only errors.As and errors.Is decide; no error's text is ever printed
+// from here, because the ones that came off the wire hold the host's words.
+// acked is the last file the host acked, 0 before it accepted.
 func sendToOutcome(err error, files, acked int) (lines []string, keep error) {
 	var stopped *transfer.PeerStoppedError
 	var ended *transfer.PeerEndedError
@@ -551,10 +556,11 @@ func sendToOutcome(err error, files, acked int) (lines []string, keep error) {
 		return []string{lineUnknownStop, savedSentence(ended.Saved, files)}, nil
 	case errors.As(err, &compat):
 		// TL-13 names the host as the side to update, which is true only when
-		// it is the side behind; when this CLI is, today's message and its
-		// `floe update` are the remedy.
+		// it is the side behind. When this CLI is, the remedy is floe update,
+		// in fixed words: a host reaches this with any pv it likes, and the
+		// engine's text quotes its ver and pv range.
 		if compat.LocalTooOld {
-			return nil, err
+			return []string{lineThisFloeOld, lineRunUpdate}, nil
 		}
 		return []string{lineNeedsUpdate}, nil
 	case errors.Is(err, transfer.ErrRelayOverLimit),
