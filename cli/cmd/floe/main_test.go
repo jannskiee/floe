@@ -75,6 +75,37 @@ func TestSetupFailureLine(t *testing.T) {
 	}
 }
 
+// TestInterruptLine: with no hook, Ctrl+C prints "Canceled." as it always
+// has and stops nothing; a hook, while one is set, picks the line, and its
+// stop runs only when the handler calls it, after the print.
+func TestInterruptLine(t *testing.T) {
+	line, stop := interruptLine()
+	if line != "\n  Canceled." || stop == nil {
+		t.Fatalf("with no hook, Ctrl+C prints %q (stop %v)", line, stop != nil)
+	}
+	stop()
+
+	stopped := false
+	hook := func() (string, func()) { return "\n  Hooked.", func() { stopped = true } }
+	interruptHook.Store(&hook)
+	t.Cleanup(func() { interruptHook.Store(nil) })
+	line, stop = interruptLine()
+	if line != "\n  Hooked." {
+		t.Fatalf("with a hook, Ctrl+C prints %q", line)
+	}
+	if stopped {
+		t.Fatal("the hook's stop ran before the handler called it")
+	}
+	stop()
+	if !stopped {
+		t.Fatal("the hook's stop did not run")
+	}
+	interruptHook.Store(nil)
+	if line, _ := interruptLine(); line != "\n  Canceled." {
+		t.Fatalf("after the hook is cleared, Ctrl+C prints %q", line)
+	}
+}
+
 // sharedFlagNames are the persistent flags these tests type or read. --iface
 // is left out on purpose: its default renders as "[]", which pflag would parse
 // back as a one-element slice.

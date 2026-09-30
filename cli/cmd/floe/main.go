@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -204,6 +205,21 @@ func setupFailureLine(err error) string {
 	return "WebRTC setup failed: " + err.Error()
 }
 
+// interruptHook, when set, picks what Ctrl+C prints and what it stops before
+// the exit: the request-link send sets one while it runs (sendto.go, TL-28 and
+// TL-29). Unset, every command prints "Canceled." as it always has.
+var interruptHook atomic.Pointer[func() (line string, stop func())]
+
+// interruptLine is what the Ctrl+C handler prints, and the stop it runs after
+// printing and before the partial-file cleanup. A hook must answer at once:
+// it runs before the message, and the message must be instant.
+func interruptLine() (string, func()) {
+	if h := interruptHook.Load(); h != nil {
+		return (*h)()
+	}
+	return "\n  Canceled.", func() {}
+}
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 func main() {
@@ -213,9 +229,11 @@ func main() {
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigCh
+		line, stop := interruptLine()
 		// Message first: feedback must be instant, and the cleanup below
 		// touches the disk (an AV scanner holding the file could stall it).
-		fmt.Fprintln(os.Stderr, "\n  Canceled.")
+		fmt.Fprintln(os.Stderr, line)
+		stop()
 		// os.Exit skips every defer, including the receiver's partial-file
 		// cleanup. Remove the in-flight .part staging file here so a Ctrl+C
 		// leaves the output directory as clean as any other failure. Safe at
