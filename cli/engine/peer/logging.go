@@ -67,7 +67,7 @@ func escapeLogLine(line []byte) []byte {
 			out = fmt.Appendf(out, `\x%02x`, line[0])
 		case r < 0x20 || r == 0x7f:
 			out = fmt.Appendf(out, `\x%02x`, r)
-		case unicode.IsControl(r), unicode.Is(unicode.Cf, r), r == ' ', r == ' ':
+		case unicode.IsControl(r), unicode.Is(unicode.Cf, r), r == '\u2028', r == '\u2029':
 			if r > 0xffff {
 				out = fmt.Appendf(out, `\U%08x`, r)
 			} else {

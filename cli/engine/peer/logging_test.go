@@ -96,8 +96,8 @@ var hostileUfrags = []string{
 	"TXT\x08\x08\x08",                                   // backspaces over the text
 	"\u009b2J\u0085\u0090",                              // C1: CSI, NEL, DCS
 	"DEL\x7f",                                           // DEL
-	"‮exe.txt",                                          // RLO, the bidi override
-	"zero​width",                                        // a zero-width space
+	"\u202eexe.txt",                                     // RLO, the bidi override
+	"zero\u200bwidth",                                   // a zero-width space
 	"line\nbreak",                                       // a newline, to forge a line
 }
 
@@ -112,7 +112,7 @@ func firstUnsafe(s string) string {
 		case r == utf8.RuneError && size == 1:
 			return fmt.Sprintf("the byte 0x%02x (not UTF-8) at %d", s[i], i)
 		case r == '\n':
-		case unicode.IsControl(r), unicode.Is(unicode.Cf, r), r == ' ', r == ' ':
+		case unicode.IsControl(r), unicode.Is(unicode.Cf, r), r == '\u2028', r == '\u2029':
 			return fmt.Sprintf("%U at %d", r, i)
 		}
 		i += size
