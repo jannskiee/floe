@@ -519,6 +519,13 @@ type SendOptions struct {
 	// and nothing queued behind it. A "received" the receiver had already
 	// sent still wins, because the files arrived. Nil never stops, as before.
 	Stop <-chan struct{}
+	// EndBarLine ends a file's progress bar line when the send returns while
+	// that bar is drawn part way (a refusal, a close or a local failure
+	// inside the file), so what the caller prints next starts on a line of
+	// its own. A Stop leaves the line alone: a caller's Ctrl+C line opens
+	// with its own line break. False keeps the plain send's output byte for
+	// byte as it was.
+	EndBarLine bool
 }
 
 // ErrClosedBeforeReceived is what a send under RequireReceived, or to a
@@ -718,7 +725,7 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 	var confirms bool
 	var sentSoFar int64
 	for i, entry := range files {
-		if err := sendFile(dc, ackCh, sendMore, done, flushed, entry, i+1, len(files), totalBytes, localVer, onProgress, opts.OnAck, opts.UpdateHint, ackTimeoutOrDefault(opts.AckTimeout), sentSoFar, chunk, &confirms, opts.Stop); err != nil {
+		if err := sendFile(dc, ackCh, sendMore, done, flushed, entry, i+1, len(files), totalBytes, localVer, onProgress, opts.OnAck, opts.UpdateHint, ackTimeoutOrDefault(opts.AckTimeout), sentSoFar, chunk, &confirms, opts.Stop, opts.EndBarLine); err != nil {
 			// A refusal the PEER sent is returned as it came. The wrap named
 			// entry.displayName, which is the file the sender had already moved
 			// on to: a receiver refuses file N after its end marker, and the
@@ -893,7 +900,8 @@ drainLoop:
 // sendFile handles the full send sequence for a single file. confirms is set
 // from the first file's ack only (parseAckConfirms) and left alone after.
 // stop is SendOptions.Stop: seen before every write and in every wait.
-func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, done <-chan struct{}, flushed <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onProgress ProgressFunc, onAck func(int), updateHint string, ackTimeout time.Duration, baseTotal int64, chunk int, confirms *bool, stop <-chan struct{}) error {
+// endBarLine is SendOptions.EndBarLine.
+func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, done <-chan struct{}, flushed <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onProgress ProgressFunc, onAck func(int), updateHint string, ackTimeout time.Duration, baseTotal int64, chunk int, confirms *bool, stop <-chan struct{}, endBarLine bool) (err error) {
 	if stopRequested(stop) {
 		return ErrSendStopped
 	}
@@ -1041,6 +1049,20 @@ ackLoop:
 		bar = newProgressBar(fileSize, index, total, entry.displayName)
 		bar.Set64(offset)
 	}
+	// barEnded is set where the finished bar gets its line break below. Any
+	// other return leaves the bar's line open once it has drawn, and the
+	// caller's next line would land on it (SendOptions.EndBarLine). A bar
+	// that never drew (IsStarted: nothing past 0 percent yet) left the cursor
+	// on a fresh line, so it gets no break, and neither does a stop, whose
+	// caller opens its line with one.
+	barEnded := false
+	if bar != nil && endBarLine {
+		defer func() {
+			if !barEnded && bar.IsStarted() && !errors.Is(err, ErrSendStopped) {
+				fmt.Println()
+			}
+		}()
+	}
 	// The digest covers exactly the bytes handed to dc.Send, so it describes
 	// what the receiver got rather than what is on disk now. Only from offset 0:
 	// a resumed file would hash a suffix, and the receiver hashes the whole file.
@@ -1181,6 +1203,7 @@ ackLoop:
 
 	if bar != nil {
 		fmt.Println()
+		barEnded = true
 	}
 
 	// Step 4: Send end marker, with the digest when it covers the whole file.
