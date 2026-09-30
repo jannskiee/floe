@@ -30,6 +30,7 @@ import (
 	"github.com/jannskiee/floe/cli/engine/peer"
 	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/jannskiee/floe/cli/engine/transfer"
+	"github.com/pion/webrtc/v4"
 )
 
 func TestScriptedDecideParses(t *testing.T) {
@@ -187,10 +188,36 @@ func TestRequestFlagsRefuseBadInput(t *testing.T) {
 		"bad decide":        {"-out", dir, "-decide", "sometimes"},
 		"unknown blip":      {"-out", dir, "-blip-after", "done"},
 		"zero timeout":      {"-out", dir, "-timeout", "0s"},
+		"unknown stop code": {"-out", dir, "-stop-after-file", "too-slow"},
+		"empty stop code":   {"-out", dir, "-stop-after-file", ""},
+		"stop code case":    {"-out", dir, "-stop-after-file", "Over-Approved"},
+		"reason alone":      {"-out", dir, "-stop-reason", "stopped"},
+		"stop with a hold":  {"-out", dir, "-stop-after-file", "over-approved", "-hold-after-file", "10"},
 	} {
 		if _, err := parseRequestFlags(args); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+}
+
+// -stop-after-file is off unless given and takes exactly a RefusalCode this
+// build knows; -stop-reason defaults to that code's stock sentence and is
+// otherwise kept byte for byte, hostile text included.
+func TestStopAfterFileFlag(t *testing.T) {
+	plain, err := parseRequestFlags([]string{"-out", t.TempDir()})
+	if err != nil || plain.stopCode != "" || plain.stopReason != "" {
+		t.Fatalf("default stopCode %q stopReason %q, err %v; want both empty", plain.stopCode, plain.stopReason, err)
+	}
+	for _, code := range transfer.RefusalCodes {
+		cfg, err := parseRequestFlags([]string{"-out", t.TempDir(), "-stop-after-file", string(code)})
+		if err != nil || cfg.stopCode != code || cfg.stopReason != code.WireReason() {
+			t.Fatalf("-stop-after-file %s: stopCode %q stopReason %q, err %v", code, cfg.stopCode, cfg.stopReason, err)
+		}
+	}
+	const hostile = "<img src=x onerror=alert(1)> $(calc)\u202e"
+	cfg, err := parseRequestFlags([]string{"-out", t.TempDir(), "-stop-after-file", "over-approved", "-stop-reason", hostile})
+	if err != nil || cfg.stopCode != transfer.CodeOverApproved || cfg.stopReason != hostile {
+		t.Fatalf("stopCode %q, reason kept %v, err %v", cfg.stopCode, cfg.stopReason == hostile, err)
 	}
 }
 
@@ -495,6 +522,12 @@ func roomFromLink(t *testing.T, link string) string {
 // committed the file and a refusal after the end frame comes back as that
 // refusal; the host's own close is what ends a wait with neither.
 func visit(url, room string, paths ...string) error {
+	return visitTapped(url, room, nil, paths...)
+}
+
+// visitTapped is visit with tap, when set, handed every message the visitor's
+// data channel delivers, in order, before the sender reads it.
+func visitTapped(url, room string, tap func(webrtc.DataChannelMessage), paths ...string) error {
 	sc, err := signaling.Connect(url)
 	if err != nil {
 		return err
@@ -514,12 +547,50 @@ func visit(url, room string, paths ...string) error {
 		return err
 	}
 	early := conn.Early()
+	msgs := early.Msgs
+	if tap != nil {
+		msgs = tapPump(early.Msgs, early.Closed, tap)
+	}
 	return transfer.SendFilesWithOptions(dc, paths, "visitor", transfer.SendOptions{
 		OnProgress:      func(transfer.Progress) {},
-		Messages:        early.Msgs,
+		Messages:        msgs,
 		Closed:          early.Closed,
 		RequireReceived: true,
 	})
+}
+
+// tapPump hands each message to tap and passes it on in order, corruptingPump's
+// shape: when the channel closes it still hands on, and taps, what was queued.
+func tapPump(in <-chan webrtc.DataChannelMessage, closed <-chan struct{}, tap func(webrtc.DataChannelMessage)) <-chan webrtc.DataChannelMessage {
+	out := make(chan webrtc.DataChannelMessage, cap(in))
+	go func() {
+		for {
+			select {
+			case m := <-in:
+				tap(m)
+				select {
+				case out <- m:
+				case <-closed:
+					return
+				}
+			case <-closed:
+				for {
+					select {
+					case m := <-in:
+						tap(m)
+						select {
+						case out <- m:
+						default:
+							return
+						}
+					default:
+						return
+					}
+				}
+			}
+		}
+	}()
+	return out
 }
 
 // payload writes a random file and returns its path and digest.
@@ -1011,6 +1082,111 @@ func TestRequestModeCorruptHashRefusesTheFile(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(out); len(entries) != 0 {
 		t.Fatalf("output dir holds %d entries after a refused file", len(entries))
+	}
+}
+
+// -stop-after-file (F5-03): after the first committed file the harness sends
+// the refusal frame itself, with its code, the -stop-reason text and saved 1,
+// and closes. The visitor reads the code and the count from that frame, the
+// run reports refused with the code and still closes the room and ends with
+// done, the second file never lands (no .part either), and the reason rides
+// the wire only, never a line the harness prints. An unknown code is refused
+// at start, before any join.
+func TestRequestModeStopAfterFileSendsTheCode(t *testing.T) {
+	const reason = "<img src=x onerror=alert(1)> $(calc)\u202e"
+
+	atStart := newFakeRequestServer(t)
+	bad := startRequest(t, "-server", atStart.url, "-out", t.TempDir(), "-stop-after-file", "too-slow", "-timeout", "60s")
+	if e := bad.until(t, "error"); e["stage"] != "usage" {
+		t.Fatalf("an unknown code: error %v, want the usage stage", e)
+	}
+	if code := bad.exitCode(t); code != 2 {
+		t.Fatalf("an unknown code: exit %d, want 2", code)
+	}
+	if tokens, _, _ := atStart.snapshot(); len(tokens) != 0 {
+		t.Fatalf("an unknown code: %d host joins, want 0", len(tokens))
+	}
+
+	srv := newFakeRequestServer(t)
+	out := t.TempDir()
+	first, sumA := namedPayload(t, "a.bin", 64*1024)
+	second, _ := namedPayload(t, "b.bin", 64*1024)
+	h := startRequest(t, "-server", srv.url, "-out", out, "-stop-after-file", "over-approved", "-stop-reason", reason, "-timeout", "60s")
+	room := roomFromLink(t, h.until(t, "link")["link"].(string))
+	frames := make(chan []byte, 4)
+	visitErr := make(chan error, 1)
+	go func() {
+		visitErr <- visitTapped(srv.url, room, func(m webrtc.DataChannelMessage) {
+			var f struct {
+				Type string `json:"type"`
+			}
+			if json.Unmarshal(m.Data, &f) == nil && f.Type == "incompatible" {
+				select {
+				case frames <- append([]byte(nil), m.Data...):
+				default:
+				}
+			}
+		}, first, second)
+	}()
+	if r := h.until(t, "refused"); r["code"] != string(transfer.CodeOverApproved) {
+		t.Fatalf("refused = %v, want %s", r, transfer.CodeOverApproved)
+	}
+	if d := h.until(t, "done"); d["files"] != float64(1) || d["verified"] != float64(1) {
+		t.Fatalf("done = %v, want files 1 verified 1", d)
+	}
+	if code := h.exitCode(t); code != 0 {
+		t.Fatalf("exit %d, want 0", code)
+	}
+	var stopped *transfer.PeerStoppedError
+	if err := <-visitErr; !errors.As(err, &stopped) || stopped.Code != transfer.CodeOverApproved || stopped.Saved != 1 {
+		t.Fatalf("visitor got %v, want an over-approved stop with saved 1", err)
+	}
+	var frame struct {
+		Code   string `json:"code"`
+		Saved  *int   `json:"saved"`
+		Reason string `json:"reason"`
+	}
+	select {
+	case raw := <-frames:
+		if err := json.Unmarshal(raw, &frame); err != nil {
+			t.Fatalf("incompatible frame: %v", err)
+		}
+	default:
+		t.Fatal("the visitor saw no incompatible frame")
+	}
+	if frame.Code != string(transfer.CodeOverApproved) || frame.Saved == nil || *frame.Saved != 1 || frame.Reason != reason {
+		t.Fatalf("frame code %q, saved %v, reason is the -stop-reason text %v; want over-approved, 1, true",
+			frame.Code, frame.Saved, frame.Reason == reason)
+	}
+	want := []string{"joined", "link", "user-connected", "offer-sent", "sealed", "deciding", "accepted", "file-committed", "refused", "closed", "done"}
+	if got := h.names(); !equalNames(got, want) {
+		t.Fatalf("events %v, want %v", got, want)
+	}
+	all := strings.Join(h.raws, "\n")
+	for _, piece := range []string{"onerror", "alert(1)", "$(calc)", "\u202e", "img src"} {
+		if strings.Contains(all, piece) {
+			t.Fatalf("a harness line carries %q from the stop reason", piece)
+		}
+	}
+	tokens, _, controls := srv.controlsAfter(2)
+	checkNoToken(t, h, tokens)
+	if !equalNames(controls, []string{"request-seal", "request-close"}) {
+		t.Fatalf("control frames %v", controls)
+	}
+	if n := srv.statsRequests(); n != 0 {
+		t.Fatalf("%d stats reports reached the server, want 0", n)
+	}
+	entries, err := os.ReadDir(out)
+	if err != nil || len(entries) != 1 || entries[0].Name() != "a.bin" {
+		names := []string{}
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Fatalf("output %v (err %v), want only a.bin: the second file never lands, not even as .part", names, err)
+	}
+	got, err := os.ReadFile(filepath.Join(out, "a.bin"))
+	if err != nil || sha256.Sum256(got) != sumA {
+		t.Fatal("the committed first file differs from what the visitor sent")
 	}
 }
 

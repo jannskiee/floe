@@ -11,7 +11,9 @@ package main
 // Everything that makes it a test peer lives in this file and never in the
 // engine: the scripted Decide, the shortened decide window of -fast-timers,
 // the socket blip of -blip-after, the receive-loop hold of -hold-after-file,
-// and -corrupt-hash, which rewrites the
+// the refusal frame of -stop-after-file, which stops a drop after its first
+// committed file with a code and a -stop-reason of the spec's choosing, and
+// -corrupt-hash, which rewrites the
 // sender's end-frame digest on its way from the data channel to the engine so
 // the engine's own compare refuses the file. The release floe binary cannot
 // reach any of it (.goreleaser.yml builds only ./cmd/floe).
@@ -172,6 +174,17 @@ type requestConfig struct {
 	// first committed file, so the visitor stays in Sending with its data
 	// channel open for as long as a spec needs (S1-WEB-05 test 9).
 	holdAfterFile time.Duration
+	// stopCode, when set (-stop-after-file), stops the drop after its first
+	// committed file the way a receiver that refused it would: the refusal
+	// frame with this code, stopReason and saved 1, then the connection
+	// closes. It is how a spec reaches a code an honest browser can never
+	// cause, over-approved first among them (F5-03). ParseRefusalCode checks
+	// it at start, so a typo fails at the usage stage.
+	stopCode transfer.RefusalCode
+	// stopReason is that frame's reason: -stop-reason, or the code's stock
+	// sentence. It goes to the visitor as given, hostile text included, and
+	// is never printed.
+	stopReason string
 }
 
 // requestMaxFiles is the request lane's Beta file cap (spec 05 8.3), kept when
@@ -200,17 +213,43 @@ func parseRequestFlags(args []string) (requestConfig, error) {
 	joinAfter := fs.Int("join-after", 0, "print the link, then join the room this many milliseconds later")
 	joinOnStdin := fs.Bool("join-on-stdin", false, "print the link, then join the room when one line arrives on stdin")
 	holdAfterFile := fs.Int("hold-after-file", 0, "after the first committed file, hold the receive loop this many milliseconds")
+	stopAfterFile := fs.String("stop-after-file", "", "after the first committed file, stop the drop with this refusal code")
+	stopReason := fs.String("stop-reason", "", "the reason the -stop-after-file frame carries (default: the code's stock sentence)")
 	if err := fs.Parse(args); err != nil {
 		return requestConfig{}, err
 	}
-	maxFilesSet := false
+	maxFilesSet, stopSet, reasonSet := false, false, false
 	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "max-files" {
+		switch f.Name {
+		case "max-files":
 			maxFilesSet = true
+		case "stop-after-file":
+			stopSet = true
+		case "stop-reason":
+			reasonSet = true
 		}
 	})
 	if maxFilesSet && *maxFiles <= 0 {
 		return requestConfig{}, errors.New("request: usage")
+	}
+	var stopCode transfer.RefusalCode
+	if stopSet {
+		code, ok := transfer.ParseRefusalCode(*stopAfterFile)
+		if !ok {
+			return requestConfig{}, fmt.Errorf("request: -stop-after-file names no refusal code: %q", *stopAfterFile)
+		}
+		stopCode = code
+	}
+	if reasonSet && !stopSet {
+		return requestConfig{}, errors.New("request: -stop-reason needs -stop-after-file")
+	}
+	// One cue per first file: a hold keeps the drop going, a stop ends it.
+	if stopSet && *holdAfterFile > 0 {
+		return requestConfig{}, errors.New("request: -stop-after-file and -hold-after-file are exclusive")
+	}
+	reason := *stopReason
+	if stopSet && !reasonSet {
+		reason = stopCode.WireReason()
 	}
 	var limits *transfer.ReceiveLimits
 	if maxFilesSet || *blockShell {
@@ -248,6 +287,8 @@ func parseRequestFlags(args []string) (requestConfig, error) {
 		joinAfter:     time.Duration(*joinAfter) * time.Millisecond,
 		joinOnStdin:   *joinOnStdin,
 		holdAfterFile: time.Duration(*holdAfterFile) * time.Millisecond,
+		stopCode:      stopCode,
+		stopReason:    reason,
 	}, nil
 }
 
@@ -386,6 +427,18 @@ func (h *requestHost) hold() {
 	h.emit("released", map[string]interface{}{"heldMs": time.Since(start).Milliseconds()})
 }
 
+// stop is -stop-after-file: the frame a receiver sends when it stops a drop on
+// purpose, with this run's code and reason and saved 1 (the file just
+// committed), and then the close, in the engine's own order (AbortWithCode
+// flushes the frame before it returns). The engine calls OnFileDone
+// synchronously on its receive loop, so the loop next finds the channel
+// closed, discards any .part the next metadata opened, and returns its close
+// error, which visit reports as this code.
+func (h *requestHost) stop(conn *peer.Connection, dc *webrtc.DataChannel) {
+	transfer.AbortWithCode(dc, "e2ehost", h.cfg.stopCode, h.cfg.stopReason, 1)
+	conn.Close()
+}
+
 // visitOutcome is how one visit ended.
 type visitOutcome int
 
@@ -464,6 +517,8 @@ func (h *requestHost) visit(step decideStep) visitOutcome {
 	if h.cfg.corruptHash {
 		msgs = corruptingPump(early.Msgs, early.Closed)
 	}
+	// Set when -stop-after-file ended this visit's drop.
+	stopped := false
 	err = transfer.ReceiveFilesWithOptions(dc, h.cfg.out, true, "e2ehost", "", transfer.ReceiveOptions{
 		OnProgress: func(transfer.Progress) {},
 		Decide: func(in transfer.IncomingInfo) transfer.Decision {
@@ -484,11 +539,22 @@ func (h *requestHost) visit(step decideStep) visitOutcome {
 			if h.files == 1 && h.cfg.holdAfterFile > 0 {
 				h.hold()
 			}
+			if h.files == 1 && h.cfg.stopCode != "" {
+				h.stop(conn, dc)
+				stopped = true
+			}
 		},
 		Messages: msgs,
 		Closed:   early.Closed,
 		Limits:   h.cfg.limits,
 	})
+	if stopped {
+		// This side ended the drop, so whatever the engine made of the close
+		// that followed, the visit ended with this run's own code, and never
+		// with anything of the reason.
+		h.emit("refused", map[string]interface{}{"code": string(h.cfg.stopCode)})
+		return visitRefused
+	}
 	if err != nil {
 		if word, ok := refusalWord(err); ok {
 			h.emit("refused", map[string]interface{}{"code": word})

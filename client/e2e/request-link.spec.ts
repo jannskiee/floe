@@ -13,9 +13,9 @@
  * S1-WEB-09 is folded in (D-109 FT-19): there is no gate guard here, so these
  * run in every gated e2e leg. Test 16 keeps its own local-only guard.
  *
- * One cell (the over-approved refusal) needs harness limit flags that wait
- * for WP-A1's ReceiveLimits. It is test.fixme with the missing flags named,
- * so it cannot pass silently.
+ * The over-approved refusal cell (F5-03) has the harness send that refusal
+ * frame itself (-stop-after-file), with a hostile reason: an honest browser
+ * can never make a host say over-approved.
  */
 
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
@@ -301,15 +301,40 @@ test.describe('request-link', () => {
         expect(await stats()).toBe(0);
     });
 
-    test('request-link: over-approved refusal shows fixed copy and never the reason', async () => {
-        test.fixme(
-            true,
-            'needs the harness limit flags -max-bytes and -max-files (transfer.ReceiveLimits, after WP-A1) and the ' +
-                'reason:<text> cue that writes its own refusal frame with a hostile reason'
-        );
-        // Flow once they exist: a limit below the payload, reason
-        // `<img src=x onerror=alert(1)> $(calc)` plus U+202E; the over-approved
-        // copy shows; page.content() contains none of the reason; no dialog; no .part; stats 0.
+    test('request-link: over-approved refusal shows fixed copy and never the reason', async ({ page, context }) => {
+        // F5-03: the host stops the drop after its first committed file with
+        // over-approved and saved 1, as a receiver that refused it would. An
+        // honest browser can never make a host say over-approved, so the
+        // harness sends the frame itself, with a reason no page may show: a
+        // tag with a handler, a shell expansion and U+202E.
+        const stats = await guard(context);
+        const sent = makeFiles({ 'a.bin': 64 * 1024, 'b.bin': 64 * 1024 });
+        const reason = '<img src=x onerror=alert(1)> $(calc)\u202e';
+        const dialogs: string[] = [];
+        page.on('dialog', (d) => {
+            dialogs.push(d.type());
+            void d.dismiss();
+        });
+        const h = host({ decide: 'accept', stopAfterFile: 'over-approved', stopReason: reason });
+        await page.goto(await requestLink(h));
+        await pickFiles(page, ['a.bin', 'b.bin']);
+        await send(page);
+        const copy = refusalCopy('over-approved', 1, 2);
+        await expect(page.getByRole('heading', { name: copy.title })).toBeVisible({ timeout: 60_000 });
+        for (const line of copy.lines) await expect(page.getByText(line, { exact: true })).toBeVisible();
+        expect(await waitForHostEvent(h, 'refused', 30_000)).toMatchObject({ code: 'over-approved' });
+        await waitForHostEvent(h, 'done', 30_000);
+        // Nothing of the reason reaches the page, as markup or as text.
+        const html = await page.content();
+        for (const piece of ['onerror', 'alert(1)', '$(calc)', 'src=x', '\u202e']) {
+            expect(html.includes(piece), `the page carries ${JSON.stringify(piece)} from the reason`).toBe(false);
+        }
+        expect(dialogs).toEqual([]);
+        // File 1 was saved; file 2 never landed, not even as a .part.
+        const got = sha256Manifest(scratch.outDir);
+        expect(Object.keys(got).some((k) => k.endsWith('.part'))).toBe(false);
+        expect(Object.values(got)).toEqual([sent['a.bin']]);
+        expect(await stats()).toBe(0);
     });
 
     test('request-link: folder delivered intact with SHA-256', async ({ page, context }) => {
@@ -600,6 +625,69 @@ test.describe('request-link', () => {
         await page.close({ runBeforeUnload: true });
         await stillOpen;
         expect(dialogs).toEqual(['waiting:beforeunload']);
+        expect(await stats()).toBe(0);
+    });
+
+    test('request-link: a footer link mid-drop raises the leave-page prompt', async ({ page, context }) => {
+        // F5-02: the /r footer links are plain anchors, so leaving by one
+        // mid-drop is a page load and raises the browser's own leave-page
+        // prompt from useVisitorGuards, as closing the tab does (spec 07
+        // 4.14). Dismissed, the drop runs on to delivery; accepted, the page
+        // leaves and the host's drop stops there.
+        test.setTimeout(240_000);
+        const stats = await guard(context);
+        const sent = makeFiles({ 'a.bin': 256 * 1024, 'b.bin': 256 * 1024 });
+        const dialogs: string[] = [];
+        let answer: 'dismiss' | 'accept' = 'dismiss';
+        page.on('dialog', (d) => {
+            dialogs.push(`${answer}:${d.type()}`);
+            void (answer === 'accept' ? d.accept() : d.dismiss());
+        });
+        const sending = page.getByRole('heading', { name: sendingHeader(1, 2) });
+        const privacy = page.getByRole('contentinfo').getByRole('link', { name: 'Privacy' });
+
+        // Dismiss. The harness holds its receive loop after file 1, so the
+        // click lands in Sending (V10) on any machine.
+        const stay = host({ decide: 'accept', holdAfterFile: 10_000 });
+        await page.goto(await requestLink(stay));
+        await pickFiles(page, ['a.bin', 'b.bin']);
+        await send(page);
+        await waitForHostEvent(stay, 'holding', 60_000);
+        await expect(sending).toBeVisible();
+        let prompt = page.waitForEvent('dialog', { timeout: 15_000 });
+        await privacy.click();
+        await prompt;
+        expect(dialogs).toEqual(['dismiss:beforeunload']);
+        expect(new URL(page.url()).pathname.startsWith('/r/')).toBe(true);
+        await expectDelivered(page, stay, sent);
+
+        // Accept. The page leaves for /privacy, and the host's drop stops at
+        // file 1: the harness has no copy of its own, so what it shows is its
+        // receive ending before a second file (the error event's receive
+        // stage), with no .part left and no done.
+        answer = 'accept';
+        const outLeave = join(scratch.root, 'out-leave');
+        mkdirSync(outLeave);
+        const leave = startRequestHost({ outDir: outLeave, decide: 'accept', holdAfterFile: 10_000 });
+        scratch.hosts.push(leave);
+        await page.goto(await requestLink(leave));
+        await pickFiles(page, ['a.bin', 'b.bin']);
+        await send(page);
+        await waitForHostEvent(leave, 'holding', 60_000);
+        await expect(sending).toBeVisible();
+        prompt = page.waitForEvent('dialog', { timeout: 15_000 });
+        await privacy.click();
+        await prompt;
+        await page.waitForURL('**/privacy');
+        expect(dialogs).toEqual(['dismiss:beforeunload', 'accept:beforeunload']);
+        expect(await leave.exited).toBe(1);
+        const events = leave.events.map((e) => e.event);
+        expect(events.filter((e) => e === 'file-committed')).toHaveLength(1);
+        expect(events).not.toContain('done');
+        expect(leave.events[leave.events.length - 1]).toMatchObject({ event: 'error', stage: 'receive' });
+        const got = sha256Manifest(outLeave);
+        expect(Object.keys(got).some((k) => k.endsWith('.part'))).toBe(false);
+        expect(Object.values(got)).toEqual([sent['a.bin']]);
         expect(await stats()).toBe(0);
     });
 
