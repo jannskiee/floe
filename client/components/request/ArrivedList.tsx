@@ -17,7 +17,7 @@ export function PathRows({ rows }: { rows: PathRow[] }) {
             {rows.map((r) => (
                 <li key={r.id} className="flex items-center justify-between gap-4 py-2">
                     <span className="min-w-0 truncate text-sm text-zinc-200">{displayPath(r.relativePath)}</span>
-                    <span className="shrink-0 font-mono text-[11px] text-zinc-500">{formatBytes(r.size)}</span>
+                    <span className="shrink-0 font-mono text-[11px] text-zinc-400">{formatBytes(r.size)}</span>
                 </li>
             ))}
         </ul>
@@ -31,7 +31,7 @@ export function ArrivedList({ rows }: { rows: PathRow[] }) {
     if (rows.length === 0) return null;
     return (
         <div className="mt-5">
-            <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+            <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-400">
                 {visitorCopy.arrivedHeading}
             </p>
             <PathRows rows={rows} />

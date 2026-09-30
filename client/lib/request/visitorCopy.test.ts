@@ -3,7 +3,6 @@ import {
     visitorCopy,
     countLine,
     sendLabel,
-    relayCapNotice,
     countdownLine,
     sendingHeader,
     progressParts,
@@ -16,10 +15,10 @@ import {
 import { reduce, initialModel, type VisitorModel, type VisitorEvent } from './visitorState';
 
 // The visitor page never renders a peer-supplied string. Everything it shows
-// comes from the frozen Checkpoint C table (work/16-design/cp-3/
-// approved-copy-web.md, D-091, with the stop confirmation from D-096), chosen
-// by an allowlisted code or a state, with only clamped counts and the
-// visitor's OWN relative paths filled in.
+// comes from the frozen Checkpoint C web copy table (D-091, with the stop
+// confirmation from D-096 and the /r polish rows from D-136), chosen by an
+// allowlisted code or a state, with only clamped counts and the visitor's OWN
+// relative paths filled in.
 
 const ROOM = '6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f';
 const CTX: StatusContext = {
@@ -54,13 +53,12 @@ describe('visitor copy: the refusal table (spec 07 4.15.2)', () => {
             'write-failed': 'Their computer could not save a file',
             'hash-mismatch': 'A file changed or was damaged on the way, so their Floe deleted it',
             'relay-cap': 'Relayed drops are capped at 2 GB',
-            'path-too-long': 'A folder path is too long for their computer. Zip deeply nested folders first.',
-            'file-too-large-for-folder': 'A file is too large for the drive they save to.',
-            'save-blocked': 'A file arrived but their computer blocked saving it.',
-            'over-approved':
-                'More data arrived than they accepted. If files changed after you chose them, ask them for a new link.',
+            'path-too-long': 'A folder path is too long for their computer',
+            'file-too-large-for-folder': 'A file is too large for the drive they save to',
+            'save-blocked': 'Their computer blocked saving a file',
+            'over-approved': 'More data arrived than they accepted',
             stopped: 'They stopped this drop.',
-            'time-limit': 'This drop reached the 24-hour limit, so their Floe stopped it.',
+            'time-limit': 'This drop reached the 24-hour limit',
         };
         for (const code of TWELVE) {
             const copy = refusalCopy(code, 4, 12);
@@ -82,6 +80,32 @@ describe('visitor copy: the refusal table (spec 07 4.15.2)', () => {
         expect(refusalCopy('relay-cap', 3, 12).lines).toEqual(['3 of 12 files were saved.']);
         expect(refusalCopy('disk-full', 4, 12).showArrived).toBe(true);
         expect(refusalCopy('disk-full', 0, 12).showArrived).toBe(false);
+    });
+
+    it('a heading names what happened, and the fix is a line after the saved line (D-136)', () => {
+        // The two titles that used to carry their fix are split: the heading,
+        // the saved line, then the fix. No other code gains a line.
+        expect(refusalCopy('path-too-long', 4, 12).lines).toEqual([
+            '4 of 12 files were saved.',
+            'Zip deeply nested folders first.',
+        ]);
+        expect(refusalCopy('path-too-long', 0, 12).lines).toEqual([
+            'Nothing was sent.',
+            'Zip deeply nested folders first.',
+        ]);
+        expect(refusalCopy('over-approved', 1, 1).lines).toEqual([
+            '1 of 1 file was saved.',
+            'If files changed after you chose them, ask them for a new link.',
+        ]);
+        for (const code of ['disk-full', 'write-failed', 'file-too-large-for-folder', 'save-blocked', 'stopped', 'time-limit']) {
+            expect(refusalCopy(code, 4, 12).lines, code).toEqual(['4 of 12 files were saved.']);
+        }
+        // A heading carries no final period; only the sentence titles do
+        // (declined, expired, stopped) and the unknown code's.
+        for (const code of TWELVE) {
+            const sentence = ['declined', 'expired', 'stopped'].includes(code);
+            expect(refusalCopy(code, 4, 12).title.endsWith('.'), code).toBe(sentence);
+        }
     });
 
     it('too-slow maps to the unknown-code copy', () => {
@@ -111,9 +135,9 @@ describe('visitor copy: the refusal table (spec 07 4.15.2)', () => {
             type: 'INCOMPATIBLE', refusal: 'disk-full', savedCount: 3, rangeOverlaps: false,
         });
         const copy = statusCopy(r.model, CTX);
-        expect(copy?.title).toBe('Their Floe needs an update to receive from this page.');
+        expect(copy?.title).toBe('Their Floe needs an update.');
         expect(copy?.lines).toEqual([]);
-        expect(announcement(r.model, CTX)).toBe('Their Floe needs an update to receive from this page.');
+        expect(announcement(r.model, CTX)).toBe('Their Floe needs an update.');
     });
 });
 
@@ -122,12 +146,12 @@ describe('visitor copy: server answers and the attempt states', () => {
         const v4 = statusCopy(model('V4'), CTX);
         expect(v4).toMatchObject({
             title: 'Their computer is not connected right now',
-            lines: ['The person who made this link may have closed Floe. Your files stay selected.'],
+            lines: ['They may have closed Floe. Your files stay selected.'],
             action: 'try-again',
         });
         expect(statusCopy(model('V5a'), CTX)).toMatchObject({
             title: 'This link has already been used',
-            lines: ['Ask the person who made it for a new one.'],
+            lines: ['Ask for a new link.'],
             action: null,
         });
         expect(statusCopy(model('V5b'), CTX)).toMatchObject({ title: 'Request links are turned off right now', lines: [] });
@@ -145,18 +169,38 @@ describe('visitor copy: server answers and the attempt states', () => {
         expect(statusCopy(model('V8b'), CTX)).toMatchObject({
             title: 'They did not answer in time. Nothing was sent.', action: 'back-to-files',
         });
+        // V9 as WV-23 draws it: a two-word title, C-80 as the body (Learn
+        // more follows it inline), and a screen reader line that carries the
+        // reason with the title.
         expect(statusCopy(model('V9'), CTX)).toMatchObject({
-            title:
-                'Transfer limit exceeded. Relay connections are capped at 2 GB. Remove files to proceed, or switch to a network that supports a direct connection.',
+            title: 'Relay limit',
+            lines: [
+                'This connection needs a relay, and relayed drops are capped at 2 GB. Remove files, or try another network.',
+            ],
             learnMore: true,
             action: 'back-to-files',
         });
+        expect(announcement(model('V9'), CTX)).toBe(
+            'Relay limit. This connection needs a relay, and relayed drops are capped at 2 GB.'
+        );
         expect(statusCopy(model('V12a'), CTX)).toMatchObject({
             title: 'Connection lost. Nothing was sent.', action: 'try-again',
         });
         // Screen reader lines for the same states are the titles (SR-07).
         expect(announcement(model('V4'), CTX)).toBe('Their computer is not connected right now');
         expect(announcement(model('V5a'), CTX)).toBe('This link has already been used');
+    });
+
+    it('a card whose whole message is one sentence takes the one style, and only those (D-136 D5)', () => {
+        // WV-14, WV-16, WV-21, WV-22 and WV-44 draw these five in the 15 px
+        // medium "one" style; every other title is a heading.
+        const ONE = ['V5c', 'V6a', 'V8a', 'V8b', 'V12a'];
+        const states = ['V4', 'V5a', 'V5b', 'V5c', 'V6', 'V6a', 'V6c', 'V7', 'V8a', 'V8b', 'V9', 'V11', 'V11a', 'V11b', 'V12', 'V12a', 'V13'] as const;
+        for (const s of states) {
+            const copy = statusCopy(model(s, { ackIndex: 3, stop: { refusal: 'disk-full', savedCount: 2 } }), CTX);
+            expect(copy?.one, s).toBe(ONE.includes(s));
+            if (copy?.one) expect(copy.title.endsWith('.'), s).toBe(true);
+        }
     });
 
     it('connecting, waiting and the limiter retry', () => {
@@ -169,7 +213,7 @@ describe('visitor copy: server answers and the attempt states', () => {
         const waiting = model('V7', { firstMetadataAt: 1000 });
         expect(statusCopy(waiting, { ...CTX, now: 1000 })).toMatchObject({
             title: 'Waiting for them to accept',
-            lines: ['They have 9 min to answer. Nothing is saved until they accept. Keep this page open.'],
+            lines: ['They have 9 min to answer. Keep this page open.'],
             action: 'cancel',
         });
         expect(announcement(model('V6'), CTX)).toBe('Connecting to their computer.');
@@ -177,15 +221,9 @@ describe('visitor copy: server answers and the attempt states', () => {
     });
 
     it('the countdown never says 0 min', () => {
-        expect(countdownLine(9)).toBe(
-            'They have 9 min to answer. Nothing is saved until they accept. Keep this page open.'
-        );
-        expect(countdownLine(1)).toBe(
-            'They have 1 min to answer. Nothing is saved until they accept. Keep this page open.'
-        );
-        expect(countdownLine(0)).toBe(
-            'They have less than 1 min to answer. Nothing is saved until they accept. Keep this page open.'
-        );
+        expect(countdownLine(9)).toBe('They have 9 min to answer. Keep this page open.');
+        expect(countdownLine(1)).toBe('They have 1 min to answer. Keep this page open.');
+        expect(countdownLine(0)).toBe('They have less than 1 min to answer. Keep this page open.');
     });
 
     it('lost, stopped by you and delivered', () => {
@@ -208,21 +246,27 @@ describe('visitor copy: server answers and the attempt states', () => {
     it('an unreadable file shows C-130 as a stop, and the screen reader hears the same', () => {
         // WP-W1 review F3: the frozen C-130 row maps an unreadable file to V11
         // after the first ack, with the saved line from the visitor's own
-        // count, and SR-05 announces the title that is on screen.
+        // count, and SR-05 announces the title that is on screen. Since D-136
+        // the title is a heading and the visitor's own path is in the first
+        // line, before the saved line.
         const sending = model('V10', { ackIndex: 2, channelOpen: true, sendStarted: true, acceptedAt: 0 });
         const m = reduce(sending, { type: 'UNREADABLE', index: 2 }).model;
         const copy = statusCopy(m, CTX);
-        expect(copy?.title).toBe(
-            'Could not read "shoot/A001_C003.mov". It may have been moved, renamed, or on a drive or folder that is no longer available. Nothing further was sent.'
-        );
-        expect(copy?.lines).toEqual(['1 of 12 files were saved.']);
+        expect(copy?.title).toBe('Could not read a file');
+        expect(copy?.lines).toEqual([
+            '"shoot/A001_C003.mov" may have been moved or renamed, or its drive disconnected.',
+            '1 of 12 files were saved.',
+        ]);
         expect(copy?.showArrived).toBe(true);
         expect(announcement(m, CTX)).toBe(copy?.title);
         // The first file itself unreadable: nothing was saved.
         const first = reduce(model('V10', { ackIndex: 1, channelOpen: true, sendStarted: true }), {
             type: 'UNREADABLE', index: 1,
         }).model;
-        expect(statusCopy(first, CTX)?.lines).toEqual(['Nothing was sent.']);
+        expect(statusCopy(first, CTX)?.lines).toEqual([
+            '"shoot/A001_C002.mov" may have been moved or renamed, or its drive disconnected.',
+            'Nothing was sent.',
+        ]);
         expect(announcement(first, CTX)).toBe(statusCopy(first, CTX)?.title);
     });
 
@@ -402,9 +446,9 @@ describe('visitor copy: Ready and Sending strings', () => {
         expect(countLine(1, 620 * 1024 * 1024)).toBe('1 FILE, 620 MB');
         expect(sendLabel(12)).toBe('Send 12 files');
         expect(sendLabel(1)).toBe('Send 1 file');
-        expect(relayCapNotice(38 * 1024 ** 3)).toBe(
-            'This drop is 38 GB, so it cannot go through the relay. Turn off Hide my IP, or send under 2 GB.'
-        );
+        // C-31 names the cap and both ways out; the count line above it
+        // already carries the size (D-136).
+        expect(visitorCopy.relayCapReady).toBe('Relayed drops are capped at 2 GB. Turn off Hide my IP, or remove files.');
     });
 
     it('sending header, progress line and the visitor\'s own path', () => {
@@ -436,14 +480,13 @@ describe('visitor copy: Ready and Sending strings', () => {
             releaseToAdd: 'Release to add files',
             addMoreFiles: 'Add more files',
             coarsePointer: 'Keep this page open and your screen on.',
-            hideIpNeedsRelay:
-                'Hide my IP needs a relay, and this Floe server has none right now. Turn off Hide my IP to send directly.',
+            hideIpNeedsRelay: 'This Floe server has no relay right now. Turn off Hide my IP to send directly.',
             tryAgain: 'Try again',
             cancel: 'Cancel',
             backToFiles: 'Back to files',
             learnMore: 'Learn more',
-            arrivedHeading: 'ARRIVED (saved on their computer)',
-            keepInFront: 'Keep this tab in front until the last file arrives. For long drops, pin this tab.',
+            arrivedHeading: 'ARRIVED',
+            keepInFront: 'Keep this tab in front until the last file arrives.',
             badgeDirect: 'Direct',
             badgeRelay: 'Relay',
             stopTitle: 'Stop sending?',
@@ -451,10 +494,28 @@ describe('visitor copy: Ready and Sending strings', () => {
             keepSending: 'Keep sending',
             stop: 'Stop',
             reportLink: 'Report this link',
-            pluggedIn: 'Keep this computer plugged in and awake. Pin this tab so Chrome does not put it to sleep.',
+            pluggedIn: 'Keep this computer plugged in and awake, and pin this tab.',
             startsOver: 'If the connection drops, the file that was moving starts over.',
             mayHaveSlept:
                 'This computer may have slept. If the connection drops, the file that was moving starts over.',
+        });
+    });
+
+    it('the intro, the support line and the safety lines read as D-136 approved them', () => {
+        // Each of these is a disclosure or a safety line (C-02 keeps "Floe
+        // does not know who", C-11 the IP notice with its timing, C-12 the
+        // abuse control, C-03 the way to the docs), so each is pinned whole.
+        expect(visitorCopy).toMatchObject({
+            readyIntro:
+                'Files go to the computer of whoever made this link, not to a Floe server. Floe does not know who that is.',
+            betaSupport: 'Works in current Chrome and Edge on a computer.',
+            ipNotice:
+                'When you connect, the person who made this link can see your IP address unless you turn on Hide my IP.',
+            reportLink: 'Report this link',
+            whatIsRequestLink: 'What is a request link?',
+            hostAbsentBody: 'They may have closed Floe. Your files stay selected.',
+            usedBody: 'Ask for a new link.',
+            needsUpdate: 'Their Floe needs an update.',
         });
     });
 
@@ -470,7 +531,9 @@ describe('visitor copy: Ready and Sending strings', () => {
             walk(statusCopy(model(s, { ackIndex: 3, stop: { refusal: 'disk-full', savedCount: 2 }, verifiedCount: 12 }), CTX));
             walk(announcement(model(s), CTX));
         }
-        walk([countLine(2, 10), sendLabel(2), relayCapNotice(10), countdownLine(0), sendingHeader(1, 2)]);
+        walk([countLine(2, 10), sendLabel(2), countdownLine(0), sendingHeader(1, 2)]);
+        // V11 with an unreadable file of the visitor's own (C-130).
+        walk(statusCopy(model('V11', { ackIndex: 3, unreadableIndex: 2 }), CTX));
         expect(all.length).toBeGreaterThan(60);
         for (const s of all) {
             expect(s, s).not.toMatch(new RegExp('[' + String.fromCharCode(0x2013, 0x2014) + ']'));

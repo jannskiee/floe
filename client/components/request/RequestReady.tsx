@@ -1,6 +1,6 @@
 import React, { type ChangeEvent, type DragEvent, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
-import { relayCapNotice, sendLabel, visitorCopy } from '@/lib/request/visitorCopy';
+import { sendLabel, visitorCopy } from '@/lib/request/visitorCopy';
 import type { SendBlock } from '@/lib/request/visitorState';
 import { ReadyHeader } from '@/components/request/ReadyHeader';
 import { RequestDropzone } from '@/components/request/RequestDropzone';
@@ -66,7 +66,7 @@ export function RequestReady(props: RequestReadyProps) {
             {hasFiles && <RequestFileList rows={props.rows} size={props.size} emptyFolders={props.emptyFolders} />}
             <HideMyIpSwitch checked={props.hideIp} onChange={props.onHideIp} />
             {props.block === 'relay-cap' && (
-                <p className="mt-2 text-sm leading-relaxed text-zinc-300">{relayCapNotice(props.size)}</p>
+                <p className="mt-2 text-sm leading-relaxed text-zinc-300">{visitorCopy.relayCapReady}</p>
             )}
             {props.needsRelay && props.hideIp && (
                 <p className="mt-2 text-sm leading-relaxed text-zinc-300">{visitorCopy.hideIpNeedsRelay}</p>
@@ -76,7 +76,7 @@ export function RequestReady(props: RequestReadyProps) {
             )}
             {hasFiles && (
                 <div className="mt-4 flex gap-2">
-                    <Button type="button" className="flex-1" disabled={props.block !== null} onClick={props.onSend}>
+                    <Button type="button" className="flex-1 font-semibold" disabled={props.block !== null} onClick={props.onSend}>
                         {sendLabel(props.rows.length)}
                     </Button>
                     <Button type="button" variant="outline" onClick={props.onClear}>
@@ -85,7 +85,7 @@ export function RequestReady(props: RequestReadyProps) {
                 </div>
             )}
             <div className="mt-4 flex items-end justify-between gap-4">
-                <p className="text-xs leading-relaxed text-zinc-500">{visitorCopy.ipNotice}</p>
+                <p className="text-xs leading-relaxed text-zinc-400">{visitorCopy.ipNotice}</p>
                 {props.footerEnd}
             </div>
         </section>

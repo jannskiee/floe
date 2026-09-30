@@ -6,7 +6,7 @@ import { adviceLines } from './visitorCopy';
 // and every threshold is strictly greater. The time format is the app's
 // existing formatETA (D-091 Q-C12, O11), so 3 days reads "72h 0m".
 
-const PLUGGED = 'Keep this computer plugged in and awake. Pin this tab so Chrome does not put it to sleep.';
+const PLUGGED = 'Keep this computer plugged in and awake, and pin this tab.';
 const STARTS_OVER = 'If the connection drops, the file that was moving starts over.';
 const SLEPT = 'This computer may have slept. If the connection drops, the file that was moving starts over.';
 

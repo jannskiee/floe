@@ -7,17 +7,20 @@ import { RouteBadge } from '@/components/request/RouteBadge';
 /** Where C-80's Learn more goes (APP-3), the main page's relay explainer. */
 const SIZE_LIMIT_HREF = '/how-it-works#size-limit';
 
-/** The dot before a status title. A hollow ring for an ending or a block, a
- *  solid zinc dot while connecting or waiting, green once delivered. No red,
- *  and no other color: the route badge owns green and amber. */
-function Marker({ kind }: { kind: StatusCopy['marker'] }) {
+/** The dot before a status title, 8 px as drawn: a hollow 1.5 px ring for an
+ *  ending or a block, a solid zinc dot while connecting or waiting, green once
+ *  delivered. No red, and no other color: the route badge owns green and
+ *  amber. Its top margin puts its center on the title's first line at
+ *  leading 1.3: 6 px for a 15 or 16 px title, 4 px for V13's 12 px mono one.
+ *  NoticeCard draws the same dot for V1 and V2. */
+export function Marker({ kind }: { kind: StatusCopy['marker'] }) {
     const style =
         kind === 'done'
-            ? 'bg-green-500'
+            ? 'mt-1 bg-green-500'
             : kind === 'active'
-              ? 'bg-zinc-400'
-              : 'border border-zinc-600 bg-transparent';
-    return <span className={`mt-[0.45rem] h-1.5 w-1.5 shrink-0 rounded-full ${style}`} aria-hidden="true" />;
+              ? 'mt-1.5 bg-zinc-400'
+              : 'mt-1.5 border-[1.5px] border-zinc-600 bg-transparent';
+    return <span className={`h-2 w-2 shrink-0 rounded-full ${style}`} aria-hidden="true" />;
 }
 
 /**
@@ -46,11 +49,17 @@ export function RequestStatus({
             <div className="flex items-start justify-between gap-4">
                 <div className="flex min-w-0 items-start gap-2.5">
                     <Marker kind={copy.marker} />
+                    {/* Three title styles, as drawn: V13's mono caps; the
+                        "one" style (15 px, medium) for a card whose whole
+                        message is one sentence; a 16 px semibold heading
+                        for the rest. */}
                     <h1
                         className={
                             done
-                                ? 'font-mono text-[12px] font-semibold uppercase tracking-[0.2em] text-white'
-                                : 'text-base font-semibold tracking-tight text-white'
+                                ? 'font-mono text-[12px] font-semibold uppercase leading-[1.3] tracking-[0.2em] text-white'
+                                : copy.one
+                                  ? 'text-[15px] font-medium leading-[1.3] tracking-tight text-white'
+                                  : 'text-base font-semibold leading-[1.3] tracking-tight text-white'
                         }
                     >
                         {copy.title}
@@ -58,23 +67,29 @@ export function RequestStatus({
                 </div>
                 {copy.badge && <RouteBadge route={route} />}
             </div>
-            {copy.learnMore && (
-                <p className="mt-2 text-sm">
-                    <a
-                        href={SIZE_LIMIT_HREF}
-                        rel="noreferrer"
-                        className="text-zinc-400 underline underline-offset-2 transition hover:text-white"
-                    >
-                        {visitorCopy.learnMore}
-                    </a>
-                </p>
-            )}
-            {copy.lines.map((line) => (
+            {copy.lines.map((line, i) => (
                 // The waiting countdown is one of these lines; it changes once
                 // a minute and is deliberately outside any live region. The
                 // announcements live in the page's one status span.
                 <p key={line} className="mt-3 text-sm leading-relaxed text-zinc-400">
                     {line}
+                    {copy.learnMore && i === copy.lines.length - 1 && (
+                        <>
+                            {' '}
+                            {/* V9, as WV-23 draws it: inline at the end of
+                                the body. A new tab: Back to files keeps the
+                                picked files, and a same-tab click here would
+                                drop them. */}
+                            <a
+                                href={SIZE_LIMIT_HREF}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-zinc-300 underline underline-offset-2 transition hover:text-white focus-visible:outline-2 focus-visible:outline-ice"
+                            >
+                                {visitorCopy.learnMore}
+                            </a>
+                        </>
+                    )}
                 </p>
             ))}
             {copy.showArrived && <ArrivedList rows={arrived} />}

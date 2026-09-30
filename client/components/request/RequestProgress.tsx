@@ -81,9 +81,9 @@ export function RequestProgress(props: RequestProgressProps) {
                     {visitorCopy.cancel}
                 </Button>
             )}
-            <p className="mt-4 text-xs leading-relaxed text-zinc-500">{visitorCopy.keepInFront}</p>
+            <p className="mt-4 text-xs leading-relaxed text-zinc-400">{visitorCopy.keepInFront}</p>
             {props.advice?.map((line) => (
-                <p key={line} className="mt-2 text-xs leading-relaxed text-zinc-500">
+                <p key={line} className="mt-2 text-xs leading-relaxed text-zinc-400">
                     {line}
                 </p>
             ))}
