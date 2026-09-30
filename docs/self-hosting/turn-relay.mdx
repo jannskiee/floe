@@ -128,7 +128,7 @@ When TURN is configured, the response contains `turn:` and `turns:` entries, plu
 
 With Cloudflare configured the response is two entries rather than three, and `urls` is an array rather than a string: one `stun:stun.cloudflare.com:3478` with **no** username or credential, and one carrying both a `turn:` and a `turns:` URL with the credentials. See [the API reference](/reference/http-api#relay-credentials) for the exact shape. When neither the Cloudflare variables nor `TURN_SECRET` / `TURN_DOMAIN` are set, the endpoint returns the Google public STUN servers only.
 
-Credentials are minted from Cloudflare and then **cached in memory for 5 minutes**. Two consequences worth planning around: both keys are read once at startup, so a rotated key needs a restart to take effect (the restart starts with an empty cache, so the new key is used at once); and if the Cloudflare API starts failing, including after the old key is deleted, the server keeps serving the last good copy for up to about 23 hours after it was minted (logging `Cloudflare TURN mint failed` at most once every 5 minutes) before it falls back, so a broken key can look healthy for a while.
+Credentials are minted from Cloudflare and then **cached in memory for 5 minutes**. Two consequences worth planning around: both keys are read once at startup, so a rotated key takes effect only after `docker compose up -d` (a restart, without Docker), which starts with an empty cache, so the new key is used at once; and if the Cloudflare API starts failing, including after the old key is deleted, the server keeps serving the last good copy for up to about 23 hours after it was minted (logging `Cloudflare TURN mint failed` at most once every 5 minutes) before it falls back, so a broken key can look healthy for a while.
 
 ## How credentials work
 
@@ -146,7 +146,9 @@ coturn.
 Cloudflare can email you when your spending crosses a dollar amount you set. In the Cloudflare
 dashboard, go to **Manage Account > Billing > Billable Usage** and select **Create budget alert**.
 Cloudflare's [budget alerts documentation](https://developers.cloudflare.com/billing/manage/budget-alerts/)
-has the details. Know its limits before you rely on it:
+has the details. Pay-as-you-go accounts already have a default $10 alert; change its amount there or
+create your own ([Cloudflare changelog](https://developers.cloudflare.com/changelog/post/2026-06-15-budget-alerts-default-on/)).
+Know its limits before you rely on it:
 
 - It is account-wide. It adds up the usage-based spending of all your Cloudflare products, not the
   relay alone.
@@ -186,12 +188,13 @@ Cloudflare answers `204` when the credential is revoked; see its
 
 Every client that fetched credentials while that username was current holds the same one, so
 revoking it revokes theirs too. If `/api/turn-credentials` still returns the username you revoked,
-restart the server (`docker compose restart server`) so it mints a new one at once.
+restart the server (`docker compose restart server`) so it mints a new one at once, or wait up to 5
+minutes for the next mint. A restart also ends every waiting room and room code.
 
 ### Rotate the key
 
-Revoking handles a credential that leaked once. Key rotation handles a harvester (someone collecting
-credentials in bulk) and a leaked API token, which revoking cannot touch at all:
+Revoking handles a credential that leaked once. A leaked API token needs a new key, because revoking
+cannot touch it:
 
 1. Create a new TURN key in the Cloudflare dashboard, the same way as in
    [the managed TURN setup](#managed-turn-via-cloudflare-recommended).
@@ -201,9 +204,9 @@ credentials in bulk) and a leaked API token, which revoking cannot touch at all:
 3. Delete the old key, so nothing more can be minted with it.
 
 Plan on credentials already issued keeping their own lifetime, which is 24 hours from minting for
-every one this server mints. Rotation also leaves your server handing out credentials, now minted
-with the new key, so if someone is still fetching them in bulk, block that source as well, for
-example at your reverse proxy or firewall.
+every one this server mints. Rotation does not stop someone collecting credentials in bulk from your
+server: it hands new-key credentials to anyone who asks. Block that source at your reverse proxy or
+firewall instead, and plan on what they already hold lasting up to 24 hours.
 
 ### If you run coturn
 
