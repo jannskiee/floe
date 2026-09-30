@@ -869,9 +869,12 @@ func TestRunRequestDropStatsFollowReportStats(t *testing.T) {
 			}
 			v.leave()
 			waitState(t, a, 15*time.Second, "done")
-			f.mu.Lock()
-			posts := append([]string(nil), f.statsPosts...)
-			f.mu.Unlock()
+			// The engine reported before the lane went to done; the lane's own
+			// report (a stopped drop's, E-32) would come after, so the count
+			// is read once the lane has ended, where a second report on a done
+			// drop, a double count, would show.
+			waitLaneEnded(t, a)
+			posts := statsPostsOf(f)
 			want := 0
 			if on {
 				want = 1
@@ -884,6 +887,67 @@ func TestRunRequestDropStatsFollowReportStats(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRunRequestDropStopReportsSavedBytesOnce (S1-ENG-10, E-32): a drop that
+// stops after Accept counts the bytes of the files it saved under their final
+// names toward the global stats, once, from the lane, and only with the
+// switch on. File 1 is committed; file 2 is cut off by Cancel drop, so its
+// .part never counts; the engine itself reports nothing for a receive that
+// did not complete.
+func TestRunRequestDropStopReportsSavedBytesOnce(t *testing.T) {
+	for _, on := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reportStats=%v", on), func(t *testing.T) {
+			a, _, f, room, _ := dropApp(t, func(a *App) { a.cfg.ReportStats = on })
+			v := joinVisitor(t, f, room)
+			v.connect(t)
+			one, two := []byte("first file"), randomBytes(t, 64<<10)
+			total := int64(len(one) + len(two))
+			v.sendText(metaFrame(1, 2, "one.txt", int64(len(one)), total))
+			acceptNext(t, a)
+			v.frameOfType(t, "ack", 10*time.Second)
+			v.sendBin(one)
+			v.sendText(endFrame(one))
+			v.sendText(metaFrame(2, 2, "two.bin", int64(len(two)), total))
+			v.frameOfType(t, "ack", 10*time.Second) // file 1 is committed before this ack
+			v.sendBin(two[:1<<10])
+			time.Sleep(100 * time.Millisecond)
+			a.CancelRequestDrop()
+			s := waitSnap(t, a, 15*time.Second, "stopped", "stopped")
+			if s.Result == nil || s.Result.Saved != 1 || s.Result.Bytes != int64(len(one)) {
+				t.Fatalf("result %+v, want file 1 alone saved, %d bytes", s.Result, len(one))
+			}
+			waitLaneEnded(t, a) // the lane reports after its last state change
+			posts := statsPostsOf(f)
+			var want []string
+			if on {
+				want = []string{fmt.Sprintf(`{"bytes":%d}`, len(one))}
+			}
+			if strings.Join(posts, "\n") != strings.Join(want, "\n") {
+				t.Fatalf("stats reports %q, want %q", posts, want)
+			}
+		})
+	}
+}
+
+// waitLaneEnded waits for the lane goroutine to return: every report it
+// makes has been made by then, so a count read afterwards is final.
+func waitLaneEnded(t *testing.T, a *App) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { a.lane().wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the lane goroutine did not end")
+	}
+}
+
+// statsPostsOf returns the bodies the fake server's stats endpoint got.
+func statsPostsOf(f *fakeSignalServer) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.statsPosts...)
 }
 
 // TestRunRequestDropPromptNeverCarriesFirstName (OD-04): the first file's name

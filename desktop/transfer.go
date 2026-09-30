@@ -593,11 +593,13 @@ func (a *App) runRequestDrop(rg uint64, sc *signaling.Client, p requestPairing) 
 	}
 
 	// f. The global stats report follows the owner's switch, read at pairing
-	// (E-32): the engine skips it when statsURL is empty.
+	// (E-32): the engine skips it when statsURL is empty, and so does the
+	// lane's own report of a drop that stops after Accept (endRequestDrop).
 	statsURL := ""
 	if p.reportStats {
 		statsURL = p.server
 	}
+	d.statsURL = statsURL
 
 	// g. The receive, into the base folder until Decide accepts with the drop's
 	// own. While it runs the lane never reads sc.PeerLeft: only the channel
@@ -685,6 +687,8 @@ type requestDrop struct {
 	files   int    // the visitor's announced count, for the result
 	folder  string // the drop's own folder, "" until Accept
 	outcome string // how a prompt ended without a drop: declined, expired, left
+
+	statsURL string // the global stats endpoint read at pairing, "" with the switch off (E-32)
 
 	incoming    atomic.Bool // the first metadata reached OnIncoming
 	accepted    atomic.Bool // Accept found the channel open and made the folder
@@ -799,8 +803,9 @@ func (a *App) acceptRequestDrop(rg uint64, p requestPairing, d *requestDrop, at 
 // endRequestDrop maps how the receive ended to the lane's state (step 4). A
 // drop that was accepted ends through endDrop, whatever rg is now: done, or
 // stopped with a fixed code, and its folder removed when nothing was saved in
-// it. A pairing that made no drop reopens the room and waits again, stays
-// declined, or stops on a refusal this side sent.
+// it; a stopped one reports the bytes it saved (E-32). A pairing that made no
+// drop reopens the room and waits again, stays declined, or stops on a
+// refusal this side sent.
 func (a *App) endRequestDrop(rg uint64, sc *signaling.Client, d *requestDrop, err error) error {
 	if d.accepted.Load() && errors.Is(err, transfer.ErrSenderLeft) {
 		// The visitor left between Accept's own open check and the engine's:
@@ -822,6 +827,14 @@ func (a *App) endRequestDrop(rg uint64, sc *signaling.Client, d *requestDrop, er
 			removeEmptyDirs(d.folder) // empty folders only; anything in them stays
 		}
 		a.endDrop(rg, state, code, &res)
+		if state == "stopped" {
+			// E-32 (D-006): the files this drop saved under their final names
+			// count toward the global stats, once, from here. The engine
+			// reports only a receive that completes, so a done drop is
+			// counted already and a stopped one by nothing else. After
+			// endDrop, so a slow stats server never holds the view back.
+			transfer.ReportStats(d.statsURL, res.Bytes)
+		}
 		return err
 	}
 	if !a.requestActive(rg) {

@@ -94,6 +94,24 @@ func reportBytesToServer(serverURL string, byteCount int64) {
 	resp.Body.Close()
 }
 
+// ReportStats is the same report for a caller that counts the bytes itself.
+// It has one call site, the desktop request lane (endRequestDrop in
+// desktop/transfer.go), for a drop it accepted that stopped before it
+// completed (E-32, D-006). The lane sums FileDone.Bytes, so only files
+// committed under their final names count: never a .part, never a file whose
+// SHA-256 did not match (OnFileDone never fires for one), never an announced
+// total. No drop is counted twice: the receive loop reports only a transfer
+// that completes, when it returns nil, and the lane only one that returned an
+// error. An empty serverURL, the opt-out on every surface, posts nothing, and
+// so does a count of zero or less. Synchronous, with reportBytesToServer's
+// 5 s timeout, and errors are ignored.
+func ReportStats(serverURL string, byteCount int64) {
+	if byteCount <= 0 {
+		return
+	}
+	reportBytesToServer(serverURL, byteCount)
+}
+
 // IncomingInfo describes a transfer at the moment its first metadata arrives,
 // before any file is created, any ack is sent, or any byte lands on disk.
 type IncomingInfo struct {
