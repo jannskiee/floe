@@ -661,12 +661,21 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// The end handler's SHA-256 covers only bytes written after claimPart,
 				// so a future non-zero offset must re-hash the prefix or skip
 				// verification.
+				//
+				// confirms is this receiver's promise (FT-GO-CONFIRMS, D-144.2):
+				// it answers the last file with "received" after the commit
+				// below, or with a refusal when it keeps a file out, so a Go
+				// sender waits for that word instead of a drained buffer and a
+				// late hash-mismatch, write-failed or save-blocked is never its
+				// success. Optional and additive, so no ProtocolVersion bump:
+				// older senders and the browser ignore it.
 				ack := map[string]interface{}{
-					"type":   "ack",
-					"id":     info.ID,
-					"offset": 0,
-					"pv":     ProtocolVersion,
-					"pvMin":  MinProtocolVersion,
+					"type":     "ack",
+					"id":       info.ID,
+					"offset":   0,
+					"pv":       ProtocolVersion,
+					"pvMin":    MinProtocolVersion,
+					"confirms": true,
 				}
 				if localVer != "" {
 					ack["ver"] = localVer

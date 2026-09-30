@@ -18,7 +18,9 @@ import {
     REQUEST_ACK_GRACE_MS,
     normalizeSha256,
     verifiedCountOf,
+    ackConfirmsOf,
     SEND_FILE_HASHES,
+    type Ack,
     type Incompatible,
     type Received,
     metadataMessage,
@@ -99,6 +101,30 @@ describe('message builders round-trip', () => {
         const raw = endMessage();
         const msg = JSON.parse(raw);
         expect(msg).toMatchObject({ type: 'end' });
+    });
+});
+
+// The ack's optional confirms (FT-GO-CONFIRMS). The frame-level twins with Go
+// are the ackConfirms rows of parity.test.ts; these pin the reader itself and
+// the browser receiver's side of the promise.
+describe('ackConfirmsOf (twin of parseAckConfirms in cli/engine/transfer/sender.go)', () => {
+    const ack = (confirms: unknown) => ({ type: 'ack', id: 'a', offset: 0, confirms }) as unknown as Ack;
+
+    it('reads only the JSON literal true', () => {
+        expect(ackConfirmsOf(ack(true))).toBe(true);
+        for (const value of ['true', 1, 0, false, null, undefined, {}, [true], 'yes']) {
+            expect(ackConfirmsOf(ack(value)), JSON.stringify(value) ?? 'undefined').toBe(false);
+        }
+        expect(ackConfirmsOf({ type: 'ack', id: 'a', offset: 0 })).toBe(false);
+    });
+
+    it('is never promised by the browser receiver, which never sends received', () => {
+        // A browser ack that carried it would hold a Go sender until the close
+        // and end that send in an error over a file that arrived.
+        for (const raw of [ackMessage('xyz', 0), ackMessage('xyz', 512, 'v1.10.11')]) {
+            const msg = JSON.parse(raw) as Record<string, unknown>;
+            expect(Object.prototype.hasOwnProperty.call(msg, 'confirms')).toBe(false);
+        }
     });
 });
 

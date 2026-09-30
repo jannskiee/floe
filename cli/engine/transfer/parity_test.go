@@ -123,6 +123,23 @@ const parityTable = `
 {"decoder":"receivedVerified","name":"key-case","frame":"{\"type\":\"received\",\"Verified\":3}","go":"absent","ts":"absent"}
 {"decoder":"receivedVerified","name":"type-key-case","frame":"{\"TYPE\":\"received\",\"verified\":3}","go":"none","ts":"none"}
 {"decoder":"receivedVerified","name":"not-received","frame":"{\"type\":\"ack\",\"verified\":3}","go":"none","ts":"none"}
+{"decoder":"ackConfirms","name":"true","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":true}","go":"true","ts":"true"}
+{"decoder":"ackConfirms","name":"string-true","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":\"true\"}","go":"absent","ts":"absent"}
+{"decoder":"ackConfirms","name":"one","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":1}","go":"absent","ts":"absent"}
+{"decoder":"ackConfirms","name":"absent","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1}","go":"absent","ts":"absent"}
+{"decoder":"ackConfirms","name":"false","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":false}","go":"absent","ts":"absent"}
+{"decoder":"ackConfirms","name":"null","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":null}","go":"absent","ts":"absent"}
+{"decoder":"ackConfirms","name":"array","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":[true]}","go":"absent","ts":"absent"}
+{"decoder":"ackConfirms","name":"object","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":{}}","go":"absent","ts":"absent"}
+{"decoder":"ackConfirms","name":"spaced","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\" : true }","go":"true","ts":"true"}
+{"decoder":"ackConfirms","name":"duplicate-true-then-string","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":true,\"confirms\":\"x\"}","go":"absent","ts":"absent"}
+{"decoder":"ackConfirms","name":"duplicate-string-then-true","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":\"x\",\"confirms\":true}","go":"true","ts":"true"}
+{"decoder":"ackConfirms","name":"key-case","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"Confirms\":true}","go":"absent","ts":"absent"}
+{"decoder":"ackConfirms","name":"escaped-key","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirm\\u0073\":true}","go":"true","ts":"true"}
+{"decoder":"ackConfirms","name":"cap-exact","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":true,\"pad\":\"\"}","padTo":1000,"padChar":"x","go":"true","ts":"true"}
+{"decoder":"ackConfirms","name":"over-cap","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":true,\"pad\":\"\"}","padTo":1001,"padChar":"x","go":"none","ts":"none"}
+{"decoder":"ackConfirms","name":"type-key-case","frame":"{\"TYPE\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":true}","go":"none","ts":"none"}
+{"decoder":"ackConfirms","name":"not-ack","frame":"{\"type\":\"received\",\"confirms\":true}","go":"none","ts":"none"}
 `
 
 // PARITY-TABLE-END
@@ -228,6 +245,20 @@ func goReceivedVerifiedDecision(frame []byte) string {
 	return strconv.Itoa(verified)
 }
 
+// goAckConfirmsDecision is parseAckConfirms in the table's vocabulary: none
+// when the frame is not an ack the sender reads at all (the type by its exact
+// key, within the control cap, as the ack loop reads it), true for the
+// promise, absent for an ack without it.
+func goAckConfirmsDecision(frame []byte) string {
+	if _, typ, ok := controlFields(frame); !ok || typ != "ack" {
+		return "none"
+	}
+	if parseAckConfirms(frame) {
+		return "true"
+	}
+	return "absent"
+}
+
 func loadParityRows(t *testing.T) []parityRow {
 	t.Helper()
 	var rows []parityRow
@@ -272,6 +303,8 @@ func TestDecoderParityGoDecisions(t *testing.T) {
 			got = goEndSha256Decision([]byte(frame))
 		case "receivedVerified":
 			got = goReceivedVerifiedDecision([]byte(frame))
+		case "ackConfirms":
+			got = goAckConfirmsDecision([]byte(frame))
 		default:
 			t.Fatalf("row %s names an unknown decoder %q", row.Name, row.Decoder)
 		}

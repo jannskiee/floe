@@ -274,7 +274,12 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 	}
 	// The pump comes from the connection: see peer.Early for why registering the
 	// handler down in the transfer layer can silently lose the peer's first
-	// message on a fast path.
+	// message on a fast path. A Go receiver's word after the last file has no
+	// deadline, so an ICE failure closes the connection and ends the wait
+	// (requestconn.go).
+	quit := make(chan struct{})
+	defer close(quit)
+	watchConnFailed(conn, quit)
 	sendEarly := conn.Early()
 	if err := transfer.SendFilesWithOptions(dc, paths, version, transfer.SendOptions{
 		OnProgress: onProgress,

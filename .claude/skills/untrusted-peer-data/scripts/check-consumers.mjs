@@ -63,6 +63,7 @@ export const FIELDS = {
             'SHA256',
             'parseEnd',
             'parseReceived',
+            'parseAckConfirms',
             'FileDone',
         ],
         // Code and Saved are the optional incompatible fields; both words are
@@ -87,6 +88,7 @@ export const FIELDS = {
             'Received',
             'normalizeSha256',
             'verifiedCountOf',
+            'ackConfirmsOf',
         ],
         member: ['ver', 'reason', 'code', 'saved', 'sha256', 'verified'],
     },

@@ -10,6 +10,9 @@ package main
 
 import (
 	"bytes"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"testing"
@@ -83,4 +86,91 @@ func TestRequestDecideEndsWhenTheConnectionFails(t *testing.T) {
 		t.Fatalf("the save base holds %q after a prompt nobody answered", got)
 	}
 	waitFor(t, 5*time.Second, "request-reopen", func() bool { return f.count("request-reopen") >= 1 })
+}
+
+// TestSendAndRequestDropWatchTheConnection pins the watcher's place in both
+// of its callers: a watchConnFailed call before the engine call whose wait it
+// bounds, its quit closed by a defer. runRequestDrop's is also driven above;
+// runSend's (FT-GO-CONFIRMS step 2: the engine's wait for a Go receiver's
+// word after the last file has no deadline) is pinned only here, because a
+// Send over real pion needs a room this fake server does not pair.
+func TestSendAndRequestDropWatchTheConnection(t *testing.T) {
+	for _, c := range []struct{ fn, target string }{
+		{"runSend", "SendFilesWithOptions"},
+		{"runRequestDrop", "ReceiveFilesWithOptions"},
+	} {
+		watchAt, targetAt, quitDeferred := watcherShape(t, "transfer.go", c.fn, "watchConnFailed", c.target)
+		switch {
+		case !watchAt.IsValid():
+			t.Errorf("%s never calls watchConnFailed: an ICE failure would leave %s's wait open", c.fn, c.target)
+		case !targetAt.IsValid():
+			t.Errorf("%s no longer calls %s; re-anchor this test", c.fn, c.target)
+		case watchAt > targetAt:
+			t.Errorf("%s calls watchConnFailed after %s, when the wait it bounds is already over", c.fn, c.target)
+		case !quitDeferred:
+			t.Errorf("watchConnFailed's quit is not closed by a defer in %s, so the watch could outlive it", c.fn)
+		}
+	}
+}
+
+// watcherShape finds, in the function or method fn of file, the first call
+// to watcher and the first call to target (by the called name, qualified or
+// not), and whether a `defer close(x)` in fn closes the watcher call's last
+// argument. The twin of cli/cmd/floe's helper of the same name.
+func watcherShape(t *testing.T, file, fn, watcher, target string) (watchAt, targetAt token.Pos, quitDeferred bool) {
+	t.Helper()
+	f, err := parser.ParseFile(token.NewFileSet(), file, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := func(call *ast.CallExpr) string {
+		switch fun := call.Fun.(type) {
+		case *ast.Ident:
+			return fun.Name
+		case *ast.SelectorExpr:
+			return fun.Sel.Name
+		}
+		return ""
+	}
+	for _, decl := range f.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok || fd.Name.Name != fn || fd.Body == nil {
+			continue
+		}
+		var quit string
+		var closed []string
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.DeferStmt:
+				if called(n.Call) == "close" && len(n.Call.Args) == 1 {
+					if id, ok := n.Call.Args[0].(*ast.Ident); ok {
+						closed = append(closed, id.Name)
+					}
+				}
+			case *ast.CallExpr:
+				switch called(n) {
+				case watcher:
+					if !watchAt.IsValid() {
+						watchAt = n.Pos()
+						if len(n.Args) > 0 {
+							if last, ok := n.Args[len(n.Args)-1].(*ast.Ident); ok {
+								quit = last.Name
+							}
+						}
+					}
+				case target:
+					if !targetAt.IsValid() {
+						targetAt = n.Pos()
+					}
+				}
+			}
+			return true
+		})
+		for _, name := range closed {
+			quitDeferred = quitDeferred || (quit != "" && name == quit)
+		}
+		return watchAt, targetAt, quitDeferred
+	}
+	t.Fatalf("%s has no function %s; re-anchor this test", file, fn)
+	return
 }

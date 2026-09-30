@@ -636,3 +636,51 @@ func FuzzParseReceived(f *testing.F) {
 		}
 	})
 }
+
+func parseAckConfirmsSeeds() []fuzzSeed {
+	ack := func(fields string) []byte {
+		return []byte(`{"type":"ack","id":"x","offset":0,"pv":1,"pvMin":1` + fields + `}`)
+	}
+	return []fuzzSeed{
+		{name: "confirms-true", data: ack(`,"confirms":true`)},
+		{name: "confirms-absent", data: ack(``)},
+		{name: "confirms-false", data: ack(`,"confirms":false`)},
+		{name: "confirms-string", data: ack(`,"confirms":"true"`)},
+		{name: "confirms-one", data: ack(`,"confirms":1`)},
+		{name: "confirms-null", data: ack(`,"confirms":null`)},
+		{name: "confirms-spaced", data: ack(`,"confirms" : true `)},
+		{name: "confirms-key-case", data: ack(`,"Confirms":true`)},
+		{name: "confirms-escaped-key", data: ack(`,"confirm\u0073":true`)},
+		{name: "confirms-duplicate-last-false", data: ack(`,"confirms":true,"confirms":false`)},
+		{name: "confirms-duplicate-last-true", data: ack(`,"confirms":"x","confirms":true`)},
+		{name: "received-with-confirms", data: []byte(`{"type":"received","confirms":true}`)},
+		{name: "over-cap", data: ack(`,"confirms":true,"pad":"` + strings.Repeat("p", controlMsgMax) + `"`)},
+		{name: "not-json", data: []byte(`{"type":"ack","confirms":true`)},
+	}
+}
+
+// FuzzParseAckConfirms (DV-FUZZ, with FT-GO-CONFIRMS step 2): never panics,
+// and holds exactly when an independent decode finds a frame within
+// controlMsgMax whose "type" is "ack" and whose "confirms" key, by its exact
+// name and last occurrence, is the JSON literal true. Nothing else in the
+// frame changes the answer.
+func FuzzParseAckConfirms(f *testing.F) {
+	addSeeds(f, "FuzzParseAckConfirms", parseAckConfirmsSeeds(), true)
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		got := parseAckConfirms(raw)
+		// Independent decode.
+		want := false
+		var fields map[string]json.RawMessage
+		if len(raw) <= controlMsgMax && json.Unmarshal(raw, &fields) == nil {
+			var typ string
+			var promise bool
+			if json.Unmarshal(fields["type"], &typ) == nil && typ == "ack" {
+				lit := fields["confirms"]
+				want = len(lit) > 0 && lit[0] == 't' && json.Unmarshal(lit, &promise) == nil && promise
+			}
+		}
+		if got != want {
+			t.Fatalf("parseAckConfirms(%q) = %v; an independent decode says %v", raw, got, want)
+		}
+	})
+}

@@ -33,6 +33,15 @@ The map names where a value is stated; grep the old literal repo-wide before fin
 - Tests: the `endSha256` and `receivedVerified` rows of the parity table (cli/engine/transfer/parity_test.go and client/lib/transfer/parity.test.ts), cli/engine/transfer/hash_test.go.
 - Docs: docs/reference/transfer-protocol.mdx "Integrity" and the `end` and `received` field tables, docs/how-it-works/known-limitations.mdx, docs/how-it-works/encryption.mdx, docs/cli/receive.mdx (the summary example and the byte-count sentence), docs/cli/send.mdx (the Verified row paragraph under the Sent box), CLAUDE.md "Transfer Protocol Versioning", the Store What's new draft.
 
+## Delivery confirmation (the ack's confirms)
+
+- The ack map in `ReceiveFilesWithOptions` (cli/engine/transfer/receiver.go) sets `confirms: true` on every Go receiver's ack; `parseAckConfirms` (sender.go) reads it from the first file's ack, by its exact key and as the literal `true` only, and `SendFilesWithOptions` then runs the delivery wait as `SendOptions.RequireReceived` does: success only on `received`, a refusal returns its `*PeerStoppedError`, and a close returns `ErrClosedBeforeReceived`. Without the field (browser receivers, Go receivers before FT-GO-CONFIRMS step 2) the wait still ends in success at a drained buffer. Additive and optional: `ProtocolVersion` stays.
+- `ackConfirmsOf` and `Ack.confirms` (client/lib/transfer/protocol.ts) are the browser twin; the browser sender does not act on it, and the browser receiver's `ackMessage` never sets it (it never sends `received`).
+- The wait has no deadline of its own. Its bound is `peer.Connection.Failed` (cli/engine/peer/connection.go: closed once on the failed state, about 30 s after the last packet, never on disconnected), watched by `closeOnFailed` (cli/cmd/floe/connfailed.go) in floe send's `runSend` and by `watchConnFailed` (desktop/requestconn.go) in the desktop's `runSend`. A receiver that keeps its connection alive and never answers holds a send until the person cancels.
+- What a person sees: floe send prints the error's own text (`ErrClosedBeforeReceived`, "the connection closed before the receiver confirmed delivery", or the refusal's `PeerStoppedError` sentence); the desktop maps the close through errors.ts's `connection closed` rule to its lost-connection line.
+- Tests: the `ackConfirms` rows of the parity table (cli/engine/transfer/parity_test.go and client/lib/transfer/parity.test.ts), `FuzzParseAckConfirms`, the confirms tests and `TestPlainSendWithoutConfirmsEndsAtDrain` in cli/engine/transfer/requirereceived_test.go, the ackConfirmsOf block of client/lib/transfer/protocol.test.ts.
+- Docs: docs/reference/transfer-protocol.mdx (the "The end of a batch is a race, not a message." bullet, the `ack` example and fields, the `received` section), docs/troubleshooting.mdx (no heading yet for the ErrClosedBeforeReceived text), CLAUDE.md "Transfer Protocol Versioning".
+
 ## Deployed commit
 
 - `GET` in client/app/api/config/route.ts: `commit` is `VERCEL_GIT_COMMIT_SHA`, then `SOURCE_COMMIT`, else `null`, with an empty value counting as unset; `socketUrl` is unchanged.
