@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"go/ast"
 	"go/parser"
+	"go/printer"
 	"go/token"
 	"os"
 	"path/filepath"
@@ -130,14 +131,17 @@ func TestRequestDecideEndsWhenTheConnectionFails(t *testing.T) {
 
 // TestSendAndRequestDropWatchTheConnection pins the watcher's place in both
 // of its callers: a watchConnFailed call before the engine call whose wait it
-// bounds, its quit closed by a defer. runRequestDrop's is also driven above;
-// runSend's (FT-GO-CONFIRMS step 2: the engine's wait for a Go receiver's
-// word after the last file has no deadline) is pinned only here, because a
-// Send over real pion needs a room this fake server does not pair.
+// bounds, its quit closed by a defer, and the channel each hands over, the
+// drop its seam and Send its connection's own Failed, so a test that fires the
+// drop's seam can never close a Send's connection (review B-1 N3).
+// runRequestDrop's watch is also driven above; runSend's (FT-GO-CONFIRMS step
+// 2: the engine's wait for a Go receiver's word after the last file has no
+// deadline) is pinned only here, because a Send over real pion needs a room
+// this fake server does not pair.
 func TestSendAndRequestDropWatchTheConnection(t *testing.T) {
-	for _, c := range []struct{ fn, target string }{
-		{"runSend", "SendFilesWithOptions"},
-		{"runRequestDrop", "ReceiveFilesWithOptions"},
+	for _, c := range []struct{ fn, failed, target string }{
+		{"runSend", "conn.Failed()", "SendFilesWithOptions"},
+		{"runRequestDrop", "requestConnFailed(conn)", "ReceiveFilesWithOptions"},
 	} {
 		watchAt, targetAt, quitDeferred := watcherShape(t, "transfer.go", c.fn, "watchConnFailed", c.target)
 		switch {
@@ -150,7 +154,45 @@ func TestSendAndRequestDropWatchTheConnection(t *testing.T) {
 		case !quitDeferred:
 			t.Errorf("watchConnFailed's quit is not closed by a defer in %s, so the watch could outlive it", c.fn)
 		}
+		if got := watchedChannel(t, "transfer.go", c.fn, "watchConnFailed"); got != c.failed {
+			t.Errorf("%s hands watchConnFailed %q to watch, want %q", c.fn, got, c.failed)
+		}
 	}
+}
+
+// watchedChannel renders the channel argument, the second of three, of the
+// first call to watcher in the function or method fn of file, or "" when
+// there is no such call.
+func watchedChannel(t *testing.T, file, fn, watcher string) string {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, file, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, decl := range f.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok || fd.Name.Name != fn || fd.Body == nil {
+			continue
+		}
+		var out string
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || out != "" {
+				return out == ""
+			}
+			if id, ok := call.Fun.(*ast.Ident); ok && id.Name == watcher && len(call.Args) == 3 {
+				var b bytes.Buffer
+				if printer.Fprint(&b, fset, call.Args[1]) == nil {
+					out = b.String()
+				}
+			}
+			return true
+		})
+		return out
+	}
+	t.Fatalf("%s has no function %s; re-anchor this test", file, fn)
+	return ""
 }
 
 // watcherShape finds, in the function or method fn of file, the first call

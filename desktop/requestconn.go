@@ -8,11 +8,16 @@ package main
 
 import "github.com/jannskiee/floe/cli/engine/peer"
 
-// requestConnFailed is the connection's peer.Connection.Failed, a package var
-// only so a test can fire the failure without waiting out ICE.
+// requestConnFailed is a request drop's peer.Connection.Failed, a package var
+// only so the drop tests can fire the failure without waiting out ICE. It is
+// the drop's alone: runSend hands watchConnFailed its connection's own
+// channel, so a test that fires this seam can never close a Send's connection
+// (review B-1 N3).
 var requestConnFailed = func(c *peer.Connection) <-chan struct{} { return c.Failed() }
 
-// watchConnFailed closes conn when ICE gives up on its path, until quit.
+// watchConnFailed closes conn when failed closes, which is when ICE gives up on
+// its path, until quit. The caller hands over the channel to watch:
+// runRequestDrop passes requestConnFailed(conn), runSend conn.Failed().
 //
 // A visitor whose tab was closed, crashed or discarded, or whose network went
 // away, sends no close this side can hear, and while a drop runs the lane
@@ -29,10 +34,9 @@ var requestConnFailed = func(c *peer.Connection) <-chan struct{} { return c.Fail
 // its own, so the close ends it with ErrClosedBeforeReceived, which errors.ts
 // shows as the lost-connection line.
 //
-// The seam is read here, on the caller's goroutine, and the watch runs on its
-// own, which returns on quit.
-func watchConnFailed(conn *peer.Connection, quit <-chan struct{}) {
-	failed := requestConnFailed(conn)
+// The channel is taken as an argument, on the caller's goroutine, and the watch
+// runs on its own, which returns on quit.
+func watchConnFailed(conn *peer.Connection, failed, quit <-chan struct{}) {
 	go func() {
 		select {
 		case <-failed:
