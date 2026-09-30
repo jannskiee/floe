@@ -1,14 +1,16 @@
 'use strict';
 
 // Unit tests for server logic, all in this process. Only 'room seal over both
-// transports' touches the network: it binds an ephemeral 127.0.0.1 port to
-// drive the real connection handlers, and closes it when it is done.
+// transports' and 'CORS refusal over HTTP' touch the network: each binds an
+// ephemeral 127.0.0.1 port to drive the real handlers, and closes it when it is
+// done.
 // Uses Node's built-in test runner (node:test), available from Node 18+.
 // Run with: npm test
 
 const { describe, it, before, beforeEach, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { createHash, randomUUID } = require('node:crypto');
+const http = require('node:http');
 const WebSocket = require('ws');
 
 const {
@@ -1512,12 +1514,49 @@ describe('errorHandler', () => {
     });
 
     it('reports anything without a usable status as a 500', () => {
-        for (const err of [new Error('Not allowed by CORS'), null, undefined, 'a string', { status: 99 }, { status: 700 }]) {
+        for (const err of [new Error('no status'), null, undefined, 'a string', { status: 99 }, { status: 700 }]) {
             const res = fakeRes();
             errorHandler(err, {}, res, () => {});
             assert.equal(res.statusCode, 500, `unexpected status for ${JSON.stringify(err)}`);
             assert.deepEqual(res.body, { error: 'Internal server error' });
         }
+    });
+
+    // Every console.error call errorHandler makes, by its arguments.
+    function logOf(err) {
+        const calls = [];
+        const silenced = console.error;
+        console.error = (...args) => { calls.push(args); };
+        try {
+            errorHandler(err, {}, fakeRes(), () => {});
+        } finally {
+            console.error = silenced;
+        }
+        return calls;
+    }
+
+    it('logs a client error as one fixed line, with no stack and no request text', () => {
+        // The message V8 really gives JSON.parse('FORGED\nline two'): body-parser's
+        // 400 carries the request body, newline and all, in both message and stack.
+        const err = malformedBodyError();
+        err.message = 'Unexpected token \'F\', "FORGED\nline two" is not valid JSON';
+        err.stack = `SyntaxError: ${err.message}\n    at JSON.parse (<anonymous>)`;
+
+        const calls = logOf(err);
+        assert.deepEqual(calls, [['Refused a request with 400.']]);
+    });
+
+    it('logs a server error with its stack, as it always has', () => {
+        const err = new Error('boom');
+        assert.deepEqual(logOf(err), [[err.stack]]);
+
+        const tagged = new Error('upstream down');
+        tagged.status = 502;
+        assert.deepEqual(logOf(tagged), [[tagged.stack]]);
+
+        // Nothing to take a stack from: logged as it came.
+        assert.deepEqual(logOf('a string'), [['a string']]);
+        assert.deepEqual(logOf(null), [[null]]);
     });
 
     it('does not write once headers are already flushed', () => {
@@ -1526,6 +1565,76 @@ describe('errorHandler', () => {
         errorHandler(malformedBodyError(), {}, res, () => {});
         assert.equal(res.statusCode, 200, 'must not touch the status mid-response');
         assert.equal(res.body, null, 'must not append a second body');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// The CORS refusal through the real middleware chain
+// ---------------------------------------------------------------------------
+
+describe('CORS refusal over HTTP', () => {
+    // cors hands its refusal to errorHandler, so only the whole chain shows what
+    // a foreign origin gets back and what it costs the log. Loopback, ephemeral
+    // port, closed when done, like 'room seal over both transports'.
+    let port;
+
+    before(async () => {
+        await new Promise((resolve, reject) => {
+            server.once('error', reject);
+            server.listen(0, '127.0.0.1', () => { server.off('error', reject); resolve(); });
+        });
+        port = server.address().port;
+    });
+
+    after(async () => {
+        await new Promise((resolve) => server.close(resolve));
+    });
+
+    function get(path, headers) {
+        return new Promise((resolve, reject) => {
+            const req = http.get({ host: '127.0.0.1', port, path, headers, agent: false }, (res) => {
+                let body = '';
+                res.setEncoding('utf8');
+                res.on('data', (chunk) => { body += chunk; });
+                res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }));
+            });
+            req.on('error', reject);
+        });
+    }
+
+    // The request's answer and every line it put on the console, whichever
+    // method wrote it: a stack is one call but many lines, so lines are counted.
+    async function withLog(fn) {
+        const names = ['error', 'warn', 'log', 'info'];
+        const saved = names.map((name) => console[name]);
+        const lines = [];
+        for (const name of names) {
+            console[name] = (...args) => { lines.push(...args.map(String).join(' ').split('\n')); };
+        }
+        try {
+            return { answer: await fn(), lines };
+        } finally {
+            names.forEach((name, i) => { console[name] = saved[i]; });
+        }
+    }
+
+    it('a CORS refusal answers 403 with the generic body and logs one line, no stack', async () => {
+        const { answer, lines } = await withLog(() => get('/health', { Origin: 'https://foreign-origin.example' }));
+
+        assert.equal(answer.status, 403);
+        assert.match(answer.headers['content-type'], /^application\/json/);
+        assert.deepEqual(JSON.parse(answer.body), { error: 'Bad request' });
+        assert.equal(answer.headers['access-control-allow-origin'], undefined, 'a refused origin must not be granted');
+
+        assert.deepEqual(lines, ['Refused a request with 403.']);
+    });
+
+    it('an allowed origin still gets through, granted and unlogged', async () => {
+        const { answer, lines } = await withLog(() => get('/health', { Origin: 'http://localhost:3000' }));
+
+        assert.equal(answer.status, 200);
+        assert.equal(answer.headers['access-control-allow-origin'], 'http://localhost:3000');
+        assert.deepEqual(lines, []);
     });
 });
 
