@@ -135,3 +135,79 @@ Credentials are minted from Cloudflare and then **cached in memory for 5 minutes
 The signaling server generates time-limited credentials using HMAC-SHA1. The username is `{expiry_unix_timestamp}:floeuser` and the password is `base64(HMAC-SHA1(TURN_SECRET, username))`. coturn validates these against the shared secret without needing a database of user accounts.
 
 Relayed transfers stay capped at 2 GB per session even on a relay you run yourself. The cap is compiled into the browser client, the CLI, and the desktop app, not read from your server, so raising it means building all three from modified source. Direct connections are unaffected and have no size limit. See [File size limits](/how-it-works/2gb-limit).
+
+## Operating a relay
+
+Everything in this section is for managed Cloudflare TURN except the last part, which is for
+coturn.
+
+### Set a budget alert
+
+Cloudflare can email you when your spending crosses a dollar amount you set. In the Cloudflare
+dashboard, go to **Manage Account > Billing > Billable Usage** and select **Create budget alert**.
+Cloudflare's [budget alerts documentation](https://developers.cloudflare.com/billing/manage/budget-alerts/)
+has the details. Know its limits before you rely on it:
+
+- It is account-wide. It adds up the usage-based spending of all your Cloudflare products, not the
+  relay alone.
+- It is available on Pay-as-you-go accounts only.
+- It is informational and does not cap spending. The relay keeps carrying traffic after the email
+  arrives.
+- It is not real time. Cloudflare processes usage once a day, so the email comes the day after your
+  spending crosses the amount.
+
+### See usage per username
+
+Cloudflare reports TURN usage per credential username, but only through its GraphQL analytics API.
+Its [TURN analytics documentation](https://developers.cloudflare.com/realtime/turn/analytics/)
+covers the metrics, the `username` dimension and filter, and the API token permission a query
+needs.
+
+A username stands for one issuance, not one person. The server mints Cloudflare credentials at most
+once every 5 minutes, and every client that fetches them between two mints gets the same username.
+See [the relay credentials reference](/reference/http-api#relay-credentials) for how long each set
+lasts and how the server caches it.
+
+### Revoke a credential that leaked once
+
+When a single credential has leaked, for example in a pasted log or a screenshot, revoke its
+username:
+
+```bash Terminal
+curl --request POST \
+  "https://rtc.live.cloudflare.com/v1/turn/keys/<KEY_ID>/credentials/<username>/revoke" \
+  --header "Authorization: Bearer <API_TOKEN>"
+```
+
+Replace `<KEY_ID>` and `<API_TOKEN>` with your `CLOUDFLARE_TURN_KEY_ID` and
+`CLOUDFLARE_TURN_KEY_API_TOKEN` values, and `<username>` with the `username` of the leaked entry.
+Cloudflare answers `204` when the credential is revoked; see its
+[revoke documentation](https://developers.cloudflare.com/realtime/turn/generate-credentials/#revoke-credentials).
+
+Every client that fetched credentials while that username was current holds the same one, so
+revoking it revokes theirs too. If `/api/turn-credentials` still returns the username you revoked,
+restart the server (`docker compose restart server`) so it mints a new one at once.
+
+### Rotate the key
+
+Revoking handles a credential that leaked once. Key rotation handles a harvester (someone collecting
+credentials in bulk) and a leaked API token, which revoking cannot touch at all:
+
+1. Create a new TURN key in the Cloudflare dashboard, the same way as in
+   [the managed TURN setup](#managed-turn-via-cloudflare-recommended).
+2. Put its ID and token in `.env` and run `docker compose up -d` (without Docker, restart the
+   server). The server starts minting with the new key at once. A plain `docker compose restart`
+   does not apply a changed `.env`.
+3. Delete the old key, so nothing more can be minted with it.
+
+Plan on credentials already issued keeping their own lifetime, which is 24 hours from minting for
+every one this server mints. Rotation also leaves your server handing out credentials, now minted
+with the new key, so if someone is still fetching them in bulk, block that source as well, for
+example at your reverse proxy or firewall.
+
+### If you run coturn
+
+<Warning>
+  The coturn setup copies the example file once. Later changes to `coturn/turnserver.conf.example`
+  never reach a `coturn/turnserver.conf` that already exists.
+</Warning>
