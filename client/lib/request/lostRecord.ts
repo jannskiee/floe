@@ -76,6 +76,24 @@ export function recordLost(store: LostStore | null, arrived: number, total: numb
     }
 }
 
+/** What the page does to the record after a dispatch (RequestVisitor.tsx
+ *  syncLost), with the key it keeps of the last write. */
+export type LostSync =
+    | { op: 'keep'; written: string | null }
+    | { op: 'write'; written: string; counts: LostCounts }
+    | { op: 'clear'; written: null };
+
+/** One step of the page's record keeping, pure: from the key the page last
+ *  wrote ("arrived/total", or null while it holds none) and the counts the
+ *  model calls for now (lostRecordOf), what to do to storage. Storage changes
+ *  only when the record does: a progress tick keeps it, each later ack
+ *  rewrites it, and an ending, or a fragment naming another room, clears it. */
+export function lostSyncStep(written: string | null, counts: LostCounts | null): LostSync {
+    if (!counts) return written === null ? { op: 'keep', written } : { op: 'clear', written: null };
+    const next = `${counts.arrived}/${counts.total}`;
+    return next === written ? { op: 'keep', written } : { op: 'write', written: next, counts };
+}
+
 /** Remove the record. */
 export function clearLost(store: LostStore | null): void {
     if (!store) return;

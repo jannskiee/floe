@@ -44,7 +44,7 @@ import {
     type VisitorEvent,
     type VisitorModel,
 } from '@/lib/request/visitorState';
-import { clearLost, recordLost, sessionStore, takeLost } from '@/lib/request/lostRecord';
+import { clearLost, lostSyncStep, recordLost, sessionStore, takeLost } from '@/lib/request/lostRecord';
 import { createAttemptGate } from '@/lib/request/attempt';
 import { createFlushTracker } from '@/lib/request/flushes';
 import { deliveredBytes, dropEtaSeconds, dropPercent, etaAdvice } from '@/lib/request/eta';
@@ -175,16 +175,15 @@ function createVisitorController(deps: ControllerDeps) {
     /** The tab's discard record, kept in step with the model: written as each
      *  ack lands in Sending (V10), cleared in every other state, which covers
      *  the V6 a startAttempt enters and every ending, and cleared when the
-     *  fragment names another room. Storage is touched only when the record
-     *  changes, never on a progress tick. The load has already taken any record
-     *  an earlier page left (takeLost), so this page's own is the only one. */
+     *  fragment names another room. The rule is lostSyncStep's (pure, unit
+     *  tested); storage is touched only when the record changes, never on a
+     *  progress tick. The load has already taken any record an earlier page
+     *  left (takeLost), so this page's own is the only one. */
     function syncLost() {
-        const counts = lostRecordOf(model, fragmentRoom);
-        const next = counts ? `${counts.arrived}/${counts.total}` : null;
-        if (next === lostWritten) return;
-        lostWritten = next;
-        if (counts) recordLost(sessionStore(), counts.arrived, counts.total);
-        else clearLost(sessionStore());
+        const step = lostSyncStep(lostWritten, lostRecordOf(model, fragmentRoom));
+        lostWritten = step.written;
+        if (step.op === 'write') recordLost(sessionStore(), step.counts.arrived, step.counts.total);
+        else if (step.op === 'clear') clearLost(sessionStore());
     }
 
     /** Dispatch only while `a` is the live attempt. */
@@ -630,6 +629,9 @@ export function RequestVisitor() {
         // The reducer takes them from Ready alone, so an incomplete link or an
         // unsupported browser keeps its own card. Both dispatches land in one
         // render, so the Lost card has no Ready frame before it.
+        // wasDiscarded belongs to the document, not the route; it is this
+        // page's own only because /r is always entered by a document load (a
+        // capability URL, plain anchors only), so keep it that way.
         const lost = takeLost(sessionStore(), (document as Document & { wasDiscarded?: boolean }).wasDiscarded === true);
         controller.dispatch(link);
         if (lost) controller.dispatch({ type: 'RESTORE_LOST', arrived: lost.arrived, total: lost.total });

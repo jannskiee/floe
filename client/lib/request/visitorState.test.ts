@@ -14,6 +14,7 @@ import {
     type VisitorState,
 } from './visitorState';
 import { announcement, statusCopy, type StatusContext } from './visitorCopy';
+import { lostSyncStep } from './lostRecord';
 import { RELAY_SIZE_LIMIT } from '../relay';
 import {
     ANSWER_WINDOW_MS,
@@ -677,6 +678,50 @@ describe("visitor state: a discarded tab's reload (FT-R-DISCARD)", () => {
         expect(lostRecordOf(modelIn('V10'), OTHER_ROOM)).toBeNull();
         expect(lostRecordOf(modelIn('V10'), null)).toBeNull();
         expect(lostRecordOf(modelIn('V10', { roomId: null }), null)).toBeNull();
+    });
+
+    it('the record follows each ack, keeps on a progress tick, and clears on a room change and at the end', () => {
+        // The page's syncLost, step by step (review 1 F1): lostRecordOf for the
+        // model and the fragment, then lostSyncStep against the key last written.
+        let model = modelIn('V10', { ackIndex: 1 });
+        let fragment: string | null = ROOM;
+        let written: string | null = null;
+        const ops: string[] = [];
+        const sync = () => {
+            const s = lostSyncStep(written, lostRecordOf(model, fragment));
+            written = s.written;
+            ops.push(s.op === 'write' ? `write ${s.written}` : s.op);
+        };
+        const on = (event: VisitorEvent) => {
+            if (event.type === 'HASHCHANGE') fragment = event.roomId;
+            model = step(model, event).model;
+            sync();
+        };
+        sync(); // Sending at the first ack: 0 of 3
+        on({ type: 'ACK', index: 2, now: 1 });
+        on({ type: 'PROGRESS', percent: 40 });
+        on({ type: 'HASHCHANGE', roomId: OTHER_ROOM });
+        on({ type: 'HASHCHANGE', roomId: ROOM });
+        on({ type: 'ACK', index: 3, now: 2 });
+        on({ type: 'RECEIVED', now: 3 });
+        expect(ops).toEqual(['write 0/3', 'write 1/3', 'keep', 'clear', 'write 1/3', 'write 2/3', 'clear']);
+    });
+
+    it('every way out of Sending clears the record', () => {
+        const endings: VisitorEvent[] = [
+            { type: 'RECEIVED', now: 1 },
+            { type: 'CANCEL' },
+            { type: 'INCOMPATIBLE', refusal: 'over-approved', savedCount: 1, rangeOverlaps: true },
+            { type: 'UNREADABLE', index: 2 },
+            { type: 'ACK_TIMEOUT', index: 3 },
+            { type: 'CHANNEL_CLOSED' },
+            { type: 'SEND_SETTLED_SILENT' },
+        ];
+        for (const ending of endings) {
+            const after = step(modelIn('V10', { ackIndex: 2 }), ending).model;
+            expect(after.state, ending.type).not.toBe('V10');
+            expect(lostSyncStep('1/3', lostRecordOf(after, ROOM)), ending.type).toEqual({ op: 'clear', written: null });
+        }
     });
 });
 

@@ -1,5 +1,14 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { LOST_KEY, clearLost, isLostPair, recordLost, sessionStore, takeLost, type LostStore } from './lostRecord';
+import {
+    LOST_KEY,
+    clearLost,
+    isLostPair,
+    lostSyncStep,
+    recordLost,
+    sessionStore,
+    takeLost,
+    type LostStore,
+} from './lostRecord';
 import { MAX_REQUEST_FILES } from './constants';
 
 // The discarded tab's record (FT-R-DISCARD, F-G4-M01, D-142): two integers
@@ -152,6 +161,26 @@ describe('the discard record', () => {
         const stuck: LostStore = { ...store, removeItem: throwing.removeItem };
         expect(takeLost(stuck, false)).toBeNull();
         expect(takeLost(stuck, true)).toEqual({ arrived: 1, total: 2 });
+    });
+});
+
+describe('lostSyncStep', () => {
+    it('writes a new pair, keeps the same pair, and clears when the model calls for none', () => {
+        expect(lostSyncStep(null, { arrived: 0, total: 3 })).toEqual({
+            op: 'write',
+            written: '0/3',
+            counts: { arrived: 0, total: 3 },
+        });
+        expect(lostSyncStep('0/3', { arrived: 0, total: 3 })).toEqual({ op: 'keep', written: '0/3' });
+        // A later ack rewrites the counts: the written key follows them.
+        expect(lostSyncStep('0/3', { arrived: 1, total: 3 })).toEqual({
+            op: 'write',
+            written: '1/3',
+            counts: { arrived: 1, total: 3 },
+        });
+        expect(lostSyncStep('1/3', null)).toEqual({ op: 'clear', written: null });
+        // Nothing written and nothing called for: storage is not touched.
+        expect(lostSyncStep(null, null)).toEqual({ op: 'keep', written: null });
     });
 });
 
