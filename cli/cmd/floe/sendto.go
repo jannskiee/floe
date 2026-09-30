@@ -459,8 +459,10 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 
 // sendToOptions is the one place the send's engine options are made: the
 // visitor's ack clock, success only on the host's received, no summary box
-// (TL-03 replaces it), the stop Ctrl+C closes, the ack callback that tracks
-// the phase, and the connection's own pump (see peer.Early).
+// (TL-03 replaces it), the stop Ctrl+C closes, a bar line ended before an
+// outcome that lands mid-file (the copy draws TL-16 to TL-26's saved forms
+// and TL-27 on lines of their own), the ack callback that tracks the phase,
+// and the connection's own pump (see peer.Early).
 func sendToOptions(early *peer.Early, stop <-chan struct{}, onAck func(int), onDelivered func(transfer.Delivered)) transfer.SendOptions {
 	return transfer.SendOptions{
 		Messages:        early.Msgs,
@@ -469,6 +471,7 @@ func sendToOptions(early *peer.Early, stop <-chan struct{}, onAck func(int), onD
 		RequireReceived: true,
 		NoSummary:       true,
 		Stop:            stop,
+		EndBarLine:      true,
 		OnAck:           onAck,
 		OnDelivered:     onDelivered,
 	}

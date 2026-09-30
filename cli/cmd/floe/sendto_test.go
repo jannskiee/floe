@@ -1317,8 +1317,8 @@ func TestSendToAckTimeoutIsVisitorAckPlusGrace(t *testing.T) {
 	stop := make(chan struct{})
 	opts := sendToOptions(early, stop, nil, nil)
 	if opts.AckTimeout != sendToAckTimeout || !opts.RequireReceived || !opts.NoSummary ||
-		opts.Messages != early.Msgs || opts.Closed != early.Closed || opts.Stop != (<-chan struct{})(stop) {
-		t.Fatalf("sendToOptions = %+v; want the visitor's clock, RequireReceived, NoSummary, Ctrl+C's stop and the connection's pump", opts)
+		opts.Messages != early.Msgs || opts.Closed != early.Closed || opts.Stop != (<-chan struct{})(stop) || !opts.EndBarLine {
+		t.Fatalf("sendToOptions = %+v; want the visitor's clock, RequireReceived, NoSummary, Ctrl+C's stop, EndBarLine and the connection's pump", opts)
 	}
 	src, err := os.ReadFile("sendto.go")
 	if err != nil {
