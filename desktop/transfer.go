@@ -599,6 +599,7 @@ func (a *App) runRequestDrop(rg uint64, sc *signaling.Client, p requestPairing) 
 	// closing or the receive returning ends the drop (spec 06 4.17).
 	quit := make(chan struct{})
 	defer close(quit)
+	watchConnFailed(conn, quit) // a visitor that vanished: see requestconn.go
 	early := conn.Early()
 	msgs, closed := watchAbortFrames(early.Msgs, early.Closed, quit, &d.peerAbort)
 	opts := transfer.ReceiveOptions{
