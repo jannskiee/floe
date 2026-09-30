@@ -23,7 +23,9 @@ import { after, test } from 'node:test';
 import {
     main,
     parseWslList,
+    exesUnderTest,
     prepareHarnessBuild,
+    probeFirewall,
     prepareWslBuild,
     probeServerFeatures,
     probeWsl,
@@ -1117,6 +1119,142 @@ test('probe subcommand: P10 prints the features line, keeps them in probe.json a
     const row = probe.versions.rows.find((r) => r.surface === 'Server features');
     assert.equal(row.status, 'INFO');
     assert.equal(row.installed, 'request-1');
+});
+
+// S1-REL-03a harness fix 13: the firewall probe read only the rules under
+// --bin-dir, so a Block rule on an exe under test outside it went unreported
+// (the baseline blamed the Store exe for Blocks that sat on temp copies).
+const STORE_EXE =
+    'C:\\Program Files\\WindowsApps\\JanCarloParedes.FloeDesktop_1.2.12.0_x64__r1y5w9chaxnzc\\floe-desktop.exe';
+
+test('probeFirewall reads the rules of every exe under test and names each inbound Block by path, read only (fix 13)', () => {
+    const cmds = [];
+    const exec = (cmd, args) => {
+        cmds.push({ cmd, script: args[args.length - 1] });
+        return JSON.stringify([
+            { Program: STORE_EXE, DisplayName: 'floe-desktop.exe', Direction: 1, Action: 4, Enabled: 1 },
+            { Program: STORE_EXE, DisplayName: 'floe-desktop.exe out', Direction: 2, Action: 4, Enabled: 1 },
+            { Program: 'C:\\bin\\floe.exe', DisplayName: 'floe', Direction: 1, Action: 2, Enabled: 1 },
+            { Program: 'C:\\head\\floe-desktop.exe', DisplayName: 'old', Direction: 'Inbound', Action: 'Block', Enabled: 'False' },
+        ]);
+    };
+    const r = probeFirewall(exec, 'C:\\bin', {
+        platform: 'win32',
+        exes: [
+            { role: 'desktop (store)', path: STORE_EXE },
+            { role: 'cli', path: 'C:\\bin\\floe.exe' },
+            { role: 'desktop (head)', path: 'C:\\head\\floe-desktop.exe' },
+            { role: 'desktop (head)', path: 'c:\\HEAD\\floe-desktop.exe' },
+        ],
+    });
+    assert.equal(cmds.length, 1, 'one PowerShell read');
+    assert.equal(cmds[0].cmd, 'powershell.exe');
+    assert.ok(cmds[0].script.includes(STORE_EXE), 'the Store exe is in the filter');
+    assert.ok(cmds[0].script.includes("-like 'C:\\bin*'"), 'the --bin-dir prefix is still read');
+    assert.ok(
+        !/(Set|New|Remove|Enable|Disable|Copy|Rename)-NetFirewall/i.test(cmds[0].script),
+        'the probe only reads rules'
+    );
+    // Only the enabled inbound Block counts; the outbound one and the
+    // disabled one are not blocks on the exe under test.
+    assert.deepEqual(r.blocks, [
+        { role: 'desktop (store)', program: STORE_EXE, rule: 'floe-desktop.exe' },
+    ]);
+    assert.equal(r.block, false, 'the staged-path precondition stays about --bin-dir alone');
+    assert.equal(r.inboundAllow, true);
+    assert.deepEqual(
+        r.exes.map((e) => e.role),
+        ['desktop (store)', 'cli', 'desktop (head)'],
+        'one entry per exe, compared without case'
+    );
+    assert.equal(probeFirewall(exec, null, { platform: 'win32' }).detail, 'not probed');
+    assert.equal(probeFirewall(exec, 'C:\\bin', { platform: 'linux' }).detail, 'not probed');
+    // A path with a quote is escaped for the single-quoted PowerShell string.
+    probeFirewall(exec, null, {
+        platform: 'win32',
+        exes: [{ role: 'cli', path: "C:\\o'brien\\floe.exe" }],
+    });
+    assert.ok(cmds.at(-1).script.includes("C:\\o''brien\\floe.exe"));
+});
+
+test('exesUnderTest lists the builds the run drives, the Store exe only when the Store build is under test (fix 13)', async () => {
+    const storeAdapter = {
+        storePackage: async () => ({ present: true, exe: STORE_EXE, version: '1.2.12.0' }),
+    };
+    const head = await exesUnderTest({
+        builds: {
+            desktop: { kind: 'head', launch: 'portable', path: 'C:\\clone\\desktop\\build\\bin\\floe-desktop.exe' },
+            cli: { kind: 'head', path: 'C:\\bin\\floe-head-abc1234.exe' },
+            harness: { path: 'C:\\bin\\e2ehost-abc1234.exe' },
+        },
+        desktopProbe: { mode: 'portable' },
+        desktop: storeAdapter,
+    });
+    assert.deepEqual(head.map((e) => e.role), ['desktop (head)', 'cli (head)', 'e2ehost harness']);
+    const store = await exesUnderTest({
+        builds: { desktop: { kind: 'shipped', launch: 'store', path: null }, cli: { kind: 'shipped', path: 'C:\\x\\floe.exe' } },
+        desktopProbe: { mode: 'store' },
+        desktop: storeAdapter,
+    });
+    assert.deepEqual(store, [
+        { role: 'desktop (store)', path: STORE_EXE },
+        { role: 'cli (shipped)', path: 'C:\\x\\floe.exe' },
+    ]);
+    const logs = [];
+    const failed = await exesUnderTest({
+        builds: {},
+        desktopProbe: { mode: 'store' },
+        desktop: { storePackage: async () => { throw new Error('Get-AppxPackage failed'); } },
+        log: (l) => logs.push(l),
+    });
+    assert.deepEqual(failed, []);
+    assert.match(logs[0], /Store package lookup failed/);
+});
+
+test('a Block rule on the Store exe under test is reported in the Infra and Safety sections, and none reads none (fix 13)', async () => {
+    const runWith = async (name, firewall) => {
+        const world = fakeWorld();
+        const i = io(world, { shrinkCells: true, probe: { ...PROBE, firewall } });
+        const outDir = out(name);
+        const code = await main(
+            ['run', '--quick', '--root', root, '--out', outDir, '--desktop', 'portable'],
+            { ...i, cellHook: shrink }
+        );
+        const runs = readdirSync(outDir).filter((d) => /-shipped-quick$/.test(d));
+        const md = readFileSync(path.join(outDir, runs[0], 'audit.md'), 'utf8');
+        return {
+            code,
+            infra: md.split('## Infra')[1].split('## Safety')[0],
+            safety: md.split('## Safety')[1].split('## Failures')[0],
+        };
+    };
+    const exes = [
+        { role: 'desktop (store)', path: STORE_EXE },
+        { role: 'cli', path: 'C:\\x\\floe.exe' },
+    ];
+    const blocked = await runWith('firewall-store-block', {
+        inboundAllow: true,
+        block: false,
+        rules: [],
+        blocks: [{ role: 'desktop (store)', program: STORE_EXE, rule: 'floe-desktop.exe' }],
+        exes,
+        detail: '1 rule(s)',
+    });
+    assert.equal(blocked.code, 0, 'reported, not a precondition: the rules are the owner\'s (D-054)');
+    assert.match(blocked.infra, /firewall \(exes under test\)\s*\|\s*FAIL: inbound Block/);
+    assert.ok(blocked.infra.includes(STORE_EXE), blocked.infra);
+    assert.match(blocked.safety, /firewall Block rules on exes under test/);
+    assert.ok(blocked.safety.includes(STORE_EXE), blocked.safety);
+    const clean = await runWith('firewall-none', {
+        inboundAllow: null,
+        block: false,
+        rules: [],
+        blocks: [],
+        exes,
+        detail: 'none',
+    });
+    assert.match(clean.infra, /firewall \(exes under test\)\s*\|\s*no inbound Block rule on 2 exe\(s\)/);
+    assert.match(clean.safety, /firewall Block rules on exes under test[^|]*\|\s*none \(2 exe\(s\) read\)/);
 });
 
 test('parseWslList', () => {

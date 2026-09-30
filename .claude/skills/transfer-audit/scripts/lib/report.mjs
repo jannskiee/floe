@@ -368,7 +368,23 @@ export function safetyRows(s) {
                 ? 'not counted (no desktop receiver, or the adapter reports none)'
                 : String(s.historyRowsAdded),
         ],
+        [
+            'firewall Block rules on exes under test (read only)',
+            firewallBlocksText(s.firewallBlocks),
+        ],
     ];
+}
+
+/**
+ * Fix 13: each enabled inbound Block rule on an exe the run drove, by path;
+ * the audit only reads rules (D-054), so this is evidence, never a change.
+ */
+function firewallBlocksText(f) {
+    if (!f || !Array.isArray(f.blocks)) return 'not probed';
+    if (!f.blocks.length) return `none (${f.read ?? 0} exe(s) read)`;
+    return f.blocks
+        .map((b) => `${b.program} (rule "${b.rule}", ${b.role})`)
+        .join('; ');
 }
 
 export function failureSections(cells) {
@@ -620,6 +636,9 @@ export function newSafety() {
         workingTreeUnchanged: null,
         saveDirRestored: null,
         historyRowsAdded: null,
+        // { blocks, read } from the firewall read of the exes under test
+        // (fix 13); null when it was not probed or the read failed.
+        firewallBlocks: null,
         refusals: [],
     };
 }

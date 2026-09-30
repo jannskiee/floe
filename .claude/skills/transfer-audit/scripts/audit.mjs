@@ -441,45 +441,175 @@ function probeWsl(exec) {
     }
 }
 
-function probeFirewall(exec, binDir) {
-    if (!WIN || !binDir)
-        return { inboundAllow: null, rules: [], detail: 'not probed' };
+// Get-NetFirewallRule's enums reach JSON as numbers (Direction Inbound 1,
+// Action Allow 2 and Block 4, Enabled True 1) or, from other hosts, as names.
+const fwInbound = (r) =>
+    String(r.Direction) === '1' || /inbound/i.test(String(r.Direction));
+const fwEnabled = (r) =>
+    r.Enabled === 1 || r.Enabled === true || /true/i.test(String(r.Enabled));
+const fwAllow = (r) =>
+    String(r.Action) === '2' || /allow/i.test(String(r.Action));
+const fwBlock = (r) =>
+    String(r.Action) === '4' || /block/i.test(String(r.Action));
+const psQuote = (s) => String(s).replace(/'/g, "''");
+const samePathCi = (a, b) =>
+    String(a ?? '').toLowerCase() === String(b ?? '').toLowerCase();
+
+/** One entry per exe path (compared without case), the first role kept. */
+function uniqueExes(exes) {
+    const out = [];
+    for (const e of exes || []) {
+        if (!e || typeof e.path !== 'string' || !e.path) continue;
+        if (out.some((o) => samePathCi(o.path, e.path))) continue;
+        out.push({ role: String(e.role ?? 'exe'), path: e.path });
+    }
+    return out;
+}
+
+/**
+ * The Windows Firewall rules that cover the staged binaries (every Program
+ * under --bin-dir, as before) AND every exe under test wherever it lives
+ * (S1-REL-03a harness fix 13): the Store build's floe-desktop.exe under its
+ * InstallLocation, the portable or head `wails build` exe, the CLI under test
+ * and the e2ehost harness. The baseline's --bin-dir-only read missed Block
+ * rules on exes outside it (and blamed the Store exe for Blocks that sat on
+ * temp copies). One read-only Get-NetFirewallApplicationFilter pass: the
+ * audit never adds, removes or changes a rule and never clicks a consent
+ * dialog (D-054, the rules are the owner's). `inboundAllow` and `block` stay
+ * about the staged path (`block` is the precondition it always was);
+ * `blocks` names each enabled inbound Block rule on an exe under test by
+ * path, for the Infra and Safety sections; null when the read failed.
+ */
+export function probeFirewall(
+    exec,
+    binDir,
+    { exes = [], platform = process.platform } = {}
+) {
+    const targets = uniqueExes(exes);
+    if (platform !== 'win32' || (!binDir && !targets.length))
+        return {
+            inboundAllow: null,
+            rules: [],
+            blocks: null,
+            exes: targets,
+            detail: 'not probed',
+        };
+    const conds = [];
+    if (binDir) conds.push(`$_.Program -like '${psQuote(binDir)}*'`);
+    if (targets.length)
+        conds.push(
+            `@(${targets.map((t) => `'${psQuote(t.path)}'`).join(', ')}) -contains $_.Program`
+        );
     try {
         const out = exec(
             'powershell.exe',
             [
                 ...PS,
-                `Get-NetFirewallApplicationFilter | Where-Object { $_.Program -like '${binDir.replace(/'/g, "''")}*' } | ForEach-Object { $_ | Get-NetFirewallRule } | Select-Object DisplayName,Direction,Action,Enabled | ConvertTo-Json -Compress`,
+                `Get-NetFirewallApplicationFilter | Where-Object { ${conds.join(' -or ')} } | ForEach-Object { $p = $_.Program; $_ | Get-NetFirewallRule | Select-Object @{ n = 'Program'; e = { $p } },DisplayName,Direction,Action,Enabled } | ConvertTo-Json -Compress`,
             ],
             { timeout: 60_000 }
         );
-        const parsed = out.trim() ? JSON.parse(out) : [];
+        const text = String(out ?? '').trim();
+        const parsed = text ? JSON.parse(text) : [];
         const rules = Array.isArray(parsed) ? parsed : [parsed];
-        const allow = rules.some((r) =>
-            String(r.Direction) === '1' || /inbound/i.test(String(r.Direction))
-                ? (String(r.Action) === '2' ||
-                      /allow/i.test(String(r.Action))) &&
-                  (r.Enabled === 1 ||
-                      r.Enabled === true ||
-                      /true/i.test(String(r.Enabled)))
-                : false
+        const prefix = binDir ? String(binDir).toLowerCase() : null;
+        const staged = prefix
+            ? rules.filter((r) =>
+                  String(r.Program ?? '')
+                      .toLowerCase()
+                      .startsWith(prefix)
+              )
+            : [];
+        const allow = staged.some(
+            (r) => fwInbound(r) && fwAllow(r) && fwEnabled(r)
         );
-        const block = rules.some(
-            (r) => String(r.Action) === '4' || /block/i.test(String(r.Action))
-        );
+        const blocks = [];
+        for (const r of rules) {
+            if (!(fwInbound(r) && fwBlock(r) && fwEnabled(r))) continue;
+            const t = targets.find((x) => samePathCi(x.path, r.Program));
+            if (t)
+                blocks.push({
+                    role: t.role,
+                    program: t.path,
+                    rule: String(r.DisplayName ?? ''),
+                });
+        }
         return {
-            inboundAllow: rules.length ? allow : false,
-            block,
+            inboundAllow: staged.length ? allow : prefix ? false : null,
+            block: staged.some(fwBlock),
             rules,
+            blocks,
+            exes: targets,
             detail: rules.length ? `${rules.length} rule(s)` : 'none',
         };
     } catch (e) {
         return {
             inboundAllow: null,
             rules: [],
+            blocks: null,
+            exes: targets,
             detail: `read failed: ${e.message.split('\n')[0]}`,
         };
     }
+}
+
+/**
+ * Every exe this run drives, for the firewall read (fix 13): the portable or
+ * head desktop build, the staged portable exe the desktop probe found, the
+ * Store build's floe-desktop.exe when the Store build is the one under test
+ * (its InstallLocation from Get-AppxPackage, a read), the CLI under test and
+ * the e2ehost harness. A lookup that fails is a log line, never a failure.
+ */
+export async function exesUnderTest({ builds, desktopProbe, desktop, log = () => {} }) {
+    const exes = [];
+    const d = builds?.desktop;
+    if (d?.path)
+        exes.push({ role: `desktop (${d.kind === 'head' ? 'head' : (d.launch ?? 'build')})`, path: d.path });
+    if (desktopProbe?.portableExe)
+        exes.push({ role: 'desktop (portable, staged)', path: desktopProbe.portableExe });
+    if (
+        (desktopProbe?.mode === 'store' || d?.launch === 'store') &&
+        desktop &&
+        typeof desktop.storePackage === 'function'
+    ) {
+        try {
+            const pkg = await desktop.storePackage();
+            if (pkg?.present && pkg.exe)
+                exes.push({ role: 'desktop (store)', path: pkg.exe });
+        } catch (e) {
+            log(`firewall: the Store package lookup failed: ${e.message}`);
+        }
+    }
+    if (builds?.cli?.path)
+        exes.push({ role: `cli (${builds.cli.kind ?? 'build'})`, path: builds.cli.path });
+    if (builds?.harness?.path)
+        exes.push({ role: 'e2ehost harness', path: builds.harness.path });
+    return uniqueExes(exes);
+}
+
+/** An inbound Block on an exe under test, as one report line. */
+export function firewallBlockText(b) {
+    return `${b.program} (rule "${b.rule}", ${b.role})`;
+}
+
+/** The Infra row for the exes under test (fix 13); never gates a run. */
+export function firewallExesRow(fw) {
+    const n = Array.isArray(fw?.exes) ? fw.exes.length : 0;
+    if (!fw || fw.detail === 'not probed' || !Array.isArray(fw.exes))
+        return { check: 'firewall (exes under test)', ok: true, detail: 'not probed' };
+    if (!Array.isArray(fw.blocks))
+        return {
+            check: 'firewall (exes under test)',
+            ok: true,
+            detail: `not read (${fw.detail})`,
+        };
+    return {
+        check: 'firewall (exes under test)',
+        ok: fw.blocks.length === 0,
+        detail: fw.blocks.length
+            ? `inbound Block on ${fw.blocks.map(firewallBlockText).join('; ')}`
+            : `no inbound Block rule on ${n} exe(s)`,
+    };
 }
 
 function probeMotw(exec, exe, fence, { desktopMode = 'auto' } = {}) {
@@ -827,10 +957,19 @@ async function runProbes({ opts, io, ledger, fence, log, builds, versions }) {
     } else pending.push('P1 P2 P6 P8 P9 desktop (desktop adapter)');
     probe.wsl = { ...probe.wsl, ...probeWsl(exec) };
     // The effective staged-binary dir, not just an operator override, or
-    // the probe reports "not probed" on every default run.
+    // the probe reports "not probed" on every default run; plus every exe
+    // under test wherever it lives (fix 13).
     probe.firewall = probeFirewall(
         exec,
-        opts.binDir || (opts.out ? path.join(opts.out, 'bin') : null)
+        opts.binDir || (opts.out ? path.join(opts.out, 'bin') : null),
+        {
+            exes: await exesUnderTest({
+                builds,
+                desktopProbe: probe.desktop,
+                desktop,
+                log,
+            }),
+        }
     );
     // P7 only means something for an exe on disk: the portable build under
     // test, else the staged portable exe the desktop probe found.
@@ -1924,6 +2063,20 @@ export async function runCmd(opts, io = {}) {
                         ? 'none'
                         : probe.firewall.detail || 'not probed',
             });
+        // Fix 13: every exe under test, wherever it lives. Reported in Infra
+        // and Safety only: the rules are the owner's (D-054), and a block
+        // outside the staged path is evidence for a failed cell, not a gate.
+        if (probe.firewall) {
+            run.infra.push(firewallExesRow(probe.firewall));
+            safety.firewallBlocks = Array.isArray(probe.firewall.blocks)
+                ? {
+                      blocks: probe.firewall.blocks,
+                      read: Array.isArray(probe.firewall.exes)
+                          ? probe.firewall.exes.length
+                          : 0,
+                  }
+                : null;
+        }
         if (probe.firewall?.block)
             throw new Precondition(
                 'a Block firewall rule covers the staged exe path'
@@ -2300,7 +2453,7 @@ export async function probeCmd(opts, io = {}) {
             `probe WSL: ${probe.wsl.present ? (probe.wsl.running ? 'Running' : 'Stopped (the audit starts it on demand for deep cells)') : `absent (${probe.wsl.state || '?'})`}`
         );
         out(
-            `probe firewall: ${probe.firewall.detail || (probe.firewall.inboundAllow ? 'inbound Allow present' : 'none')}`
+            `probe firewall: ${probe.firewall.detail || (probe.firewall.inboundAllow ? 'inbound Allow present' : 'none')}; exes under test: ${firewallExesRow(probe.firewall).detail}`
         );
         out(
             `probe disk free: ${probe.disk.freeBytes === null ? 'unknown' : formatBytes(probe.disk.freeBytes)}`

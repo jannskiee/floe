@@ -318,7 +318,19 @@ Store-mode leg)` when only portable, head or wailsdev ran), local `/api/stats` 0
 profile, TURN bodies never, `server/.env` never read, captures N (desktop
 PrintWindow captures; browser page screenshots are not counted) all
 window-cropped, forced foreground 0, killed pids own only, working tree
-unchanged.
+unchanged, and firewall Block rules on the exes under test `none (N exe(s)
+read)`.
+
+The firewall read covers the staged `--bin-dir` (a Block rule there is the
+precondition it always was, exit 3) and every exe the run drives wherever it
+lives: the Store build's `floe-desktop.exe` under its `InstallLocation` when
+the Store build is under test, the portable or head `wails build` exe, the
+CLI under test and the e2ehost harness. Each enabled inbound Block rule on
+one of those is named by path in the Infra row `firewall (exes under test)`
+and in Safety; it is evidence for a failed receive, not a gate. The read is
+one `Get-NetFirewallApplicationFilter` pass: the audit never adds, removes
+or changes a rule and never clicks a consent dialog (the rules are the
+owner's).
 
 ## 5. When a cell fails (the receiver build decides the early race; read it first)
 
