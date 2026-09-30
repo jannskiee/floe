@@ -298,8 +298,8 @@ including the scheme and with no trailing slash, and `CLIENT_URL` holds **one** 
 comma-separated list matches nothing. Requests with no `Origin` header always pass.
 
 An HTTP request from a rejected origin does not come back as a recognizable CORS error. The server
-answers `500` with `{ "error": "Internal server error" }` while the browser reports a generic CORS
-failure. If you see that pairing, check `CLIENT_URL` first.
+answers `403` with `{ "error": "Bad request" }` and no `Access-Control-Allow-Origin` header, while
+the browser reports a generic CORS failure. If you see that pairing, check `CLIENT_URL` first.
 
 **WebSocket origins.** Both WebSocket paths check `Origin` against the same list, and also let in
 an `Origin` naming the same host as the request's `Host` header (the port is compared only when
@@ -312,10 +312,13 @@ transport and `403` on polling. The server logs the first refusal on each path, 
 
 **Errors.** Every failure returns JSON and nothing else. Each endpoint above answers with its own
 message, and those are the bodies you will normally see. An error that is *thrown* rather than
-returned falls through to a final handler that collapses it: anything under 500 becomes
-`{ "error": "Bad request" }`, anything at or above it becomes `{ "error": "Internal server error" }`,
-and the stack trace goes to the server's own output. A rejected CORS origin takes that path, which
-is why it surfaces as a bare 500. This holds at every `NODE_ENV`.
+returned falls through to a final handler that collapses it. Anything under 500 becomes
+`{ "error": "Bad request" }` and writes one fixed line to the server's own output,
+`Refused a request with <status>.`, with no stack trace and none of the request's text: not the
+origin, the path, or the body. Anything at or above it becomes
+`{ "error": "Internal server error" }`, and its stack trace goes to the server's own output. A
+rejected CORS origin takes the first path, which is why it surfaces as a bare `403`. This holds at
+every `NODE_ENV`.
 
 **Request bodies** are parsed at the default 100 kB limit. A larger body gets `413`, and
 malformed JSON gets `400`.
