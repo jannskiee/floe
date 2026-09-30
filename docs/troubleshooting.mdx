@@ -380,8 +380,9 @@ same machine as the server.
 A rejected CORS origin does not come back as a recognizable CORS error. The server answers `403`
 with `{"error":"Bad request"}` and logs one line, `Refused a request with 403.`, while the browser
 reports a generic CORS failure. If you see that pairing, check `CLIENT_URL` first. The log line
-does not name the refused origin. Older server releases answer `500` with
-`{"error":"Internal server error"}` and log a stack trace instead.
+does not name the refused origin. Server releases v1.10.0 to v1.10.11 answer `500` with
+`{"error":"Internal server error"}` and log a stack trace instead; earlier ones answer `500` with
+an HTML error page.
 
 It must match your client's public origin exactly, including the scheme and with no trailing
 slash, and it holds **one** origin. A comma-separated list matches nothing. `https://floe.one`,
@@ -468,7 +469,9 @@ restart. See [TURN relay](/self-hosting/turn-relay).
 ### The server logs nothing at all
 
 That is expected. The signaling server has no access log and no startup banner, not even a
-"listening on" line, so `docker logs` on a healthy server is empty. Use `GET /health`, which
+"listening on" line, so `docker logs` on a healthy server is usually empty. A request the server
+refuses leaves one short line such as `Refused a request with 403.`; see
+[Operations](/self-hosting/operations#the-server-logs-very-little). Use `GET /health`, which
 returns `{"status":"healthy","uptime":<seconds>}`, to confirm it is alive and to see whether a
 restart landed.
 
