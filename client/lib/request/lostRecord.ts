@@ -130,9 +130,10 @@ export function takeLost(store: LostStore | null, wasDiscarded: boolean): LostCo
     }
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
     const fields = parsed as Record<string, unknown>;
-    // Exactly the record's own three keys, so no field is read through the
-    // prototype chain.
-    if (Object.keys(fields).sort().join(',') !== 'arrived,total,v' || fields.v !== 1) return null;
-    if (!isLostPair(fields.arrived, fields.total)) return null;
+    // Exactly the record's own three keys, each checked by name, so no field is
+    // read through the prototype chain and no key can stand in for two.
+    const own = (key: string) => Object.prototype.hasOwnProperty.call(fields, key);
+    if (Object.keys(fields).length !== 3 || !own('arrived') || !own('total') || !own('v')) return null;
+    if (fields.v !== 1 || !isLostPair(fields.arrived, fields.total)) return null;
     return { arrived: fields.arrived as number, total: fields.total as number };
 }

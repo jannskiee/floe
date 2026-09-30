@@ -176,6 +176,22 @@ describe('the discard record', () => {
         const { store } = memoryStore({ [LOST_KEY]: '{"total":2,"arrived":1,"v":1}' });
         expect(takeLost(store, true)).toEqual({ arrived: 1, total: 2 });
     });
+
+    it('takes a key with a comma in it for no key of the record', () => {
+        // review T5 N1: keys joined with commas made {"arrived,total":0,"v":1}
+        // look like the record's three, and a polluted prototype then filled in
+        // arrived and total.
+        Object.defineProperty(Object.prototype, 'arrived', { value: 1, configurable: true, writable: true });
+        Object.defineProperty(Object.prototype, 'total', { value: 2, configurable: true, writable: true });
+        try {
+            const { store, data } = memoryStore({ [LOST_KEY]: '{"arrived,total":0,"v":1}' });
+            expect(takeLost(store, true)).toBeNull();
+            expect(data.has(LOST_KEY)).toBe(false);
+        } finally {
+            delete (Object.prototype as { arrived?: unknown }).arrived;
+            delete (Object.prototype as { total?: unknown }).total;
+        }
+    });
 });
 
 describe('lostSyncStep', () => {
