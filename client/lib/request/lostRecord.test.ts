@@ -155,12 +155,26 @@ describe('the discard record', () => {
         expect(() => recordLost(null, 1, 2)).not.toThrow();
         expect(() => clearLost(null)).not.toThrow();
         expect(takeLost(null, true)).toBeNull();
-        // A store whose removal throws: the read still answers, without
-        // throwing, by the same rule as any other store.
+        // A store whose removal throws hands nothing back, even to a discard:
+        // a record that stays would answer a later discard again (review 1 F6).
         const { store } = memoryStore({ [LOST_KEY]: '{"v":1,"arrived":1,"total":2}' });
         const stuck: LostStore = { ...store, removeItem: throwing.removeItem };
         expect(takeLost(stuck, false)).toBeNull();
-        expect(takeLost(stuck, true)).toEqual({ arrived: 1, total: 2 });
+        expect(takeLost(stuck, true)).toBeNull();
+    });
+
+    it("reads only the record's own three keys, never the prototype chain", () => {
+        // review 1 F5: a polluted Object.prototype must not complete a record.
+        Object.defineProperty(Object.prototype, 'total', { value: 2, configurable: true, writable: true });
+        try {
+            const { store } = memoryStore({ [LOST_KEY]: '{"v":1,"arrived":1,"zz":0}' });
+            expect(takeLost(store, true)).toBeNull();
+        } finally {
+            delete (Object.prototype as { total?: unknown }).total;
+        }
+        // The key order does not matter; the set of keys does.
+        const { store } = memoryStore({ [LOST_KEY]: '{"total":2,"arrived":1,"v":1}' });
+        expect(takeLost(store, true)).toEqual({ arrived: 1, total: 2 });
     });
 });
 

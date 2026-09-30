@@ -105,17 +105,22 @@ export function clearLost(store: LostStore | null): void {
 }
 
 /** Read the record once and remove it, whatever it held. The counts come back
- *  only to a load the browser reports as a discard's, and only from a record
- *  of exactly the shape recordLost writes, with a pair the card can show. */
+ *  only to a load the browser reports as a discard's, only when the removal
+ *  worked (a record that stayed would answer a later discard again), and only
+ *  from a record of exactly the shape recordLost writes, with a pair the card
+ *  can show. */
 export function takeLost(store: LostStore | null, wasDiscarded: boolean): LostCounts | null {
     if (!store) return null;
-    let raw: string | null = null;
+    let raw: string | null;
     try {
         raw = store.getItem(LOST_KEY);
+        store.removeItem(LOST_KEY);
     } catch {
-        raw = null;
+        // A read or a removal that throws hands nothing back; the removal is
+        // still tried once more.
+        clearLost(store);
+        return null;
     }
-    clearLost(store);
     if (wasDiscarded !== true || raw === null) return null;
     let parsed: unknown;
     try {
@@ -125,7 +130,9 @@ export function takeLost(store: LostStore | null, wasDiscarded: boolean): LostCo
     }
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
     const fields = parsed as Record<string, unknown>;
-    if (Object.keys(fields).length !== 3 || fields.v !== 1) return null;
+    // Exactly the record's own three keys, so no field is read through the
+    // prototype chain.
+    if (Object.keys(fields).sort().join(',') !== 'arrived,total,v' || fields.v !== 1) return null;
     if (!isLostPair(fields.arrived, fields.total)) return null;
     return { arrived: fields.arrived as number, total: fields.total as number };
 }
