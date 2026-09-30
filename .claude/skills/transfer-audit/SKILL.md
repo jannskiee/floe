@@ -186,8 +186,9 @@ when someone else owns the port), a `go build` CLI with `-X
 main.version=head-<sha7>`, `next dev`, and the desktop through `--desktop
 wailsdev` (the real app with real Go bindings served at
 `http://localhost:34115` to a Playwright page) or a `wails build` exe.
-Subsets: `--quick` (6 cells), default (18 rows, 15 executable), `--deep` (14
-more). `--cells S-REL-*,S-DIR-C2D` narrows; a pattern that names no
+Subsets: `--quick` (6 cells), default (18 rows: 15 executable on shipped,
+16 on head, where the CLI's `--relay-only` lifts S-REL-C2C's NA), `--deep`
+(17 more, 35 rows). `--cells S-REL-*,S-DIR-C2D` narrows; a pattern that names no
 executable cell (or only NA rows, or a deep id without `--deep`) is a usage
 error before anything is created. `--desktop
 auto|store|portable|wailsdev|none`; `auto` picks the Store build when it is
