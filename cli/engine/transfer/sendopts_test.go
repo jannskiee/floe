@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -263,5 +264,28 @@ func TestFirstAckRangeMissIsALocalCompatError(t *testing.T) {
 	}
 	if fmt.Sprint(acked) != "[1]" {
 		t.Fatalf("OnAck saw %v, want [1]", acked)
+	}
+}
+
+// TestVisitorCancelReasonMatchesTheWebPage pins the reason the CLI visitor's
+// Ctrl+C sends to the one the /r page's Cancel sends (VISITOR_CANCEL_REASON),
+// read from its source, so the two visitors cannot drift apart (review lens
+// A, nit 9). The host maps any abort to its own copy, so a drift would not
+// show; this row is the only thing that would catch it.
+func TestVisitorCancelReasonMatchesTheWebPage(t *testing.T) {
+	for _, c := range []struct {
+		file string
+		re   *regexp.Regexp
+	}{
+		{"../../../client/lib/request/constants.ts",
+			regexp.MustCompile(`(?m)^export const VISITOR_CANCEL_REASON = '` + regexp.QuoteMeta(VisitorCancelReason) + `';$`)},
+	} {
+		src, err := os.ReadFile(filepath.FromSlash(c.file))
+		if err != nil {
+			t.Fatalf("read %s: %v", c.file, err)
+		}
+		if !c.re.Match(src) {
+			t.Fatalf("%s no longer says %s", c.file, c.re)
+		}
 	}
 }

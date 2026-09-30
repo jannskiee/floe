@@ -46,6 +46,7 @@ func abortReason(dc *webrtc.DataChannel, localVer, reason string, toReceiver boo
 // person sending stops the drop: VISITOR_CANCEL_REASON in
 // client/lib/request/constants.ts, which the /r page's Cancel sends. The host
 // maps any abort to fixed copy of its own and never shows it.
+// TestVisitorCancelReasonMatchesTheWebPage pins the two together.
 const VisitorCancelReason = "The sender stopped."
 
 // AbortSend is abortReason for a sender that stops on purpose from outside
