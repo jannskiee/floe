@@ -160,6 +160,66 @@ func TestCloseIsIdempotent(t *testing.T) {
 	conn.Close()
 }
 
+// Failed is what a transfer wait with no deadline of its own watches to end
+// when a peer vanished without a close (G5-F1), so it must close on the
+// terminal failed state only. Disconnected is the state a network blackout
+// passes through and recovers from, and closing on it would end a transfer a
+// 20 s blackout used to survive (E-84). A second failed report must not
+// panic on a closed channel, and Close, which reports closed, never closes it.
+func TestFailedClosesOnlyOnFailed(t *testing.T) {
+	conn, err := New(nil, &signaling.Client{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer conn.Close()
+
+	isClosed := func() bool {
+		select {
+		case <-conn.Failed():
+			return true
+		default:
+			return false
+		}
+	}
+	if conn.Failed() == nil {
+		t.Fatal("Failed() is nil, so a wait on it would block forever")
+	}
+	for _, s := range []webrtc.PeerConnectionState{
+		webrtc.PeerConnectionStateNew,
+		webrtc.PeerConnectionStateConnecting,
+		webrtc.PeerConnectionStateConnected,
+		webrtc.PeerConnectionStateDisconnected,
+		webrtc.PeerConnectionStateConnected,
+		webrtc.PeerConnectionStateDisconnected,
+	} {
+		conn.noteFailed(s)
+		if isClosed() {
+			t.Fatalf("Failed() closed on %s; it must close on failed only", s)
+		}
+	}
+
+	conn.noteFailed(webrtc.PeerConnectionStateFailed)
+	if !isClosed() {
+		t.Fatal("Failed() still open after the failed state")
+	}
+	conn.noteFailed(webrtc.PeerConnectionStateFailed) // a second report must not panic
+	if !isClosed() {
+		t.Fatal("Failed() reopened after a second failed state")
+	}
+
+	closedOnly, err := New(nil, &signaling.Client{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	closedOnly.Close()
+	closedOnly.noteFailed(webrtc.PeerConnectionStateClosed)
+	select {
+	case <-closedOnly.Failed():
+		t.Fatal("Failed() closed by Close or the closed state; it must close on failed only")
+	default:
+	}
+}
+
 // ---- Setup stops at once when the peer leaves (S1-ENG-11, D-036) ----
 //
 // Before this, the offer or answer wait and the data-channel wait read

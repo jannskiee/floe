@@ -71,6 +71,11 @@ type Connection struct {
 	// the signaling client, whose Close shuts the socket without closing it.
 	closeOnce sync.Once
 	done      chan struct{}
+
+	// failed is closed exactly once, by noteFailed, when the peer connection
+	// reaches PeerConnectionStateFailed. See Failed.
+	failOnce sync.Once
+	failed   chan struct{}
 }
 
 // Early carries a data channel's incoming messages and its close signal.
@@ -218,6 +223,7 @@ func New(iceServers []webrtc.ICEServer, sc *signaling.Client, opts ...Option) (*
 		candidates: make(chan webrtc.ICECandidateInit, 64),
 		connected:  make(chan error, 1),
 		done:       make(chan struct{}),
+		failed:     make(chan struct{}),
 	}
 
 	// When pion discovers a local ICE candidate, forward it to the remote peer.
@@ -232,6 +238,7 @@ func New(iceServers []webrtc.ICEServer, sc *signaling.Client, opts ...Option) (*
 
 	// Track when the connection becomes live (or fails).
 	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
+		conn.noteFailed(s)
 		switch s {
 		case webrtc.PeerConnectionStateConnected:
 			select {
@@ -506,6 +513,24 @@ func (conn *Connection) signalingLost() bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// Failed is closed when the peer connection reaches the failed state: ICE (or
+// DTLS) has given up on the path for good. With pion's defaults that is about
+// 30 s after the last packet from the peer, 5 s to disconnected and 25 s more
+// to failed, and it is terminal, since Floe does no ICE restart. It is never
+// closed on disconnected, which ICE leaves again when the path comes back, so
+// a blackout shorter than that survives, and never by Close. A transfer wait
+// that has no deadline of its own can watch it to end when a peer vanished
+// without a close this side could hear.
+func (conn *Connection) Failed() <-chan struct{} { return conn.failed }
+
+// noteFailed closes failed, once, when s is PeerConnectionStateFailed. It is
+// the part of the state handler a test can drive without waiting out ICE.
+func (conn *Connection) noteFailed(s webrtc.PeerConnectionState) {
+	if s == webrtc.PeerConnectionStateFailed {
+		conn.failOnce.Do(func() { close(conn.failed) })
 	}
 }
 
