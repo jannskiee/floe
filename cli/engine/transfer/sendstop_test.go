@@ -22,11 +22,36 @@ import (
 
 // frameLog is the receiving end of a stop test. It reads every frame the
 // moment it arrives, so the sender never waits on backpressure the test did
-// not mean to cause, and it keeps their order.
+// not mean to cause (holdReads makes it on purpose), and it keeps their order.
 type frameLog struct {
 	mu      sync.Mutex
 	f       frames
 	changed chan struct{}
+	gate    chan struct{} // while set, the reader waits for it to close
+}
+
+// holdReads stops the reading end until the returned release, so the send's
+// buffer fills and the send parks in its backpressure wait.
+func (l *frameLog) holdReads() (release func()) {
+	g := make(chan struct{})
+	l.mu.Lock()
+	l.gate = g
+	l.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			l.mu.Lock()
+			l.gate = nil
+			l.mu.Unlock()
+			close(g)
+		})
+	}
+}
+
+func (l *frameLog) gateNow() chan struct{} {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.gate
 }
 
 // frames is what a frameLog has seen so far.
@@ -114,6 +139,13 @@ func stopPair(t *testing.T) (*webrtc.DataChannel, *webrtc.DataChannel, *frameLog
 	t.Cleanup(func() { close(quit) })
 	go func() {
 		for {
+			if g := l.gateNow(); g != nil {
+				select {
+				case <-g:
+				case <-quit:
+					return
+				}
+			}
 			select {
 			case m := <-msgs:
 				l.note(m)
@@ -125,6 +157,23 @@ func stopPair(t *testing.T) (*webrtc.DataChannel, *webrtc.DataChannel, *frameLog
 	return sender, rdc, l
 }
 
+// waitParked returns once the send has queued nothing for 300 ms: it is
+// parked at its backpressure wait.
+func waitParked(t *testing.T, queued *atomic.Int64) {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	last, since := queued.Load(), time.Now()
+	for time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+		if cur := queued.Load(); cur != last {
+			last, since = cur, time.Now()
+		} else if time.Since(since) >= 300*time.Millisecond {
+			return
+		}
+	}
+	t.Fatal("the send never parked at its backpressure wait")
+}
+
 // startStoppable runs the send on its own goroutine, pumped as
 // peer.Connection pumps a channel.
 func startStoppable(sender *webrtc.DataChannel, paths []string, opts SendOptions) <-chan error {
@@ -134,10 +183,19 @@ func startStoppable(sender *webrtc.DataChannel, paths []string, opts SendOptions
 	return errc
 }
 
+// stopFile is size bytes of zeros, made by Truncate so a large one costs no
+// memory.
 func stopFile(t *testing.T, name string, size int) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), name)
-	if err := os.WriteFile(p, make([]byte, size), 0o600); err != nil {
+	f, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(int64(size)); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}
 	return p
@@ -162,47 +220,75 @@ func awaitStopped(t *testing.T, errc <-chan error, bound time.Duration) {
 	}
 }
 
-// TestSendStopQueuesNothingMore: stopped mid-file, the send returns at once
-// having queued at most what was already inside dc.Send, sends no end marker,
-// and the abort the caller sends next is the last frame the receiver reads.
+// TestSendStopQueuesNothingMore: the send returns at once having queued at
+// most what was already inside dc.Send, sends no end marker, and the abort
+// the caller sends next is the last frame the receiver reads. Two moments,
+// each caught by one look alone: as its file starts, with the buffer empty
+// (the stop closes in OnAck, on the send's own goroutine, before the first
+// chunk), where only the look before each write can catch it; and held at the
+// backpressure wait with the buffer full and not draining, where only that
+// wait's own stop arm can.
 func TestSendStopQueuesNothingMore(t *testing.T) {
-	sender, rdc, l := stopPair(t)
-	src := stopFile(t, "big.bin", 64<<20)
-	stop := make(chan struct{})
-	var queued atomic.Int64
-	errc := startStoppable(sender, []string{src}, SendOptions{
-		Stop:       stop,
-		OnProgress: func(p Progress) { queued.Store(p.FileBytes) },
-	})
-	l.await(t, "metadata", 20*time.Second, func(l frames) bool { return len(l.ids) == 1 })
-	ackFile(t, rdc, l.snapshot().ids[0])
-	l.await(t, "4 MiB of file bytes", 20*time.Second, func(l frames) bool { return l.bytes >= 4<<20 })
+	for _, c := range []struct {
+		name string
+		held bool
+		size int
+	}{
+		{"as the file starts", false, 64 << 20},
+		// Past what a paused reader absorbs before the send has to wait: the
+		// test pump's 256 frames (64 MiB at the 256 KiB chunk), the SCTP
+		// window, and the 8 MB high-water mark.
+		{"held at the backpressure wait", true, 160 << 20},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			sender, rdc, l := stopPair(t)
+			src := stopFile(t, "big.bin", c.size)
+			stop := make(chan struct{})
+			var queued atomic.Int64
+			opts := SendOptions{
+				Stop:       stop,
+				OnProgress: func(p Progress) { queued.Store(p.FileBytes) },
+			}
+			if !c.held {
+				opts.OnAck = func(int) { close(stop) }
+			}
+			errc := startStoppable(sender, []string{src}, opts)
+			l.await(t, "metadata", 20*time.Second, func(f frames) bool { return len(f.ids) == 1 })
+			ackFile(t, rdc, l.snapshot().ids[0])
+			release := func() {}
+			if c.held {
+				l.await(t, "4 MiB of file bytes", 20*time.Second, func(f frames) bool { return f.bytes >= 4<<20 })
+				release = l.holdReads()
+				waitParked(t, &queued)
+				close(stop)
+			}
+			atStop := queued.Load()
+			awaitStopped(t, errc, 2*time.Second)
+			// OnProgress reports after each dc.Send, so two chunks at most: the
+			// one reported just after the load above, and the one already past
+			// the last look when stop closed.
+			if more := queued.Load() - atStop; more > 2*maxChunkSize {
+				t.Fatalf("the send queued %d bytes after the stop, want at most two chunks (%d)", more, 2*maxChunkSize)
+			}
 
-	close(stop)
-	atStop := queued.Load()
-	awaitStopped(t, errc, 2*time.Second)
-	// OnProgress reports after each dc.Send, so two chunks at most: the one
-	// reported just after the load above, and the one already past the last
-	// look when stop closed.
-	if more := queued.Load() - atStop; more > 2*maxChunkSize {
-		t.Fatalf("the send queued %d bytes after the stop, want at most two chunks (%d)", more, 2*maxChunkSize)
-	}
-
-	AbortSend(sender, "test", VisitorCancelReason)
-	l.await(t, "the abort frame", 5*time.Second, func(l frames) bool { return l.abort != "" })
-	time.Sleep(300 * time.Millisecond)
-	got := l.snapshot()
-	if got.abort != VisitorCancelReason {
-		t.Fatalf("the abort frame says %q", got.abort)
-	}
-	if got.afterAbort != 0 {
-		t.Fatalf("%d frames followed the abort frame", got.afterAbort)
-	}
-	if got.ends != 0 {
-		t.Fatal("an end marker went out for the file the stop cut")
-	}
-	if got.bytes >= 64<<20 {
-		t.Fatalf("the whole file went out (%d bytes) although the send stopped", got.bytes)
+			release()
+			AbortSend(sender, "test", VisitorCancelReason)
+			l.await(t, "the abort frame", 5*time.Second, func(f frames) bool { return f.abort != "" })
+			time.Sleep(300 * time.Millisecond)
+			got := l.snapshot()
+			if got.abort != VisitorCancelReason {
+				t.Fatalf("the abort frame says %q", got.abort)
+			}
+			if got.afterAbort != 0 {
+				t.Fatalf("%d frames followed the abort frame", got.afterAbort)
+			}
+			if got.ends != 0 {
+				t.Fatal("an end marker went out for the file the stop cut")
+			}
+			if got.bytes >= int64(c.size) {
+				t.Fatalf("the whole file went out (%d bytes) although the send stopped", got.bytes)
+			}
+		})
 	}
 }
 
