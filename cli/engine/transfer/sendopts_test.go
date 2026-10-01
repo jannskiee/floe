@@ -271,14 +271,17 @@ func TestFirstAckRangeMissIsALocalCompatError(t *testing.T) {
 // Ctrl+C sends to the one the /r page's Cancel sends (VISITOR_CANCEL_REASON),
 // read from its source, so the two visitors cannot drift apart (review lens
 // A, nit 9). The host maps any abort to its own copy, so a drift would not
-// show; this row is the only thing that would catch it.
+// show; this row is the only thing that would catch it. The line may end in
+// a carriage return: the repo has no .gitattributes, so a checkout with
+// core.autocrlf=true (GitHub's windows-latest runner) writes CRLF, and Go's
+// multi-line $ matches only before the \n (review re-check LA2-1, lens B N1).
 func TestVisitorCancelReasonMatchesTheWebPage(t *testing.T) {
 	for _, c := range []struct {
 		file string
 		re   *regexp.Regexp
 	}{
 		{"../../../client/lib/request/constants.ts",
-			regexp.MustCompile(`(?m)^export const VISITOR_CANCEL_REASON = '` + regexp.QuoteMeta(VisitorCancelReason) + `';$`)},
+			regexp.MustCompile(`(?m)^export const VISITOR_CANCEL_REASON = '` + regexp.QuoteMeta(VisitorCancelReason) + `';\r?$`)},
 	} {
 		src, err := os.ReadFile(filepath.FromSlash(c.file))
 		if err != nil {
