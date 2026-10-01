@@ -88,10 +88,10 @@ const (
 	lineLostNothingSent = "Connection lost. Nothing was sent."
 	lineCanceled        = "Canceled. Nothing was sent."
 	lineYouStopped      = "You stopped this drop."
-	// This CLI is the side behind on the protocol. The copy has no line for
-	// it (pending the owner's word): TL-13's mirror, then today's remedy in
-	// compatErrorMessage's own words, and nothing from the frame, whose ver
-	// and pv range the host chooses (review lens B, L1).
+	// This CLI is the side behind on the protocol (approved copy, D-146):
+	// TL-13's mirror, then today's remedy in compatErrorMessage's own words,
+	// and nothing from the frame, whose ver and pv range the host chooses
+	// (review lens B, L1).
 	lineThisFloeOld = "Your Floe needs an update to send to this link."
 	lineRunUpdate   = "Run `floe update` to upgrade."
 )
