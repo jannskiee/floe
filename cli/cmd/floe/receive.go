@@ -124,7 +124,8 @@ func runReceive(cmd *cobra.Command, args []string) error {
 
 	dc, err := conn.SetupAsReceiver()
 	if err != nil {
-		return fmt.Errorf("WebRTC setup failed: %w", err)
+		// Bounded and escaped: pion's parse error quotes the peer's offer.
+		return fmt.Errorf("WebRTC setup failed: %s", setupErrorText(err))
 	}
 
 	fmt.Println(connectedLine(conn.ConnectionType()))
