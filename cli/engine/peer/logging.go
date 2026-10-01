@@ -23,8 +23,8 @@ import (
 // came, and PION_LOG_TRACE lines carry whole remote candidates. pion's default
 // factory wrote them straight to stderr, so a peer could clear the screen,
 // plant an OSC 8 link or write the clipboard with OSC 52 on the other side's
-// terminal (review lens B M2, in every CLI release, floe send and floe receive
-// alike).
+// terminal (review lens B M2, in every CLI release since v1.1.0 moved to
+// pion/webrtc v4, floe send and floe receive alike).
 //
 // Three loggers still skip it. pion/ice v4.4.0's WithLoggerFactory sets only
 // the agent's own logger, so the agent hands pion's default factory to its
