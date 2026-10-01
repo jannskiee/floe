@@ -17,6 +17,7 @@ import {
     type Incompatible,
 } from './protocol';
 import { sanitizeDisplayText } from '../download';
+import { isOutOfMemory } from './outOfMemory';
 
 export interface ReceivedFile {
     id: string;
@@ -40,8 +41,31 @@ export interface ReceiverCallbacks {
      */
     onAllComplete?: (totalBytes: number, fileCount: number) => void;
     onWaiting?: () => void;
-    onError?: (msg: string) => void;
+    /**
+     * `failure` is set only when this side stopped because something threw
+     * while a frame was handled, and never carries a peer string, so its
+     * fields may go to an error report. Every other stop calls with `msg` alone.
+     */
+    onError?: (msg: string, failure?: ReceiveFailure) => void;
 }
+
+export interface ReceiveFailure {
+    /** 'out-of-memory' is the tab running out (see outOfMemory.ts); 'internal' is anything else. */
+    code: 'out-of-memory' | 'internal';
+    /** What was thrown. For an error report only, never for the screen. */
+    cause: unknown;
+    /** Bytes of the open file held when it threw, 0 when none was open. */
+    received: number;
+    /** The open file's announced size, or null when unknown or none was open. */
+    expected: number | null;
+}
+
+export const OUT_OF_MEMORY_MESSAGE =
+    'This browser ran out of memory while receiving, so the transfer was stopped. ' +
+    'Receive large files with Floe Desktop or the CLI, which save straight to disk.';
+
+export const INTERNAL_ERROR_MESSAGE =
+    'Something went wrong while receiving, so the transfer was stopped. Ask the sender to try again.';
 
 // Report receive progress at least once per this many bytes. A byte-count
 // threshold (rather than an exact modulo) works for any negotiated chunk size.
@@ -77,8 +101,9 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: s
     const partialDownloads = new Map<string, PartialDownload>();
     let currentMetadata: Metadata | null = null;
     let hasCheckedCompat = false;
-    // Hard stop. Set by any unrecoverable failure (an incompatible peer, or a
-    // file that did not arrive whole); every later message is dropped.
+    // Hard stop. Set by any unrecoverable failure (an incompatible peer, a
+    // file that did not arrive whole, or a throw; see fail); every later
+    // message is dropped.
     let aborted = false;
     // The announced size of the file being received, once validated, or null
     // when the peer announced nothing we can compare against.
@@ -91,7 +116,52 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: s
 
     function handleMessage(data: string | Uint8Array | ArrayBuffer): void {
         if (aborted) return;
+        try {
+            processFrame(data);
+        } catch (err) {
+            // A frame that already stopped the transfer and then threw (one of
+            // its own callbacks, say) has said what went wrong; a second
+            // message would talk over it. Let the throw surface, once.
+            if (aborted) throw err;
+            fail(err);
+        }
+    }
 
+    // Anything that throws while a frame is handled ends the transfer here,
+    // once. Before this the throw escaped into simple-peer's emitter with
+    // nothing latched, so every later frame threw again: a tab that ran out of
+    // memory raised the same uncaught error on each chunk for minutes (FLOE-M,
+    // 3,871 events in six minutes from one receiver) and kept every byte it
+    // already held, so the next load of the link could not even start (FLOE-N).
+    function fail(err: unknown): void {
+        const open = currentMetadata ? partialDownloads.get(currentMetadata.id) : undefined;
+        const received = open?.received ?? 0;
+        const expected = currentMetadata ? expectedSize : null;
+        // Release first: the frame to the sender below needs a little memory too.
+        aborted = true;
+        partialDownloads.clear();
+        currentMetadata = null;
+        expectedSize = null;
+        const code = isOutOfMemory(err) ? 'out-of-memory' : 'internal';
+        // Tell the sender, or it keeps sending into a receiver that drops it
+        // all. Binary, like every receiver-to-sender frame, and best effort.
+        try {
+            const of = expected === null ? '' : ` of ${expected}`;
+            const reason =
+                code === 'out-of-memory'
+                    ? `receiver ran out of memory after receiving ${received}${of} bytes of a file`
+                    : 'receiver stopped because of an internal error';
+            cb.send(new Uint8Array(new TextEncoder().encode(incompatibleMessage(reason))));
+        } catch {
+            // The peer is gone, or even this did not fit; the close is all it gets.
+        }
+        cb.onError?.(
+            code === 'out-of-memory' ? OUT_OF_MEMORY_MESSAGE : INTERNAL_ERROR_MESSAGE,
+            { code, cause: err, received, expected }
+        );
+    }
+
+    function processFrame(data: string | Uint8Array | ArrayBuffer): void {
         // Framing decides, not content. See isControlFrame: a binary frame on
         // this side is file data even when its bytes spell a control message,
         // which is what a small .json file's whole content can do.

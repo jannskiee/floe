@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { createReceiver } from './receiver';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { createReceiver, OUT_OF_MEMORY_MESSAGE, INTERNAL_ERROR_MESSAGE, type ReceiveFailure } from './receiver';
 import { metadataMessage, endMessage, incompatibleMessage, CONTROL_MSG_MAX, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, checkCompat } from './protocol';
 
 const enc = new TextEncoder();
@@ -561,5 +561,149 @@ describe('receiver: truncation guard', () => {
         expect(h.errors).toHaveLength(1);
         expect(h.errors[0]).toContain('Incomplete file "photognp.exe"');
         expect(h.errors[0]).not.toContain('\u202e');
+    });
+});
+
+/**
+ * FLOE-M: a tab that ran out of memory threw from the chunk copy, nothing
+ * caught it, and nothing latched, so every later chunk threw again (3,871
+ * uncaught events in six minutes from one receiver) while the bytes already
+ * held stayed held (FLOE-N: the next load of the link could not start).
+ *
+ * The chunk copy itself cannot be made to throw from a test without replacing
+ * Uint8Array for the whole process, so these throw from the two places that
+ * share its catch: a callback the frame calls, and the Blob built at `end`.
+ */
+describe('receiver: a throw stops the transfer once', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    function harness(throwOnProgress?: () => unknown) {
+        const sent: (string | Uint8Array)[] = [];
+        const errors: string[] = [];
+        const failures: (ReceiveFailure | undefined)[] = [];
+        const completed: string[] = [];
+        const rx = createReceiver({
+            send: (d) => sent.push(d),
+            onProgress: () => {
+                if (throwOnProgress) throw throwOnProgress();
+            },
+            onFileComplete: (f) => completed.push(f.fileName),
+            onError: (m, f) => {
+                errors.push(m);
+                failures.push(f);
+            },
+        });
+        return { rx, sent, errors, failures, completed };
+    }
+
+    function lastFrame(sent: (string | Uint8Array)[]) {
+        const frame = sent[sent.length - 1];
+        expect(frame).toBeInstanceOf(Uint8Array);
+        return JSON.parse(new TextDecoder().decode(frame as Uint8Array));
+    }
+
+    it('reports running out of memory once, and drops every later frame', () => {
+        const h = harness(() => new RangeError('Array buffer allocation failed'));
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 6, 1, 1, 6));
+        // The first chunk completes the announced size, so onProgress runs
+        // and throws; nothing may escape into the emitter.
+        expect(() => h.rx.handleMessage(enc.encode('abcdef'))).not.toThrow();
+        expect(() => h.rx.handleMessage(enc.encode('ghi'))).not.toThrow();
+        expect(() => h.rx.handleMessage(endMessage())).not.toThrow();
+
+        expect(h.errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
+        expect(h.failures[0]).toMatchObject({ code: 'out-of-memory', received: 6, expected: 6 });
+        expect(h.failures[0]?.cause).toBeInstanceOf(RangeError);
+        expect(h.completed).toEqual([]);
+    });
+
+    it('tells the sender, as an abort reason it prints rather than an update remedy', () => {
+        const h = harness(() => new RangeError('Array buffer allocation failed'));
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 6, 1, 1, 6));
+        h.rx.handleMessage(enc.encode('abcdef'));
+
+        const parsed = lastFrame(h.sent);
+        expect(parsed.type).toBe('incompatible');
+        expect(parsed.reason).toBe('receiver ran out of memory after receiving 6 of 6 bytes of a file');
+        expect(parsed.pv).toBe(PROTOCOL_VERSION);
+        expect(parsed.pvMin).toBe(MIN_PROTOCOL_VERSION);
+        // Exactly the ack and the abort: one frame each, never one per chunk.
+        expect(h.sent).toHaveLength(2);
+    });
+
+    it('recognizes the bare string Firefox throws', () => {
+        const h = harness(() => 'out of memory');
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 1, 3));
+        h.rx.handleMessage(enc.encode('abc'));
+        expect(h.failures[0]?.code).toBe('out-of-memory');
+    });
+
+    it('catches the Blob built at the end of a file too', () => {
+        const h = harness();
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 1, 3));
+        h.rx.handleMessage(enc.encode('abc'));
+        vi.stubGlobal(
+            'Blob',
+            class {
+                constructor() {
+                    throw new RangeError('Array buffer allocation failed');
+                }
+            }
+        );
+        expect(() => h.rx.handleMessage(endMessage())).not.toThrow();
+        expect(h.errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
+        expect(h.failures[0]).toMatchObject({ code: 'out-of-memory', received: 3, expected: 3 });
+        expect(h.completed).toEqual([]);
+    });
+
+    it('stops on any other throw as well, and hands the cause over for a report', () => {
+        const bug = new TypeError("Cannot read properties of undefined (reading 'x')");
+        const h = harness(() => bug);
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 1, 3));
+        expect(() => h.rx.handleMessage(enc.encode('abc'))).not.toThrow();
+        h.rx.handleMessage(enc.encode('def'));
+
+        expect(h.errors).toEqual([INTERNAL_ERROR_MESSAGE]);
+        expect(h.failures[0]?.code).toBe('internal');
+        expect(h.failures[0]?.cause).toBe(bug);
+        expect(lastFrame(h.sent).reason).toBe('receiver stopped because of an internal error');
+    });
+
+    it('reports no size when no file was open', () => {
+        // A throw on a control frame before any metadata: nothing was held.
+        const h = harness();
+        vi.stubGlobal(
+            'TextEncoder',
+            class {
+                encode(): Uint8Array {
+                    throw new RangeError('Array buffer allocation failed');
+                }
+            }
+        );
+        expect(() => h.rx.handleMessage(endMessage())).not.toThrow();
+        expect(h.failures[0]).toMatchObject({ code: 'out-of-memory', received: 0, expected: null });
+        // The abort frame needed a TextEncoder too and could not be built;
+        // that is swallowed, and the person still gets the message.
+        expect(h.sent).toEqual([]);
+        expect(h.errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
+    });
+
+    it('lets a throw from a frame that already stopped the transfer surface once, unreworded', () => {
+        // The sender's own abort reason is the account the person should read.
+        // A broken onError callback is a bug of ours, so it reaches the global
+        // handler, once, instead of being replaced by a second message.
+        const errors: string[] = [];
+        const rx = createReceiver({
+            send: () => {},
+            onError: (m) => {
+                errors.push(m);
+                throw new Error('callback bug');
+            },
+        });
+        expect(() => rx.handleMessage(incompatibleMessage('Transfer blocked.'))).toThrow('callback bug');
+        expect(() => rx.handleMessage(endMessage())).not.toThrow();
+        expect(errors).toEqual(['Transfer blocked.']);
     });
 });

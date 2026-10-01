@@ -533,14 +533,38 @@ export function P2PTransfer() {
                 reportBytes(totalBytes);
             },
             onWaiting: () => setStatus('File received. Waiting for next file'),
-            onError: (msg) => {
+            onError: (msg, failure) => {
                 // Latched: this is the protocol's own account of what went
                 // wrong, and the close that follows must not talk over it.
                 // That latch also silences the peer error handler, which is
                 // where a receiver's transfer-failed event normally comes
                 // from, so report it here instead of losing it.
                 wireReasonRef.current = true;
-                track('transfer-failed', { reason: 'peer-reason', role: 'receiver' });
+                track('transfer-failed', { reason: failure?.code ?? 'peer-reason', role: 'receiver' });
+                if (failure) {
+                    // One report per transfer: the receiver has already
+                    // stopped, so nothing after this frame can throw again.
+                    // Sizes only; the file name is the peer's and stays out.
+                    Sentry.withScope((scope) => {
+                        scope.setContext('receive', {
+                            receivedBytes: failure.received,
+                            expectedBytes: failure.expected,
+                            filesReceived: receivedFilesRef.current.length,
+                            connectionType: connectionTypeRef.current ?? 'unknown',
+                            // Chromium only, rounded and capped at 8 by the browser.
+                            deviceMemoryGiB: (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? null,
+                        });
+                        if (failure.code === 'out-of-memory') {
+                            // The documented ceiling of a browser receiver, not
+                            // a bug: one warning-level issue that counts how
+                            // often people reach it.
+                            scope.setFingerprint(['receiver-out-of-memory']);
+                            Sentry.captureMessage('Receiver ran out of memory', 'warning');
+                        } else {
+                            Sentry.captureException(failure.cause);
+                        }
+                    });
+                }
                 setError(msg);
                 setStatus('Transfer failed');
             },

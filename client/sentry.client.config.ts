@@ -1,10 +1,16 @@
 import * as Sentry from '@sentry/nextjs';
 import { BROWSER_EXTENSION_URL_PATTERNS } from './lib/browserExtensions';
+import { createEventBudget } from './lib/eventBudget';
 import { IGNORED_ERROR_PATTERNS } from './lib/ignoredErrors';
 import { isInjectedScriptError } from './lib/injectedScripts';
 import { isNonBrowserRuntimeError } from './lib/nonBrowserRuntimes';
 import { isStaleBundleError } from './lib/staleBundle';
 import { scrubSpanJson, scrubTransactionEvent, scrubUrl } from './lib/scrubUrl';
+
+// One budget per page load: no single error is sent more than a few times,
+// however often it fires. FLOE-M sent 3,871 copies of one error from one page.
+// See lib/eventBudget.ts.
+const withinEventBudget = createEventBudget();
 
 Sentry.init({
     // Set NEXT_PUBLIC_SENTRY_DSN in your environment to enable error tracking.
@@ -70,6 +76,9 @@ Sentry.init({
         if (event.request?.url) {
             event.request.url = scrubUrl(event.request.url);
         }
+
+        // Last, so it counts only events that are really about to be sent.
+        if (!withinEventBudget(event)) return null;
 
         return event;
     },
