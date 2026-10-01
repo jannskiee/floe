@@ -17,6 +17,7 @@ import {
     type Incompatible,
 } from './protocol';
 import { sanitizeDisplayText } from '../download';
+import { classifyThrow, type ReceiveFailureCode } from './receiveFailure';
 
 export interface ReceivedFile {
     id: string;
@@ -40,8 +41,37 @@ export interface ReceiverCallbacks {
      */
     onAllComplete?: (totalBytes: number, fileCount: number) => void;
     onWaiting?: () => void;
-    onError?: (msg: string) => void;
+    /**
+     * `failure` is set only when this side stopped because something threw
+     * while a frame was handled, and never carries a peer string, so its
+     * fields may go to an error report. Every other stop calls with `msg` alone.
+     */
+    onError?: (msg: string, failure?: ReceiveFailure) => void;
 }
+
+export interface ReceiveFailure {
+    /** 'out-of-memory' is the tab running out; 'internal' is anything else (see receiveFailure.ts). */
+    code: Exclude<ReceiveFailureCode, 'channel-closed'>;
+    /** What was thrown. For an error report only, never for the screen. */
+    cause: unknown;
+    /** Bytes of the open file held when it threw, 0 when none was open. */
+    received: number;
+    /** The open file's announced size, or null when unknown or none was open. */
+    expected: number | null;
+    /**
+     * Whether the sender's metadata carried a `ver`. Go senders (the CLI and
+     * Floe Desktop) always send one and browser senders never do, and only a
+     * Go sender reads an abort that arrives in the middle of a file.
+     */
+    senderSentVersion: boolean;
+}
+
+export const OUT_OF_MEMORY_MESSAGE =
+    'This browser ran out of memory while receiving, so the transfer was stopped. ' +
+    'Receive large files on a computer with Floe Desktop (Windows) or the Floe CLI, which save straight to disk.';
+
+export const INTERNAL_ERROR_MESSAGE =
+    'Something went wrong while receiving, so the transfer was stopped. Ask the sender to try again.';
 
 // Report receive progress at least once per this many bytes. A byte-count
 // threshold (rather than an exact modulo) works for any negotiated chunk size.
@@ -73,17 +103,22 @@ interface PartialDownload {
  *   });
  *   peer.on('data', rx.handleMessage);
  */
-export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: string | Uint8Array | ArrayBuffer) => void } {
+export function createReceiver(cb: ReceiverCallbacks): {
+    handleMessage: (data: string | Uint8Array | ArrayBuffer) => void;
+    dispose: () => void;
+} {
     const partialDownloads = new Map<string, PartialDownload>();
     let currentMetadata: Metadata | null = null;
     let hasCheckedCompat = false;
-    // Hard stop. Set by any unrecoverable failure (an incompatible peer, or a
-    // file that did not arrive whole); every later message is dropped.
+    // Hard stop. Set by any unrecoverable failure (an incompatible peer, a
+    // file that did not arrive whole, or a throw; see fail); every later
+    // message is dropped.
     let aborted = false;
     // The announced size of the file being received, once validated, or null
     // when the peer announced nothing we can compare against.
     let expectedSize: number | null = null;
     let sessionBytes = 0; // accumulated across all files of the current transfer
+    let senderSentVersion = false; // see ReceiveFailure.senderSentVersion
 
     let receiveSpeedStart = performance.now();
     let receiveSpeedBytes = 0;
@@ -91,7 +126,80 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: s
 
     function handleMessage(data: string | Uint8Array | ArrayBuffer): void {
         if (aborted) return;
+        runMessage(data);
+    }
 
+    // Every frame goes through here, never straight to processMessage, so a
+    // throw anywhere in it ends the transfer once (see fail).
+    function runMessage(data: string | Uint8Array | ArrayBuffer): void {
+        try {
+            processMessage(data);
+        } catch (err) {
+            // A frame that already stopped the transfer and then threw (one of
+            // its own callbacks, say) has said what went wrong; a second
+            // message would talk over it. Let the throw surface, once.
+            if (aborted) throw err;
+            fail(err);
+        }
+    }
+
+    // Anything that throws while a frame is handled ends the transfer here,
+    // once. Before this the throw escaped into simple-peer's emitter with
+    // nothing latched, so every later frame threw again: a tab that ran out of
+    // memory raised the same uncaught error on each chunk for minutes (FLOE-M,
+    // 3,871 events in six minutes from one receiver) and kept every byte it
+    // already held, so the next load of the link could not even start (FLOE-N).
+    function fail(err: unknown): void {
+        const open = currentMetadata ? partialDownloads.get(currentMetadata.id) : undefined;
+        const received = open?.received ?? 0;
+        // Sizes describe a file still being received. A throw after the file
+        // was handed over (from onFileComplete, say) has none open.
+        const expected = open ? expectedSize : null;
+        // Latch and let go of every held chunk before anything else: the work
+        // below needs a little memory too, and V8 collects and retries a
+        // failed allocation, so what is released here is what it gets.
+        dispose();
+        const code = classifyThrow(err);
+        // Our own ack could not go out because the channel is closing. The
+        // connection is what failed, and the peer's close handler says so.
+        if (code === 'channel-closed') return;
+        // Tell the sender, or it keeps sending into a receiver that drops it
+        // all. Binary, like every receiver-to-sender frame, and best effort.
+        try {
+            const of = expected === null ? '' : ` of ${expected}`;
+            const reason =
+                code === 'out-of-memory'
+                    ? `receiver ran out of memory after receiving ${received}${of} bytes`
+                    : 'receiver stopped because of an internal error';
+            cb.send(new Uint8Array(new TextEncoder().encode(incompatibleMessage(reason))));
+        } catch {
+            // The peer is gone, or even this did not fit; the close is all it gets.
+        }
+        // Clear the progress line, as the discard path does. Best effort, so
+        // a throw here cannot cost the person the only explanation.
+        try {
+            cb.onProgress?.(0, 0, 0);
+            cb.onSpeedReset?.();
+        } catch {
+            // Nothing to add: onError below is what matters.
+        }
+        cb.onError?.(
+            code === 'out-of-memory' ? OUT_OF_MEMORY_MESSAGE : INTERNAL_ERROR_MESSAGE,
+            { code, cause: err, received, expected, senderSentVersion }
+        );
+    }
+
+    // Stops the receiver and lets go of every chunk it holds. Also for the
+    // connection closing mid-file: without it a transfer that died partway
+    // kept its partial file for the life of the tab.
+    function dispose(): void {
+        aborted = true;
+        partialDownloads.clear();
+        currentMetadata = null;
+        expectedSize = null;
+    }
+
+    function processMessage(data: string | Uint8Array | ArrayBuffer): void {
         // Framing decides, not content. See isControlFrame: a binary frame on
         // this side is file data even when its bytes spell a control message,
         // which is what a small .json file's whole content can do.
@@ -157,13 +265,20 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: s
                         // does not close the connection afterwards, it only
                         // sets UI state, so the frame has time to leave.
                         const enc = new TextEncoder().encode(incompatibleMessage(peerMsg));
-                        cb.send(new Uint8Array(enc));
+                        // Best effort, like the discard path: a peer already
+                        // torn down must not cost this side its explanation.
+                        try {
+                            cb.send(new Uint8Array(enc));
+                        } catch {
+                            // The peer is gone; the close is all it will get.
+                        }
                         cb.onError?.(errMsg);
                         return;
                     }
                 }
 
                 currentMetadata = msg;
+                senderSentVersion = typeof msg.ver === 'string' && msg.ver !== '';
                 // classifyControl casts the metadata JSON straight to its
                 // interface, so fileSize is whatever the peer chose to send.
                 // Anything that is not a real byte count becomes null, which
@@ -344,5 +459,5 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: s
         }
     }
 
-    return { handleMessage };
+    return { handleMessage, dispose };
 }
