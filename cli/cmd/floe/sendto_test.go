@@ -993,6 +993,42 @@ func TestSendToIncompleteLinkMakesNoNetworkCall(t *testing.T) {
 	}
 }
 
+// TestSendToLinkTypedAsAPathIsNeverPrintedBack (review lens B re-check N5):
+// a request link typed where a path goes (the --to value and the path
+// swapped) ends on TL-09 before any network, never on TL-32's sentence,
+// which quotes the path it could not read and so printed the link back,
+// room id and all. A missing path that is not a link keeps TL-32's sentence.
+func TestSendToLinkTypedAsAPathIsNeverPrintedBack(t *testing.T) {
+	t.Run("a link where the path goes", func(t *testing.T) {
+		o := captureOutput(t)
+		net := stubNetwork(t, "")
+		const linkID = "Xk3p9Q0aB1c"
+		room := uuid.New().String()
+		r := runCLI(t, "--to", filepath.Join(t.TempDir(), "shoot"), "https://floe.one/r/"+linkID+"#"+room).read(o)
+		wantOutcome(t, r, "This link looks incomplete. Copy the whole link again, including everything after the # sign. Put the link in quotes.")
+		for _, leak := range []string{room, linkID, "cannot read"} {
+			if strings.Contains(r.stdout+r.stderr, leak) {
+				t.Fatalf("%q was printed:\nstdout:\n%s\nstderr:\n%s", leak, r.stdout, r.stderr)
+			}
+		}
+		if net.ice.Load() != 0 || net.connect.Load() != 0 {
+			t.Fatalf("network calls made: ICE %d, connect %d", net.ice.Load(), net.connect.Load())
+		}
+	})
+	t.Run("a missing path", func(t *testing.T) {
+		o := captureOutput(t)
+		net := stubNetwork(t, "")
+		missing := filepath.Join(t.TempDir(), "shoot")
+		r := runCLI(t, missing, "--to", linkFor()).read(o)
+		if r.err == nil || !strings.Contains(r.stderr, "Error: cannot read "+missing+": ") {
+			t.Fatalf("a missing path no longer ends on TL-32's sentence (%v):\n%s", r.err, r.stderr)
+		}
+		if net.ice.Load() != 0 || net.connect.Load() != 0 {
+			t.Fatalf("network calls made: ICE %d, connect %d", net.ice.Load(), net.connect.Load())
+		}
+	})
+}
+
 // TestSendToOtherServerLinkEndsWithoutANetworkCall is D-144.8's replacement
 // for the card's TestSendToOtherServerLinkNeedsServerFlag: a link made on
 // another server, with no --server and no FLOE_SERVER, ends on TL-10 before

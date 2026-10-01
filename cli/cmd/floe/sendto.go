@@ -323,9 +323,15 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 
 	r.say("")
 
-	// TL-32: the check and the sentence a plain send makes.
+	// TL-32: the check and the sentence a plain send makes. Its sentence
+	// quotes the path, so a request link typed where a path goes (the --to
+	// value and the path swapped) ends on TL-09 instead, and the link, room
+	// id and all, is never printed back (review lens B re-check N5).
 	for _, p := range args {
 		if _, err := os.Stat(p); err != nil {
+			if _, _, linkErr := code.ParseRequestLink(p); linkErr == nil {
+				return r.fail(cmd, lineIncompleteLink)
+			}
 			return r.keep(cmd, fmt.Errorf("cannot read %s: %w", p, err))
 		}
 	}
