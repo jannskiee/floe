@@ -3,9 +3,10 @@
  * right words and the right report.
  *
  * 'out-of-memory': the JavaScript engine refused an allocation. A browser
- * receiver holds each file in the tab until it is complete, so a large enough
- * file runs the tab out, and the first sign is a throw from an ordinary
- * allocation such as the chunk copy in receiver.ts. FLOE-M is that throw from
+ * receiver keeps each file inside the browser until the tab closes, so a large
+ * enough file can run the tab out (Firefox and Safari keep it all in memory,
+ * Chromium past its blob storage), and the first sign is a throw from an
+ * ordinary allocation such as the chunk copy in receiver.ts. FLOE-M is that throw from
  * Chrome on Windows, 4,272 times from one visitor:
  *
  *   RangeError: Array buffer allocation failed

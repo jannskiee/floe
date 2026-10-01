@@ -839,6 +839,126 @@ describe('receiver: holds a bounded amount of a file in the tab', () => {
         expect(built).toEqual([SPILL_BYTES, SPILL_BYTES, 100, 2 * SPILL_BYTES + 100]);
     });
 
+    function counting(): number[] {
+        const built: number[] = [];
+        vi.stubGlobal(
+            'Blob',
+            class extends RealBlob {
+                constructor(parts?: BlobPart[], options?: BlobPropertyBag) {
+                    super(parts, options);
+                    built.push(this.size);
+                }
+            }
+        );
+        return built;
+    }
+
+    function brokenParts(): void {
+        // Chromium's shape when its blob storage is full: the constructor
+        // returns, the size is right, and only a read fails.
+        vi.stubGlobal(
+            'Blob',
+            class extends RealBlob {
+                slice(): Blob {
+                    return { arrayBuffer: () => Promise.reject(new DOMException('', 'NotReadableError')) } as unknown as Blob;
+                }
+            }
+        );
+    }
+
+    function recorder() {
+        const sent: (string | Uint8Array)[] = [];
+        const errors: string[] = [];
+        const failures: (ReceiveFailure | undefined)[] = [];
+        const completed: Blob[] = [];
+        const rx = createReceiver({
+            send: (d) => sent.push(d),
+            onFileComplete: (f) => completed.push(f.blob),
+            onError: (m, f) => {
+                errors.push(m);
+                failures.push(f);
+            },
+        });
+        return { rx, sent, errors, failures, completed };
+    }
+
+    const tick = () => new Promise((r) => setTimeout(r, 0));
+
+    it('builds nothing for a zero-byte file', () => {
+        const built = counting();
+        const h = recorder();
+        h.rx.handleMessage(metadataMessage('z', 'z.bin', 0, 1, 1, 0));
+        h.rx.handleMessage(endMessage());
+        expect(h.completed).toHaveLength(1);
+        expect(h.completed[0].size).toBe(0);
+        expect(built).toEqual([0]);
+    });
+
+    it('hands over the single part itself for a file of exactly SPILL_BYTES', () => {
+        const built = counting();
+        const h = recorder();
+        feed(h.rx, pattern(SPILL_BYTES), 256 * 1024);
+        expect(built).toEqual([SPILL_BYTES]);
+        expect(h.completed[0].size).toBe(SPILL_BYTES);
+    });
+
+    it('starts the next file clean after a spill', async () => {
+        const first = pattern(SPILL_BYTES + 5);
+        const second = pattern(777).map((b) => (b % 200) + 2);
+        const h = recorder();
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', first.byteLength, 1, 2, first.byteLength + 777));
+        for (let off = 0; off < first.byteLength; off += 256 * 1024) h.rx.handleMessage(first.subarray(off, off + 256 * 1024));
+        h.rx.handleMessage(endMessage());
+        h.rx.handleMessage(metadataMessage('b', 'b.bin', 777, 2, 2, first.byteLength + 777));
+        h.rx.handleMessage(second);
+        h.rx.handleMessage(endMessage());
+        expect(h.completed).toHaveLength(2);
+        expect(Buffer.compare(Buffer.from(await h.completed[0].arrayBuffer()), Buffer.from(first))).toBe(0);
+        expect(Buffer.compare(Buffer.from(await h.completed[1].arrayBuffer()), Buffer.from(second))).toBe(0);
+        expect(h.errors).toEqual([]);
+    });
+
+    it('reports a part found broken after its file was handed over, with that file\'s sizes', async () => {
+        brokenParts();
+        const h = recorder();
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 1, 3));
+        h.rx.handleMessage(enc.encode('abc'));
+        h.rx.handleMessage(endMessage());
+        expect(h.completed).toHaveLength(1);
+        await tick();
+        expect(h.errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
+        expect(h.failures[0]).toMatchObject({ code: 'out-of-memory', received: 3, expected: 3 });
+        const abort = JSON.parse(new TextDecoder().decode(h.sent[h.sent.length - 1] as Uint8Array));
+        expect(abort.reason).toBe('receiver ran out of memory after receiving 3 of 3 bytes');
+    });
+
+    it('still reports it when the connection closed first', async () => {
+        // A Go sender closes as soon as its last bytes are out, which can be
+        // before the read-back of the last part settles.
+        brokenParts();
+        const h = recorder();
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 1, 3));
+        h.rx.handleMessage(enc.encode('abc'));
+        h.rx.handleMessage(endMessage());
+        h.rx.dispose();
+        await tick();
+        expect(h.errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
+    });
+
+    it('stays quiet about a broken part once a failure was reported', async () => {
+        // A size mismatch after a spill already told the person; the part it
+        // left behind must not say it a second time.
+        brokenParts();
+        const h = recorder();
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', SPILL_BYTES * 2, 1, 1, SPILL_BYTES * 2));
+        h.rx.handleMessage(pattern(SPILL_BYTES));
+        h.rx.handleMessage(endMessage());
+        h.rx.dispose();
+        await tick();
+        expect(h.errors).toHaveLength(1);
+        expect(h.errors[0]).toContain('Incomplete file');
+    });
+
     it('stops with the out-of-memory message when a part cannot be read back', async () => {
         // Chromium's shape when its blob storage is full: the constructor
         // returns, the size is right, and only a read fails.

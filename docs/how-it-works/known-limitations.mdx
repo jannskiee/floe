@@ -69,13 +69,14 @@ its own security purposes.
 The web app collects each incoming file inside your browser until you download it, so how much it
 can take depends on the browser.
 
-- **Chrome, Edge, and other Chromium browsers, in a normal window:** the tab itself holds only
+- **Chrome, Edge, and other Chromium browsers, in a normal window:** the tab holds no more than
   about 16 MB of a file at a time. The browser keeps some of what has arrived in memory (about 2 GB
   on a computer) and moves the rest into temporary files of its own on disk, up to a limit it sets
-  from the size of the disk.
+  from the size of the disk. Past that limit the transfer stops and says the browser ran out of
+  memory.
 - **A private or Incognito window in those browsers:** nothing goes to disk, so everything received
-  in private windows shares about 2 GB. Past that the transfer stops and says the browser ran out
-  of memory.
+  in private windows shares the memory part alone, about 2 GB on a computer and much less on a
+  phone. Past that the transfer stops the same way.
 - **Firefox, Safari, and every browser on iPhone and iPad:** each file is held in memory. A large
   enough file exhausts the tab, and on a phone that ceiling arrives sooner than you would like.
 
