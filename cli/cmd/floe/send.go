@@ -152,19 +152,23 @@ func runSend(cmd *cobra.Command, args []string) error {
 
 // shortCodeWarning is the line send prints when the server gives no code. The
 // error can carry a TLS certificate's names or other text the CLI does not
-// control, so it is escaped like every printed error (execute).
+// control, so it is bounded and escaped on one line.
 func shortCodeWarning(err error) string {
-	return "  Warning: could not generate short code: " + peer.EscapeText(err.Error())
+	return "  Warning: could not generate short code: " + peer.EscapeText(cutRunes(err.Error(), errorMax))
 }
+
+// codePhraseMax bounds the code phrase in the box: a real one is three short
+// words ("olive-tiger-castle").
+const codePhraseMax = 64
 
 // shareRows are the rows of the box send prints: the code when the server
 // gave one, then the link. The code phrase is the server's text, so it is
-// escaped before it reaches the terminal; a real one ("olive-tiger-castle")
-// comes out unchanged.
+// bounded and escaped before it reaches the terminal; a real one comes out
+// unchanged.
 func shareRows(codePhrase, link string) [][2]string {
 	var rows [][2]string
 	if codePhrase != "" {
-		rows = append(rows, [2]string{"Code", peer.EscapeText(codePhrase)})
+		rows = append(rows, [2]string{"Code", peer.EscapeText(cutRunes(codePhrase, codePhraseMax))})
 	}
 	return append(rows, [2]string{"Link", link})
 }

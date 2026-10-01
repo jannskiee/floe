@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -27,6 +28,10 @@ const hostileToken = "\x1b[2J\x1b[H\x1b]52;c;ZWNobyBwd25lZA==\x07\x1b]8;;http://
 // hostileSDP carries hostileToken where the o= line's network type goes.
 const hostileSDP = "v=0\r\no=- 1 2 " + hostileToken + " IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"
 
+// serverCodePhrase is the code hostilePeer hands out; a test may set a
+// hostile one for its own run.
+var serverCodePhrase = "olive-tiger-castle"
+
 // hostilePeer serves, on 127.0.0.1, what floe send and floe receive ask a
 // server for before they signal (the ICE list, a code), then seats the command
 // as role and plays the other peer: a receiver gets hostileSDP as the offer,
@@ -42,7 +47,7 @@ func hostilePeer(t *testing.T, role string) string {
 		_, _ = io.WriteString(w, `[{"urls":"stun:127.0.0.1:9"}]`)
 	})
 	mux.HandleFunc("/api/code", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, `{"code":"olive-tiger-castle"}`)
+		_ = json.NewEncoder(w).Encode(map[string]string{"code": serverCodePhrase})
 	})
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		ws, err := upgrader.Upgrade(w, r, nil)

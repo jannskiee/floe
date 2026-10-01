@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 	"unicode/utf8"
@@ -58,8 +59,6 @@ Documentation: https://www.floe.one/docs`,
 	// Runtime failures (network, blocked transfers, spent codes) are not usage
 	// mistakes: print the error alone instead of dumping the flag reference.
 	SilenceUsage: true,
-	// execute prints the error instead of cobra, through the escape.
-	SilenceErrors: true,
 
 	// Resolve the server and web origins once, before any subcommand runs, so
 	// every consumer downstream reads an already-normalized value.
@@ -199,11 +198,16 @@ const setupErrorMax = 300
 // it after "WebRTC setup failed: ": cut at setupErrorMax runes, then escaped
 // (peer.EscapeText), since the text can quote the peer's own SDP.
 func setupErrorText(err error) string {
-	s := err.Error()
-	if utf8.RuneCountInString(s) > setupErrorMax {
-		s = string([]rune(s)[:setupErrorMax-1]) + "…"
+	return peer.EscapeText(cutRunes(err.Error(), setupErrorMax))
+}
+
+// cutRunes returns s cut to max runes, the last one an ellipsis when it was
+// longer.
+func cutRunes(s string, max int) string {
+	if utf8.RuneCountInString(s) <= max {
+		return s
 	}
-	return peer.EscapeText(s)
+	return string([]rune(s)[:max-1]) + "…"
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -232,16 +236,46 @@ func main() {
 	}
 }
 
-// execute runs the command tree and prints its error the way cobra does
-// ("Error: " and the text), escaped with peer.EscapeText. Errors carry text
+// execute runs the command tree and prints a subcommand's error the way
+// cobra does ("Error: " and the text), through errorText. Errors carry text
 // the CLI does not control: a TLS certificate's names (Go's hostname check
 // lists them as they are, and on Linux it runs before the chain check), the
-// signaling server's error message, and pion's words. Every one of them
-// reaches the terminal through this one line.
+// signaling server's error message, and pion's words.
+//
+// Only Floe's own subcommands are silenced. Cobra keeps printing what fails
+// before one of them runs (an unknown command with its suggestions, a flag of
+// the root), text built from the command line and the command tree; help and
+// completion are added inside ExecuteC and keep cobra's printing too.
 func execute() error {
-	err := rootCmd.Execute()
-	if err != nil {
-		fmt.Fprintln(rootCmd.ErrOrStderr(), "Error:", peer.EscapeText(err.Error()))
+	for _, c := range rootCmd.Commands() {
+		c.SilenceErrors = true
+	}
+	cmd, err := rootCmd.ExecuteC()
+	if err != nil && cmd.SilenceErrors {
+		fmt.Fprintln(rootCmd.ErrOrStderr(), "Error:", errorText(err))
 	}
 	return err
+}
+
+// errorMax bounds an error's text: a server's error message or a
+// certificate's names have no length of their own, and escaped they would
+// print as one line four times as long. Floe's own errors are far shorter.
+const errorMax = 2000
+
+// errorText is err's text as execute prints it: cut at errorMax runes, each
+// line escaped (peer.EscapeText), and every line after the first starting
+// with at least two spaces. Floe's own multi-line errors (the protocol
+// remedy, the update checksum mismatch) already indent theirs and print as
+// before; a newline inside text Floe does not control can only add an
+// indented line under the error, never one that passes for other output.
+func errorText(err error) string {
+	lines := strings.Split(cutRunes(err.Error(), errorMax), "\n")
+	for i, line := range lines {
+		line = peer.EscapeText(line)
+		if i > 0 && !strings.HasPrefix(line, "  ") {
+			line = "  " + line
+		}
+		lines[i] = line
+	}
+	return strings.Join(lines, "\n")
 }
