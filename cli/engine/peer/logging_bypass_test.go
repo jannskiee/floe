@@ -63,12 +63,12 @@ func TestOnlyMDNSAndTURNBypassTheLoggerFactory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer connS.Close()
+	defer closeAndWait(t, connS)
 	connR, err := New(nil, receiver)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer connR.Close()
+	defer closeAndWait(t, connR)
 	aroundFactory := captureStderr(t)
 	logging.NewDefaultLoggerFactory().NewLogger(bypassProbeScope).Errorf("the default route reaches this pipe")
 
@@ -109,9 +109,8 @@ func TestOnlyMDNSAndTURNBypassTheLoggerFactory(t *testing.T) {
 	for deadline := time.Now().Add(5 * time.Second); strings.Count(viaFactory.String(), "dropping candidate") < dropped && time.Now().Before(deadline); {
 		time.Sleep(20 * time.Millisecond)
 	}
-	connS.Close()
-	connR.Close()
-	time.Sleep(300 * time.Millisecond) // what closing still logs
+	closeAndWait(t, connS) // and whatever closing still logs
+	closeAndWait(t, connR)
 	around := aroundFactory.stop()
 	via := viaFactory.stop()
 

@@ -40,7 +40,8 @@ func (c *capturedStderr) stop() string {
 
 // captureStderr swaps os.Stderr for a pipe until stop, or the end of the
 // test. peer.New hands pion the stderr of the moment, so the swap comes
-// first. The package has no t.Parallel, so a process-wide swap is safe.
+// first. The package has no t.Parallel, so a process-wide swap is safe once
+// every connection the test built is closed with closeAndWait.
 func captureStderr(t *testing.T) *capturedStderr {
 	t.Helper()
 	r, w, err := os.Pipe()
@@ -73,6 +74,23 @@ func captureStderr(t *testing.T) *capturedStderr {
 	}()
 	t.Cleanup(func() { c.stop() })
 	return c
+}
+
+// closeAndWait closes conn, then waits for every goroutine pion started for
+// it. Close alone returns while the ICE agent's task loop can still log: it
+// then writes to a capture pipe that is already closed, and pion's fallback
+// prints to os.Stderr while the next test swaps it, which go test -race
+// reported in 3 of 10 runs of the two capturing tests.
+func closeAndWait(t *testing.T, conn *Connection) {
+	t.Helper()
+	conn.Close()
+	done := make(chan error, 1)
+	go func() { done <- conn.pc.GracefulClose() }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Errorf("pion's goroutines were still running 10 s after Close")
+	}
 }
 
 // logTestOffer is a remote offer written by hand, so setting it needs no
@@ -144,7 +162,7 @@ func TestPionLogsCarryNoControlCharacters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer conn.Close()
+	defer closeAndWait(t, conn)
 	if err := conn.setRemoteDesc(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: logTestOffer}); err != nil {
 		t.Fatalf("set the remote offer: %v", err)
 	}
