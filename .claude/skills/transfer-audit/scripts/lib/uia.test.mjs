@@ -276,6 +276,36 @@ test('fake helper: retry retries only retryable reasons', async () => {
     }
 });
 
+// FU-26: the two helper calls the UIA request verbs add, over the wire.
+test('fake helper: snapshot sends values only when asked, and toggle frames regex and value and reads the switch back', async () => {
+    const c = fakeClient();
+    await c.open();
+    try {
+        const plain = await c.snapshot(4242);
+        assert.equal(plain.items[1].value, undefined, 'no values unless asked');
+        const withValues = await c.snapshot(4242, { values: true, max: 3000 });
+        assert.match(withValues.items[1].value, /\/r\/Xk3p9Q0aB1c#/);
+        assert.equal(withValues.items[1].readOnly, true);
+        assert.equal(withValues.items[2].toggle, 'Off');
+        const on = await c.toggle(4242, /^Request links/i, true);
+        assert.deepEqual([on.before, on.after, on.changed], [false, true, true]);
+        const again = await c.toggle(4242, /^Request links/i, true);
+        assert.equal(again.changed, false);
+        assert.equal((await c.snapshot(4242, { values: true })).items[2].toggle, 'On');
+        await assert.rejects(
+            c.toggle(4242, /^Hide my IP/, true),
+            (err) => err.reason === 'not-found'
+        );
+        await assert.rejects(
+            c.request('toggle', { hwnd: 4242, regex: 'x', value: 'yes' }),
+            (err) => err.reason === 'bad-request'
+        );
+        assert.ok(timeoutFor('toggle', { timeoutMs: 1000 }) === 1000 + 5000);
+    } finally {
+        await c.close();
+    }
+});
+
 test('fake helper: a crash rejects every pending request with helper-exited', async () => {
     const c = fakeClient();
     await c.open();
@@ -333,6 +363,24 @@ test(
             );
             await assert.rejects(
                 c.click(1, 'Receive'),
+                (err) => err.reason === 'not-a-window'
+            );
+            // FU-26: toggle and snapshot values reach the helper's own
+            // parameter checks before any window is touched.
+            await assert.rejects(
+                c.toggle(1, /^Request links/, true),
+                (err) => err.reason === 'not-a-window'
+            );
+            await assert.rejects(
+                c.request('toggle', { hwnd: 1, value: true }),
+                (err) => err.reason === 'bad-request' && /regex/.test(err.detail)
+            );
+            await assert.rejects(
+                c.request('toggle', { hwnd: 1, regex: 'x' }),
+                (err) => err.reason === 'bad-request' && /value/.test(err.detail)
+            );
+            await assert.rejects(
+                c.snapshot(1, { values: true }),
                 (err) => err.reason === 'not-a-window'
             );
             // Malformed parameters are bad-request (never retried), not

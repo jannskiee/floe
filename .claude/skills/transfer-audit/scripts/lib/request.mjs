@@ -30,9 +30,9 @@ import {
     runAttempt,
     statsProofCheck,
 } from './cell.mjs';
-import { RE, safeCode, samePath } from './desktop.mjs';
+import { RE, desktopFmtBytes, safeCode, samePath } from './desktop.mjs';
 import { compareOutputs, ensureFixture, walkOutputs } from './fixtures.mjs';
-import { isLoopbackUrl } from './matrix.mjs';
+import { REQUEST_CADDY_RECONNECT_MS, isLoopbackUrl } from './matrix.mjs';
 import { redactRequestLinks } from './report.mjs';
 import { classifyPair } from './route.mjs';
 import { PhaseError, SafetyError, sleep as defaultSleep } from './surfaces.mjs';
@@ -45,8 +45,13 @@ export const MANIFEST_KEY = 'request-manifest';
 export const HOST_POLL_MS = 250;
 /** How long the host has to reclaim its link after a blip ends. */
 export const RECLAIM_MS = 60_000;
-/** The request host verbs exist on the wailsdev lane only (UIA: Phase F). */
-export const UIA_PENDING = 'request-host-uia-pending';
+/**
+ * An exe host (the Store build, a portable or a head wails build) is driven
+ * through the UIA request verbs (FU-26), whose pattern calls activate its
+ * window (G2-F1), so it runs only with --user-away; the wailsdev lane drives
+ * a headless page and activates nothing.
+ */
+export const AWAY_ONLY = 'request-host-away-only';
 
 // The lane states in which a link exists and can be closed (Close link),
 // and the results that hold the Beta switch until Dismiss (requestLink.ts
@@ -103,10 +108,22 @@ function flow(phase, message, extra = {}) {
  */
 export const BLIP_KEY = 'blip-url';
 function blipUnproven(phase, message) {
-    return new PhaseError(phase, `${BLIP_KEY}: ${message}`, {
+    return proxyUnproven(BLIP_KEY, phase, message);
+}
+
+/**
+ * TA-14's twin of blip-url (FU-26): the host is not behind the Caddy proxy
+ * (its server address did not read back, or it never read Reconnecting after
+ * a reload), so a reload proved nothing. A harness ERROR, never a FAIL.
+ */
+export const CADDY_KEY = 'caddy-url';
+/** TA-14's second reload never landed while the drop received. */
+export const CADDY_MISSED_KEY = 'caddy-reload-missed';
+function proxyUnproven(key, phase, message) {
+    return new PhaseError(phase, `${key}: ${message}`, {
         harness: true,
-        reason: BLIP_KEY,
-        signatureKey: BLIP_KEY,
+        reason: key,
+        signatureKey: key,
     });
 }
 
@@ -221,7 +238,29 @@ export async function awaitHostState(
  */
 export const BETA_WAIT_MS = 10_000;
 export async function setRequestLinks(host, on, { now = Date.now, nap = defaultSleep } = {}) {
-    const before = (await host.driver.settings())?.requestLinks === true;
+    const settings = await host.driver.settings();
+    if (settings === null && host.mode !== 'wailsdev') {
+        // An exe has no GetSettings: the switch's own TogglePattern state is
+        // the read-back (UiaDriver.setToggle). A request host launches with
+        // requestLinks:true in its desktop.json, so this normally reads it
+        // on and changes nothing.
+        let r = null;
+        await host.withSettings(async () => {
+            const start = now();
+            for (;;) {
+                r = await host.driver.setToggle(RE.requestLinksRow, on);
+                if (r.after === on || now() - start >= BETA_WAIT_MS) return;
+                await nap(HOST_POLL_MS);
+            }
+        });
+        if (!r || r.after !== on)
+            throw flow(
+                'host.start',
+                `the Beta switch did not turn ${on ? 'on' : 'off'} (the switch reads ${r ? (r.after ? 'on' : 'off') : 'nothing'}); the app may not see request-1 on its server`
+            );
+        return { before: r.before, after: r.after, changed: r.changed, via: 'uia-toggle' };
+    }
+    const before = settings?.requestLinks === true;
     if (before === on) return { before, after: before, changed: false };
     await host.withSettings(async () => {
         const start = now();
@@ -246,7 +285,13 @@ export async function setRequestLinks(host, on, { now = Date.now, nap = defaultS
  * `outDir` and read it. Returns the full link; the record keeps its shown
  * form only.
  */
-async function startHost(cell, ctx, rec, st, { outDir, relayOnly, blipUrl = null }) {
+async function startHost(
+    cell,
+    ctx,
+    rec,
+    st,
+    { outDir, relayOnly, blipUrl = null, proxyKey = BLIP_KEY }
+) {
     const { now, nap } = st.clock;
     const mod = await ctx.getAdapter('desktop');
     const host = mod.createLeg({
@@ -271,32 +316,47 @@ async function startHost(cell, ctx, rec, st, { outDir, relayOnly, blipUrl = null
         shared: ctx.shared || {},
         clientDir: ctx.shared?.clientDir ?? null,
         log: ctx.log,
+        // The Beta switch rides the desktop.json an exe host launches with.
+        requestHost: true,
     });
-    if (host.mode !== 'wailsdev')
-        throw new PhaseError(
-            'host.start',
-            `the request link host verbs run on the wailsdev lane only (this desktop is ${host.mode}); the UIA verbs are Phase F prep`,
-            { verdict: 'SKIP', reason: UIA_PENDING }
-        );
+    const exe = host.mode !== 'wailsdev';
+    if (exe) {
+        // The matrix gate SKIPs this without --user-away; this is the
+        // runner's own stop, before anything launches.
+        if (!ctx.userAway)
+            throw new PhaseError(
+                'host.start',
+                `the request link host is a ${host.mode} exe, driven through UIA pattern calls that activate its window (G2-F1); it runs only with --user-away`,
+                { verdict: 'SKIP', reason: AWAY_ONLY }
+            );
+        // An exe has no bound SetSettings: a proxy's address is the server
+        // in the desktop.json it launches with.
+        if (blipUrl) host.opts.serverOverride = blipUrl;
+    }
     st.host = host;
     // Whatever happens next, the leg's stop (the cell's teardown or the
     // audit's interrupt shutdown) closes the link and puts the switches back.
     host.beforeClose = () => releaseHost(st, rec);
     await host.launch([]);
+    // Every UIA pattern call from here on re-reads the input idle time first.
+    if (exe && host.driver) host.driver.awayOnly = true;
     await clearLeftover(host, ctx, rec, st);
     await host.applyRelayForcer();
     st.beta = await setRequestLinks(host, true, st.clock);
     rec.request.beta = { ...st.beta };
-    if (blipUrl) {
+    if (blipUrl && exe) {
+        rec.request.addresses = { swapped: true, restored: null, via: 'desktop.json at launch' };
+    } else if (blipUrl) {
         const before = await host.driver.settings();
         st.addresses = { server: before?.server ?? '', web: before?.web ?? '' };
         const web = ctx.infra?.web ?? '';
         const after = await host.driver.setAddresses(blipUrl, web);
         rec.request.addresses = { swapped: true, restored: null };
         if (!after || after.server !== blipUrl || after.web !== web)
-            throw blipUnproven(
+            throw proxyUnproven(
+                proxyKey,
                 'host.start',
-                'the host did not take the blip proxy as its server address (SetSettings read back something else)'
+                `the host did not take the ${proxyKey === CADDY_KEY ? 'Caddy' : 'blip'} proxy as its server address (SetSettings read back something else)`
             );
     }
     // Only a link generation this cell made is ever closed or put away: the
@@ -486,14 +546,21 @@ async function awaitPrompt(host, rec, st, fixture, T) {
         totalBytes: p.totalBytes,
         warnings: (Array.isArray(p.warnings) ? p.warnings : []).map(safeCode),
     };
+    // The UIA lane reads the prompt off the screen, where P2 renders the
+    // size (fmtBytes) and never the byte count: it is compared in that form.
+    const shownOnly = typeof p.totalBytes !== 'number' && typeof p.sizeText === 'string';
+    if (shownOnly) prompt.sizeText = p.sizeText;
     rec.request.prompts.push(prompt);
+    const want = shownOnly ? desktopFmtBytes(fixture.totalBytes) : fixture.totalBytes;
     if (
         prompt.files !== fixture.files.length ||
-        prompt.totalBytes !== fixture.totalBytes
+        (shownOnly ? prompt.sizeText !== want : prompt.totalBytes !== want)
     )
         throw flow(
             'request',
-            `the prompt reads ${prompt.files} file(s) and ${prompt.totalBytes} bytes; the visitor offered ${fixture.files.length} and ${fixture.totalBytes}`
+            shownOnly
+                ? `the prompt reads ${prompt.files} file(s) and ${prompt.sizeText}; the visitor offered ${fixture.files.length} and ${want}`
+                : `the prompt reads ${prompt.files} file(s) and ${prompt.totalBytes} bytes; the visitor offered ${fixture.files.length} and ${fixture.totalBytes}`
         );
     // P6 is for a relayed drop over 2 GB; every request fixture is 64 MiB
     // or less, so the line showing is a wrong warning.
@@ -608,6 +675,71 @@ async function runFlow(cell, ctx, rec, st, fixture, T) {
         await v.tryAgain(st.clock);
         await awaitPrompt(host, rec, st, fixture, T);
         await accept(host, rec, st, T);
+        return v;
+    }
+    if (req.flow === 'caddy-reload') {
+        // TA-14 (spec 09 2.7.2): Caddy closes every proxied WebSocket on a
+        // reload. The host is behind it; the visitor's page talks to the
+        // server directly, so at the second reload it stays connected and is
+        // sent peer-disconnected, which it must ignore while its channel is
+        // open. The first reload's Reconnecting is the proof that the host
+        // is behind the proxy at all (caddy-url otherwise).
+        const caddy = {
+            reloads: [],
+            reconnecting: false,
+            reclaimed: false,
+            receivingReload: false,
+        };
+        rec.request.caddy = caddy;
+        const r1 = await st.caddy.reload();
+        caddy.reloads.push({ while: 'waiting', at: r1.at });
+        try {
+            await awaitHostState(host, ['reconnecting'], REQUEST_CADDY_RECONNECT_MS, {
+                ...st.clock,
+                fail: ['ended', 'error'],
+                what: 'Reconnecting after the reload',
+                live: st.live,
+            });
+        } catch (e) {
+            if (!/ms on, not Reconnecting after the reload$/.test(e.message)) throw e;
+            throw proxyUnproven(
+                CADDY_KEY,
+                'request',
+                `the host never read Reconnecting within ${REQUEST_CADDY_RECONNECT_MS} ms of the reload, so it may not be behind the Caddy proxy and the reload proved nothing`
+            );
+        }
+        caddy.reconnecting = true;
+        await awaitHostState(host, ['waiting'], RECLAIM_MS, {
+            ...st.clock,
+            fail: ['ended', 'error'],
+            what: 'Waiting again after the reload (the reclaim)',
+            live: st.live,
+        });
+        caddy.reclaimed = true;
+        const v = await open('visitor-1');
+        await v.send(st.clock);
+        await awaitPrompt(host, rec, st, fixture, T);
+        await accept(host, rec, st, T);
+        const moving = await awaitHostState(
+            host,
+            (s) => ['receiving', 'done', 'stopped'].includes(s.state),
+            T.firstBytes,
+            {
+                ...st.clock,
+                fail: ['ended', 'error'],
+                what: 'the drop to start',
+                live: st.live,
+            }
+        );
+        if (moving.state !== 'receiving')
+            throw proxyUnproven(
+                CADDY_MISSED_KEY,
+                'request',
+                `the drop read ${moving.state} before the reload while receiving could land, so that half of TA-14 was not exercised`
+            );
+        const r2 = await st.caddy.reload();
+        caddy.reloads.push({ while: 'receiving', at: r2.at });
+        caddy.receivingReload = true;
         return v;
     }
     throw new PhaseError('request', `unknown request flow ${req.flow}`, {
@@ -797,16 +929,24 @@ async function verifyRequest(cell, ctx, rec, st, fixture, T) {
     rec.stats = statsProofCheck(cell, safeEvidence(host), rec, ctx);
     rec.stats.proof.browserAttempts = visitorStats(st.visitors, rec);
 
-    // The host's account and the done view the owner reads.
+    // The host's account and the done view the owner reads. On the UIA lane
+    // the account IS the done view (source uia): DN1 carries the saved count,
+    // and DN3 alone vouches for files and verified, which read null without it.
     const r = snap.result || {};
+    const uia = snap.source === 'uia';
     rec.request.result = {
         files: r.files ?? null,
         saved: r.saved ?? null,
         verified: r.verified ?? null,
         renamed: r.renamed ?? null,
     };
-    if (r.files !== N || r.saved !== N)
-        throw flow('verify', `the host saved ${r.saved} of ${r.files} file(s); the visitor sent ${N}`);
+    if (uia ? r.saved !== N : r.files !== N || r.saved !== N)
+        throw flow(
+            'verify',
+            uia
+                ? `the host's done view reads ${r.saved} file(s) saved; the visitor sent ${N}`
+                : `the host saved ${r.saved} of ${r.files} file(s); the visitor sent ${N}`
+        );
     const view = await host.driver.readRequestResult();
     rec.request.hostView = view;
     rec.completion.receiver = {
@@ -815,22 +955,22 @@ async function verifyRequest(cell, ctx, rec, st, fixture, T) {
     };
     if (view.files !== N)
         throw flow('verify', `the done heading reads ${JSON.stringify(view.heading)}, not ${N} file(s)`);
-    const allVerified = r.verified === N;
+    const allVerified = uia ? view.verifiedLine === true : r.verified === N;
     if (view.verifiedLine !== allVerified)
         throw flow(
             'verify',
-            `the host's SHA sentence ${view.verifiedLine ? 'shows' : 'is missing'} with ${r.verified} of ${N} verified`
+            `the host's SHA sentence ${view.verifiedLine ? 'shows' : 'is missing'} with ${r.verified ?? 'not all'} of ${N} verified`
         );
     const shaLine = delivered.lines.some((l) => l.includes(VISITOR_TEXT.shaMatched));
     if (shaLine !== allVerified)
         throw flow(
             'verify',
-            `the visitor's SHA line ${shaLine ? 'shows' : 'is missing'} with ${r.verified} of ${N} verified`
+            `the visitor's SHA line ${shaLine ? 'shows' : 'is missing'} with ${r.verified ?? (allVerified ? N : 'not all')} of ${N} verified`
         );
     // A web visitor always sends its digests (P0-27), so fewer verified
     // files than sent ones is a finding even when both screens agree.
     if (!allVerified)
-        throw flow('verify', `the host verified ${r.verified} of ${N} file(s)`);
+        throw flow('verify', `the host verified ${r.verified ?? 'not all'} of ${N} file(s)`);
 
     // The files themselves.
     await manifestMatch(fixture, st.outDir, r.folder, rec);
@@ -1047,11 +1187,43 @@ export async function runRequestAttempt(cell, ctx, n) {
                     );
             });
         }
+        let proxyKey = BLIP_KEY;
+        if (cell.request.flow === 'caddy-reload') {
+            // TA-14: a local Docker Caddy in front of the local server, the
+            // host behind it (lib/caddy.mjs). Pulling caddy:2 on a first run
+            // is part of this budget.
+            await phase('caddy', 180_000, async () => {
+                // The runner's own lock after cellPlan's refusal and
+                // caddyUpstream's: never a reload in front of a server that
+                // is not on this machine (OD-33).
+                const server = ctx.infra?.server;
+                if (!cell.request.loopbackOnly || !isLoopbackUrl(server))
+                    throw new SafetyError(
+                        `${cell.id}: the Caddy proxy would front ${server ?? 'no server'}, which is not loopback; nothing was started`
+                    );
+                const start =
+                    ctx.startCaddy || (await import('./caddy.mjs')).startCaddy;
+                st.caddy = await start({
+                    upstream: server,
+                    runDir: rec.evidenceDir,
+                    log: ctx.log,
+                });
+                blipUrl = st.caddy.url;
+                proxyKey = CADDY_KEY;
+                if (!isLoopbackUrl(blipUrl))
+                    throw proxyUnproven(
+                        CADDY_KEY,
+                        'caddy',
+                        'the Caddy proxy handed back no loopback URL, so the host cannot be pointed at it'
+                    );
+            });
+        }
         await phase('host.start', T.link + 30_000, () =>
             startHost(cell, ctx, rec, st, {
                 outDir: st.outDir,
                 relayOnly: cell.receiver.relayOnly,
                 blipUrl,
+                proxyKey,
             })
         );
         const requestMs =
@@ -1060,6 +1232,9 @@ export async function runRequestAttempt(cell, ctx, n) {
             T.connect +
             (cell.request.flow === 'blip-then-accept'
                 ? cell.request.blipMs + RECLAIM_MS
+                : 0) +
+            (cell.request.flow === 'caddy-reload'
+                ? REQUEST_CADDY_RECONNECT_MS + RECLAIM_MS + T.firstBytes + 120_000
                 : 0) +
             (cell.request.flow === 'decline-then-accept'
                 ? T.accept + T.join + T.connect
@@ -1156,6 +1331,13 @@ export async function runRequestAttempt(cell, ctx, n) {
                         await st.blip.stop();
                     } catch (e) {
                         rec.notes.push(`blip stop: ${e.message}`);
+                    }
+                }
+                if (st.caddy) {
+                    try {
+                        await st.caddy.stop();
+                    } catch (e) {
+                        rec.notes.push(`caddy stop: ${e.message}`);
                     }
                 }
             });

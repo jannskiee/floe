@@ -20,7 +20,7 @@
 //             (sha256 compared) after the app exits. Refused while any
 //             floe-desktop.exe exists before the run (PreconditionError,
 //             exit 3). Nothing under %APPDATA%\floe is ever deleted.
-//   portable  the checksum-verified release exe, spawned with
+//   portable  the checksum-verified release exe, started with
 //   head      APPDATA=<scratch>\appdata and FLOE_NO_UPDATE_CHECK=1 so its
 //             desktop.json, WebView2 profile and history never reach the
 //             user's tree. Measured (P2, 2026-08-29): the redirected launch
@@ -29,7 +29,7 @@
 //             untouched (sha, mtime, file count), so the audit values are
 //             written into the redirected desktop.json BEFORE launch. The
 //             exe prints `[WebView2] Environment created successfully` on
-//             stdout, kept in desktop.stdout.txt.
+//             stdout, which a detached launch (below) no longer keeps.
 //   wailsdev  Playwright page on http://localhost:34115; the thinnest lane,
 //             kept for the HEAD receiver when UIA cannot drive the input.
 //
@@ -50,6 +50,18 @@
 // SKIP present. Files are staged on the first launch's argv wherever the
 // mode allows it.
 //
+// Launching (FU-26, from the FU-02 addendum): every exe, and the
+// explorer.exe that starts the Store build by AUMID, is started through
+// lib/detached.mjs (Win32_Process.Create), so the WMI provider host is its
+// parent and it holds no foreground rights even while the operator's
+// terminal is the foreground window; its first window shows
+// SW_SHOWNOACTIVATE. That gives up the stdout and stderr pipes. A leg never
+// starts a second instance: while any floe-desktop.exe or
+// floe-desktop-dev.exe (the app wails dev runs) is up, launch() is SKIP
+// desktop-running before anything starts, because the single-instance
+// lock (SINGLE_INSTANCE_ID) forwards a second launch to the running app,
+// which raises its own window (desktop/app.go onSecondInstanceLaunch).
+//
 // Interrupts: every applied desktop.json guard and every launched leg is
 // registered (activeGuards, activeLegs). audit.mjs calls shutdown() from
 // its signal handler and at the end of the run, stop() restores the guard
@@ -65,22 +77,23 @@
 //
 // Every expected string is quoted from desktop/frontend/src/App.tsx,
 // TitleBar.tsx, incoming.ts and desktop/transfer.go; see STRINGS and RE below.
-import { execFile, spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
     createReadStream,
-    createWriteStream,
     existsSync,
     mkdirSync,
     readFileSync,
     readdirSync,
     statSync,
+    utimesSync,
     writeFileSync,
 } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { SW, launchDetached } from './detached.mjs';
 import { sha256OfFile } from './fixtures.mjs';
-import { registerPid } from './proc.mjs';
+import { registerPid, started } from './proc.mjs';
 import { Leg, PhaseError, SafetyError, sleep } from './surfaces.mjs';
 import { defaultExec } from './versions.mjs';
 
@@ -91,6 +104,9 @@ export const PACKAGE_NAME = 'JanCarloParedes.FloeDesktop';
 export const PACKAGE_FAMILY = 'JanCarloParedes.FloeDesktop_r1y5w9chaxnzc';
 export const WINDOWS_APPS = 'C:\\Program Files\\WindowsApps\\';
 export const EXE_NAME = 'floe-desktop.exe';
+// The app `wails dev` builds and runs; it holds the same single-instance
+// lock, so the second-instance refusal counts it too (FU-26).
+export const DEV_EXE_NAME = 'floe-desktop-dev.exe';
 export const WINDOW_CLASS = 'wailsWindow'; // wails v2.12.0 window.go:81
 export const WINDOW_TITLE = 'Floe'; // desktop/main.go, the wails.Run Title option
 export const SINGLE_INSTANCE_ID = 'one.floe.desktop'; // desktop/main.go, the wails.Run SingleInstanceLock.UniqueId option
@@ -254,6 +270,206 @@ export const sameText = (a, b) =>
         .trim()
         .toLowerCase();
 
+/**
+ * The fixed copy the UIA lane reads the host's lane state from, where no
+ * bound GetRequestLink call exists (S1-REL-03a step 5, FU-26). Quoted from
+ * desktop/frontend/src/requestCopy.ts (the frozen cp-3 desktop table, row
+ * ids beside each); a code maps back from its fixed sentence only, never
+ * from anything a visitor chose (OD-04: the prompt carries numbers only).
+ */
+export const REQUEST_COPY = Object.freeze({
+    // E1, E2, E4 to E7: errorLine(code).
+    errors: Object.freeze({
+        disabled: 'Request links are turned off on this server right now.',
+        limited: 'This network made too many request links today. Try again tomorrow.',
+        unknown: 'Floe could not make a link. Try again later.',
+        'no-relay':
+            'Hide my IP needs a TURN relay and this server has none. Turn off Hide my IP, or add a relay to the server.',
+        'relay-unknown':
+            "Hide my IP needs a TURN relay, and this server's connection details could not be read. Check the server address, or turn off Hide my IP.",
+        'already-open': 'You already have a request link open. Close it to make a new one.',
+    }),
+    // ST1 to ST12: the card sentence each stop code starts with.
+    stops: Object.freeze({
+        'disk-full': 'The drive ran out of space.',
+        'hash-mismatch': 'A file did not match what was sent, so Floe deleted it.',
+        'path-too-long': 'A folder path was too long for Windows.',
+        'over-approved': 'More data arrived than you accepted.',
+        'relay-cap': 'Over the 2 GB relay limit. Nothing was saved.',
+        'file-too-large-for-folder': 'A file is too large for this drive.',
+        'write-failed': 'Windows could not write to the folder.',
+        'save-blocked': 'Windows would not let Floe finish saving a file.',
+        stopped: 'You stopped this drop.',
+        'peer-abort': 'The sender stopped this drop.',
+        'time-limit': 'The drop reached the 24-hour limit.',
+    }),
+    making: 'Making the link...', // R16
+    reconnecting: 'No connection to the Floe server.', // C1
+    connecting: 'Connecting to their computer.', // W12
+    retryNow: 'Retry now', // C2
+    stoppedHeading: 'DROP STOPPED', // ST0
+    linkClosed: 'Link closed.', // X2
+    appClosed: 'Link stopped when Floe closed.', // X5
+    linkEndedAt: /^Link ended at /i, // X1
+    promptSize: /^(\d+) files?, (.+)$/i, // P2 promptSize
+    receiving: /^RECEIVING (\d+) OF (\d+)/i, // V1
+    savedOf: /(?:^|\. )(\d+) of (\d+) files? (?:was|were) saved\.$/i, // ST16
+    nothingSaved: /Nothing was saved\.$/i, // ST16
+    renamedOne: /^1 file was renamed to end in \.floe-blocked/i, // DN4
+    renamedMany: /^(\d+) files were renamed to end in \.floe-blocked/i, // DN4p
+    // P4, P5, P6, P11: warningLine(code), mapped back to the code.
+    warnings: Object.freeze([
+        ['low-space', /^Only .+ free on .+\. The drop will stop when the drive fills\.$/i],
+        ['file-too-large-for-drive', /^This drive cannot save files over 4 GB, so this drop will stop\.$/i],
+        ['relay-over-cap', /^Hide my IP is on, so this .+ drop will stop before any file\.$/i],
+        ['laptop-power', /^On a laptop, plug in and keep the lid open\.$/i],
+    ]),
+});
+
+/**
+ * desktop/frontend/src/incoming.ts fmtBytes: 1024-based, KB MB GB TB with
+ * one decimal. The UIA lane can read only this rendering of a drop's size, so
+ * the prompt check compares it with the fixture's total in the same form.
+ */
+export function desktopFmtBytes(n) {
+    if (!n || n < 0) return '0 B';
+    const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.min(u.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
+    return (n / Math.pow(1024, i)).toFixed(i ? 1 : 0) + ' ' + u[i];
+}
+
+const isAbsWin = (p) =>
+    /^[A-Za-z]:[\\/]/.test(String(p ?? '')) || /^\\\\/.test(String(p ?? ''));
+
+/**
+ * The request link lane as the REQUEST LINK view shows it, from one UIA
+ * snapshot of the window (`snapshot` with values): the buttons each phase
+ * shows (RequestLinkView.tsx), then its fixed copy for the codes, the
+ * prompt's numbers (P2: the count and the rendered size; the exact byte
+ * count is not on screen, so totalBytes is null and sizeText carries the
+ * rendering), its host-computed folder (P3, an absolute path under the made
+ * save folder) and warnings, and a result's counts (DN1 carries the saved
+ * count; DN3 shows only when every file matched, so it alone vouches for
+ * files and verified, which read null without it). `gen` and `saveDir` are
+ * the UIA driver's own record of the links it made: the view shows neither.
+ * `state` is `unknown` when the view is not showing (another tab, Settings).
+ */
+export function requestStateFromItems(items, { gen = 0, saveDir = '' } = {}) {
+    const list = Array.isArray(items) ? items : [];
+    const buttons = list
+        .filter((x) => x && x.type === 'Button' && x.name)
+        .map((x) => ({ name: String(x.name), enabled: x.enabled !== false }));
+    const texts = list
+        .filter((x) => x && x.type === 'Text' && x.name)
+        .map((x) => String(x.name).trim())
+        .filter(Boolean);
+    const has = (name) => buttons.some((b) => sameText(b.name, name));
+    const hasText = (t) => texts.some((x) => sameText(x, t));
+    const S = REQUEST_STRINGS;
+    const C = REQUEST_COPY;
+    const out = {
+        source: 'uia',
+        state: 'unknown',
+        code: '',
+        gen,
+        saveDir: saveDir || '',
+        link: '',
+        route: '',
+        prompt: undefined,
+        result: undefined,
+    };
+    const link = list.find(
+        (x) =>
+            x &&
+            (x.type === 'Edit' || x.type === 'Document') &&
+            REQUEST_LINK_RE.test(String(x.value ?? ''))
+    );
+    if (has(S.accept) && has(S.decline)) out.state = 'deciding';
+    else if (has(S.keepWaiting)) out.state = 'declined';
+    else if (has(S.cancelDrop)) out.state = 'receiving';
+    else if (has(S.dismiss))
+        out.state = hasText(C.stoppedHeading)
+            ? 'stopped'
+            : texts.some((t) => RE.requestDone.test(t))
+              ? 'done'
+              : 'unknown';
+    else if (has(S.closeLink))
+        out.state =
+            has(C.retryNow) || hasText(C.reconnecting)
+                ? 'reconnecting'
+                : hasText(C.connecting)
+                  ? 'connecting'
+                  : 'waiting';
+    else if (has(S.makeAnother)) out.state = 'ended';
+    else if (has(C.making)) out.state = 'making';
+    else if (has(S.makeLink)) {
+        const code = Object.entries(C.errors).find(([, line]) => hasText(line));
+        out.state = code ? 'error' : 'ready';
+        if (code) out.code = code[0];
+    }
+    if (
+        ['waiting', 'reconnecting', 'connecting', 'deciding', 'declined'].includes(out.state) &&
+        link
+    )
+        out.link = String(link.value);
+    if (out.state === 'ended')
+        out.code = hasText(C.appClosed)
+            ? 'app-closed'
+            : texts.some((t) => C.linkEndedAt.test(t))
+              ? 'expired'
+              : 'closed';
+    const underSave = (t) =>
+        isAbsWin(t) && (!saveDir || samePath(path.dirname(t), saveDir));
+    if (out.state === 'deciding') {
+        const size = texts.map((t) => C.promptSize.exec(t)).find(Boolean);
+        const warnings = [];
+        for (const [code, rx] of C.warnings)
+            if (texts.some((t) => rx.test(t))) warnings.push(code);
+        out.prompt = {
+            files: size ? Number(size[1]) : null,
+            totalBytes: null,
+            sizeText: size ? size[2] : null,
+            folder: texts.find(underSave) ?? null,
+            warnings,
+        };
+    }
+    if (out.state === 'done' || out.state === 'stopped') {
+        const renamed = texts.some((t) => C.renamedOne.test(t))
+            ? 1
+            : Number(texts.map((t) => C.renamedMany.exec(t)).find(Boolean)?.[1] ?? 0);
+        if (out.state === 'done') {
+            const m = texts.map((t) => RE.requestDone.exec(t)).find(Boolean);
+            const saved = m ? Number(m[1]) : null;
+            const verifiedLine = hasText(S.verifiedLine);
+            out.result = {
+                files: verifiedLine ? saved : null,
+                saved,
+                verified: verifiedLine ? saved : null,
+                renamed,
+                folder: null,
+                verifiedLine,
+            };
+        } else {
+            const card =
+                texts.find((t) => Object.values(C.stops).some((s) => t.startsWith(s))) ??
+                texts.find((t) => C.savedOf.test(t) || C.nothingSaved.test(t)) ??
+                '';
+            const stop = Object.entries(C.stops).find(([, s]) => card.startsWith(s));
+            out.code = stop ? stop[0] : 'unknown';
+            const counts = C.savedOf.exec(card);
+            out.result = {
+                files: counts ? Number(counts[2]) : null,
+                saved: counts ? Number(counts[1]) : C.nothingSaved.test(card) ? 0 : null,
+                verified: null,
+                renamed,
+                folder: null,
+                verifiedLine: false,
+            };
+        }
+    }
+    return out;
+}
+
 export const FIND_WINDOW_MS = 30_000;
 export const TREE_MS = 20_000;
 export const STAGE_MS = 20_000;
@@ -267,6 +483,9 @@ export const CODE_AFTER_LINK_MS = 3_000;
 export const STATUS_MS = 10_000;
 export const CANCEL_MS = 10_000;
 export const EXIT_MS = 15_000;
+// How long launch() waits for an instance this process started, and is
+// still closing, before it reads as a second instance (FU-26).
+export const SECOND_INSTANCE_WAIT_MS = 5_000;
 export const SAMPLE_MS = 500;
 /**
  * A 12 MiB loopback transfer finishes about 0.4 s after connect (measured
@@ -397,11 +616,15 @@ export function defaultConfigPath(env = process.env) {
  * The edited desktop.json: the user's record with the audit's five keys on
  * top. reportStats:false only counts when migrated:true (App.tsx GetSettings
  * effect re-imports localStorage otherwise); noUpdateCheck:true keeps the
- * GitHub check off; server/web point the app at the infra under test.
+ * GitHub check off; server/web point the app at the infra under test. A
+ * request link host (FU-26) also sets requestLinks (desktop/config.go
+ * RequestLinks, the Settings > Beta switch): an exe has no bound
+ * SetRequestLinks, so the switch rides the file it launches with; the key
+ * is untouched unless the edit names it.
  */
 export function editDesktopJson(
     original,
-    { server = '', web = '', hideIP = false } = {}
+    { server = '', web = '', hideIP = false, requestLinks } = {}
 ) {
     const text = original == null ? '' : String(original).trim();
     const cfg = text ? JSON.parse(text) : {};
@@ -414,6 +637,7 @@ export function editDesktopJson(
             reportStats: false,
             noUpdateCheck: true,
             migrated: true,
+            ...(requestLinks === undefined ? {} : { requestLinks: Boolean(requestLinks) }),
         }) + '\n'
     );
 }
@@ -439,17 +663,22 @@ function runText(file, args) {
     });
 }
 
-/** All floe-desktop.exe processes; injectable for tests. */
+/**
+ * Every running Floe desktop: floe-desktop.exe and the wails dev app
+ * floe-desktop-dev.exe (FU-26), which share the single-instance lock.
+ * Injectable for tests.
+ */
 export async function listDesktopProcesses(lister = defaultLister) {
     const rows = await lister();
-    return rows.filter((r) => r.image === EXE_NAME);
+    return rows.filter((r) => r.image === EXE_NAME || r.image === DEV_EXE_NAME);
 }
 
 async function defaultLister() {
     if (process.platform !== 'win32') return [];
     const out = await runText('tasklist', [
         '/FI',
-        `IMAGENAME eq ${EXE_NAME}`,
+        // Both images (EXE_NAME and DEV_EXE_NAME); tasklist takes a trailing *.
+        'IMAGENAME eq floe-desktop*',
         '/FO',
         'CSV',
         '/NH',
@@ -652,6 +881,11 @@ export function classifyStatus(text) {
  * apply() refuses when any floe-desktop.exe exists (not ours) or the file is
  * missing (never create or delete under %APPDATA%\floe). restore() writes
  * the backup bytes back and compares sha256; a mismatch is a SafetyError.
+ * It then puts the original access and modification times back with
+ * utimesSync and reads the mtime again (S1-REL-03a harness fix 14): an mtime
+ * that will not come back (a refused utime, a volume that drops it) is
+ * reported as changed, never as a mismatch, because the contents are what
+ * the app reads.
  */
 export class DesktopConfigGuard {
     constructor({
@@ -670,6 +904,8 @@ export class DesktopConfigGuard {
             writeFileSync,
             existsSync,
             mkdirSync,
+            statSync,
+            utimesSync,
         };
         this.backup = null;
         this.backupPath = null;
@@ -678,6 +914,18 @@ export class DesktopConfigGuard {
         this.restoredSha = null;
         this.applied = false;
         this.restored = false;
+        this.mtimeMs = null;
+        this.atimeMs = null;
+        this.mtimeRestored = null;
+        this.mtimeNote = null;
+    }
+
+    // A test may hand in an fs without the time calls; the real ones then serve.
+    _stat(p) {
+        return (this.fs.statSync ?? statSync)(p);
+    }
+    _utimes(p, atime, mtime) {
+        return (this.fs.utimesSync ?? utimesSync)(p, atime, mtime);
     }
 
     async apply() {
@@ -698,6 +946,10 @@ export class DesktopConfigGuard {
                 `desktop.json missing at ${this.configPath}; the guard never creates it`
             );
         }
+        // The times first: every later write moves the mtime.
+        const st = this._stat(this.configPath);
+        this.mtimeMs = st.mtimeMs;
+        this.atimeMs = st.atimeMs;
         this.backup = this.fs.readFileSync(this.configPath);
         this.sha = sha256(this.backup);
         if (this.evidenceDir) {
@@ -716,6 +968,7 @@ export class DesktopConfigGuard {
     restore() {
         if (!this.applied || this.restored) return this.state();
         this.fs.writeFileSync(this.configPath, this.backup);
+        this.restoreTimes();
         this.restoredSha = sha256(this.fs.readFileSync(this.configPath));
         this.restored = true;
         activeGuards.delete(this);
@@ -733,6 +986,31 @@ export class DesktopConfigGuard {
         return this.state();
     }
 
+    /**
+     * utimesSync with the times read at apply(), in seconds with their
+     * fraction, then one stat: within a millisecond is restored. Never
+     * throws; the outcome is mtimeRestored and, when false, mtimeNote.
+     */
+    restoreTimes() {
+        if (!Number.isFinite(this.mtimeMs)) return;
+        const want = this.mtimeMs;
+        try {
+            this._utimes(
+                this.configPath,
+                (Number.isFinite(this.atimeMs) ? this.atimeMs : want) / 1000,
+                want / 1000
+            );
+            const got = this._stat(this.configPath).mtimeMs;
+            this.mtimeRestored = Math.abs(got - want) < 1;
+            this.mtimeNote = this.mtimeRestored
+                ? null
+                : `mtime reads ${new Date(got).toISOString()} after the restore, not ${new Date(want).toISOString()}`;
+        } catch (err) {
+            this.mtimeRestored = false;
+            this.mtimeNote = `mtime not restored: ${err.message}`;
+        }
+    }
+
     state() {
         return {
             configPath: this.configPath,
@@ -743,6 +1021,11 @@ export class DesktopConfigGuard {
             applied: this.applied,
             restored: this.restored,
             match: this.restored ? this.restoredSha === this.sha : null,
+            mtimeBefore: Number.isFinite(this.mtimeMs)
+                ? new Date(this.mtimeMs).toISOString()
+                : null,
+            mtimeRestored: this.mtimeRestored,
+            mtimeNote: this.mtimeNote,
         };
     }
 }
@@ -1056,24 +1339,88 @@ export async function withDesktopConfig(configPath, edit, body, options = {}) {
 
 // ------------------------------------------------------------- drivers
 
+/** A UIA tree read costs 100 to 300 ms, so the request verbs poll slower than the DOM lane. */
+export const UIA_REQUEST_POLL_MS = 250;
+/** The request view reads the whole window in one snapshot; raw view trees run to a few hundred nodes. */
+export const UIA_SNAPSHOT_MAX = 3000;
+/** How long an answer's Invoke has to take the prompt away before it counts as swallowed. */
+export const ANSWER_SETTLE_MS = 1_500;
+export const ANSWER_ATTEMPTS = 3;
+const COPIED = 'Copied'; // W3, the Copy link button's name for 1.5 s after a click
+
+const hasButton = (items, name) =>
+    (items || []).some((x) => x && x.type === 'Button' && sameText(x.name, name));
+
+/**
+ * shortPath (desktop/frontend/src/paths.ts) of a bare folder name: the Done
+ * view shows the drop folder's own name cut in the middle to 34 characters.
+ */
+export function shortFolderName(name, max = 34) {
+    const n = String(name ?? '');
+    if (n.length <= max) return n;
+    const room = Math.max(2, max - 3);
+    const head = Math.floor(room / 2);
+    return `${n.slice(0, head)}...${n.slice(n.length - (room - head))}`;
+}
+
 /**
  * UIA driver: one helper client plus the window handle. Every method maps
  * to one helper command; see desktop-uia.ps1.
+ *
+ * The request link verbs (S1-REL-03a step 5; built in FU-26 for the Store,
+ * portable and head exe hosts of the shipped-profile cells) mirror the
+ * PlaywrightDriver ones name for name and read the host's lane from one UIA
+ * snapshot of the window (requestStateFromItems), since an exe has no bound
+ * GetRequestLink. Two facts shape them. G2-F1 (session 166e0836): a UIA
+ * pattern call (Invoke, Toggle, SetValue) activates the exe's window, so a
+ * request host is away-only: with `awayOnly` set, every pattern call first
+ * re-reads GetLastInputInfo and stops as SKIP present below 120 s of idle
+ * input; reads never activate. And the prompt re-arms its 1 s guard when the
+ * window gains focus, so the Invoke that activates it can be swallowed: an
+ * answer is retried, never sooner than ACCEPT_WAIT_MS after the prompt was
+ * first seen or after the last Invoke.
  */
 export class UiaDriver {
     constructor(client, hwnd, { log = null } = {}) {
         this.client = client;
         this.hwnd = hwnd;
         this.log = log;
+        // Set by lib/request.mjs on an exe request host (G2-F1).
+        this.awayOnly = false;
+        this.pollMs = UIA_REQUEST_POLL_MS;
+        // The links this driver made: the view shows neither a generation
+        // nor the save folder.
+        this._gen = 0;
+        this._saveDir = '';
+        this._promptFolder = null;
     }
-    click(name, opts = {}) {
+    /** GetLastInputInfo before a pattern call on an away-only host. */
+    async _away() {
+        if (!this.awayOnly) return;
+        let idle = NaN;
+        try {
+            const fg = await this.client.foregroundCheck(this.hwnd);
+            idle = Number(fg && fg.idleSeconds);
+        } catch {
+            // Unreadable counts as present.
+        }
+        if (!(idle >= USER_AWAY_IDLE_S))
+            throw new PhaseError(
+                'request',
+                `desktop uia: input idle ${Number.isFinite(idle) ? idle : 'unknown'} s (< ${USER_AWAY_IDLE_S}); the owner may be at the PC, and a UIA pattern call activates the Floe window (G2-F1)`,
+                { verdict: 'SKIP', reason: 'present' }
+            );
+    }
+    async click(name, opts = {}) {
+        await this._away();
         return this.client.retry(
             'click',
             { hwnd: this.hwnd, name, ...opts },
             { attempts: 2 }
         );
     }
-    setValue(placeholder, value, opts = {}) {
+    async setValue(placeholder, value, opts = {}) {
+        await this._away();
         return this.client.request('set-value', {
             hwnd: this.hwnd,
             placeholder,
@@ -1089,12 +1436,346 @@ export class UiaDriver {
         });
     }
     /**
-     * The request link verbs run on the wailsdev lane only (request.mjs
-     * refuses them here), so an exe leg's receive view has no sub-view to
-     * leave. PlaywrightDriver.toCodeView says why the other lane needs one.
+     * An exe leg is launched fresh for its cell, so its receive view opens
+     * on CODE; PlaywrightDriver.toCodeView says why the dev page needs one.
      */
     async toCodeView() {
         return false;
+    }
+    /** No bound GetSettings on an exe: the leg's desktop.json is the record. */
+    async settings() {
+        return null;
+    }
+    /** No bound SetSettings on an exe: a request host's addresses ride its desktop.json at launch. */
+    async setAddresses() {
+        return null;
+    }
+
+    // ------------------------------------------- request link verbs (UIA)
+
+    async _items() {
+        const r = await this.client.request('snapshot', {
+            hwnd: this.hwnd,
+            max: UIA_SNAPSHOT_MAX,
+            values: true,
+        });
+        return Array.isArray(r && r.items) ? r.items : [];
+    }
+    async _visible(name) {
+        return hasButton(await this._items(), name);
+    }
+    async _waitShown(name, timeoutMs, { now = Date.now, nap = sleep } = {}) {
+        const start = now();
+        for (;;) {
+            if (await this._visible(name)) return now();
+            if (now() - start >= timeoutMs)
+                throw new PhaseError(
+                    'request',
+                    `desktop uia: "${name}" did not appear within ${timeoutMs} ms`
+                );
+            await nap(this.pollMs);
+        }
+    }
+    async _waitGoneOrNull(name, timeoutMs, { now = Date.now, nap = sleep } = {}) {
+        const start = now();
+        for (;;) {
+            if (!(await this._visible(name))) return now();
+            if (now() - start >= timeoutMs) return null;
+            await nap(this.pollMs);
+        }
+    }
+    async _waitGone(name, timeoutMs, clock = {}) {
+        const at = await this._waitGoneOrNull(name, timeoutMs, clock);
+        if (at === null)
+            throw new PhaseError(
+                'request',
+                `desktop uia: "${name}" was still showing ${timeoutMs} ms after the click; the view did not leave that state`
+            );
+        return at;
+    }
+    /** Back to Receive > REQUEST LINK unless one of its state buttons shows. */
+    async _toRequestView() {
+        const items = await this._items();
+        if (REQUEST_VIEW_MARKS.some((m) => hasButton(items, m))) return false;
+        await this.click(STRINGS.tabReceive, { index: 0, controlType: 'Button' });
+        if (await this._visible(REQUEST_STRINGS.choice))
+            await this.click(REQUEST_STRINGS.choice, { controlType: 'Button' });
+        return true;
+    }
+    /**
+     * The drop folder of a result: the subfolder of the save folder this
+     * driver made the link with whose name the Done view shows (DN6 shows the
+     * name cut to 34 characters; the full path is only its title), else a
+     * Text whose HelpText is a path there (INFERRED: Chromium's title), else
+     * the prompt's host-computed folder (P3).
+     */
+    _dropFolder(items) {
+        if (!this._saveDir) return this._promptFolder;
+        const shown = (items || [])
+            .filter((x) => x && x.type === 'Text' && x.name)
+            .map((x) => String(x.name).trim());
+        let names = [];
+        try {
+            names = readdirSync(this._saveDir, { withFileTypes: true })
+                .filter((d) => d.isDirectory())
+                .map((d) => d.name);
+        } catch {
+            // The save folder is gone; fall through to the other readings.
+        }
+        const hit = names.find((n) =>
+            shown.some((t) => t === n || t === shortFolderName(n))
+        );
+        if (hit) return path.join(this._saveDir, hit);
+        const help = (items || []).find(
+            (x) =>
+                x &&
+                typeof x.help === 'string' &&
+                isAbsWin(x.help) &&
+                samePath(path.dirname(x.help), this._saveDir)
+        );
+        return help ? help.help : this._promptFolder;
+    }
+    /** The lane as the view shows it (requestStateFromItems), with the drop folder resolved. */
+    async requestSnapshot() {
+        const items = await this._items();
+        const s = requestStateFromItems(items, {
+            gen: this._gen,
+            saveDir: this._saveDir,
+        });
+        if (s.prompt && s.prompt.folder) this._promptFolder = s.prompt.folder;
+        if (s.result) s.result.folder = this._dropFolder(items);
+        return s;
+    }
+    /**
+     * SetRequestLinks and Hide my IP: the switch named by `name` (a RegExp
+     * over its whole label) set through TogglePattern, only when the snapshot
+     * shows it differs, and read back. A disabled switch (Request links waits
+     * for the app's own /health probe) is left alone and reads unchanged, as
+     * a click on it does on the dev page.
+     */
+    async setToggle(name, value) {
+        const want = Boolean(value);
+        const rx = name instanceof RegExp ? name : new RegExp(String(name), 'i');
+        const box = (await this._items()).find(
+            (x) => x && x.type === 'CheckBox' && rx.test(String(x.name ?? ''))
+        );
+        const before = box ? box.toggle === 'On' : false;
+        if (box && before === want) return { before, after: before, changed: false };
+        if (box && box.enabled === false)
+            return { before, after: before, changed: false };
+        await this._away();
+        try {
+            const r = await this.client.request('toggle', {
+                hwnd: this.hwnd,
+                regex: rx.source,
+                value: want,
+            });
+            return { before: r.before, after: r.after, changed: r.changed };
+        } catch (err) {
+            if (err && err.reason === 'disabled')
+                return { before, after: before, changed: false };
+            throw err;
+        }
+    }
+    /**
+     * MakeLink: Receive, the REQUEST LINK choice, Make another link after an
+     * ended link, the Save to field set to the run's own folder and read back
+     * (a field that is not there or will not take is SKIP desktop-savedir,
+     * never the owner's Downloads\Floe requests), the lifetime (7 days is an
+     * option of the native select: SelectionItem, INFERRED; every cell makes
+     * 24 hours, the default), Make link, then the waiting view.
+     */
+    async makeRequestLink({
+        lifetime = '24h',
+        saveDir = null,
+        timeoutMs = 30_000,
+        now = Date.now,
+        nap = sleep,
+    } = {}) {
+        if (lifetime !== '24h' && lifetime !== '7d')
+            throw new PhaseError(
+                'request',
+                `desktop uia: MakeLink takes 24h or 7d, not ${lifetime}`
+            );
+        if (typeof saveDir !== 'string' || !path.isAbsolute(saveDir))
+            throw new PhaseError(
+                'request',
+                'desktop uia: MakeLink needs the run\'s own save folder (an absolute path); an empty Save to field means the owner\'s Downloads\\Floe requests',
+                { harness: true, reason: 'request-savedir' }
+            );
+        await this.click(STRINGS.tabReceive, { index: 0, controlType: 'Button' });
+        await this.click(REQUEST_STRINGS.choice, { controlType: 'Button' });
+        if (await this._visible(REQUEST_STRINGS.makeAnother))
+            await this.click(REQUEST_STRINGS.makeAnother, { controlType: 'Button' });
+        let set;
+        try {
+            set = await this.setValue(REQUEST_STRINGS.saveToPlaceholder, saveDir);
+        } catch (err) {
+            if (err && (err.reason === 'not-found' || err.reason === 'read-only' || err.reason === 'disabled'))
+                throw new PhaseError(
+                    'request',
+                    `desktop uia: the Save to field could not be set (${err.reason}); no link is made`,
+                    { verdict: 'SKIP', reason: 'desktop-savedir' }
+                );
+            throw err;
+        }
+        if (!set || set.after !== saveDir)
+            throw new PhaseError(
+                'request',
+                `desktop uia: the Save to field reads "${set ? set.after : ''}", not the run's folder; no link is made`,
+                { verdict: 'SKIP', reason: 'desktop-savedir' }
+            );
+        if (lifetime === '7d')
+            await this.click(REQUEST_STRINGS.lifetime7d, { controlType: 'any' });
+        await this.click(REQUEST_STRINGS.makeLink, { controlType: 'Button' });
+        const start = now();
+        let waitingAt = null;
+        for (;;) {
+            const items = await this._items();
+            if (hasButton(items, REQUEST_STRINGS.copyLink) || hasButton(items, COPIED)) {
+                waitingAt = now();
+                break;
+            }
+            const s = requestStateFromItems(items);
+            if (s.state === 'error')
+                throw new PhaseError(
+                    'request',
+                    `request-flow: Make link ended in error (${safeCode(s.code)})`,
+                    { signatureKey: 'request-flow', code: safeCode(s.code) }
+                );
+            if (now() - start >= timeoutMs)
+                throw new PhaseError(
+                    'request',
+                    `desktop uia: "${REQUEST_STRINGS.copyLink}" did not appear within ${timeoutMs} ms`
+                );
+            await nap(this.pollMs);
+        }
+        this._gen += 1;
+        this._saveDir = saveDir;
+        this._promptFolder = null;
+        return { made: true, lifetime, saveDir, waitingAt };
+    }
+    /** ReadLink: the full link is the read-only link field's value (LinkBlock). */
+    async readRequestLink() {
+        const s = requestStateFromItems(await this._items(), {
+            gen: this._gen,
+            saveDir: this._saveDir,
+        });
+        if (!REQUEST_LINK_RE.test(s.link))
+            throw new PhaseError(
+                'request',
+                `desktop uia: no request link to read (state ${s.state})`
+            );
+        return {
+            link: s.link,
+            via: 'uia-value',
+            onScreen: true,
+            shown: redactRequestLink(s.link),
+        };
+    }
+    /**
+     * Accept or Decline: never sooner than ACCEPT_WAIT_MS after the prompt
+     * was first seen, nor after the previous Invoke (the guard re-arms on the
+     * focus an Invoke brings, G2-F1); then the prompt must leave within
+     * ANSWER_SETTLE_MS, or the Invoke counts as swallowed and is repeated,
+     * ANSWER_ATTEMPTS at most. A refusal of a disabled button (the guard's
+     * aria-disabled) is a swallowed Invoke too.
+     */
+    async _answer(
+        name,
+        { timeoutMs = 60_000, now = Date.now, nap = sleep, attempts = ANSWER_ATTEMPTS } = {}
+    ) {
+        await this._toRequestView();
+        const seenAt = await this._waitShown(name, timeoutMs, { now, nap });
+        const invokes = [];
+        for (let k = 0; k < attempts; k++) {
+            const from = invokes.length ? invokes[invokes.length - 1] : seenAt;
+            for (;;) {
+                const left = ACCEPT_WAIT_MS - (now() - from);
+                if (left <= 0) break;
+                await nap(left);
+            }
+            invokes.push(now());
+            try {
+                await this.click(name, { controlType: 'Button' });
+            } catch (err) {
+                if (err && err.verdict === 'SKIP') throw err;
+                if (!(err && (err.reason === 'disabled' || err.reason === 'not-found')))
+                    throw err;
+            }
+            const leftAt = await this._waitGoneOrNull(name, ANSWER_SETTLE_MS, { now, nap });
+            if (leftAt !== null)
+                return {
+                    answered: name,
+                    seenAt,
+                    clickedAt: invokes[0],
+                    waitedMs: invokes[0] - seenAt,
+                    invokes: invokes.length,
+                    leftAt,
+                };
+        }
+        throw new PhaseError(
+            'request',
+            `desktop uia: "${name}" still showing after ${invokes.length} Invoke(s), each at least ${ACCEPT_WAIT_MS} ms after the last`
+        );
+    }
+    async acceptRequest(o = {}) {
+        return this._answer(REQUEST_STRINGS.accept, o);
+    }
+    /** Decline, then the declined view's Keep waiting must show (D3). */
+    async declineRequest(o = {}) {
+        const r = await this._answer(REQUEST_STRINGS.decline, o);
+        await this._waitShown(REQUEST_STRINGS.keepWaiting, 10_000, o);
+        return r;
+    }
+    /** Keep waiting (request-reopen, E-03): only from the declined view; the waiting view must come back. */
+    async keepWaiting({ now = Date.now, nap = sleep } = {}) {
+        await this._toRequestView();
+        if (!(await this._visible(REQUEST_STRINGS.keepWaiting)))
+            throw new PhaseError(
+                'request',
+                'desktop uia: Keep waiting is not showing; decline first'
+            );
+        await this.click(REQUEST_STRINGS.keepWaiting, { controlType: 'Button' });
+        await this._waitGone(REQUEST_STRINGS.keepWaiting, 10_000, { now, nap });
+        const waitingAt = await this._waitShown(REQUEST_STRINGS.copyLink, 10_000, { now, nap });
+        return { reopened: true, waitingAt };
+    }
+    /** Close link, then the ended view's Make another link must show (X3). */
+    async closeRequestLink({ now = Date.now, nap = sleep } = {}) {
+        await this._toRequestView();
+        await this.click(REQUEST_STRINGS.closeLink, { controlType: 'Button' });
+        const endedAt = await this._waitShown(REQUEST_STRINGS.makeAnother, 10_000, { now, nap });
+        return { closed: true, endedAt };
+    }
+    /** Put a done or stopped result away (DN2 Dismiss). */
+    async dismissRequestResult({ now = Date.now, nap = sleep } = {}) {
+        await this._toRequestView();
+        await this.click(REQUEST_STRINGS.dismiss, { controlType: 'Button' });
+        const at = await this._waitGone(REQUEST_STRINGS.dismiss, 10_000, { now, nap });
+        return { dismissed: true, at };
+    }
+    /** Stop a drop that is still receiving (V4 Cancel drop). */
+    async cancelRequestDrop({ now = Date.now, nap = sleep } = {}) {
+        await this._toRequestView();
+        await this.click(REQUEST_STRINGS.cancelDrop, { controlType: 'Button' });
+        const at = await this._waitGone(REQUEST_STRINGS.cancelDrop, 10_000, { now, nap });
+        return { canceled: true, at };
+    }
+    /** The done view as the owner reads it: DN1's count and whether DN3 shows. */
+    async readRequestResult() {
+        await this._toRequestView();
+        const items = await this._items();
+        const texts = items
+            .filter((x) => x && x.type === 'Text' && x.name)
+            .map((x) => String(x.name).trim());
+        const heading = texts.find((t) => RE.requestDone.test(t)) ?? null;
+        const m = heading ? RE.requestDone.exec(heading) : null;
+        return {
+            heading,
+            files: m ? Number(m[1]) : null,
+            verifiedLine: texts.some((t) => sameText(t, REQUEST_STRINGS.verifiedLine)),
+        };
     }
     async readText(re, opts = {}) {
         const r = await this.client.readText(this.hwnd, re, opts);
@@ -1741,56 +2422,43 @@ export class PlaywrightDriver {
 // ----------------------------------------------------------- launching
 
 /**
- * Spawn per the plan. Resolves { child, pid }; the explorer.exe AUMID form
- * resolves { child: null, pid: null } because explorer, not us, is the
- * parent and the window search that follows is the real handshake.
+ * Start per the plan, detached (FU-26): Win32_Process.Create through
+ * lib/detached.mjs, so the app holds no foreground rights and its first
+ * window shows SW_SHOWNOACTIVATE. Resolves { child: null, pid, detached };
+ * the explorer.exe AUMID form resolves pid null and launcherPid, because
+ * explorer hands the AUMID to the shell and exits, and the window search
+ * that follows is the real handshake. `detach` is injectable so tests
+ * never start anything.
  */
-export function launchProcess(plan, { evidenceDir = null } = {}) {
-    if (plan.mode === 'wailsdev')
-        return Promise.resolve({ child: null, pid: null });
+export async function launchProcess(
+    plan,
+    { evidenceDir = null, detach = launchDetached } = {}
+) {
+    if (plan.mode === 'wailsdev') return { child: null, pid: null };
     if (plan.command === 'explorer.exe') {
-        return new Promise((resolve) => {
-            const child = execFile(
-                plan.command,
-                plan.args,
-                { windowsHide: true },
-                () => {}
-            );
-            child.on('error', () => {});
-            // explorer.exe and Start-Process return before the app is up;
-            // the window search that follows is the real handshake.
-            setTimeout(
-                () =>
-                    resolve({
-                        child: null,
-                        pid: null,
-                        launcherPid: child.pid ?? null,
-                    }),
-                200
-            );
+        const { pid } = await detach({
+            command: 'explorer.exe',
+            args: plan.args,
+            env: null,
+            show: SW.SHOWNOACTIVATE,
         });
+        return { child: null, pid: null, launcherPid: pid, detached: true };
     }
-    const child = spawn(plan.command, plan.args, {
+    const { pid } = await detach({
+        command: plan.command,
+        args: plan.args,
         cwd: plan.cwd,
-        env: plan.env ?? process.env,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: false,
-        shell: false,
+        env: plan.env ?? null,
+        show: SW.SHOWNOACTIVATE,
     });
-    child.on('error', () => {});
     if (evidenceDir) {
         mkdirSync(evidenceDir, { recursive: true });
-        child.stdout.pipe(
-            createWriteStream(path.join(evidenceDir, 'desktop.stdout.txt'))
+        writeFileSync(
+            path.join(evidenceDir, 'desktop.launch.txt'),
+            `detached launch (FU-26): Win32_Process.Create pid ${pid}, first window SW_SHOWNOACTIVATE; no stdout or stderr pipe\n`
         );
-        child.stderr.pipe(
-            createWriteStream(path.join(evidenceDir, 'desktop.stderr.txt'))
-        );
-    } else {
-        child.stdout.resume();
-        child.stderr.resume();
     }
-    return Promise.resolve({ child, pid: child.pid ?? null });
+    return { child: null, pid, detached: true };
 }
 
 function taskkill(pid) {
@@ -1917,11 +2585,17 @@ export class DesktopLeg extends Leg {
 
     edit() {
         const infra = this.opts.infra || {};
-        return {
-            server: infra.server ?? '',
+        const e = {
+            // A request host behind a proxy of the run's own (TA-13 blip,
+            // TA-14 Caddy) launches pointed at it: an exe has no bound
+            // SetSettings (lib/request.mjs startHost sets serverOverride).
+            server: this.opts.serverOverride ?? infra.server ?? '',
             web: infra.web ?? '',
             hideIP: Boolean(this.opts.relayOnly),
         };
+        // A request host launches with the Beta switch on (FU-26).
+        if (this.opts.requestHost) e.requestLinks = true;
+        return e;
     }
 
     async uia() {
@@ -1983,9 +2657,38 @@ export class DesktopLeg extends Leg {
         }
     }
 
+    /**
+     * Never a second instance (FU-26): the single-instance lock forwards a
+     * second launch to the running app, which raises its own window. An
+     * instance this process started and is still closing gets
+     * SECOND_INSTANCE_WAIT_MS (opts.secondInstanceWaitMs in tests) to go;
+     * anything else is SKIP desktop-running before a file is seeded or a
+     * launcher runs.
+     */
+    async refuseSecondInstance() {
+        const deadline =
+            Date.now() + (this.opts.secondInstanceWaitMs ?? SECOND_INSTANCE_WAIT_MS);
+        for (;;) {
+            const running = await listDesktopProcesses(this.lister);
+            if (!running.length) return;
+            const closing = running.every((r) => {
+                const own = started.get(r.pid);
+                return Boolean(own) && !own.exited;
+            });
+            if (!closing || Date.now() >= deadline)
+                throw new PhaseError(
+                    'start',
+                    `desktop-running: ${running.map((r) => `${r.image} pid ${r.pid}`).join(', ')} already runs; a second launch would forward to it and raise its window, so none is started`,
+                    { verdict: 'SKIP', reason: 'desktop-running' }
+                );
+            await sleep(250);
+        }
+    }
+
     /** Launch per mode, find the window, wait for the tree; sets this.driver. */
     async launch(files = []) {
         const { opts } = this;
+        if (this.mode !== 'wailsdev') await this.refuseSecondInstance();
         let storeExe = opts.storeExe ?? null;
         if (this.mode === 'store' && files.length && !storeExe) {
             const pkg = await storePackage();
@@ -2111,6 +2814,8 @@ export class DesktopLeg extends Leg {
             backup: this.guard.backupPath,
             configPath: this.guard.configPath,
             sha256: this.guard.sha,
+            // So `cleanup` can put the owner's mtime back as well (fix 14).
+            mtimeMs: this.guard.mtimeMs,
             restored: this.guard.restored ? this.guard.state().match : null,
         };
         if (typeof shared.writeManifest === 'function') {
@@ -3285,11 +3990,13 @@ export async function buildHead({
 
 /**
  * cleanup: put desktop.json back from the backup a run recorded in its
- * manifest ({ backup, configPath, sha256 }). Refuses while any
+ * manifest ({ backup, configPath, sha256, mtimeMs }). Refuses while any
  * floe-desktop.exe runs (the app rewrites the file on exit) and writes
  * nothing when the file already matches the backup. With a fence the
  * target must be the fence's own desktop.json (the guard exception), so a
  * manifest edited to name another file is a SafetyError, never a write.
+ * After a write it puts the recorded mtime back (fix 14; mtimeRestored is
+ * null when the manifest predates the field).
  */
 export async function restoreConfig(
     record,
@@ -3330,11 +4037,24 @@ export async function restoreConfig(
         };
     if (fence) fence.assertWritable(configPath, { viaGuard: true });
     writeFileSync(configPath, backup);
+    let mtimeRestored = null;
+    let mtimeText = '';
+    if (Number.isFinite(record.mtimeMs)) {
+        try {
+            utimesSync(configPath, record.mtimeMs / 1000, record.mtimeMs / 1000);
+            mtimeRestored =
+                Math.abs(statSync(configPath).mtimeMs - record.mtimeMs) < 1;
+        } catch {
+            mtimeRestored = false;
+        }
+        mtimeText = mtimeRestored ? ', mtime restored' : ', mtime changed';
+    }
     const got = sha256(readFileSync(configPath));
     return {
         ok: got === want,
         written: true,
-        detail: `desktop.json restored from ${record.backup}: want ${want.slice(0, 8)}, got ${got.slice(0, 8)}`,
+        mtimeRestored,
+        detail: `desktop.json restored from ${record.backup}: want ${want.slice(0, 8)}, got ${got.slice(0, 8)}${mtimeText}`,
     };
 }
 

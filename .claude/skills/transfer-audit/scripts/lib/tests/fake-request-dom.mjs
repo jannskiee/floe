@@ -64,6 +64,14 @@ function webFor(server) {
 
 const mb = (bytes) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
+// desktop/frontend/src/incoming.ts fmtBytes, for the prompt's P2 line.
+function fmtBytes(n) {
+    if (!n || n < 0) return '0 B';
+    const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.min(u.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
+    return (n / Math.pow(1024, i)).toFixed(i ? 1 : 0) + ' ' + u[i];
+}
+
 export function fakeRequestDom({
     link = null,
     screenText = undefined,
@@ -371,12 +379,22 @@ export function fakeRequestDom({
                 break;
             case 'deciding':
                 out.push('SOMEONE WANTS TO SEND YOU FILES');
+                // P2 and P3 (RequestLinkView.tsx Prompt): the count and size
+                // as one string, then "Into " and the host-computed folder
+                // as two leaves. The UIA lane reads the prompt from these.
+                if (dom.prompt)
+                    out.push(
+                        `${dom.prompt.files} ${dom.prompt.files === 1 ? 'file' : 'files'}, ${fmtBytes(dom.prompt.totalBytes)}`,
+                        'Into ',
+                        dom.prompt.folder
+                    );
                 break;
             case 'declined':
                 out.push('You declined. Nothing was saved.');
                 break;
             case 'receiving':
                 out.push('RECEIVING 1 OF 1');
+                if (dom.prompt) out.push('Into ', dom.prompt.folder);
                 break;
             case 'done': {
                 const r = dom.result || { saved: 0, files: 0, verified: 0, bytes: 0 };
@@ -388,6 +406,9 @@ export function fakeRequestDom({
                     (r.files > 0 && r.saved === r.files && r.verified === r.files);
                 if (shown) out.push(VERIFIED_LINE);
                 out.push('Floe does not scan files for malware.');
+                // DN6's folder row: the drop folder's own name (the full
+                // path rides only its title attribute).
+                if (r.folder && r.saved > 0) out.push(path.basename(r.folder));
                 break;
             }
             case 'stopped':
@@ -395,6 +416,15 @@ export function fakeRequestDom({
                 break;
             case 'closed':
                 out.push('Link closed.');
+                break;
+            case 'error':
+                // E1 and E4 (requestCopy.ts errorLine), the role=alert line
+                // under Make link that the UIA lane reads the code from.
+                out.push(
+                    dom.code === 'disabled'
+                        ? 'Request links are turned off on this server right now.'
+                        : 'Floe could not make a link. Try again later.'
+                );
                 break;
             default:
                 break;
@@ -598,6 +628,46 @@ export function fakeRequestDom({
         requestAt(t, prompt = null) {
             dom.requestAt = t;
             dom.pendingPrompt = prompt;
+        },
+        /**
+         * The view as tests/fake-request-uia.mjs renders it for the UIA lane:
+         * the visible buttons, the text leaves, the inputs, one click by
+         * name, the Settings switches, and the prompt guard (its re-arm on
+         * window focus, which the frontend does for a click that brought the
+         * window forward).
+         */
+        views: {
+            buttons: () => visibleButtons(),
+            texts: () => textNodes().map((n) => n.textContent),
+            inputs: () => inputNodes(),
+            click: (name) => click(name),
+            onRequestView: () => onRequestView(),
+            saveToShowing: () =>
+                onRequestView() && ['ready', 'error'].includes(dom.state),
+            setSaveDir: (v) => {
+                if (!saveDirStuck) dom.saveDir = String(v);
+            },
+            switches: () =>
+                SWITCHES.map((sw) => ({
+                    key: sw.key,
+                    name: sw.name,
+                    on: Boolean(dom.settings[sw.key]),
+                    disabled:
+                        sw.key === 'requestLinks' &&
+                        (betaStuck ||
+                            HOLDS.has(dom.state) ||
+                            (!dom.settings.requestLinks && !dom.featureOn)),
+                })),
+            setSwitch: (key, on) => {
+                dom.settings[key] = Boolean(on);
+            },
+            guarded: (name) =>
+                dom.state === 'deciding' &&
+                (name === 'Accept' || name === 'Decline') &&
+                clock.t < dom.promptMountedAt + guardMs,
+            rearmGuard: () => {
+                if (dom.state === 'deciding') dom.promptMountedAt = clock.t;
+            },
         },
     };
 }

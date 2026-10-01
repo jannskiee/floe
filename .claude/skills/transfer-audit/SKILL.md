@@ -186,8 +186,9 @@ when someone else owns the port), a `go build` CLI with `-X
 main.version=head-<sha7>`, `next dev`, and the desktop through `--desktop
 wailsdev` (the real app with real Go bindings served at
 `http://localhost:34115` to a Playwright page) or a `wails build` exe.
-Subsets: `--quick` (6 cells), default (18 rows, 15 executable), `--deep` (14
-more). `--cells S-REL-*,S-DIR-C2D` narrows; a pattern that names no
+Subsets: `--quick` (6 cells), default (18 rows: 15 executable on shipped,
+16 on head, where the CLI's `--relay-only` lifts S-REL-C2C's NA), `--deep`
+(17 more, 35 rows). `--cells S-REL-*,S-DIR-C2D` narrows; a pattern that names no
 executable cell (or only NA rows, or a deep id without `--deep`) is a usage
 error before anything is created. `--desktop
 auto|store|portable|wailsdev|none`; `auto` picks the Store build when it is
@@ -201,6 +202,10 @@ is the expected answer on an idle machine, not a fault. `--relaxed` (head only) 
 `floe-run` with `--relaxed` and relaxes the ledger to the local limits (1000
 for TURN, connections and codes, the stats limiter unchanged at 60
 per window, no floor); it is a usage error on the shipped profile.
+`--caddy` (head only, a usage error on the shipped profile) enables
+TA-14, the one cell that starts a Docker container: without it that cell
+is SKIP `caddy-not-enabled`, and with it the dry run adds a `docker`
+tool class (`docker version`) so a missing Docker shows before any cell.
 `--web-sha-file <json>` takes a recorded deployment record instead of
 `--web-sha`; `--root <dir>` and `--json` are common; `--pause-max` defaults
 to 10 minutes; `node audit.mjs --self-test` (a top-level form, not a `run`
@@ -223,6 +228,20 @@ default, and the primary screen when there is only one), `primary`, a
 1-based index, or `off` to leave the window where Windows put it. The
 browser runs headless and the CLI has no window, so nothing else in a
 run is on screen at all.
+
+Every exe the audit starts (the Store build by AUMID, the Store exe with
+files, a portable or a head build) starts detached through
+`scripts/lib/detached.mjs`: `Win32_Process.Create` makes the WMI provider
+host its parent, so it holds no foreground rights even while the
+operator's terminal is the foreground window, and its first window shows
+`SW_SHOWNOACTIVATE` (FU-26: a launch from the foreground terminal took the
+foreground twice on 2026-09-30). The cost is the app's stdout and stderr;
+`desktop.launch.txt` records the pid instead. A leg never starts a second
+instance: while any `floe-desktop.exe` or `floe-desktop-dev.exe` (the app
+`wails dev` runs) is up, the cell is SKIP `desktop-running` before
+anything starts, because the single-instance lock forwards a second
+launch to the running app, which raises its own window. An instance this
+run started and is still closing gets 5 s to go first.
 
 Pacing on production: a rolling 60 s ledger with 50 percent headroom (10
 TURN fetches, 15 connections, 30 code calls) and an 8 s floor between cell
@@ -248,7 +267,10 @@ under `WindowsApps` with the files as argv (P6: `explorer.exe
 shell:AppsFolder` drops the argument), with `desktop.json` backed up, edited
 (`server`, `web`, `hideIP`, `reportStats:false`, `noUpdateCheck:true`,
 `migrated:true`) while no Floe process exists, and restored byte-identical
-after (sha256 compared, exit 4 on mismatch); the portable and head exes
+after (sha256 compared, exit 4 on mismatch) with its original mtime put back
+through `utimesSync` and read again (an mtime that will not come back is
+reported as `mtime changed`, never a failure; the run manifest carries it,
+so `cleanup` puts it back too); the portable and head exes
 launch with `APPDATA` redirected; the per-user Explorer entry
 `HKCU\Software\Classes\*\shell\Floe`, which an unpackaged exe points at
 itself on startup, is snapshotted at the first such launch in the process
@@ -292,7 +314,9 @@ counts as PASS. SKIP names a machine or run precondition (`uia-setvalue`,
 `head-desktop-pending`, `present`, `local-stun-only`, `prod-turn-absent`,
 `browser-relay-na`, `firewall-block`, `wsl-stopped`, `wsl-sideload`,
 `disk-space`, `infra-down`, `budget-exhausted`, `server-no-request-1`,
-`request-host-uia-pending`; `filtered` marks cells
+`request-host-away-only`, `caddy-not-enabled`, `docker-absent`,
+`desktop-running`; `filtered`
+marks cells
 dropped by `--cells` and is never counted). NA is impossible with the
 shipped product (`single-instance`, `no-cli-relay-forcer`). ERROR is a
 harness fault (for example `init-script-not-applied`), never a product
@@ -308,11 +332,26 @@ interrupted. Precedence 2, 4, 3, 130, 1, 5, 6, 0. `versions` exits 0 or 6,
 The Safety section is printed every run and must read: browser stats
 attempts 0 (all aborted), `floe:bytes-reported` events 0, CLI receivers
 opted out k/k, desktop receivers `reportStats:false, migrated:true` k/k with
-the config restored byte-identical, local `/api/stats` 0/0 on the head
+`desktop.json: contents and mtime restored` after a Store-mode leg
+(`contents restored byte-identical, mtime changed` when the mtime would not
+come back, `restored byte-identical: NO` on a mismatch, `not edited (no
+Store-mode leg)` when only portable, head or wailsdev ran), local `/api/stats` 0/0 on the head
 profile, TURN bodies never, `server/.env` never read, captures N (desktop
 PrintWindow captures; browser page screenshots are not counted) all
 window-cropped, forced foreground 0, killed pids own only, working tree
-unchanged.
+unchanged, and firewall Block rules on the exes under test `none (N exe(s)
+read)`.
+
+The firewall read covers the staged `--bin-dir` (a Block rule there is the
+precondition it always was, exit 3) and every exe the run drives wherever it
+lives: the Store build's `floe-desktop.exe` under its `InstallLocation` when
+the Store build is under test, the portable or head `wails build` exe, the
+CLI under test and the e2ehost harness. Each enabled inbound Block rule on
+one of those is named by path in the Infra row `firewall (exes under test)`
+and in Safety; it is evidence for a failed receive, not a gate. The read is
+one `Get-NetFirewallApplicationFilter` pass: the audit never adds, removes
+or changes a rule and never clicks a consent dialog (the rules are the
+owner's).
 
 ## 5. When a cell fails (the receiver build decides the early race; read it first)
 
@@ -384,7 +423,13 @@ with `COREPACK_ENABLE_AUTO_PIN=0` (from the repo root corepack resolves
 after `npm run build` in `desktop/frontend`; it proves HEAD, not the shipped
 exe, and the report labels it. The lane expects `wails dev` to be started by
 the operator from that checkout's `desktop/` with its `desktop.json` pointed
-at the audit server and `reportStats:false`. A wailsdev receiver is refused
+at the audit server and `reportStats:false`, and started without foreground
+rights: `node .claude/skills/transfer-audit/scripts/launch-detached.mjs
+--cwd desktop --log <file> -- <wails.exe> dev` runs it through
+`Win32_Process.Create` in a hidden console that appends its output to
+`<file>` (stop it with `taskkill /PID <pid> /T /F`), so the app window it
+opens cannot take the foreground from the owner, and it refuses while any
+Floe desktop already runs. A wailsdev receiver is refused
 (exit 3) unless `GetSettings()` shows `reportStats:false`, `migrated:true`
 and the audit server.
 
@@ -449,19 +494,35 @@ desktop cell SKIPs `desktop-unavailable`.
 
 ## 7a. Request-link cells (need request-1 on the server)
 
-TA-10 to TA-13, TA-15 and TA-17 of spec 09 2.7.2, listed in
+TA-10 to TA-15 and TA-17 of spec 09 2.7.2, listed in
 `references/matrix.md` (Request-link cells) and `REQUEST_IDS` in
 `scripts/lib/matrix.mjs`. A run reaches them only through `--cells`, and
 each SKIPs `server-no-request-1` until probe P10 finds `request-1`.
 `scripts/lib/request.mjs` runs them; `runCell` hands every request cell
 to it, so none ever runs as a plain cell.
 
-- The host is the desktop on the wailsdev lane, driven through the DOM
-  verbs on `PlaywrightDriver` (the table in matrix.md). On any other lane
-  a request cell SKIPs `request-host-uia-pending`: the UIA verbs for the
-  Store and portable builds are Phase F prep, and so are TA-14 (Caddy
-  reload) and TA-16 (the CLI visitor). A shipped run cannot take
-  `--desktop wailsdev`, so today every shipped request cell SKIPs.
+- The host is the desktop: on the wailsdev lane through the DOM verbs on
+  `PlaywrightDriver` (the table in matrix.md), and on an exe (the Store
+  build, a portable or a head `wails build`) through the same verbs on
+  `UiaDriver` (FU-26), which read the lane from one UIA `snapshot` of the
+  window (`requestStateFromItems`: the buttons each phase shows and its
+  fixed copy; the prompt's size as the view renders it, compared with
+  `desktopFmtBytes` of the fixture; the drop folder by the name the Done
+  view shows under the run's own save folder) and drive it with Invoke,
+  SetValue and the new `toggle` command. UIA pattern calls activate the
+  exe's window (G2-F1), so an exe host is away-only: without `--user-away`
+  its cells SKIP `request-host-away-only`, and with it every pattern call
+  first re-reads `GetLastInputInfo` and stops as SKIP `present` below
+  120 s of idle input. The Invoke that activates the window can be
+  swallowed by the prompt's guard, which re-arms on focus, so Accept and
+  Decline are repeated (three Invokes at most), never sooner than 1.2 s
+  after the prompt was first seen or after the previous Invoke. An exe has
+  no bound GetSettings or SetSettings: the Beta switch and a proxy's server
+  address ride the desktop.json it launches with (`requestLinks:true`,
+  `serverOverride`), and the switch's TogglePattern state is the read-back.
+  On an exe lane the TA-17 cells with a desktop side are NA
+  `single-instance` (the host holds the one app instance). TA-16 (the CLI
+  visitor) is deferred with B6.
 - Before the run: the operator's `wails dev` app must already read
   `reportStats:false`, `migrated:true` and the local server
   (`GetSettings`), as for any wailsdev receiver; otherwise the cell is
@@ -501,6 +562,22 @@ to it, so none ever runs as a plain cell.
   read back, or no live socket through it before the cut) is ERROR
   `blip-url` and nothing is cut: a cut of a proxy the host bypasses would
   read the host's correct Waiting as a product defect.
+- TA-14 (`H-DIR-W2D-reqcaddy`, head profile, `--caddy` only) starts a
+  local Docker Caddy (`scripts/lib/caddy.mjs`: `caddy:2`, published on
+  127.0.0.1 only, `reverse_proxy host.docker.internal:<port>` to the
+  loopback server) and points the host's server address at it, as TA-13
+  does with its blip; the visitor's page talks to the server directly.
+  A `caddy reload` while the link waits must read Reconnecting within
+  10 s, or the cell is ERROR `caddy-url` (the host was not behind the
+  proxy, so the reload proved nothing), then Waiting again within 60 s;
+  a 64 MiB drop is then accepted and a second reload lands while it is
+  receiving, so the visitor is sent `peer-disconnected` and must ignore
+  it (a drop that ends before that reload is ERROR
+  `caddy-reload-missed`, never a pass). Verify is the usual set. A
+  server that is not loopback is refused by `cellPlan`, by the runner
+  before any container, and by the upstream check; Docker not answering
+  is SKIP `docker-absent`; the container is removed at teardown and on
+  exit. Proven on fixtures only until it runs live.
 - TA-15 declines the first visitor, reads its declined copy, checks
   nothing was saved, clicks Keep waiting (`request-reopen`) and lets a
   second visitor context deliver.
@@ -585,7 +662,7 @@ staged path.
   signature, a triage key and both transcripts, and whose SKIP and NA rows
   each carry a reason key.
 - The Safety section reading zero everywhere it must, and `desktop.json`
-  restored byte-identical.
+  restored byte-identical with its mtime (or the changed mtime named).
 - `cleanup` run; no Floe process left; the working tree unchanged.
 
 Green is a gate, not a proof: a cell passes on this machine, today, against

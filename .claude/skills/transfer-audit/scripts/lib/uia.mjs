@@ -53,6 +53,7 @@ export const COMMANDS = Object.freeze([
     'click',
     'set-value',
     'get-value',
+    'toggle',
     'read-text',
     'capture',
     'show',
@@ -75,6 +76,7 @@ export const HELPER_TIMEOUT_DEFAULTS = Object.freeze({
     click: 5_000,
     'set-value': 5_000,
     'get-value': 5_000,
+    toggle: 5_000,
 });
 export const FIXED_TIMEOUTS = Object.freeze({
     ping: 10_000,
@@ -473,9 +475,31 @@ export class UiaClient {
         });
     }
 
-    /** { count, truncated, items[] } */
-    snapshot(hwnd, { max } = {}) {
-        return this.request('snapshot', { hwnd, max });
+    /**
+     * { count, truncated, items[] }; values:true adds each Edit's `value`
+     * and `readOnly` and each CheckBox's `toggle` (On, Off, Indeterminate).
+     * The flag is sent only when set.
+     */
+    snapshot(hwnd, { max, values } = {}) {
+        return this.request('snapshot', {
+            hwnd,
+            max,
+            values: values ? true : undefined,
+        });
+    }
+
+    /**
+     * { before, after, changed, name, runtimeId }: the one CheckBox whose
+     * Name matches re set On (true) or Off (false) through TogglePattern,
+     * only when it differs, then read back.
+     */
+    toggle(hwnd, re, value, { timeoutMs } = {}) {
+        return this.request('toggle', {
+            hwnd,
+            regex: regexParams(re).regex,
+            value: Boolean(value),
+            timeoutMs,
+        });
     }
 
     /** { via, type, index, count, runtimeId } */

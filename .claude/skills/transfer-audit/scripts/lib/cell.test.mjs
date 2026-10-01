@@ -668,6 +668,25 @@ test('desktop receiver: save dir, captures and the config restore feed the Safet
     await assert.rejects(runCell(pick('S-DIR-C2D'), ctx), SafetyError);
 });
 
+// S1-REL-03a harness fix 14: the Store guard's mtime restore reaches the
+// Safety section; an mtime it could not put back is reported, never a failure.
+test('a config guard that could not put the mtime back is reported as mtime changed and the cell still passes (fix 14)', async () => {
+    const world = fakeWorld();
+    const ctx = makeCtx(world);
+    const ok = await runCell(pick('S-DIR-C2D'), ctx);
+    assert.equal(ok.verdict, 'PASS', ok.note);
+    assert.equal(ctx.safety.desktopReceiversOptedOut.configMtimeRestored, true);
+    world.setScript('S-DIR-C2D', 'mtime-changed');
+    const m = await runCell(pick('S-DIR-C2D'), ctx);
+    assert.equal(m.verdict, 'PASS', m.note);
+    assert.equal(ctx.safety.desktopReceiversOptedOut.configMtimeRestored, false);
+    assert.equal(ctx.safety.desktopReceiversOptedOut.configRestoredIdentical, true);
+    // A later leg whose mtime did come back never clears the finding.
+    world.setScript('S-DIR-C2D', 'pass');
+    await runCell(pick('S-DIR-C2D'), ctx);
+    assert.equal(ctx.safety.desktopReceiversOptedOut.configMtimeRestored, false);
+});
+
 test('route phase: two legs without a route oracle wait in parallel, inside one route timeout', async () => {
     const ctx = makeCtx(fakeWorld(), { cliHasRelayOnly: false });
     const c = pick('S-DIR-C2C');
@@ -969,7 +988,8 @@ test('Safety denominator: a CLI receiver leg that fails in the connect phase sti
 test('a request link cell never runs as a plain cell: runCell hands it to the request runner, and no plain leg starts', async () => {
     // lib/request.mjs owns these cells (request.test.mjs drives each one on
     // the request fake world). Here the desktop adapter is the plain fake,
-    // which is no wailsdev host, so the runner SKIPs before anything starts:
+    // which is no wailsdev host and the run is not away-only, so the runner
+    // SKIPs before anything starts:
     // the point is that neither cell falls through to the plain legs.
     const reqPlan = cellPlan({
         profile: 'head',
@@ -998,7 +1018,8 @@ test('a request link cell never runs as a plain cell: runCell hands it to the re
         });
         const r = await runCell(small(structuredClone(cell)), ctx);
         assert.equal(r.verdict, 'SKIP', cell.id);
-        assert.equal(r.reason, 'request-host-uia-pending');
+        // An exe host without --user-away (FU-26, G2-F1).
+        assert.equal(r.reason, 'request-host-away-only');
         assert.equal(started, 0, `${cell.id} started no leg`);
     }
 });

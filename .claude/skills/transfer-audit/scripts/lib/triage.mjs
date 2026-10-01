@@ -27,6 +27,10 @@ export const SIGNATURES = Object.freeze([
     // that already holds a live link this run did not leave behind, and a
     // release that did not leave the host as the cell found it.
     ['blip-url', /blip-url/, false, 'blip-url'],
+    // TA-14's twins (FU-26): the host not behind the Caddy proxy, and a drop
+    // that ended before the reload while receiving could land.
+    ['caddy-url', /caddy-url/, false, 'caddy-url'],
+    ['caddy-reload-missed', /caddy-reload-missed/, false, 'caddy-reload-missed'],
     ['host-busy', /host-busy/, false, 'host-busy'],
     ['host-release', /host-release/, false, 'host-release'],
     // A .part left behind by a receiver that exited clean is a product
@@ -195,6 +199,8 @@ export const TRIAGE_KEYS = new Set([
     'request-flow',
     'request-manifest',
     'blip-url',
+    'caddy-url',
+    'caddy-reload-missed',
     'host-busy',
     'host-release',
 ]);

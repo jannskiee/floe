@@ -82,19 +82,27 @@ outside `DEFAULT_IDS` and `DEEP_IDS`: a run reaches them through `--cells`.
 Every one SKIPs `server-no-request-1` until probe P10 (`GET <server>/health`)
 finds `request-1` in the server's `features`; an absent, malformed or
 unreachable answer counts as absent. The host is always the desktop (D), so
-`--desktop none` drops them all, TA-17's W2W included, and every lane but
-`--desktop wailsdev` SKIPs them `request-host-uia-pending` (the UIA verbs
-are Phase F prep; a shipped run cannot take wailsdev, so every shipped
-request cell SKIPs today). `scripts/lib/request.mjs` runs them: each attempt
-makes its own link into its own folder, and a failed step is FAIL
-`request-flow` or `request-manifest`, never retried.
+`--desktop none` drops them all, TA-17's W2W included. On `--desktop
+wailsdev` the host is the dev page (DOM verbs); on an exe (store, portable,
+a head `wails build`) it is driven through the UIA request verbs (FU-26),
+whose pattern calls activate its window (G2-F1), so without `--user-away`
+every exe request cell SKIPs `request-host-away-only`, and with it the
+TA-17 cells with a desktop side are NA `single-instance` (the host holds
+the one app instance). A shipped run cannot take wailsdev, so a shipped
+request cell runs only on an exe host with the owner away.
+`scripts/lib/request.mjs` runs them: each attempt makes its own link into
+its own folder, and a failed step is FAIL `request-flow` or
+`request-manifest`, never retried.
 
 The visitor (W) opens `<web>/r/<linkId>#<roomId>` in a fresh Chromium
 context, picks the files through the hidden "Choose files" input, clicks
 `Send N files` and reads the page's status card (`lib/visitor.mjs`). The
 link comes from the host's `GetRequestLink` on the wailsdev lane
 (`PlaywrightDriver.readRequestLink`, checked against the link block's
-input) and goes to the visitor's `page.goto` only: `redactRequestLinks`
+input) or from the link block's read-only field on an exe
+(`UiaDriver.readRequestLink`, its UIA value; the host's `uia.log` sits
+under `private/host/` with the captures) and goes to the visitor's
+`page.goto` only: `redactRequestLinks`
 replaces the room with `<room>` in every message, note, log line and
 evidence file, the report applies the same net to audit.md and run.json,
 and the host's captures sit under the attempt's `private/host/` folder. The visitor seeds
@@ -106,10 +114,22 @@ Decline are clicked no earlier than 1.2 s after the prompt was first seen
 before anything is created, and cuts only through the driver's own proxy
 (`scripts/lib/blip.mjs`, 127.0.0.1 only).
 
-Not planned yet: TA-14 `H-DIR-W2D-reqcaddy` (a Caddy reload on a local
-Docker Caddy; Phase F prep, on the untested list until it runs) and TA-16
-`S-DIR-C2D-req` (the CLI visitor, deferred with B6). The id scheme takes one
-variant token, so TA-12 is `reqhideip` (spec 09 writes `req-hideip`).
+TA-14 `H-DIR-W2D-reqcaddy` (FU-26) SKIPs `caddy-not-enabled` unless the run
+names `--caddy`, and `docker-absent` when Docker is not answering: a local
+Docker Caddy (`scripts/lib/caddy.mjs`, `caddy:2`, published on 127.0.0.1
+only) fronts the local server, the host's server address points at it, and
+the cell reloads it twice. The visitor's page connects straight to the local
+server, so the second reload drops only the host's socket and the visitor is
+sent `peer-disconnected`, which it must ignore while the channel is open (the
+card's INFERRED design put the visitor behind the same Caddy, which would
+drop the visitor's own socket instead and never send it the notice). The host
+must read Reconnecting within 10 s of the first reload, or the cell is ERROR
+`caddy-url` (the host was not behind the proxy, so nothing was proved); a drop
+that ends before the second reload lands is ERROR `caddy-reload-missed`. It is
+on the untested list until it runs live (P-15: before any production policy
+flip). Not planned yet: TA-16 `S-DIR-C2D-req` (the CLI visitor, deferred with
+B6). The id scheme takes one variant token, so TA-12 is `reqhideip` (spec 09
+writes `req-hideip`).
 
 | Cell                   | TA        | Snd | Rcv | Path | Forcer         | Input        | Size        | Required oracles |
 | ---------------------- | --------- | --- | --- | ---- | -------------- | ------------ | ----------- | ---------------- |
@@ -117,6 +137,7 @@ variant token, so TA-12 is `reqhideip` (spec 09 writes `req-hideip`).
 | S-REL-W2D-req          | TA-11     | W   | D   | REL  | W sender       | request-link | 4 MiB       | as TA-10 with W `local=relay` and D pill `Relay` |
 | S-REL-W2D-reqhideip    | TA-12     | W   | D   | REL  | D hideIP       | request-link | 4 MiB       | as TA-11 with the relay forced by the host (D pill `Relay`, the visitor unforced); optional. The over 2 GB prompt line is not reachable from a web visitor, which blocks a relayed drop over the cap before its metadata (a spec gap) |
 | H-DIR-W2D-reqblip      | TA-13     | W   | D   | DIR  | none           | request-link | 64 MiB      | the host's `/ws` cut 5 s through the blip proxy while the link waits: a visitor in the gap gets the not-connected copy; the desktop shows Reconnecting then Waiting; after the reclaim the visitor's Try again delivers and hashes match; head only, loopback only |
+| H-DIR-W2D-reqcaddy     | TA-14     | W   | D   | DIR  | none           | request-link | 64 MiB      | `--caddy` only: a local Docker Caddy fronts the local server with the host behind it; a reload while the link waits: the desktop reads Reconnecting then Waiting (the reclaim) and a visitor then delivers; a second reload while the drop receives: the drop completes on the data channel, the visitor ignores `peer-disconnected`, hashes match; head only, loopback only; SKIP `docker-absent` without Docker |
 | H-DIR-W2D-reqdecline   | TA-15     | W   | D   | DIR  | none           | request-link | 1 MiB       | Decline: the visitor reads the declined copy; Keep waiting sends `request-reopen`; a second visitor context delivers and hashes match |
 | S-DIR-W2W-reqopen      | TA-17     | W   | W   | DIR  | none           | link         | 12 MiB      | the S-DIR-W2W oracles with a link open on the desktop; the link still waits afterwards |
 | S-DIR-C2W-reqopen      | TA-17     | C   | W   | DIR  | none           | link         | 12 MiB      | as S-DIR-C2W, link open |
@@ -257,7 +278,7 @@ other four move 12 MiB.
 A negative P1 probe gives 5 PASS + 1 SKIP `uia-setvalue` and exit 5, which is
 the honest answer.
 
-## `--deep` additions (14 cells, shipped)
+## `--deep` additions (17 cells, shipped)
 
 | Cell              | Snd | Rcv | Path | What it proves                                                   | Fixture                                                         | Expected                                                                                                                                    |
 | ----------------- | --- | --- | ---- | ---------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |

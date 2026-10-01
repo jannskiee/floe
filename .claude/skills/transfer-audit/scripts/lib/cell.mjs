@@ -499,6 +499,17 @@ function recordSafety(cell, rec, ctx) {
         // The Store-mode config guard reports its restore on both roles.
         if (ev.config && ev.config.applied && ev.config.match === false)
             s.desktopReceiversOptedOut.configRestoredIdentical = false;
+        // Its mtime restore too (fix 14): one leg that could not put the
+        // mtime back keeps the line at "mtime changed" for the run.
+        if (ev.config && ev.config.applied) {
+            if (ev.config.mtimeRestored === false)
+                s.desktopReceiversOptedOut.configMtimeRestored = false;
+            else if (
+                ev.config.mtimeRestored === true &&
+                s.desktopReceiversOptedOut.configMtimeRestored !== false
+            )
+                s.desktopReceiversOptedOut.configMtimeRestored = true;
+        }
         if (side === 'receiver' && ev.saveDir && ev.saveDir.changed) {
             const ok = ev.saveDir.restored === true;
             s.saveDirRestored = s.saveDirRestored === false ? false : ok;

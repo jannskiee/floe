@@ -61,6 +61,7 @@ test('every flag on run parses', () => {
         '--keep',
         '--dry-run',
         '--relaxed',
+        '--caddy',
         '--out',
         'out',
         '--json',
@@ -78,6 +79,7 @@ test('every flag on run parses', () => {
             opts.keep &&
             opts.dryRun &&
             opts.relaxed &&
+            opts.caddy &&
             opts.json
     );
     assert.equal(opts.pauseMaxMin, 5);
@@ -103,6 +105,9 @@ test('usage errors carry exit 2', () => {
         ['run', '--web-sha', 'xyz'],
         ['run', '--web-sha', 'abcdef1', '--web-sha-file', 'x.json'],
         ['run', '--relaxed'],
+        // TA-14 reloads a local Caddy: never on the shipped profile (FU-26).
+        ['run', '--caddy'],
+        ['probe', '--caddy'],
         ['run', '--cells'],
         ['run', '--cells', 'S-DIR-W2W;drop'],
         ['run', '--json', '--json'],

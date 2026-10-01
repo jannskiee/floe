@@ -61,12 +61,14 @@ export const HASH_IDS = Object.freeze([
 // holds an open link. Like HASH_IDS they are outside DEFAULT_IDS and
 // DEEP_IDS: a run reaches them through --cells, and each SKIPs
 // `server-no-request-1` until probe P10 finds request-1 in the server's
-// /health features. TA-14 (reqcaddy) and TA-16 (the CLI visitor) are not
-// planned yet (Phase F prep, and deferred with B6).
+// /health features. TA-14 (reqcaddy) is planned and SKIPs unless the run
+// names --caddy (a local Docker Caddy, lib/caddy.mjs); TA-16 (the CLI
+// visitor) is deferred with B6.
 export const REQUEST_VARIANTS = Object.freeze([
     'req', // TA-10, TA-11 and the head twins: one visitor, Accept, delivered
     'reqhideip', // TA-12: relay forced by the host's Hide my IP
     'reqblip', // TA-13: the host's /ws cut while the link waits (head only)
+    'reqcaddy', // TA-14: a local Caddy reloaded while the link waits and while the drop receives (head only, --caddy)
     'reqdecline', // TA-15: Decline, Keep waiting, a second visitor delivers
     'reqopen', // TA-17: a quick cell run with a link open on the desktop
 ]);
@@ -78,6 +80,7 @@ export const REQUEST_IDS = Object.freeze([
     'S-REL-W2D-req', // TA-11
     'S-REL-W2D-reqhideip', // TA-12 (optional)
     'H-DIR-W2D-reqblip', // TA-13
+    'H-DIR-W2D-reqcaddy', // TA-14 (--caddy)
     'H-DIR-W2D-reqdecline', // TA-15
     ...REQUEST_OPEN_IDS, // TA-17
     'H-DIR-W2D-req', // head twin of TA-10
@@ -86,6 +89,8 @@ export const REQUEST_IDS = Object.freeze([
 ]);
 /** The cut TA-13 makes in the host's /ws while the link waits (09 2.7.2). */
 export const REQUEST_BLIP_MS = 5_000;
+/** How long TA-14 watches for the host's Reconnecting after a reload. */
+export const REQUEST_CADDY_RECONNECT_MS = 10_000;
 /**
  * The audit clicks Accept or Decline no earlier than this after the prompt
  * was first seen; the frontend's guard is 1 s. lib/desktop.mjs
@@ -101,6 +106,8 @@ export function requestFlowOf(variant) {
             return 'accept';
         case 'reqblip':
             return 'blip-then-accept';
+        case 'reqcaddy':
+            return 'caddy-reload';
         case 'reqdecline':
             return 'decline-then-accept';
         case 'reqopen':
@@ -175,11 +182,16 @@ export const SKIP_REASONS = Object.freeze({
     'desktop-none': '--desktop none drops desktop cells',
     'desktop-unavailable':
         'no desktop build to drive (probe or preflight failed)',
+    'desktop-running':
+        'a Floe desktop (floe-desktop.exe, or the floe-desktop-dev.exe wails dev runs) was already up: a second launch forwards to it and raises its window, so the leg started none (FU-26)',
     'head-desktop-pending': 'HEAD desktop build not available in this run',
     'server-no-request-1':
         'the server under test does not list request-1 in its /health features (probe P10)',
-    'request-host-uia-pending':
-        'the request link host verbs run on --desktop wailsdev only; the UIA verbs for the Store and portable builds are Phase F prep',
+    'caddy-not-enabled':
+        'TA-14 runs only when the run names --caddy: a local Docker Caddy in front of the local server, reloaded twice (never production, OD-33)',
+    'docker-absent': 'Docker is not answering, so the local Caddy of TA-14 cannot start',
+    'request-host-away-only':
+        'an exe request host (store, portable or a head wails build) is driven through UIA pattern calls, which activate its window (G2-F1): it runs only with --user-away',
     filtered: 'excluded by --cells',
 });
 
@@ -258,7 +270,8 @@ export function fixtureSpec(parsed) {
             return { kind: 'single', bytes: MiB, totalBytes: MiB };
         case 'req':
         case 'reqhideip':
-        case 'reqblip': {
+        case 'reqblip':
+        case 'reqcaddy': {
             const bytes = parsed.path === 'REL' ? REL_BYTES : DESKTOP_DIR_BYTES;
             return { kind: 'single', bytes, totalBytes: bytes };
         }
@@ -473,6 +486,9 @@ function buildCell(id, { cliHasRelayOnly }) {
         timeouts.hardCap += timeouts.accept;
         if (flow === 'blip-then-accept')
             timeouts.hardCap += REQUEST_BLIP_MS + 60_000;
+        // Two reloads, the reclaim after the first, and the container start.
+        if (flow === 'caddy-reload')
+            timeouts.hardCap += REQUEST_CADDY_RECONNECT_MS + 60_000 + 120_000;
         if (flow === 'decline-then-accept')
             timeouts.hardCap += timeouts.join + timeouts.connect;
     }
@@ -543,6 +559,12 @@ function requestSpec(variant, flow) {
         oracles.push('visitor-not-connected-during-cut', 'host-reconnecting-then-waiting');
     if (flow === 'decline-then-accept')
         oracles.push('visitor-declined-line', 'keep-waiting-reopens', 'second-visitor-delivers');
+    if (flow === 'caddy-reload')
+        oracles.push(
+            'host-reconnecting-then-waiting-after-reload',
+            'drop-survives-a-reload-while-receiving',
+            'visitor-ignores-peer-disconnected'
+        );
     // TA-12's over 2 GB prompt line (P6) is not reached from a web visitor:
     // RequestVisitor.tsx probes the route 2 s after its channel opens and
     // blocks a relayed drop over the cap before it sends any metadata, so
@@ -557,9 +579,12 @@ function requestSpec(variant, flow) {
         acceptWaitMs: REQUEST_ACCEPT_WAIT_MS,
         blipMs: flow === 'blip-then-accept' ? REQUEST_BLIP_MS : null,
         // TA-13 cuts sockets through a driver-owned proxy in front of the
-        // server, which only ever makes sense on this machine (never
-        // api.floe.one, OD-33): cellPlan refuses a non-loopback server.
-        loopbackOnly: flow === 'blip-then-accept',
+        // server, and TA-14 reloads a local Caddy in front of it, which only
+        // ever makes sense on this machine (never api.floe.one, OD-33):
+        // cellPlan refuses a non-loopback server.
+        loopbackOnly: flow === 'blip-then-accept' || flow === 'caddy-reload',
+        // TA-14 only with --caddy (gateCell: SKIP caddy-not-enabled).
+        caddy: flow === 'caddy-reload',
         oracles,
     };
 }
@@ -577,10 +602,13 @@ const FOUR_GIB = 4 * 1024 * 1024 * 1024;
 /** Apply machine and run gates from the probe record. */
 export function gateCell(
     cell,
-    { probe = {}, desktopMode = 'auto', profile = 'shipped' } = {}
+    { probe = {}, desktopMode = 'auto', profile = 'shipped', userAway = false, caddy = false } = {}
 ) {
     if (cell.verdict === 'NA') return cell;
     const p = probe || {};
+    // TA-14 reloads a local Caddy: SKIP unless the run asked for it, whatever
+    // the probe says.
+    if (cell.request?.caddy && !caddy) return skip(cell, 'caddy-not-enabled');
     // A request cell never runs against a server that is not known to list
     // request-1: an absent or unreadable features field fails closed.
     if (cell.request) {
@@ -597,11 +625,25 @@ export function gateCell(
         cell.sender.surface === 'wsl' || cell.receiver.surface === 'wsl';
     if (hasDesktop) {
         if (desktopMode === 'none') return skip(cell, 'desktop-none');
-        // The host of every request cell is driven through the wailsdev DOM
-        // verbs (lib/request.mjs); no other lane can make or answer a link
-        // yet, so the cell SKIPs rather than running a lane it cannot drive.
-        if (cell.request && desktopMode !== 'wailsdev')
-            return skip(cell, 'request-host-uia-pending');
+        // The host of a request cell is the wailsdev dev page (DOM verbs,
+        // activates nothing) or an exe (store, portable, a head wails build)
+        // driven through the UIA request verbs (FU-26), whose pattern calls
+        // activate its window (G2-F1): away-only.
+        if (cell.request && desktopMode !== 'wailsdev') {
+            if (!userAway) return skip(cell, 'request-host-away-only');
+            // TA-17 with a desktop side: the host already holds the one app
+            // instance, so the quick cell's own desktop leg cannot launch
+            // beside it (the dev page lane has one app and a page per leg).
+            if (
+                cell.request.flow === 'open-link-precondition' &&
+                (cell.sender.surface === 'desktop' || cell.receiver.surface === 'desktop')
+            ) {
+                cell.verdict = 'NA';
+                cell.reason = 'single-instance';
+                cell.note = NA_REASONS['single-instance'];
+                return cell;
+            }
+        }
         if (p.desktop?.available === false)
             return skip(cell, 'desktop-unavailable');
         if (profile === 'head' && p.desktop?.headBuild === false)
@@ -655,6 +697,8 @@ export function cellPlan({
     cells = null,
     desktopMode = 'auto',
     server = null,
+    userAway = false,
+    caddy = false,
 } = {}) {
     if (!['shipped', 'head'].includes(profile))
         throw new Error(`unknown profile ${profile}`);
@@ -697,7 +741,7 @@ export function cellPlan({
         // (P0-27 review F3).
         else if (cell.profile === 'H' && profile !== 'head')
             skip(cell, 'head-only');
-        else gateCell(cell, { probe, desktopMode, profile });
+        else gateCell(cell, { probe, desktopMode, profile, userAway, caddy });
         rows.push(cell);
     }
     // TA-13 cuts the host's sockets through a proxy on this machine: a

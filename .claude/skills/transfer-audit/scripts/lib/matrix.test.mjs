@@ -479,9 +479,10 @@ const WITH_FEATURE = {
     desktop: { available: true },
 };
 const LOCAL = 'http://localhost:3001';
-// The request host is driven on the wailsdev lane only (a head lane), so
-// the head plans here take --desktop wailsdev and the shipped ones keep the
-// default, which is what a real run can ask for.
+// The request host is the wailsdev dev page (a head lane) or, away-only, an
+// exe driven through the UIA verbs (FU-26); the head plans here take
+// --desktop wailsdev and the shipped ones keep the default, which is what a
+// real run can ask for.
 const requestPlan = (profile, probe = WITH_FEATURE) =>
     cellPlan({
         profile,
@@ -489,6 +490,8 @@ const requestPlan = (profile, probe = WITH_FEATURE) =>
         probe,
         server: profile === 'head' ? LOCAL : 'https://api.floe.one',
         desktopMode: profile === 'head' ? 'wailsdev' : 'auto',
+        // TA-14 plans only with --caddy (its own test covers the SKIP).
+        caddy: true,
     }).filter((c) => REQUEST_IDS.includes(c.id));
 
 function requestTableIds() {
@@ -656,29 +659,121 @@ test('reqblip refuses any server that is not loopback, as a usage error before a
         server: 'https://api.floe.one',
     }).find((c) => c.id === 'H-DIR-W2D-reqblip');
     assert.equal(shipped.reason, 'head-only');
-    // Only the blip cell carries the loopback rule.
+    // Only the blip and Caddy cells carry the loopback rule.
     for (const c of requestPlan('head'))
-        assert.equal(c.request.loopbackOnly, c.id === 'H-DIR-W2D-reqblip', c.id);
+        assert.equal(
+            c.request.loopbackOnly,
+            c.id === 'H-DIR-W2D-reqblip' || c.id === 'H-DIR-W2D-reqcaddy',
+            c.id
+        );
 });
 
-test('request cells SKIP request-host-uia-pending off the wailsdev lane, so a shipped run skips them all today', () => {
-    assert.match(SKIP_REASONS['request-host-uia-pending'], /wailsdev only/);
+// FU-26: TA-14 (the local Caddy reload) is planned, SKIP unless the run
+// names --caddy, head only, and a usage error against any server that is not
+// loopback, before anything is created (OD-33).
+test('TA-14 reqcaddy SKIPs caddy-not-enabled without --caddy, plans with it, stays head-only and loopback-only', () => {
+    assert.ok(REQUEST_IDS.includes('H-DIR-W2D-reqcaddy'));
+    assert.match(SKIP_REASONS['caddy-not-enabled'], /--caddy/);
+    assert.match(SKIP_REASONS['docker-absent'], /Docker/);
+    const off = cellPlan({
+        profile: 'head',
+        cells: ['H-DIR-W2D-reqcaddy'],
+        probe: WITH_FEATURE,
+        server: LOCAL,
+        desktopMode: 'wailsdev',
+    }).find((c) => c.id === 'H-DIR-W2D-reqcaddy');
+    assert.equal(off.reason, 'caddy-not-enabled');
+    const noFeature = cellPlan({
+        profile: 'head',
+        cells: ['H-DIR-W2D-reqcaddy'],
+        probe: { desktop: { available: true } },
+        server: LOCAL,
+        desktopMode: 'wailsdev',
+    }).find((c) => c.id === 'H-DIR-W2D-reqcaddy');
+    assert.equal(noFeature.reason, 'caddy-not-enabled', 'without --caddy nothing else is even asked');
+    const on = cellPlan({
+        profile: 'head',
+        cells: ['H-DIR-W2D-reqcaddy'],
+        probe: WITH_FEATURE,
+        server: LOCAL,
+        desktopMode: 'wailsdev',
+        caddy: true,
+    }).find((c) => c.id === 'H-DIR-W2D-reqcaddy');
+    assert.equal(on.verdict, null);
+    assert.equal(on.request.flow, 'caddy-reload');
+    assert.equal(on.request.caddy, true);
+    assert.equal(on.request.loopbackOnly, true);
+    assert.equal(on.fixture.totalBytes, 64 * 1024 * 1024);
+    assert.ok(on.request.oracles.includes('drop-survives-a-reload-while-receiving'));
+    assert.ok(on.request.oracles.includes('visitor-ignores-peer-disconnected'));
+    assert.ok(on.timeouts.hardCap > off.timeouts.accept);
+    assert.throws(
+        () =>
+            cellPlan({
+                profile: 'head',
+                cells: ['H-DIR-W2D-reqcaddy'],
+                probe: WITH_FEATURE,
+                server: 'https://api.floe.one',
+                desktopMode: 'wailsdev',
+                caddy: true,
+            }),
+        /loopback/
+    );
+    const shipped = cellPlan({
+        profile: 'shipped',
+        cells: ['H-DIR-W2D-reqcaddy'],
+        probe: WITH_FEATURE,
+        server: 'https://api.floe.one',
+        caddy: true,
+    }).find((c) => c.id === 'H-DIR-W2D-reqcaddy');
+    assert.equal(shipped.reason, 'head-only');
+});
+
+test('request cells on an exe host SKIP request-host-away-only without --user-away; with it they run, and TA-17 with a desktop side is NA single-instance (FU-26, G2-F1)', () => {
+    assert.match(SKIP_REASONS['request-host-away-only'], /activate its window/);
+    assert.equal(SKIP_REASONS['request-host-uia-pending'], undefined, 'the UIA verbs landed');
+    const deskSide = (c) => c.sender.surface === 'desktop' || c.receiver.surface === 'desktop';
     for (const desktopMode of ['auto', 'store', 'portable']) {
-        const rows = cellPlan({
+        const present = cellPlan({
             profile: 'head',
             cells: REQUEST_IDS,
             probe: WITH_FEATURE,
             server: LOCAL,
             desktopMode,
+            caddy: true,
         }).filter((c) => REQUEST_IDS.includes(c.id) && c.reason !== 'head-only');
-        assert.ok(rows.length > 0);
-        for (const c of rows)
-            assert.equal(c.reason, 'request-host-uia-pending', `${c.id} on ${desktopMode}`);
+        assert.ok(present.length > 0);
+        for (const c of present)
+            assert.equal(c.reason, 'request-host-away-only', `${c.id} on ${desktopMode}`);
+        const away = cellPlan({
+            profile: 'head',
+            cells: REQUEST_IDS,
+            probe: WITH_FEATURE,
+            server: LOCAL,
+            desktopMode,
+            userAway: true,
+            caddy: true,
+        }).filter((c) => REQUEST_IDS.includes(c.id) && c.reason !== 'head-only');
+        for (const c of away) {
+            if (c.request.flow === 'open-link-precondition' && deskSide(c)) {
+                assert.equal(c.verdict, 'NA', `${c.id} on ${desktopMode}`);
+                assert.equal(c.reason, 'single-instance', c.id);
+            } else assert.equal(c.verdict, null, `${c.id} on ${desktopMode} runs away-only`);
+        }
     }
     // The shipped profile cannot take --desktop wailsdev (audit.mjs refuses
-    // it), so every shipped request cell SKIPs until the UIA verbs land.
+    // it), so a shipped request cell runs only on an exe host, away-only.
     for (const c of requestPlan('shipped').filter((c) => c.reason !== 'head-only'))
-        assert.equal(c.reason, 'request-host-uia-pending', c.id);
+        assert.equal(c.reason, 'request-host-away-only', c.id);
+    // The wailsdev lane is not affected by the flag.
+    const dev = cellPlan({
+        profile: 'head',
+        cells: ['H-DIR-W2D-req', 'H-DIR-C2D-reqopen'],
+        probe: WITH_FEATURE,
+        server: LOCAL,
+        desktopMode: 'wailsdev',
+    }).filter((c) => c.request);
+    for (const c of dev) assert.equal(c.verdict, null, c.id);
     // The feature gate still comes first, and --desktop none still wins.
     const noFeature = cellPlan({
         profile: 'head',

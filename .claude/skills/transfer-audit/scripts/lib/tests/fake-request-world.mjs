@@ -15,15 +15,32 @@
 // init-script, beta-stuck, make-error, prompt-lie, goto-error, click-error.
 // A wrong route is the world's `route` option on a cell that expects the
 // other one.
+//
+// `lane: 'uia'` (FU-26) makes the host an exe leg instead: the real
+// DesktopLeg and UiaDriver over tests/fake-request-uia.mjs, the same view
+// read through UIA snapshots. Its launch applies what the leg's desktop.json
+// would carry (edit(): the Beta switch, the server address), and `uia` passes
+// the fake client's options (activates, idle).
 import { copyFileSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { BLIP_HOST, BlipProxy } from '../blip.mjs';
-import { DesktopLeg, PlaywrightDriver } from '../desktop.mjs';
+import {
+    DesktopLeg,
+    PlaywrightDriver,
+    UiaDriver,
+    activeLegs,
+    seedRedirectedConfig,
+    statsProofFor,
+} from '../desktop.mjs';
+import { PhaseError } from '../surfaces.mjs';
 import { fakeRequestDom } from './fake-request-dom.mjs';
+import { fakeRequestUiaClient } from './fake-request-uia.mjs';
 
 const BLIP_PORT = 45999;
 export const BLIP_URL = `http://${BLIP_HOST}:${BLIP_PORT}`;
+// TA-14's local Caddy (FU-26), as lib/caddy.mjs would publish it.
+export const CADDY_URL = 'http://127.0.0.1:45998';
 const SUB = 'Floe request 1';
 
 const TITLES = {
@@ -276,6 +293,8 @@ export function fakeRequestWorld({
     transferMs = 400,
     reclaimMs = 1500,
     host = {},
+    lane = 'wailsdev',
+    uia = {},
 } = {}) {
     const set = new Set(faults);
     const h = fakeRequestDom({
@@ -433,22 +452,86 @@ export function fakeRequestWorld({
         world.blips.push(b);
         return b;
     };
+    // The exe host (lane 'uia'): a fresh app per launch, opening on Receive >
+    // CODE, with what its desktop.json carried applied to the fake's
+    // settings; no process, no window, no helper.
+    world.launchEdits = [];
+    const uiaLeg = (opts) => {
+        const leg = new DesktopLeg({ ...opts, lister: async () => [] });
+        leg.launch = async () => {
+            activeLegs.add(leg);
+            dom.closed = false;
+            dom.settingsOpen = false;
+            dom.mode = 'receive';
+            dom.requestView = false;
+            const e = leg.edit();
+            world.launchEdits.push(e);
+            if (e.requestLinks !== undefined) dom.settings.requestLinks = e.requestLinks;
+            if (e.server) dom.settings.server = e.server;
+            if (e.web !== undefined) dom.settings.web = e.web;
+            dom.settings.hideIP = Boolean(e.hideIP);
+            world.uiaClient = fakeRequestUiaClient(h, uia);
+            // The redirected desktop.json a real launch seeds, so the host's
+            // stats proof reads the file it launched with.
+            const appData = path.join(leg.evidenceDir, 'appdata');
+            const configPath = seedRedirectedConfig(appData, e);
+            leg.launchProof = statsProofFor(configPath);
+            leg.plan = { mode: leg.mode, configPath, appData };
+            leg.hwnd = 4242;
+            leg.driver = new UiaDriver(world.uiaClient, 4242, {});
+            return leg.driver;
+        };
+        return leg;
+    };
+    // TA-14 (FU-26): a stand-in for lib/caddy.mjs startCaddy. A reload
+    // closes every WebSocket behind the proxy: a host whose link was made
+    // through it and waits goes Reconnecting and reclaims, as a blip does;
+    // a drop that receives carries on over its data channel. Faults:
+    // docker-absent (the SKIP startCaddy throws), no-reclaim.
+    world.caddies = [];
+    world.startCaddy = async ({ upstream, runDir }) => {
+        if (set.has('docker-absent'))
+            throw new PhaseError('caddy', 'docker-absent: fake Docker is not answering', {
+                verdict: 'SKIP',
+                reason: 'docker-absent',
+            });
+        const c = { url: CADDY_URL, upstream, runDir, reloads: [], stopped: false };
+        const hostBehind = () => !c.stopped && dom.madeWith?.server === c.url;
+        c.reload = async () => {
+            const at = h.now();
+            c.reloads.push({ at, state: dom.state, hostBehind: hostBehind() });
+            if (hostBehind() && dom.state === 'waiting')
+                dom.blip = {
+                    from: at,
+                    until: at,
+                    reclaimMs: set.has('no-reclaim') ? Infinity : reclaimMs,
+                };
+            return { at };
+        };
+        c.stop = async () => {
+            c.stopped = true;
+        };
+        world.caddies.push(c);
+        return c;
+    };
     world.adapters = {
         desktop: {
             createLeg: (opts) =>
-                new DesktopLeg({
-                    ...opts,
-                    // PlaywrightDriver.open makes a fresh page per launch,
-                    // so a retry's host finds the view as a new page does.
-                    openDriver: async () => {
-                        dom.closed = false;
-                        dom.settingsOpen = false;
-                        dom.mode = 'receive';
-                        dom.requestView = false;
-                        return new PlaywrightDriver(h.page, h.context, {});
-                    },
-                    lister: async () => [],
-                }),
+                lane === 'uia'
+                    ? uiaLeg(opts)
+                    : new DesktopLeg({
+                          ...opts,
+                          // PlaywrightDriver.open makes a fresh page per launch,
+                          // so a retry's host finds the view as a new page does.
+                          openDriver: async () => {
+                              dom.closed = false;
+                              dom.settingsOpen = false;
+                              dom.mode = 'receive';
+                              dom.requestView = false;
+                              return new PlaywrightDriver(h.page, h.context, {});
+                          },
+                          lister: async () => [],
+                      }),
         },
         web: { getBrowser: async () => world.browser },
     };

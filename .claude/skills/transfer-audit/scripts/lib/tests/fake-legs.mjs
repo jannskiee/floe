@@ -44,6 +44,9 @@ export const SCRIPTS = Object.freeze([
     'harness-crash',
     'savedir-skip',
     'restore-mismatch',
+    // The Store guard put the bytes back but not the mtime (fix 14): a
+    // pass whose Safety line says "mtime changed".
+    'mtime-changed',
     'done-hang',
     // Forced-mismatch cells (P0-27): the receiver refuses and keeps nothing;
     // the sender told the truth and the file was kept (the mutation a hashbad
@@ -792,6 +795,7 @@ class FakeLeg extends Leg {
             ev.config = {
                 applied: true,
                 match: this.script !== 'restore-mismatch',
+                mtimeRestored: this.script !== 'mtime-changed',
             };
             if (receiver)
                 ev.saveDir = {
