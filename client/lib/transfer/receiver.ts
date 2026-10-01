@@ -77,8 +77,22 @@ export const INTERNAL_ERROR_MESSAGE =
 // threshold (rather than an exact modulo) works for any negotiated chunk size.
 const PROGRESS_STEP = 1024 * 1024; // 1 MB
 
+// Chunk copies wait in the tab until this many bytes have gathered, then go
+// into a Blob part together. In Chromium a Blob's bytes leave the renderer for
+// the browser's blob storage, which pages to disk past its memory share, so
+// the tab holds at most about this much of a file at a time instead of all of
+// it (FLOE-M ran a tab out of memory holding a whole file as ArrayBuffers).
+// Measured with a 4 GiB file on Chromium 151: the renderer stayed at 50-138 MiB
+// where it used to peak at 9.4 GiB.
+// Other engines keep Blob bytes in memory; there this changes no total, it
+// only removes the second full copy `end` used to make. Large enough that the
+// per-part overhead is noise, small next to any device's memory.
+export const SPILL_BYTES = 16 * 1024 * 1024; // 16 MiB
+
 interface PartialDownload {
-    chunks: ArrayBuffer[];
+    parts: Blob[]; // spilled, in order
+    held: ArrayBuffer[]; // tight chunk copies not yet spilled, in order
+    heldBytes: number;
     received: number;
     lastReported: number; // `received` value at the last onProgress emission
 }
@@ -114,6 +128,10 @@ export function createReceiver(cb: ReceiverCallbacks): {
     // file that did not arrive whole, or a throw; see fail); every later
     // message is dropped.
     let aborted = false;
+    // Set when the connection closing is what stopped the receiver, rather than
+    // a failure it already reported. A part found broken after that still has
+    // to be reported: see probe.
+    let closed = false;
     // The announced size of the file being received, once validated, or null
     // when the peer announced nothing we can compare against.
     let expectedSize: number | null = null;
@@ -149,17 +167,22 @@ export function createReceiver(cb: ReceiverCallbacks): {
     // memory raised the same uncaught error on each chunk for minutes (FLOE-M,
     // 3,871 events in six minutes from one receiver) and kept every byte it
     // already held, so the next load of the link could not even start (FLOE-N).
-    function fail(err: unknown): void {
+    function fail(
+        err: unknown,
+        code: ReceiveFailureCode = classifyThrow(err),
+        sizes?: { received: number; expected: number | null }
+    ): void {
         const open = currentMetadata ? partialDownloads.get(currentMetadata.id) : undefined;
-        const received = open?.received ?? 0;
         // Sizes describe a file still being received. A throw after the file
-        // was handed over (from onFileComplete, say) has none open.
-        const expected = open ? expectedSize : null;
+        // was handed over (from onFileComplete, say) has none open; a broken
+        // part brings the sizes from when it was written (see probe).
+        const received = sizes ? sizes.received : (open?.received ?? 0);
+        const expected = sizes ? sizes.expected : open ? expectedSize : null;
         // Latch and let go of every held chunk before anything else: the work
         // below needs a little memory too, and V8 collects and retries a
         // failed allocation, so what is released here is what it gets.
-        dispose();
-        const code = classifyThrow(err);
+        release();
+        closed = false; // reported now, so a later broken part stays quiet
         // Our own ack could not go out because the channel is closing. The
         // connection is what failed, and the peer's close handler says so.
         if (code === 'channel-closed') return;
@@ -189,10 +212,51 @@ export function createReceiver(cb: ReceiverCallbacks): {
         );
     }
 
-    // Stops the receiver and lets go of every chunk it holds. Also for the
-    // connection closing mid-file: without it a transfer that died partway
-    // kept its partial file for the life of the tab.
+    // Moves the held chunk copies into one Blob part, then checks it.
+    function spill(file: PartialDownload): void {
+        const part = new Blob(file.held);
+        file.parts.push(part);
+        file.held = [];
+        file.heldBytes = 0;
+        probe(part, { received: file.received, expected: expectedSize });
+    }
+
+    // Chromium does not throw when its blob storage is full (Incognito pages
+    // nothing to disk and shares about 2 GiB per profile on a computer; a
+    // normal profile pages to disk up to a limit set from the disk's size).
+    // new Blob() returns as usual with the right size and the Blob is broken:
+    // only a read fails, and for a received file that read is the download,
+    // which would fail after the whole transfer. Reading back the last byte of
+    // every part finds it while the transfer is still running. A part that
+    // turns out broken after its file was handed over, or after the
+    // connection closed (a Go sender closes as soon as its last bytes are
+    // out), is still reported; only a failure already reported keeps it quiet.
+    function probe(part: Blob, sizes: { received: number; expected: number | null }): void {
+        if (part.size === 0) return;
+        part.slice(part.size - 1).arrayBuffer().then(
+            () => {},
+            (err: unknown) => {
+                if (!aborted || closed) fail(err, 'out-of-memory', sizes);
+            }
+        );
+    }
+
+    // The whole file, in order. Composing Blobs from Blobs references their
+    // bytes rather than copying them, and a single part is the file itself.
+    function takeBlob(file: PartialDownload): Blob {
+        if (file.heldBytes > 0) spill(file);
+        return file.parts.length === 1 ? file.parts[0] : new Blob(file.parts);
+    }
+
+    // The connection closed. Stops the receiver and lets go of every chunk it
+    // holds: without it a transfer that died partway kept its partial file for
+    // the life of the tab.
     function dispose(): void {
+        if (!aborted) closed = true;
+        release();
+    }
+
+    function release(): void {
         aborted = true;
         partialDownloads.clear();
         currentMetadata = null;
@@ -295,7 +359,7 @@ export function createReceiver(cb: ReceiverCallbacks): {
                 if (existing) {
                     offset = existing.received;
                 } else {
-                    partialDownloads.set(msg.id, { chunks: [], received: 0, lastReported: 0 });
+                    partialDownloads.set(msg.id, { parts: [], held: [], heldBytes: 0, received: 0, lastReported: 0 });
                 }
 
                 // Send ack with protocol version fields so the sender can verify
@@ -388,7 +452,7 @@ export function createReceiver(cb: ReceiverCallbacks): {
                     return;
                 }
 
-                const blob = new Blob(fileData.chunks);
+                const blob = takeBlob(fileData);
                 const completed: ReceivedFile = {
                     id: currentMetadata.id,
                     fileName: currentMetadata.fileName,
@@ -428,8 +492,10 @@ export function createReceiver(cb: ReceiverCallbacks): {
         // `buf.slice().buffer` would pin (and later mis-read) the whole backing buffer.
         // `new Uint8Array(buf)` copies exactly buf.byteLength bytes; `.buffer` is then
         // a tight ArrayBuffer of that length.
-        fileData.chunks.push(new Uint8Array(buf).buffer);
+        fileData.held.push(new Uint8Array(buf).buffer);
+        fileData.heldBytes += buf.byteLength;
         fileData.received += buf.byteLength;
+        if (fileData.heldBytes >= SPILL_BYTES) spill(fileData);
         receiveSpeedBytes += buf.byteLength;
 
         const now = performance.now();

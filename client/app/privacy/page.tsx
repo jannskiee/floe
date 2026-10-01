@@ -29,6 +29,10 @@ export const metadata: Metadata = {
 // Every sentence below was checked against the code it describes on
 // 2026-09-05 (server/server.js, server/turn.js, client/sentry.*.config.ts,
 // client/app/layout.tsx, cli/, desktop/) and against docs/security-privacy.mdx.
+// The received-files paragraph and the device-memory item were rechecked on
+// 2026-10-02 against client/lib/transfer/receiver.ts,
+// client/components/P2PTransfer.tsx and Chromium's blob storage
+// (blob_memory_controller.cc).
 // When a flag, label, hostname or number changes, this page changes with it.
 const toc = [
     { id: 'transfer', label: 'How the transfer works' },
@@ -48,7 +52,7 @@ export default function PrivacyPolicy() {
         <LegalShell
             document="privacy"
             title="Privacy policy"
-            dates={[{ label: 'Last updated', iso: '2026-09', text: 'September 2026' }]}
+            dates={[{ label: 'Last updated', iso: '2026-10', text: 'October 2026' }]}
             historyHref="https://github.com/jannskiee/floe/commits/main/client/app/privacy/page.tsx"
             toc={toc}
             intro={
@@ -297,7 +301,7 @@ export default function PrivacyPolicy() {
                 </p>
                 <LegalList
                     items={[
-                        'Error stack traces and browser metadata (browser version, OS, device type, language, and time zone)',
+                        'Error stack traces and browser metadata (browser version, OS, device type, approximate device memory, language, and time zone)',
                         'Connection type (direct or relay), transfer progress, file count, and total size at the time of an error',
                     ]}
                 />
@@ -353,9 +357,12 @@ export default function PrivacyPolicy() {
                     is deployed.
                 </p>
                 <p>
-                    Files you receive are held in the tab&apos;s memory until you download them;
-                    closing the tab discards anything you did not save, and nothing about a
-                    transfer&apos;s files is written to browser storage. While a transfer is running
+                    Files you receive stay with your browser until you close or leave the page: in
+                    memory, or, for large files in Chrome and Edge, partly in the browser&apos;s own
+                    temporary files on your disk, which it deletes when the page closes or, if it
+                    quits unexpectedly, the next time it starts. Closing the tab discards anything
+                    you did not save, and nothing about a transfer&apos;s files is written to the
+                    storage a website can read back. While a transfer is running
                     the app asks your browser to keep the screen awake and releases that when the
                     transfer ends. The app writes to your clipboard only when you press Copy and never
                     reads it, and it never asks for notification permission.

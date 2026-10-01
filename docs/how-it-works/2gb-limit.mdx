@@ -69,10 +69,13 @@ saves the transfer that would otherwise have failed.
 
 ## Two other limits, which are not Floe's
 
-A **browser receiver** holds what it receives in memory. Each file accumulates there as it
-arrives, and stays there once complete so you can still save it, so the peak is closer to the whole
-transfer than to any one file. A large enough transfer exhausts the tab, and on a phone that
-happens sooner. **Download ZIP** compounds it again, because zipping reads every file back at once.
+A **browser receiver** keeps what it receives inside the browser. Each file accumulates there as
+it arrives, and stays there once complete so you can still save it, so the total is closer to the
+whole transfer than to any one file. Chrome and Edge move most of it into temporary files on disk
+in a normal window; a private window, Firefox, Safari, and every browser on iPhone and iPad hold it
+in memory, where a large enough transfer exhausts the tab. **Download ZIP** compounds it in every
+browser, because zipping reads every file back into the tab at once. The details are in
+[Known limitations](/how-it-works/known-limitations).
 
 Floe Desktop and the CLI write straight to disk as bytes arrive and have no such ceiling, which
 makes them the better choice for anything multi-gigabyte.
