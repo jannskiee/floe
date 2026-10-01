@@ -162,9 +162,11 @@ export function warningLine(code: string, p: {freeBytes: number; totalBytes: num
     }
 }
 
-/** P8: minutes only, rounded up, so the last minute still reads 1 min. */
+/** P8: whole minutes, rounded down (D-143), so it never promises more time
+ *  than is left: the host's 9 min 45 s window reads 9 min, as the visitor's
+ *  page counts it. Never below 1, so the last minute still reads 1 min. */
 export function answerWithin(answerBy: number, now: number): string {
-    return `Answer within ${Math.max(1, Math.ceil((answerBy - now) / 60000))} min`;
+    return `Answer within ${Math.max(1, Math.floor((answerBy - now) / 60000))} min`;
 }
 export const ACCEPT = 'Accept'; // P9
 export const DECLINE = 'Decline'; // P9

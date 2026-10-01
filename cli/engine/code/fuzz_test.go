@@ -2,25 +2,32 @@ package code
 
 // FuzzParseRequestLink is the DV-FUZZ target for the one decoder this
 // package owns (spec 05 8.9). ParseRequestLink is pure: no network, no disk.
-// The seeds are added with f.Add and the same values are committed under
-// testdata/fuzz/FuzzParseRequestLink/ so the corpus directory exists in git;
+// FuzzResolve holds Resolve to FT-LINK-ECHO-F2's rule with an in-memory code
+// API. The seeds are added with f.Add and the same values are committed under
+// testdata/fuzz/<target>/ so each corpus directory exists in git;
 // FLOE_WRITE_FUZZ_SEEDS=1 go test -run '^Fuzz' . rewrites those files, and
 // nothing else here writes.
 
 import (
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
 var (
 	fuzzLinkIDShape = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
 	fuzzRoomShape   = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	// A lookup's code: hyphen-joined words of letters or digits, with no room
+	// id anywhere in it (no %, =, ?, ., space or any other punctuation).
+	fuzzCodeShape  = regexp.MustCompile(`^[\p{L}\p{Nd}]+(?:-[\p{L}\p{Nd}]+)*$`)
+	fuzzRoomInside = regexp.MustCompile(`(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
 )
 
 // writeSeed writes one corpus file in the go test fuzz v1 encoding when
@@ -116,6 +123,94 @@ func FuzzParseRequestLink(f *testing.F) {
 		// escapes, so %36f1c... is the room id 6f1c... (the browser agrees).
 		if l2, r2, err2 := ParseRequestLink(input); err2 != nil || l2 != linkID || r2 != roomID {
 			t.Fatalf("not deterministic: %q, %q then %q, %q (%v)", linkID, roomID, l2, r2, err2)
+		}
+	})
+}
+
+// roundTripFunc is an http.RoundTripper made of a function.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// FuzzResolve (FT-LINK-ECHO-F2): Resolve never panics, an input with a slash
+// or a hash never reaches the code API (every server code is lowercase words
+// joined by hyphens, so such an input is a link, resolved or refused here),
+// and whatever does reach it is shaped like a code with no room id in it
+// (review round 1). A refusal is one of the fixed texts, so no part of the
+// paste can reach a caller that prints it. The code API is a counting
+// transport in memory, so the target binds nothing and reaches no server.
+func FuzzResolve(f *testing.F) {
+	const room = "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
+	const id = "Xk3p9Q0aB1c"
+	var lookups atomic.Int64
+	var lastPath atomic.Value // string: the path of the newest lookup
+	orig := client
+	client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		lastPath.Store(r.URL.Path)
+		lookups.Add(1)
+		return &http.Response{StatusCode: http.StatusNotFound, Body: http.NoBody, Request: r}, nil
+	})}
+	f.Cleanup(func() { client = orig })
+
+	seeds := map[string]string{
+		"request link":               "https://floe.one/r/" + id + "#" + room,
+		"x1 no scheme":               "floe.one/r/" + id + "#" + room,
+		"x2 link id one short":       "https://floe.one/r/" + id[:10] + "#" + room,
+		"x3 angle brackets":          "<https://floe.one/r/" + id + "#" + room + ">",
+		"x4 extra path segment":      "https://floe.one/r/" + id + "/x#" + room,
+		"quoted without a scheme":    `"floe.one/r/` + id + "#" + room + `"`,
+		"room link":                  "https://floe.one/#room=" + room,
+		"room link without a scheme": "floe.one/#room=" + room,
+		"drop link":                  "https://floe.one/d/aBcD1234#k=s3cr3t",
+		"bad escape in the fragment": "https://floe.one/r/" + id + "#" + room + "%zz",
+		"bare room id fragment":      "#" + room,
+		"word code":                  "olive-tiger-castle",
+		"empty":                      "",
+		"room id alone":              room,
+		"room query without a slash": "floe.one?room=" + room,
+		"percent-encoded link":       "https%3A%2F%2Ffloe.one%2Fr%2F" + id + "%23" + room,
+		"code with capitals":         "Olive-Tiger-Castle",
+		"code with a digit":          "olive-tiger-2nd",
+	}
+	names := make([]string, 0, len(seeds))
+	for name := range seeds {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		f.Add(seeds[name])
+		writeSeed(f, "FuzzResolve", seedName(name), "string("+strconv.Quote(seeds[name])+")")
+	}
+
+	// Every text an input can fail with when it is not looked up. ErrDropLink
+	// carries the same sentence as ErrRequestLink.
+	fixed := map[string]bool{
+		ErrRequestLink.Error():                              true,
+		errInvalidURL.Error():                               true,
+		"URL does not contain a room id (#room= or ?room=)": true,
+	}
+	f.Fuzz(func(t *testing.T, input string) {
+		before := lookups.Load()
+		roomID, err := Resolve("http://code.invalid", input)
+		if lookups.Load() != before {
+			if strings.ContainsAny(input, "/#") {
+				t.Fatal("an input with a slash or a hash reached the code API")
+			}
+			code, _ := lastPath.Load().(string)
+			code = strings.TrimPrefix(code, "/api/code/")
+			if !fuzzCodeShape.MatchString(code) || fuzzRoomInside.MatchString(code) {
+				t.Fatal("a lookup was sent for text that is not shaped like a code")
+			}
+			return // the answer to a code: a 404 that quotes a code-shaped input
+		}
+		if err == nil {
+			return // a room link, resolved here
+		}
+		if roomID != "" {
+			t.Fatal("a refusal also returned a room id")
+		}
+		if !fixed[err.Error()] {
+			t.Fatalf("a refusal came back as text that is not fixed: %q", err)
 		}
 	})
 }

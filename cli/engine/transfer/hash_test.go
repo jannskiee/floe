@@ -29,6 +29,7 @@ import (
 type handSender struct {
 	t        *testing.T
 	sender   *webrtc.DataChannel
+	rdc      *webrtc.DataChannel // the receiver's end, for a test that stops the receive from that side
 	back     chan webrtc.DataChannelMessage
 	recvErr  chan error
 	dir      string
@@ -52,6 +53,13 @@ func newHandSender(t *testing.T) *handSender {
 // inside it without reaching across goroutines for h.dir.
 func newHandSenderOpts(t *testing.T, dir string, opts ReceiveOptions) *handSender {
 	t.Helper()
+	return newHandSenderStats(t, dir, "", opts)
+}
+
+// newHandSenderStats is newHandSenderOpts with the receive's stats URL, which
+// every caller but stats_test.go leaves empty, so nothing is reported.
+func newHandSenderStats(t *testing.T, dir, statsURL string, opts ReceiveOptions) *handSender {
+	t.Helper()
 	sender, recvCh, msgs, closed, closeFn := newPumpedPair(t)
 	t.Cleanup(closeFn)
 	var rdc *webrtc.DataChannel
@@ -60,7 +68,7 @@ func newHandSenderOpts(t *testing.T, dir string, opts ReceiveOptions) *handSende
 	case <-time.After(20 * time.Second):
 		t.Fatal("receiver data channel never opened")
 	}
-	h := &handSender{t: t, sender: sender, back: make(chan webrtc.DataChannelMessage, 32), recvErr: make(chan error, 1), dir: dir}
+	h := &handSender{t: t, sender: sender, rdc: rdc, back: make(chan webrtc.DataChannelMessage, 32), recvErr: make(chan error, 1), dir: dir}
 	sender.OnMessage(func(m webrtc.DataChannelMessage) {
 		select {
 		case h.back <- m:
@@ -79,7 +87,7 @@ func newHandSenderOpts(t *testing.T, dir string, opts ReceiveOptions) *handSende
 		}
 	}
 	go func() {
-		h.recvErr <- ReceiveFilesWithOptions(rdc, h.dir, true, "test-ver", "", opts)
+		h.recvErr <- ReceiveFilesWithOptions(rdc, h.dir, true, "test-ver", statsURL, opts)
 	}()
 	return h
 }

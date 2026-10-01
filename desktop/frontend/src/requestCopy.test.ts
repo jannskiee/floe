@@ -132,9 +132,12 @@ describe('the prompt', () => {
         expect(warningLine('<img src=x onerror=alert(1)>', {freeBytes: 0, totalBytes: 0}, 'C:\\x')).toBe('');
     });
 
-    it('counts the answer window in whole minutes', () => {
+    it('counts the answer window in whole minutes, rounded down', () => {
+        // The window the host opens (transfer.HostDecisionWindow, 10 min less
+        // 15 s) reads 9 min, as the visitor's page counts it (D-143).
+        expect(answerWithin(NOW + 9 * 60000 + 45000, NOW)).toBe('Answer within 9 min');
         expect(answerWithin(NOW + 9 * 60000, NOW)).toBe('Answer within 9 min');
-        expect(answerWithin(NOW + 8 * 60000 + 1, NOW)).toBe('Answer within 9 min');
+        expect(answerWithin(NOW + 8 * 60000 + 1, NOW)).toBe('Answer within 8 min');
         expect(answerWithin(NOW + 1000, NOW)).toBe('Answer within 1 min');
         expect(answerWithin(NOW - 1000, NOW)).toBe('Answer within 1 min');
     });

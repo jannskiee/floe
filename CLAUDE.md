@@ -122,6 +122,8 @@ The request-link handlers are behind a kill switch: a JSON policy file named by 
 ### Global Stats Counter
 A public, all-time counter of total bytes transferred across every Floe user, shown on the homepage (`client/components/GlobalStats.tsx`) with a NumberFlow odometer animation. Because Floe is P2P and file bytes never reach the server, the **receiver** peer reports the byte count out-of-band over HTTP after a completed transfer. Only the receiver reports (browser receiver via `client/hooks/useTransferAnalytics.ts`, composed by `P2PTransfer.tsx`; CLI and desktop receivers via `cli/engine/transfer/receiver.go`), so each transfer is counted exactly once. The sender never reports. The data-channel protocol is unchanged, so no `ProtocolVersion` bump is needed.
 
+A request-link drop that stops after Accept reports the bytes of files already saved under their final names, once, through the same guard; `.part` bytes and hash-mismatched files never count.
+
 The global total is viewable only in the browser (the `GlobalStats` component on the homepage). The CLI receiver contributes to the counter but never fetches or displays it.
 
 - `GET /api/stats` returns `{ totalBytes }` straight from an in-memory `cachedTotal`, so homepage polling (every 10s) never touches Redis.
