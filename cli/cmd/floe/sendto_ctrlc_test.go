@@ -49,9 +49,19 @@ func newCtrlC(t *testing.T) *ctrlC {
 		c.parkOnce.Do(func() { close(c.parked) })
 		<-c.release
 	}
+	// The handler's partial-file cleanup is process-wide, and here the host's
+	// receive runs in the same process: the real one closes the host's
+	// in-flight .part, and a host still writing frames queued ahead of the
+	// abort then ends on write-failed instead of the visitor's reason (seen
+	// once in the Docker race line, under load). In the binary the visitor
+	// holds no .part of its own and the host is another process, so the
+	// stand-in does nothing; main_test.go holds the real call to its order.
+	prevAbandon := abandonPartials
+	abandonPartials = func() {}
 	go handleInterrupts(c.sig, c.exits.exit)
 	t.Cleanup(func() {
 		parkUntilExit = prev
+		abandonPartials = prevAbandon
 		close(c.sig) // frees the goroutine that waits for a second signal
 	})
 	return c
