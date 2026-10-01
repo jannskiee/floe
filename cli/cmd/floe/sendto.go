@@ -103,8 +103,9 @@ var lineWaiting = fmt.Sprintf("Waiting for them to accept. They have %d min to a
 	int(transfer.HostDecisionWindow/time.Minute))
 
 // errSendToEnded is what runSendTo returns once it has printed the line that
-// ends the command: main exits 1 on it and cobra prints nothing, because the
-// line is the outcome and not a usage mistake (approved copy, Conventions).
+// ends the command: main exits 1 on it and nothing more is printed (cobra is
+// silenced, and execute skips it), because the line is the outcome and not a
+// usage mistake (approved copy, Conventions).
 var errSendToEnded = errors.New("the request-link send ended; its outcome is printed above")
 
 // sendToEnd prints the lines that end the command, indented, and silences

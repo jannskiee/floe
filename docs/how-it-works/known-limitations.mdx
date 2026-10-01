@@ -126,7 +126,8 @@ peers can land on different replicas and never see each other.
 
 **What you can do:** run one instance. A single small server handles a lot, since file data
 never passes through it. If you need redundancy, use a failover pair rather than a load-balanced
-set, and accept that in-flight transfers do not survive the switch.
+set, and accept that the switch loses every room and short code the old instance held, as a
+[restart](/self-hosting/operations#common-commands) does.
 
 ## Reporting something that is not on this list
 

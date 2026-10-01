@@ -558,6 +558,13 @@ func TestSenderIncompatibleTextIsDisplaySafe(t *testing.T) {
 			if strings.Contains(s, "\u202e") {
 				t.Errorf("a raw bidi override reached the error: %q", s)
 			}
+			var own interface{ OwnLines() }
+			if !errors.As(err, &own) {
+				t.Errorf("the compat error does not mark its lines as Floe's own (OwnLines): %T", err)
+			}
+			if n := strings.Count(s, "\n"); n != 2 {
+				t.Errorf("the compat error has %d newlines, want its own 2: %q", n, s)
+			}
 		}},
 		{"10 KB reason is never parsed", hugePayload, true, func(t *testing.T, err error) {
 			s := err.Error()
@@ -633,6 +640,61 @@ func TestSenderIncompatibleTextIsDisplaySafe(t *testing.T) {
 				tc.check(t, err)
 			case <-time.After(15 * time.Second):
 				t.Fatal("SendFiles did not return")
+			}
+		})
+	}
+}
+
+// TestReceiverCompatErrorsKeepTheirLines: the receiver's two protocol mismatch
+// returns, its own check of the metadata's range and the sender's
+// incompatible frame, carry the OwnLines mark the CLI's error printer needs to
+// print Floe's three lines as lines (FU-43 at the merge into
+// feat/request-link, where the mark moved onto the typed compat error). A
+// frame whose range overlaps ours is the peer's reason through displayText,
+// so it stays on one line whatever newlines the peer sent.
+func TestReceiverCompatErrorsKeepTheirLines(t *testing.T) {
+	cases := []struct {
+		name     string
+		frame    string
+		newlines int
+	}{
+		{"metadata whose range misses ours", `{"type":"metadata","id":"c-1","fileName":"a.bin","fileSize":4,"index":1,"total":1,"totalBytes":4,"pv":9,"pvMin":9,"ver":"v9"}`, 2},
+		{"incompatible frame whose range misses ours", `{"type":"incompatible","reason":"x","pv":9,"pvMin":9,"ver":"v9"}`, 2},
+		{"incompatible frame from a legacy peer", `{"type":"incompatible","reason":"line one\n  Run this instead"}`, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sender, recvCh, closeFn := newConnectedPair(t)
+			defer closeFn()
+
+			recvErr := make(chan error, 1)
+			go func() {
+				dc := <-recvCh
+				recvErr <- ReceiveFilesWithOptions(dc, t.TempDir(), true, "v1", "", ReceiveOptions{})
+			}()
+			time.Sleep(300 * time.Millisecond)
+			if err := sender.SendText(tc.frame); err != nil {
+				t.Fatalf("SendText: %v", err)
+			}
+
+			select {
+			case err := <-recvErr:
+				if err == nil {
+					t.Fatal("expected an error, got nil")
+				}
+				s := err.Error()
+				var own interface{ OwnLines() }
+				if !errors.As(err, &own) {
+					t.Errorf("the compat error does not mark its lines as Floe's own (OwnLines): %T %q", err, s)
+				}
+				if n := strings.Count(s, "\n"); n != tc.newlines {
+					t.Errorf("the compat error has %d newlines, want %d: %q", n, tc.newlines, s)
+				}
+				if tc.newlines > 0 && !strings.Contains(s, "Cannot transfer") {
+					t.Errorf("expected the rebuilt compat message, got: %q", s)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatal("ReceiveFilesWithOptions did not return")
 			}
 		})
 	}

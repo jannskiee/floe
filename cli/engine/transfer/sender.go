@@ -190,6 +190,13 @@ func (e *PeerEndedError) Error() string { return e.text }
 // (compatErrorMessage), so a caller that prints the error is unchanged. That
 // message holds the peer's release string, so a caller with fixed copy of its
 // own (TL-13) reads LocalTooOld instead of the text.
+//
+// The receiver returns one too: for its own check of the metadata's range,
+// and for the sender's incompatible frame, rebuilt the same way (when that
+// frame's range overlaps ours, the text is the peer's reason through
+// displayText, on one line, and LocalTooOld is false). Its later lines are
+// Floe's own, indented two spaces, and the peer's parts went through
+// displayText, so a terminal may print it as lines (OwnLines).
 type CompatError struct {
 	// LocalTooOld: this side is below the peer's range, so the update is due
 	// here; false means the peer is the side that is behind.
@@ -202,6 +209,9 @@ type CompatError struct {
 }
 
 func (e *CompatError) Error() string { return e.text }
+
+// OwnLines marks the text as Floe's own lines (cli/cmd/floe errorText).
+func (*CompatError) OwnLines() {}
 
 // fromPeer reports whether err arrived on the wire rather than being raised by
 // this sender, so the send loop can leave the local file name off it

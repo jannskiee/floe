@@ -19,9 +19,11 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jannskiee/floe/cli/engine/peer"
 	"github.com/jannskiee/floe/cli/engine/serverurl"
@@ -196,13 +198,19 @@ func connectedLine(ct string, err error) string {
 // every other failure keeps "WebRTC setup failed: " and the error's text,
 // byte for byte what the command printed before (a present peer that cannot
 // connect still reads "timed out establishing a connection").
+//
+// That text also goes through peer.EscapeText (FU-40): SetupError's
+// DisplayText already replaces every terminal control and caps the text at
+// 300 runes, but it keeps the format characters that are not bidi controls
+// (zero width and similar) and U+2028/U+2029, which pion/sdp can quote from
+// the peer's SDP and EscapeText writes visibly.
 func setupFailureLine(err error) string {
 	for _, stop := range []error{peer.ErrPeerLeft, peer.ErrSignalingLost, peer.ErrClosed} {
 		if errors.Is(err, stop) {
 			return stop.Error()
 		}
 	}
-	return "WebRTC setup failed: " + err.Error()
+	return peer.EscapeText("WebRTC setup failed: " + err.Error())
 }
 
 // interruptHook, when set, picks what Ctrl+C prints and what it stops before
@@ -261,6 +269,15 @@ func handleInterrupts(sigCh <-chan os.Signal, exit func(int)) {
 // exit: transfer.AbandonPartials in every build, a var so a test can hold it.
 var abandonPartials = transfer.AbandonPartials
 
+// cutRunes returns s cut to max runes, the last one an ellipsis when it was
+// longer.
+func cutRunes(s string, max int) string {
+	if utf8.RuneCountInString(s) <= max {
+		return s
+	}
+	return string([]rune(s)[:max-1]) + "…"
+}
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 func main() {
@@ -270,7 +287,79 @@ func main() {
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	go handleInterrupts(sigCh, os.Exit)
 
-	if err := rootCmd.Execute(); err != nil {
+	if err := execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// execute runs the command tree and prints a subcommand's error the way
+// cobra does ("Error: " and the text), through errorText. Errors carry text
+// the CLI does not control: a TLS certificate's names (Go's hostname check
+// lists them as they are, and on Linux it runs before the chain check), the
+// signaling server's error message, and pion's words.
+//
+// Only Floe's own subcommands are silenced. Cobra keeps printing what fails
+// before one of them runs (an unknown command with its suggestions, a flag of
+// the root), text built from the command line and the command tree; help and
+// completion are added inside ExecuteC and keep cobra's printing too.
+//
+// Two returns are not failures to prefix. An outcomeError (TL-33's link
+// refusal in receive) prints alone on the two-space indent, without
+// "Error: ", as its approved copy reads. errSendToEnded prints nothing: the
+// request-link send has already printed the lines that end it (sendto.go).
+// Both still return the error, so main exits 1.
+func execute() error {
+	for _, c := range rootCmd.Commands() {
+		c.SilenceErrors = true
+	}
+	cmd, err := rootCmd.ExecuteC()
+	if err != nil && cmd.SilenceErrors && !errors.Is(err, errSendToEnded) {
+		var outcome outcomeError
+		if errors.As(err, &outcome) {
+			fmt.Fprintln(rootCmd.ErrOrStderr(), "  "+errorText(err))
+		} else {
+			fmt.Fprintln(rootCmd.ErrOrStderr(), "Error:", errorText(err))
+		}
+	}
+	return err
+}
+
+// outcomeError is an error that is an outcome, not a failure (TL-33's link
+// refusal): execute prints it alone on the two-space indent, without "Error: ".
+type outcomeError struct{ error }
+
+func (e outcomeError) Unwrap() error { return e.error }
+
+// ownLines is an error whose text Floe wrote line by line (the protocol
+// remedy, the update checksum mismatch). Only its newlines are printed as
+// newlines; any other error, and any text wrapped around one of these,
+// prints on one line.
+type ownLines interface {
+	error
+	OwnLines()
+}
+
+// errorMax bounds an error's text: a server's error message or a
+// certificate's names have no length of their own, and escaped they would
+// print as one line four times as long. Floe's own errors are far shorter.
+const errorMax = 2000
+
+// errorText is err's text as execute prints it, cut at errorMax runes. An
+// error marked ownLines (the protocol remedy, the update checksum mismatch)
+// prints its own lines, each escaped, later ones indented as Floe wrote them;
+// only when no text outside it adds a newline. Every other error, a server's
+// message or a certificate's names among them, prints escaped on one line, so
+// a newline in text Floe does not control shows as \x0a and can never lay out
+// lines that pass for Floe's own.
+func errorText(err error) string {
+	s := cutRunes(err.Error(), errorMax)
+	var own ownLines
+	if !errors.As(err, &own) || strings.Contains(strings.TrimSuffix(s, own.Error()), "\n") {
+		return peer.EscapeText(s)
+	}
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = peer.EscapeText(line)
+	}
+	return strings.Join(lines, "\n")
 }

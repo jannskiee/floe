@@ -59,6 +59,14 @@ func downloadTemp(url string) (string, error) {
 	return f.Name(), nil
 }
 
+// checksumError is the checksum mismatch: Floe's own lines (OwnLines).
+type checksumError string
+
+func (e checksumError) Error() string { return string(e) }
+
+// OwnLines marks the text as Floe's own lines (cli/cmd/floe errorText).
+func (checksumError) OwnLines() {}
+
 func verifySHA256(filePath, assetFilename, checksums string) error {
 	f, err := os.Open(filePath)
 	if err != nil {
@@ -78,7 +86,7 @@ func verifySHA256(filePath, assetFilename, checksums string) error {
 			if parts[0] == got {
 				return nil
 			}
-			return fmt.Errorf("checksum mismatch for %s:\n  expected %s\n  got      %s", assetFilename, parts[0], got)
+			return checksumError(fmt.Sprintf("checksum mismatch for %s:\n  expected %s\n  got      %s", assetFilename, parts[0], got))
 		}
 	}
 	return fmt.Errorf("checksum not found in checksums.txt for %s", assetFilename)

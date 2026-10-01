@@ -15,8 +15,12 @@ docker compose restart server           # restart only the signaling server
 ```
 
 **Restarting the server is not free.** Rooms and room codes live in that process's memory, so a
-restart ends every transfer in flight and invalidates every short code that has not yet expired.
-There is no draining and no warning. Pick a quiet moment, or expect people to need a new link.
+restart forgets every short code. A CLI or Floe Desktop sender still waiting for its receiver stops
+and has to start again; one in the web app reconnects on its own within a few seconds and keeps its
+link. A transfer that is already running keeps going, because file data never passes through the
+server, except between two browsers: the shutdown tells one that the other has left, and the
+transfer stops. One that was still connecting may need another try. There is no draining and no
+warning. Pick a quiet moment.
 
 The client also waits on the server: Compose starts it only once the server reports healthy. If
 the server never gets there, you do not get a web app that cannot connect, you get no web app at

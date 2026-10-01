@@ -28,13 +28,12 @@ const closedServer = "http://127.0.0.1:9"
 func TestReceiveRefusesALinkWithoutEchoingIt(t *testing.T) {
 	old := flagServer
 	flagServer = closedServer
-	// runReceive prints the refusal itself and silences cobra for it (see
+	// runReceive returns the refusal for execute to print (see
 	// TestReceiveLinkRefusalPrintsTheApprovedLine for what the terminal shows).
 	rootCmd.SetErr(io.Discard)
 	t.Cleanup(func() {
 		flagServer = old
 		rootCmd.SetErr(nil)
-		receiveCmd.SilenceErrors = false
 	})
 
 	const room = "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
@@ -78,8 +77,8 @@ func TestReceiveRefusesALinkWithoutEchoingIt(t *testing.T) {
 // approved-copy-cli.txt, state receive-request-link (TL-33). runReceive's
 // opening blank line on stdout, then the sentence on its own line with the
 // two-space indent on stderr, and no cobra "Error: " prefix, because the
-// refusal is an outcome, not a usage mistake. Execute still returns the
-// sentinel, which main turns into exit 1.
+// refusal is an outcome, not a usage mistake. execute prints it once and
+// still returns the sentinel, which main turns into exit 1.
 func TestReceiveLinkRefusalPrintsTheApprovedLine(t *testing.T) {
 	const room = "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
 	cases := []struct {
@@ -175,22 +174,20 @@ func TestReceiveOtherResolveErrorsKeepTheirWrapper(t *testing.T) {
 }
 
 // receiveThroughCobra runs `floe receive <input> --server <server>` through the
-// real command tree, the way main does, and returns what the terminal would
-// show: stdout (runReceive writes its blank line with fmt, straight to
-// os.Stdout) and stderr (the error writer cobra prints to), with the error main
-// turns into exit 1. Cobra keeps flag state, writers and arguments on the
-// package-level tree between Execute calls, and runReceive sets receive's
-// SilenceErrors for a link refusal, so all four are put back after.
+// real command tree with execute, the way main does, and returns what the
+// terminal would show: stdout (runReceive writes its blank line with fmt,
+// straight to os.Stdout) and stderr (the error writer cobra and execute print
+// to), with the error main turns into exit 1. Cobra keeps flag state, writers
+// and arguments on the package-level tree between Execute calls, so all three
+// are put back after.
 func receiveThroughCobra(t *testing.T, input, server string) (stdout, stderr string, err error) {
 	t.Helper()
 	resetSharedFlags(t)
-	receiveCmd.SilenceErrors = false
 	t.Cleanup(func() {
 		if f := rootCmd.PersistentFlags().Lookup("server"); f != nil {
 			_ = f.Value.Set(f.DefValue)
 			f.Changed = false
 		}
-		receiveCmd.SilenceErrors = false
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
@@ -199,7 +196,7 @@ func receiveThroughCobra(t *testing.T, input, server string) (stdout, stderr str
 	rootCmd.SetOut(&out)
 	rootCmd.SetErr(&errOut)
 	rootCmd.SetArgs([]string{"receive", input, "--server", server})
-	stdout = captureStdout(t, func() { err = rootCmd.Execute() })
+	stdout = captureStdout(t, func() { err = execute() })
 	return stdout + out.String(), errOut.String(), err
 }
 

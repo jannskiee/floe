@@ -555,7 +555,7 @@ func (o *output) text() (stdout, stderr string) {
 	return o.out.String(), o.err.String()
 }
 
-// cliRun is one `floe send ...` through rootCmd.Execute, as main runs it.
+// cliRun is one `floe send ...` through execute, as main runs it.
 type cliRun struct {
 	done   chan struct{}
 	err    error
@@ -576,7 +576,13 @@ func startCLI(t *testing.T, args ...string) *cliRun {
 	}
 	to.Changed = false
 	sendCmd.SilenceErrors = false
-	t.Cleanup(func() { sendCmd.SilenceErrors = false })
+	t.Cleanup(func() {
+		sendCmd.SilenceErrors = false
+		// cobra keeps --to on the tree: a later plain send in this process
+		// (setup_error_test.go's runAgainst) must not go to this link.
+		_ = to.Value.Set("")
+		to.Changed = false
+	})
 	t.Setenv("FLOE_NO_STATS", "1")
 	rootCmd.SetOut(nil)
 	rootCmd.SetErr(nil)
@@ -585,7 +591,7 @@ func startCLI(t *testing.T, args ...string) *cliRun {
 	r := &cliRun{done: make(chan struct{})}
 	go func() {
 		defer close(r.done)
-		r.err = rootCmd.Execute()
+		r.err = execute()
 		r.ended = time.Now()
 	}()
 	t.Cleanup(func() {

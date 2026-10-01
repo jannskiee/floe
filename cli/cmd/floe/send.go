@@ -108,7 +108,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 	codePhrase, err := code.Register(flagServer, roomId)
 	if err != nil {
 		// Non-fatal: code registration failure still allows link sharing
-		fmt.Printf("  Warning: could not generate short code: %v\n", err)
+		fmt.Println(shortCodeWarning(err))
 		codePhrase = ""
 	}
 
@@ -125,12 +125,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 	link := webURL + "/#room=" + roomId
 
 	fmt.Printf("  Sending   %s\n", summary.Label)
-	var rows [][2]string
-	if codePhrase != "" {
-		rows = append(rows, [2]string{"Code", codePhrase})
-	}
-	rows = append(rows, [2]string{"Link", link})
-	transfer.PrintBox(rows)
+	transfer.PrintBox(shareRows(codePhrase, link))
 	fmt.Println()
 	fmt.Println("  Waiting for peer...")
 
@@ -155,6 +150,8 @@ func runSend(cmd *cobra.Command, args []string) error {
 	fmt.Println("  Connecting...")
 	dc, err := conn.SetupAsSender()
 	if err != nil {
+		// Bounded and escaped (setupFailureLine): pion's parse error quotes
+		// the peer's answer.
 		return fmt.Errorf("%s", setupFailureLine(err))
 	}
 
@@ -173,4 +170,27 @@ func runSend(cmd *cobra.Command, args []string) error {
 		Messages: early.Msgs,
 		Closed:   early.Closed,
 	})
+}
+
+// shortCodeWarning is the line send prints when the server gives no code. The
+// error can carry a TLS certificate's names or other text the CLI does not
+// control, so it is bounded and escaped on one line.
+func shortCodeWarning(err error) string {
+	return "  Warning: could not generate short code: " + peer.EscapeText(cutRunes(err.Error(), errorMax))
+}
+
+// codePhraseMax bounds the code phrase in the box: a real one is three short
+// words ("olive-tiger-castle").
+const codePhraseMax = 64
+
+// shareRows are the rows of the box send prints: the code when the server
+// gave one, then the link. The code phrase is the server's text, so it is
+// bounded and escaped before it reaches the terminal; a real one comes out
+// unchanged.
+func shareRows(codePhrase, link string) [][2]string {
+	var rows [][2]string
+	if codePhrase != "" {
+		rows = append(rows, [2]string{"Code", peer.EscapeText(cutRunes(codePhrase, codePhraseMax))})
+	}
+	return append(rows, [2]string{"Link", link})
 }
