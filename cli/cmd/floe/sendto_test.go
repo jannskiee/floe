@@ -1588,6 +1588,88 @@ func TestSendToHostileReasonNeverPrinted(t *testing.T) {
 	}
 }
 
+// verHost is a host that acks the visitor's one file with ver as its own
+// version and then reports it received and matched.
+func verHost(ver string) func(*testHost) error {
+	return func(h *testHost) error {
+		if err := h.offer(); err != nil {
+			return err
+		}
+		id, err := h.awaitMetadata()
+		if err != nil {
+			return err
+		}
+		v, _ := json.Marshal(ver)
+		if err := h.dc.Send([]byte(`{"type":"ack","id":"` + id + `","offset":0,"pv":1,"pvMin":1,"ver":` + string(v) + `}`)); err != nil {
+			return err
+		}
+		if err := h.awaitEnd(); err != nil {
+			return err
+		}
+		if err := h.dc.Send([]byte(`{"type":"received","verified":1}`)); err != nil {
+			return err
+		}
+		h.holdOpen()
+		return nil
+	}
+}
+
+// TestSendToPeerVersionOnlyWhenReleaseShaped (D-147 (2), review lens B
+// re-check N3): the host's version prints on TL-02's "Peer version:" line
+// only when it is release-shaped, so an honest host's line is TL-02's byte
+// for byte, and a host that puts its own words in that field gets no line at
+// all, while its drop still arrives.
+func TestSendToPeerVersionOnlyWhenReleaseShaped(t *testing.T) {
+	// This build's own version must differ from every host's below, or the
+	// line is left out for being the same version.
+	prev := version
+	version = "1.10.11"
+	t.Cleanup(func() { version = prev })
+	words64 := (`Your Floe is out of date. Visit floe-fix.example to keep sending` + strings.Repeat("!", 64))[:64]
+	if n := len([]rune(words64)); n != 64 {
+		t.Fatalf("the 64-rune version is %d runes", n)
+	}
+	for _, c := range []struct {
+		name, ver, line string
+	}{
+		{"an honest Floe Desktop host (TL-02)", "desktop-v0.3.0", "  Peer version: desktop-v0.3.0\n"},
+		{"a CLI release", "1.10.12", "  Peer version: 1.10.12\n"},
+		{"a prerelease", "v1.11.0-rc.1", "  Peer version: v1.11.0-rc.1\n"},
+		{"a dev build", "dev", "  Peer version: dev\n"},
+		{"words", "visit evil.example to update", ""},
+		{"a URL", "https://evil.example/update", ""},
+		{"64 runes of words", words64, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			o := captureOutput(t)
+			s := newReqServer(t, "seat")
+			stubNetwork(t, s.URL)
+			p, _ := oneFile(t, t.TempDir(), "a.bin", 4096)
+			h := startHost(t, s, verHost(c.ver))
+			r := runCLI(t, p, "--to", linkFor(), "--server", s.URL)
+			herr := h.wait(t)
+			r.read(o)
+			if r.err != nil || herr != nil {
+				t.Fatalf("the drop failed: cli %v, host %v\nstdout:\n%s\nstderr:\n%s", r.err, herr, r.stdout, r.stderr)
+			}
+			if !strings.Contains(r.stdout, "\n  1 file arrived (") {
+				t.Fatalf("the drop did not arrive:\n%s", r.stdout)
+			}
+			both := r.stdout + r.stderr
+			n := strings.Count(both, "Peer version")
+			if c.line == "" {
+				if n != 0 || strings.Contains(both, "evil.example") || strings.Contains(both, "floe-fix.example") {
+					t.Fatalf("a host's own words reached the terminal:\nstdout:\n%s\nstderr:\n%s", r.stdout, r.stderr)
+				}
+				return
+			}
+			if n != 1 || !strings.Contains(r.stdout, "\n"+c.line) {
+				t.Fatalf("want the line %q once on stdout:\n%s\nstderr:\n%s", c.line, r.stdout, r.stderr)
+			}
+		})
+	}
+}
+
 // ── The clocks ───────────────────────────────────────────────────────────────
 
 // TestSendToAckTimeoutIsVisitorAckPlusGrace: the send waits for acks on the
@@ -1604,8 +1686,9 @@ func TestSendToAckTimeoutIsVisitorAckPlusGrace(t *testing.T) {
 	stop := make(chan struct{})
 	opts := sendToOptions(early, stop, nil, nil)
 	if opts.AckTimeout != sendToAckTimeout || !opts.RequireReceived || !opts.NoSummary ||
-		opts.Messages != early.Msgs || opts.Closed != early.Closed || opts.Stop != (<-chan struct{})(stop) || !opts.EndBarLine {
-		t.Fatalf("sendToOptions = %+v; want the visitor's clock, RequireReceived, NoSummary, Ctrl+C's stop, EndBarLine and the connection's pump", opts)
+		opts.Messages != early.Msgs || opts.Closed != early.Closed || opts.Stop != (<-chan struct{})(stop) || !opts.EndBarLine ||
+		!opts.PeerVersionReleaseOnly {
+		t.Fatalf("sendToOptions = %+v; want the visitor's clock, RequireReceived, NoSummary, Ctrl+C's stop, EndBarLine, PeerVersionReleaseOnly and the connection's pump", opts)
 	}
 	src, err := os.ReadFile("sendto.go")
 	if err != nil {

@@ -25,6 +25,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"regexp"
 	"sync"
 	"time"
 
@@ -541,6 +542,26 @@ type SendOptions struct {
 	// with its own line break. False keeps the plain send's output byte for
 	// byte as it was.
 	EndBarLine bool
+	// PeerVersionReleaseOnly prints the receiver's "Peer version:" line only
+	// when the version it sent is release-shaped (releaseShapedVer), and no
+	// line at all for any other text, so a receiver the person does not know
+	// cannot put words of its own on this terminal through that field: the
+	// request-link send (D-147 (2)). An honest receiver's line is unchanged.
+	// False prints the line for any version that differs from this build's,
+	// through displayText, as the plain send always has.
+	PeerVersionReleaseOnly bool
+}
+
+// releaseShape is a Floe release string as the builds stamp it: the CLI's
+// "1.10.12" (goreleaser drops the v), a tag's "v1.10.12", Floe Desktop's
+// "desktop-v0.3.0" (approved copy TL-02), each with an optional prerelease
+// suffix; a local build says "dev" (releaseShapedVer).
+var releaseShape = regexp.MustCompile(`^(?:desktop-v|v)?[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$`)
+
+// releaseShapedVer reports whether a peer's ver reads as a Floe release or a
+// local build, which is all PeerVersionReleaseOnly lets reach the terminal.
+func releaseShapedVer(ver string) bool {
+	return ver == "dev" || releaseShape.MatchString(ver)
 }
 
 // ErrClosedBeforeReceived is what a send under RequireReceived, or to a
@@ -746,7 +767,7 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 	var confirms bool
 	var sentSoFar int64
 	for i, entry := range files {
-		if err := sendFile(dc, ackCh, sendMore, done, flushed, entry, i+1, len(files), totalBytes, localVer, onProgress, opts.OnAck, opts.UpdateHint, ackTimeoutOrDefault(opts.AckTimeout), sentSoFar, chunk, &confirms, opts.Stop, opts.EndBarLine); err != nil {
+		if err := sendFile(dc, ackCh, sendMore, done, flushed, entry, i+1, len(files), totalBytes, localVer, onProgress, opts.OnAck, opts.UpdateHint, ackTimeoutOrDefault(opts.AckTimeout), sentSoFar, chunk, &confirms, opts.Stop, opts.EndBarLine, opts.PeerVersionReleaseOnly); err != nil {
 			// A refusal the PEER sent is returned as it came. The wrap named
 			// entry.displayName, which is the file the sender had already moved
 			// on to: a receiver refuses file N after its end marker, and the
@@ -919,8 +940,9 @@ drainLoop:
 // sendFile handles the full send sequence for a single file. confirms is set
 // from the first file's ack only (parseAckConfirms) and left alone after.
 // stop is SendOptions.Stop: seen before every write and in every wait.
-// endBarLine is SendOptions.EndBarLine.
-func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, done <-chan struct{}, flushed <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onProgress ProgressFunc, onAck func(int), updateHint string, ackTimeout time.Duration, baseTotal int64, chunk int, confirms *bool, stop <-chan struct{}, endBarLine bool) (err error) {
+// endBarLine is SendOptions.EndBarLine, and peerVerReleaseOnly is
+// SendOptions.PeerVersionReleaseOnly.
+func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, done <-chan struct{}, flushed <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onProgress ProgressFunc, onAck func(int), updateHint string, ackTimeout time.Duration, baseTotal int64, chunk int, confirms *bool, stop <-chan struct{}, endBarLine, peerVerReleaseOnly bool) (err error) {
 	if stopRequested(stop) {
 		return ErrSendStopped
 	}
@@ -1020,7 +1042,7 @@ ackLoop:
 							return &CompatError{LocalTooOld: localTooOld, text: compatErrorMessage(localTooOld, localVer, ack.Ver,
 								MinProtocolVersion, ProtocolVersion, ack.PvMin, ack.Pv, updateHint)}
 						}
-						if ack.Ver != "" && localVer != "" && ack.Ver != localVer {
+						if ack.Ver != "" && localVer != "" && ack.Ver != localVer && (!peerVerReleaseOnly || releaseShapedVer(ack.Ver)) {
 							fmt.Printf("  Peer version: %s\n", displayText(ack.Ver, maxDisplayVer))
 						}
 						// The receiver's promise of a final word, read by its

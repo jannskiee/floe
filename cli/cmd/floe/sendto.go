@@ -467,19 +467,23 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 // visitor's ack clock, success only on the host's received, no summary box
 // (TL-03 replaces it), the stop Ctrl+C closes, a bar line ended before an
 // outcome that lands mid-file (the copy draws TL-16 to TL-26's saved forms
-// and TL-27 on lines of their own), the ack callback that tracks the phase,
-// and the connection's own pump (see peer.Early).
+// and TL-27 on lines of their own), TL-02's "Peer version:" line only for a
+// release-shaped host version (D-147 (2): the host is a stranger's, and that
+// field was the one text of its choosing this path printed), the ack
+// callback that tracks the phase, and the connection's own pump (see
+// peer.Early).
 func sendToOptions(early *peer.Early, stop <-chan struct{}, onAck func(int), onDelivered func(transfer.Delivered)) transfer.SendOptions {
 	return transfer.SendOptions{
-		Messages:        early.Msgs,
-		Closed:          early.Closed,
-		AckTimeout:      sendToAckTimeout,
-		RequireReceived: true,
-		NoSummary:       true,
-		Stop:            stop,
-		EndBarLine:      true,
-		OnAck:           onAck,
-		OnDelivered:     onDelivered,
+		Messages:               early.Msgs,
+		Closed:                 early.Closed,
+		AckTimeout:             sendToAckTimeout,
+		RequireReceived:        true,
+		NoSummary:              true,
+		Stop:                   stop,
+		EndBarLine:             true,
+		PeerVersionReleaseOnly: true,
+		OnAck:                  onAck,
+		OnDelivered:            onDelivered,
 	}
 }
 

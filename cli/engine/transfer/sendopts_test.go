@@ -167,8 +167,9 @@ func deliverTwo(t *testing.T, opts SendOptions) (printed string, err error) {
 // and calls nothing new, as before; NoSummary leaves the box out and OnAck
 // fires once per file in order, with OnDelivered unchanged either way.
 func TestNewSendOptionsAreOffByDefault(t *testing.T) {
-	if (SendOptions{}).NoSummary || (SendOptions{}).OnAck != nil || (SendOptions{}).Stop != nil {
-		t.Fatal("a zero SendOptions turns NoSummary, OnAck or Stop on")
+	if (SendOptions{}).NoSummary || (SendOptions{}).OnAck != nil || (SendOptions{}).Stop != nil ||
+		(SendOptions{}).PeerVersionReleaseOnly {
+		t.Fatal("a zero SendOptions turns NoSummary, OnAck, Stop or PeerVersionReleaseOnly on")
 	}
 
 	var delivered []Delivered
@@ -290,5 +291,71 @@ func TestVisitorCancelReasonMatchesTheWebPage(t *testing.T) {
 		if !c.re.Match(src) {
 			t.Fatalf("%s no longer says %s", c.file, c.re)
 		}
+	}
+}
+
+// TestReleaseShapedVer: the versions Floe's builds stamp read as release
+// shaped, a local build's "dev" too, and any other text does not (D-147 (2)).
+func TestReleaseShapedVer(t *testing.T) {
+	for _, v := range []string{
+		"1.10.12", "v1.10.12", "desktop-v0.3.0", "desktop-v0.2.12", "dev",
+		"v1.11.0-rc.1", "1.11.0-beta.2", "0.0.0-2026-10-01.a1b2c3",
+	} {
+		if !releaseShapedVer(v) {
+			t.Errorf("%q is a Floe release string, but it reads as not release shaped", v)
+		}
+	}
+	for _, v := range []string{
+		"", "Dev", "dev ", "devel", "1.10", "1.10.12.", "v1.10.12 ", " 1.10.12", "1.10.12-", "1.10.12+build",
+		"visit evil.example to update", "https://evil.example/update", "evil.example/1.10.12",
+		"1.10.12 visit evil.example", "1.10.12\nPeer version: 9.9.9", "1.10.12\x1b[2J", "1.10.12-\u202erc",
+		"desktop-1.2.3", "web-v1.2.3", "v1.2.3-rc/1", "\uff11.\uff12.\uff13",
+	} {
+		if releaseShapedVer(v) {
+			t.Errorf("%q reads as a release string", v)
+		}
+	}
+}
+
+// TestPeerVersionLineFollowsTheOption: the plain send prints the receiver's
+// version line for any version that differs from its own, through
+// displayText, as it always has; with PeerVersionReleaseOnly the line prints
+// only for a release-shaped version, byte for byte the same line, and a
+// receiver's own words print no line at all (D-147 (2)).
+func TestPeerVersionLineFollowsTheOption(t *testing.T) {
+	const words = "visit evil.example to update"
+	for _, c := range []struct {
+		name string
+		only bool
+		ver  string
+		want string // "" for no Peer version line at all
+	}{
+		{"plain send, a release", false, "desktop-v0.3.0", "  Peer version: desktop-v0.3.0\n"},
+		{"plain send, words", false, words, "  Peer version: " + words + "\n"},
+		{"plain send, a URL", false, "https://evil.example/u", "  Peer version: https://evil.example/u\n"},
+		{"release only, a release", true, "desktop-v0.3.0", "  Peer version: desktop-v0.3.0\n"},
+		{"release only, dev", true, "dev", "  Peer version: dev\n"},
+		{"release only, words", true, words, ""},
+		{"release only, a URL", true, "https://evil.example/u", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			restore := captureStdout(t)
+			v, _ := json.Marshal(c.ver)
+			err := ackOnce(t, SendOptions{PeerVersionReleaseOnly: c.only}, `"pv":1,"pvMin":1,"ver":`+string(v))
+			out := restore()
+			if err != nil {
+				t.Fatalf("the send failed: %v", err)
+			}
+			n := strings.Count(out, "Peer version")
+			if c.want == "" {
+				if n != 0 || strings.Contains(out, "evil.example") {
+					t.Fatalf("the receiver's own words reached the terminal:\n%s", out)
+				}
+				return
+			}
+			if n != 1 || !strings.Contains(out, c.want) {
+				t.Fatalf("want %q once:\n%s", c.want, out)
+			}
+		})
 	}
 }
