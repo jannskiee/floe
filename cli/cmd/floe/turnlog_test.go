@@ -28,14 +28,14 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
-// pionLevelChosen reports whether whoever runs the tests set a pion log level
-// of their own, which floe leaves as it is: any PION_LOG_* or PIONS_LOG_*
-// variable that is not empty, PION_LOG_DISABLE=turnc aside.
+// pionLevelChosen reports whether whoever runs the tests turned a pion log
+// level on, which floe leaves as it is: any PION_LOG_ or PIONS_LOG_ ERROR,
+// WARN, INFO, DEBUG or TRACE that is not empty. A DISABLE variable alone
+// only ever turns logging off, and floe adds turnc to it.
 func pionLevelChosen() bool {
 	for _, prefix := range []string{"PION_LOG_", "PIONS_LOG_"} {
-		for _, level := range []string{"DISABLE", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"} {
-			v := os.Getenv(prefix + level)
-			if v != "" && !(prefix+level == "PION_LOG_DISABLE" && v == "turnc") {
+		for _, level := range []string{"ERROR", "WARN", "INFO", "DEBUG", "TRACE"} {
+			if os.Getenv(prefix+level) != "" {
 				return true
 			}
 		}

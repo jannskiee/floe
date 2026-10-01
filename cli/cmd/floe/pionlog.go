@@ -3,16 +3,20 @@ package main
 // A stopgap for the one pion logger that floe cannot route through its own
 // escaping factory (FU-32 F2-1).
 
-import "os"
+import (
+	"os"
+	"strings"
+)
 
-// pionLogLevels are the levels pion's default logger factory reads from the
-// environment (pion/logging v0.2.4, NewDefaultLoggerFactory), each as
-// PION_LOG_<level> and, when that one is empty, PIONS_LOG_<level>. An empty
+// pionEnablingLevels are the levels pion's default logger factory reads from
+// the environment (pion/logging v0.2.4, NewDefaultLoggerFactory) that turn
+// logging on, each as PION_LOG_<level> and, when that one is empty,
+// PIONS_LOG_<level>. The sixth, DISABLE, only ever turns it off. An empty
 // value counts as unset there, and so here.
-var pionLogLevels = [...]string{"DISABLE", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"}
+var pionEnablingLevels = [...]string{"ERROR", "WARN", "INFO", "DEBUG", "TRACE"}
 
-// quietTURNClientLog sets PION_LOG_DISABLE=turnc unless the person running
-// floe has set a pion log level of their own.
+// quietTURNClientLog disables pion's "turnc" scope unless the person running
+// floe has turned a pion log level on.
 //
 // pion/ice v4.4.0 gives its TURN client pion's DEFAULT logger factory, not the
 // escaping one peer.New hands pion/webrtc (engine/peer/logging.go), so the
@@ -29,22 +33,42 @@ var pionLogLevels = [...]string{"DISABLE", "ERROR", "WARN", "INFO", "DEBUG", "TR
 // pion/ice builds that factory when it makes each ICE agent, reading the
 // environment then, so a variable set before any command runs silences the
 // "turnc" scope for the whole process. Only the TURN client logs as "turnc",
-// and nothing floe prints is one of its lines. Someone who set any
-// PION_LOG_* or PIONS_LOG_* variable is debugging pion, and gets exactly the
-// levels they asked for, the TURN client's lines included.
+// and nothing floe prints is one of its lines. Someone who turned a level on
+// (ERROR, WARN, INFO, DEBUG or TRACE, as PION_LOG_ or PIONS_LOG_) is
+// debugging pion, and gets exactly the levels they asked for, the TURN
+// client's lines included. Someone who set only a DISABLE variable asked for
+// less, so turnc joins the one pion reads: PION_LOG_DISABLE, or
+// PIONS_LOG_DISABLE when that one is empty. pion lower-cases the value and
+// splits it on commas without trimming, and "all" disables nothing there, so
+// turnc is added unless one of those pieces is exactly "turnc" already.
 //
 // Remove this once pion/ice hands the TURN client the setting engine's
 // factory: pion/ice v4.4.3 does (pion/ice#976), and pion/webrtc v4.2.21 is
 // the first release that requires it.
 func quietTURNClientLog() {
 	for _, prefix := range [...]string{"PION_LOG_", "PIONS_LOG_"} {
-		for _, level := range pionLogLevels {
+		for _, level := range pionEnablingLevels {
 			if os.Getenv(prefix+level) != "" {
 				return
 			}
 		}
 	}
-	_ = os.Setenv("PION_LOG_DISABLE", "turnc")
+	name, value := "PION_LOG_DISABLE", os.Getenv("PION_LOG_DISABLE")
+	if value == "" {
+		if v := os.Getenv("PIONS_LOG_DISABLE"); v != "" {
+			name, value = "PIONS_LOG_DISABLE", v
+		}
+	}
+	if value == "" {
+		_ = os.Setenv(name, "turnc")
+		return
+	}
+	for _, scope := range strings.Split(strings.ToLower(value), ",") {
+		if scope == "turnc" {
+			return
+		}
+	}
+	_ = os.Setenv(name, value+",turnc")
 }
 
 // At process start, before main and so before any command can build a peer.
