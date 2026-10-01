@@ -66,8 +66,10 @@ func runArgs(t *testing.T, args ...string) string {
 func runFailing(t *testing.T, err error) string {
 	t.Helper()
 	cmd := &cobra.Command{Use: "fu43-fail", Hidden: true, RunE: func(*cobra.Command, []string) error { return err }}
+	// Removed as soon as it has run: a second call in the same test adds its
+	// own, which cobra would not find behind the first.
 	rootCmd.AddCommand(cmd)
-	t.Cleanup(func() { rootCmd.RemoveCommand(cmd) })
+	defer rootCmd.RemoveCommand(cmd)
 	return runArgs(t, "fu43-fail")
 }
 
