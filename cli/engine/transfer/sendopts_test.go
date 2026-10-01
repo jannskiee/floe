@@ -299,7 +299,6 @@ func TestVisitorCancelReasonMatchesTheWebPage(t *testing.T) {
 func TestReleaseShapedVer(t *testing.T) {
 	for _, v := range []string{
 		"1.10.12", "v1.10.12", "desktop-v0.3.0", "desktop-v0.2.12", "dev",
-		"v1.11.0-rc.1", "1.11.0-beta.2", "0.0.0-2026-10-01.a1b2c3",
 	} {
 		if !releaseShapedVer(v) {
 			t.Errorf("%q is a Floe release string, but it reads as not release shaped", v)
@@ -309,7 +308,8 @@ func TestReleaseShapedVer(t *testing.T) {
 		"", "Dev", "dev ", "devel", "1.10", "1.10.12.", "v1.10.12 ", " 1.10.12", "1.10.12-", "1.10.12+build",
 		"visit evil.example to update", "https://evil.example/update", "evil.example/1.10.12",
 		"1.10.12 visit evil.example", "1.10.12\nPeer version: 9.9.9", "1.10.12\x1b[2J", "1.10.12-\u202erc",
-		"desktop-1.2.3", "web-v1.2.3", "v1.2.3-rc/1", "\uff11.\uff12.\uff13",
+		"desktop-1.2.3", "web-v1.2.3", "v1.2.3-rc/1",
+		"v1.11.0-rc.1", "1.11.0-beta.2", "0.0.0-2026-10-01.a1b2c3", "1.0.0-visit.floe-fix.example", "\uff11.\uff12.\uff13",
 	} {
 		if releaseShapedVer(v) {
 			t.Errorf("%q reads as a release string", v)

@@ -1722,7 +1722,8 @@ func TestSendToPeerVersionOnlyWhenReleaseShaped(t *testing.T) {
 	}{
 		{"an honest Floe Desktop host (TL-02)", "desktop-v0.3.0", "  Peer version: desktop-v0.3.0\n"},
 		{"a CLI release", "1.10.12", "  Peer version: 1.10.12\n"},
-		{"a prerelease", "v1.11.0-rc.1", "  Peer version: v1.11.0-rc.1\n"},
+		{"a prerelease suffix (D-148)", "v1.11.0-rc.1", ""},
+		{"dotted words in a suffix", "1.0.0-visit.floe-fix.example", ""},
 		{"a dev build", "dev", "  Peer version: dev\n"},
 		{"words", "visit evil.example to update", ""},
 		{"a URL", "https://evil.example/update", ""},

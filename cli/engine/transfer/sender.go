@@ -554,9 +554,10 @@ type SendOptions struct {
 
 // releaseShape is a Floe release string as the builds stamp it: the CLI's
 // "1.10.12" (goreleaser drops the v), a tag's "v1.10.12", Floe Desktop's
-// "desktop-v0.3.0" (approved copy TL-02), each with an optional prerelease
-// suffix; a local build says "dev" (releaseShapedVer).
-var releaseShape = regexp.MustCompile(`^(?:desktop-v|v)?[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$`)
+// "desktop-v0.3.0" (approved copy TL-02); a local build says "dev"
+// (releaseShapedVer). No prerelease suffix (D-148): Floe Desktop's release
+// workflow takes only X.Y.Z tags, and a suffix could carry dotted words.
+var releaseShape = regexp.MustCompile(`^(?:desktop-v|v)?[0-9]+\.[0-9]+\.[0-9]+$`)
 
 // releaseShapedVer reports whether a peer's ver reads as a Floe release or a
 // local build, which is all PeerVersionReleaseOnly lets reach the terminal.
