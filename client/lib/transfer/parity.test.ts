@@ -12,18 +12,21 @@
  *   The seed is in each test name, so a failure reproduces exactly.
  *
  * Decoders covered: refusalCodeOf, classifyControl, normalizeSha256 (twin of
- * parseEnd) and verifiedCountOf (twin of parseReceived) in protocol.ts, and the
- * metadata guard of createReceiver (receiver.ts).
+ * parseEnd), verifiedCountOf (twin of parseReceived) and ackConfirmsOf (twin of
+ * parseAckConfirms) in protocol.ts, and the metadata guard of createReceiver
+ * (receiver.ts).
  */
 import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import {
     CONTROL_MSG_MAX,
     REFUSAL_CODES,
+    ackConfirmsOf,
     classifyControl,
     normalizeSha256,
     refusalCodeOf,
     verifiedCountOf,
+    type Ack,
     type Incompatible,
     type Received,
 } from './protocol';
@@ -135,11 +138,28 @@ const PARITY_TABLE = String.raw`
 {"decoder":"receivedVerified","name":"key-case","frame":"{\"type\":\"received\",\"Verified\":3}","go":"absent","ts":"absent"}
 {"decoder":"receivedVerified","name":"type-key-case","frame":"{\"TYPE\":\"received\",\"verified\":3}","go":"none","ts":"none"}
 {"decoder":"receivedVerified","name":"not-received","frame":"{\"type\":\"ack\",\"verified\":3}","go":"none","ts":"none"}
+{"decoder":"ackConfirms","name":"true","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":true}","go":"true","ts":"true"}
+{"decoder":"ackConfirms","name":"string-true","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":\"true\"}","go":"absent","ts":"absent"}
+{"decoder":"ackConfirms","name":"one","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":1}","go":"absent","ts":"absent"}
+{"decoder":"ackConfirms","name":"absent","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1}","go":"absent","ts":"absent"}
+{"decoder":"ackConfirms","name":"false","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":false}","go":"absent","ts":"absent"}
+{"decoder":"ackConfirms","name":"null","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":null}","go":"absent","ts":"absent"}
+{"decoder":"ackConfirms","name":"array","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":[true]}","go":"absent","ts":"absent"}
+{"decoder":"ackConfirms","name":"object","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":{}}","go":"absent","ts":"absent"}
+{"decoder":"ackConfirms","name":"spaced","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\" : true }","go":"true","ts":"true"}
+{"decoder":"ackConfirms","name":"duplicate-true-then-string","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":true,\"confirms\":\"x\"}","go":"absent","ts":"absent"}
+{"decoder":"ackConfirms","name":"duplicate-string-then-true","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":\"x\",\"confirms\":true}","go":"true","ts":"true"}
+{"decoder":"ackConfirms","name":"key-case","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"Confirms\":true}","go":"absent","ts":"absent"}
+{"decoder":"ackConfirms","name":"escaped-key","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirm\\u0073\":true}","go":"true","ts":"true"}
+{"decoder":"ackConfirms","name":"cap-exact","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":true,\"pad\":\"\"}","padTo":1000,"padChar":"x","go":"true","ts":"true"}
+{"decoder":"ackConfirms","name":"over-cap","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":true,\"pad\":\"\"}","padTo":1001,"padChar":"x","go":"none","ts":"none"}
+{"decoder":"ackConfirms","name":"type-key-case","frame":"{\"TYPE\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":true}","go":"none","ts":"none"}
+{"decoder":"ackConfirms","name":"not-ack","frame":"{\"type\":\"received\",\"confirms\":true}","go":"none","ts":"none"}
 `;
 // PARITY-TABLE-END
 
 interface ParityRow {
-    decoder: 'refusalCodeOf' | 'classifyControl' | 'metadataGuard' | 'endSha256' | 'receivedVerified';
+    decoder: 'refusalCodeOf' | 'classifyControl' | 'metadataGuard' | 'endSha256' | 'receivedVerified' | 'ackConfirms';
     name: string;
     frame: string;
     padTo?: number;
@@ -188,6 +208,13 @@ function tsDecision(row: ParityRow, frame: string): string {
             if (msg?.type !== 'received') return 'none';
             const verified = verifiedCountOf(msg as Received, 3);
             return verified === null ? 'absent' : String(verified);
+        }
+        case 'ackConfirms': {
+            // The browser sender does not act on it; this pins that the two
+            // readers would decide every frame alike if one ever did.
+            const msg = classifyControl(frame);
+            if (msg?.type !== 'ack') return 'none';
+            return ackConfirmsOf(msg as Ack) ? 'true' : 'absent';
         }
     }
 }
@@ -355,6 +382,7 @@ const CLASSIFY_SEED = 0x5eed0b0b;
 const METADATA_SEED = 0x5eed3e7a;
 const SHA256_SEED = 0x5eed5a25;
 const VERIFIED_SEED = 0x5eedfe71;
+const CONFIRMS_SEED = 0x5eedc0f1;
 const FRAMES = 1000;
 
 describe('seeded xorshift32 property loops (1000 frames each)', () => {
@@ -499,5 +527,40 @@ describe('seeded xorshift32 property loops (1000 frames each)', () => {
         // Not vacuous: some frames were received frames, and some of those carried a usable count and some did not.
         expect(usable).toBeGreaterThan(0);
         expect(usable).toBeLessThan(received);
+    });
+
+    it(`ackConfirmsOf never throws and holds only for the literal true (xorshift32 seed 0x${CONFIRMS_SEED.toString(16)})`, () => {
+        const rng = xorshift32(CONFIRMS_SEED);
+        let promised = 0;
+        let acks = 0;
+        for (let i = 0; i < FRAMES; i++) {
+            const frame = damage(
+                rng,
+                jsonObject([
+                    ['type', field(rng, '"ack"')],
+                    ['id', field(rng, '"a"')],
+                    ['offset', field(rng, '0')],
+                    ['confirms', rng() % 3 ? field(rng, 'true') : genValue(rng)],
+                ])
+            );
+            let confirms = false;
+            let parsed: unknown = null;
+            try {
+                const msg = classifyControl(frame);
+                if (msg?.type !== 'ack') continue;
+                acks++;
+                confirms = ackConfirmsOf(msg as Ack);
+                parsed = JSON.parse(frame);
+            } catch (err) {
+                throw new Error(describeFailure(CONFIRMS_SEED, i, frame, `threw ${String(err)}`));
+            }
+            // An independent reading of the same text: the own key holds exactly true.
+            const literal = Object.prototype.hasOwnProperty.call(parsed, 'confirms') && (parsed as { confirms?: unknown }).confirms === true;
+            expect(confirms, describeFailure(CONFIRMS_SEED, i, frame, `ackConfirmsOf ${confirms}, the parsed frame ${literal}`)).toBe(literal);
+            if (confirms) promised++;
+        }
+        // Not vacuous: some frames were acks, and some of those carried the promise and some did not.
+        expect(promised).toBeGreaterThan(0);
+        expect(promised).toBeLessThan(acks);
     });
 });

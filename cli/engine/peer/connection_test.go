@@ -3,6 +3,9 @@ package peer
 import (
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
@@ -158,6 +161,137 @@ func TestCloseIsIdempotent(t *testing.T) {
 	conn.Close()
 	conn.Close()
 	conn.Close()
+}
+
+// Failed is what a transfer wait with no deadline of its own watches to end
+// when a peer vanished without a close (G5-F1), so it must close on the
+// terminal failed state only. Disconnected is the state a network blackout
+// passes through and recovers from, and closing on it would end a transfer a
+// 20 s blackout used to survive (E-84). A second failed report must not
+// panic on a closed channel, and Close, which reports closed, never closes it.
+func TestFailedClosesOnlyOnFailed(t *testing.T) {
+	conn, err := New(nil, &signaling.Client{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer conn.Close()
+
+	isClosed := func() bool {
+		select {
+		case <-conn.Failed():
+			return true
+		default:
+			return false
+		}
+	}
+	if conn.Failed() == nil {
+		t.Fatal("Failed() is nil, so a wait on it would block forever")
+	}
+	for _, s := range []webrtc.PeerConnectionState{
+		webrtc.PeerConnectionStateNew,
+		webrtc.PeerConnectionStateConnecting,
+		webrtc.PeerConnectionStateConnected,
+		webrtc.PeerConnectionStateDisconnected,
+		webrtc.PeerConnectionStateConnected,
+		webrtc.PeerConnectionStateDisconnected,
+	} {
+		conn.noteFailed(s)
+		if isClosed() {
+			t.Fatalf("Failed() closed on %s; it must close on failed only", s)
+		}
+	}
+
+	conn.noteFailed(webrtc.PeerConnectionStateFailed)
+	if !isClosed() {
+		t.Fatal("Failed() still open after the failed state")
+	}
+	conn.noteFailed(webrtc.PeerConnectionStateFailed) // a second report must not panic
+	if !isClosed() {
+		t.Fatal("Failed() reopened after a second failed state")
+	}
+
+	closedOnly, err := New(nil, &signaling.Client{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	closedOnly.Close()
+	closedOnly.noteFailed(webrtc.PeerConnectionStateClosed)
+	// pion hands each state to the handler on a goroutine of its own (`go
+	// handler(cs)`, peerconnection.go), so the closed report Close made may
+	// land after this line: wait for it before judging (review A1 F4).
+	select {
+	case <-closedOnly.Failed():
+		t.Fatal("Failed() closed by Close or the closed state; it must close on failed only")
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// TestStateHandlerFeedsFailed pins the link TestFailedClosesOnlyOnFailed
+// cannot see: the handler New registers with pion hands every state it gets
+// to noteFailed, as the handler's own statement, so the failed state reaches
+// the latch. Deleting that one line left every other test green while the
+// waits that watch Failed (floe send's and the desktop's delivery wait, the
+// request drop) lost their only bound (review A1 F1, probe P1). A source-shape
+// check, in the style of TestRunSendWatchesTheConnection, because a real
+// failed state takes ICE 30 s to reach.
+func TestStateHandlerFeedsFailed(t *testing.T) {
+	f, err := parser.ParseFile(token.NewFileSet(), "connection.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var handlers, fed int
+	for _, decl := range f.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok || fd.Recv != nil || fd.Name.Name != "New" || fd.Body == nil {
+			continue
+		}
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "OnConnectionStateChange" || len(call.Args) != 1 {
+				return true
+			}
+			handlers++
+			lit, ok := call.Args[0].(*ast.FuncLit)
+			if !ok || len(lit.Type.Params.List) != 1 || len(lit.Type.Params.List[0].Names) != 1 {
+				t.Errorf("the state handler is not a func literal of one named parameter; re-anchor this test")
+				return true
+			}
+			state := lit.Type.Params.List[0].Names[0].Name
+			// A statement of the handler's own body, not one nested in a
+			// switch or an if that some states would skip.
+			for _, stmt := range lit.Body.List {
+				es, ok := stmt.(*ast.ExprStmt)
+				if !ok {
+					continue
+				}
+				c, ok := es.X.(*ast.CallExpr)
+				if !ok || len(c.Args) != 1 {
+					continue
+				}
+				s, ok := c.Fun.(*ast.SelectorExpr)
+				if !ok || s.Sel.Name != "noteFailed" {
+					continue
+				}
+				if recv, ok := s.X.(*ast.Ident); !ok || recv.Name != "conn" {
+					continue
+				}
+				if arg, ok := c.Args[0].(*ast.Ident); ok && arg.Name == state {
+					fed++
+				}
+			}
+			return true
+		})
+	}
+	if handlers != 1 {
+		t.Fatalf("New registers %d state handlers, want exactly 1; re-anchor this test", handlers)
+	}
+	if fed != 1 {
+		t.Fatalf("New's state handler calls conn.noteFailed with its own state %d times at its top level, want 1: the failed state would never reach Failed()", fed)
+	}
 }
 
 // ---- Setup stops at once when the peer leaves (S1-ENG-11, D-036) ----

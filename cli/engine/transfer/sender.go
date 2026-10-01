@@ -2,7 +2,7 @@
 //
 // Protocol (same as the web app — must stay compatible for CLI↔Browser):
 //  1. Sender → Receiver: metadata JSON  (file name, size, index, total, pv, pvMin, ver)
-//  2. Receiver → Sender: ack JSON       (confirms ready, offset for resume, pv, pvMin, ver)
+//  2. Receiver → Sender: ack JSON       (ready: offset for resume, pv, pvMin, ver; Go receivers add confirms)
 //     OR:       incompatible JSON       (sent instead of ack when protocol ranges do not overlap)
 //  3. Sender → Receiver: binary chunks  (raw file bytes; chunk size adapts to
 //     the negotiated SCTP max-message-size, capped at 256 KB — see chunkSizeFor)
@@ -112,7 +112,11 @@ type metadataMsg struct {
 	Ver        string `json:"ver,omitempty"`
 }
 
-// ackMsg is received from the receiver confirming readiness.
+// ackMsg is received from the receiver confirming readiness. The optional
+// "confirms" is deliberately not a field here: parseAckConfirms reads it by
+// its exact key, because a bool field would fail this whole decode, and drop
+// the ack, on a mistyped value (the FND-4 class), and a struct tag matches
+// keys without regard to case.
 type ackMsg struct {
 	Type   string `json:"type"`
 	ID     string `json:"id"`
@@ -372,6 +376,31 @@ func parseReceived(raw []byte, files int) (ok bool, verified int, hasVerified bo
 	return true, int(n), true
 }
 
+// parseAckConfirms reports whether raw is an ack that carries the receiver's
+// promise, "confirms": true. Every Go receiver sets it (receiver.go, the ack):
+// it answers the last file with "received" after the commit, or with a
+// refusal when it keeps a file out, so a sender that reads it waits for that
+// word instead of a drained buffer, and a close without either is no delivery
+// (FT-GO-CONFIRMS, D-144.2).
+//
+// Read the way parseReceived reads its frame: the type and the key by their
+// exact names, and the value only as the JSON literal true. Anything else (the
+// string "true", 1, false, null, a key in another case, a frame over the
+// control cap, a frame that is not an ack) is no promise and never an error,
+// so a mistyped optional field cannot drop the ack it rides. A duplicate key
+// keeps its last value, as on the browser side. The browser twin is
+// ackConfirmsOf in client/lib/transfer/protocol.ts, pinned by the ackConfirms
+// parity rows; the browser sender does not act on it.
+func parseAckConfirms(raw []byte) bool {
+	fields, typ, ok := controlFields(raw)
+	if !ok || typ != "ack" {
+		return false
+	}
+	// A json.RawMessage holds the value's own bytes, without the whitespace
+	// around it, so the literal compares exactly.
+	return string(fields["confirms"]) == "true"
+}
+
 // SendOptions carries optional behavior for GUI clients. The zero value is
 // the CLI behavior: terminal progress and the CLI update instruction.
 type SendOptions struct {
@@ -413,20 +442,30 @@ type SendOptions struct {
 	// after its last commit. A browser receiver never sends "received", so a
 	// plain send must never set this, or it waits until the browser closes.
 	//
+	// A plain send gets the same wait without it when the receiver's first
+	// ack carries "confirms": true (parseAckConfirms), which every Go receiver
+	// sends since FT-GO-CONFIRMS step 2 (D-144.2). A browser receiver, or a Go
+	// receiver before that, sends no such field, and its send still ends at
+	// the drain.
+	//
 	// There is no deadline of its own (E-36, as in the browser): the
 	// receiver's blocked-rename retry is what is bounded (CommitRetry), and a
 	// caller cancels by closing the connection. An ungraceful peer death (kill
 	// -9, network loss, no close) leaves this wait open, because with the
 	// buffer drained there is nothing for the stall window to stall on, so the
-	// caller owns a bound: rlvisitor's -timeout watchdog, or the host's close
-	// for the e2ehost test visitor.
+	// caller owns a bound: rlvisitor's -timeout watchdog, the host's close for
+	// the e2ehost test visitor, and for floe send and the desktop's Send a
+	// close when peer.Connection.Failed fires. A receiver that keeps its
+	// connection alive and never answers holds the wait until the person
+	// cancels, the class of a receiver that trickles SACKs.
 	RequireReceived bool
 }
 
-// ErrClosedBeforeReceived is what a send under RequireReceived returns when
-// the channel closed after the last file before the receiver said "received"
-// or refused. The receiver may or may not have kept the files; nothing on this
-// side can tell, so it is never a success.
+// ErrClosedBeforeReceived is what a send under RequireReceived, or to a
+// receiver whose ack carried confirms, returns when the channel closed after
+// the last file before the receiver said "received" or refused. The receiver
+// may or may not have kept the files; nothing on this side can tell, so it is
+// never a success.
 var ErrClosedBeforeReceived = errors.New("the connection closed before the receiver confirmed delivery")
 
 // SendFiles sends all given file paths over the open data channel, rendering a
@@ -578,9 +617,12 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 	}
 	chunk := chunkSizeFor(sctpMax)
 
+	// confirms is the receiver's promise on its first ack (parseAckConfirms):
+	// with it the delivery wait below is the RequireReceived one.
+	var confirms bool
 	var sentSoFar int64
 	for i, entry := range files {
-		if err := sendFile(dc, ackCh, sendMore, done, flushed, entry, i+1, len(files), totalBytes, localVer, onProgress, opts.UpdateHint, ackTimeoutOrDefault(opts.AckTimeout), sentSoFar, chunk); err != nil {
+		if err := sendFile(dc, ackCh, sendMore, done, flushed, entry, i+1, len(files), totalBytes, localVer, onProgress, opts.UpdateHint, ackTimeoutOrDefault(opts.AckTimeout), sentSoFar, chunk, &confirms); err != nil {
 			// A refusal the PEER sent is returned as it came. The wrap named
 			// entry.displayName, which is the file the sender had already moved
 			// on to: a receiver refuses file N after its end marker, and the
@@ -623,11 +665,17 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 	// Only the stall arm updates lastBuffered: a sample from the 50 ms tick arm
 	// would compare two reads 50 ms apart and abort a slow but live drain.
 	//
-	// Under opts.RequireReceived neither a drained buffer nor a close is
-	// success, only "received" is: the tick arm still reads what is queued but
-	// keeps waiting, the close returns ErrClosedBeforeReceived, and the stall
-	// arm is unchanged.
-	//
+	// Under opts.RequireReceived, or when the receiver's first ack carried
+	// confirms (every Go receiver's since FT-GO-CONFIRMS step 2), neither a
+	// drained buffer nor a close is success, only "received" is: the tick arm
+	// still reads what is queued but keeps waiting, the close returns
+	// ErrClosedBeforeReceived, and the stall arm is unchanged. So a refusal a
+	// Go receiver sends once its fsync, hash compare or commit is done
+	// (hash-mismatch, write-failed, save-blocked) is never reported as a
+	// success. A receiver that sent no confirms (a browser, an older Go
+	// receiver) still ends this wait at the drain.
+	requireReceived := opts.RequireReceived || confirms
+
 	// What the receiver's received frame reported, read by the summary below.
 	var verified int
 	var hasVerified bool
@@ -668,7 +716,7 @@ drainLoop:
 				// The bytes have left, which is not the receiver's word: it
 				// may still be syncing, comparing or committing the last
 				// file, and its refusal would come after this tick.
-				if !opts.RequireReceived {
+				if !requireReceived {
 					break drainLoop
 				}
 			}
@@ -690,7 +738,7 @@ drainLoop:
 				verified, hasVerified = v, has
 				break drainLoop
 			}
-			if opts.RequireReceived {
+			if requireReceived {
 				return ErrClosedBeforeReceived
 			}
 			if left := deliveryBuffered(dc); left != 0 {
@@ -734,8 +782,9 @@ drainLoop:
 	return nil
 }
 
-// sendFile handles the full send sequence for a single file.
-func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, done <-chan struct{}, flushed <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onProgress ProgressFunc, updateHint string, ackTimeout time.Duration, baseTotal int64, chunk int) error {
+// sendFile handles the full send sequence for a single file. confirms is set
+// from the first file's ack only (parseAckConfirms) and left alone after.
+func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, done <-chan struct{}, flushed <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onProgress ProgressFunc, updateHint string, ackTimeout time.Duration, baseTotal int64, chunk int, confirms *bool) error {
 	f, err := os.Open(entry.absPath)
 	if err != nil {
 		return err
@@ -823,6 +872,10 @@ ackLoop:
 						if ack.Ver != "" && localVer != "" && ack.Ver != localVer {
 							fmt.Printf("  Peer version: %s\n", displayText(ack.Ver, maxDisplayVer))
 						}
+						// The receiver's promise of a final word, read by its
+						// exact key as the literal true only; it decides how
+						// the delivery wait after the last file ends.
+						*confirms = parseAckConfirms(raw)
 					}
 					// The offset is the receiver's word for how much of this
 					// file it already has, straight off the wire. Outside the

@@ -37,6 +37,16 @@ describe('friendlyError', () => {
         ).toBe('Error: The receiver left or declined before the transfer started.');
     });
 
+    it('maps a close before the receiver confirmed delivery to the connection-lost sentence (D-144.9)', () => {
+        // A Go receiver's ack promises its word after the last file
+        // (FT-GO-CONFIRMS), so a close without it reaches a desktop sender as
+        // the engine's ErrClosedBeforeReceived, never as a success; its text
+        // gets no rule of its own and falls to the generic closed bucket.
+        expect(friendlyError('transfer failed: the connection closed before the receiver confirmed delivery')).toBe(
+            'Error: The connection was lost before the transfer finished. Start it again.',
+        );
+    });
+
     it('routes a wrapped network failure to the server bucket, not the typo bucket', () => {
         expect(friendlyError('could not resolve "olive-tiger": could not reach signaling server: dial tcp: refused')).toBe(
             'Error: Could not reach the server. Check your internet connection.',

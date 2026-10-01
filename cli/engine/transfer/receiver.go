@@ -36,6 +36,22 @@ var (
 	receiveStallTimeout = 60 * time.Second
 )
 
+// After its "received" the receive keeps the connection open for the sender
+// (see the end handler): until the sender closes; else receivedGrace, as it
+// always was, once this side's send buffer is empty; and while the buffer
+// still holds the frame, up to receivedLinger from its send. receivedLinger
+// covers pion's T3 copy at 31 s (sctp v1.11.1: RTO floor 1 s, doubling, so
+// copies at 1, 3, 7, 15 and 31 s after a tail-loss probe at 2 SRTT + 200 ms);
+// the next would come at 63 s, past the 30 s after which the sender's own ICE
+// has failed for good. receivedBuffered is the buffer read, a seam because a
+// test cannot hold a real SACK back. Vars, not consts, so tests can shrink
+// them.
+var (
+	receivedGrace    = 5 * time.Second
+	receivedLinger   = 35 * time.Second
+	receivedBuffered = func(dc *webrtc.DataChannel) uint64 { return dc.BufferedAmount() }
+)
+
 // syncPart flushes a finished .part before its ownership check. A seam, like
 // the timeouts above: a real delayed write failure (a network share, a USB
 // bridge) cannot be produced on demand, so tests swap in one that fails.
@@ -661,12 +677,21 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// The end handler's SHA-256 covers only bytes written after claimPart,
 				// so a future non-zero offset must re-hash the prefix or skip
 				// verification.
+				//
+				// confirms is this receiver's promise (FT-GO-CONFIRMS, D-144.2):
+				// it answers the last file with "received" after the commit
+				// below, or with a refusal when it keeps a file out, so a Go
+				// sender waits for that word instead of a drained buffer and a
+				// late hash-mismatch, write-failed or save-blocked is never its
+				// success. Optional and additive, so no ProtocolVersion bump:
+				// older senders and the browser ignore it.
 				ack := map[string]interface{}{
-					"type":   "ack",
-					"id":     info.ID,
-					"offset": 0,
-					"pv":     ProtocolVersion,
-					"pvMin":  MinProtocolVersion,
+					"type":     "ack",
+					"id":       info.ID,
+					"offset":   0,
+					"pv":       ProtocolVersion,
+					"pvMin":    MinProtocolVersion,
+					"confirms": true,
 				}
 				if localVer != "" {
 					ack["ver"] = localVer
@@ -843,14 +868,35 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 						// hashes and no file carried one.
 						receivedMsg, _ := json.Marshal(map[string]interface{}{"type": "received", "verified": verifiedCount})
 						dc.Send([]byte(receivedMsg))
+						sentReceived := time.Now()
 
-						// Wait for the sender to close the channel (or a short grace
-						// period) before returning. This keeps our SCTP/DTLS alive
-						// long enough for the "received" SACK to reach the sender —
-						// tearing down immediately would race it.
+						// Keep the connection until the sender has this frame:
+						// tearing down with it still in flight would race it. The
+						// sender's close ends the wait at once (every Go sender
+						// closes as soon as it reads the frame). A browser sender
+						// never closes here, so the wait otherwise ends at
+						// receivedGrace, as it always did, but only once this
+						// side's send buffer is empty. pion releases buffered bytes
+						// on the peer's SACK alone, so an empty buffer means the
+						// sender's SCTP holds the frame; while it does not, a copy
+						// was lost and waits for its retransmission, and a Go
+						// sender whose ack promised (confirms) waits for exactly
+						// this frame, so returning then reported a saved transfer
+						// to it as unconfirmed (review A1 F3). receivedLinger,
+						// counted from the send, bounds a sender that vanished.
 						select {
 						case <-done:
-						case <-time.After(5 * time.Second):
+						case <-time.After(receivedGrace):
+							tick := time.NewTicker(50 * time.Millisecond)
+						linger:
+							for receivedBuffered(dc) > 0 && time.Since(sentReceived) < receivedLinger {
+								select {
+								case <-done:
+									break linger
+								case <-tick.C:
+								}
+							}
+							tick.Stop()
 						}
 
 						// Report total bytes to the global stats counter. Called

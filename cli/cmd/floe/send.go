@@ -146,7 +146,12 @@ func runSend(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 
 	// 9. Send files. The pump comes from the connection, not from SendFiles: see
-	// peer.Early for why registering it later can silently lose a message.
+	// peer.Early for why registering it later can silently lose a message. A Go
+	// receiver's word after the last file has no deadline, so an ICE failure
+	// closes the connection and ends the wait (connfailed.go).
+	quit := make(chan struct{})
+	defer close(quit)
+	closeOnFailed(conn, quit)
 	early := conn.Early()
 	return transfer.SendFilesWithOptions(dc, args, version, transfer.SendOptions{
 		Messages: early.Msgs,

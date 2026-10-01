@@ -81,6 +81,12 @@ export interface Metadata {
     ver?: string;   // sender's human release string, e.g. "v1.5.5"
 }
 
+// `confirms` is optional: a Go receiver's promise that it ends every batch with
+// a received frame or a refusal, so a Go sender waits for that word instead of
+// a drained send buffer (FT-GO-CONFIRMS). The browser sender does not act on
+// it, and a browser receiver never sends it, because it never sends received.
+// classifyControl casts, so read it only through ackConfirmsOf. Mirrors the
+// ack that cli/engine/transfer/receiver.go builds.
 export interface Ack {
     type: 'ack';
     id: string;
@@ -88,6 +94,7 @@ export interface Ack {
     pv?: number;    // receiver's highest protocol version
     pvMin?: number; // receiver's minimum protocol version
     ver?: string;   // receiver's human release string
+    confirms?: boolean;
 }
 
 // `sha256` is optional and rides only this frame: the sender's digest of the file,
@@ -586,4 +593,17 @@ export function verifiedCountOf(msg: Received, fileCount: number): number | null
     return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= fileCount
         ? value
         : null;
+}
+
+/**
+ * Whether an ack carries the receiver's confirms promise: only the JSON
+ * literal `true` counts, and anything else (the string "true", 1, null,
+ * absent) is no promise. The twin of parseAckConfirms in
+ * cli/engine/transfer/sender.go, pinned by the ackConfirms parity rows. The
+ * browser sender reads it nowhere: a plain send still ends on a drained
+ * buffer, and a request-link visitor sets requireReceived itself.
+ */
+export function ackConfirmsOf(msg: Ack): boolean {
+    const value: unknown = msg.confirms;
+    return value === true;
 }
