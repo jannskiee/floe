@@ -26,7 +26,7 @@ import {v4 as uuidv4} from 'uuid';
 import * as Sentry from '@sentry/nextjs';
 import {formatSpeed, formatETA} from '@/lib/transferUtils';
 import {createReceiver} from '@/lib/transfer/receiver';
-import {sendFiles as sendFilesEngine, sendAbortReason} from '@/lib/transfer/sender';
+import {sendFiles as sendFilesEngine, sendAbortReason, CONTROL_FLUSH_MS} from '@/lib/transfer/sender';
 import {useWakeLock} from '@/hooks/useWakeLock';
 import {useFileManagement, type FileWithId} from '@/hooks/useFileManagement';
 import {useDownloadManager, type ReceivedFile} from '@/hooks/useDownloadManager';
@@ -564,12 +564,23 @@ export function P2PTransfer() {
                             Sentry.captureException(failure.cause);
                         }
                     });
+                    // The receiver told the sender why, but a browser sender
+                    // reads nothing while it sends a file, so it would push the
+                    // rest of the file into a receiver that drops it and then
+                    // report success. Give the frame time to leave, then close.
+                    setTimeout(() => {
+                        closedByUsRef.current = peer;
+                        peer.destroy();
+                    }, CONTROL_FLUSH_MS);
                 }
                 setError(msg);
                 setStatus('Transfer failed');
             },
         });
         peer.on('data', rx.handleMessage);
+        // A connection that dies mid-file must not leave the partial file
+        // held for the life of the tab.
+        peer.on('close', rx.dispose);
         peerRef.current = peer;
     };
 

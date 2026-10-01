@@ -17,7 +17,7 @@ import {
     type Incompatible,
 } from './protocol';
 import { sanitizeDisplayText } from '../download';
-import { isOutOfMemory } from './outOfMemory';
+import { classifyThrow, type ReceiveFailureCode } from './receiveFailure';
 
 export interface ReceivedFile {
     id: string;
@@ -50,8 +50,8 @@ export interface ReceiverCallbacks {
 }
 
 export interface ReceiveFailure {
-    /** 'out-of-memory' is the tab running out (see outOfMemory.ts); 'internal' is anything else. */
-    code: 'out-of-memory' | 'internal';
+    /** 'out-of-memory' is the tab running out; 'internal' is anything else (see receiveFailure.ts). */
+    code: Exclude<ReceiveFailureCode, 'channel-closed'>;
     /** What was thrown. For an error report only, never for the screen. */
     cause: unknown;
     /** Bytes of the open file held when it threw, 0 when none was open. */
@@ -97,7 +97,10 @@ interface PartialDownload {
  *   });
  *   peer.on('data', rx.handleMessage);
  */
-export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: string | Uint8Array | ArrayBuffer) => void } {
+export function createReceiver(cb: ReceiverCallbacks): {
+    handleMessage: (data: string | Uint8Array | ArrayBuffer) => void;
+    dispose: () => void;
+} {
     const partialDownloads = new Map<string, PartialDownload>();
     let currentMetadata: Metadata | null = null;
     let hasCheckedCompat = false;
@@ -137,12 +140,14 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: s
         const open = currentMetadata ? partialDownloads.get(currentMetadata.id) : undefined;
         const received = open?.received ?? 0;
         const expected = currentMetadata ? expectedSize : null;
-        // Release first: the frame to the sender below needs a little memory too.
-        aborted = true;
-        partialDownloads.clear();
-        currentMetadata = null;
-        expectedSize = null;
-        const code = isOutOfMemory(err) ? 'out-of-memory' : 'internal';
+        // Latch and let go of every held chunk before anything else: the work
+        // below needs a little memory too, and V8 collects and retries a
+        // failed allocation, so what is released here is what it gets.
+        dispose();
+        const code = classifyThrow(err);
+        // Our own ack could not go out because the channel is closing. The
+        // connection is what failed, and the peer's close handler says so.
+        if (code === 'channel-closed') return;
         // Tell the sender, or it keeps sending into a receiver that drops it
         // all. Binary, like every receiver-to-sender frame, and best effort.
         try {
@@ -155,10 +160,28 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: s
         } catch {
             // The peer is gone, or even this did not fit; the close is all it gets.
         }
+        // Clear the progress line, as the discard path does. Best effort, so
+        // a throw here cannot cost the person the only explanation.
+        try {
+            cb.onProgress?.(0, 0, 0);
+            cb.onSpeedReset?.();
+        } catch {
+            // Nothing to add: onError below is what matters.
+        }
         cb.onError?.(
             code === 'out-of-memory' ? OUT_OF_MEMORY_MESSAGE : INTERNAL_ERROR_MESSAGE,
             { code, cause: err, received, expected }
         );
+    }
+
+    // Stops the receiver and lets go of every chunk it holds. Also for the
+    // connection closing mid-file: without it a transfer that died partway
+    // kept its partial file for the life of the tab.
+    function dispose(): void {
+        aborted = true;
+        partialDownloads.clear();
+        currentMetadata = null;
+        expectedSize = null;
     }
 
     function processFrame(data: string | Uint8Array | ArrayBuffer): void {
@@ -414,5 +437,5 @@ export function createReceiver(cb: ReceiverCallbacks): { handleMessage: (data: s
         }
     }
 
-    return { handleMessage };
+    return { handleMessage, dispose };
 }

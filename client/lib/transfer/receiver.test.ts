@@ -690,6 +690,33 @@ describe('receiver: a throw stops the transfer once', () => {
         expect(h.errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
     });
 
+    it('stays silent when its own frame cannot go out because the channel is closing', () => {
+        // The connection is what failed, and the peer's close handler says so.
+        // Reporting it as a receiver bug would only add noise.
+        const errors: string[] = [];
+        const rx = createReceiver({
+            send: () => {
+                throw new DOMException("RTCDataChannel.readyState is not 'open'", 'InvalidStateError');
+            },
+            onError: (m) => errors.push(m),
+        });
+        expect(() => rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 1, 3))).not.toThrow();
+        expect(() => rx.handleMessage(enc.encode('abc'))).not.toThrow();
+        expect(errors).toEqual([]);
+    });
+
+    it('lets go of a partial file when the connection closes mid-file', () => {
+        const h = harness();
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 6, 1, 1, 6));
+        h.rx.handleMessage(enc.encode('abc'));
+        h.rx.dispose();
+        // Nothing reopens: the rest of the file and its end are ignored.
+        h.rx.handleMessage(enc.encode('def'));
+        h.rx.handleMessage(endMessage());
+        expect(h.completed).toEqual([]);
+        expect(h.errors).toEqual([]);
+    });
+
     it('lets a throw from a frame that already stopped the transfer surface once, unreworded', () => {
         // The sender's own abort reason is the account the person should read.
         // A broken onError callback is a bug of ours, so it reaches the global

@@ -10,7 +10,7 @@ import { scrubSpanJson, scrubTransactionEvent, scrubUrl } from './lib/scrubUrl';
 // One budget per page load: no single error is sent more than a few times,
 // however often it fires. FLOE-M sent 3,871 copies of one error from one page.
 // See lib/eventBudget.ts.
-const withinEventBudget = createEventBudget();
+const eventBudget = createEventBudget();
 
 Sentry.init({
     // Set NEXT_PUBLIC_SENTRY_DSN in your environment to enable error tracking.
@@ -78,7 +78,9 @@ Sentry.init({
         }
 
         // Last, so it counts only events that are really about to be sent.
-        if (!withinEventBudget(event)) return null;
+        const verdict = eventBudget(event);
+        if (verdict === 'drop') return null;
+        if (verdict === 'last') event.tags = { ...event.tags, event_budget_exhausted: true };
 
         return event;
     },
