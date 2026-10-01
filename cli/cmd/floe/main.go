@@ -224,16 +224,20 @@ func interruptLine() (string, func()) {
 
 // handleInterrupts is main's Ctrl+C and SIGTERM handler, with os.Exit passed
 // in so a test can run it as main runs it. The first signal prints the line,
-// runs the stop and exits 130; a second one while that runs exits 130 at
-// once, so a stop that stalls never holds the terminal. A nil stop leaves a
-// command that has its outcome to end on its own (interruptHook), and a
-// second signal still ends it at once.
+// runs the stop and exits 130. For a command with a hook (interruptHook), a
+// second one while that runs exits 130 at once, so a stop that stalls never
+// holds the terminal, and a nil stop leaves a command that has its outcome
+// to end on its own while a second signal still ends it at once. Every other
+// command keeps the handler it always had: its second signal is swallowed,
+// so the partial-file cleanup always runs to its end (review re-check LA2-5).
 func handleInterrupts(sigCh <-chan os.Signal, exit func(int)) {
 	<-sigCh
-	go func() {
-		<-sigCh
-		exit(130)
-	}()
+	if interruptHook.Load() != nil {
+		go func() {
+			<-sigCh
+			exit(130)
+		}()
+	}
 	line, stop := interruptLine()
 	if stop == nil {
 		return
@@ -247,9 +251,13 @@ func handleInterrupts(sigCh <-chan os.Signal, exit func(int)) {
 	// the output directory as clean as any other failure. Safe at any moment:
 	// only .part files are ever registered, and a completed file's rename
 	// vacated that path.
-	transfer.AbandonPartials()
+	abandonPartials()
 	exit(130)
 }
+
+// abandonPartials is the partial-file cleanup the handler runs before its
+// exit: transfer.AbandonPartials in every build, a var so a test can hold it.
+var abandonPartials = transfer.AbandonPartials
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 

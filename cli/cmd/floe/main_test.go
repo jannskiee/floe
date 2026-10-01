@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -215,6 +216,55 @@ func TestHandleInterruptsLeavesAFinishedCommandAlone(t *testing.T) {
 	}
 	if _, stderr := o.text(); stderr != "" {
 		t.Fatalf("stderr = %q, want nothing", stderr)
+	}
+}
+
+// TestHandleInterruptsPlainCommandKeepsTodaysHandler (review re-check LA2-5):
+// a command with no hook (plain send, receive, update) keeps the handler it
+// always had. Ctrl+C prints "Canceled.", runs the partial-file cleanup to its
+// end and exits 130 once, and a second Ctrl+C while the cleanup runs is
+// swallowed, so it can never skip AbandonPartials and leave a .part behind.
+func TestHandleInterruptsPlainCommandKeepsTodaysHandler(t *testing.T) {
+	o := captureOutput(t)
+	interruptHook.Store(nil)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	prev := abandonPartials
+	abandonPartials = func() {
+		close(entered)
+		<-release
+	}
+	sig := make(chan os.Signal, 1)
+	exits := make(exitRecorder, 4)
+	t.Cleanup(func() {
+		releaseOnce.Do(func() { close(release) })
+		abandonPartials = prev
+	})
+	go handleInterrupts(sig, exits.exit)
+	sig <- os.Interrupt
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the partial-file cleanup never ran")
+	}
+	sig <- os.Interrupt
+	select {
+	case code := <-exits:
+		t.Fatalf("a second Ctrl+C exited %d before the partial-file cleanup ended", code)
+	case <-time.After(500 * time.Millisecond):
+	}
+	releaseOnce.Do(func() { close(release) })
+	if code := exits.awaitExit(t, 5*time.Second, "the cleanup's end"); code != 130 {
+		t.Fatalf("exit %d, want 130", code)
+	}
+	select {
+	case code := <-exits:
+		t.Fatalf("a second exit (%d) after the first", code)
+	case <-time.After(200 * time.Millisecond):
+	}
+	if _, stderr := o.text(); stderr != "\n  Canceled.\n" {
+		t.Fatalf("stderr = %q, want today's line alone", stderr)
 	}
 }
 
