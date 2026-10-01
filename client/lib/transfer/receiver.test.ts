@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { createReceiver, OUT_OF_MEMORY_MESSAGE, INTERNAL_ERROR_MESSAGE, type ReceiveFailure } from './receiver';
+import { createReceiver, OUT_OF_MEMORY_MESSAGE, INTERNAL_ERROR_MESSAGE, SPILL_BYTES, type ReceiveFailure } from './receiver';
 import { metadataMessage, endMessage, incompatibleMessage, CONTROL_MSG_MAX, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, checkCompat } from './protocol';
 
 const enc = new TextEncoder();
@@ -778,5 +778,99 @@ describe('receiver: a throw stops the transfer once', () => {
         expect(() => rx.handleMessage(incompatibleMessage('Transfer blocked.'))).toThrow('callback bug');
         expect(() => rx.handleMessage(endMessage())).not.toThrow();
         expect(errors).toEqual(['Transfer blocked.']);
+    });
+});
+
+/**
+ * The tab holds at most SPILL_BYTES of a file as chunk copies; the rest goes
+ * into Blob parts, whose bytes Chromium moves out of the renderer.
+ */
+describe('receiver: holds a bounded amount of a file in the tab', () => {
+    const RealBlob = Blob;
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    // Bytes no chunk starts with '{', and that differ along the file so an
+    // out-of-order part would show.
+    function pattern(size: number): Uint8Array {
+        const out = new Uint8Array(size);
+        for (let i = 0; i < size; i++) out[i] = (i * 7 + (i >>> 16)) % 251 + 1;
+        return out;
+    }
+
+    function feed(rx: { handleMessage: (d: string | Uint8Array | ArrayBuffer) => void }, bytes: Uint8Array, chunk: number) {
+        rx.handleMessage(metadataMessage('big', 'big.bin', bytes.byteLength, 1, 1, bytes.byteLength));
+        for (let off = 0; off < bytes.byteLength; off += chunk) {
+            rx.handleMessage(bytes.subarray(off, Math.min(off + chunk, bytes.byteLength)));
+        }
+        rx.handleMessage(endMessage());
+    }
+
+    it('reassembles a file that crossed several spills, in order, byte for byte', async () => {
+        // 300 KiB chunks do not divide 16 MiB, so a spill lands mid-chunk
+        // boundary arithmetic, and the tail is a partial part.
+        const size = 2 * SPILL_BYTES + 12345;
+        const bytes = pattern(size);
+        let blob: Blob | null = null;
+        const rx = createReceiver({ send: () => {}, onFileComplete: (f) => { blob = f.blob; } });
+        feed(rx, bytes, 300 * 1024);
+        expect(blob).not.toBeNull();
+        const got = new Uint8Array(await blob!.arrayBuffer());
+        expect(got.byteLength).toBe(size);
+        expect(Buffer.compare(Buffer.from(got), Buffer.from(bytes))).toBe(0);
+    });
+
+    it('spills each time SPILL_BYTES gather, not once at the end', () => {
+        const built: number[] = [];
+        vi.stubGlobal(
+            'Blob',
+            class extends RealBlob {
+                constructor(parts?: BlobPart[], options?: BlobPropertyBag) {
+                    super(parts, options);
+                    built.push(this.size);
+                }
+            }
+        );
+        const rx = createReceiver({ send: () => {} });
+        feed(rx, pattern(2 * SPILL_BYTES + 100), 256 * 1024);
+        // Two full parts, the 100-byte tail, then the file composed of them.
+        expect(built).toEqual([SPILL_BYTES, SPILL_BYTES, 100, 2 * SPILL_BYTES + 100]);
+    });
+
+    it('stops with the out-of-memory message when a part cannot be read back', async () => {
+        // Chromium's shape when its blob storage is full: the constructor
+        // returns, the size is right, and only a read fails.
+        vi.stubGlobal(
+            'Blob',
+            class extends RealBlob {
+                slice(): Blob {
+                    return { arrayBuffer: () => Promise.reject(new DOMException('', 'NotReadableError')) } as unknown as Blob;
+                }
+            }
+        );
+        const sent: (string | Uint8Array)[] = [];
+        const errors: string[] = [];
+        const failures: (ReceiveFailure | undefined)[] = [];
+        const rx = createReceiver({
+            send: (d) => sent.push(d),
+            onError: (m, f) => {
+                errors.push(m);
+                failures.push(f);
+            },
+        });
+        rx.handleMessage(metadataMessage('a', 'a.bin', SPILL_BYTES * 2, 1, 1, SPILL_BYTES * 2));
+        rx.handleMessage(pattern(SPILL_BYTES));
+        await new Promise((r) => setTimeout(r, 0));
+
+        expect(errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
+        expect(failures[0]).toMatchObject({ code: 'out-of-memory', received: SPILL_BYTES, expected: SPILL_BYTES * 2 });
+        const abort = JSON.parse(new TextDecoder().decode(sent[sent.length - 1] as Uint8Array));
+        expect(abort.reason).toContain('ran out of memory');
+        // And nothing after it reopens the transfer.
+        rx.handleMessage(pattern(SPILL_BYTES));
+        await new Promise((r) => setTimeout(r, 0));
+        expect(errors).toHaveLength(1);
     });
 });
