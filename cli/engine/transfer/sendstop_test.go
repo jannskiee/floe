@@ -351,6 +351,42 @@ func TestSendStopBeforeTheFirstFileSendsNothing(t *testing.T) {
 	}
 }
 
+// TestSendStopWhileTheNextFileOpensSendsNoMetadata: a stop that lands while
+// the send opens its next file (a slow open: an on-open scan, a cloud
+// placeholder, a network share) sends no metadata for that file, so a
+// receiver that ignores the abort never reads the name and size of a file
+// the person stopped before it was announced (review lens B re-check N2).
+// The open is held through the openForSend seam until the stop has closed.
+func TestSendStopWhileTheNextFileOpensSendsNoMetadata(t *testing.T) {
+	sender, rdc, l := stopPair(t)
+	a, b := stopFile(t, "a.bin", 1024), stopFile(t, "b.bin", 1024)
+	stop := make(chan struct{})
+	opening := make(chan struct{})
+	prev := openForSend
+	t.Cleanup(func() { openForSend = prev })
+	openForSend = func(name string) (*os.File, error) {
+		if filepath.Base(name) == "b.bin" {
+			close(opening)
+			<-stop
+		}
+		return prev(name)
+	}
+	errc := startStoppable(sender, []string{a, b}, SendOptions{Stop: stop, OnProgress: func(Progress) {}})
+	l.await(t, "the first metadata", 20*time.Second, func(f frames) bool { return len(f.ids) == 1 })
+	ackFile(t, rdc, l.snapshot().ids[0])
+	select {
+	case <-opening:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the send never opened the second file")
+	}
+	close(stop)
+	awaitStopped(t, errc, 2*time.Second)
+	time.Sleep(300 * time.Millisecond)
+	if got := l.snapshot(); len(got.ids) != 1 || got.ends != 1 {
+		t.Fatalf("after a stop during the next file's open the receiver got %d metadata frames and %d end markers, want 1 and 1", len(got.ids), got.ends)
+	}
+}
+
 // TestReceivedAtStopKeepsAQueuedReceived: the delivery wait's stop arm
 // (receivedAtStop) keeps a success when the receiver's received is already
 // queued, because the files arrived, and stops on anything else: a queued

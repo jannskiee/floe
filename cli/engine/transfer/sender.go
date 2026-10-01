@@ -98,6 +98,10 @@ var deliveryStallWindow = 60 * time.Second
 // package has no t.Parallel, so a process-wide swap is safe.
 var deliveryBuffered = func(dc *webrtc.DataChannel) uint64 { return dc.BufferedAmount() }
 
+// openForSend opens each file the send reads. A seam for tests, which hold
+// an open until they have stopped the send; os.Open in every build.
+var openForSend = os.Open
+
 // metadataMsg is sent before each file to describe it.
 type metadataMsg struct {
 	Type       string `json:"type"`
@@ -920,7 +924,7 @@ func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struc
 	if stopRequested(stop) {
 		return ErrSendStopped
 	}
-	f, err := os.Open(entry.absPath)
+	f, err := openForSend(entry.absPath)
 	if err != nil {
 		return err
 	}
@@ -948,6 +952,12 @@ func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struc
 		Ver:        localVer,
 	}
 	metaJSON, _ := json.Marshal(meta)
+	// Last look before the metadata: the open and the Stat above can take a
+	// while (an on-open scan, a cloud placeholder, a share), and a stop seen
+	// here keeps a file the person stopped from ever being announced.
+	if stopRequested(stop) {
+		return ErrSendStopped
+	}
 	if err := dc.SendText(string(metaJSON)); err != nil {
 		if stop := refusalAfterSendError(done, ackCh, flushed, localVer, updateHint, total); stop != nil {
 			return stop
