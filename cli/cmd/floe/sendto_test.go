@@ -1670,6 +1670,55 @@ func TestSendToPeerVersionOnlyWhenReleaseShaped(t *testing.T) {
 	}
 }
 
+// TestSendToHostileOfferNeverPrinted (08 11.3 S8, the SDP half, on the --to
+// surface; review lens B re-check N4): a host whose offer SDP carries an ANSI
+// clear, an OSC 8 link, bidi controls, backspaces and a shell substitution,
+// in its origin and session lines or in a broken media line, ends the
+// command on TL-10, and no byte of it reaches stdout or stderr, pion's own
+// lines included. A change that prints the setup error's text on this path
+// fails here.
+func TestSendToHostileOfferNeverPrinted(t *testing.T) {
+	const marker = "zqx-hostile-sdp"
+	hostile := marker + " \x1b[2J\x1b]8;;http://evil.example/\x07CLICK\x1b]8;;\x07\xe2\x80\xae\xe2\x81\xa6\b\b $(calc)"
+	for _, c := range []struct{ name, sdp string }{
+		{"in the origin and session lines", "v=0\r\no=- 1 1 IN IP4 " + hostile + "\r\ns=" + hostile + "\r\n"},
+		{"in a broken media line", "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=" + hostile + "\r\n"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			o := captureOutput(t)
+			s := newReqServer(t, "seat")
+			stubNetwork(t, s.URL)
+			p, _ := oneFile(t, t.TempDir(), "a.bin", 16)
+			cliDone := make(chan struct{})
+			h := startHost(t, s, func(h *testHost) error {
+				if err := h.sc.SendSignal(map[string]interface{}{"type": "offer", "sdp": c.sdp}); err != nil {
+					return err
+				}
+				// Seated until the command has ended, so the end is the
+				// offer's and not the host's leaving.
+				select {
+				case <-cliDone:
+				case <-h.quit:
+				case <-time.After(20 * time.Second):
+				}
+				return nil
+			})
+			r := runCLI(t, p, "--to", linkFor(), "--server", s.URL)
+			close(cliDone)
+			if err := h.wait(t); err != nil {
+				t.Fatalf("host: %v", err)
+			}
+			r.read(o)
+			wantOutcome(t, r, tlSetupFailed)
+			for _, bad := range []string{marker, "\x1b[2J", "\x1b]8;;", "\x07", "\xe2\x80\xae", "\xe2\x81\xa6", "\b", "$(calc)", "evil.example", "CLICK"} {
+				if strings.Contains(r.stdout, bad) || strings.Contains(r.stderr, bad) {
+					t.Fatalf("%q reached the terminal:\nstdout:\n%q\nstderr:\n%q", bad, r.stdout, r.stderr)
+				}
+			}
+		})
+	}
+}
+
 // ── The clocks ───────────────────────────────────────────────────────────────
 
 // TestSendToAckTimeoutIsVisitorAckPlusGrace: the send waits for acks on the
