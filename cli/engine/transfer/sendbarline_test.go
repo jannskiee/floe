@@ -7,8 +7,12 @@ package transfer
 // caller's Ctrl+C line.
 
 import (
+	"bytes"
 	"errors"
+	"io"
+	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -89,5 +93,99 @@ func TestEndBarLineLeavesAStopToTheCaller(t *testing.T) {
 	}
 	if !strings.Contains(out, "%") || strings.HasSuffix(out, "\n") {
 		t.Fatalf("a stop ended the bar's line: %q", barTail(out))
+	}
+}
+
+// heldStdout swaps stdout for a pipe that holds the next write until release:
+// a filler write larger than any pipe buffer fills the pipe and keeps its
+// write lock, so the progress bar's next draw waits behind it. release lets
+// the pipe drain; restore puts stdout back and returns what was written.
+func heldStdout(t *testing.T) (release func(), restore func() string) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stdout
+	os.Stdout = w
+	gate := make(chan struct{})
+	var buf bytes.Buffer
+	drained := make(chan struct{})
+	go func() {
+		<-gate
+		_, _ = io.Copy(&buf, r)
+		close(drained)
+	}()
+	go func() { _, _ = w.Write(bytes.Repeat([]byte("x"), 4<<20)) }()
+	var releaseOnce, restoreOnce sync.Once
+	release = func() { releaseOnce.Do(func() { close(gate) }) }
+	restore = func() string {
+		restoreOnce.Do(func() {
+			release()
+			os.Stdout = orig
+			_ = w.Close()
+			<-drained
+			_ = r.Close()
+		})
+		return buf.String()
+	}
+	t.Cleanup(func() { restore() })
+	return release, restore
+}
+
+// TestEndBarLineLeavesAStopThatLostToARefusal: a stop and the receiver's
+// refusal land together and the refusal wins, so the send returns the refusal
+// with its stop already closed. The caller's Ctrl+C line still opens with its
+// own line break, so the send must add none, or a blank line sits between the
+// bar and "You stopped this drop." (review re-check LA2-6). The bar's draw is
+// held on a full stdout pipe while the stop closes and the refusal is queued,
+// so the first thing the send reads after that draw is the refusal.
+func TestEndBarLineLeavesAStopThatLostToARefusal(t *testing.T) {
+	sender, rdc, l := stopPair(t)
+	src := stopFile(t, "big.bin", 64<<20)
+	stop := make(chan struct{})
+	release, restore := heldStdout(t)
+	errc := startStoppable(sender, []string{src}, SendOptions{EndBarLine: true, Stop: stop})
+	l.await(t, "metadata", 20*time.Second, func(f frames) bool { return len(f.ids) == 1 })
+	ackFile(t, rdc, l.snapshot().ids[0])
+	l.await(t, "file bytes", 20*time.Second, func(f frames) bool { return f.bytes > 0 })
+	// The bar's first draw (at 1 percent) waits on the held pipe: the bytes
+	// stop well short of the file, and stay where they stopped.
+	held, since := l.snapshot().bytes, time.Now()
+	for deadline := time.Now().Add(20 * time.Second); time.Since(since) < 300*time.Millisecond; {
+		if time.Now().After(deadline) {
+			t.Fatal("the send never parked on the bar's draw")
+		}
+		time.Sleep(50 * time.Millisecond)
+		if now := l.snapshot().bytes; now != held {
+			held, since = now, time.Now()
+		}
+	}
+	if held >= 64<<20 {
+		t.Fatalf("the whole file went out (%d bytes) before the bar drew", held)
+	}
+	close(stop)
+	if err := rdc.Send([]byte(`{"type":"incompatible","reason":"x","pv":1,"pvMin":1,"code":"disk-full","saved":0}`)); err != nil {
+		t.Fatalf("refusal: %v", err)
+	}
+	// Let the refusal reach the send's queue before the draw returns.
+	time.Sleep(300 * time.Millisecond)
+	release()
+	var err error
+	select {
+	case err = <-errc:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the send did not end")
+	}
+	out := restore()
+	var stopped *PeerStoppedError
+	if !errors.As(err, &stopped) || stopped.Code != CodeDiskFull {
+		t.Fatalf("the send returned %v, want the refusal that won over the stop", err)
+	}
+	if !strings.Contains(out, "%") {
+		t.Fatalf("no bar was drawn: %q", barTail(out))
+	}
+	if strings.HasSuffix(out, "\n") {
+		t.Fatalf("a stop that lost to a refusal ended the bar's line: %q", barTail(out))
 	}
 }

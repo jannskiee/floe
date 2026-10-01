@@ -1078,12 +1078,13 @@ ackLoop:
 	// other return leaves the bar's line open once it has drawn, and the
 	// caller's next line would land on it (SendOptions.EndBarLine). A bar
 	// that never drew (IsStarted: nothing past 0 percent yet) left the cursor
-	// on a fresh line, so it gets no break, and neither does a stop, whose
-	// caller opens its line with one.
+	// on a fresh line, so it gets no break, and neither does a send whose
+	// stop has closed, whatever it returns: its caller opens its Ctrl+C line
+	// with one, also when a refusal or a close won the race with the stop.
 	barEnded := false
 	if bar != nil && endBarLine {
 		defer func() {
-			if !barEnded && bar.IsStarted() && !errors.Is(err, ErrSendStopped) {
+			if !barEnded && bar.IsStarted() && !stopRequested(stop) {
 				fmt.Println()
 			}
 		}()
