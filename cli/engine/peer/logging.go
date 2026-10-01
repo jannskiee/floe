@@ -34,12 +34,14 @@ import (
 // "Fail to refresh permissions", quotes the reason phrase of a TURN error
 // response, and pion/turn takes that response from anyone on the UDP path to
 // the server, with no integrity check (FU-32 F2-1). The CLI silences the
-// "turnc" scope at start (cmd/floe/pionlog.go); the desktop's release build
-// has no console for it to reach. logging_bypass_test.go fails if any other
-// logger starts taking that route. mDNS stays on all the same: the CLI needs
-// it to resolve the .local host candidates browsers send. pion/ice v4.4.3
-// fixes this (pion/ice#976); pion/webrtc v4.2.21 is the first release that
-// requires a fixed pion/ice.
+// "turnc" scope at start (cmd/floe/pionlog.go). The desktop does not yet:
+// launched the usual ways (Start menu, Explorer, its right-click entry) it has
+// no terminal, but started from a terminal that hands it pipes, such as Git
+// Bash, it would print the line there; a desktop follow-up is tracked.
+// logging_bypass_test.go fails if any other logger starts taking that route.
+// mDNS stays on all the same: the CLI needs it to resolve the .local host
+// candidates browsers send. pion/ice v4.4.3 fixes this (pion/ice#976);
+// pion/webrtc v4.2.21 is the first release that requires a fixed pion/ice.
 func newLoggerFactory(w io.Writer) logging.LoggerFactory {
 	f := logging.NewDefaultLoggerFactory()
 	f.Writer = logLineWriter{w: w}
