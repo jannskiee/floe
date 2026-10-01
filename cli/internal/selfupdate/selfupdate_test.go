@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -205,5 +206,25 @@ func TestFromCacheRejectsAFutureTimestamp(t *testing.T) {
 	write(time.Now().Add(72 * time.Hour))
 	if _, ok := fromCache(); ok {
 		t.Fatal("a future checked_at was treated as a hit; the update check would stay pinned off")
+	}
+}
+
+// TestChecksumMismatchKeepsItsLines (FU-43 review 2 M3): the mismatch is a
+// multi-line error Floe writes itself, so it carries the OwnLines mark the
+// CLI's error printer needs to print it as lines rather than on one.
+func TestChecksumMismatchKeepsItsLines(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "floe.zip")
+	if err := os.WriteFile(file, []byte("not the release"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := verifySHA256(file, "floe.zip", "0000000000000000000000000000000000000000000000000000000000000000  floe.zip\n")
+	if err == nil {
+		t.Fatal("verifySHA256 accepted a file whose hash is not listed")
+	}
+	if _, ok := err.(interface{ OwnLines() }); !ok {
+		t.Errorf("the checksum mismatch does not mark its lines as Floe's own: %T %q", err, err)
+	}
+	if n := strings.Count(err.Error(), "\n"); n != 2 {
+		t.Errorf("the checksum mismatch has %d newlines, want 2: %q", n, err)
 	}
 }

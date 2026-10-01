@@ -298,7 +298,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// ranges overlap, which is a deliberate abort, and rebuilds from
 				// pv/pvMin with THIS surface update hint when they do not, so a
 				// desktop receiver is never told to run a command it does not have.
-				return fmt.Errorf("%s", compatErrorFromIncompatible(localVer, opts.UpdateHint, incompat))
+				return compatError(compatErrorFromIncompatible(localVer, opts.UpdateHint, incompat))
 
 			case "metadata":
 				// A new file is starting
@@ -347,7 +347,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 						// Through abortReason for the flush. This is the path #284
 						// was filed about, where the frame was lost in 6 of 6 rounds.
 						abortReason(dc, localVer, peerErrMsg, false)
-						return fmt.Errorf("%s", errMsg)
+						return compatError(errMsg)
 					}
 
 					// Optional informational note when release versions differ

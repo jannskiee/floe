@@ -15,9 +15,11 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 	"unicode/utf8"
@@ -197,11 +199,16 @@ const setupErrorMax = 300
 // it after "WebRTC setup failed: ": cut at setupErrorMax runes, then escaped
 // (peer.EscapeText), since the text can quote the peer's own SDP.
 func setupErrorText(err error) string {
-	s := err.Error()
-	if utf8.RuneCountInString(s) > setupErrorMax {
-		s = string([]rune(s)[:setupErrorMax-1]) + "…"
+	return peer.EscapeText(cutRunes(err.Error(), setupErrorMax))
+}
+
+// cutRunes returns s cut to max runes, the last one an ellipsis when it was
+// longer.
+func cutRunes(s string, max int) string {
+	if utf8.RuneCountInString(s) <= max {
+		return s
 	}
-	return peer.EscapeText(s)
+	return string([]rune(s)[:max-1]) + "…"
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -225,7 +232,62 @@ func main() {
 		os.Exit(130)
 	}()
 
-	if err := rootCmd.Execute(); err != nil {
+	if err := execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// execute runs the command tree and prints a subcommand's error the way
+// cobra does ("Error: " and the text), through errorText. Errors carry text
+// the CLI does not control: a TLS certificate's names (Go's hostname check
+// lists them as they are, and on Linux it runs before the chain check), the
+// signaling server's error message, and pion's words.
+//
+// Only Floe's own subcommands are silenced. Cobra keeps printing what fails
+// before one of them runs (an unknown command with its suggestions, a flag of
+// the root), text built from the command line and the command tree; help and
+// completion are added inside ExecuteC and keep cobra's printing too.
+func execute() error {
+	for _, c := range rootCmd.Commands() {
+		c.SilenceErrors = true
+	}
+	cmd, err := rootCmd.ExecuteC()
+	if err != nil && cmd.SilenceErrors {
+		fmt.Fprintln(rootCmd.ErrOrStderr(), "Error:", errorText(err))
+	}
+	return err
+}
+
+// ownLines is an error whose text Floe wrote line by line (the protocol
+// remedy, the update checksum mismatch). Only its newlines are printed as
+// newlines; any other error, and any text wrapped around one of these,
+// prints on one line.
+type ownLines interface {
+	error
+	OwnLines()
+}
+
+// errorMax bounds an error's text: a server's error message or a
+// certificate's names have no length of their own, and escaped they would
+// print as one line four times as long. Floe's own errors are far shorter.
+const errorMax = 2000
+
+// errorText is err's text as execute prints it, cut at errorMax runes. An
+// error marked ownLines (the protocol remedy, the update checksum mismatch)
+// prints its own lines, each escaped, later ones indented as Floe wrote them;
+// only when no text outside it adds a newline. Every other error, a server's
+// message or a certificate's names among them, prints escaped on one line, so
+// a newline in text Floe does not control shows as \x0a and can never lay out
+// lines that pass for Floe's own.
+func errorText(err error) string {
+	s := cutRunes(err.Error(), errorMax)
+	var own ownLines
+	if !errors.As(err, &own) || strings.Contains(strings.TrimSuffix(s, own.Error()), "\n") {
+		return peer.EscapeText(s)
+	}
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = peer.EscapeText(line)
+	}
+	return strings.Join(lines, "\n")
 }

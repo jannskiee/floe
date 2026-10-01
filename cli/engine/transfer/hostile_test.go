@@ -12,6 +12,7 @@ package transfer
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -545,6 +546,13 @@ func TestSenderIncompatibleTextIsDisplaySafe(t *testing.T) {
 			}
 			if strings.Contains(s, "\u202e") {
 				t.Errorf("a raw bidi override reached the error: %q", s)
+			}
+			var own interface{ OwnLines() }
+			if !errors.As(err, &own) {
+				t.Errorf("the compat error does not mark its lines as Floe's own (OwnLines): %T", err)
+			}
+			if n := strings.Count(s, "\n"); n != 2 {
+				t.Errorf("the compat error has %d newlines, want its own 2: %q", n, s)
 			}
 		}},
 		{"10 KB reason is never parsed", hugePayload, true, func(t *testing.T, err error) {

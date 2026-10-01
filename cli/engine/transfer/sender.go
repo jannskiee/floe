@@ -345,7 +345,7 @@ drainLoop:
 				continue // same bound as the ack loop in sendFile
 			}
 			if reason := abortFromPeer(raw, localVer, opts.UpdateHint); reason != "" {
-				return fmt.Errorf("%s", reason)
+				return compatError(reason)
 			}
 			if isReceived(raw) {
 				break drainLoop
@@ -369,7 +369,7 @@ drainLoop:
 						continue
 					}
 					if reason := abortFromPeer(raw, localVer, opts.UpdateHint); reason != "" {
-						return fmt.Errorf("%s", reason)
+						return compatError(reason)
 					}
 					if isReceived(raw) {
 						break drainLoop
@@ -473,7 +473,7 @@ ackLoop:
 				// Current peers include their protocol range, so rebuild the
 				// message from this sender's perspective and surface-specific
 				// update hint. Reason remains the fallback for legacy peers.
-				return fmt.Errorf("%s", compatErrorFromIncompatible(localVer, updateHint, incompat))
+				return compatError(compatErrorFromIncompatible(localVer, updateHint, incompat))
 			}
 			if base.Type == "ack" {
 				var ack ackMsg
@@ -486,7 +486,7 @@ ackLoop:
 					if index == 1 {
 						ok, localTooOld := CheckCompat(MinProtocolVersion, ProtocolVersion, ack.PvMin, ack.Pv)
 						if !ok {
-							return fmt.Errorf("%s", compatErrorMessage(localTooOld, localVer, ack.Ver,
+							return compatError(compatErrorMessage(localTooOld, localVer, ack.Ver,
 								MinProtocolVersion, ProtocolVersion, ack.PvMin, ack.Pv, updateHint))
 						}
 						if ack.Ver != "" && localVer != "" && ack.Ver != localVer {
@@ -596,7 +596,7 @@ ackLoop:
 			select {
 			case raw := <-ackCh:
 				if reason := abortFromPeer(raw, localVer, updateHint); reason != "" {
-					return fmt.Errorf("%s", reason)
+					return compatError(reason)
 				}
 			default:
 			}
