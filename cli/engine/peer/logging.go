@@ -30,10 +30,16 @@ import (
 // the agent's own logger, so the agent hands pion's default factory to its
 // mDNS server, its TURN client and the DTLS client for TURN over DTLS, and
 // those write to stderr unescaped. None of them prints a value the peer chose,
-// and logging_bypass_test.go fails if any other logger starts taking that
-// route. mDNS stays on all the same: the CLI needs it to resolve the .local
-// host candidates browsers send. pion/ice v4.4.3 fixes this (pion/ice#976);
-// pion/webrtc v4.2.21 is the first release that requires a fixed pion/ice.
+// but the TURN client's text is not the TURN server's alone: its ERROR line,
+// "Fail to refresh permissions", quotes the reason phrase of a TURN error
+// response, and pion/turn takes that response from anyone on the UDP path to
+// the server, with no integrity check (FU-32 F2-1). The CLI silences the
+// "turnc" scope at start (cmd/floe/pionlog.go); the desktop's release build
+// has no console for it to reach. logging_bypass_test.go fails if any other
+// logger starts taking that route. mDNS stays on all the same: the CLI needs
+// it to resolve the .local host candidates browsers send. pion/ice v4.4.3
+// fixes this (pion/ice#976); pion/webrtc v4.2.21 is the first release that
+// requires a fixed pion/ice.
 func newLoggerFactory(w io.Writer) logging.LoggerFactory {
 	f := logging.NewDefaultLoggerFactory()
 	f.Writer = logLineWriter{w: w}
