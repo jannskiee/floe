@@ -64,17 +64,28 @@ its own security purposes.
 **What you can do:** stay on a direct connection where you can, or self-host with
 [your own coturn relay](/self-hosting/turn-relay).
 
-## A browser receiver holds each file in memory
+## A browser receiver is limited by what the browser can hold
 
-The web app keeps each incoming file in memory until that file is complete, then hands it to
-your browser as a download. A large enough file exhausts the tab, and on a phone that ceiling
-arrives sooner than you would like.
+The web app collects each incoming file inside your browser until you download it, so how much it
+can take depends on the browser.
 
-Zipping compounds it: **Download ZIP** holds every file at once before it writes the archive.
+- **Chrome, Edge, and other Chromium browsers, in a normal window:** the tab itself holds only
+  about 16 MB of a file at a time. The browser keeps some of what has arrived in memory (about 2 GB
+  on a computer) and moves the rest into temporary files of its own on disk, up to a limit it sets
+  from the size of the disk.
+- **A private or Incognito window in those browsers:** nothing goes to disk, so everything received
+  in private windows shares about 2 GB. Past that the transfer stops and says the browser ran out
+  of memory.
+- **Firefox, Safari, and every browser on iPhone and iPad:** each file is held in memory. A large
+  enough file exhausts the tab, and on a phone that ceiling arrives sooner than you would like.
+
+Zipping compounds it in every browser: **Download ZIP** reads every file back into the tab at once
+before it writes the archive.
 
 **What you can do:** receive multi-gigabyte transfers with [Floe Desktop](/desktop/receiving) or
 the [CLI](/cli/receive), which write straight to disk and have no such ceiling. In the browser,
-save files one at a time rather than zipping when the total is large.
+use a normal Chrome or Edge window, and save files one at a time rather than zipping when the
+total is large.
 
 ## Floe does not hash your files
 

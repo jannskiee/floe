@@ -36,8 +36,10 @@ dropping a folder onto the page adds nothing. Both of the others walk the folder
 rebuild the same structure on the other side.
 
 **Receiving something very large.** Use Floe Desktop or the CLI. A browser receiver keeps each
-file in memory until that file is complete, so a multi-gigabyte file can exhaust a phone or a
-laptop tab. The other two write straight to disk as bytes arrive and have no such ceiling.
+file inside the browser until you save it. Chrome and Edge move most of a large file into
+temporary files on disk, but a private window, Firefox, Safari, and phones hold it in memory, so a
+multi-gigabyte file can exhaust the tab. The other two write straight to disk as bytes arrive and
+have no such ceiling.
 
 **Transferring from a machine with no screen.** Use the CLI. It is one self-contained binary
 with no runtime dependencies, and it runs anywhere Go runs.
@@ -61,7 +63,7 @@ right-click menu.
 | Show a QR code | Yes | Yes | No |
 | Join with a link | Yes | Yes | Yes |
 | Join with a short code | No | Yes | Yes |
-| Where received files go | Your browser's downloads, after the whole file is in memory | Straight to disk, in a folder you choose | Straight to disk, in `-o` or the current directory |
+| Where received files go | Your browser's downloads, after the whole file has arrived in the browser | Straight to disk, in a folder you choose | Straight to disk, in `-o` or the current directory |
 | Folder structure on arrival | Flattened when saved one at a time, rebuilt inside **Download ZIP** | Rebuilt | Rebuilt |
 | Confirm before receiving | No, it starts on its own | No, it starts on its own | Yes, unless you pass `-y` |
 | Refuse the relay | Yes, the **Network relay fallback** checkbox | No | Yes, `--no-relay` |

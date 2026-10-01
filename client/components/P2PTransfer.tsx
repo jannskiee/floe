@@ -570,7 +570,6 @@ export function P2PTransfer() {
                                 expectedBytes: failure.expected,
                                 filesReceived: receivedFilesRef.current.length,
                                 connectionType: connectionTypeRef.current ?? 'unknown',
-                                senderSentVersion: failure.senderSentVersion,
                                 // Chromium only, rounded and capped at 8 by the browser.
                                 deviceMemoryGiB: (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? null,
                             });

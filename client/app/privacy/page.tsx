@@ -48,7 +48,7 @@ export default function PrivacyPolicy() {
         <LegalShell
             document="privacy"
             title="Privacy policy"
-            dates={[{ label: 'Last updated', iso: '2026-09', text: 'September 2026' }]}
+            dates={[{ label: 'Last updated', iso: '2026-10', text: 'October 2026' }]}
             historyHref="https://github.com/jannskiee/floe/commits/main/client/app/privacy/page.tsx"
             toc={toc}
             intro={
@@ -297,7 +297,7 @@ export default function PrivacyPolicy() {
                 </p>
                 <LegalList
                     items={[
-                        'Error stack traces and browser metadata (browser version, OS, device type, language, and time zone)',
+                        'Error stack traces and browser metadata (browser version, OS, device type, approximate device memory, language, and time zone)',
                         'Connection type (direct or relay), transfer progress, file count, and total size at the time of an error',
                     ]}
                 />
@@ -353,9 +353,11 @@ export default function PrivacyPolicy() {
                     is deployed.
                 </p>
                 <p>
-                    Files you receive are held in the tab&apos;s memory until you download them;
-                    closing the tab discards anything you did not save, and nothing about a
-                    transfer&apos;s files is written to browser storage. While a transfer is running
+                    Files you receive are held by your browser until you download them: in memory,
+                    or, for large files in Chrome and Edge, partly in the browser&apos;s own temporary
+                    files on your disk. Closing the tab discards anything you did not save, and
+                    nothing about a transfer&apos;s files is written to the storage a website can
+                    read back. While a transfer is running
                     the app asks your browser to keep the screen awake and releases that when the
                     transfer ends. The app writes to your clipboard only when you press Copy and never
                     reads it, and it never asks for notification permission.
