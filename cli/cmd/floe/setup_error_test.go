@@ -117,7 +117,7 @@ func runAgainst(t *testing.T, url string, args ...string) string {
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
 	})
-	if err := rootCmd.Execute(); err == nil {
+	if err := execute(); err == nil {
 		t.Fatalf("floe %s succeeded against a peer that sent a broken SDP", args[0])
 	}
 	return printed.String()

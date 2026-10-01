@@ -92,7 +92,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 	codePhrase, err := code.Register(flagServer, roomId)
 	if err != nil {
 		// Non-fatal: code registration failure still allows link sharing
-		fmt.Printf("  Warning: could not generate short code: %v\n", err)
+		fmt.Println(shortCodeWarning(err))
 		codePhrase = ""
 	}
 
@@ -109,12 +109,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 	link := webURL + "/#room=" + roomId
 
 	fmt.Printf("  Sending   %s\n", summary.Label)
-	var rows [][2]string
-	if codePhrase != "" {
-		rows = append(rows, [2]string{"Code", codePhrase})
-	}
-	rows = append(rows, [2]string{"Link", link})
-	transfer.PrintBox(rows)
+	transfer.PrintBox(shareRows(codePhrase, link))
 	fmt.Println()
 	fmt.Println("  Waiting for peer...")
 
@@ -153,4 +148,23 @@ func runSend(cmd *cobra.Command, args []string) error {
 		Messages: early.Msgs,
 		Closed:   early.Closed,
 	})
+}
+
+// shortCodeWarning is the line send prints when the server gives no code. The
+// error can carry a TLS certificate's names or other text the CLI does not
+// control, so it is escaped like every printed error (execute).
+func shortCodeWarning(err error) string {
+	return "  Warning: could not generate short code: " + peer.EscapeText(err.Error())
+}
+
+// shareRows are the rows of the box send prints: the code when the server
+// gave one, then the link. The code phrase is the server's text, so it is
+// escaped before it reaches the terminal; a real one ("olive-tiger-castle")
+// comes out unchanged.
+func shareRows(codePhrase, link string) [][2]string {
+	var rows [][2]string
+	if codePhrase != "" {
+		rows = append(rows, [2]string{"Code", peer.EscapeText(codePhrase)})
+	}
+	return append(rows, [2]string{"Link", link})
 }

@@ -58,6 +58,8 @@ Documentation: https://www.floe.one/docs`,
 	// Runtime failures (network, blocked transfers, spent codes) are not usage
 	// mistakes: print the error alone instead of dumping the flag reference.
 	SilenceUsage: true,
+	// execute prints the error instead of cobra, through the escape.
+	SilenceErrors: true,
 
 	// Resolve the server and web origins once, before any subcommand runs, so
 	// every consumer downstream reads an already-normalized value.
@@ -225,7 +227,21 @@ func main() {
 		os.Exit(130)
 	}()
 
-	if err := rootCmd.Execute(); err != nil {
+	if err := execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// execute runs the command tree and prints its error the way cobra does
+// ("Error: " and the text), escaped with peer.EscapeText. Errors carry text
+// the CLI does not control: a TLS certificate's names (Go's hostname check
+// lists them as they are, and on Linux it runs before the chain check), the
+// signaling server's error message, and pion's words. Every one of them
+// reaches the terminal through this one line.
+func execute() error {
+	err := rootCmd.Execute()
+	if err != nil {
+		fmt.Fprintln(rootCmd.ErrOrStderr(), "Error:", peer.EscapeText(err.Error()))
+	}
+	return err
 }
