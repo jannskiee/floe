@@ -8,6 +8,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -217,7 +219,14 @@ type turnShim struct {
 // credentials the server takes.
 func forgingTURN(t *testing.T, ip string, forgeAfter time.Duration) (shimAddr, srvAddr, user, pass string, sh *turnShim) {
 	t.Helper()
-	const secret = "floe-turn-log-test"
+	// The server listens on a LAN address for the two minutes of the run (it
+	// cannot be the loopback: peer.New gathers no loopback interface), so its
+	// secret is new each run and never one a host on that LAN could read here.
+	key := make([]byte, 16)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatalf("TURN secret: %v", err)
+	}
+	secret := hex.EncodeToString(key)
 	srvConn, err := net.ListenPacket("udp4", ip+":0")
 	if err != nil {
 		t.Fatalf("TURN server socket: %v", err)
