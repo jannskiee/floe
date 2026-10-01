@@ -350,3 +350,47 @@ func TestSendStopBeforeTheFirstFileSendsNothing(t *testing.T) {
 		t.Fatalf("a send stopped before it began sent %d metadata frames and %d bytes", len(got.ids), got.bytes)
 	}
 }
+
+// TestReceivedAtStopKeepsAQueuedReceived: the delivery wait's stop arm
+// (receivedAtStop) keeps a success when the receiver's received is already
+// queued, because the files arrived, and stops on anything else: a queued
+// refusal or nothing at all (review re-check LA2-2, whose mutation of the arm
+// survived every test before this one). A Ctrl+C that lands as the host's
+// received arrives must not print "You stopped this drop." for a drop the
+// host saved in full.
+func TestReceivedAtStopKeepsAQueuedReceived(t *testing.T) {
+	const received = `{"type":"received","verified":2}`
+	const refusal = `{"type":"incompatible","reason":"x","pv":1,"pvMin":1,"code":"disk-full","saved":1}`
+	for _, c := range []struct {
+		name     string
+		queued   []string
+		success  bool
+		verified int
+	}{
+		{"a queued received", []string{received}, true, 2},
+		{"a stray frame, then a received", []string{`{"type":"ack","id":"x"}`, received}, true, 2},
+		{"a queued refusal", []string{refusal}, false, 0},
+		{"a refusal ahead of a received", []string{refusal, received}, false, 0},
+		{"an empty queue", nil, false, 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ackCh := make(chan []byte, 4)
+			for _, f := range c.queued {
+				ackCh <- []byte(f)
+			}
+			v, has, err := receivedAtStop(ackCh, "test", "", 2)
+			if !c.success {
+				if !errors.Is(err, ErrSendStopped) {
+					t.Fatalf("receivedAtStop returned %v, want ErrSendStopped", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("a queued received lost to the stop: %v", err)
+			}
+			if !has || v != c.verified {
+				t.Fatalf("verified %d (has %v), want %d from the received frame", v, has, c.verified)
+			}
+		})
+	}
+}

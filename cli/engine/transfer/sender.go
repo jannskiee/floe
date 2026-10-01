@@ -316,6 +316,17 @@ func drainQueued(ackCh <-chan []byte, localVer, updateHint string, total int) (g
 	}
 }
 
+// receivedAtStop is the delivery wait's answer to SendOptions.Stop. A received
+// already queued still wins: the files arrived, and a stop that lands with it
+// must not report a finished drop as stopped. Anything else queued, a refusal
+// included, is moot once the caller stops, and the answer is ErrSendStopped.
+func receivedAtStop(ackCh <-chan []byte, localVer, updateHint string, total int) (verified int, hasVerified bool, err error) {
+	if got, v, has, err := drainQueued(ackCh, localVer, updateHint, total); err == nil && got {
+		return v, has, nil
+	}
+	return 0, false, ErrSendStopped
+}
+
 // refusalAfterSendError is the check a failed Send makes. pion marks the
 // channel Closed before it runs onClose, so a Send in that window fails with
 // io.ErrClosedPipe while the receiver's refusal already sits in ackCh and
@@ -855,14 +866,12 @@ drainLoop:
 			}
 			break drainLoop
 		case <-opts.Stop:
-			// A received already queued still wins: the files arrived, and a
-			// stop that lands with it must not report a finished drop as
-			// stopped. Anything else queued is moot once the caller stops.
-			if got, v, has, err := drainQueued(ackCh, localVer, opts.UpdateHint, len(files)); err == nil && got {
-				verified, hasVerified = v, has
-				break drainLoop
+			v, has, err := receivedAtStop(ackCh, localVer, opts.UpdateHint, len(files))
+			if err != nil {
+				return err
 			}
-			return ErrSendStopped
+			verified, hasVerified = v, has
+			break drainLoop
 		case <-stall.C:
 			// An empty buffer is the tick arm's to judge, within one tick, so
 			// the wait has one success exit on a drained buffer and it reads
