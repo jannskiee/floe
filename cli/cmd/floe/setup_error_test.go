@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -111,6 +112,11 @@ func runAgainst(t *testing.T, url string, args ...string) string {
 	rootCmd.SetOut(io.Discard)
 	rootCmd.SetErr(&printed)
 	rootCmd.SetArgs(append(args, "--server", url))
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
+	})
 	if err := rootCmd.Execute(); err == nil {
 		t.Fatalf("floe %s succeeded against a peer that sent a broken SDP", args[0])
 	}
@@ -158,4 +164,26 @@ func TestSendEscapesAHostileAnswer(t *testing.T) {
 	url := hostilePeer(t, "sender")
 	printed := runAgainst(t, url, "send", file)
 	requireEscapedSetupError(t, printed)
+}
+
+// TestSetupErrorTextIsBounded (FU-40 review 2 L3): the server relays a signal
+// of up to 1 MB, so a token pion/sdp quotes can be that long. The printed text
+// stays one bounded line with no raw control, and a short error keeps its
+// words.
+func TestSetupErrorTextIsBounded(t *testing.T) {
+	long := errors.New("sdp: invalid value `" + strings.Repeat("\x1b", 1<<20) + "`")
+	got := setupErrorText(long)
+	if n := len(got); n > 4*setupErrorMax+8 {
+		t.Fatalf("setupErrorText printed %d bytes for a 1 MiB token, want at most %d", n, 4*setupErrorMax+8)
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Errorf("a cut setup error does not end with the ellipsis: %q", got[len(got)-16:])
+	}
+	if strings.ContainsRune(got, 0x1b) {
+		t.Errorf("a raw ESC survived in the bounded setup error")
+	}
+	short := errors.New("timed out establishing a connection")
+	if got := setupErrorText(short); got != short.Error() {
+		t.Errorf("setupErrorText(%q) = %q, want it unchanged", short.Error(), got)
+	}
 }

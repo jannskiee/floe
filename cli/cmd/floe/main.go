@@ -20,6 +20,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jannskiee/floe/cli/engine/peer"
 	"github.com/jannskiee/floe/cli/engine/serverurl"
@@ -185,6 +186,22 @@ func connectedLine(ct string, err error) string {
 		return "  Connected (" + ct + ")"
 	}
 	return "  Connected"
+}
+
+// setupErrorMax bounds the setup error like every other peer string: pion/sdp
+// quotes the token it refused, and the server relays a signal of up to 1 MB,
+// which escaped would print as one line of about 4 MB.
+const setupErrorMax = 300
+
+// setupErrorText is a failed WebRTC setup's error as send and receive print
+// it after "WebRTC setup failed: ": cut at setupErrorMax runes, then escaped
+// (peer.EscapeText), since the text can quote the peer's own SDP.
+func setupErrorText(err error) string {
+	s := err.Error()
+	if utf8.RuneCountInString(s) > setupErrorMax {
+		s = string([]rune(s)[:setupErrorMax-1]) + "…"
+	}
+	return peer.EscapeText(s)
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
