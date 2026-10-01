@@ -540,41 +540,54 @@ export function P2PTransfer() {
                 // where a receiver's transfer-failed event normally comes
                 // from, so report it here instead of losing it.
                 wireReasonRef.current = true;
-                track('transfer-failed', { reason: failure?.code ?? 'peer-reason', role: 'receiver' });
-                if (failure) {
-                    // One report per transfer: the receiver has already
-                    // stopped, so nothing after this frame can throw again.
-                    // Sizes only; the file name is the peer's and stays out.
-                    Sentry.withScope((scope) => {
-                        scope.setContext('receive', {
-                            receivedBytes: failure.received,
-                            expectedBytes: failure.expected,
-                            filesReceived: receivedFilesRef.current.length,
-                            connectionType: connectionTypeRef.current ?? 'unknown',
-                            // Chromium only, rounded and capped at 8 by the browser.
-                            deviceMemoryGiB: (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? null,
-                        });
-                        if (failure.code === 'out-of-memory') {
-                            // The documented ceiling of a browser receiver, not
-                            // a bug: one warning-level issue that counts how
-                            // often people reach it.
-                            scope.setFingerprint(['receiver-out-of-memory']);
-                            Sentry.captureMessage('Receiver ran out of memory', 'warning');
-                        } else {
-                            Sentry.captureException(failure.cause);
-                        }
-                    });
+                // The message first: this may run with the tab short of
+                // memory, and nothing below may cost the person the only
+                // explanation they get.
+                setError(msg);
+                setStatus('Transfer failed');
+                if (failure && !failure.senderSentVersion) {
                     // The receiver told the sender why, but a browser sender
                     // reads nothing while it sends a file, so it would push the
                     // rest of the file into a receiver that drops it and then
                     // report success. Give the frame time to leave, then close.
+                    // Not for a Go sender: it stops on the frame itself, and a
+                    // close that lands while it waits on backpressure would
+                    // replace the reason with "connection closed".
                     setTimeout(() => {
                         closedByUsRef.current = peer;
                         peer.destroy();
                     }, CONTROL_FLUSH_MS);
                 }
-                setError(msg);
-                setStatus('Transfer failed');
+                try {
+                    track('transfer-failed', { reason: failure?.code ?? 'peer-reason', role: 'receiver' });
+                    if (failure) {
+                        // One report per transfer: the receiver has already
+                        // stopped, so nothing after this frame can throw again.
+                        // Sizes only; the file name is the peer's and stays out.
+                        Sentry.withScope((scope) => {
+                            scope.setContext('receive', {
+                                receivedBytes: failure.received,
+                                expectedBytes: failure.expected,
+                                filesReceived: receivedFilesRef.current.length,
+                                connectionType: connectionTypeRef.current ?? 'unknown',
+                                senderSentVersion: failure.senderSentVersion,
+                                // Chromium only, rounded and capped at 8 by the browser.
+                                deviceMemoryGiB: (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? null,
+                            });
+                            if (failure.code === 'out-of-memory') {
+                                // The documented ceiling of a browser receiver,
+                                // not a bug: one warning-level issue that counts
+                                // how often people reach it.
+                                scope.setFingerprint(['receiver-out-of-memory']);
+                                Sentry.captureMessage('Receiver ran out of memory', 'warning');
+                            } else {
+                                Sentry.captureException(failure.cause);
+                            }
+                        });
+                    }
+                } catch {
+                    // Telemetry is best effort; the person has their message.
+                }
             },
         });
         peer.on('data', rx.handleMessage);
@@ -833,6 +846,15 @@ export function P2PTransfer() {
                     level: 'info',
                     data: { progress: progressRef.current, transferComplete: transferCompleteRef.current },
                 });
+                // A receiver that stops mid-file (it ran out of memory, or its
+                // tab closed) closes the connection, and the send engine then
+                // stops without a word: the screen stayed on "Sending: <name>".
+                // Same status the error handler uses mid-transfer; the words
+                // stay neutral because a failed network ends up here too.
+                if (!transferCompleteRef.current && progressRef.current > 0 && closedByUsRef.current !== peer) {
+                    setError((prev) => prev || 'The connection closed before the transfer finished.');
+                    setStatus('Connection interrupted');
+                }
             });
             peer.on('error', (err) => {
                 if (transferCompleteRef.current || progressRef.current > 0) {

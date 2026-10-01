@@ -614,7 +614,7 @@ describe('receiver: a throw stops the transfer once', () => {
         expect(() => h.rx.handleMessage(endMessage())).not.toThrow();
 
         expect(h.errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
-        expect(h.failures[0]).toMatchObject({ code: 'out-of-memory', received: 6, expected: 6 });
+        expect(h.failures[0]).toMatchObject({ code: 'out-of-memory', received: 6, expected: 6, senderSentVersion: false });
         expect(h.failures[0]?.cause).toBeInstanceOf(RangeError);
         expect(h.completed).toEqual([]);
     });
@@ -626,7 +626,7 @@ describe('receiver: a throw stops the transfer once', () => {
 
         const parsed = lastFrame(h.sent);
         expect(parsed.type).toBe('incompatible');
-        expect(parsed.reason).toBe('receiver ran out of memory after receiving 6 of 6 bytes of a file');
+        expect(parsed.reason).toBe('receiver ran out of memory after receiving 6 of 6 bytes');
         expect(parsed.pv).toBe(PROTOCOL_VERSION);
         expect(parsed.pvMin).toBe(MIN_PROTOCOL_VERSION);
         // Exactly the ack and the abort: one frame each, never one per chunk.
@@ -715,6 +715,52 @@ describe('receiver: a throw stops the transfer once', () => {
         h.rx.handleMessage(endMessage());
         expect(h.completed).toEqual([]);
         expect(h.errors).toEqual([]);
+    });
+
+    it('says whether the sender announced a version, which only Go senders do', () => {
+        const h = harness(() => new RangeError('Array buffer allocation failed'));
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 1, 3, '1.10.11'));
+        h.rx.handleMessage(enc.encode('abc'));
+        expect(h.failures[0]?.senderSentVersion).toBe(true);
+    });
+
+    it('reports no sizes for a throw after the file was handed over', () => {
+        // The file is complete; the sizes would describe nothing in progress.
+        const errors: string[] = [];
+        const failures: (ReceiveFailure | undefined)[] = [];
+        const rx = createReceiver({
+            send: () => {},
+            onFileComplete: () => {
+                throw new TypeError('render failed');
+            },
+            onError: (m, f) => {
+                errors.push(m);
+                failures.push(f);
+            },
+        });
+        rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 1, 3));
+        rx.handleMessage(enc.encode('abc'));
+        expect(() => rx.handleMessage(endMessage())).not.toThrow();
+        expect(errors).toEqual([INTERNAL_ERROR_MESSAGE]);
+        expect(failures[0]).toMatchObject({ code: 'internal', received: 0, expected: null });
+    });
+
+    it('still explains a version mismatch when the peer is already gone', () => {
+        // The incompatible frame cannot be sent; the person still has to
+        // learn why, and nothing may escape into the emitter.
+        const errors: string[] = [];
+        const rx = createReceiver({
+            send: () => {
+                throw new Error('cannot send');
+            },
+            onError: (m) => errors.push(m),
+        });
+        const tooNew = JSON.stringify({
+            type: 'metadata', id: 'a', fileName: 'a.bin', fileSize: 3, index: 1, total: 1, totalBytes: 3,
+            pv: PROTOCOL_VERSION + 5, pvMin: PROTOCOL_VERSION + 5,
+        });
+        expect(() => rx.handleMessage(tooNew)).not.toThrow();
+        expect(errors).toHaveLength(1);
     });
 
     it('lets a throw from a frame that already stopped the transfer surface once, unreworded', () => {

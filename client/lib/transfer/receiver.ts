@@ -58,11 +58,17 @@ export interface ReceiveFailure {
     received: number;
     /** The open file's announced size, or null when unknown or none was open. */
     expected: number | null;
+    /**
+     * Whether the sender's metadata carried a `ver`. Go senders (the CLI and
+     * Floe Desktop) always send one and browser senders never do, and only a
+     * Go sender reads an abort that arrives in the middle of a file.
+     */
+    senderSentVersion: boolean;
 }
 
 export const OUT_OF_MEMORY_MESSAGE =
     'This browser ran out of memory while receiving, so the transfer was stopped. ' +
-    'Receive large files with Floe Desktop or the CLI, which save straight to disk.';
+    'Receive large files on a computer with Floe Desktop (Windows) or the Floe CLI, which save straight to disk.';
 
 export const INTERNAL_ERROR_MESSAGE =
     'Something went wrong while receiving, so the transfer was stopped. Ask the sender to try again.';
@@ -112,6 +118,7 @@ export function createReceiver(cb: ReceiverCallbacks): {
     // when the peer announced nothing we can compare against.
     let expectedSize: number | null = null;
     let sessionBytes = 0; // accumulated across all files of the current transfer
+    let senderSentVersion = false; // see ReceiveFailure.senderSentVersion
 
     let receiveSpeedStart = performance.now();
     let receiveSpeedBytes = 0;
@@ -119,8 +126,14 @@ export function createReceiver(cb: ReceiverCallbacks): {
 
     function handleMessage(data: string | Uint8Array | ArrayBuffer): void {
         if (aborted) return;
+        runMessage(data);
+    }
+
+    // Every frame goes through here, never straight to processMessage, so a
+    // throw anywhere in it ends the transfer once (see fail).
+    function runMessage(data: string | Uint8Array | ArrayBuffer): void {
         try {
-            processFrame(data);
+            processMessage(data);
         } catch (err) {
             // A frame that already stopped the transfer and then threw (one of
             // its own callbacks, say) has said what went wrong; a second
@@ -139,7 +152,9 @@ export function createReceiver(cb: ReceiverCallbacks): {
     function fail(err: unknown): void {
         const open = currentMetadata ? partialDownloads.get(currentMetadata.id) : undefined;
         const received = open?.received ?? 0;
-        const expected = currentMetadata ? expectedSize : null;
+        // Sizes describe a file still being received. A throw after the file
+        // was handed over (from onFileComplete, say) has none open.
+        const expected = open ? expectedSize : null;
         // Latch and let go of every held chunk before anything else: the work
         // below needs a little memory too, and V8 collects and retries a
         // failed allocation, so what is released here is what it gets.
@@ -154,7 +169,7 @@ export function createReceiver(cb: ReceiverCallbacks): {
             const of = expected === null ? '' : ` of ${expected}`;
             const reason =
                 code === 'out-of-memory'
-                    ? `receiver ran out of memory after receiving ${received}${of} bytes of a file`
+                    ? `receiver ran out of memory after receiving ${received}${of} bytes`
                     : 'receiver stopped because of an internal error';
             cb.send(new Uint8Array(new TextEncoder().encode(incompatibleMessage(reason))));
         } catch {
@@ -170,7 +185,7 @@ export function createReceiver(cb: ReceiverCallbacks): {
         }
         cb.onError?.(
             code === 'out-of-memory' ? OUT_OF_MEMORY_MESSAGE : INTERNAL_ERROR_MESSAGE,
-            { code, cause: err, received, expected }
+            { code, cause: err, received, expected, senderSentVersion }
         );
     }
 
@@ -184,7 +199,7 @@ export function createReceiver(cb: ReceiverCallbacks): {
         expectedSize = null;
     }
 
-    function processFrame(data: string | Uint8Array | ArrayBuffer): void {
+    function processMessage(data: string | Uint8Array | ArrayBuffer): void {
         // Framing decides, not content. See isControlFrame: a binary frame on
         // this side is file data even when its bytes spell a control message,
         // which is what a small .json file's whole content can do.
@@ -250,13 +265,20 @@ export function createReceiver(cb: ReceiverCallbacks): {
                         // does not close the connection afterwards, it only
                         // sets UI state, so the frame has time to leave.
                         const enc = new TextEncoder().encode(incompatibleMessage(peerMsg));
-                        cb.send(new Uint8Array(enc));
+                        // Best effort, like the discard path: a peer already
+                        // torn down must not cost this side its explanation.
+                        try {
+                            cb.send(new Uint8Array(enc));
+                        } catch {
+                            // The peer is gone; the close is all it will get.
+                        }
                         cb.onError?.(errMsg);
                         return;
                     }
                 }
 
                 currentMetadata = msg;
+                senderSentVersion = typeof msg.ver === 'string' && msg.ver !== '';
                 // classifyControl casts the metadata JSON straight to its
                 // interface, so fileSize is whatever the peer chose to send.
                 // Anything that is not a real byte count becomes null, which
