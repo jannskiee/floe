@@ -213,8 +213,10 @@ func setupFailureLine(err error) string {
 var interruptHook atomic.Pointer[func() (line string, stop func())]
 
 // interruptLine is what the Ctrl+C handler prints, and the stop it runs after
-// printing and before the partial-file cleanup. A hook must answer at once:
-// it runs before the message, and the message must be instant.
+// printing and before the partial-file cleanup. A hook answers within a
+// short bound (the request-link send waits at most sendToStopWait for its
+// send to settle, so its line is final) and never touches the disk: it runs
+// before the message, and the message must come quickly.
 func interruptLine() (string, func()) {
 	if h := interruptHook.Load(); h != nil {
 		return (*h)()
