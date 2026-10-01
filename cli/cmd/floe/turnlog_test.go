@@ -64,8 +64,11 @@ func TestTURNClientLogIsQuietFromTheStart(t *testing.T) {
 	if buf.Len() != 0 {
 		t.Fatalf("pion's default factory printed the TURN client's ERROR line: %q", buf.String())
 	}
-	f.NewLogger("ice").Errorf("still printed")
-	if !strings.Contains(buf.String(), "ice ERROR: ") {
+	// The control is a scope no pion package uses, so no runner's own
+	// PION_LOG_DISABLE (ice is a common one) names it; pion gives an unknown
+	// scope its default level.
+	f.NewLogger("floe-control").Errorf("still printed")
+	if !strings.Contains(buf.String(), "floe-control ERROR: ") {
 		t.Fatalf("a scope other than turnc lost pion's default ERROR level: %q", buf.String())
 	}
 }
