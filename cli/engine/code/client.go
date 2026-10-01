@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // client bounds both calls. http.DefaultClient has no timeout, and Resolve's
@@ -84,17 +85,48 @@ var uuidShape = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-
 // code lookup can hold a room id too.
 var errInvalidURL = errors.New("invalid URL")
 
-// codeShape is a code as a word list can make one: words of letters or
-// digits, in any script, joined by single hyphens, matched after the paste is
-// trimmed, unwrapped and lowercased. The server's own list is 1247 words of
-// [a-z] (server/words.json), three or four to a code; digits and letters
-// outside ASCII pass too, because a self-hoster can replace words.json.
-var codeShape = regexp.MustCompile(`^[\p{L}\p{Nd}]+(?:-[\p{L}\p{Nd}]+)*$`)
+// codeShape is a code as a word list can make one, matched after the paste is
+// trimmed, unwrapped and lowercased: one to four words joined by single
+// hyphens, each a letter or a digit followed by letters, digits or combining
+// marks, 24 characters at most. The server's own list is 1247 words of [a-z],
+// five letters at most (server/words.json), and a generated code has three
+// words, four after ten collisions (generateCode), while a room id has five
+// groups in any script. Digits, letters outside ASCII and the combining marks
+// that scripts such as Devanagari and Thai need pass too, because a
+// self-hoster can replace words.json; joiners and other format characters do
+// not.
+var codeShape = regexp.MustCompile(`^[\p{L}\p{Nd}][\p{L}\p{M}\p{Nd}]{0,23}(?:-[\p{L}\p{Nd}][\p{L}\p{M}\p{Nd}]{0,23}){0,3}$`)
 
-// roomIDInside finds a room id (the UUID shape) anywhere in a string. No code
-// holds one: that takes five hyphen-joined groups of hex of set lengths, and
-// a code is three or four words.
-var roomIDInside = regexp.MustCompile(`(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
+// holdsRoomID reports whether s carries a room id in some disguise: 32 hex
+// digits in a row once fullwidth forms are folded to ASCII (what NFKC does to
+// them), the Cyrillic letters that look like a, c and e are read as those,
+// and hyphens and combining marks are set aside. A room id is 32 hex digits;
+// no code comes near that, since four shipped words hold 20 letters at most.
+func holdsRoomID(s string) bool {
+	run := 0
+	for _, r := range s {
+		switch {
+		case r == '-' || unicode.Is(unicode.M, r):
+			continue
+		case r >= 0xFF01 && r <= 0xFF5E: // the fullwidth forms of ASCII
+			r -= 0xFEE0
+		case r == 'а': // Cyrillic a
+			r = 'a'
+		case r == 'с': // Cyrillic es, which looks like c
+			r = 'c'
+		case r == 'е': // Cyrillic ie, which looks like e
+			r = 'e'
+		}
+		if ('0' <= r && r <= '9') || ('a' <= r && r <= 'f') || ('A' <= r && r <= 'F') {
+			if run++; run >= 32 {
+				return true
+			}
+		} else {
+			run = 0
+		}
+	}
+	return false
+}
 
 // Resolve converts a code phrase or URL to a room UUID.
 //   - "olive-tiger-castle"              → calls GET /api/code/olive-tiger-castle
@@ -168,9 +200,11 @@ func Resolve(serverURL, input string) (string, error) {
 	// expired". Then send it only if it is shaped like a code (review round 1
 	// of FT-LINK-ECHO-F2): a paste with neither a slash nor a hash can still
 	// be a room id, a room link that lost its punctuation or a percent-encoded
-	// request link, and each of those used to reach the server in the path.
+	// request link, and each of those used to reach the server in the path;
+	// so can a room id in fullwidth or lookalike letters or without its
+	// hyphens (the increment's review, E3).
 	code := strings.ToLower(input)
-	if !codeShape.MatchString(code) || roomIDInside.MatchString(code) {
+	if !codeShape.MatchString(code) || holdsRoomID(code) {
 		return "", errInvalidURL
 	}
 	resp, err := client.Get(serverURL + "/api/code/" + url.PathEscape(code))

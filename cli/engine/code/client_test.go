@@ -144,6 +144,38 @@ func TestResolveRequestLinkTyped(t *testing.T) {
 // anyUUID finds a UUID anywhere in a string, in either case.
 var anyUUID = regexp.MustCompile(`(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
 
+// The disguises of a room id that rev-eng-b's E3 probe found passing the gate:
+// the test room id's hyphens removed, the Cyrillic letters that look like a, c
+// and e, fullwidth forms, and combining marks sprinkled in.
+var (
+	bareRoom    = strings.ReplaceAll("6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f", "-", "")
+	cyrillicACE = strings.NewReplacer("a", "а", "c", "с", "e", "е")
+)
+
+// fullwidth writes the digits, the letters a to f, or both, of s in their
+// fullwidth forms (U+FF10 to U+FF19 and U+FF41 to U+FF46), as an East Asian
+// input method types them.
+func fullwidth(s string, digits, letters bool) string {
+	return strings.Map(func(r rune) rune {
+		if (digits && r >= '0' && r <= '9') || (letters && r >= 'a' && r <= 'f') {
+			return r + 0xFEE0
+		}
+		return r
+	}, s)
+}
+
+// withMarks puts a combining acute accent after every fourth character of s.
+func withMarks(s string) string {
+	var b strings.Builder
+	for i, r := range []rune(s) {
+		b.WriteRune(r)
+		if i%4 == 3 {
+			b.WriteRune('́')
+		}
+	}
+	return b.String()
+}
+
 // FT-LINK-ECHO-F2: a request link is recognized before any network call in
 // every shape the review's matrix pasted (FT-LINK-ECHO review 1, X1 to X4).
 // Without its scheme it used to go to GET /api/code as a code, which sent the
@@ -208,6 +240,18 @@ func TestResolveNeverSendsALinkToTheCodeAPI(t *testing.T) {
 		{"a link id, %23 and a room id", id + "%23" + room},
 		{"a whole request link percent-encoded", "https%3A%2F%2Ffloe.one%2Fr%2F" + id + "%23" + room},
 		{"a link id and a room id with a space", id + " " + room},
+		// The increment's review (rev-eng-b E3): a room id in disguise, which
+		// the ASCII check let through. Five groups, a 32-character word or 32
+		// hex digits once fullwidth, Cyrillic and hyphens are set aside.
+		{"a room id in fullwidth digits", fullwidth(room, true, false)},
+		{"a room id in fullwidth letters", fullwidth(room, false, true)},
+		{"a room id in fullwidth digits and letters", fullwidth(room, true, true)},
+		{"a room id with Cyrillic a, c and e", cyrillicACE.Replace(room)},
+		{"a room id with its hyphens removed", bareRoom},
+		{"a room id with its hyphens removed, in fullwidth", fullwidth(bareRoom, true, true)},
+		{"a room id with its hyphens moved", bareRoom[:16] + "-" + bareRoom[16:]},
+		{"a room id with its hyphens removed and combining marks inside", withMarks(bareRoom)},
+		{"a word of 25 characters", "olive-" + strings.Repeat("x", 25)},
 	}
 	for _, tc := range pastes {
 		t.Run(tc.name, func(t *testing.T) {
@@ -243,6 +287,13 @@ func TestResolveNeverSendsALinkToTheCodeAPI(t *testing.T) {
 		{"a code typed with capitals makes exactly one request", "Olive-Tiger-Castle"},
 		{"a code with a digit in a word makes exactly one request", "olive-tiger-2nd"},
 		{"a code with a letter outside ASCII makes exactly one request", "grün-tiger-castle"},
+		// The longest a generated code gets (four words, after ten collisions),
+		// and the longest word the gate allows (the shipped list's is five).
+		{"a four-word code makes exactly one request", "olive-tiger-castle-panda"},
+		{"a code with a word of 24 characters makes exactly one request", "olive-tiger-" + strings.Repeat("x", 24)},
+		// N3: words that need combining marks, from a self-hosted words.json.
+		{"a code with a decomposed accent makes exactly one request", "grün-tiger-castle"},
+		{"a code in a script with combining marks makes exactly one request", "नमस्ते-घर"},
 	}
 	for _, tc := range codes {
 		t.Run(tc.name, func(t *testing.T) {
