@@ -1645,7 +1645,11 @@ function App() {
     const showUpdate = updateAvailable && !updateDismissed && !busy && !dropMoving && !confirmReset && !confirmDefaults;
     // The request notice keeps the update notice's manners: never behind a
     // dialog's scrim. It stands on every screen, Settings included, except
-    // REQUEST LINK with the prompt in view.
+    // REQUEST LINK with the prompt in view. A prompt that arrives there already
+    // in view still mounts the notice until the IntersectionObserver's first
+    // report, 8 to 23 ms later (FU-04): a frame or so into a 0.32 s fade-in
+    // that starts at opacity 0. Under reduced motion there is no fade, so that
+    // frame or two shows the notice at full opacity. Both are left as they are.
     const showRequestNotice = noticeVisible(reqUI.snap, onRequestView, promptInView) && !closeGuard && !confirmReset && !confirmDefaults;
     // What Start over would destroy, phrased for its own dialog, so the decision
     // to interrupt and the sentence explaining why can never drift apart. Empty
@@ -2303,7 +2307,13 @@ function App() {
                 </aside>
 
                 {/* ── RIGHT CONSOLE: the "instrument" card ────────────────────── */}
-                <main className="custom-scrollbar flex-1 overflow-y-auto">
+                {/* The scrollbar's 6 px gutter is kept even while nothing scrolls,
+                    on both edges so the card stays centered: without it, a prompt
+                    that made <main> scroll moved the card 3 px left in WebView2
+                    (FU-04), and a gutter on the inline end alone kept it there for
+                    good. It takes width only, so the card's anchored top, read from
+                    clientHeight, stays put. */}
+                <main className="custom-scrollbar flex-1 overflow-y-auto [scrollbar-gutter:stable_both-edges]">
                     <div className="mx-auto flex min-h-full w-full max-w-lg px-8 py-8">
                         <div ref={cardPin.ref} style={cardPin.style} className="m-auto w-full rounded-xl border border-white/10 bg-zinc-900/60 shadow-2xl ring-1 ring-white/5 backdrop-blur-xl">
 

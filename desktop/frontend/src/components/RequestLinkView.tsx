@@ -27,8 +27,11 @@ export const PROMPT_HEADING_ID = 'floe-request-prompt-heading';
 export const PROMPT_ACTIONS_ID = 'floe-request-prompt-actions';
 export const LABEL_INPUT_ID = 'floe-request-label';
 
-// Shared pieces of the canvas grammar.
-const headClass = 'px-0.5 font-mono text-[10px] font-medium uppercase leading-4 tracking-[0.2em] text-zinc-300';
+// Shared pieces of the canvas grammar. A heading breaks inside a word only when
+// the word cannot fit: the owner's label is up to 64 characters and may have no
+// space, which in this tracked uppercase mono is wider than the card (FU-04,
+// case d). anywhere, not break-all, so a spaced label still breaks at spaces.
+const headClass = 'px-0.5 font-mono text-[10px] font-medium uppercase leading-4 tracking-[0.2em] text-zinc-300 [overflow-wrap:anywhere]';
 const t1Class = 'text-sm leading-normal text-zinc-200';
 const t2Class = 'text-xs leading-relaxed text-zinc-400';
 const t3Class = 'text-xs leading-relaxed text-zinc-500';

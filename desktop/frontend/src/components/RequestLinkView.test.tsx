@@ -552,6 +552,28 @@ describe('the layout (D-136)', () => {
         rerender(<RequestLinkView {...at('done')}/>);
         expect(screen.getByTitle(result.folder).textContent).toBe('Acme footage 2026-09-14 1405');
     });
+
+    it('a label with no spaces wraps inside the card on every heading that carries it (FU-38)', () => {
+        // The field takes 64 characters, and a heading sets them uppercase in
+        // 10 px mono at 0.2 em tracking: with no space to break at, the label
+        // was one word far wider than the card and scrolled <main> sideways
+        // (FU-04, cell-08 case d). jsdom has no layout, so the class is what
+        // is checked here; the pixels are cell-08-d-no-sideways.
+        const unspaced = 'AcmeFootageForTheAutumnLaunchReviewFromTheLisbonStudioAndArchive';
+        expect(unspaced).toHaveLength(64);
+        const LABEL = unspaced.toUpperCase();
+        const heads: Array<[Exclude<Phase, 'off'>, string]> = [
+            ['waiting', LABEL],
+            ['deciding', `${LABEL} WANTS TO SEND YOU FILES`],
+            ['receiving', `RECEIVING 4 OF 12 FROM ${LABEL}`],
+            ['ended', LABEL],
+        ];
+        for (const [phase, text] of heads) {
+            const {unmount} = render(<RequestLinkView {...at(phase, {progress: progress('a.mov'), snap: {...BY_PHASE[phase], label: unspaced}})}/>);
+            expect(screen.getByText(text).className.split(' '), phase).toContain('[overflow-wrap:anywhere]');
+            unmount();
+        }
+    });
 });
 
 describe('every state', () => {

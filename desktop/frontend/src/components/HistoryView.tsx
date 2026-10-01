@@ -8,9 +8,10 @@ import {shortPath} from '../paths';
 import {VERIFIED_LINE, keptPartLine, renamedLine, stoppedFull, verifiedAll} from '../requestCopy';
 import {RenamedConfirm} from './RequestLinkView';
 
-// The received folder, in characters: the expanded row's 350 px of 12 px mono
-// (Geist Mono advances 7.2 px) hold 48.
-const DIR_MAX = 48;
+// The received folder, in characters: 12 px mono (Geist Mono advances 7.2 px)
+// in the expanded row's 348 px, or 342 px once the list scrolls and its 6 px
+// scrollbar takes its share, which holds 47 (FU-04 saw the 48th cut).
+const DIR_MAX = 47;
 
 /** HistoryView is the History console: the header with Clear and its inline
  *  confirm, the empty state, and the list of expandable rows.
