@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -204,6 +205,62 @@ func setupFailureLine(err error) string {
 	return "WebRTC setup failed: " + err.Error()
 }
 
+// interruptHook, when set, picks what Ctrl+C prints and what it stops before
+// the exit: the request-link send sets one (sendto.go, TL-28 and TL-29). A
+// nil stop says the command already has its outcome and is ending on its
+// own, so the handler prints nothing and leaves the exit code to it. Unset,
+// every command prints "Canceled." as it always has.
+var interruptHook atomic.Pointer[func() (line string, stop func())]
+
+// interruptLine is what the Ctrl+C handler prints, and the stop it runs after
+// printing and before the partial-file cleanup. A hook answers within a
+// short bound (the request-link send waits at most sendToStopWait for its
+// send to settle, so its line is final) and never touches the disk: it runs
+// before the message, and the message must come quickly.
+func interruptLine() (string, func()) {
+	if h := interruptHook.Load(); h != nil {
+		return (*h)()
+	}
+	return "\n  Canceled.", func() {}
+}
+
+// handleInterrupts is main's Ctrl+C and SIGTERM handler, with os.Exit passed
+// in so a test can run it as main runs it. The first signal prints the line,
+// runs the stop and exits 130. For a command with a hook (interruptHook), a
+// second one while that runs exits 130 at once, so a stop that stalls never
+// holds the terminal, and a nil stop leaves a command that has its outcome
+// to end on its own while a second signal still ends it at once. Every other
+// command keeps the handler it always had: its second signal is swallowed,
+// so the partial-file cleanup always runs to its end (review re-check LA2-5).
+func handleInterrupts(sigCh <-chan os.Signal, exit func(int)) {
+	<-sigCh
+	if interruptHook.Load() != nil {
+		go func() {
+			<-sigCh
+			exit(130)
+		}()
+	}
+	line, stop := interruptLine()
+	if stop == nil {
+		return
+	}
+	// Message first: feedback must be instant, and the cleanup below touches
+	// the disk (an AV scanner holding the file could stall it).
+	fmt.Fprintln(os.Stderr, line)
+	stop()
+	// os.Exit skips every defer, including the receiver's partial-file
+	// cleanup. Remove the in-flight .part staging file here so a Ctrl+C leaves
+	// the output directory as clean as any other failure. Safe at any moment:
+	// only .part files are ever registered, and a completed file's rename
+	// vacated that path.
+	abandonPartials()
+	exit(130)
+}
+
+// abandonPartials is the partial-file cleanup the handler runs before its
+// exit: transfer.AbandonPartials in every build, a var so a test can hold it.
+var abandonPartials = transfer.AbandonPartials
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 func main() {
@@ -211,19 +268,7 @@ func main() {
 	// instead of an abrupt stop mid-transfer.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		// Message first: feedback must be instant, and the cleanup below
-		// touches the disk (an AV scanner holding the file could stall it).
-		fmt.Fprintln(os.Stderr, "\n  Canceled.")
-		// os.Exit skips every defer, including the receiver's partial-file
-		// cleanup. Remove the in-flight .part staging file here so a Ctrl+C
-		// leaves the output directory as clean as any other failure. Safe at
-		// any moment: only .part files are ever registered, and a completed
-		// file's rename vacated that path.
-		transfer.AbandonPartials()
-		os.Exit(130)
-	}()
+	go handleInterrupts(sigCh, os.Exit)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

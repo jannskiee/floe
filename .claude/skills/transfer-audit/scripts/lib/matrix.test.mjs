@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+    CLI_VISITOR_ORACLES,
     DEEP_IDS,
     DEFAULT_IDS,
     HASH_IDS,
@@ -790,4 +791,46 @@ test('every request flow checks the prompt, and TA-12 carries no oracle a web vi
         assert.ok(c.request.oracles.includes('prompt-counts-match-no-relay-warning'), c.id);
         assert.ok(!c.request.oracles.includes('prompt-text-only-over-2gb'), c.id);
     }
+});
+
+test('TA-16 H-DIR-C2D-req: the CLI visitor on a desktop link, head only, 64 MiB, judged by the CLI oracles', () => {
+    assert.ok(REQUEST_IDS.includes('H-DIR-C2D-req'));
+    assert.ok(!REQUEST_IDS.includes('S-DIR-C2D-req'), 'no shipped twin until a released CLI has --to');
+    const head = byId(requestPlan('head'));
+    const c = head['H-DIR-C2D-req'];
+    assert.ok(c, 'planned in a head run');
+    assert.equal(c.verdict, null, c.note);
+    assert.equal(c.sender.surface, 'cli');
+    assert.equal(c.receiver.surface, 'desktop');
+    assert.equal(c.receiver.input, 'request-link');
+    assert.equal(c.receiver.statsOff, true);
+    assert.equal(c.fixture.totalBytes, 64 * 1024 * 1024);
+    assert.equal(c.forcer, 'none');
+    assert.equal(c.byConstruction, false, 'its route is observed, never assumed');
+    assert.equal(c.request.flow, 'accept');
+    assert.equal(c.request.visitor, 'cli');
+    assert.equal(c.request.visitors, 1);
+    assert.deepEqual(c.request.oracles, [...CLI_VISITOR_ORACLES]);
+    for (const o of [
+        'visitor-exit-0',
+        'sha256-in-drop-subfolder',
+        'visitor-sha-line-only-when-verified-equals-n',
+        'desktop-received-n-files',
+        'desktop-json-proof',
+    ])
+        assert.ok(c.request.oracles.includes(o), o);
+    assert.ok(!c.request.oracles.includes('link-used-up-after'), 'the used-up check needs a second visitor');
+    // Every other request cell keeps the web visitor.
+    for (const w of Object.values(head)) {
+        if (w.request.flow === 'open-link-precondition' || w.id === 'H-DIR-C2D-req') continue;
+        assert.equal(w.request.visitor, 'web', w.id);
+    }
+    // A shipped run that names it SKIPs head-only and never reaches a server.
+    const shipped = cellPlan({
+        profile: 'shipped',
+        cells: ['H-DIR-C2D-req'],
+        probe: WITH_FEATURE,
+        server: 'https://api.floe.one',
+    }).find((x) => x.id === 'H-DIR-C2D-req');
+    assert.equal(shipped.reason, 'head-only');
 });

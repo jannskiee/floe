@@ -12,15 +12,22 @@
 // name: hash-bad, extra-file, stray-file, part-left, verified-short,
 // sha-line-lie, heading-lie, stopped, no-prompt, not-used-up, decline-copy,
 // blip-no-absent, no-reclaim, visitor-stats, visitor-seed, bytes-reported,
-// init-script, beta-stuck, make-error, prompt-lie, goto-error, click-error.
-// A wrong route is the world's `route` option on a cell that expects the
-// other one.
+// init-script, beta-stuck, make-error, prompt-lie, goto-error, click-error,
+// and for TA-16's CLI visitor cli-exit (exits 1 on a fixed line after the
+// drop), cli-no-arrived (exits 0 without TL-03's line) and cli-stats-env
+// (started without FLOE_NO_STATS=1). A wrong route is the world's `route`
+// option on a cell that expects the other one.
 //
 // `lane: 'uia'` (FU-26) makes the host an exe leg instead: the real
 // DesktopLeg and UiaDriver over tests/fake-request-uia.mjs, the same view
 // read through UIA snapshots. Its launch applies what the leg's desktop.json
 // would carry (edit(): the Beta switch, the server address), and `uia` passes
 // the fake client's options (activates, idle).
+//
+// TA-16's visitor is fakeCliVisitor, the CLI adapter's leg in its
+// request-visitor mode as lib/request.mjs drives it: start() is the CLI
+// joining and printing WAIT, which asks the host exactly as a web Send does,
+// and awaitDone() is its exit once the drop has arrived or stopped.
 import { copyFileSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -284,6 +291,119 @@ export function fakeVisitorContext(world, opts = {}) {
 }
 
 /**
+ * TA-16's CLI visitor on the world: the shape lib/cli.mjs's CliLeg has in its
+ * request-visitor mode (start, awaitDone, route, evidence, stop), with the
+ * lines sendto.go prints. The link it was handed is in its argv, as the real
+ * leg's is, so the runner's redaction is what keeps it out of the record.
+ */
+export function fakeCliVisitor(world, opts) {
+    const v = {
+        id: world.cliVisitors.length + 1,
+        cli: true,
+        opts,
+        files: [...(opts.files || [])],
+        state: 'loading',
+        verified: 0,
+        route: null,
+        emit: () => {},
+        exited: null,
+        stopped: null,
+    };
+    world.cliVisitors.push(v);
+    const env = world.has('cli-stats-env')
+        ? { FLOE_NO_UPDATE_CHECK: '1' }
+        : { FLOE_NO_STATS: '1', FLOE_NO_UPDATE_CHECK: '1' };
+    const argv = ['floe', 'send', ...v.files, '--to', opts.requestLink, '--server', opts.infra?.server];
+    const lines = () => {
+        const n = v.files.length;
+        const out = ['', `  Sending   ${v.files.join(', ')} (${n === 1 ? '1 file' : `${n} files`}, 4 KB)`, '  Joining the request link...'];
+        if (v.state === 'loading') return out;
+        out.push('  Connecting...', `  Connected (${world.route})`, '  Waiting for them to accept. They have 9 min to answer.', '  Nothing is saved until they accept.');
+        if (v.state === 'arrived' && !world.has('cli-no-arrived') && !world.has('cli-exit')) {
+            out.push('', n === 1 ? `  1 file arrived (4 KB in 0s, ${world.route}).` : `  All ${n} files arrived (4 KB in 0s, ${world.route}).`);
+            if (v.verified === n || world.has('sha-line-lie'))
+                out.push("  Their app reports every file's SHA-256 matched.");
+        }
+        return out;
+    };
+    const outcome = () => {
+        if (v.state === 'refused')
+            return 'A file changed or was damaged on the way, so their Floe deleted it.';
+        if (v.state === 'arrived' && world.has('cli-exit'))
+            return 'Connection lost. 0 of 1 file arrived. Ask them for a new link to send it.';
+        return null;
+    };
+    const parsed = () => {
+        const out = lines();
+        const a = out.map((l) => l.match(/^ {2}(?:All (\d+) files|(1) file) arrived \((.+)\)\.$/)).find(Boolean);
+        return {
+            arrived: a ? { files: Number(a[1] ?? a[2]), detail: a[3], line: a[0].trim() } : null,
+            shaLine: out.includes("  Their app reports every file's SHA-256 matched."),
+            connected: v.state === 'loading' ? null : world.route,
+            outcome: outcome(),
+        };
+    };
+    return {
+        surface: 'cli',
+        role: 'sender',
+        label: opts.label,
+        opts,
+        v,
+        pid: null,
+        async start() {
+            world.tick();
+            v.state = 'ready';
+            world.visitorSend(v);
+            if (v.state !== 'waiting')
+                throw new Error(`fake CLI visitor: the host answered ${v.state}, not a seat`);
+            return this;
+        },
+        async code() {
+            return null;
+        },
+        async link() {
+            return null;
+        },
+        async awaitDone(timeoutMs) {
+            const start = world.clock.now();
+            for (;;) {
+                world.tick();
+                if (v.state === 'arrived' || v.state === 'refused') break;
+                if (world.clock.now() - start >= timeoutMs)
+                    return { ok: false, kind: 'error', exitCode: null, detail: { ...parsed(), error: null } };
+                await world.clock.nap(100);
+            }
+            const r = parsed();
+            // cli-no-arrived exits 0 without TL-03's line; a refusal or
+            // cli-exit ends on 1 and its fixed line.
+            const code = v.state === 'refused' || world.has('cli-exit') ? 1 : 0;
+            v.exited = code;
+            return { ok: code === 0 && Boolean(r.arrived), kind: code === 0 ? 'transfer' : 'error', exitCode: code, detail: { ...r, error: null } };
+        },
+        route() {
+            return v.state === 'loading'
+                ? null
+                : { t: world.clock.now(), source: 'cli-connected', local: null, remote: null, verdict: world.route };
+        },
+        evidence() {
+            return {
+                surface: 'cli',
+                role: 'sender',
+                argv,
+                env,
+                exit: v.exited === null ? null : { code: v.exited },
+                statsProof: { kind: 'sender-env', floeNoStats: env.FLOE_NO_STATS ?? null },
+                request: parsed(),
+                notes: [],
+            };
+        },
+        async stop(reason) {
+            v.stopped = reason;
+        },
+    };
+}
+
+/**
  * The world. `route` is the path the drop takes ('direct' or 'relay');
  * `transferMs` is how long an accepted drop moves on the fake clock.
  */
@@ -311,6 +431,7 @@ export function fakeRequestWorld({
         faults: set,
         route,
         visitors: [],
+        cliVisitors: [],
         current: null,
         acceptedAt: null,
         linkUsed: false,
@@ -534,6 +655,9 @@ export function fakeRequestWorld({
                       }),
         },
         web: { getBrowser: async () => world.browser },
+        // TA-16: only a request-link visitor comes from the world; every
+        // other CLI leg stays the plain fake's.
+        cli: { createLeg: (opts) => fakeCliVisitor(world, opts) },
     };
     return world;
 }

@@ -494,7 +494,7 @@ desktop cell SKIPs `desktop-unavailable`.
 
 ## 7a. Request-link cells (need request-1 on the server)
 
-TA-10 to TA-15 and TA-17 of spec 09 2.7.2, listed in
+TA-10 to TA-17 of spec 09 2.7.2, listed in
 `references/matrix.md` (Request-link cells) and `REQUEST_IDS` in
 `scripts/lib/matrix.mjs`. A run reaches them only through `--cells`, and
 each SKIPs `server-no-request-1` until probe P10 finds `request-1`.
@@ -521,8 +521,23 @@ to it, so none ever runs as a plain cell.
   address ride the desktop.json it launches with (`requestLinks:true`,
   `serverOverride`), and the switch's TogglePattern state is the read-back.
   On an exe lane the TA-17 cells with a desktop side are NA
-  `single-instance` (the host holds the one app instance). TA-16 (the CLI
-  visitor) is deferred with B6.
+  `single-instance` (the host holds the one app instance).
+- TA-16 (`H-DIR-C2D-req`, head only) makes the CLI the visitor:
+  `floe send <file> --to <link> --server <s>` through the CLI adapter's own
+  leg (`lib/cli.mjs`, `opts.requestLink`), started once it prints `Waiting
+  for them to accept. They have 9 min to answer.` and done on its exit. The
+  link goes to its argv only; the CLI never prints it back, `link()` answers
+  null, and the leg's evidence, argv included, is scrubbed like every other.
+  Oracles (`CLI_VISITOR_ORACLES`): the prompt, exit 0, the drop's bytes in
+  the exclusive subfolder, the CLI's `All N files arrived (...)` line and
+  its SHA line only when the host verified all N, the desktop's Done copy,
+  the route pair (the CLI's `Connected (direct)` and the D pill), the
+  desktop.json proof, FLOE_NO_STATS=1 on the CLI (a sender has no stats path
+  at all) and a local `/api/stats` delta of 0. A CLI that fails is judged
+  after the host's own end, so a host stop code stays the finding. No
+  used-up check: that needs a second visitor, and the web cells prove it.
+  It returns to the shipped profile (`S-DIR-C2D-req`) with the release
+  whose CLI lists `--to` (preflight's `cliHasTo`).
 - Before the run: the operator's `wails dev` app must already read
   `reportStats:false`, `migrated:true` and the local server
   (`GetSettings`), as for any wailsdev receiver; otherwise the cell is

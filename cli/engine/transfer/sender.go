@@ -25,6 +25,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"regexp"
 	"sync"
 	"time"
 
@@ -98,6 +99,10 @@ var deliveryStallWindow = 60 * time.Second
 // package has no t.Parallel, so a process-wide swap is safe.
 var deliveryBuffered = func(dc *webrtc.DataChannel) uint64 { return dc.BufferedAmount() }
 
+// openForSend opens each file the send reads. A seam for tests, which hold
+// an open until they have stopped the send; os.Open in every build.
+var openForSend = os.Open
+
 // metadataMsg is sent before each file to describe it.
 type metadataMsg struct {
 	Type       string `json:"type"`
@@ -159,28 +164,57 @@ func controlFields(raw []byte) (fields map[string]json.RawMessage, typ string, o
 	return fields, typ, true
 }
 
-// peerReason is what abortFromPeer returns for an incompatible frame it cannot
-// name with a code: the peer's own account, either rebuilt locally from pv and
-// pvMin or passed through displayText. It carries no new information; it exists
-// so the send loop can tell an error that came off the wire from one of its own
-// and leave the local file name off it (F-SHA-3). Error() is byte for byte the
-// text errors.New returned before, so every caller that compares the string,
-// including FuzzAbortFromPeer and TestSenderUnknownCodeKeepsReasonText, is
-// unaffected. Unexported and never wrapped: nothing outside this file should
-// match on it, and errors.As is the only reader.
-type peerReason struct{ text string }
+// PeerEndedError is what abortFromPeer returns for an incompatible frame whose
+// protocol range overlaps ours but that names no code this build knows: a
+// receiver that predates codes, or a code from a newer one. Error() is byte for
+// byte the text the send returned for that frame before this type existed, the
+// peer's reason through displayText or a fixed sentence when it gave none, so
+// every caller that prints or compares the string, FuzzAbortFromPeer and
+// TestSenderUnknownCodeKeepsReasonText included, is unaffected.
+//
+// That text is the peer's: a caller with fixed copy of its own (the
+// request-link send, TL-26) never prints it and reads Saved instead, the
+// frame's count of committed files read and clamped to [0, total] exactly as a
+// PeerStoppedError's is, 0 when absent or unusable. No Unwrap, on purpose: see
+// fromPeer.
+type PeerEndedError struct {
+	Saved int
+	text  string
+}
 
-func (e *peerReason) Error() string { return e.text }
+func (e *PeerEndedError) Error() string { return e.text }
+
+// CompatError is a send that ended on a protocol version range miss: the
+// receiver's incompatible frame carried a pv range that misses ours, or its
+// first ack did. Error() is the message the send has always returned for it
+// (compatErrorMessage), so a caller that prints the error is unchanged. That
+// message holds the peer's release string, so a caller with fixed copy of its
+// own (TL-13) reads LocalTooOld instead of the text.
+type CompatError struct {
+	// LocalTooOld: this side is below the peer's range, so the update is due
+	// here; false means the peer is the side that is behind.
+	LocalTooOld bool
+	text        string
+	// fromWire marks the one read off the receiver's incompatible frame, which
+	// the send returns as it came (fromPeer). The first ack's is this sender's
+	// own check and keeps the file name in front of it, as it always has.
+	fromWire bool
+}
+
+func (e *CompatError) Error() string { return e.text }
 
 // fromPeer reports whether err arrived on the wire rather than being raised by
-// this sender. Both shapes abortFromPeer can return count; nothing else does.
-// Deliberately errors.As on two concrete pointer types and not errors.Is:
-// neither type has Unwrap, and giving peerReason one would let a local
+// this sender, so the send loop can leave the local file name off it
+// (F-SHA-3). The shapes abortFromPeer returns count; nothing else does.
+// Deliberately errors.As on concrete pointer types and not errors.Is: none of
+// them has Unwrap, and giving one of them one would let a local
 // fmt.Errorf("...: %w", ...) masquerade as peer-originated.
 func fromPeer(err error) bool {
 	var stopped *PeerStoppedError
-	var reason *peerReason
-	return errors.As(err, &stopped) || errors.As(err, &reason)
+	var ended *PeerEndedError
+	var compat *CompatError
+	return errors.As(err, &stopped) || errors.As(err, &ended) ||
+		(errors.As(err, &compat) && compat.fromWire)
 }
 
 // abortFromPeer reads the receiver's "incompatible" frame and returns the
@@ -191,8 +225,10 @@ func fromPeer(err error) bool {
 // prose stops here. A known code wins over the pv range, because a current
 // peer always sends an overlapping range and the browser's refusalCodeOf
 // ignores pv the same way. Without a known code the frame reads as it always
-// has: compatErrorFromIncompatible rebuilds a version mismatch from pv/pvMin,
-// or prints the reason through displayText for a peer that predates code.
+// has: compatErrorFromIncompatible rebuilds a version mismatch from pv/pvMin
+// (a *CompatError), or prints the reason through displayText for a peer that
+// predates code (a *PeerEndedError, which also carries saved, clamped, as the
+// browser's onStopped does for any frame).
 //
 // code and saved are read from the raw map, by exact key, not from the
 // struct: a struct tag would accept {"CODE":"declined"}, which the browser
@@ -219,7 +255,13 @@ func abortFromPeer(raw []byte, localVer, updateHint string, total int) error {
 	if code, known := refusalCodeIn(fields); known {
 		return &PeerStoppedError{Code: code, Saved: savedCountIn(fields, total)}
 	}
-	return &peerReason{compatErrorFromIncompatible(localVer, updateHint, incompat)}
+	text := compatErrorFromIncompatible(localVer, updateHint, incompat)
+	// The same CheckCompat that picked the text above, so the type can never
+	// disagree with the words.
+	if ok, localTooOld := CheckCompat(MinProtocolVersion, ProtocolVersion, incompat.PvMin, incompat.Pv); !ok {
+		return &CompatError{LocalTooOld: localTooOld, text: text, fromWire: true}
+	}
+	return &PeerEndedError{Saved: savedCountIn(fields, total), text: text}
 }
 
 // waitFlushed waits until the forwarder has moved every frame that arrived
@@ -277,6 +319,17 @@ func drainQueued(ackCh <-chan []byte, localVer, updateHint string, total int) (g
 			return false, 0, false, nil
 		}
 	}
+}
+
+// receivedAtStop is the delivery wait's answer to SendOptions.Stop. A received
+// already queued still wins: the files arrived, and a stop that lands with it
+// must not report a finished drop as stopped. Anything else queued, a refusal
+// included, is moot once the caller stops, and the answer is ErrSendStopped.
+func receivedAtStop(ackCh <-chan []byte, localVer, updateHint string, total int) (verified int, hasVerified bool, err error) {
+	if got, v, has, err := drainQueued(ackCh, localVer, updateHint, total); err == nil && got {
+		return v, has, nil
+	}
+	return 0, false, ErrSendStopped
 }
 
 // refusalAfterSendError is the check a failed Send makes. pion marks the
@@ -459,6 +512,57 @@ type SendOptions struct {
 	// connection alive and never answers holds the wait until the person
 	// cancels, the class of a receiver that trickles SACKs.
 	RequireReceived bool
+	// NoSummary leaves out the box this sender prints once the delivery wait
+	// ends in success (the Sent, Verified and Time rows). OnDelivered still
+	// fires. A caller that prints its own ending sets it: the request-link
+	// send (cli/cmd/floe/sendto.go), whose approved copy replaces the box
+	// with one sentence (TL-03). False prints the box byte for byte as before.
+	NoSummary bool
+	// OnAck fires once per file, on the send's goroutine, when the receiver's
+	// ack for file index (1-based, this sender's own count) has matched the
+	// file's id, before any of that file's bytes are sent: the Go twin of
+	// onAck in client/lib/transfer/sender.ts. Nothing from the ack is passed
+	// on. A Go receiver acks a file only after committing every file before
+	// it, so index minus 1 is how many had arrived. Nil for every caller that
+	// has no use for it.
+	OnAck func(index int)
+	// Stop, when closed, ends the send where it stands: once the send has
+	// seen it, it queues nothing more on the channel (no chunk, end marker or
+	// next file's metadata), and it returns ErrSendStopped at once from any
+	// wait (the ack, the backpressure, the wait for delivery). The caller
+	// tells the peer why after the send has returned (AbortSend), so that
+	// frame is the last one on the channel and the bounded flush waits for it
+	// and nothing queued behind it. A "received" the receiver had already
+	// sent still wins, because the files arrived. Nil never stops, as before.
+	Stop <-chan struct{}
+	// EndBarLine ends a file's progress bar line when the send returns while
+	// that bar is drawn part way (a refusal, a close or a local failure
+	// inside the file), so what the caller prints next starts on a line of
+	// its own. A Stop leaves the line alone: a caller's Ctrl+C line opens
+	// with its own line break. False keeps the plain send's output byte for
+	// byte as it was.
+	EndBarLine bool
+	// PeerVersionReleaseOnly prints the receiver's "Peer version:" line only
+	// when the version it sent is release-shaped (releaseShapedVer), and no
+	// line at all for any other text, so a receiver the person does not know
+	// cannot put words of its own on this terminal through that field: the
+	// request-link send (D-147 (2)). An honest receiver's line is unchanged.
+	// False prints the line for any version that differs from this build's,
+	// through displayText, as the plain send always has.
+	PeerVersionReleaseOnly bool
+}
+
+// releaseShape is a Floe release string as the builds stamp it: the CLI's
+// "1.10.12" (goreleaser drops the v), a tag's "v1.10.12", Floe Desktop's
+// "desktop-v0.3.0" (approved copy TL-02); a local build says "dev"
+// (releaseShapedVer). No prerelease suffix (D-148): Floe Desktop's release
+// workflow takes only X.Y.Z tags, and a suffix could carry dotted words.
+var releaseShape = regexp.MustCompile(`^(?:desktop-v|v)?[0-9]+\.[0-9]+\.[0-9]+$`)
+
+// releaseShapedVer reports whether a peer's ver reads as a Floe release or a
+// local build, which is all PeerVersionReleaseOnly lets reach the terminal.
+func releaseShapedVer(ver string) bool {
+	return ver == "dev" || releaseShape.MatchString(ver)
 }
 
 // ErrClosedBeforeReceived is what a send under RequireReceived, or to a
@@ -467,6 +571,42 @@ type SendOptions struct {
 // may or may not have kept the files; nothing on this side can tell, so it is
 // never a success.
 var ErrClosedBeforeReceived = errors.New("the connection closed before the receiver confirmed delivery")
+
+// ErrAckTimeout is what a send returns, behind the file's name, when a file's
+// ack did not arrive within the ack timeout (SendOptions.AckTimeout, or
+// defaultAckTimeout). Its text is the one this sender has always returned
+// there; a caller with its own copy matches it with errors.Is.
+var ErrAckTimeout = errors.New("timed out waiting for ack")
+
+// ErrFileChanged is the tail of the two errors a send returns when one of its
+// own files changed size on disk while it was being read (it shrank, or grew
+// past the size its metadata announced). The receiver was told; nothing
+// further was sent. Being the tail keeps both messages byte for byte what they
+// were, and it lets a caller with its own copy tell this local cause from the
+// peer's or the connection's with errors.Is.
+var ErrFileChanged = errors.New("send it again once it stops changing")
+
+// ErrNoFiles is what the three walks of a send return when its paths hold no
+// file at all: PrecheckDrop, Summarize and SendFilesWithOptions, in the words
+// each has always used. One value, so a caller that walks first and sends
+// later tells a tree emptied between the walks from the connection's end.
+var ErrNoFiles = errors.New("no files to send")
+
+// ErrSendStopped is what a send returns once SendOptions.Stop has closed. It
+// is this side's own doing, never the peer's, so nothing was said to the
+// peer: that is the caller's to do, after the send has returned.
+var ErrSendStopped = errors.New("the send was stopped")
+
+// stopRequested reports whether stop has closed, without waiting. A nil stop
+// never has.
+func stopRequested(stop <-chan struct{}) bool {
+	select {
+	case <-stop:
+		return true
+	default:
+		return false
+	}
+}
 
 // SendFiles sends all given file paths over the open data channel, rendering a
 // terminal progress bar. Folders are walked recursively. localVer is the human
@@ -485,12 +625,18 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 		return err
 	}
 	if len(files) == 0 {
-		return fmt.Errorf("no files to send")
+		return ErrNoFiles
 	}
 
 	var totalBytes int64
 	for _, e := range files {
 		totalBytes += e.size
+	}
+
+	// A stop that came before anything went out sends nothing, the relay
+	// gate's abort included: the caller's own abort is the one the peer reads.
+	if stopRequested(opts.Stop) {
+		return ErrSendStopped
 	}
 
 	// Relay size cap: decide before wiring acks or sending any metadata. The
@@ -622,7 +768,7 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 	var confirms bool
 	var sentSoFar int64
 	for i, entry := range files {
-		if err := sendFile(dc, ackCh, sendMore, done, flushed, entry, i+1, len(files), totalBytes, localVer, onProgress, opts.UpdateHint, ackTimeoutOrDefault(opts.AckTimeout), sentSoFar, chunk, &confirms); err != nil {
+		if err := sendFile(dc, ackCh, sendMore, done, flushed, entry, i+1, len(files), totalBytes, localVer, onProgress, opts.OnAck, opts.UpdateHint, ackTimeoutOrDefault(opts.AckTimeout), sentSoFar, chunk, &confirms, opts.Stop, opts.EndBarLine, opts.PeerVersionReleaseOnly); err != nil {
 			// A refusal the PEER sent is returned as it came. The wrap named
 			// entry.displayName, which is the file the sender had already moved
 			// on to: a receiver refuses file N after its end marker, and the
@@ -745,6 +891,13 @@ drainLoop:
 				return fmt.Errorf("connection closed before delivery was confirmed (%d bytes unacknowledged)", left)
 			}
 			break drainLoop
+		case <-opts.Stop:
+			v, has, err := receivedAtStop(ackCh, localVer, opts.UpdateHint, len(files))
+			if err != nil {
+				return err
+			}
+			verified, hasVerified = v, has
+			break drainLoop
 		case <-stall.C:
 			// An empty buffer is the tick arm's to judge, within one tick, so
 			// the wait has one success exit on a drained buffer and it reads
@@ -769,6 +922,9 @@ drainLoop:
 	if opts.OnDelivered != nil {
 		opts.OnDelivered(Delivered{Files: len(files), Verified: verified, HasVerified: hasVerified})
 	}
+	if opts.NoSummary {
+		return nil
+	}
 	rows := [][2]string{
 		{"Sent", fmt.Sprintf("%s (%s)", pluralize(len(files), "file"), formatBytes(totalBytes))},
 	}
@@ -784,8 +940,14 @@ drainLoop:
 
 // sendFile handles the full send sequence for a single file. confirms is set
 // from the first file's ack only (parseAckConfirms) and left alone after.
-func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, done <-chan struct{}, flushed <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onProgress ProgressFunc, updateHint string, ackTimeout time.Duration, baseTotal int64, chunk int, confirms *bool) error {
-	f, err := os.Open(entry.absPath)
+// stop is SendOptions.Stop: seen before every write and in every wait.
+// endBarLine is SendOptions.EndBarLine, and peerVerReleaseOnly is
+// SendOptions.PeerVersionReleaseOnly.
+func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, done <-chan struct{}, flushed <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onProgress ProgressFunc, onAck func(int), updateHint string, ackTimeout time.Duration, baseTotal int64, chunk int, confirms *bool, stop <-chan struct{}, endBarLine, peerVerReleaseOnly bool) (err error) {
+	if stopRequested(stop) {
+		return ErrSendStopped
+	}
+	f, err := openForSend(entry.absPath)
 	if err != nil {
 		return err
 	}
@@ -813,6 +975,12 @@ func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struc
 		Ver:        localVer,
 	}
 	metaJSON, _ := json.Marshal(meta)
+	// Last look before the metadata: the open and the Stat above can take a
+	// while (an on-open scan, a cloud placeholder, a share), and a stop seen
+	// here keeps a file the person stopped from ever being announced.
+	if stopRequested(stop) {
+		return ErrSendStopped
+	}
 	if err := dc.SendText(string(metaJSON)); err != nil {
 		if stop := refusalAfterSendError(done, ackCh, flushed, localVer, updateHint, total); stop != nil {
 			return stop
@@ -858,6 +1026,12 @@ ackLoop:
 			if _, typ, ok := controlFields(raw); ok && typ == "ack" {
 				var ack ackMsg
 				if err := json.Unmarshal(raw, &ack); err == nil && ack.ID == fileID {
+					// The receiver took this file. Reported before the checks
+					// below, which are about what it asked for and not about
+					// whether it answered, as the browser's onAck is.
+					if onAck != nil {
+						onAck(index)
+					}
 					// Defense in depth: verify protocol compat from the receiver's
 					// pv fields on the first file. The receiver already checked from
 					// its side; this catches the case where an old receiver (no pv
@@ -866,10 +1040,10 @@ ackLoop:
 					if index == 1 {
 						ok, localTooOld := CheckCompat(MinProtocolVersion, ProtocolVersion, ack.PvMin, ack.Pv)
 						if !ok {
-							return fmt.Errorf("%s", compatErrorMessage(localTooOld, localVer, ack.Ver,
-								MinProtocolVersion, ProtocolVersion, ack.PvMin, ack.Pv, updateHint))
+							return &CompatError{LocalTooOld: localTooOld, text: compatErrorMessage(localTooOld, localVer, ack.Ver,
+								MinProtocolVersion, ProtocolVersion, ack.PvMin, ack.Pv, updateHint)}
 						}
-						if ack.Ver != "" && localVer != "" && ack.Ver != localVer {
+						if ack.Ver != "" && localVer != "" && ack.Ver != localVer && (!peerVerReleaseOnly || releaseShapedVer(ack.Ver)) {
 							fmt.Printf("  Peer version: %s\n", displayText(ack.Ver, maxDisplayVer))
 						}
 						// The receiver's promise of a final word, read by its
@@ -903,7 +1077,9 @@ ackLoop:
 			}
 			return fmt.Errorf("connection closed while waiting for the receiver (transfer declined or receiver exited)")
 		case <-ackDeadline:
-			return fmt.Errorf("timed out waiting for ack")
+			return ErrAckTimeout
+		case <-stop:
+			return ErrSendStopped
 		}
 	}
 
@@ -920,6 +1096,21 @@ ackLoop:
 	if onProgress == nil {
 		bar = newProgressBar(fileSize, index, total, entry.displayName)
 		bar.Set64(offset)
+	}
+	// barEnded is set where the finished bar gets its line break below. Any
+	// other return leaves the bar's line open once it has drawn, and the
+	// caller's next line would land on it (SendOptions.EndBarLine). A bar
+	// that never drew (IsStarted: nothing past 0 percent yet) left the cursor
+	// on a fresh line, so it gets no break, and neither does a send whose
+	// stop has closed, whatever it returns: its caller opens its Ctrl+C line
+	// with one, also when a refusal or a close won the race with the stop.
+	barEnded := false
+	if bar != nil && endBarLine {
+		defer func() {
+			if !barEnded && bar.IsStarted() && !stopRequested(stop) {
+				fmt.Println()
+			}
+		}()
 	}
 	// The digest covers exactly the bytes handed to dc.Send, so it describes
 	// what the receiver got rather than what is on disk now. Only from offset 0:
@@ -986,7 +1177,15 @@ ackLoop:
 						return fmt.Errorf("backpressure stall: peer not draining (%d bytes buffered)", cur)
 					}
 					lastBuffered = cur
+				case <-stop:
+					return ErrSendStopped
 				}
+			}
+			// Last look before the write: a stop seen here queues nothing,
+			// so at most the one chunk already in dc.Send when it closed
+			// goes out after it.
+			if stopRequested(stop) {
+				return ErrSendStopped
 			}
 			if sendErr := dc.Send(buf[:n]); sendErr != nil {
 				if stop := refusalAfterSendError(done, ackCh, flushed, localVer, updateHint, total); stop != nil {
@@ -1017,6 +1216,12 @@ ackLoop:
 		}
 	}
 
+	// Stopped after the last chunk: no end marker, and no changed-file abort
+	// either, because the caller's abort is the one the peer should read.
+	if stopRequested(stop) {
+		return ErrSendStopped
+	}
+
 	// The file changed under the send. Say so here, where the cause is still
 	// visible, instead of sending an end marker and leaving the receiver to report
 	// a byte count that reads like a network fault.
@@ -1025,8 +1230,8 @@ ackLoop:
 		// The receiver is mid-file with an unfinished .part and no idea why the
 		// bytes stopped. Name it, or its own diagnosis is a stalled connection.
 		abortReason(dc, localVer, changed, true)
-		return fmt.Errorf("the file shrank while it was being sent (announced %d bytes, read %d); send it again once it stops changing",
-			fileSize, sentFile)
+		return fmt.Errorf("the file shrank while it was being sent (announced %d bytes, read %d); %w",
+			fileSize, sentFile, ErrFileChanged)
 	}
 	// Growth is probed off the descriptor, never a second Stat. A descriptor that
 	// stats as 0 and still yields bytes (a log created moments earlier, or a
@@ -1040,13 +1245,14 @@ ackLoop:
 		var probe [1]byte
 		if n, _ := f.Read(probe[:]); n > 0 {
 			abortReason(dc, localVer, changed, true)
-			return fmt.Errorf("the file grew while it was being sent (announced %d bytes); send it again once it stops changing",
-				fileSize)
+			return fmt.Errorf("the file grew while it was being sent (announced %d bytes); %w",
+				fileSize, ErrFileChanged)
 		}
 	}
 
 	if bar != nil {
 		fmt.Println()
+		barEnded = true
 	}
 
 	// Step 4: Send end marker, with the digest when it covers the whole file.

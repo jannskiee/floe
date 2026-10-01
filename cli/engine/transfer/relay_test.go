@@ -88,6 +88,26 @@ func TestSendFilesBlocksOverRelayCap(t *testing.T) {
 	}
 }
 
+// TestRelayGateExportIsTheSendsGate: RelayGate decides exactly as the send's
+// own gate does: over the cap on a relay path it blocks with the same text,
+// at the cap it passes, and a probe that fails lets the drop through.
+func TestRelayGateExportIsTheSendsGate(t *testing.T) {
+	orig := pathTypeFn
+	t.Cleanup(func() { pathTypeFn = orig })
+	pathTypeFn = func(*webrtc.DataChannel) (string, error) { return "relay", nil }
+	over := RelayGate(nil, RelaySizeLimit+1)
+	if !errors.Is(over, ErrRelayOverLimit) || over.Error() != relayGate(nil, RelaySizeLimit+1).Error() {
+		t.Fatalf("RelayGate over the cap = %v, want the send's own gate error", over)
+	}
+	if err := RelayGate(nil, RelaySizeLimit); err != nil {
+		t.Fatalf("RelayGate at the cap = %v, want nil", err)
+	}
+	pathTypeFn = func(*webrtc.DataChannel) (string, error) { return "", fmt.Errorf("no candidate pair selected") }
+	if err := RelayGate(nil, RelaySizeLimit*100); err != nil {
+		t.Fatalf("RelayGate with a failed probe = %v, want nil (fail open)", err)
+	}
+}
+
 // TestRelayGateFailOpen: when the path probe fails (connection state not
 // inspectable), the gate must not block, mirroring the browser's catch {}.
 func TestRelayGateFailOpen(t *testing.T) {

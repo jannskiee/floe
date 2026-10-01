@@ -72,6 +72,15 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dh %dm", secs/3600, (secs%3600)/60)
 }
 
+// FormatBytes is formatBytes for other packages: the request-link send
+// (cli/cmd/floe/sendto.go) prints its own START and ending lines in place of
+// the summary box (TL-01, TL-03), and a size there must read exactly as it
+// does everywhere else here.
+func FormatBytes(n int64) string { return formatBytes(n) }
+
+// FormatDuration is formatDuration for other packages, for the same reason.
+func FormatDuration(d time.Duration) string { return formatDuration(d) }
+
 func pluralize(n int, word string) string {
 	if n == 1 {
 		return fmt.Sprintf("1 %s", word)
@@ -208,7 +217,7 @@ func Summarize(paths []string) (Summary, error) {
 		return Summary{}, err
 	}
 	if len(files) == 0 {
-		return Summary{}, fmt.Errorf("no files to send")
+		return Summary{}, ErrNoFiles
 	}
 	var total int64
 	for _, f := range files {

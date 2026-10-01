@@ -494,6 +494,10 @@ func FuzzAbortFromPeer(f *testing.F) {
 				t.Fatalf("abortFromPeer(%q) text %q depends on more than the code (want %q)", raw, got, want)
 			}
 		}
+		var ended *PeerEndedError
+		if errors.As(err, &ended) && (ended.Saved < 0 || ended.Saved > total) {
+			t.Fatalf("abortFromPeer(%q) returned a PeerEndedError with Saved %d, outside [0, %d]", raw, ended.Saved, total)
+		}
 		if !utf8.ValidString(got) {
 			t.Fatalf("abortFromPeer(%q) returned invalid UTF-8 %q", raw, got)
 		}

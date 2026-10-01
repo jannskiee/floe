@@ -1,0 +1,13 @@
+
+  Sending   shoot (2 files, 320 KB)
+  Joining the request link...
+  Connecting...
+  Connected (direct)
+  Waiting for them to accept. They have 9 min to answer.
+  Nothing is saved until they accept.
+  Peer version: desktop-test
+  [1/2] shoot/A001_C002.mov 100% [███████████████████████████████████] 
+  [2/2] shoot/audio/scene-04_take-02.… 100% [████████████████████████] 
+
+  All 2 files arrived (320 KB in 0s, direct).
+  Their app reports every file's SHA-256 matched.

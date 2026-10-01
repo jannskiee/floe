@@ -127,8 +127,19 @@ must read Reconnecting within 10 s of the first reload, or the cell is ERROR
 `caddy-url` (the host was not behind the proxy, so nothing was proved); a drop
 that ends before the second reload lands is ERROR `caddy-reload-missed`. It is
 on the untested list until it runs live (P-15: before any production policy
-flip). Not planned yet: TA-16 `S-DIR-C2D-req` (the CLI visitor, deferred with
-B6). The id scheme takes one variant token, so TA-12 is `reqhideip` (spec 09
+flip).
+
+TA-16's visitor is the CLI (C): `floe send <file> --to <link> --server <s>`
+through the CLI adapter's own leg (`lib/cli.mjs`, `opts.requestLink`, the
+head CLI). The link goes to its argv only and the CLI never prints it back;
+the leg is started once the CLI prints `Waiting for them to accept. They
+have 9 min to answer.` and is done on its exit. It is head only
+(`H-DIR-C2D-req`) until a released CLI has `--to`; `S-DIR-C2D-req` returns to
+the shipped profile then. Its oracles are `CLI_VISITOR_ORACLES` in
+`scripts/lib/matrix.mjs`; the used-up check needs a second visitor and stays
+with the web cells.
+
+The id scheme takes one variant token, so TA-12 is `reqhideip` (spec 09
 writes `req-hideip`).
 
 | Cell                   | TA        | Snd | Rcv | Path | Forcer         | Input        | Size        | Required oracles |
@@ -153,6 +164,7 @@ writes `req-hideip`).
 | H-REL-W2C-reqopen      | TA-17 (H) | W   | C   | REL  | W sender       | link         | 4 MiB       | as S-REL-W2C-reqopen |
 | H-DIR-D2C-reqopen      | TA-17 (H) | D   | C   | DIR  | none           | code         | 64 MiB      | as S-DIR-D2C-reqopen |
 | H-DIR-C2D-reqopen      | TA-17 (H) | C   | D   | DIR  | none           | code         | 64 MiB      | as S-DIR-C2D-reqopen |
+| H-DIR-C2D-req          | TA-16 (H) | C   | D   | DIR  | none           | request-link | 64 MiB      | the CLI visitor, `floe send <file> --to <link>`: the prompt shows its count and bytes and no relay-over-cap line; the CLI exits 0; on-disk sha256 inside the exclusive drop subfolder, nothing loose beside it; its arrived line (TL-03), its SHA line only when verified equals N; desktop `Received N files` and the SHA sentence; D pill and the CLI's `Connected (direct)`; desktop.json proof; FLOE_NO_STATS=1 on the CLI and a local /api/stats delta of 0; head only until a released CLI has `--to` |
 
 The host verbs on the wailsdev lane (`scripts/lib/desktop.mjs`
 `PlaywrightDriver`), each by its frozen accessible name from

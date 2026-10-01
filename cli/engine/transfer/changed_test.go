@@ -13,6 +13,7 @@ package transfer
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -145,6 +146,9 @@ func TestSenderStopsAtAnnouncedSizeWhenFileGrows(t *testing.T) {
 	if !strings.Contains(err.Error(), "grew while it was being sent") {
 		t.Fatalf("error does not name the growth: %v", err)
 	}
+	if !errors.Is(err, ErrFileChanged) {
+		t.Fatalf("error %v is not ErrFileChanged", err)
+	}
 	if sent := countBytesSent(frames); sent > 64 {
 		t.Fatalf("sent %d bytes for a 64-byte announcement", sent)
 	}
@@ -166,6 +170,9 @@ func TestSenderReportsAFileThatShrinks(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "shrank while it was being sent") {
 		t.Fatalf("error does not name the shrink: %v", err)
+	}
+	if !errors.Is(err, ErrFileChanged) {
+		t.Fatalf("error %v is not ErrFileChanged", err)
 	}
 	if !strings.Contains(err.Error(), "64") || !strings.Contains(err.Error(), "32") {
 		t.Fatalf("error names neither the announced size nor what was read: %v", err)
@@ -191,6 +198,9 @@ func TestSenderRefusesAZeroStatFileThatHasBytes(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "grew while it was being sent") {
 		t.Fatalf("error does not name the growth: %v", err)
+	}
+	if !errors.Is(err, ErrFileChanged) {
+		t.Fatalf("error %v is not ErrFileChanged", err)
 	}
 	if sent := countBytesSent(frames); sent != 0 {
 		t.Fatalf("sent %d bytes for a 0-byte announcement", sent)
