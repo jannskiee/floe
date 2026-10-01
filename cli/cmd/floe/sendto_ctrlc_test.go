@@ -16,7 +16,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jannskiee/floe/cli/engine/peer"
 	"github.com/jannskiee/floe/cli/engine/transfer"
+	"github.com/pion/webrtc/v4"
 )
 
 // ctrlC is main's handler on a test channel, with os.Exit recorded and the
@@ -463,5 +465,44 @@ func TestSendToCtrlCDuringSetupEndsAtOnce(t *testing.T) {
 	wantOnlyLine(t, r, tl28Line)
 	if strings.Contains(r.stdout, "Connected") {
 		t.Fatalf("Connected printed after a Ctrl+C in setup:\n%s", r.stdout)
+	}
+}
+
+// TestAbortDropIsBoundedAgainstAStalledClose (review lens A finding 11, re-check
+// LA2-8): the stop main runs after the Ctrl+C line returns within
+// sendToStopBound even when the abort's flush or the close never returns, so
+// a stalled close can never hold the exit 130. The work is stood in through
+// tellAndClose, and the bound shrunk.
+func TestAbortDropIsBoundedAgainstAStalledClose(t *testing.T) {
+	prevWork, prevBound := tellAndClose, sendToStopBound
+	entered := make(chan struct{})
+	stalled := make(chan struct{})
+	tellAndClose = func(*webrtc.DataChannel, *peer.Connection) {
+		close(entered)
+		<-stalled
+	}
+	sendToStopBound = 300 * time.Millisecond
+	t.Cleanup(func() {
+		close(stalled)
+		tellAndClose, sendToStopBound = prevWork, prevBound
+	})
+	returned := make(chan time.Duration, 1)
+	start := time.Now()
+	go func() {
+		abortDrop(&webrtc.DataChannel{}, &peer.Connection{})
+		returned <- time.Since(start)
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("abortDrop never started its work")
+	}
+	select {
+	case took := <-returned:
+		if took < 300*time.Millisecond {
+			t.Fatalf("abortDrop returned after %v, before its bound, with its work still running", took)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a stalled close held abortDrop past its bound")
 	}
 }

@@ -125,8 +125,9 @@ var sendToStopWait = 500 * time.Millisecond
 
 // sendToStopBound bounds the stop that runs after the line: the engine's 2 s
 // flush while the abort frame leaves (controlFlushTimeout), then the close,
-// so neither can hold the exit 130 for long.
-const sendToStopBound = 3 * time.Second
+// so neither can hold the exit 130 for long. A var only so a test can shrink
+// it.
+var sendToStopBound = 3 * time.Second
 
 // parkUntilExit is where the command waits once Ctrl+C has taken its ending.
 // main's handler prints the one line and exits 130, so the command must print
@@ -228,13 +229,19 @@ func abortDrop(dc *webrtc.DataChannel, conn *peer.Connection) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		transfer.AbortSend(dc, version, transfer.VisitorCancelReason)
-		conn.Close()
+		tellAndClose(dc, conn)
 	}()
 	select {
 	case <-done:
 	case <-time.After(sendToStopBound):
 	}
+}
+
+// tellAndClose is abortDrop's work: the abort frame with its flush, then the
+// close. A var only so a test can stand in one that stalls.
+var tellAndClose = func(dc *webrtc.DataChannel, conn *peer.Connection) {
+	transfer.AbortSend(dc, version, transfer.VisitorCancelReason)
+	conn.Close()
 }
 
 // say prints one of the send's own progress lines, unless Ctrl+C has taken
