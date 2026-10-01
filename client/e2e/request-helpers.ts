@@ -55,6 +55,13 @@ export interface RequestHostOptions {
     holdAfterFile?: number;
     /** -max-files: turns the receiver's request limits on with this file cap. */
     maxFiles?: number;
+    /** -stop-after-file: after the first committed file, stop the drop with
+     *  this refusal code (saved 1), as a receiver that refused it would. The
+     *  harness refuses an unknown code at start. Excludes holdAfterFile. */
+    stopAfterFile?: string;
+    /** -stop-reason: the reason that stop's frame carries; the harness never
+     *  prints it. Only with stopAfterFile. */
+    stopReason?: string;
 }
 
 export interface RequestHost {
@@ -111,6 +118,8 @@ export function startRequestHost(opts: RequestHostOptions): RequestHost {
     if (opts.holdAfterFile !== undefined) args.push('-hold-after-file', String(opts.holdAfterFile));
     if (opts.joinOnStdin) args.push('-join-on-stdin');
     if (opts.maxFiles !== undefined) args.push('-max-files', String(opts.maxFiles));
+    if (opts.stopAfterFile !== undefined) args.push('-stop-after-file', opts.stopAfterFile);
+    if (opts.stopReason !== undefined) args.push('-stop-reason', opts.stopReason);
     const proc = spawn(E2E_HOST_BINARY, args, { stdio: [opts.joinOnStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
     const events: RequestHostEvent[] = [];
     const host = { proc, events, outDir: opts.outDir } as RequestHost & { waiters: Array<() => void>; closed: boolean };

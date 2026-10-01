@@ -266,6 +266,37 @@ describe('the /r page boundaries', () => {
         expect(crumbs).toBeGreaterThan(0);
     });
 
+    it('the only storage /r touches is the discard record: two integers under one key', () => {
+        // FT-R-DISCARD is the first storage write on /r. One module holds every
+        // storage call, and the one value it writes is the counts object under
+        // the fixed key, never a name, a path, the link id or the room
+        // (lostRecord.test.ts checks the stored bytes; the privacy script
+        // r-privacy-check-v4 checks the live page on load).
+        //
+        // What this pin cannot see (review 1 F8): it is a text match over
+        // /r's own sources, so an indirect access (a computed property name)
+        // passes it, and it does not follow imports: lib/staleBundle.ts, which
+        // is global, also writes sessionStorage on /r after a stale-bundle
+        // error. The live backstop is request-link.spec.ts's dump of every
+        // stored key and value in Sending.
+        const sources = requestSources();
+        expect(Object.keys(sources)).toContain('lib/request/lostRecord.ts');
+        for (const [file, src] of Object.entries(sources)) {
+            if (file === 'lib/request/lostRecord.ts') continue;
+            for (const api of ['sessionStorage', 'localStorage', 'indexedDB', 'caches.', 'document.cookie', 'setItem(']) {
+                expect(src.includes(api), `${file} contains ${api}`).toBe(false);
+            }
+        }
+        const record = read('lib/request/lostRecord.ts');
+        expect(record).toContain("export const LOST_KEY = 'floe:r-lost';");
+        expect(callArgs(record, '.setItem').map((a) => a.replace(/\s+/g, ' ').trim())).toEqual([
+            'LOST_KEY, JSON.stringify({ v: 1, arrived, total })',
+        ]);
+        for (const api of ['localStorage', 'indexedDB', 'document.cookie']) {
+            expect(record.includes(api), `lostRecord.ts contains ${api}`).toBe(false);
+        }
+    });
+
     it('nothing on /r logs to the console', () => {
         for (const [file, src] of Object.entries(requestSources())) {
             expect(/\bconsole\./.test(src), file).toBe(false);

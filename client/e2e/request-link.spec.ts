@@ -13,9 +13,9 @@
  * S1-WEB-09 is folded in (D-109 FT-19): there is no gate guard here, so these
  * run in every gated e2e leg. Test 16 keeps its own local-only guard.
  *
- * One cell (the over-approved refusal) needs harness limit flags that wait
- * for WP-A1's ReceiveLimits. It is test.fixme with the missing flags named,
- * so it cannot pass silently.
+ * The over-approved refusal cell (F5-03) has the harness send that refusal
+ * frame itself (-stop-after-file), with a hostile reason: an honest browser
+ * can never make a host say over-approved.
  */
 
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
@@ -23,7 +23,9 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createHash, randomBytes, randomUUID } from 'crypto';
-import { visitorCopy, refusalCopy, sendingHeader } from '../lib/request/visitorCopy';
+import { visitorCopy, refusalCopy, sendingHeader, statusCopy } from '../lib/request/visitorCopy';
+import { initialModel, reduce } from '../lib/request/visitorState';
+import { LOST_KEY } from '../lib/request/lostRecord';
 import { metadataFrameBytes } from '../lib/request/metadataBudget';
 import { CONTROL_MSG_MAX, REQUEST_ACK_TIMEOUT_MS, REQUEST_ACK_GRACE_MS } from '../lib/transfer/protocol';
 import {
@@ -116,6 +118,37 @@ async function expectDelivered(page: Page, h: RequestHost, sent: Record<string, 
 /** A link of the right shape that no host holds. */
 function strayLink(): string {
     return `/r/AAAAAAAAAAA#${randomUUID()}`;
+}
+
+/** C-111 as the page words it after a discard's reload with these counts,
+ *  from the reducer and the copy module the page itself uses. */
+function restoredLostLine(arrived: number, total: number): string {
+    const ready = reduce(initialModel, { type: 'LINK_OK', roomId: randomUUID() }).model;
+    const lost = reduce(ready, { type: 'RESTORE_LOST', arrived, total }).model;
+    const copy = statusCopy(lost, { pathAt: () => undefined, route: null, now: 0 });
+    if (copy?.lines.length !== 1) throw new Error(`no Lost card for ${arrived} of ${total}`);
+    return copy.lines[0];
+}
+
+/** The document.wasDiscarded a discard's reload reads. No CDP command discards
+ *  a tab, and chrome://discards refuses while DevTools is attached, so the flag
+ *  is stubbed; the record the page reads is the one it wrote, or a seed. */
+function stubDiscard(): void {
+    Object.defineProperty(Document.prototype, 'wasDiscarded', { configurable: true, get: () => true });
+}
+
+/** Every key and value in the page's sessionStorage and localStorage. */
+async function storedPairs(page: Page): Promise<Array<[string, string]>> {
+    return page.evaluate(() => {
+        const out: Array<[string, string]> = [];
+        for (const store of [sessionStorage, localStorage]) {
+            for (let i = 0; i < store.length; i++) {
+                const key = store.key(i) ?? '';
+                out.push([key, store.getItem(key) ?? '']);
+            }
+        }
+        return out;
+    });
 }
 
 test.describe('request-link', () => {
@@ -268,15 +301,43 @@ test.describe('request-link', () => {
         expect(await stats()).toBe(0);
     });
 
-    test('request-link: over-approved refusal shows fixed copy and never the reason', async () => {
-        test.fixme(
-            true,
-            'needs the harness limit flags -max-bytes and -max-files (transfer.ReceiveLimits, after WP-A1) and the ' +
-                'reason:<text> cue that writes its own refusal frame with a hostile reason'
-        );
-        // Flow once they exist: a limit below the payload, reason
-        // `<img src=x onerror=alert(1)> $(calc)` plus U+202E; the over-approved
-        // copy shows; page.content() contains none of the reason; no dialog; no .part; stats 0.
+    test('request-link: over-approved refusal shows fixed copy and never the reason', async ({ page, context }) => {
+        // F5-03: the host stops the drop after its first committed file with
+        // over-approved and saved 1, as a receiver that refused it would. An
+        // honest browser can never make a host say over-approved, so the
+        // harness sends the frame itself, with a reason no page may show: a
+        // tag with a handler, a shell expansion and U+202E.
+        const stats = await guard(context);
+        const sent = makeFiles({ 'a.bin': 64 * 1024, 'b.bin': 64 * 1024 });
+        const reason = '<img src=x onerror=alert(1)> $(calc)\u202e';
+        const dialogs: string[] = [];
+        page.on('dialog', (d) => {
+            dialogs.push(d.type());
+            void d.dismiss();
+        });
+        const h = host({ decide: 'accept', stopAfterFile: 'over-approved', stopReason: reason });
+        await page.goto(await requestLink(h));
+        await pickFiles(page, ['a.bin', 'b.bin']);
+        await send(page);
+        const copy = refusalCopy('over-approved', 1, 2);
+        await expect(page.getByRole('heading', { name: copy.title })).toBeVisible({ timeout: 60_000 });
+        for (const line of copy.lines) await expect(page.getByText(line, { exact: true })).toBeVisible();
+        // The refusal (V11) clears the counts the tab kept in Sending
+        // (FT-R-DISCARD): a discard from here must not reload to Lost.
+        expect(await page.evaluate((key) => sessionStorage.getItem(key), LOST_KEY)).toBeNull();
+        expect(await waitForHostEvent(h, 'refused', 30_000)).toMatchObject({ code: 'over-approved' });
+        await waitForHostEvent(h, 'done', 30_000);
+        // Nothing of the reason reaches the page, as markup or as text.
+        const html = await page.content();
+        for (const piece of ['onerror', 'alert(1)', '$(calc)', 'src=x', '\u202e']) {
+            expect(html.includes(piece), `the page carries ${JSON.stringify(piece)} from the reason`).toBe(false);
+        }
+        expect(dialogs).toEqual([]);
+        // File 1 was saved; file 2 never landed, not even as a .part.
+        const got = sha256Manifest(scratch.outDir);
+        expect(Object.keys(got).some((k) => k.endsWith('.part'))).toBe(false);
+        expect(Object.values(got)).toEqual([sent['a.bin']]);
+        expect(await stats()).toBe(0);
     });
 
     test('request-link: folder delivered intact with SHA-256', async ({ page, context }) => {
@@ -403,6 +464,113 @@ test.describe('request-link', () => {
         expect(await stats()).toBe(0);
     });
 
+    test('request-link: a discarded tab comes back to the Lost copy with its count', async ({ page, context }) => {
+        // FT-R-DISCARD: Chrome reloads a tab it discarded mid-drop. The seed is
+        // the record the tab keeps in Sending (counts only); the page reads it
+        // once, shows C-110 and C-111, and starts nothing.
+        const stats = await guard(context);
+        // What request-privacy.spec.ts's watchSignaling counts: a socket, a
+        // TURN fetch, or /api/config, the first sign of resolving a server.
+        const seen: string[] = [];
+        const signaling = (u: string) =>
+            u.includes('socket.io') || u.includes('turn-credentials') || u.includes('/api/config');
+        page.on('request', (r) => {
+            if (signaling(r.url())) seen.push(r.url());
+        });
+        page.on('websocket', (ws) => {
+            if (signaling(ws.url())) seen.push(ws.url());
+        });
+        const record = JSON.stringify({ v: 1, arrived: 1, total: 2 });
+        const seed = ([key, value]: readonly [string, string]) => sessionStorage.setItem(key, value);
+        await page.addInitScript(stubDiscard);
+        await page.addInitScript(seed, [LOST_KEY, record] as const);
+        await page.goto(strayLink());
+        await expect(page.getByRole('heading', { name: visitorCopy.lostTitle })).toBeVisible({ timeout: 20_000 });
+        await expect(page.getByText(restoredLostLine(1, 2))).toBeVisible();
+        // No name was kept, so no Arrived list; the card has no button.
+        await expect(page.getByText(visitorCopy.arrivedHeading, { exact: true })).toHaveCount(0);
+        await expect(page.getByRole('main').getByRole('button')).toHaveCount(0);
+        // Read once: the record is gone.
+        expect(await page.evaluate((key) => sessionStorage.getItem(key), LOST_KEY)).toBeNull();
+        // Nothing starts: the privacy spec's settle, then no socket and no TURN.
+        await page.waitForTimeout(1_000);
+        expect(seen).toEqual([]);
+
+        // Any other load: the same record without the flag opens on Ready, and
+        // the record is removed all the same.
+        const plain = await context.newPage();
+        await plain.addInitScript(seed, [LOST_KEY, record] as const);
+        await plain.goto(strayLink());
+        await expect(plain.getByRole('heading', { name: visitorCopy.readyEyebrow })).toBeVisible();
+        await expect(plain.getByRole('heading', { name: visitorCopy.lostTitle })).toHaveCount(0);
+        expect(await plain.evaluate((key) => sessionStorage.getItem(key), LOST_KEY)).toBeNull();
+        expect(await stats()).toBe(0);
+    });
+
+    test('request-link: in Sending the tab keeps counts only, and a discard reload shows them', async ({ page, context }) => {
+        test.setTimeout(120_000);
+        const stats = await guard(context);
+        makeFiles({ 'a.bin': 256 * 1024, 'b.bin': 256 * 1024 });
+        // The harness holds its receive loop after file 1, so the page sits in
+        // Sending (file 1's ack landed, file 2's has not) with its record
+        // written by the page itself.
+        const h = host({ decide: 'accept', holdAfterFile: 20_000 });
+        const link = await requestLink(h);
+        const url = new URL(link);
+        const linkId = url.pathname.split('/').pop() ?? '';
+        const room = url.hash.slice(1);
+        expect(linkId.length > 0 && room.length > 0).toBe(true);
+        await page.goto(link);
+        await pickFiles(page, ['a.bin', 'b.bin']);
+        await send(page);
+        await waitForHostEvent(h, 'holding', 60_000);
+        await expect(page.getByRole('heading', { name: sendingHeader(1, 2) })).toBeVisible();
+        const stored = await storedPairs(page);
+        // Checked before any value can be printed: a failure message must never
+        // carry the link id or the room (describeHarness's rule).
+        for (const [key, value] of stored) {
+            expect(key.includes(linkId) || value.includes(linkId), 'a stored key or value holds the link id').toBe(false);
+            expect(key.includes(room) || value.includes(room), 'a stored key or value holds the room').toBe(false);
+            const named = ['a.bin', 'b.bin'].some((n) => key.includes(n) || value.includes(n));
+            expect(named, 'a stored key or value holds a picked file name').toBe(false);
+        }
+        expect(stored.filter(([key]) => key.startsWith('floe:'))).toEqual([[LOST_KEY, '{"v":1,"arrived":0,"total":2}']]);
+
+        // A fragment naming another room mid-drop: the drop stays in the room
+        // it joined (E29), but Chrome would reload a discarded tab at the
+        // address it shows, so the record goes; back at the drop's room, the
+        // counts return (review 1 F1). The record is read by a hashchange
+        // listener added after the page's own, so it runs in the same dispatch
+        // right after it: what the page's handler did, before the sender's
+        // 500 ms progress tick could sync the record for it.
+        const hashThenRead = (next: string) =>
+            page.evaluate(
+                ([key, hash]) =>
+                    new Promise<string | null>((resolve) => {
+                        window.addEventListener('hashchange', () => resolve(sessionStorage.getItem(key)), {
+                            once: true,
+                        });
+                        location.hash = hash;
+                    }),
+                [LOST_KEY, next] as const
+            );
+        expect(await hashThenRead(randomUUID())).toBeNull();
+        await expect(page.getByRole('heading', { name: sendingHeader(1, 2) })).toBeVisible();
+        expect(await hashThenRead(room)).toBe('{"v":1,"arrived":0,"total":2}');
+
+        // The discard: Chrome reloads the tab at its address with
+        // document.wasDiscarded true. The drop is live, so the leave-page
+        // prompt is accepted first, or Playwright's auto-dismiss would cancel
+        // the reload.
+        await page.addInitScript(stubDiscard);
+        page.on('dialog', (d) => void d.accept());
+        await page.reload();
+        await expect(page.getByRole('heading', { name: visitorCopy.lostTitle })).toBeVisible({ timeout: 20_000 });
+        await expect(page.getByText(restoredLostLine(0, 2))).toBeVisible();
+        expect(await page.evaluate((key) => sessionStorage.getItem(key), LOST_KEY)).toBeNull();
+        expect(await stats()).toBe(0);
+    });
+
     test('request-link: Hide my IP without a relay stops before joining', async ({ page, context }) => {
         const stats = await guard(context);
         const frames = await forwardSocketFrames(page);
@@ -488,6 +656,73 @@ test.describe('request-link', () => {
         await page.close({ runBeforeUnload: true });
         await stillOpen;
         expect(dialogs).toEqual(['waiting:beforeunload']);
+        expect(await stats()).toBe(0);
+    });
+
+    test('request-link: a footer link mid-drop raises the leave-page prompt', async ({ page, context }) => {
+        // F5-02: the /r footer links are plain anchors, so leaving by one
+        // mid-drop is a page load and raises the browser's own leave-page
+        // prompt from useVisitorGuards, as closing the tab does (spec 07
+        // 4.14). Dismissed, the drop runs on to delivery; accepted, the page
+        // leaves and the host's drop stops there.
+        test.setTimeout(240_000);
+        const stats = await guard(context);
+        const sent = makeFiles({ 'a.bin': 256 * 1024, 'b.bin': 256 * 1024 });
+        const dialogs: string[] = [];
+        let answer: 'dismiss' | 'accept' = 'dismiss';
+        page.on('dialog', (d) => {
+            dialogs.push(`${answer}:${d.type()}`);
+            void (answer === 'accept' ? d.accept() : d.dismiss());
+        });
+        const sending = page.getByRole('heading', { name: sendingHeader(1, 2) });
+        const privacy = page.getByRole('contentinfo').getByRole('link', { name: 'Privacy' });
+
+        // Dismiss. The harness holds its receive loop after file 1, so the
+        // click lands in Sending (V10) on any machine.
+        const stay = host({ decide: 'accept', holdAfterFile: 10_000 });
+        await page.goto(await requestLink(stay));
+        await pickFiles(page, ['a.bin', 'b.bin']);
+        await send(page);
+        await waitForHostEvent(stay, 'holding', 60_000);
+        await expect(sending).toBeVisible();
+        let prompt = page.waitForEvent('dialog', { timeout: 15_000 });
+        await privacy.click();
+        await prompt;
+        expect(dialogs).toEqual(['dismiss:beforeunload']);
+        expect(new URL(page.url()).pathname.startsWith('/r/')).toBe(true);
+        await expectDelivered(page, stay, sent);
+        // Delivered (V13) clears the counts the tab kept in Sending
+        // (FT-R-DISCARD): a finished tab that Chrome discards later must reload
+        // to Ready, never to "Connection lost".
+        expect(await page.evaluate((key) => sessionStorage.getItem(key), LOST_KEY)).toBeNull();
+
+        // Accept. The page leaves for /privacy, and the host's drop stops at
+        // file 1: the harness has no copy of its own, so what it shows is its
+        // receive ending before a second file (the error event's receive
+        // stage), with no .part left and no done.
+        answer = 'accept';
+        const outLeave = join(scratch.root, 'out-leave');
+        mkdirSync(outLeave);
+        const leave = startRequestHost({ outDir: outLeave, decide: 'accept', holdAfterFile: 10_000 });
+        scratch.hosts.push(leave);
+        await page.goto(await requestLink(leave));
+        await pickFiles(page, ['a.bin', 'b.bin']);
+        await send(page);
+        await waitForHostEvent(leave, 'holding', 60_000);
+        await expect(sending).toBeVisible();
+        prompt = page.waitForEvent('dialog', { timeout: 15_000 });
+        await privacy.click();
+        await prompt;
+        await page.waitForURL('**/privacy');
+        expect(dialogs).toEqual(['dismiss:beforeunload', 'accept:beforeunload']);
+        expect(await leave.exited).toBe(1);
+        const events = leave.events.map((e) => e.event);
+        expect(events.filter((e) => e === 'file-committed')).toHaveLength(1);
+        expect(events).not.toContain('done');
+        expect(leave.events[leave.events.length - 1]).toMatchObject({ event: 'error', stage: 'receive' });
+        const got = sha256Manifest(outLeave);
+        expect(Object.keys(got).some((k) => k.endsWith('.part'))).toBe(false);
+        expect(Object.values(got)).toEqual([sent['a.bin']]);
         expect(await stats()).toBe(0);
     });
 
