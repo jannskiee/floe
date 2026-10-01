@@ -873,6 +873,58 @@ func TestSendToOneFileArrivesInTheSingular(t *testing.T) {
 	}
 }
 
+// TestSendToClockRunsFromTheAccept (D9; review lens A finding 3, re-check
+// LA2-7): the arrived line's duration runs from the host's accept to its
+// received, never from the join. A host that decides for 3 s and then takes
+// a 64 KB file at once reads "in 0s" ("1s" on a slow machine), never the
+// seconds it spent deciding.
+func TestSendToClockRunsFromTheAccept(t *testing.T) {
+	o := captureOutput(t)
+	s := newReqServer(t, "seat")
+	stubNetwork(t, s.URL)
+	p, _ := oneFile(t, t.TempDir(), "a.bin", 64*1024)
+	out := t.TempDir()
+	h := startHost(t, s, func(h *testHost) error {
+		if err := h.offer(); err != nil {
+			return err
+		}
+		return h.receive(out, func(transfer.IncomingInfo) transfer.Decision {
+			time.Sleep(3 * time.Second)
+			return transfer.Decision{Kind: transfer.DecisionAccept, OutputDir: out}
+		}, func(transfer.FileDone) {})
+	})
+	r := runCLI(t, p, "--to", linkFor(), "--server", s.URL)
+	herr := h.wait(t)
+	r.read(o)
+	if r.err != nil || herr != nil {
+		t.Fatalf("the drop failed: %v, host %v\nstderr:\n%s", r.err, herr, r.stderr)
+	}
+	if !regexp.MustCompile(`(?m)^  1 file arrived \(64 KB in [01]s, direct\)\.$`).MatchString(r.stdout) {
+		t.Fatalf("the arrived line's clock did not start at the accept:\n%s", r.stdout)
+	}
+}
+
+// TestSendToLabelJoinsTypedPaths (D4; review lens A finding 3, re-check
+// LA2-7): START names every typed path as typed, joined with ", ", then the
+// count and size of all of them.
+func TestSendToLabelJoinsTypedPaths(t *testing.T) {
+	o := captureOutput(t)
+	stubNetwork(t, "")
+	dir := t.TempDir()
+	a, _ := oneFile(t, dir, "a.bin", 1000)
+	oneFile(t, dir, filepath.Join("shoot", "b.bin"), 2000)
+	oneFile(t, dir, filepath.Join("shoot", "c.bin"), 3000)
+	shoot := filepath.Join(dir, "shoot")
+	// No ICE fetch is allowed, so the command ends on TL-10 right after
+	// START, before any network.
+	r := runCLI(t, a, shoot, "--to", linkFor()).read(o)
+	wantOutcome(t, r, tlSetupFailed)
+	want := "\n  Sending   " + a + ", " + shoot + " (3 files, " + transfer.FormatBytes(6000) + ")\n"
+	if !strings.Contains(r.stdout, want) {
+		t.Fatalf("START is not the joined label %q:\n%s", want, r.stdout)
+	}
+}
+
 // TestSendToFailedConnectionEndsTheWaitForReceived: a host that took every
 // byte and then went silent (its machine gone, no close this side can hear)
 // holds the wait for received open, which has no deadline of its own. Only
