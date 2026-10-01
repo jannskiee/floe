@@ -15,6 +15,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -257,25 +258,36 @@ func execute() error {
 	return err
 }
 
+// ownLines is an error whose text Floe wrote line by line (the protocol
+// remedy, the update checksum mismatch). Only its newlines are printed as
+// newlines; any other error, and any text wrapped around one of these,
+// prints on one line.
+type ownLines interface {
+	error
+	OwnLines()
+}
+
 // errorMax bounds an error's text: a server's error message or a
 // certificate's names have no length of their own, and escaped they would
 // print as one line four times as long. Floe's own errors are far shorter.
 const errorMax = 2000
 
-// errorText is err's text as execute prints it: cut at errorMax runes, each
-// line escaped (peer.EscapeText), and every line after the first starting
-// with at least two spaces. Floe's own multi-line errors (the protocol
-// remedy, the update checksum mismatch) already indent theirs and print as
-// before; a newline inside text Floe does not control can only add an
-// indented line under the error, never one that passes for other output.
+// errorText is err's text as execute prints it, cut at errorMax runes. An
+// error marked ownLines (the protocol remedy, the update checksum mismatch)
+// prints its own lines, each escaped, later ones indented as Floe wrote them;
+// only when no text outside it adds a newline. Every other error, a server's
+// message or a certificate's names among them, prints escaped on one line, so
+// a newline in text Floe does not control shows as \x0a and can never lay out
+// lines that pass for Floe's own.
 func errorText(err error) string {
-	lines := strings.Split(cutRunes(err.Error(), errorMax), "\n")
+	s := cutRunes(err.Error(), errorMax)
+	var own ownLines
+	if !errors.As(err, &own) || strings.Contains(strings.TrimSuffix(s, own.Error()), "\n") {
+		return peer.EscapeText(s)
+	}
+	lines := strings.Split(s, "\n")
 	for i, line := range lines {
-		line = peer.EscapeText(line)
-		if i > 0 && !strings.HasPrefix(line, "  ") {
-			line = "  " + line
-		}
-		lines[i] = line
+		lines[i] = peer.EscapeText(line)
 	}
 	return strings.Join(lines, "\n")
 }

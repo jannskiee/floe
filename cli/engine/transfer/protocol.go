@@ -106,6 +106,16 @@ func compatErrorMessage(localTooOld bool, localVer, remoteVer string, localMin, 
 	)
 }
 
+// compatError is a protocol mismatch as this side reports it. Its later lines
+// are Floe's own, indented two spaces, and the peer's parts went through
+// displayText, so a terminal may print it as lines (OwnLines).
+type compatError string
+
+func (e compatError) Error() string { return string(e) }
+
+// OwnLines marks the text as Floe's own lines (cli/cmd/floe errorText).
+func (compatError) OwnLines() {}
+
 // peerCompatErrorMessage describes the same mismatch from the remote peer's
 // perspective. It is sent on the wire as a surface-neutral fallback for peers
 // that display Reason verbatim instead of rebuilding it from pv/pvMin.

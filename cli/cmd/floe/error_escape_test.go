@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -100,26 +101,29 @@ func TestExecutePrintsAPlainErrorAsCobraDid(t *testing.T) {
 	}
 }
 
-// TestExecuteKeepsFloesOwnLinesAndIndentsAnyOther (review 1 L1): Floe's own
-// multi-line errors print as before; a newline in other text only adds an
-// indented line, never one that passes for separate output.
-func TestExecuteKeepsFloesOwnLinesAndIndentsAnyOther(t *testing.T) {
+// TestExecuteKeepsOnlyFloesOwnLines (review 1 L1, review 2 M3):
+// an error marked as Floe's own lines prints them as before; a newline in any
+// other text, or in text wrapped around Floe's own lines, prints on one line.
+func TestExecuteKeepsOnlyFloesOwnLines(t *testing.T) {
 	const remedy = "Cannot transfer: your floe is too old for this peer.\n  You: protocol 1 (dev)  Peer: protocol 9\n  Run `floe update` to upgrade."
-	if got := runFailing(t, errors.New(remedy)); got != "Error: "+remedy+"\n" {
+	if got := runFailing(t, testOwnLines(remedy)); got != "Error: "+remedy+"\n" {
 		t.Fatalf("Floe's own multi-line error changed: %q", got)
 	}
 	got := runFailing(t, errors.New("x509: certificate is valid for a\nError: transfer complete\n\x1b[2Jb"))
-	lines := strings.Split(strings.TrimSuffix(got, "\n"), "\n")
-	if len(lines) != 3 {
-		t.Fatalf("got %d lines, want 3: %q", len(lines), got)
+	if n := strings.Count(got, "\n"); n != 1 {
+		t.Fatalf("a foreign newline printed %d lines, want 1: %q", n, got)
 	}
-	for _, l := range lines[1:] {
-		if !strings.HasPrefix(l, "  ") {
-			t.Errorf("a line from inside the error starts at the margin: %q", l)
-		}
+	if got := runFailing(t, fmt.Errorf("server error: a\n  Run x: %w", testOwnLines("b"))); strings.Count(got, "\n") != 1 {
+		t.Errorf("foreign text wrapped around Floe's own lines printed as lines: %q", got)
 	}
 	requireNoRawControl(t, "the multi-line error", got)
 }
+
+// testOwnLines stands in for the engine's OwnLines errors.
+type testOwnLines string
+
+func (e testOwnLines) Error() string { return string(e) }
+func (testOwnLines) OwnLines()       {}
 
 // TestExecuteCutsALongError (review 1 L5): a server message of any length
 // prints as a bounded line.
