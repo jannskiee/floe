@@ -15,7 +15,7 @@ repository root.
 
 The signaling server needs **Node.js 18 or later**. It calls the built-in `fetch`, which arrived
 in 18, and its own dependencies declare the same floor. `package.json` has no `engines` field, so
-nothing stops you starting it on something older; it fails at runtime instead. CI runs it on Node
+nothing stops you from starting it on something older; it fails at runtime instead. CI runs it on Node
 20 and the published image is built on Node 24, so anything in that range is well trodden.
 
 ```bash Terminal
