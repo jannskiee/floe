@@ -64,7 +64,7 @@ file is open.
 
 The other direction, receiver to sender, carries no file data, so nothing there can be confused
 with a chunk and a sender accepts a control message in either framing. It has to: a Go receiver
-sends `ack`, `received` and `incompatible` as binary, and a browser receiver sends `ack` as a
+sends `ack`, `received`, and `incompatible` as binary, and a browser receiver sends `ack` as a
 string and `incompatible` as binary.
 
 If you are building another client, one rule falls out of all of this: **every frame you send to
@@ -204,7 +204,7 @@ reading it as a control message. Whichever side displays it caps the reason agai
 characters.
 
 Both Go peers wait for the send buffer to drain, up to 2 seconds, before closing, and so does a
-browser sender. Without that wait the frame is routinely lost: closing a pion connection aborts
+browser sender. Without that wait the frame is routinely lost: closing a Pion connection aborts
 the SCTP association and discards whatever was still queued, so the peer would see the close and
 report a lost connection rather than the reason. A browser receiver sends without waiting,
 because it does not close the connection afterwards.
