@@ -261,6 +261,10 @@ func TestReceiveFloeLinkWithAnotherServerEndsWithoutANetworkCall(t *testing.T) {
 		"quotes":                `"https://www.floe.one/?room=` + room + `"`,
 		"capitals, port, a dot": "https://FLOE.ONE.:443/#room=" + room,
 		"http":                  "http://floe.one/#room=" + room,
+		// N1: hosts a browser maps to floe.one (IDNA), as it reads them.
+		"fullwidth":                   "https://ｆｌｏｅ.one/#room=" + room,
+		"www, ideographic full stops": "https://www。ｆｌｏｅ。one/?room=" + room,
+		"circled letters":             "https://ⓕⓛⓞⓔ.one/#room=" + room,
 	}
 	servers := []struct {
 		name string
@@ -307,6 +311,7 @@ func TestReceiveFloeLinkWithAnotherServerEndsWithoutANetworkCall(t *testing.T) {
 		cause string
 	}{
 		{"no server chosen", nil, []string{"https://floe.one/#room=" + room}, 1, 0, "failed to fetch ICE credentials: test: no ICE fetch from https://api.floe.one"},
+		{"no server chosen, fullwidth", nil, []string{"https://ｆｌｏｅ.one/#room=" + room}, 1, 0, "failed to fetch ICE credentials: test: no ICE fetch from https://api.floe.one"},
 		{"FLOE_SERVER names api.floe.one", map[string]string{"FLOE_SERVER": "https://API.floe.one.:443/"}, []string{"https://www.floe.one/?room=" + room}, 1, 0, "failed to fetch ICE credentials: test: no ICE fetch from https://API.floe.one.:443"},
 		{"--server names api.floe.one", nil, []string{"floe.one/#room=" + room, "--server", "https://api.floe.one"}, 1, 0, "failed to fetch ICE credentials: test: no ICE fetch from https://api.floe.one"},
 		{"a self-hosted link with its server", nil, []string{"https://files.example.com/#room=" + room, "--server", other.URL}, 1, 0, "failed to fetch ICE credentials: test: no ICE fetch from " + other.URL},

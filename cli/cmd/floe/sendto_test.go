@@ -1318,6 +1318,22 @@ func TestSendToOtherServerLinkEndsWithoutANetworkCall(t *testing.T) {
 		{"https://www.floe.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
 		{"floe.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
 		{"https://floe.one./r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		// N1 (FU-46 review 1, FU-53): a host a browser maps to floe.one
+		// (IDNA: fullwidth letters and dots, the ideographic full stop,
+		// circled letters, a soft hyphen, a percent-encoded fullwidth letter)
+		// is floe.one: with another server it ends on TL-10, with none it
+		// goes to api.floe.one, where its room is.
+		{"https://ｆｌｏｅ.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		{"https://www.ｆｌｏｅ.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		{"https://ＦＬＯＥ．ＯＮＥ/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		{"https://floe。one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		{"https://ⓕⓛⓞⓔ.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		{"https://flo\u00ade.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		{"https://%EF%BD%86loe.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		{"https://ｆｌｏｅ.one/r/Xk3p9Q0aB1c#" + room, true, floeServer, false},
+		{"https://ｆｌｏｅ.one/r/Xk3p9Q0aB1c#" + room, false, floeServer, false},
+		{"https://ｆｌｏｅ.one.example.com/r/Xk3p9Q0aB1c#" + room, true, selfHosted, false},
+		{"https://ｆｌｏｅ.one.example.com/r/Xk3p9Q0aB1c#" + room, false, floeServer, true},
 	} {
 		if got := linkServerMismatch(c.link, c.chosen, c.server); got != c.want {
 			t.Errorf("linkServerMismatch(%q, %v, %q) = %v, want %v", c.link, c.chosen, c.server, got, c.want)
@@ -1356,6 +1372,9 @@ func TestSendToFloeLinkWithAnotherServerEndsWithoutANetworkCall(t *testing.T) {
 		{"FLOE_SERVER set", "https://floe.one/r/Xk3p9Q0aB1c#" + room, true},
 		{"FLOE_SERVER set, www and no scheme", "www.floe.one/r/Xk3p9Q0aB1c#" + room, true},
 		{"--server typed", "https://WWW.floe.one/r/Xk3p9Q0aB1c#" + room, false},
+		// N1 (FU-53): the host in fullwidth letters, as a browser reads it.
+		{"--server typed, fullwidth", "https://ｆｌｏｅ.one/r/Xk3p9Q0aB1c#" + room, false},
+		{"FLOE_SERVER set, fullwidth www and dots", "https://www．ｆｌｏｅ．one/r/Xk3p9Q0aB1c#" + room, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			o := captureOutput(t)

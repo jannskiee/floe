@@ -34,6 +34,7 @@ import (
 	"github.com/jannskiee/floe/cli/engine/transfer"
 	"github.com/pion/webrtc/v4"
 	"github.com/spf13/cobra"
+	"golang.org/x/net/idna"
 )
 
 // sendToAckTimeout is how long the send waits for each ack from the host: the
@@ -767,12 +768,21 @@ func linkServerMismatch(link string, serverChosen bool, server string) bool {
 }
 
 // isFloeOneLinkHost reports whether a link's host is floe.one or
-// www.floe.one, the web app whose links hold rooms on api.floe.one alone, in
-// any case and with one trailing dot (a fully qualified name reaches the same
-// host). The request-link send (linkServerMismatch) and receive (runReceive)
-// both decide by it.
+// www.floe.one, the web app whose links hold rooms on api.floe.one alone, as
+// a browser reads the host: through IDNA's lookup mapping (UTS 46, what a
+// browser applies before it resolves a name), so fullwidth letters and dots,
+// the ideographic full stop, circled letters and a soft hyphen all read as
+// the ASCII they map to (FU-46 review 1 N1), then in any case and with one
+// trailing dot (a fully qualified name reaches the same host). A host the
+// mapping refuses is compared as written, lower-cased; none of those maps to
+// floe.one. The request-link send (linkServerMismatch) and receive
+// (runReceive) both decide by it.
 func isFloeOneLinkHost(host string) bool {
-	switch strings.TrimSuffix(strings.ToLower(host), ".") {
+	h := strings.ToLower(host)
+	if ascii, err := idna.Lookup.ToASCII(host); err == nil {
+		h = ascii
+	}
+	switch strings.TrimSuffix(h, ".") {
 	case "floe.one", "www.floe.one":
 		return true
 	}
