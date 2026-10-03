@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { createReceiver } from './receiver';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { createReceiver, OUT_OF_MEMORY_MESSAGE, INTERNAL_ERROR_MESSAGE, SPILL_BYTES, type ReceiveFailure } from './receiver';
 import { metadataMessage, endMessage, incompatibleMessage, CONTROL_MSG_MAX, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, checkCompat } from './protocol';
 
 const enc = new TextEncoder();
@@ -611,5 +611,436 @@ describe('receiver: truncation guard', () => {
         expect(h.errors).toHaveLength(1);
         expect(h.errors[0]).toContain('Incomplete file "photognp.exe"');
         expect(h.errors[0]).not.toContain('\u202e');
+    });
+});
+
+/**
+ * FLOE-M: a tab that ran out of memory threw from the chunk copy, nothing
+ * caught it, and nothing latched, so every later chunk threw again (3,871
+ * uncaught events in six minutes from one receiver) while the bytes already
+ * held stayed held (FLOE-N: the next load of the link could not start).
+ *
+ * The chunk copy itself cannot be made to throw from a test without replacing
+ * Uint8Array for the whole process, so these throw from the two places that
+ * share its catch: a callback the frame calls, and the Blob built at `end`.
+ */
+describe('receiver: a throw stops the transfer once', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    function harness(throwOnProgress?: () => unknown) {
+        const sent: (string | Uint8Array)[] = [];
+        const errors: string[] = [];
+        const failures: (ReceiveFailure | undefined)[] = [];
+        const completed: string[] = [];
+        const rx = createReceiver({
+            send: (d) => sent.push(d),
+            onProgress: () => {
+                if (throwOnProgress) throw throwOnProgress();
+            },
+            onFileComplete: (f) => completed.push(f.fileName),
+            onError: (m, f) => {
+                errors.push(m);
+                failures.push(f);
+            },
+        });
+        return { rx, sent, errors, failures, completed };
+    }
+
+    function lastFrame(sent: (string | Uint8Array)[]) {
+        const frame = sent[sent.length - 1];
+        expect(frame).toBeInstanceOf(Uint8Array);
+        return JSON.parse(new TextDecoder().decode(frame as Uint8Array));
+    }
+
+    it('reports running out of memory once, and drops every later frame', () => {
+        const h = harness(() => new RangeError('Array buffer allocation failed'));
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 6, 1, 1, 6));
+        // The first chunk completes the announced size, so onProgress runs
+        // and throws; nothing may escape into the emitter.
+        expect(() => h.rx.handleMessage(enc.encode('abcdef'))).not.toThrow();
+        expect(() => h.rx.handleMessage(enc.encode('ghi'))).not.toThrow();
+        expect(() => h.rx.handleMessage(endMessage())).not.toThrow();
+
+        expect(h.errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
+        expect(h.failures[0]).toMatchObject({ code: 'out-of-memory', received: 6, expected: 6, senderSentVersion: false });
+        expect(h.failures[0]?.cause).toBeInstanceOf(RangeError);
+        expect(h.completed).toEqual([]);
+    });
+
+    it('tells the sender, as an abort reason it prints rather than an update remedy', () => {
+        const h = harness(() => new RangeError('Array buffer allocation failed'));
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 6, 1, 1, 6));
+        h.rx.handleMessage(enc.encode('abcdef'));
+
+        const parsed = lastFrame(h.sent);
+        expect(parsed.type).toBe('incompatible');
+        expect(parsed.reason).toBe('receiver ran out of memory after receiving 6 of 6 bytes');
+        expect(parsed.pv).toBe(PROTOCOL_VERSION);
+        expect(parsed.pvMin).toBe(MIN_PROTOCOL_VERSION);
+        // Exactly the ack and the abort: one frame each, never one per chunk.
+        expect(h.sent).toHaveLength(2);
+    });
+
+    it('recognizes the bare string Firefox throws', () => {
+        const h = harness(() => 'out of memory');
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 1, 3));
+        h.rx.handleMessage(enc.encode('abc'));
+        expect(h.failures[0]?.code).toBe('out-of-memory');
+    });
+
+    it('catches the Blob built at the end of a file too', () => {
+        const h = harness();
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 1, 3));
+        h.rx.handleMessage(enc.encode('abc'));
+        vi.stubGlobal(
+            'Blob',
+            class {
+                constructor() {
+                    throw new RangeError('Array buffer allocation failed');
+                }
+            }
+        );
+        expect(() => h.rx.handleMessage(endMessage())).not.toThrow();
+        expect(h.errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
+        expect(h.failures[0]).toMatchObject({ code: 'out-of-memory', received: 3, expected: 3 });
+        expect(h.completed).toEqual([]);
+    });
+
+    it('stops on any other throw as well, and hands the cause over for a report', () => {
+        const bug = new TypeError("Cannot read properties of undefined (reading 'x')");
+        const h = harness(() => bug);
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 1, 3));
+        expect(() => h.rx.handleMessage(enc.encode('abc'))).not.toThrow();
+        h.rx.handleMessage(enc.encode('def'));
+
+        expect(h.errors).toEqual([INTERNAL_ERROR_MESSAGE]);
+        expect(h.failures[0]?.code).toBe('internal');
+        expect(h.failures[0]?.cause).toBe(bug);
+        expect(lastFrame(h.sent).reason).toBe('receiver stopped because of an internal error');
+    });
+
+    it('reports no size when no file was open', () => {
+        // A throw on a control frame before any metadata: nothing was held.
+        const h = harness();
+        vi.stubGlobal(
+            'TextEncoder',
+            class {
+                encode(): Uint8Array {
+                    throw new RangeError('Array buffer allocation failed');
+                }
+            }
+        );
+        expect(() => h.rx.handleMessage(endMessage())).not.toThrow();
+        expect(h.failures[0]).toMatchObject({ code: 'out-of-memory', received: 0, expected: null });
+        // The abort frame needed a TextEncoder too and could not be built;
+        // that is swallowed, and the person still gets the message.
+        expect(h.sent).toEqual([]);
+        expect(h.errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
+    });
+
+    it('stays silent when its own frame cannot go out because the channel is closing', () => {
+        // The connection is what failed, and the peer's close handler says so.
+        // Reporting it as a receiver bug would only add noise.
+        const errors: string[] = [];
+        const rx = createReceiver({
+            send: () => {
+                throw new DOMException("RTCDataChannel.readyState is not 'open'", 'InvalidStateError');
+            },
+            onError: (m) => errors.push(m),
+        });
+        expect(() => rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 1, 3))).not.toThrow();
+        expect(() => rx.handleMessage(enc.encode('abc'))).not.toThrow();
+        expect(errors).toEqual([]);
+    });
+
+    it('lets go of a partial file when the connection closes mid-file', () => {
+        const h = harness();
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 6, 1, 1, 6));
+        h.rx.handleMessage(enc.encode('abc'));
+        h.rx.dispose();
+        // Nothing reopens: the rest of the file and its end are ignored.
+        h.rx.handleMessage(enc.encode('def'));
+        h.rx.handleMessage(endMessage());
+        expect(h.completed).toEqual([]);
+        expect(h.errors).toEqual([]);
+    });
+
+    it('says whether the sender announced a version, which only Go senders do', () => {
+        const h = harness(() => new RangeError('Array buffer allocation failed'));
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 1, 3, '1.10.11'));
+        h.rx.handleMessage(enc.encode('abc'));
+        expect(h.failures[0]?.senderSentVersion).toBe(true);
+    });
+
+    it('reports no sizes for a throw after the file was handed over', () => {
+        // The file is complete; the sizes would describe nothing in progress.
+        const errors: string[] = [];
+        const failures: (ReceiveFailure | undefined)[] = [];
+        const rx = createReceiver({
+            send: () => {},
+            onFileComplete: () => {
+                throw new TypeError('render failed');
+            },
+            onError: (m, f) => {
+                errors.push(m);
+                failures.push(f);
+            },
+        });
+        rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 1, 3));
+        rx.handleMessage(enc.encode('abc'));
+        expect(() => rx.handleMessage(endMessage())).not.toThrow();
+        expect(errors).toEqual([INTERNAL_ERROR_MESSAGE]);
+        expect(failures[0]).toMatchObject({ code: 'internal', received: 0, expected: null });
+    });
+
+    it('still explains a version mismatch when the peer is already gone', () => {
+        // The incompatible frame cannot be sent; the person still has to
+        // learn why, and nothing may escape into the emitter.
+        const errors: string[] = [];
+        const rx = createReceiver({
+            send: () => {
+                throw new Error('cannot send');
+            },
+            onError: (m) => errors.push(m),
+        });
+        const tooNew = JSON.stringify({
+            type: 'metadata', id: 'a', fileName: 'a.bin', fileSize: 3, index: 1, total: 1, totalBytes: 3,
+            pv: PROTOCOL_VERSION + 5, pvMin: PROTOCOL_VERSION + 5,
+        });
+        expect(() => rx.handleMessage(tooNew)).not.toThrow();
+        expect(errors).toHaveLength(1);
+    });
+
+    it('lets a throw from a frame that already stopped the transfer surface once, unreworded', () => {
+        // The sender's own abort reason is the account the person should read.
+        // A broken onError callback is a bug of ours, so it reaches the global
+        // handler, once, instead of being replaced by a second message.
+        const errors: string[] = [];
+        const rx = createReceiver({
+            send: () => {},
+            onError: (m) => {
+                errors.push(m);
+                throw new Error('callback bug');
+            },
+        });
+        expect(() => rx.handleMessage(incompatibleMessage('Transfer blocked.'))).toThrow('callback bug');
+        expect(() => rx.handleMessage(endMessage())).not.toThrow();
+        expect(errors).toEqual(['Transfer blocked.']);
+    });
+});
+
+/**
+ * The tab holds at most SPILL_BYTES of a file as chunk copies; the rest goes
+ * into Blob parts, whose bytes Chromium moves out of the renderer.
+ */
+describe('receiver: holds a bounded amount of a file in the tab', () => {
+    const RealBlob = Blob;
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    // Bytes no chunk starts with '{', and that differ along the file so an
+    // out-of-order part would show.
+    function pattern(size: number): Uint8Array {
+        const out = new Uint8Array(size);
+        for (let i = 0; i < size; i++) out[i] = (i * 7 + (i >>> 16)) % 251 + 1;
+        return out;
+    }
+
+    function feed(rx: { handleMessage: (d: string | Uint8Array | ArrayBuffer) => void }, bytes: Uint8Array, chunk: number) {
+        rx.handleMessage(metadataMessage('big', 'big.bin', bytes.byteLength, 1, 1, bytes.byteLength));
+        for (let off = 0; off < bytes.byteLength; off += chunk) {
+            rx.handleMessage(bytes.subarray(off, Math.min(off + chunk, bytes.byteLength)));
+        }
+        rx.handleMessage(endMessage());
+    }
+
+    it('reassembles a file that crossed several spills, in order, byte for byte', async () => {
+        // 300 KiB chunks do not divide 16 MiB, so a spill lands mid-chunk
+        // boundary arithmetic, and the tail is a partial part.
+        const size = 2 * SPILL_BYTES + 12345;
+        const bytes = pattern(size);
+        let blob: Blob | null = null;
+        const rx = createReceiver({ send: () => {}, onFileComplete: (f) => { blob = f.blob; } });
+        feed(rx, bytes, 300 * 1024);
+        expect(blob).not.toBeNull();
+        const got = new Uint8Array(await blob!.arrayBuffer());
+        expect(got.byteLength).toBe(size);
+        expect(Buffer.compare(Buffer.from(got), Buffer.from(bytes))).toBe(0);
+    });
+
+    it('spills each time SPILL_BYTES gather, not once at the end', () => {
+        const built: number[] = [];
+        vi.stubGlobal(
+            'Blob',
+            class extends RealBlob {
+                constructor(parts?: BlobPart[], options?: BlobPropertyBag) {
+                    super(parts, options);
+                    built.push(this.size);
+                }
+            }
+        );
+        const rx = createReceiver({ send: () => {} });
+        feed(rx, pattern(2 * SPILL_BYTES + 100), 256 * 1024);
+        // Two full parts, the 100-byte tail, then the file composed of them.
+        expect(built).toEqual([SPILL_BYTES, SPILL_BYTES, 100, 2 * SPILL_BYTES + 100]);
+    });
+
+    function counting(): number[] {
+        const built: number[] = [];
+        vi.stubGlobal(
+            'Blob',
+            class extends RealBlob {
+                constructor(parts?: BlobPart[], options?: BlobPropertyBag) {
+                    super(parts, options);
+                    built.push(this.size);
+                }
+            }
+        );
+        return built;
+    }
+
+    function brokenParts(): void {
+        // Chromium's shape when its blob storage is full: the constructor
+        // returns, the size is right, and only a read fails.
+        vi.stubGlobal(
+            'Blob',
+            class extends RealBlob {
+                slice(): Blob {
+                    return { arrayBuffer: () => Promise.reject(new DOMException('', 'NotReadableError')) } as unknown as Blob;
+                }
+            }
+        );
+    }
+
+    function recorder() {
+        const sent: (string | Uint8Array)[] = [];
+        const errors: string[] = [];
+        const failures: (ReceiveFailure | undefined)[] = [];
+        const completed: Blob[] = [];
+        const rx = createReceiver({
+            send: (d) => sent.push(d),
+            onFileComplete: (f) => completed.push(f.blob),
+            onError: (m, f) => {
+                errors.push(m);
+                failures.push(f);
+            },
+        });
+        return { rx, sent, errors, failures, completed };
+    }
+
+    const tick = () => new Promise((r) => setTimeout(r, 0));
+
+    it('builds nothing for a zero-byte file', () => {
+        const built = counting();
+        const h = recorder();
+        h.rx.handleMessage(metadataMessage('z', 'z.bin', 0, 1, 1, 0));
+        h.rx.handleMessage(endMessage());
+        expect(h.completed).toHaveLength(1);
+        expect(h.completed[0].size).toBe(0);
+        expect(built).toEqual([0]);
+    });
+
+    it('hands over the single part itself for a file of exactly SPILL_BYTES', () => {
+        const built = counting();
+        const h = recorder();
+        feed(h.rx, pattern(SPILL_BYTES), 256 * 1024);
+        expect(built).toEqual([SPILL_BYTES]);
+        expect(h.completed[0].size).toBe(SPILL_BYTES);
+    });
+
+    it('starts the next file clean after a spill', async () => {
+        const first = pattern(SPILL_BYTES + 5);
+        const second = pattern(777).map((b) => (b % 200) + 2);
+        const h = recorder();
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', first.byteLength, 1, 2, first.byteLength + 777));
+        for (let off = 0; off < first.byteLength; off += 256 * 1024) h.rx.handleMessage(first.subarray(off, off + 256 * 1024));
+        h.rx.handleMessage(endMessage());
+        h.rx.handleMessage(metadataMessage('b', 'b.bin', 777, 2, 2, first.byteLength + 777));
+        h.rx.handleMessage(second);
+        h.rx.handleMessage(endMessage());
+        expect(h.completed).toHaveLength(2);
+        expect(Buffer.compare(Buffer.from(await h.completed[0].arrayBuffer()), Buffer.from(first))).toBe(0);
+        expect(Buffer.compare(Buffer.from(await h.completed[1].arrayBuffer()), Buffer.from(second))).toBe(0);
+        expect(h.errors).toEqual([]);
+    });
+
+    it('reports a part found broken after its file was handed over, with that file\'s sizes', async () => {
+        brokenParts();
+        const h = recorder();
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 1, 3));
+        h.rx.handleMessage(enc.encode('abc'));
+        h.rx.handleMessage(endMessage());
+        expect(h.completed).toHaveLength(1);
+        await tick();
+        expect(h.errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
+        expect(h.failures[0]).toMatchObject({ code: 'out-of-memory', received: 3, expected: 3 });
+        const abort = JSON.parse(new TextDecoder().decode(h.sent[h.sent.length - 1] as Uint8Array));
+        expect(abort.reason).toBe('receiver ran out of memory after receiving 3 of 3 bytes');
+    });
+
+    it('still reports it when the connection closed first', async () => {
+        // A Go sender closes as soon as its last bytes are out, which can be
+        // before the read-back of the last part settles.
+        brokenParts();
+        const h = recorder();
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 1, 3));
+        h.rx.handleMessage(enc.encode('abc'));
+        h.rx.handleMessage(endMessage());
+        h.rx.dispose();
+        await tick();
+        expect(h.errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
+    });
+
+    it('stays quiet about a broken part once a failure was reported', async () => {
+        // A size mismatch after a spill already told the person; the part it
+        // left behind must not say it a second time.
+        brokenParts();
+        const h = recorder();
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', SPILL_BYTES * 2, 1, 1, SPILL_BYTES * 2));
+        h.rx.handleMessage(pattern(SPILL_BYTES));
+        h.rx.handleMessage(endMessage());
+        h.rx.dispose();
+        await tick();
+        expect(h.errors).toHaveLength(1);
+        expect(h.errors[0]).toContain('Incomplete file');
+    });
+
+    it('stops with the out-of-memory message when a part cannot be read back', async () => {
+        // Chromium's shape when its blob storage is full: the constructor
+        // returns, the size is right, and only a read fails.
+        vi.stubGlobal(
+            'Blob',
+            class extends RealBlob {
+                slice(): Blob {
+                    return { arrayBuffer: () => Promise.reject(new DOMException('', 'NotReadableError')) } as unknown as Blob;
+                }
+            }
+        );
+        const sent: (string | Uint8Array)[] = [];
+        const errors: string[] = [];
+        const failures: (ReceiveFailure | undefined)[] = [];
+        const rx = createReceiver({
+            send: (d) => sent.push(d),
+            onError: (m, f) => {
+                errors.push(m);
+                failures.push(f);
+            },
+        });
+        rx.handleMessage(metadataMessage('a', 'a.bin', SPILL_BYTES * 2, 1, 1, SPILL_BYTES * 2));
+        rx.handleMessage(pattern(SPILL_BYTES));
+        await new Promise((r) => setTimeout(r, 0));
+
+        expect(errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
+        expect(failures[0]).toMatchObject({ code: 'out-of-memory', received: SPILL_BYTES, expected: SPILL_BYTES * 2 });
+        const abort = JSON.parse(new TextDecoder().decode(sent[sent.length - 1] as Uint8Array));
+        expect(abort.reason).toContain('ran out of memory');
+        // And nothing after it reopens the transfer.
+        rx.handleMessage(pattern(SPILL_BYTES));
+        await new Promise((r) => setTimeout(r, 0));
+        expect(errors).toHaveLength(1);
     });
 });

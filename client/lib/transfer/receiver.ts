@@ -22,6 +22,7 @@ import {
 } from './protocol';
 import { hashBlob as workerHashBlob } from './fileHash';
 import { sanitizeDisplayText } from '../download';
+import { classifyThrow, type ReceiveFailureCode } from './receiveFailure';
 
 export interface ReceivedFile {
     id: string;
@@ -68,17 +69,61 @@ export interface ReceiverCallbacks {
     // handed over, or refused, when the check settles.
     onVerifying?: (index: number, total: number) => void;
     onWaiting?: () => void;
-    onError?: (msg: string) => void;
+    /**
+     * `failure` is set only when this side stopped because something threw
+     * while a frame was handled, and never carries a peer string, so its
+     * fields may go to an error report. Every other stop calls with `msg` alone.
+     */
+    onError?: (msg: string, failure?: ReceiveFailure) => void;
 }
+
+export interface ReceiveFailure {
+    /** 'out-of-memory' is the tab running out; 'internal' is anything else (see receiveFailure.ts). */
+    code: Exclude<ReceiveFailureCode, 'channel-closed'>;
+    /** What was thrown. For an error report only, never for the screen. */
+    cause: unknown;
+    /** Bytes of the open file held when it threw, 0 when none was open. */
+    received: number;
+    /** The open file's announced size, or null when unknown or none was open. */
+    expected: number | null;
+    /**
+     * Whether the sender's metadata carried a `ver`. Go senders (the CLI and
+     * Floe Desktop) always send one and browser senders never do, and only a
+     * Go sender reads an abort that arrives in the middle of a file.
+     */
+    senderSentVersion: boolean;
+}
+
+export const OUT_OF_MEMORY_MESSAGE =
+    'This browser ran out of memory while receiving, so the transfer was stopped. ' +
+    'Receive large files on a computer with Floe Desktop (Windows) or the Floe CLI, which save straight to disk.';
+
+export const INTERNAL_ERROR_MESSAGE =
+    'Something went wrong while receiving, so the transfer was stopped. Ask the sender to try again.';
 
 // Report receive progress at least once per this many bytes. A byte-count
 // threshold (rather than an exact modulo) works for any negotiated chunk size.
 const PROGRESS_STEP = 1024 * 1024; // 1 MB
 
+// Chunk copies wait in the tab until this many bytes have gathered, then go
+// into a Blob part together. In Chromium a Blob's bytes leave the renderer for
+// the browser's blob storage, which pages to disk past its memory share, so
+// the tab holds at most about this much of a file at a time instead of all of
+// it (FLOE-M ran a tab out of memory holding a whole file as ArrayBuffers).
+// Measured with a 4 GiB file on Chromium 151: the renderer stayed at 50-138 MiB
+// where it used to peak at 9.4 GiB.
+// Other engines keep Blob bytes in memory; there this changes no total, it
+// only removes the second full copy `end` used to make. Large enough that the
+// per-part overhead is noise, small next to any device's memory.
+export const SPILL_BYTES = 16 * 1024 * 1024; // 16 MiB
+
 interface PartialDownload {
-    chunks: ArrayBuffer[];
+    parts: Blob[]; // spilled, in order
+    held: ArrayBuffer[]; // tight chunk copies not yet spilled, in order
+    heldBytes: number;
     received: number;
     lastReported: number; // `received` value at the last onProgress emission
+    tail: Promise<void> | null; // the read-back of the newest part (see probe), null before the first
 }
 
 /**
@@ -108,19 +153,29 @@ interface PartialDownload {
 export function createReceiver(
     cb: ReceiverCallbacks,
     deps: ReceiverDeps = {}
-): { handleMessage: (data: string | Uint8Array | ArrayBuffer) => void; settled: () => Promise<void> } {
+): {
+    handleMessage: (data: string | Uint8Array | ArrayBuffer) => void;
+    settled: () => Promise<void>;
+    dispose: () => void;
+} {
     const hashBlob = deps.hashBlob ?? workerHashBlob;
     const hashBoundMs = deps.hashBoundMs ?? defaultHashBoundMs;
     const partialDownloads = new Map<string, PartialDownload>();
     let currentMetadata: Metadata | null = null;
     let hasCheckedCompat = false;
-    // Hard stop. Set by any unrecoverable failure (an incompatible peer, or a
-    // file that did not arrive whole); every later message is dropped.
+    // Hard stop. Set by any unrecoverable failure (an incompatible peer, a
+    // file that did not arrive whole, or a throw; see fail); every later
+    // message is dropped.
     let aborted = false;
+    // Set when the connection closing is what stopped the receiver, rather than
+    // a failure it already reported. A part found broken after that still has
+    // to be reported: see probe.
+    let closed = false;
     // The announced size of the file being received, once validated, or null
     // when the peer announced nothing we can compare against.
     let expectedSize: number | null = null;
     let sessionBytes = 0; // accumulated across all files of the current transfer
+    let senderSentVersion = false; // see ReceiveFailure.senderSentVersion
     // Files handed to onFileComplete in the current transfer: the `saved` a
     // hash refusal reports, the twin of filesReceived in the Go receiver.
     let filesHanded = 0;
@@ -138,30 +193,47 @@ export function createReceiver(
 
     function handleMessage(data: string | Uint8Array | ArrayBuffer): void {
         if (aborted) return;
-        if (pending) {
-            if (!isControlFrame(data)) return;
-            // The control cap and a bound on the queue hold during a check too.
-            // Without them a sender could park any number of strings of any size
-            // in memory for as long as the hash takes (DV-AUDIT CP-0 F1). A
-            // conforming sender has at most one frame in flight here: the next
-            // file's metadata, or an incompatible.
-            if (new TextEncoder().encode(data).byteLength > CONTROL_MSG_MAX) {
-                stopWhilePending(
-                    'The sender sent a control message larger than ' +
-                        `${CONTROL_MSG_MAX} bytes, so the transfer was stopped.`
-                );
-                return;
-            }
-            if (queued.length >= MAX_QUEUED_WHILE_PENDING) {
-                stopWhilePending(
-                    'The sender sent more messages than a transfer allows while a file was being checked, so the transfer was stopped.'
-                );
-                return;
-            }
-            queued.push(data);
+        runMessage(data);
+    }
+
+    // Every frame goes through here, never straight to processMessage, so a
+    // throw anywhere in it ends the transfer once (see fail). That covers a
+    // frame held while a SHA-256 check is pending (its TextEncoder is an
+    // allocation like any other) and every frame drain hands back afterwards.
+    function runMessage(data: string | Uint8Array | ArrayBuffer): void {
+        try {
+            if (pending) holdWhilePending(data);
+            else processMessage(data);
+        } catch (err) {
+            // A frame that already stopped the transfer and then threw (one of
+            // its own callbacks, say) has said what went wrong; a second
+            // message would talk over it. Let the throw surface, once.
+            if (aborted) throw err;
+            fail(err);
+        }
+    }
+
+    function holdWhilePending(data: string | Uint8Array | ArrayBuffer): void {
+        if (!isControlFrame(data)) return;
+        // The control cap and a bound on the queue hold during a check too.
+        // Without them a sender could park any number of strings of any size
+        // in memory for as long as the hash takes (DV-AUDIT CP-0 F1). A
+        // conforming sender has at most one frame in flight here: the next
+        // file's metadata, or an incompatible.
+        if (new TextEncoder().encode(data).byteLength > CONTROL_MSG_MAX) {
+            stopWhilePending(
+                'The sender sent a control message larger than ' +
+                    `${CONTROL_MSG_MAX} bytes, so the transfer was stopped.`
+            );
             return;
         }
-        processMessage(data);
+        if (queued.length >= MAX_QUEUED_WHILE_PENDING) {
+            stopWhilePending(
+                'The sender sent more messages than a transfer allows while a file was being checked, so the transfer was stopped.'
+            );
+            return;
+        }
+        queued.push(data);
     }
 
     // A stop while a check is pending: nothing more is queued or kept, and the
@@ -226,10 +298,12 @@ export function createReceiver(
     }
 
     // Runs after a pending check settles: the frames that waited, in order,
-    // until one of them starts another check or the transfer stops.
+    // until one of them starts another check or the transfer stops. Through
+    // runMessage, so a throw from a frame that waited is caught and latched
+    // like any other instead of escaping the promise chain with nothing latched.
     function drain(): void {
         while (!pending && !aborted && queued.length > 0) {
-            processMessage(queued.shift() as string);
+            runMessage(queued.shift() as string);
         }
         if (aborted) queued = [];
         if (!pending) {
@@ -237,6 +311,132 @@ export function createReceiver(
             settledWaiters = [];
             for (const resolve of waiters) resolve();
         }
+    }
+
+    // Anything that throws while a frame is handled ends the transfer here,
+    // once. Before this the throw escaped into simple-peer's emitter with
+    // nothing latched, so every later frame threw again: a tab that ran out of
+    // memory raised the same uncaught error on each chunk for minutes (FLOE-M,
+    // 3,871 events in six minutes from one receiver) and kept every byte it
+    // already held, so the next load of the link could not even start (FLOE-N).
+    function fail(
+        err: unknown,
+        code: ReceiveFailureCode = classifyThrow(err),
+        sizes?: { received: number; expected: number | null }
+    ): void {
+        const open = currentMetadata ? partialDownloads.get(currentMetadata.id) : undefined;
+        // Sizes describe a file still being received. A throw after the file
+        // was handed over (from onFileComplete, say) has none open; a broken
+        // part brings the sizes from when it was written (see probe).
+        const received = sizes ? sizes.received : (open?.received ?? 0);
+        const expected = sizes ? sizes.expected : open ? expectedSize : null;
+        // Latch and let go of every held chunk before anything else: the work
+        // below needs a little memory too, and V8 collects and retries a
+        // failed allocation, so what is released here is what it gets. The
+        // frames waiting out a check go too: none of them will be read now.
+        release();
+        queued = [];
+        closed = false; // reported now, so a later broken part stays quiet
+        // Our own ack could not go out because the channel is closing. The
+        // connection is what failed, and the peer's close handler says so.
+        if (code === 'channel-closed') return;
+        // Tell the sender, or it keeps sending into a receiver that drops it
+        // all. Binary, like every receiver-to-sender frame, and best effort.
+        // write-failed is the closed set's code for a receiver that could not
+        // keep a file, which is what both causes come to here; `saved` is the
+        // count already handed over, as a hash refusal sends it. The reason
+        // stays for peers that predate the code and print it verbatim.
+        try {
+            const of = expected === null ? '' : ` of ${expected}`;
+            const reason =
+                code === 'out-of-memory'
+                    ? `receiver ran out of memory after receiving ${received}${of} bytes`
+                    : 'receiver stopped because of an internal error';
+            cb.send(new Uint8Array(new TextEncoder().encode(incompatibleMessage(reason, 'write-failed', filesHanded))));
+        } catch {
+            // The peer is gone, or even this did not fit; the close is all it gets.
+        }
+        // Clear the progress line, as the discard path does. Best effort, so
+        // a throw here cannot cost the person the only explanation.
+        try {
+            cb.onProgress?.(0, 0, 0);
+            cb.onSpeedReset?.();
+        } catch {
+            // Nothing to add: onError below is what matters.
+        }
+        cb.onError?.(
+            code === 'out-of-memory' ? OUT_OF_MEMORY_MESSAGE : INTERNAL_ERROR_MESSAGE,
+            { code, cause: err, received, expected, senderSentVersion }
+        );
+    }
+
+    // Moves the held chunk copies into one Blob part, then checks it. The
+    // check is kept as the file's tail, which a SHA-256 check waits for.
+    function spill(file: PartialDownload): void {
+        const part = new Blob(file.held);
+        file.parts.push(part);
+        file.held = [];
+        file.heldBytes = 0;
+        file.tail = probe(part, { received: file.received, expected: expectedSize });
+    }
+
+    // Chromium does not throw when its blob storage is full (Incognito pages
+    // nothing to disk and shares about 2 GiB per profile on a computer; a
+    // normal profile pages to disk up to a limit set from the disk's size).
+    // new Blob() returns as usual with the right size and the Blob is broken:
+    // only a read fails, and for a received file that read is the download,
+    // which would fail after the whole transfer. Reading back the last byte of
+    // every part finds it while the transfer is still running. A part that
+    // turns out broken after its file was handed over, or after the
+    // connection closed (a Go sender closes as soon as its last bytes are
+    // out), is still reported; only a failure already reported keeps it quiet.
+    //
+    // The returned promise settles once the read-back has, and never rejects
+    // for a broken part (that is fail's to report). A SHA-256 check waits for
+    // it: a broken part also fails the hash worker's read, and that alone would
+    // hand the file over unverified if the digest won the race.
+    function probe(part: Blob, sizes: { received: number; expected: number | null }): Promise<void> {
+        if (part.size === 0) return Promise.resolve();
+        return part.slice(part.size - 1).arrayBuffer().then(
+            () => {},
+            (err: unknown) => {
+                if (!aborted || closed) fail(err, 'out-of-memory', sizes);
+            }
+        );
+    }
+
+    // The whole file, in order. Composing Blobs from Blobs references their
+    // bytes rather than copying them, and a single part is the file itself.
+    function takeBlob(file: PartialDownload): Blob {
+        if (file.heldBytes > 0) spill(file);
+        return file.parts.length === 1 ? file.parts[0] : new Blob(file.parts);
+    }
+
+    // Settles once a part's read-back has, or once the bound passes, whichever
+    // comes first, so waiting for it can never leave a check pending (CP0-F2).
+    function readBack(tail: Promise<void> | null, bound: AbortSignal | null): Promise<void> {
+        if (tail === null) return Promise.resolve();
+        return new Promise((resolve) => {
+            tail.then(() => resolve(), () => resolve());
+            if (bound === null) return;
+            if (bound.aborted) resolve();
+            else bound.addEventListener('abort', () => resolve(), { once: true });
+        });
+    }
+
+    // The connection closed. Stops the receiver and lets go of every chunk it
+    // holds: without it a transfer that died partway kept its partial file for
+    // the life of the tab.
+    function dispose(): void {
+        if (!aborted) closed = true;
+        release();
+    }
+
+    function release(): void {
+        aborted = true;
+        partialDownloads.clear();
+        currentMetadata = null;
+        expectedSize = null;
     }
 
     function processMessage(data: string | Uint8Array | ArrayBuffer): void {
@@ -325,13 +525,20 @@ export function createReceiver(
                         // does not close the connection afterwards, it only
                         // sets UI state, so the frame has time to leave.
                         const enc = new TextEncoder().encode(incompatibleMessage(peerMsg));
-                        cb.send(new Uint8Array(enc));
+                        // Best effort, like the discard path: a peer already
+                        // torn down must not cost this side its explanation.
+                        try {
+                            cb.send(new Uint8Array(enc));
+                        } catch {
+                            // The peer is gone; the close is all it will get.
+                        }
                         cb.onError?.(errMsg);
                         return;
                     }
                 }
 
                 currentMetadata = msg;
+                senderSentVersion = typeof msg.ver === 'string' && msg.ver !== '';
                 // classifyControl casts the metadata JSON straight to its
                 // interface, so fileSize is whatever the peer chose to send.
                 // Anything that is not a real byte count becomes null, which
@@ -348,7 +555,7 @@ export function createReceiver(
                 if (existing) {
                     offset = existing.received;
                 } else {
-                    partialDownloads.set(msg.id, { chunks: [], received: 0, lastReported: 0 });
+                    partialDownloads.set(msg.id, { parts: [], held: [], heldBytes: 0, received: 0, lastReported: 0, tail: null });
                 }
 
                 // Send ack with protocol version fields so the sender can verify
@@ -457,9 +664,10 @@ export function createReceiver(
                     }
                     // The Blob is what the person keeps (its object URL is the
                     // download), so hashing this same object checks exactly those
-                    // bytes. The chunk arrays are released before the wait, so
+                    // bytes. The chunk copies are released before the wait, so
                     // memory peaks no longer than it did before the check.
-                    const blob = new Blob(fileData.chunks);
+                    const blob = takeBlob(fileData);
+                    const tail = fileData.tail;
                     partialDownloads.delete(meta.id);
                     currentMetadata = null;
                     expectedSize = null;
@@ -469,20 +677,30 @@ export function createReceiver(
                     // AbortSignal.timeout, which Safari lacks before 16) can leave
                     // the receiver pending with every later frame queued behind it.
                     let boundTimer: ReturnType<typeof setTimeout> | null = null;
+                    let bound: AbortSignal | null = null;
                     Promise.resolve()
                         .then(() => {
-                            cb.onVerifying?.(meta.index, meta.total);
                             // A controller plus a timer, not AbortSignal.timeout:
                             // Safari before 16 has no AbortSignal.timeout, so the
                             // signal was undefined there and a hasher that never
                             // answered left this pending forever with every later
                             // frame queued behind it (CP0-F2). AbortController is
-                            // available wherever Workers are.
+                            // available wherever Workers are. Started before
+                            // onVerifying, so the read-back wait below is bounded
+                            // even when that callback throws.
                             const ac = new AbortController();
+                            bound = ac.signal;
                             boundTimer = setTimeout(() => ac.abort(), hashBoundMs(size));
+                            cb.onVerifying?.(meta.index, meta.total);
                             return hashBlob(blob, ac.signal);
                         })
                         .catch(() => null)
+                        // The read-back of the file's last part settles with the
+                        // digest, inside the same bound (see probe). A broken part
+                        // fails the hash worker's read too, and that null alone
+                        // would hand the file over unverified; the probe stops the
+                        // transfer on the real cause instead.
+                        .then((got) => readBack(tail, bound).then(() => got))
                         .then((got) => {
                             if (boundTimer !== null) {
                                 clearTimeout(boundTimer);
@@ -504,7 +722,7 @@ export function createReceiver(
                     return;
                 }
 
-                const blob = new Blob(fileData.chunks);
+                const blob = takeBlob(fileData);
                 partialDownloads.delete(meta.id);
                 complete(meta, blob, size, false);
             }
@@ -523,8 +741,10 @@ export function createReceiver(
         // `buf.slice().buffer` would pin (and later mis-read) the whole backing buffer.
         // `new Uint8Array(buf)` copies exactly buf.byteLength bytes; `.buffer` is then
         // a tight ArrayBuffer of that length.
-        fileData.chunks.push(new Uint8Array(buf).buffer);
+        fileData.held.push(new Uint8Array(buf).buffer);
+        fileData.heldBytes += buf.byteLength;
         fileData.received += buf.byteLength;
+        if (fileData.heldBytes >= SPILL_BYTES) spill(fileData);
         receiveSpeedBytes += buf.byteLength;
 
         const now = performance.now();
@@ -554,5 +774,5 @@ export function createReceiver(
         }
     }
 
-    return { handleMessage, settled };
+    return { handleMessage, settled, dispose };
 }

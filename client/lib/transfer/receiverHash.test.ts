@@ -424,7 +424,10 @@ describe('receiver: per-file SHA-256', () => {
         await Promise.resolve();
         releases[0](digestOf(a));
         // Let the first check settle and the queue drain into the second check.
-        for (let i = 0; i < 5; i++) await Promise.resolve();
+        // A macrotask, not a count of microtasks: the verdict also waits for the
+        // read-back of the file's last part (see probe in receiver.ts), and a
+        // Blob read settles outside the microtask queue.
+        await new Promise((r) => setTimeout(r, 0));
         expect(h.completed.map((f) => f.fileName)).toEqual(['a.bin']);
         expect(h.acks().map((m) => m.id)).toEqual(['a', 'b']);
         expect(releases).toHaveLength(2);

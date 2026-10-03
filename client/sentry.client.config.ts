@@ -1,11 +1,17 @@
 import * as Sentry from '@sentry/nextjs';
 import { BROWSER_EXTENSION_URL_PATTERNS } from './lib/browserExtensions';
+import { createEventBudget } from './lib/eventBudget';
 import { IGNORED_ERROR_PATTERNS } from './lib/ignoredErrors';
 import { isInjectedScriptError } from './lib/injectedScripts';
 import { isNonBrowserRuntimeError } from './lib/nonBrowserRuntimes';
 import { isStaleBundleError } from './lib/staleBundle';
 import { scrubErrorEvent, scrubSpanJson, scrubTransactionEvent, scrubUrl } from './lib/scrubUrl';
 import { tracesSampler } from './lib/traceSampling';
+
+// One budget per page load: no single error is sent more than a few times,
+// however often it fires. FLOE-M sent 3,871 copies of one error from one page.
+// See lib/eventBudget.ts.
+const eventBudget = createEventBudget();
 
 Sentry.init({
     // Set NEXT_PUBLIC_SENTRY_DSN in your environment to enable error tracking.
@@ -75,9 +81,16 @@ Sentry.init({
 
         // Strip the room secret and the request-link id before the event is
         // sent: request.url, the transaction name (the raw /r/<linkId> path on
-        // an error thrown on /r) and stack frame file names. Last, so the
-        // filters above still read the frames as the browser reported them.
-        return scrubErrorEvent(event);
+        // an error thrown on /r) and stack frame file names. After the filters
+        // above, so they still read the frames as the browser reported them.
+        const scrubbed = scrubErrorEvent(event);
+
+        // Last, so it counts only events that are really about to be sent.
+        const verdict = eventBudget(scrubbed);
+        if (verdict === 'drop') return null;
+        if (verdict === 'last') scrubbed.tags = { ...scrubbed.tags, event_budget_exhausted: true };
+
+        return scrubbed;
     },
 
     // Breadcrumbs (navigation, fetch, xhr) record URLs as they happen; scrub the
