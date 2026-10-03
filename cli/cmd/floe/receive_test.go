@@ -9,8 +9,10 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jannskiee/floe/cli/engine/code"
 )
 
@@ -195,8 +197,7 @@ func receiveThroughCobra(t *testing.T, input, server string) (stdout, stderr str
 	var out, errOut strings.Builder
 	rootCmd.SetOut(&out)
 	rootCmd.SetErr(&errOut)
-	rootCmd.SetArgs([]string{"receive", input, "--server", server})
-	stdout = captureStdout(t, func() { err = execute() })
+	stdout = captureStdout(t, func() { err = execute([]string{"receive", input, "--server", server}) })
 	return stdout + out.String(), errOut.String(), err
 }
 
@@ -224,4 +225,193 @@ func captureStdout(t *testing.T, fn func()) string {
 	s := <-got
 	r.Close()
 	return s
+}
+
+// lineFloeLinkOtherServer is the line receive ends on for a floe.one room
+// link with another server chosen (FU-53, FU-46 review 1 L5), approved by
+// the owner as written (D-156, approved-copy-cli.txt), byte for byte.
+const lineFloeLinkOtherServer = "That link is for floe.one, but this Floe is set to use another server. Unset FLOE_SERVER or use --server https://api.floe.one, then try again."
+
+// TestReceiveFloeLinkWithAnotherServerEndsWithoutANetworkCall (FU-53, FU-46
+// review 1 L5): a room link made on floe.one has its room on api.floe.one
+// alone. With FLOE_SERVER or --server naming any other server, receive used
+// to send that room's id to it in join-room, and whoever runs it could take
+// the receiver's seat and the files. It now ends on one fixed line before
+// any network call (no ICE fetch, no signaling connect, no request of any
+// kind to the server) and never prints the link. The F5-4 host rule of the
+// request-link send decides (isFloeOneServer): api.floe.one in any spelling
+// that reaches it goes through, and so do a link on another host (the
+// self-hosted case) and a code.
+func TestReceiveFloeLinkWithAnotherServerEndsWithoutANetworkCall(t *testing.T) {
+	var hits atomic.Int32
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(other.Close)
+
+	room := uuid.New().String()
+	links := map[string]string{
+		"fragment":              "https://floe.one/#room=" + room,
+		"query":                 "https://floe.one/?room=" + room,
+		"www":                   "https://www.floe.one/#room=" + room,
+		"www, query":            "https://www.floe.one/?room=" + room,
+		"no scheme":             "floe.one/#room=" + room,
+		"angle brackets":        "<https://floe.one/#room=" + room + ">",
+		"quotes":                `"https://www.floe.one/?room=` + room + `"`,
+		"capitals, port, a dot": "https://FLOE.ONE.:443/#room=" + room,
+		"http":                  "http://floe.one/#room=" + room,
+		// N1: hosts a browser maps to floe.one (IDNA), as it reads them.
+		"fullwidth":                   "https://ｆｌｏｅ.one/#room=" + room,
+		"www, ideographic full stops": "https://www。ｆｌｏｅ。one/?room=" + room,
+		"circled letters":             "https://ⓕⓛⓞⓔ.one/#room=" + room,
+		// FU-53 review 1 L-1: slash-mangled spellings, read as a browser
+		// reads them.
+		"two slashes, no scheme": "//floe.one/#room=" + room,
+		"three slashes":          "https:///floe.one/#room=" + room,
+		"one slash":              "https:/floe.one/#room=" + room,
+		"a leading slash":        "/floe.one/#room=" + room,
+	}
+	servers := []struct {
+		name string
+		env  map[string]string
+		args []string
+	}{
+		{"--server another", nil, []string{"--server", other.URL}},
+		{"FLOE_SERVER another", map[string]string{"FLOE_SERVER": other.URL}, nil},
+		{"FLOE_SERVER http api.floe.one", map[string]string{"FLOE_SERVER": "http://api.floe.one"}, nil},
+		{"--server api.floe.one on another port", nil, []string{"--server", "https://api.floe.one:8443"}},
+	}
+	for _, s := range servers {
+		for name, link := range links {
+			t.Run(s.name+", "+name, func(t *testing.T) {
+				hits.Store(0)
+				calls := stubNetwork(t, "")
+				stdout, stderr, err := receiveWith(t, s.env, append([]string{link}, s.args...)...)
+				if n, c, h := calls.ice.Load(), calls.connect.Load(), hits.Load(); n != 0 || c != 0 || h != 0 {
+					t.Fatalf("network calls made: ICE %d, connect %d, requests to the server %d; want none\nstderr:\n%s", n, c, h, stderr)
+				}
+				var outcome outcomeError
+				if !errors.As(err, &outcome) {
+					t.Fatalf("execute returned %v, want an outcome (main exits 1 on it)", err)
+				}
+				if stdout != "\n" || stderr != "  "+lineFloeLinkOtherServer+"\n" {
+					t.Fatalf("want the blank line and %q\nstdout:\n%q\nstderr:\n%q", lineFloeLinkOtherServer, stdout, stderr)
+				}
+				if strings.Contains(strings.ToLower(stdout+stderr), room[1:]) {
+					t.Fatalf("the room id was printed:\n%s", stderr)
+				}
+			})
+		}
+	}
+
+	// Through to the network (the stub refuses every call and counts it, so
+	// nothing leaves the test): the link with api.floe.one, chosen or not, a
+	// self-hosted room link with its own server, and a code.
+	for _, c := range []struct {
+		name  string
+		env   map[string]string
+		args  []string
+		ice   int32
+		hits  int32
+		cause string
+	}{
+		{"no server chosen", nil, []string{"https://floe.one/#room=" + room}, 1, 0, "failed to fetch ICE credentials: test: no ICE fetch from https://api.floe.one"},
+		{"no server chosen, fullwidth", nil, []string{"https://ｆｌｏｅ.one/#room=" + room}, 1, 0, "failed to fetch ICE credentials: test: no ICE fetch from https://api.floe.one"},
+		{"FLOE_SERVER names api.floe.one", map[string]string{"FLOE_SERVER": "https://API.floe.one.:443/"}, []string{"https://www.floe.one/?room=" + room}, 1, 0, "failed to fetch ICE credentials: test: no ICE fetch from https://API.floe.one.:443"},
+		{"--server names api.floe.one", nil, []string{"floe.one/#room=" + room, "--server", "https://api.floe.one"}, 1, 0, "failed to fetch ICE credentials: test: no ICE fetch from https://api.floe.one"},
+		{"a self-hosted link with its server", nil, []string{"https://files.example.com/#room=" + room, "--server", other.URL}, 1, 0, "failed to fetch ICE credentials: test: no ICE fetch from " + other.URL},
+		{"a code with another server", nil, []string{"olive-tiger-castle", "--server", other.URL}, 0, 1, `could not resolve "olive-tiger-castle": code "olive-tiger-castle" not found or expired (codes expire after 10 minutes)`},
+	} {
+		t.Run("goes through: "+c.name, func(t *testing.T) {
+			hits.Store(0)
+			calls := stubNetwork(t, "")
+			_, stderr, err := receiveWith(t, c.env, c.args...)
+			if err == nil {
+				t.Fatal("receive succeeded against a refused network")
+			}
+			if n, h := calls.ice.Load(), hits.Load(); n != c.ice || h != c.hits || calls.connect.Load() != 0 {
+				t.Fatalf("ICE fetches %d, requests to the server %d, connects %d; want %d, %d and 0\nstderr:\n%s", n, h, calls.connect.Load(), c.ice, c.hits, stderr)
+			}
+			if want := "Error: " + c.cause + "\n"; stderr != want {
+				t.Fatalf("stderr is %q, want %q", stderr, want)
+			}
+		})
+	}
+}
+
+// TestReceiveRequestLinkInAnyShapeIsNeverPrintedBack (FU-53 review 1 L-3):
+// a request link in a shape Resolve does not refuse as ErrRequestLink (a
+// percent-encoded #, a bad escape, a mail-safety redirector, a whole link
+// percent-encoded) used to come back inside "could not resolve %q", key and
+// all. Every shape the send refuses (linkAsPathShapes, FU-46 L2) now ends on
+// TL-33 alone, with no network call of any kind.
+func TestReceiveRequestLinkInAnyShapeIsNeverPrintedBack(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	room := uuid.New().String()
+	shapes := linkAsPathShapes(room)
+	shapes["a whole link percent-encoded"] = "https%3A%2F%2Ffloe.one%2Fr%2FXk3p9Q0aB1c%23" + room
+	for name, link := range shapes {
+		t.Run(name, func(t *testing.T) {
+			hits.Store(0)
+			calls := stubNetwork(t, "")
+			stdout, stderr, err := receiveWith(t, nil, link, "--server", srv.URL)
+			if n, c, h := calls.ice.Load(), calls.connect.Load(), hits.Load(); n != 0 || c != 0 || h != 0 {
+				t.Fatalf("network calls made: ICE %d, connect %d, requests to the server %d; want none\nstderr:\n%s", n, c, h, stderr)
+			}
+			if !errors.Is(err, code.ErrRequestLink) {
+				t.Fatalf("execute returned %v, want the request-link sentinel (main exits 1 on it)", err)
+			}
+			if want := "  " + code.ErrRequestLink.Error() + "\n"; stdout != "\n" || stderr != want {
+				t.Fatalf("want the blank line and %q\nstdout:\n%q\nstderr:\n%q", want, stdout, stderr)
+			}
+			all := strings.ToLower(stdout + stderr)
+			for _, leak := range []string{strings.ToLower(room[1:]), "xk3p9q0ab1"} {
+				if strings.Contains(all, leak) {
+					t.Fatalf("%q was printed:\n%s", leak, stderr)
+				}
+			}
+		})
+	}
+}
+
+// receiveWith runs `floe receive args...` through execute, as main runs it,
+// with env set as the user's shell would hold it, and returns what reached
+// stdout and the error writer, with the error main turns into exit 1. The
+// shared and receive flags go back to their defaults afterwards.
+func receiveWith(t *testing.T, env map[string]string, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	resetSharedFlags(t)
+	t.Setenv("FLOE_NO_STATS", "1")
+	for k, v := range env {
+		t.Setenv(k, v)
+	}
+	t.Cleanup(func() {
+		if f := rootCmd.PersistentFlags().Lookup("server"); f != nil {
+			_ = f.Value.Set(f.DefValue)
+			f.Changed = false
+		}
+		for _, name := range []string{"output", "no-report"} {
+			if f := receiveCmd.Flags().Lookup(name); f != nil {
+				_ = f.Value.Set(f.DefValue)
+				f.Changed = false
+			}
+		}
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
+	})
+	var out, errOut strings.Builder
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&errOut)
+	argv := append([]string{"receive"}, args...)
+	argv = append(argv, "--no-report", "--output", t.TempDir())
+	stdout = captureStdout(t, func() { err = execute(argv) })
+	return stdout + out.String(), errOut.String(), err
 }

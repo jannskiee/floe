@@ -32,9 +32,11 @@ var flagTo string
 // errLinkTypedAsPath ends a plain send that was given a request link where a
 // path goes, the likeliest mistake of someone who forgot --to. The stat
 // sentence it replaces quoted the path, and so printed the link and its room
-// id twice into scrollback (FU-46, FU-32 F5-3). execute prints it as an
-// outcome, alone on the indent, and main exits 1. The line is approved copy
-// (D-153, approved-copy-cli.txt), byte for byte.
+// id twice into scrollback (FU-46, FU-32 F5-3). It also ends `floe <link>`,
+// the subcommand forgotten, whose unknown-command error quoted the link
+// (execute, FU-53). execute prints it as an outcome, alone on the indent, and
+// main exits 1. The line is approved copy (D-153, approved-copy-cli.txt),
+// byte for byte.
 var errLinkTypedAsPath = errors.New("That looks like a request link, not a file. To send to it, use: floe send <files> --to <link>")
 
 func init() {

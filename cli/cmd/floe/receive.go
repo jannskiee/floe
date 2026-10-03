@@ -15,7 +15,6 @@ import (
 	"github.com/jannskiee/floe/cli/engine/code"
 	"github.com/jannskiee/floe/cli/engine/ice"
 	"github.com/jannskiee/floe/cli/engine/peer"
-	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/jannskiee/floe/cli/engine/transfer"
 	"github.com/spf13/cobra"
 )
@@ -25,6 +24,12 @@ var (
 	flagAutoAccept bool
 	flagNoReport   bool
 )
+
+// errFloeLinkOtherServer ends a receive of a room link made on floe.one while
+// another server is chosen (runReceive). execute prints it as an outcome,
+// alone on the indent, and main exits 1. Added by FU-53 and approved by the
+// owner as written (D-156, approved-copy-cli.txt), byte for byte.
+var errFloeLinkOtherServer = errors.New("That link is for floe.one, but this Floe is set to use another server. Unset FLOE_SERVER or use --server https://api.floe.one, then try again.")
 
 var receiveCmd = &cobra.Command{
 	Use:   "receive <code | link>",
@@ -69,7 +74,27 @@ func runReceive(cmd *cobra.Command, args []string) error {
 		if errors.Is(err, code.ErrRequestLink) || errors.Is(err, code.ErrDropLink) {
 			return outcomeError{err}
 		}
+		// A request link in a shape Resolve does not refuse as one (a
+		// percent-encoded #, a bad escape, a mail-safety redirector, the whole
+		// link percent-encoded) still carries its key, and the wrapper below
+		// would print it. The send refuses the same shapes by the same rule
+		// (looksLikeRequestLink, FU-46 L2); receive ends on TL-33 for them too
+		// (FU-53 review 1 L-3).
+		if looksLikeRequestLink(input) {
+			return outcomeError{code.ErrRequestLink}
+		}
 		return fmt.Errorf("could not resolve %q: %w", input, err)
+	}
+	// A room link made on floe.one has its room on api.floe.one alone. With
+	// another server chosen (FLOE_SERVER, a self-hoster's standing setting,
+	// or --server), join-room would hand that room's id to a server that
+	// never held the room, and whoever runs it could take the receiver's
+	// seat, and the files, on api.floe.one (FU-53, FU-46 review 1 L5). The
+	// request-link send's host rule decides (linkServerMismatch, FU-32 F5-4),
+	// before any network call: Resolve reads a link without one, and only a
+	// code, which has no host, goes to the server.
+	if isFloeOneLinkHost(code.LinkHost(input)) && !isFloeOneServer(flagServer) {
+		return outcomeError{errFloeLinkOtherServer}
 	}
 
 	// 2. Ensure output directory exists
@@ -79,7 +104,7 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	absOutput, _ := filepath.Abs(flagOutput)
 
 	// 3. Fetch ICE credentials
-	iceServers, degraded, err := ice.FetchDetail(flagServer)
+	iceServers, degraded, err := fetchICE(flagServer)
 	if err != nil {
 		return fmt.Errorf("failed to fetch ICE credentials: %w", err)
 	}
@@ -93,7 +118,7 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	}
 
 	// 4. Connect to signaling server
-	sc, err := signaling.Connect(flagServer)
+	sc, err := connectSignaling(flagServer)
 	if err != nil {
 		return fmt.Errorf("failed to connect to signaling server: %w", err)
 	}

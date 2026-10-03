@@ -605,12 +605,12 @@ func startCLIEnv(t *testing.T, env map[string]string, args ...string) *cliRun {
 	}
 	rootCmd.SetOut(nil)
 	rootCmd.SetErr(nil)
-	rootCmd.SetArgs(append([]string{"send"}, args...))
+	argv := append([]string{"send"}, args...)
 
 	r := &cliRun{done: make(chan struct{})}
 	go func() {
 		defer close(r.done)
-		r.err = execute()
+		r.err = execute(argv)
 		r.ended = time.Now()
 	}()
 	t.Cleanup(func() {
@@ -1318,6 +1318,28 @@ func TestSendToOtherServerLinkEndsWithoutANetworkCall(t *testing.T) {
 		{"https://www.floe.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
 		{"floe.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
 		{"https://floe.one./r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		// N1 (FU-46 review 1, FU-53): a host a browser maps to floe.one
+		// (IDNA: fullwidth letters and dots, the ideographic full stop,
+		// circled letters, a soft hyphen, a percent-encoded fullwidth letter)
+		// is floe.one: with another server it ends on TL-10, with none it
+		// goes to api.floe.one, where its room is.
+		{"https://ｆｌｏｅ.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		{"https://www.ｆｌｏｅ.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		{"https://ＦＬＯＥ．ＯＮＥ/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		{"https://floe。one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		{"https://ⓕⓛⓞⓔ.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		{"https://flo\u00ade.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		{"https://%EF%BD%86loe.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		{"https://ｆｌｏｅ.one/r/Xk3p9Q0aB1c#" + room, true, floeServer, false},
+		{"https://ｆｌｏｅ.one/r/Xk3p9Q0aB1c#" + room, false, floeServer, false},
+		{"https://ｆｌｏｅ.one.example.com/r/Xk3p9Q0aB1c#" + room, true, selfHosted, false},
+		{"https://ｆｌｏｅ.one.example.com/r/Xk3p9Q0aB1c#" + room, false, floeServer, true},
+		// FU-53 review 1 L-2: a link whose host url.Parse cannot read (the
+		// slashes a browser reads past) is a mismatch with a server chosen
+		// too, never the self-hosted case.
+		{"https:///floe.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		{"https:/floe.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		{"/floe.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
 	} {
 		if got := linkServerMismatch(c.link, c.chosen, c.server); got != c.want {
 			t.Errorf("linkServerMismatch(%q, %v, %q) = %v, want %v", c.link, c.chosen, c.server, got, c.want)
@@ -1356,6 +1378,11 @@ func TestSendToFloeLinkWithAnotherServerEndsWithoutANetworkCall(t *testing.T) {
 		{"FLOE_SERVER set", "https://floe.one/r/Xk3p9Q0aB1c#" + room, true},
 		{"FLOE_SERVER set, www and no scheme", "www.floe.one/r/Xk3p9Q0aB1c#" + room, true},
 		{"--server typed", "https://WWW.floe.one/r/Xk3p9Q0aB1c#" + room, false},
+		// L-2 (FU-53 review 1): no host url.Parse can read.
+		{"FLOE_SERVER set, three slashes", "https:///floe.one/r/Xk3p9Q0aB1c#" + room, true},
+		// N1 (FU-53): the host in fullwidth letters, as a browser reads it.
+		{"--server typed, fullwidth", "https://ｆｌｏｅ.one/r/Xk3p9Q0aB1c#" + room, false},
+		{"FLOE_SERVER set, fullwidth www and dots", "https://www．ｆｌｏｅ．one/r/Xk3p9Q0aB1c#" + room, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			o := captureOutput(t)

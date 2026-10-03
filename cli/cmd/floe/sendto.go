@@ -34,6 +34,7 @@ import (
 	"github.com/jannskiee/floe/cli/engine/transfer"
 	"github.com/pion/webrtc/v4"
 	"github.com/spf13/cobra"
+	"golang.org/x/net/idna"
 )
 
 // sendToAckTimeout is how long the send waits for each ack from the host: the
@@ -49,9 +50,10 @@ var sendToAckTimeout = transfer.VisitorAckTimeout + transfer.VisitorAckGrace
 // shrink it, and whichever ends first ends the join.
 var sendToJoinTimeout = 10 * time.Second
 
-// fetchICE and connectSignaling are the send's first two network calls, as
-// vars so a test can count them and refuse every server but its own fake: a
-// guard that a mutation removes must never reach api.floe.one from a test.
+// fetchICE and connectSignaling are the first two network calls of the
+// request-link send and of receive, as vars so a test can count them and
+// refuse every server but its own fake: a guard that a mutation removes must
+// never reach api.floe.one from a test.
 var (
 	fetchICE         = ice.FetchDetail
 	connectSignaling = signaling.Connect
@@ -738,32 +740,55 @@ func routeOf(conn *peer.Connection) string {
 // not pointed at, so that joining would hand the room id to a server that has
 // never seen the room. Either way the send ends first with TL-10 (D-144.8)
 // and no network call at all:
-//   - a floe.one or www.floe.one link, whose room lives only on api.floe.one,
-//     with a server that is not api.floe.one (isFloeOneServer; FLOE_SERVER, a
-//     self-hoster's standing setting, or --server). That server's operator
-//     could request-join api.floe.one with the room id while the link is open
-//     and take its one seat (FU-46, FU-32 F5-4);
+//   - a floe.one or www.floe.one link (isFloeOneLinkHost), whose room lives
+//     only on api.floe.one, with a server that is not api.floe.one
+//     (isFloeOneServer; FLOE_SERVER, a self-hoster's standing setting, or
+//     --server). That server's operator could request-join api.floe.one with
+//     the room id while the link is open and take its one seat (FU-46, FU-32
+//     F5-4);
 //   - a link on any other host with no server chosen, which would ask
 //     api.floe.one.
 //
 // A link on another host with a server chosen goes through: the self-hosted
 // case. A link typed without its scheme is read as https, and one whose host
-// cannot be read is a mismatch.
+// cannot be read is a mismatch, a server chosen or not: https:///floe.one/r/...,
+// https:/floe.one/... and /floe.one/... parse with no host, and a browser
+// reads each as floe.one (FU-53 review 1 L-2).
 func linkServerMismatch(link string, serverChosen bool, server string) bool {
 	link = strings.TrimSpace(link)
 	u, err := url.Parse(link)
 	if err == nil && u.Scheme == "" && u.Host == "" {
 		u, err = url.Parse("https://" + link)
 	}
-	if err != nil {
+	if err != nil || u.Hostname() == "" {
 		return true
 	}
-	// The trailing dot of a fully qualified name reaches the same host.
-	switch strings.TrimSuffix(strings.ToLower(u.Hostname()), ".") {
-	case "floe.one", "www.floe.one":
+	if isFloeOneLinkHost(u.Hostname()) {
 		return !isFloeOneServer(server)
 	}
 	return !serverChosen
+}
+
+// isFloeOneLinkHost reports whether a link's host is floe.one or
+// www.floe.one, the web app whose links hold rooms on api.floe.one alone, as
+// a browser reads the host: through IDNA's lookup mapping (UTS 46, what a
+// browser applies before it resolves a name), so fullwidth letters and dots,
+// the ideographic full stop, circled letters and a soft hyphen all read as
+// the ASCII they map to (FU-46 review 1 N1), then in any case and with one
+// trailing dot (a fully qualified name reaches the same host). A host the
+// mapping refuses is compared as written, lower-cased; none of those maps to
+// floe.one. The request-link send (linkServerMismatch) and receive
+// (runReceive) both decide by it.
+func isFloeOneLinkHost(host string) bool {
+	h := strings.ToLower(host)
+	if ascii, err := idna.Lookup.ToASCII(host); err == nil {
+		h = ascii
+	}
+	switch strings.TrimSuffix(h, ".") {
+	case "floe.one", "www.floe.one":
+		return true
+	}
+	return false
 }
 
 // isFloeOneServer reports whether server is floe.one's signaling server, the

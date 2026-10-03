@@ -40,6 +40,48 @@ func TestResolveURL(t *testing.T) {
 	}
 }
 
+// TestLinkHostReadsALinkAsResolveDoes (FU-53): for every shape Resolve takes
+// a room id from, LinkHost names the host of that same link, as written (the
+// caller folds case and the trailing dot), so a caller can check where the
+// room lives before it uses the id. A code, and anything Resolve does not read
+// as a link, has no host.
+func TestLinkHostReadsALinkAsResolveDoes(t *testing.T) {
+	const room = "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
+	for _, c := range []struct{ input, host string }{
+		{"https://floe.one/#room=" + room, "floe.one"},
+		{"https://floe.one/?room=" + room, "floe.one"},
+		{"  https://www.floe.one/#room=" + room + "  ", "www.floe.one"},
+		{"floe.one/#room=" + room, "floe.one"},
+		{"floe.one:443/#room=" + room, "floe.one"},
+		{"<https://floe.one/#room=" + room + ">", "floe.one"},
+		{`"https://floe.one/?room=` + room + `"`, "floe.one"},
+		{"'floe.one/#room=" + room + "'", "floe.one"},
+		{"https://FLOE.ONE.:443/#room=" + room, "FLOE.ONE."},
+		{"https://ｆｌｏｅ.one/#room=" + room, "ｆｌｏｅ.one"},
+		{"http://localhost:3000/#room=" + room, "localhost"},
+		// FU-53 review 1 L-1: slashes a browser reads past and url.Parse does
+		// not. Resolve takes the room id out of each with no host, so LinkHost
+		// names the host the text names.
+		{"//floe.one/#room=" + room, "floe.one"},
+		{"https:///floe.one/#room=" + room, "floe.one"},
+		{"https:/floe.one/#room=" + room, "floe.one"},
+		{"/floe.one/#room=" + room, "floe.one"},
+	} {
+		got, err := Resolve("", c.input)
+		if err != nil || got != room {
+			t.Fatalf("Resolve(%q) = %q, %v; want the room id", c.input, got, err)
+		}
+		if h := LinkHost(c.input); h != c.host {
+			t.Errorf("LinkHost(%q) = %q, want %q", c.input, h, c.host)
+		}
+	}
+	for _, s := range []string{"", "olive-tiger-castle", "Olive-Tiger-Castle", "floe.one", room} {
+		if h := LinkHost(s); h != "" {
+			t.Errorf("LinkHost(%q) = %q, want no host", s, h)
+		}
+	}
+}
+
 func TestResolveURLWithoutRoom(t *testing.T) {
 	if _, err := Resolve("", "https://floe.one/about"); err == nil {
 		t.Fatal("expected an error for a URL with no room id, got nil")
