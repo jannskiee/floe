@@ -1075,22 +1075,21 @@ func TestSendToIncompleteLinkMakesNoNetworkCall(t *testing.T) {
 // which quotes the path it could not read and so printed the link back,
 // room id and all. A missing path that is not a link keeps TL-32's sentence.
 func TestSendToLinkTypedAsAPathIsNeverPrintedBack(t *testing.T) {
-	t.Run("a link where the path goes", func(t *testing.T) {
-		o := captureOutput(t)
-		net := stubNetwork(t, "")
-		const linkID = "Xk3p9Q0aB1c"
-		room := uuid.New().String()
-		r := runCLI(t, "--to", filepath.Join(t.TempDir(), "shoot"), "https://floe.one/r/"+linkID+"#"+room).read(o)
-		wantOutcome(t, r, "This link looks incomplete. Copy the whole link again, including everything after the # sign. Put the link in quotes.")
-		for _, leak := range []string{room, linkID, "cannot read"} {
-			if strings.Contains(r.stdout+r.stderr, leak) {
-				t.Fatalf("%q was printed:\nstdout:\n%s\nstderr:\n%s", leak, r.stdout, r.stderr)
+	room := uuid.New().String()
+	// FU-46 (FU-32 F5-3): every shape that carries the key, not only the ones
+	// code.ParseRequestLink takes.
+	for name, link := range linkAsPathShapes(room) {
+		t.Run("a link where the path goes: "+name, func(t *testing.T) {
+			o := captureOutput(t)
+			net := stubNetwork(t, "")
+			r := runCLI(t, "--to", filepath.Join(t.TempDir(), "shoot"), link).read(o)
+			wantNoLinkEcho(t, r, room)
+			wantOutcome(t, r, "This link looks incomplete. Copy the whole link again, including everything after the # sign. Put the link in quotes.")
+			if net.ice.Load() != 0 || net.connect.Load() != 0 {
+				t.Fatalf("network calls made: ICE %d, connect %d", net.ice.Load(), net.connect.Load())
 			}
-		}
-		if net.ice.Load() != 0 || net.connect.Load() != 0 {
-			t.Fatalf("network calls made: ICE %d, connect %d", net.ice.Load(), net.connect.Load())
-		}
-	})
+		})
+	}
 	t.Run("a missing path", func(t *testing.T) {
 		o := captureOutput(t)
 		net := stubNetwork(t, "")
@@ -1103,6 +1102,127 @@ func TestSendToLinkTypedAsAPathIsNeverPrintedBack(t *testing.T) {
 			t.Fatalf("network calls made: ICE %d, connect %d", net.ice.Load(), net.connect.Load())
 		}
 	})
+}
+
+// linkAsPathShapes are a request link as it can be typed where a path goes,
+// each carrying room, the link's key (FU-46, FU-32 F5-3). code.ParseRequestLink
+// takes five of them (a whole link, self-hosted, no scheme, capitals, a
+// percent-encoded fragment); the other six still carry the room id in their
+// fragment, which is the rule code.Resolve refuses a request link by
+// (FT-LINK-ECHO-F2, X1 to X4).
+func linkAsPathShapes(room string) map[string]string {
+	return map[string]string{
+		"a whole link":                  "https://floe.one/r/Xk3p9Q0aB1c#" + room,
+		"a self-hosted link":            "https://files.example.com/floe/r/Xk3p9Q0aB1c/#" + room,
+		"no scheme":                     "floe.one/r/Xk3p9Q0aB1c#" + room,
+		"a link id one character short": "https://floe.one/r/Xk3p9Q0aB1#" + room,
+		"a link id one character long":  "https://floe.one/r/Xk3p9Q0aB1cD#" + room,
+		"an extra path segment":         "https://floe.one/r/Xk3p9Q0aB1c/x#" + room,
+		"angle brackets":                "<https://floe.one/r/Xk3p9Q0aB1c#" + room + ">",
+		"quotes":                        `"https://floe.one/r/Xk3p9Q0aB1c#` + room + `"`,
+		"the room id in capitals":       "https://floe.one/r/Xk3p9Q0aB1c#" + strings.ToUpper(room),
+		"a percent-encoded fragment":    fmt.Sprintf("https://floe.one/r/Xk3p9Q0aB1c#%%%02X%s", room[0], room[1:]),
+		"a bad escape after the room":   "https://floe.one/r/Xk3p9Q0aB1c#" + room + "%zz",
+	}
+}
+
+// TestLooksLikeRequestLink: every shape above is a request link, and nothing
+// without a room id at the start of its fragment is: a room link (#room=),
+// a path with a hash in it, a room id in a file name, a request link that
+// lost its fragment (it carries no key, and keeps the stat sentence).
+func TestLooksLikeRequestLink(t *testing.T) {
+	room := uuid.New().String()
+	for name, link := range linkAsPathShapes(room) {
+		if !looksLikeRequestLink(link) {
+			t.Errorf("%s: looksLikeRequestLink(%q) = false", name, link)
+		}
+	}
+	for _, s := range []string{
+		"",
+		"shoot",
+		"notes#1.txt",
+		room + ".bin",
+		"https://floe.one/#room=" + room,
+		"floe.one/?room=" + room,
+		"https://floe.one/r/Xk3p9Q0aB1c",
+		"https://floe.one/r/Xk3p9Q0aB1c#" + room[:35],
+		"https://floe.one/r/Xk3p9Q0aB1c#x" + room,
+	} {
+		if looksLikeRequestLink(s) {
+			t.Errorf("looksLikeRequestLink(%q) = true", s)
+		}
+	}
+}
+
+// wantNoLinkEcho requires a run to have printed nothing of the link it was
+// given: not the room id (its last 35 characters, so a percent-encoded first
+// one counts too, in any case), not the link id, and not the stat sentence
+// that quotes a path.
+func wantNoLinkEcho(t *testing.T, r *cliRun, room string) {
+	t.Helper()
+	all := strings.ToLower(r.stdout + r.stderr)
+	for _, leak := range []string{strings.ToLower(room[1:]), strings.ToLower("Xk3p9Q0aB1"), "cannot read"} {
+		if strings.Contains(all, leak) {
+			t.Fatalf("%q was printed:\nstdout:\n%s\nstderr:\n%s", leak, r.stdout, r.stderr)
+		}
+	}
+}
+
+// lineLinkAsPath is the line a plain send ends on for a request link typed
+// as a path (FU-46, FU-32 F5-3). It is new copy, pending the owner's
+// approval: approved-copy-cli.txt has no line that points to --to.
+const lineLinkAsPath = "That looks like a request link, not a file. To send to it, use: floe send <files> --to <link>"
+
+// TestSendLinkTypedAsAPathIsNeverPrintedBack (FU-46, FU-32 F5-3): a plain
+// send with a request link where a path goes (--to forgotten, the likeliest
+// visitor mistake) ends on one fixed line, before any network, and never on
+// the stat sentence, which quoted the link twice, key and all, into
+// scrollback. A missing path that is not shaped like a link, even one whose
+// name holds a room id, keeps that sentence.
+func TestSendLinkTypedAsAPathIsNeverPrintedBack(t *testing.T) {
+	room := uuid.New().String()
+	shapes := linkAsPathShapes(room)
+	run := func(t *testing.T, args ...string) *cliRun {
+		t.Helper()
+		o := captureOutput(t)
+		stubNetwork(t, "")
+		// A closed port, so a send that went wrong reaches no server.
+		return runCLI(t, append(args, "--server", closedServer)...).read(o)
+	}
+	for name, link := range shapes {
+		t.Run(name, func(t *testing.T) {
+			p, _ := oneFile(t, t.TempDir(), "a.bin", 16)
+			r := run(t, p, link)
+			wantNoLinkEcho(t, r, room)
+			if r.err == nil {
+				t.Fatal("the command succeeded; want exit 1")
+			}
+			if r.stdout != "" || r.stderr != "  "+lineLinkAsPath+"\n" {
+				t.Fatalf("want the one line %q on stderr and nothing on stdout\nstdout:\n%q\nstderr:\n%q", lineLinkAsPath, r.stdout, r.stderr)
+			}
+		})
+	}
+	t.Run("the link first", func(t *testing.T) {
+		p, _ := oneFile(t, t.TempDir(), "a.bin", 16)
+		r := run(t, shapes["a whole link"], p)
+		wantNoLinkEcho(t, r, room)
+		if r.err == nil || r.stderr != "  "+lineLinkAsPath+"\n" {
+			t.Fatalf("the command returned %v\nstderr:\n%q", r.err, r.stderr)
+		}
+	})
+	for name, base := range map[string]string{
+		"a missing path":                       "shoot",
+		"a hash with no room id after it":      "notes#1.txt",
+		"a room id in the name, not after a #": room + ".bin",
+	} {
+		t.Run(name, func(t *testing.T) {
+			missing := filepath.Join(t.TempDir(), base)
+			r := run(t, missing)
+			if r.err == nil || !strings.Contains(r.stderr, "Error: cannot read "+missing+": ") {
+				t.Fatalf("a missing path no longer ends on the stat sentence (%v):\n%s", r.err, r.stderr)
+			}
+		})
+	}
 }
 
 // TestSendToOtherServerLinkEndsWithoutANetworkCall is D-144.8's replacement

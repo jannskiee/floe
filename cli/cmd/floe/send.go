@@ -4,6 +4,7 @@ package main
 // signaling and transfer sequence.
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -28,6 +29,14 @@ var sendCmd = &cobra.Command{
 // flagTo is the request link a send goes to instead of a new code (sendto.go).
 var flagTo string
 
+// errLinkTypedAsPath ends a plain send that was given a request link where a
+// path goes, the likeliest mistake of someone who forgot --to. The stat
+// sentence it replaces quoted the path, and so printed the link and its room
+// id twice into scrollback (FU-46, FU-32 F5-3). execute prints it as an
+// outcome, alone on the indent, and main exits 1. New copy pending the
+// owner's approval: approved-copy-cli.txt has no line that points to --to.
+var errLinkTypedAsPath = errors.New("That looks like a request link, not a file. To send to it, use: floe send <files> --to <link>")
+
 func init() {
 	// The help line is the approved copy's (TL-34), byte for byte.
 	sendCmd.Flags().StringVar(&flagTo, "to", "",
@@ -42,9 +51,13 @@ func runSend(cmd *cobra.Command, args []string) error {
 		return runSendTo(cmd, args)
 	}
 
-	// Validate that all paths exist
+	// Validate that all paths exist. The sentence quotes the path, so a
+	// request link typed as one (--to forgotten) ends on a fixed line instead.
 	for _, p := range args {
 		if _, err := os.Stat(p); err != nil {
+			if looksLikeRequestLink(p) {
+				return outcomeError{errLinkTypedAsPath}
+			}
 			return fmt.Errorf("cannot read %s: %w", p, err)
 		}
 	}

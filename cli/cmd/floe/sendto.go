@@ -19,6 +19,7 @@ import (
 	"io/fs"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -335,10 +336,11 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 	// TL-32: the check and the sentence a plain send makes. Its sentence
 	// quotes the path, so a request link typed where a path goes (the --to
 	// value and the path swapped) ends on TL-09 instead, and the link, room
-	// id and all, is never printed back (review lens B re-check N5).
+	// id and all, is never printed back (review lens B re-check N5), in every
+	// shape that carries the room id (looksLikeRequestLink, FU-46).
 	for _, p := range args {
 		if _, err := os.Stat(p); err != nil {
-			if _, _, linkErr := code.ParseRequestLink(p); linkErr == nil {
+			if looksLikeRequestLink(p) {
 				return r.fail(cmd, lineIncompleteLink)
 			}
 			return r.keep(cmd, fmt.Errorf("cannot read %s: %w", p, err))
@@ -758,6 +760,45 @@ func linkServerMismatch(link string, serverChosen bool, server string) bool {
 		return serverurl.Normalize(server) != floeOneServer
 	}
 	return !serverChosen
+}
+
+// roomIDLead is a room id as the server's UUID_REGEX takes it (engine/code's
+// uuidShape), anchored at the start only.
+var roomIDLead = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
+
+// looksLikeRequestLink reports whether a path that could not be read is a
+// request link, so that the send ends on a fixed line instead of the stat
+// sentence, which quotes the path: a request link's fragment is its room id,
+// the key to its one seat (FU-46, FU-32 F5-3). It is wider than
+// code.ParseRequestLink, which takes only the exact /r/<link id> path: a link
+// id a character short or long, an extra path segment, angle brackets or
+// quotes around the link, or a bad escape after the room id still carry the
+// key. So, as code.Resolve refuses a request link in any shape, a fragment
+// that is a room id counts whatever comes before it; this one also takes a
+// fragment that only starts with one. A room link spells its fragment #room=,
+// so none matches.
+func looksLikeRequestLink(arg string) bool {
+	if _, _, err := code.ParseRequestLink(arg); err == nil {
+		return true
+	}
+	s := strings.TrimSpace(arg)
+	// One pair of angle brackets or quotes, as a mail or chat app wraps a
+	// link (code.Resolve unwraps the same).
+	if n := len(s); n >= 2 {
+		switch first, last := s[0], s[n-1]; {
+		case first == '<' && last == '>', first == '"' && last == '"', first == '\'' && last == '\'':
+			s = strings.TrimSpace(s[1 : n-1])
+		}
+	}
+	_, frag, ok := strings.Cut(s, "#")
+	if !ok {
+		return false
+	}
+	if roomIDLead.MatchString(frag) {
+		return true
+	}
+	unescaped, err := url.PathUnescape(frag)
+	return err == nil && roomIDLead.MatchString(unescaped)
 }
 
 // serverChosen reports whether this run names its server: --server typed, or
