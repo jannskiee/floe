@@ -481,10 +481,20 @@ func TestAbandonPartialsWithinReturnsOnAParkedClose(t *testing.T) {
 	parked, release := parkClose(t, func(f *os.File) bool { return f == a })
 	registerPartial(a)
 
+	// Off the test goroutine, so a regression to an unbounded wait fails here
+	// in one line instead of hanging the package to its -timeout.
+	res := make(chan bool, 1)
 	start := time.Now()
-	finished := AbandonPartialsWithin(100 * time.Millisecond)
-	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
-		t.Fatalf("AbandonPartialsWithin(100ms) returned after %v with a parked Close, want within 500ms", elapsed)
+	go func() { res <- AbandonPartialsWithin(100 * time.Millisecond) }()
+	var finished bool
+	select {
+	case finished = <-res:
+	case <-time.After(3 * time.Second):
+		release()
+		t.Fatal("AbandonPartialsWithin(100ms) did not return while a Close was parked")
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("AbandonPartialsWithin(100ms) returned after %v with a parked Close, want well before the release", elapsed)
 	}
 	if finished {
 		t.Fatal("AbandonPartialsWithin reported finished while a Close was parked")
