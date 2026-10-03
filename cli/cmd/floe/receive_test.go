@@ -195,8 +195,7 @@ func receiveThroughCobra(t *testing.T, input, server string) (stdout, stderr str
 	var out, errOut strings.Builder
 	rootCmd.SetOut(&out)
 	rootCmd.SetErr(&errOut)
-	rootCmd.SetArgs([]string{"receive", input, "--server", server})
-	stdout = captureStdout(t, func() { err = execute() })
+	stdout = captureStdout(t, func() { err = execute([]string{"receive", input, "--server", server}) })
 	return stdout + out.String(), errOut.String(), err
 }
 

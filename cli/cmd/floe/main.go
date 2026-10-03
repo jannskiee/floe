@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -291,16 +292,16 @@ func main() {
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	go handleInterrupts(sigCh, os.Exit)
 
-	if err := execute(); err != nil {
+	if err := execute(os.Args[1:]); err != nil {
 		os.Exit(1)
 	}
 }
 
-// execute runs the command tree and prints a subcommand's error the way
-// cobra does ("Error: " and the text), through errorText. Errors carry text
-// the CLI does not control: a TLS certificate's names (Go's hostname check
-// lists them as they are, and on Linux it runs before the chain check), the
-// signaling server's error message, and pion's words.
+// execute runs the command tree on args and prints a subcommand's error the
+// way cobra does ("Error: " and the text), through errorText. Errors carry
+// text the CLI does not control: a TLS certificate's names (Go's hostname
+// check lists them as they are, and on Linux it runs before the chain check),
+// the signaling server's error message, and pion's words.
 //
 // Only Floe's own subcommands are silenced. Cobra keeps printing what fails
 // before one of them runs (an unknown command with its suggestions, a flag of
@@ -313,9 +314,21 @@ func main() {
 // copy reads. errSendToEnded prints nothing: the request-link send has
 // already printed the lines that end it (sendto.go). Both still return the
 // error, so main exits 1.
-func execute() error {
+//
+// One unknown command does not reach cobra: a request link typed where the
+// command goes (`floe <link>`, the subcommand forgotten). Cobra's error
+// quotes it, and a request link's fragment is its room id, the key to its
+// one seat, so it ends on the plain send's outcome instead, errLinkTypedAsPath
+// (D-153), printed the same way (FU-53, FU-46 review 1 L4).
+func execute(args []string) error {
 	for _, c := range rootCmd.Commands() {
 		c.SilenceErrors = true
+	}
+	rootCmd.SetArgs(args)
+	if linkTypedAsCommand(args) {
+		err := outcomeError{errLinkTypedAsPath}
+		fmt.Fprintln(rootCmd.ErrOrStderr(), "  "+errorText(err))
+		return err
 	}
 	cmd, err := rootCmd.ExecuteC()
 	if err != nil && cmd.SilenceErrors && !errors.Is(err, errSendToEnded) {
@@ -327,6 +340,24 @@ func execute() error {
 		}
 	}
 	return err
+}
+
+// linkTypedAsCommand reports whether cobra, run on args, would end on an
+// unknown command whose name, the first argument that is not a root flag or
+// a flag's value, is a request link (looksLikeRequestLink). It asks cobra's
+// own Find, which parses no flag and makes no network call; a run Find does
+// not refuse, or refuses for another name, goes to cobra unchanged.
+func linkTypedAsCommand(args []string) bool {
+	cmd, _, err := rootCmd.Find(args)
+	if err == nil || cmd != rootCmd {
+		return false
+	}
+	for _, a := range args {
+		if looksLikeRequestLink(a) && strings.Contains(err.Error(), strconv.Quote(a)) {
+			return true
+		}
+	}
+	return false
 }
 
 // outcomeError is an error that is an outcome, not a failure (TL-33's link

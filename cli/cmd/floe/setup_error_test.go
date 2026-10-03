@@ -118,13 +118,12 @@ func runAgainst(t *testing.T, url string, args ...string) string {
 	var printed bytes.Buffer
 	rootCmd.SetOut(io.Discard)
 	rootCmd.SetErr(&printed)
-	rootCmd.SetArgs(append(args, "--server", url))
 	t.Cleanup(func() {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
 	})
-	if err := execute(); err == nil {
+	if err := execute(append(args, "--server", url)); err == nil {
 		t.Fatalf("floe %s succeeded against a peer that sent a broken SDP", args[0])
 	}
 	return printed.String()

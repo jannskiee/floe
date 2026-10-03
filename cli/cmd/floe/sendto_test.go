@@ -605,12 +605,12 @@ func startCLIEnv(t *testing.T, env map[string]string, args ...string) *cliRun {
 	}
 	rootCmd.SetOut(nil)
 	rootCmd.SetErr(nil)
-	rootCmd.SetArgs(append([]string{"send"}, args...))
+	argv := append([]string{"send"}, args...)
 
 	r := &cliRun{done: make(chan struct{})}
 	go func() {
 		defer close(r.done)
-		r.err = execute()
+		r.err = execute(argv)
 		r.ended = time.Now()
 	}()
 	t.Cleanup(func() {
