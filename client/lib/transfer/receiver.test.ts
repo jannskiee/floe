@@ -1182,7 +1182,9 @@ describe('receiver: holds a bounded amount in the tab whatever the sender does',
         expect(h.errors).toEqual([]);
         // The open file's copies, just under SPILL_BYTES; kept for a resume,
         // the seven files left behind held seven times that again.
-        expect(grown).toBeLessThan(2 * SPILL_BYTES);
+        // 4x, not 2x (FU-52 review N2): one dropped file the collector has not reclaimed reads just under 2x on a busy
+        // runner; the unbounded build still reads about 134 MB here, far over the line.
+        expect(grown).toBeLessThan(4 * SPILL_BYTES);
     });
 
     it('resumes the open file under the same id, and starts over one it left', async () => {
