@@ -605,7 +605,11 @@ describe('receiver: per-file SHA-256', () => {
         // composed, are exactly what was sent.
         const h = harness();
         const a = payload(SPILL_BYTES + 4321, 3);
-        feed(h, 'a', a, 1, 1, endMessage(digestOf(a)));
+        // In 256 KiB chunks, so one part is spilled mid-file and a 4321-byte
+        // tail is still held when the end marker arrives.
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', a.byteLength, 1, 1, 0));
+        for (let off = 0; off < a.byteLength; off += 256 * 1024) h.rx.handleMessage(a.subarray(off, off + 256 * 1024));
+        h.rx.handleMessage(endMessage(digestOf(a)));
         await h.rx.settled();
         expect(h.errors).toEqual([]);
         expect(h.completed).toHaveLength(1);
