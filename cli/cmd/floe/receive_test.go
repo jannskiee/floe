@@ -340,6 +340,47 @@ func TestReceiveFloeLinkWithAnotherServerEndsWithoutANetworkCall(t *testing.T) {
 	}
 }
 
+// TestReceiveRequestLinkInAnyShapeIsNeverPrintedBack (FU-53 review 1 L-3):
+// a request link in a shape Resolve does not refuse as ErrRequestLink (a
+// percent-encoded #, a bad escape, a mail-safety redirector, a whole link
+// percent-encoded) used to come back inside "could not resolve %q", key and
+// all. Every shape the send refuses (linkAsPathShapes, FU-46 L2) now ends on
+// TL-33 alone, with no network call of any kind.
+func TestReceiveRequestLinkInAnyShapeIsNeverPrintedBack(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	room := uuid.New().String()
+	shapes := linkAsPathShapes(room)
+	shapes["a whole link percent-encoded"] = "https%3A%2F%2Ffloe.one%2Fr%2FXk3p9Q0aB1c%23" + room
+	for name, link := range shapes {
+		t.Run(name, func(t *testing.T) {
+			hits.Store(0)
+			calls := stubNetwork(t, "")
+			stdout, stderr, err := receiveWith(t, nil, link, "--server", srv.URL)
+			if n, c, h := calls.ice.Load(), calls.connect.Load(), hits.Load(); n != 0 || c != 0 || h != 0 {
+				t.Fatalf("network calls made: ICE %d, connect %d, requests to the server %d; want none\nstderr:\n%s", n, c, h, stderr)
+			}
+			if !errors.Is(err, code.ErrRequestLink) {
+				t.Fatalf("execute returned %v, want the request-link sentinel (main exits 1 on it)", err)
+			}
+			if want := "  " + code.ErrRequestLink.Error() + "\n"; stdout != "\n" || stderr != want {
+				t.Fatalf("want the blank line and %q\nstdout:\n%q\nstderr:\n%q", want, stdout, stderr)
+			}
+			all := strings.ToLower(stdout + stderr)
+			for _, leak := range []string{strings.ToLower(room[1:]), "xk3p9q0ab1"} {
+				if strings.Contains(all, leak) {
+					t.Fatalf("%q was printed:\n%s", leak, stderr)
+				}
+			}
+		})
+	}
+}
+
 // receiveWith runs `floe receive args...` through execute, as main runs it,
 // with env set as the user's shell would hold it, and returns what reached
 // stdout and the error writer, with the error main turns into exit 1. The

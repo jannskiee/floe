@@ -74,6 +74,15 @@ func runReceive(cmd *cobra.Command, args []string) error {
 		if errors.Is(err, code.ErrRequestLink) || errors.Is(err, code.ErrDropLink) {
 			return outcomeError{err}
 		}
+		// A request link in a shape Resolve does not refuse as one (a
+		// percent-encoded #, a bad escape, a mail-safety redirector, the whole
+		// link percent-encoded) still carries its key, and the wrapper below
+		// would print it. The send refuses the same shapes by the same rule
+		// (looksLikeRequestLink, FU-46 L2); receive ends on TL-33 for them too
+		// (FU-53 review 1 L-3).
+		if looksLikeRequestLink(input) {
+			return outcomeError{code.ErrRequestLink}
+		}
 		return fmt.Errorf("could not resolve %q: %w", input, err)
 	}
 	// A room link made on floe.one has its room on api.floe.one alone. With
