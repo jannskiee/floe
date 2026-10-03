@@ -57,7 +57,7 @@ func newCtrlC(t *testing.T) *ctrlC {
 	// holds no .part of its own and the host is another process, so the
 	// stand-in does nothing; main_test.go holds the real call to its order.
 	prevAbandon := abandonPartials
-	abandonPartials = func() {}
+	abandonPartials = func(time.Duration) {}
 	go handleInterrupts(c.sig, c.exits.exit)
 	t.Cleanup(func() {
 		parkUntilExit = prev

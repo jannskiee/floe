@@ -10,12 +10,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jannskiee/floe/cli/engine/code"
 	"github.com/jannskiee/floe/cli/engine/ice"
 	"github.com/jannskiee/floe/cli/engine/peer"
 	"github.com/jannskiee/floe/cli/engine/transfer"
+	"github.com/pion/webrtc/v4"
 	"github.com/spf13/cobra"
 )
 
@@ -55,6 +58,12 @@ func init() {
 
 func runReceive(cmd *cobra.Command, args []string) error {
 	input := args[0]
+
+	// Ctrl+C's stop step (FU-54): left in place for the rest of the process,
+	// and a no-op until the data channel is open.
+	r := &receiveRun{}
+	step := r.stop
+	interruptStop.Store(&step)
 
 	fmt.Println()
 
@@ -167,6 +176,9 @@ func runReceive(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%s", setupFailureLine(err))
 	}
 
+	if !r.connected(dc, conn) {
+		return r.park()
+	}
 	fmt.Println(connectedLine(conn.ConnectionType()))
 
 	// 7. Receive files
@@ -177,8 +189,114 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	// The pump comes from the connection, not from ReceiveFiles: see peer.Early.
 	// This is the side that was actually losing the sender's first message.
 	early := conn.Early()
-	return transfer.ReceiveFilesWithOptions(dc, absOutput, flagAutoAccept, version, statsURL, transfer.ReceiveOptions{
+	err = transfer.ReceiveFilesWithOptions(dc, absOutput, flagAutoAccept, version, statsURL, transfer.ReceiveOptions{
 		Messages: early.Msgs,
 		Closed:   early.Closed,
+		// Counts only, for Ctrl+C's stop: the files announced and the files
+		// committed under their final names.
+		OnIncoming: func(in transfer.IncomingInfo) { r.files.Store(int64(in.Files)) },
+		OnFileDone: func(transfer.FileDone) { r.saved.Add(1) },
 	})
+	if !r.finish() {
+		return r.park()
+	}
+	return err
+}
+
+// receiveStopFlush bounds the wait for the stop frame to leave before the
+// close, inside the handler's interruptStopBound. A var only so a test can
+// shrink it.
+var receiveStopFlush = 750 * time.Millisecond
+
+// receiveRun is what one receive shares with its Ctrl+C step, which runs on
+// the signal goroutine (interruptStop). Exactly one of the two ends the
+// command: the command with its outcome, or main's handler with "Canceled."
+// and exit 130. The mutex decides which.
+type receiveRun struct {
+	files atomic.Int64 // the files the sender announced, 0 before its first metadata
+	saved atomic.Int64 // the files committed under their final names (OnFileDone)
+
+	mu sync.Mutex
+	// over: the receive returned, and the command ends on its own.
+	// interrupted: Ctrl+C took the ending, and the command prints nothing more.
+	over, interrupted bool
+	dc                *webrtc.DataChannel
+	conn              *peer.Connection
+}
+
+// stop is the receive's Ctrl+C step, run by main's handler after "Canceled."
+// and before the partial-file cleanup (FU-54). From the signal goroutine, so
+// it works while the receive loop is parked at the Accept prompt or in a
+// stalled write: it tells the sender the transfer was stopped (code stopped,
+// with this side's saved count) and closes the connection, so the cleanup's
+// closing of the in-flight .part can no longer make the loop send
+// write-failed (QA-H6 N10). Before the channel opens there is nobody to tell,
+// as before; once every announced file is committed there is nothing to stop.
+func (r *receiveRun) stop() {
+	r.mu.Lock()
+	if r.over {
+		r.mu.Unlock()
+		return
+	}
+	r.interrupted = true
+	dc, conn := r.dc, r.conn
+	r.mu.Unlock()
+	if dc == nil || conn == nil {
+		return
+	}
+	saved := r.saved.Load()
+	if files := r.files.Load(); files > 0 && saved >= files {
+		return
+	}
+	tellStopped(dc, conn, int(saved))
+}
+
+// tellStopped is stop's work: the refusal frame with code stopped and its
+// flush, bounded by receiveStopFlush, then the close, the shape the desktop's
+// request-drop abort and the request-link send's tellAndClose use. A var only
+// so a test can stand in one that records or stalls.
+var tellStopped = func(dc *webrtc.DataChannel, conn *peer.Connection, saved int) {
+	sent := make(chan struct{})
+	go func() {
+		defer close(sent)
+		transfer.AbortWithCode(dc, version, transfer.CodeStopped, transfer.CodeStopped.WireReason(), saved)
+	}()
+	select {
+	case <-sent:
+	case <-time.After(receiveStopFlush):
+	}
+	conn.Close()
+}
+
+// connected records the open channel for Ctrl+C. It reports false when a
+// Ctrl+C during setup already took the ending.
+func (r *receiveRun) connected(dc *webrtc.DataChannel, conn *peer.Connection) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.interrupted {
+		return false
+	}
+	r.dc, r.conn = dc, conn
+	return true
+}
+
+// finish decides who ends the command once the receive returns. It reports
+// false when Ctrl+C has the ending.
+func (r *receiveRun) finish() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.interrupted {
+		return false
+	}
+	r.over = true
+	return true
+}
+
+// park ends the command once Ctrl+C has its ending: in the binary never
+// (parkUntilExit), so main's os.Exit(1) cannot race the handler's exit 130 or
+// print a line after "Canceled." (FU-54 review 1 M2). A test that lets it
+// return gets the error execute prints nothing for.
+func (r *receiveRun) park() error {
+	parkUntilExit()
+	return errSendToEnded
 }
