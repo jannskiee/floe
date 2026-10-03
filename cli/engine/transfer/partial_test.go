@@ -316,6 +316,52 @@ func TestAbandonStillOwnsTheFileItIsClosing(t *testing.T) {
 	}
 }
 
+// TestParkedFilesOwnerWaitsWithoutTheMapLock: the owner of the file whose
+// Close is parked reaches its own unregister at once in production (its next
+// Write fails on the closing handle and the deferred discardPart runs). It
+// must wait on its entry alone: an unrelated file still registers and
+// unregisters while it waits. Nesting the entry lock inside partialMu (the
+// old `defer partialMu.Unlock()` shape of unregisterPartial) passes every
+// other abandon test and fails this one.
+func TestParkedFilesOwnerWaitsWithoutTheMapLock(t *testing.T) {
+	dir := t.TempDir()
+	a := claimForTest(t, filepath.Join(dir, "a.bin"))
+	parked, release := parkClose(t, func(f *os.File) bool { return f == a })
+	registerPartial(a)
+	abandoned := goAbandon()
+	awaitParked(t, parked, a)
+
+	aUnregistered := make(chan struct{})
+	go func() {
+		defer close(aUnregistered)
+		unregisterPartial(a)
+	}()
+	time.Sleep(100 * time.Millisecond) // setup wait: let the owner reach its entry lock
+
+	b := claimForTest(t, filepath.Join(dir, "b.bin"))
+	bDone := make(chan struct{})
+	go func() {
+		defer close(bDone)
+		registerPartial(b)
+		unregisterPartial(b)
+	}()
+	select {
+	case <-bDone:
+	case <-time.After(time.Second):
+		release()
+		awaitClosed(t, bDone, "the unrelated file's register and unregister")
+		awaitClosed(t, aUnregistered, "the parked file owner's unregister")
+		awaitClosed(t, abandoned, "the abandon")
+		t.Fatal("an unrelated file waited behind the parked file's owner")
+	}
+	release()
+	awaitClosed(t, aUnregistered, "the parked file owner's unregister")
+	awaitClosed(t, abandoned, "the abandon")
+	if err := a.Close(); !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("the owner's own Close = %v, want os.ErrClosed", err)
+	}
+}
+
 // TestOwnerThatUnregistersFirstIsNeverTouchedByAbandon: once its unregister
 // has returned, an owner's file is its own. The abandon never closes it, the
 // owner's Close succeeds and its commit lands under the final name, both when
