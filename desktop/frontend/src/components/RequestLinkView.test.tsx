@@ -618,6 +618,12 @@ describe('the layout (D-136)', () => {
         // the overlay steps aside and the field shows its own text, cut at
         // the end, rather than two paths drawn on top of each other.
         expect(shownClasses).toContain('forced-colors:hidden');
+        // What places the overlay, none of which jsdom can see: out of the hit
+        // test (a click on the text must still focus the field), over the
+        // field's box and no wider, and in the field's own box model so the
+        // two texts line up.
+        for (const c of ['pointer-events-none', 'absolute', 'inset-0', 'truncate', 'border', 'border-transparent', 'px-3', 'py-2', 'text-sm']) expect(shownClasses).toContain(c);
+        expect(shown.parentElement!.className.split(' ')).toContain('relative');
         expect(shown.getAttribute('aria-hidden')).toBe('true');
         expect(shown.textContent!.length).toBeLessThanOrEqual(36);
         expect(field.title).toBe(long);
