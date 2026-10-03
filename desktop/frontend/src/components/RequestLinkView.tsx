@@ -32,6 +32,10 @@ export const LABEL_INPUT_ID = 'floe-request-label';
 // space, which in this tracked uppercase mono is wider than the card (FU-04,
 // case d). anywhere, not break-all, so a spaced label still breaks at spaces.
 const headClass = 'px-0.5 font-mono text-[10px] font-medium uppercase leading-4 tracking-[0.2em] text-zinc-300 [overflow-wrap:anywhere]';
+// The folder after "Into" (P3) on the prompt and while a drop receives, by the
+// same rule: break-all split a spaced label's folder inside a word ("f" /
+// "rom", QA-H6 L-1) right under a heading that broke at its spaces.
+const intoClass = 'font-mono text-zinc-300 [overflow-wrap:anywhere]';
 const t1Class = 'text-sm leading-normal text-zinc-200';
 const t2Class = 'text-xs leading-relaxed text-zinc-400';
 const t3Class = 'text-xs leading-relaxed text-zinc-500';
@@ -363,7 +367,7 @@ function Prompt({snap, onAnswer, onGuardLift, onPromptVisible}: RequestLinkViewP
             <div className="space-y-2">
                 <h3 id={PROMPT_HEADING_ID} tabIndex={-1} className={cn(headClass, 'outline-none')}>{copy.promptHeading(snap.label)}</h3>
                 <p className="text-sm font-medium text-zinc-100">{copy.promptSize(prompt.files, prompt.totalBytes)}</p>
-                <p className={t2Class}>{copy.INTO} <span className="break-all font-mono text-zinc-300">{prompt.folder}</span></p>
+                <p className={t2Class}>{copy.INTO} <span className={intoClass}>{prompt.folder}</span></p>
                 {prompt.warnings.map((w) => {
                     const line = copy.warningLine(w, prompt, snap.saveDir);
                     // P11 is advice, not a fact about this drop, so it is not amber.
@@ -410,7 +414,7 @@ function Receiving({snap, progress, accepted, onCancelDrop}: RequestLinkViewProp
         <div className="space-y-4">
             <div className="space-y-2">
                 <p className={headClass}>{copy.receivingHeading(index, count, snap.label)}</p>
-                {folder && <p className={t2Class}>{copy.INTO} <span className="break-all font-mono text-zinc-300">{folder}</span></p>}
+                {folder && <p className={t2Class}>{copy.INTO} <span className={intoClass}>{folder}</span></p>}
             </div>
             <div className="space-y-2">
                 <div className="flex items-baseline justify-between gap-3 font-mono text-[11px] text-zinc-400">

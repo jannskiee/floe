@@ -461,8 +461,11 @@ describe('the layout (D-136)', () => {
             expect(el.className, el.textContent!).toContain('text-zinc-400');
         }
         expect(screen.getByText(/^Only 31\.0 GB free on D:/).className).toContain('text-amber-300/80');
-        // The folder wraps inside the card instead of overflowing it.
-        expect(screen.getByText(prompt.folder).className).toContain('break-all');
+        // The folder wraps inside the card instead of overflowing it, at its
+        // spaces first: break-all cut "from" into "f" and "rom" (QA-H6 L-1).
+        const into = screen.getByText(prompt.folder).className.split(' ');
+        expect(into).toContain('[overflow-wrap:anywhere]');
+        expect(into).not.toContain('break-all');
         // The Accept and Decline row carries the id Review scrolls to.
         expect(accept.parentElement!.id).toBe(PROMPT_ACTIONS_ID);
     });
@@ -529,7 +532,8 @@ describe('the layout (D-136)', () => {
         const {container, rerender} = render(<RequestLinkView {...at('receiving', {accepted})}/>);
         expect(screen.getByText('RECEIVING 1 OF 12 FROM ACME FOOTAGE')).toBeTruthy();
         const into = screen.getByText(prompt.folder);
-        expect(into.className).toContain('break-all');
+        expect(into.className.split(' ')).toContain('[overflow-wrap:anywhere]');
+        expect(into.className.split(' ')).not.toContain('break-all');
         expect(into.parentElement!.textContent).toBe(`Into ${prompt.folder}`);
         expect(container.textContent).not.toMatch(/0 B of 0 B|RECEIVING 0 OF 0/);
         rerender(<RequestLinkView {...at('receiving', {accepted, progress: progress('a.mov')})}/>);
@@ -571,6 +575,26 @@ describe('the layout (D-136)', () => {
         for (const [phase, text] of heads) {
             const {unmount} = render(<RequestLinkView {...at(phase, {progress: progress('a.mov'), snap: {...BY_PHASE[phase], label: unspaced}})}/>);
             expect(screen.getByText(text).className.split(' '), phase).toContain('[overflow-wrap:anywhere]');
+            unmount();
+        }
+    });
+
+    it('the Into line breaks at spaces, the way the headings above it do (QA-H6 L-1)', () => {
+        // break-all wrapped a spaced folder as "...review f" / "rom the Lisbon
+        // studio": every letter was a break point. anywhere breaks inside a
+        // word only when the word cannot fit, so a long unspaced name still
+        // stays inside the card. jsdom has no layout, so the class is checked.
+        const folder = 'save-base\\Acme footage for the autumn launch review from the Lisbon studio 2026-10-03 2104';
+        const s = snap({state: 'deciding', prompt: {...prompt, folder}});
+        for (const [phase, over] of [
+            ['deciding', {snap: s}],
+            ['receiving', {snap: snap({state: 'receiving', route: 'direct'}), accepted: {files: 1, folder}}],
+        ] as const) {
+            const {unmount} = render(<RequestLinkView {...at(phase, over)}/>);
+            const span = screen.getByText(folder);
+            expect(span.parentElement!.textContent, phase).toBe(`Into ${folder}`);
+            expect(span.className.split(' '), phase).toContain('[overflow-wrap:anywhere]');
+            expect(span.className.split(' '), phase).not.toContain('break-all');
             unmount();
         }
     });
