@@ -142,6 +142,18 @@ func TestCandidateFloodBeforeTheAnswerIsBounded(t *testing.T) {
 	for i := 0; i < small; i++ {
 		write(hostCandidate(i))
 	}
+	// With the bounds the large frames are dropped as they arrive, so the
+	// count stays at 0 while they are still on their way, and under the race
+	// detector that outlasted settledPending's 500 ms window once (FU-44 R2).
+	// The engine keeps the frames' order, so a real-sized candidate in the
+	// buffer means every large one has gone through: wait for one, and for the
+	// engine's two hand-offs to drain, before settling.
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
+		if n, _ := pendingNow(conn); n > 0 && len(conn.sc.Signal) == 0 && len(conn.candidates) == 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	n, held := settledPending(conn, 15*time.Second)
 	runtime.GC()
 	var m1 runtime.MemStats
