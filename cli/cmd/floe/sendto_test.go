@@ -1291,6 +1291,30 @@ func TestSendToOtherServerLinkEndsWithoutANetworkCall(t *testing.T) {
 		{floe, true, "https://floe.one", true},
 		{floe, true, "http://api.floe.one", true},
 		{floe, true, "https://api.floe.one.example.com", true},
+		// N4 (FU-46 review 1): api.floe.one is compared parsed, so every
+		// spelling that reaches it goes through (https in any case, the host
+		// in any case and with one trailing dot, port 443, no path) and
+		// anything else still ends on TL-10.
+		{floe, true, "https://API.floe.one", false},
+		{floe, true, "HTTPS://Api.Floe.One", false},
+		{floe, true, "https://api.floe.one:443", false},
+		{floe, true, "https://api.floe.one.", false},
+		{floe, true, " https://API.FLOE.ONE.:443/ ", false},
+		{floe, true, "http://api.floe.one:443", true},
+		{floe, true, "wss://api.floe.one", true},
+		{floe, true, "api.floe.one", true},
+		{floe, true, "//api.floe.one", true},
+		{floe, true, "https://user@api.floe.one", true},
+		{floe, true, "https://user:secret@api.floe.one", true},
+		{floe, true, "https://api.floe.one:8443", true},
+		{floe, true, "https://api.floe.one:80", true},
+		{floe, true, "https://api.floe.one:", true},
+		{floe, true, "https://api.floe.one/floe", true},
+		{floe, true, "https://api.floe.one?x=1", true},
+		{floe, true, "https://api.floe.one#x", true},
+		{floe, true, "https://api.floe.one..", true},
+		{floe, true, "https://xapi.floe.one", true},
+		{floe, true, "https://floe.one.api.floe.one", true},
 		{"https://www.floe.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
 		{"floe.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
 		{"https://floe.one./r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
@@ -1360,18 +1384,38 @@ func TestSendToFloeLinkWithAnotherServerEndsWithoutANetworkCall(t *testing.T) {
 			}
 		})
 	}
-	t.Run("FLOE_SERVER names api.floe.one", func(t *testing.T) {
-		o := captureOutput(t)
-		// Nothing is allowed: the fetch is counted and refused, never made.
-		net := stubNetwork(t, "")
-		p, _ := oneFile(t, t.TempDir(), "a.bin", 16)
-		r := startCLIEnv(t, map[string]string{"FLOE_SERVER": " https://api.floe.one/ "}, p, "--to", floeLinkFor())
-		r.wait(t, 30*time.Second).read(o)
-		wantOutcome(t, r, tlSetupFailed)
-		if ice, connect := net.ice.Load(), net.connect.Load(); ice != 1 || connect != 0 {
-			t.Fatalf("ICE fetches %d, connects %d; want the one refused fetch", ice, connect)
-		}
-	})
+	// Every spelling of api.floe.one reaches the ICE fetch (N4, FU-46 review
+	// 1); nothing else does. Nothing is allowed: the fetch is counted and
+	// refused, never made.
+	for _, c := range []struct {
+		server  string
+		reaches bool
+	}{
+		{" https://api.floe.one/ ", true},
+		{"https://API.floe.one", true},
+		{"https://api.floe.one:443", true},
+		{"https://api.floe.one.", true},
+		{"http://api.floe.one", false},
+		{"https://user@api.floe.one", false},
+		{"https://api.floe.one:8443", false},
+		{"https://api.floe.one.example.com", false},
+	} {
+		t.Run("FLOE_SERVER is "+strings.TrimSpace(c.server), func(t *testing.T) {
+			o := captureOutput(t)
+			net := stubNetwork(t, "")
+			p, _ := oneFile(t, t.TempDir(), "a.bin", 16)
+			r := startCLIEnv(t, map[string]string{"FLOE_SERVER": c.server}, p, "--to", floeLinkFor())
+			r.wait(t, 30*time.Second).read(o)
+			wantOutcome(t, r, tlSetupFailed)
+			want := int32(0)
+			if c.reaches {
+				want = 1
+			}
+			if ice, connect := net.ice.Load(), net.connect.Load(); ice != want || connect != 0 {
+				t.Fatalf("ICE fetches %d, connects %d; want %d and 0", ice, connect, want)
+			}
+		})
+	}
 }
 
 // TestSendToRelayOnlyWithoutARelayEndsBeforeTheJoin: --relay-only against a

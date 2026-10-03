@@ -734,16 +734,12 @@ func routeOf(conn *peer.Connection) string {
 	return route
 }
 
-// floeOneServer is floe.one's signaling server, the --server default and the
-// only server that holds the room of a link made on floe.one.
-const floeOneServer = "https://api.floe.one"
-
 // linkServerMismatch reports whether a link was made on a server this run is
 // not pointed at, so that joining would hand the room id to a server that has
 // never seen the room. Either way the send ends first with TL-10 (D-144.8)
 // and no network call at all:
 //   - a floe.one or www.floe.one link, whose room lives only on api.floe.one,
-//     with a server that is not api.floe.one once normalized (FLOE_SERVER, a
+//     with a server that is not api.floe.one (isFloeOneServer; FLOE_SERVER, a
 //     self-hoster's standing setting, or --server). That server's operator
 //     could request-join api.floe.one with the room id while the link is open
 //     and take its one seat (FU-46, FU-32 F5-4);
@@ -765,9 +761,39 @@ func linkServerMismatch(link string, serverChosen bool, server string) bool {
 	// The trailing dot of a fully qualified name reaches the same host.
 	switch strings.TrimSuffix(strings.ToLower(u.Hostname()), ".") {
 	case "floe.one", "www.floe.one":
-		return serverurl.Normalize(server) != floeOneServer
+		return !isFloeOneServer(server)
 	}
 	return !serverChosen
+}
+
+// isFloeOneServer reports whether server is floe.one's signaling server, the
+// --server default and the only server that holds the room of a link made on
+// floe.one, in any spelling that reaches it: once normalized, https (url.Parse
+// lower-cases the scheme), the host api.floe.one in any case and with one
+// trailing dot, port empty or 443, path empty or "/", and no userinfo, query
+// or fragment (FU-46 review 1 N4; an exact string compare refused
+// https://API.floe.one and https://api.floe.one:443, which used to work).
+// Anything else, http, another port, a path the requests would be appended
+// to, is not, and a floe.one link with it ends on TL-10.
+func isFloeOneServer(server string) bool {
+	s := serverurl.Normalize(server)
+	if strings.ContainsAny(s, "?#") {
+		return false
+	}
+	u, err := url.Parse(s)
+	if err != nil || u.Scheme != "https" || u.Opaque != "" || u.User != nil {
+		return false
+	}
+	if u.Path != "" && u.Path != "/" {
+		return false
+	}
+	if strings.HasSuffix(u.Host, ":") {
+		return false
+	}
+	if port := u.Port(); port != "" && port != "443" {
+		return false
+	}
+	return strings.TrimSuffix(strings.ToLower(u.Hostname()), ".") == "api.floe.one"
 }
 
 // roomIDLead is a room id as the server's UUID_REGEX takes it (engine/code's
