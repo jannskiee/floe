@@ -522,6 +522,51 @@ describe('receiver: per-file SHA-256', () => {
             expect(h.acks().map((m) => m.id)).toEqual(['a']);
             expect(h.errors).toEqual([]);
         });
+
+        it('keeps a refusal as the only message when an earlier part then reads back broken', async () => {
+            // A hash refusal has reported, as fail() has: once it has spoken
+            // after a close, a broken part found later stays quiet instead of
+            // talking over the hash message with an out-of-memory one.
+            const RealBlob = Blob;
+            const earlier: { fail?: () => void } = {};
+            let slices = 0;
+            vi.stubGlobal(
+                'Blob',
+                class extends RealBlob {
+                    slice(...args: Parameters<Blob['slice']>): Blob {
+                        slices += 1;
+                        if (slices > 1) return super.slice(...args);
+                        // The first spilled part: its read-back fails when the test says.
+                        return {
+                            arrayBuffer: () =>
+                                new Promise((_, reject) => {
+                                    earlier.fail = () => reject(new DOMException('', 'NotReadableError'));
+                                }),
+                        } as unknown as Blob;
+                    }
+                }
+            );
+            try {
+                const held = heldHash();
+                const h = harness({ hashBlob: held.hashBlob });
+                const a = payload(SPILL_BYTES + 4321, 5);
+                h.rx.handleMessage(metadataMessage('a', 'a.bin', a.byteLength, 1, 1, 0));
+                for (let off = 0; off < a.byteLength; off += 256 * 1024) h.rx.handleMessage(a.subarray(off, off + 256 * 1024));
+                h.rx.handleMessage(endMessage(digestOf(a)));
+                const closed = h.rx.settled();
+                h.rx.dispose();
+                held.release(digestOf(payload(10, 9)));
+                await closed;
+                expect(h.errors).toEqual([MISMATCH]);
+                expect(earlier.fail).toBeDefined();
+                earlier.fail?.();
+                await new Promise((r) => setTimeout(r, 0));
+                expect(h.errors).toEqual([MISMATCH]);
+                expect(h.completed).toEqual([]);
+            } finally {
+                vi.unstubAllGlobals();
+            }
+        });
     });
 
     // The read-back of a file's last part settles with the digest (#501's merge

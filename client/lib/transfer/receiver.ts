@@ -277,6 +277,7 @@ export function createReceiver(
     // why with a code and the count already handed over, and the transfer stops.
     function refuseHash(unreadable: boolean): void {
         aborted = true;
+        closed = false; // reported now, as in fail(), so a later broken part stays quiet
         queued = [];
         partialDownloads.clear();
         currentMetadata = null;
