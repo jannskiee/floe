@@ -49,9 +49,10 @@ var sendToAckTimeout = transfer.VisitorAckTimeout + transfer.VisitorAckGrace
 // shrink it, and whichever ends first ends the join.
 var sendToJoinTimeout = 10 * time.Second
 
-// fetchICE and connectSignaling are the send's first two network calls, as
-// vars so a test can count them and refuse every server but its own fake: a
-// guard that a mutation removes must never reach api.floe.one from a test.
+// fetchICE and connectSignaling are the first two network calls of the
+// request-link send and of receive, as vars so a test can count them and
+// refuse every server but its own fake: a guard that a mutation removes must
+// never reach api.floe.one from a test.
 var (
 	fetchICE         = ice.FetchDetail
 	connectSignaling = signaling.Connect
@@ -738,11 +739,12 @@ func routeOf(conn *peer.Connection) string {
 // not pointed at, so that joining would hand the room id to a server that has
 // never seen the room. Either way the send ends first with TL-10 (D-144.8)
 // and no network call at all:
-//   - a floe.one or www.floe.one link, whose room lives only on api.floe.one,
-//     with a server that is not api.floe.one (isFloeOneServer; FLOE_SERVER, a
-//     self-hoster's standing setting, or --server). That server's operator
-//     could request-join api.floe.one with the room id while the link is open
-//     and take its one seat (FU-46, FU-32 F5-4);
+//   - a floe.one or www.floe.one link (isFloeOneLinkHost), whose room lives
+//     only on api.floe.one, with a server that is not api.floe.one
+//     (isFloeOneServer; FLOE_SERVER, a self-hoster's standing setting, or
+//     --server). That server's operator could request-join api.floe.one with
+//     the room id while the link is open and take its one seat (FU-46, FU-32
+//     F5-4);
 //   - a link on any other host with no server chosen, which would ask
 //     api.floe.one.
 //
@@ -758,12 +760,23 @@ func linkServerMismatch(link string, serverChosen bool, server string) bool {
 	if err != nil {
 		return true
 	}
-	// The trailing dot of a fully qualified name reaches the same host.
-	switch strings.TrimSuffix(strings.ToLower(u.Hostname()), ".") {
-	case "floe.one", "www.floe.one":
+	if isFloeOneLinkHost(u.Hostname()) {
 		return !isFloeOneServer(server)
 	}
 	return !serverChosen
+}
+
+// isFloeOneLinkHost reports whether a link's host is floe.one or
+// www.floe.one, the web app whose links hold rooms on api.floe.one alone, in
+// any case and with one trailing dot (a fully qualified name reaches the same
+// host). The request-link send (linkServerMismatch) and receive (runReceive)
+// both decide by it.
+func isFloeOneLinkHost(host string) bool {
+	switch strings.TrimSuffix(strings.ToLower(host), ".") {
+	case "floe.one", "www.floe.one":
+		return true
+	}
+	return false
 }
 
 // isFloeOneServer reports whether server is floe.one's signaling server, the

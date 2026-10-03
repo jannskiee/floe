@@ -152,6 +152,7 @@ func Resolve(serverURL, input string) (string, error) {
 	// server/server.js, over words.json), so an input with a slash or a hash
 	// is a link that lost its scheme, never a code. Read as https, it takes
 	// the URL branch below and never reaches the code lookup at the end.
+	// LinkHost reads an input the same way; the two change together.
 	if !strings.Contains(input, "://") && strings.ContainsAny(input, "/#") {
 		input = "https://" + input
 	}
@@ -227,6 +228,28 @@ func Resolve(serverURL, input string) (string, error) {
 		return "", fmt.Errorf("invalid response from code API")
 	}
 	return result.RoomID, nil
+}
+
+// LinkHost returns the host of the link Resolve reads input as, the host a
+// room link's id came from, so a caller can check where a link points before
+// it uses that id (FU-53). It reads input as Resolve does: trimmed, one pair
+// of angle brackets or quotes unwrapped, and read as https when it has a
+// slash or a hash and no scheme. It returns "" for an input Resolve does not
+// read as a link (a code) and for a link that does not parse, and it makes
+// no network call.
+func LinkHost(input string) string {
+	s := unwrapPaste(strings.TrimSpace(input))
+	if !strings.Contains(s, "://") && strings.ContainsAny(s, "/#") {
+		s = "https://" + s
+	}
+	if !strings.Contains(s, "://") {
+		return ""
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
 }
 
 // unwrapPaste strips one pair of angle brackets or quotes from around a paste,
