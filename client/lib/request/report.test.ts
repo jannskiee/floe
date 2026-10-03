@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { reportMailto, reportMailtoFromLocation, REQUEST_REPORT_ADDRESS } from './report';
 
 // "Report this link" carries the link id and the origin, never the room id or
@@ -67,8 +68,14 @@ describe('report this link', () => {
         expect(body).toBe(`Link: https://files.example.org/r/${LINK}`);
     });
 
-    it('the address is the placeholder until the owner supplies one', () => {
-        // OD-23: replaced at Phase F by the release checklist row part 06 owns.
-        expect(REQUEST_REPORT_ADDRESS).toBe('request-link-reports@example.invalid');
+    it('the address is the one SECURITY.md and CODE_OF_CONDUCT.md publish', () => {
+        // OD-23, D-152: the owner chose the address the repository already
+        // publishes for security and conduct reports. Pinned against both
+        // files, so the three cannot drift apart.
+        expect(REQUEST_REPORT_ADDRESS).toBe('paredesjancarlo99@gmail.com');
+        const security = readFileSync(new URL('../../../SECURITY.md', import.meta.url), 'utf8');
+        expect(security).toContain(`Send the details to ${REQUEST_REPORT_ADDRESS}.`);
+        const conduct = readFileSync(new URL('../../../CODE_OF_CONDUCT.md', import.meta.url), 'utf8');
+        expect(conduct).toContain(REQUEST_REPORT_ADDRESS);
     });
 });

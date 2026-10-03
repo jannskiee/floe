@@ -10,11 +10,11 @@
 
 import { linkIdFromPath, LINK_ID_RE } from './requestLink';
 
-/** Placeholder until the owner supplies the dedicated address at Phase F
- *  (OD-23). The `.invalid` top-level domain can never deliver, so a mail sent
- *  before the swap bounces rather than landing anywhere. The release checklist
- *  row that replaces it is part 06's. */
-export const REQUEST_REPORT_ADDRESS = 'request-link-reports@example.invalid';
+/** Where a report goes: the owner's own address, the one SECURITY.md and
+ *  CODE_OF_CONDUCT.md already publish for security and conduct reports. The
+ *  owner chose it over a dedicated mailbox (OD-23, D-152). report.test.ts pins
+ *  it against both files, so a change here is a change there too. */
+export const REQUEST_REPORT_ADDRESS = 'paredesjancarlo99@gmail.com';
 
 /** A plain http or https origin: scheme, host and optional port, with no path,
  *  query or fragment. */
