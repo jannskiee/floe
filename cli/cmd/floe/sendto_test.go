@@ -1116,22 +1116,30 @@ func TestSendToLinkTypedAsAPathIsNeverPrintedBack(t *testing.T) {
 // linkAsPathShapes are a request link as it can be typed where a path goes,
 // each carrying room, the link's key (FU-46, FU-32 F5-3). code.ParseRequestLink
 // takes five of them (a whole link, self-hosted, no scheme, capitals, a
-// percent-encoded fragment); the other six still carry the room id in their
-// fragment, which is the rule code.Resolve refuses a request link by
-// (FT-LINK-ECHO-F2, X1 to X4).
+// percent-encoded fragment); the others still carry the room id after a #,
+// which is the rule code.Resolve refuses a request link by (FT-LINK-ECHO-F2,
+// X1 to X4), or after a # that is percent-encoded, once or twice, as a link
+// pasted from a mail-safety redirector is, or doubled, or followed by a space
+// (FU-46 review 1 L2).
 func linkAsPathShapes(room string) map[string]string {
 	return map[string]string{
-		"a whole link":                  "https://floe.one/r/Xk3p9Q0aB1c#" + room,
-		"a self-hosted link":            "https://files.example.com/floe/r/Xk3p9Q0aB1c/#" + room,
-		"no scheme":                     "floe.one/r/Xk3p9Q0aB1c#" + room,
-		"a link id one character short": "https://floe.one/r/Xk3p9Q0aB1#" + room,
-		"a link id one character long":  "https://floe.one/r/Xk3p9Q0aB1cD#" + room,
-		"an extra path segment":         "https://floe.one/r/Xk3p9Q0aB1c/x#" + room,
-		"angle brackets":                "<https://floe.one/r/Xk3p9Q0aB1c#" + room + ">",
-		"quotes":                        `"https://floe.one/r/Xk3p9Q0aB1c#` + room + `"`,
-		"the room id in capitals":       "https://floe.one/r/Xk3p9Q0aB1c#" + strings.ToUpper(room),
-		"a percent-encoded fragment":    fmt.Sprintf("https://floe.one/r/Xk3p9Q0aB1c#%%%02X%s", room[0], room[1:]),
-		"a bad escape after the room":   "https://floe.one/r/Xk3p9Q0aB1c#" + room + "%zz",
+		"a whole link":                           "https://floe.one/r/Xk3p9Q0aB1c#" + room,
+		"a self-hosted link":                     "https://files.example.com/floe/r/Xk3p9Q0aB1c/#" + room,
+		"no scheme":                              "floe.one/r/Xk3p9Q0aB1c#" + room,
+		"a link id one character short":          "https://floe.one/r/Xk3p9Q0aB1#" + room,
+		"a link id one character long":           "https://floe.one/r/Xk3p9Q0aB1cD#" + room,
+		"an extra path segment":                  "https://floe.one/r/Xk3p9Q0aB1c/x#" + room,
+		"angle brackets":                         "<https://floe.one/r/Xk3p9Q0aB1c#" + room + ">",
+		"quotes":                                 `"https://floe.one/r/Xk3p9Q0aB1c#` + room + `"`,
+		"the room id in capitals":                "https://floe.one/r/Xk3p9Q0aB1c#" + strings.ToUpper(room),
+		"a percent-encoded fragment":             fmt.Sprintf("https://floe.one/r/Xk3p9Q0aB1c#%%%02X%s", room[0], room[1:]),
+		"a bad escape after the room":            "https://floe.one/r/Xk3p9Q0aB1c#" + room + "%zz",
+		"a percent-encoded #":                    "https://floe.one/r/Xk3p9Q0aB1c%23" + room,
+		"a bad escape, then a percent-encoded #": "https://floe.one/r/Xk3p9Q0aB1c%zz%23" + room,
+		"inside a mail-safety redirector":        "https://nam12.safelinks.protection.outlook.com/?url=https%3A%2F%2Ffloe.one%2Fr%2FXk3p9Q0aB1c%23" + room + "&data=05%7C02",
+		"a redirector inside a redirector":       "https://example.com/?u=https%3A%2F%2Fnam12.safelinks.protection.outlook.com%2F%3Furl%3Dhttps%253A%252F%252Ffloe.one%252Fr%252FXk3p9Q0aB1c%2523" + room,
+		"a doubled #":                            "https://floe.one/r/Xk3p9Q0aB1c##" + room,
+		"a space after the #":                    "https://floe.one/r/Xk3p9Q0aB1c# " + room,
 	}
 }
 
@@ -1156,6 +1164,9 @@ func TestLooksLikeRequestLink(t *testing.T) {
 		"https://floe.one/r/Xk3p9Q0aB1c",
 		"https://floe.one/r/Xk3p9Q0aB1c#" + room[:35],
 		"https://floe.one/r/Xk3p9Q0aB1c#x" + room,
+		"https://floe.one/r/Xk3p9Q0aB1c%23x" + room,
+		"https://example.com/?url=https%3A%2F%2Ffloe.one%2F%23room%3D" + room,
+		"notes%231.txt",
 	} {
 		if looksLikeRequestLink(s) {
 			t.Errorf("looksLikeRequestLink(%q) = true", s)
