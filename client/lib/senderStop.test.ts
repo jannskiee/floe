@@ -52,7 +52,15 @@ describe('describeSenderStop', () => {
 });
 
 describe('senderCloseInterrupted', () => {
-    const base = { transferComplete: false, progress: 40, closedByUs: false };
+    const base = { transferComplete: false, progress: 40, closedByUs: false, wireReason: false };
+
+    it('stays quiet after the receiver said why it stopped', () => {
+        // A Go receiver that refuses a file (hash-mismatch) sends its frame and
+        // then closes. onStopped already latched the wire reason and set
+        // "Transfer failed" under the fixed sentence; the close that follows
+        // must not relabel that as a connection problem.
+        expect(senderCloseInterrupted({ ...base, wireReason: true })).toBe(false);
+    });
 
     it('says interrupted when a started transfer loses a connection this side did not close', () => {
         expect(senderCloseInterrupted(base)).toBe(true);

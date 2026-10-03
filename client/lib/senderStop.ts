@@ -35,11 +35,17 @@ export function describeSenderStop(stop: {
  * receiver that stops mid-file (it ran out of memory, or its tab closed)
  * closes the connection, and the send engine then stops without a word, so
  * without this the screen stayed on "Sending: <name>" (#500).
+ *
+ * Not after a wire reason: a receiver that refused a file on purpose (a Go
+ * receiver sends hash-mismatch and then closes) has already said why through
+ * onStopped, and the close that follows must not relabel it as a connection
+ * problem, the same latch the sender's error handler honors.
  */
 export function senderCloseInterrupted(close: {
     transferComplete: boolean;
     progress: number;
     closedByUs: boolean;
+    wireReason: boolean;
 }): boolean {
-    return !close.transferComplete && close.progress > 0 && !close.closedByUs;
+    return !close.transferComplete && close.progress > 0 && !close.closedByUs && !close.wireReason;
 }

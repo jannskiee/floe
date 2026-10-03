@@ -921,6 +921,7 @@ export function P2PTransfer() {
                         transferComplete: transferCompleteRef.current,
                         progress: progressRef.current,
                         closedByUs: closedByUsRef.current === peer,
+                        wireReason: wireReasonRef.current,
                     })
                 ) {
                     setError((prev) => prev || 'The connection closed before the transfer finished.');
