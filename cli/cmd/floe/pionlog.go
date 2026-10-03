@@ -2,7 +2,8 @@ package main
 
 // pion log scopes turned off from the environment: a stopgap for the one pion
 // logger that floe cannot route through its own escaping factory (FU-32
-// F2-1), and the peer connection's on the request-link send (FU-32 F2-2).
+// F2-1), and the peer connection's and the data channel's on the
+// request-link send (FU-32 F2-2, FU-46 review 1 L1).
 
 import (
 	"os"
@@ -51,21 +52,34 @@ var pionEnablingLevels = [...]string{"ERROR", "WARN", "INFO", "DEBUG", "TRACE"}
 // the first release that requires it.
 func quietTURNClientLog() { quietPionScope("turnc") }
 
-// quietPeerConnectionLog disables pion's "pc" scope by the same rule, on the
-// request-link send only (FU-46, FU-32 F2-2). runSendTo calls it before it
-// makes its peer: peer.New builds its logger factory from pion's default,
-// which reads the environment then (engine/peer/logging.go).
+// quietPeerConnectionLog disables pion's "pc" and "datachannel" scopes by the
+// same rule, on the request-link send only (FU-46, FU-32 F2-2, review 1 L1).
+// runSendTo calls it before it makes its peer: peer.New builds its logger
+// factory from pion's default, which reads the environment then
+// (engine/peer/logging.go), and pion/webrtc hands that factory to the data
+// channels it accepts.
 //
 // The link's host is a stranger, and D-147 (2) keeps every word it chooses
-// off the visitor's terminal. pion/webrtc v4.2.19 logs a trickled candidate
-// whose ufrag matches nothing in the remote description as "pc ERROR:
-// dropping candidate with ufrag <ufrag> ..." at pion's default level, and the
-// host chooses the ufrag. FU-40's escape writes controls visibly, but pion's
-// candidate reader passes Latin-1, so words joined with no-break spaces
-// printed as the host's own sentence, up to about 1 KiB a line. The scope's
-// other lines are pion's diagnostics, which this path never prints anyway:
-// every outcome there is a fixed line. Plain send and receive keep the scope.
-func quietPeerConnectionLog() { quietPionScope("pc") }
+// off the visitor's terminal. FU-40's escape writes controls visibly, but
+// printable text, ordinary or no-break spaces included, passes, so two lines
+// at pion's default ERROR level printed the host's own sentence:
+//   - pion/webrtc v4.2.19 logs a trickled candidate whose ufrag matches
+//     nothing in the remote description as "pc ERROR: dropping candidate
+//     with ufrag <ufrag> ...", the ufrag the host's (Latin-1 passes pion's
+//     candidate reader), up to about 1 KiB a line;
+//   - pion/datachannel v1.6.2 logs any DCEP message but an ACK on an open
+//     channel as "datachannel ERROR: Failed to handle DCEP: ... Label(<label>)
+//     Protocol(<protocol>)", both strings from a DATA_CHANNEL_OPEN the host
+//     wrote, up to 64 KiB a line and once per message (a modified host stack
+//     can send it; a browser cannot).
+//
+// Both scopes' other lines are pion's diagnostics, which this path never
+// prints anyway: every outcome there is a fixed line. Plain send and receive
+// keep both scopes.
+func quietPeerConnectionLog() {
+	quietPionScope("pc")
+	quietPionScope("datachannel")
+}
 
 // quietPionScope disables pion's scope (lower case, as pion names its own)
 // unless the person running floe has turned a pion log level on, the rule

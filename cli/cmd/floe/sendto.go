@@ -395,9 +395,11 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 	}
 	defer sc.Close()
 	// The peer exists before the join (spec 07 4.8): the host offers the
-	// moment the server seats this visitor. pion's pc scope goes off first,
-	// since peer.New reads pion's levels from the environment: its "dropping
-	// candidate" line quotes a ufrag the host chose (quietPeerConnectionLog).
+	// moment the server seats this visitor. pion's pc and datachannel scopes
+	// go off first, since peer.New reads pion's levels from the environment:
+	// pc's "dropping candidate" line quotes a ufrag the host chose, and
+	// datachannel's "Failed to handle DCEP" line a channel label and protocol
+	// it wrote (quietPeerConnectionLog).
 	quietPeerConnectionLog()
 	conn, err := peer.New(iceServers, sc, peerOptions()...)
 	if err != nil {
@@ -491,7 +493,8 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 // and TL-27 on lines of their own), TL-02's "Peer version:" line only for a
 // release-shaped host version (D-147 (2): the host is a stranger's, and no
 // text of its choosing may print here; pion's pc line, which quoted a
-// trickled candidate's ufrag, is off on this path too, by
+// trickled candidate's ufrag, and its datachannel line, which quoted a
+// DATA_CHANNEL_OPEN's label and protocol, are off on this path too, by
 // quietPeerConnectionLog), the ack callback that tracks the phase, and the
 // connection's own pump (see peer.Early).
 func sendToOptions(early *peer.Early, stop <-chan struct{}, onAck func(int), onDelivered func(transfer.Delivered)) transfer.SendOptions {
