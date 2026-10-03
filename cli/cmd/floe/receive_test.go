@@ -265,6 +265,12 @@ func TestReceiveFloeLinkWithAnotherServerEndsWithoutANetworkCall(t *testing.T) {
 		"fullwidth":                   "https://ｆｌｏｅ.one/#room=" + room,
 		"www, ideographic full stops": "https://www。ｆｌｏｅ。one/?room=" + room,
 		"circled letters":             "https://ⓕⓛⓞⓔ.one/#room=" + room,
+		// FU-53 review 1 L-1: slash-mangled spellings, read as a browser
+		// reads them.
+		"two slashes, no scheme": "//floe.one/#room=" + room,
+		"three slashes":          "https:///floe.one/#room=" + room,
+		"one slash":              "https:/floe.one/#room=" + room,
+		"a leading slash":        "/floe.one/#room=" + room,
 	}
 	servers := []struct {
 		name string

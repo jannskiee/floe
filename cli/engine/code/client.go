@@ -152,7 +152,8 @@ func Resolve(serverURL, input string) (string, error) {
 	// server/server.js, over words.json), so an input with a slash or a hash
 	// is a link that lost its scheme, never a code. Read as https, it takes
 	// the URL branch below and never reaches the code lookup at the end.
-	// LinkHost reads an input the same way; the two change together.
+	// LinkHost reads an input the same way, and a slash-mangled start
+	// further (slashedStart); the two change together.
 	if !strings.Contains(input, "://") && strings.ContainsAny(input, "/#") {
 		input = "https://" + input
 	}
@@ -230,16 +231,27 @@ func Resolve(serverURL, input string) (string, error) {
 	return result.RoomID, nil
 }
 
-// LinkHost returns the host of the link Resolve reads input as, the host a
-// room link's id came from, so a caller can check where a link points before
-// it uses that id (FU-53). It reads input as Resolve does: trimmed, one pair
-// of angle brackets or quotes unwrapped, and read as https when it has a
-// slash or a hash and no scheme. It returns "" for an input Resolve does not
-// read as a link (a code) and for a link that does not parse, and it makes
-// no network call.
+// slashedStart is the start of a link that a browser reads as "https://" and
+// url.Parse does not: an http or https scheme followed by any run of slashes
+// or backslashes (https:/host, https:///host), or a run of slashes with no
+// scheme (//host, /host). Resolve still takes the room id out of such a link,
+// with no host, so LinkHost must name the host the link's text names (FU-53
+// review 1 L-1).
+var slashedStart = regexp.MustCompile(`(?i)^(?:https?:)?[/\\]+`)
+
+// LinkHost returns the host the link's text names, the host a room link's id
+// came from, so a caller can check where a link points before it uses that id
+// (FU-53). It reads input as Resolve does (trimmed, one pair of angle brackets
+// or quotes unwrapped, and read as https when it has a slash or a hash and no
+// scheme), and also reads a slash-mangled start (slashedStart) as a browser
+// does, where Resolve finds no host at all. It returns "" for an input Resolve
+// does not read as a link (a code) and for a link that does not parse, and it
+// makes no network call.
 func LinkHost(input string) string {
 	s := unwrapPaste(strings.TrimSpace(input))
-	if !strings.Contains(s, "://") && strings.ContainsAny(s, "/#") {
+	if m := slashedStart.FindString(s); m != "" {
+		s = "https://" + s[len(m):]
+	} else if !strings.Contains(s, "://") && strings.ContainsAny(s, "/#") {
 		s = "https://" + s
 	}
 	if !strings.Contains(s, "://") {

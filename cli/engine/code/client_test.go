@@ -59,6 +59,13 @@ func TestLinkHostReadsALinkAsResolveDoes(t *testing.T) {
 		{"https://FLOE.ONE.:443/#room=" + room, "FLOE.ONE."},
 		{"https://ｆｌｏｅ.one/#room=" + room, "ｆｌｏｅ.one"},
 		{"http://localhost:3000/#room=" + room, "localhost"},
+		// FU-53 review 1 L-1: slashes a browser reads past and url.Parse does
+		// not. Resolve takes the room id out of each with no host, so LinkHost
+		// names the host the text names.
+		{"//floe.one/#room=" + room, "floe.one"},
+		{"https:///floe.one/#room=" + room, "floe.one"},
+		{"https:/floe.one/#room=" + room, "floe.one"},
+		{"/floe.one/#room=" + room, "floe.one"},
 	} {
 		got, err := Resolve("", c.input)
 		if err != nil || got != room {
