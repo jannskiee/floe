@@ -637,6 +637,18 @@ describe('the layout (D-136)', () => {
         expect(field.style.color).toBe('');
         expect(field.title).toBe('');
     });
+
+    it('Review leaves 16 px under the Accept row, from a scroll margin on the row alone (QA-H6 L-4)', () => {
+        // Review scrolls this row into view (block nearest); with no margin it
+        // ended flush with the window's bottom edge at 1000 x 640. The margin
+        // is on the row only: Accept and Decline keep none, so a Tab onto
+        // either scrolls exactly as before, and nothing moves when a request
+        // arrives (no scroll happens then).
+        render(<RequestLinkView {...at('deciding')}/>);
+        const row = document.getElementById(PROMPT_ACTIONS_ID)!;
+        expect(row.className.split(' ')).toContain('scroll-mb-4');
+        for (const b of within(row).getAllByRole('button')) expect(b.className).not.toMatch(/scroll-m/);
+    });
 });
 
 describe('every state', () => {

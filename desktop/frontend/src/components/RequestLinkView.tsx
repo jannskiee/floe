@@ -408,7 +408,12 @@ function Prompt({snap, onAnswer, onGuardLift, onPromptVisible}: RequestLinkViewP
                 {/* P10 is read before the decision, above the buttons. */}
                 <p className={t2Class}>{copy.PROMPT_CAUTION}</p>
             </div>
-            <div ref={block} id={PROMPT_ACTIONS_ID} className="flex gap-3">
+            {/* scroll-mb-4: Review's scrollIntoView stops 16 px short of the
+                window's bottom edge, not flush with it (QA-H6 L-4). A scroll
+                margin moves nothing on screen; it only changes where that
+                scroll ends. On the row, not the buttons, so a Tab onto Accept
+                or Decline scrolls as before. */}
+            <div ref={block} id={PROMPT_ACTIONS_ID} className="flex scroll-mb-4 gap-3">
                 <Button className={cn('flex-1', guardClass)} aria-disabled={guarded} onPointerDown={onDown} onClick={answer('accept')}>
                     {copy.ACCEPT}
                 </Button>
