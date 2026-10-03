@@ -239,7 +239,8 @@ func interruptLine() (string, func()) {
 // holds the terminal, and a nil stop leaves a command that has its outcome
 // to end on its own while a second signal still ends it at once. Every other
 // command keeps the handler it always had: its second signal is swallowed,
-// so the partial-file cleanup always runs to its end (review re-check LA2-5).
+// so the partial-file cleanup runs to its end or its 5 s bound (review
+// re-check LA2-5).
 func handleInterrupts(sigCh <-chan os.Signal, exit func(int)) {
 	<-sigCh
 	if interruptHook.Load() != nil {
@@ -260,14 +261,17 @@ func handleInterrupts(sigCh <-chan os.Signal, exit func(int)) {
 	// cleanup. Remove the in-flight .part staging file here so a Ctrl+C leaves
 	// the output directory as clean as any other failure. Safe at any moment:
 	// only .part files are ever registered, and a completed file's rename
-	// vacated that path.
+	// vacated that path. Bounded, so a Close that parks cannot keep a canceled
+	// receive from exiting: past 5 s the exit goes ahead and the .part stays,
+	// which never looks like a finished file.
 	abandonPartials()
 	exit(130)
 }
 
 // abandonPartials is the partial-file cleanup the handler runs before its
-// exit: transfer.AbandonPartials in every build, a var so a test can hold it.
-var abandonPartials = transfer.AbandonPartials
+// exit: transfer.AbandonPartialsWithin with its 5 s bound in every build, a
+// var so a test can hold it.
+var abandonPartials = func() { transfer.AbandonPartialsWithin(5 * time.Second) }
 
 // cutRunes returns s cut to max runes, the last one an ellipsis when it was
 // longer.

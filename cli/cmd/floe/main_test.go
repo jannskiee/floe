@@ -221,9 +221,9 @@ func TestHandleInterruptsLeavesAFinishedCommandAlone(t *testing.T) {
 
 // TestHandleInterruptsPlainCommandKeepsTodaysHandler (review re-check LA2-5):
 // a command with no hook (plain send, receive, update) keeps the handler it
-// always had. Ctrl+C prints "Canceled.", runs the partial-file cleanup to its
-// end and exits 130 once, and a second Ctrl+C while the cleanup runs is
-// swallowed, so it can never skip AbandonPartials and leave a .part behind.
+// always had. Ctrl+C prints "Canceled.", runs the partial-file cleanup and
+// exits 130 once, and a second Ctrl+C while the cleanup runs is swallowed, so
+// a second signal can never cut the cleanup short.
 func TestHandleInterruptsPlainCommandKeepsTodaysHandler(t *testing.T) {
 	o := captureOutput(t)
 	interruptHook.Store(nil)

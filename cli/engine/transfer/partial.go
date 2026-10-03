@@ -15,36 +15,72 @@ import (
 // handle) can still tidy the staging file.
 //
 // Only .part files are ever registered, and the receiver unregisters BEFORE
-// committing, under this same mutex. That ordering is load-bearing: an
-// empirical review proved that removing a registered path can otherwise race
-// the commit rename, with the delete disposition following the file to its
-// final name so that both syscalls report success and the committed file
-// vanishes. With unregister-first the receiver cannot be inside the commit
-// while an abandon holds the lock (unregister synchronizes on it), and once
-// unregistered the path is invisible to abandon; so no registered path is
-// ever mid-rename, and a completed file can never be deleted here. An abandon
-// that wins the lock in the instant between verification and unregistration
-// deletes a verified .part during an explicit user abort, which is accepted:
-// the sender was never told the transfer completed.
+// committing. That ordering is load-bearing: an empirical review proved that
+// removing a registered path can otherwise race the commit rename, with the
+// delete disposition following the file to its final name so that both
+// syscalls report success and the committed file vanishes.
+//
+// Each entry has its own lock, and that lock, not partialMu, is what keeps
+// the ordering. An abandon holds an entry's lock across that one file's Close
+// and Remove; unregisterPartial deletes the entry and then takes its lock
+// before returning. So when unregisterPartial returns, an abandon has either
+// finished closing and removing the file (the owner's own Close then fails
+// with os.ErrClosed, the receiver's fingerprint for an abandoned transfer) or
+// will never touch it (the entry is marked done). The receiver therefore
+// cannot be inside the commit while an abandon works on its file, no
+// registered path is ever mid-rename, and a completed file can never be
+// deleted here. The owner of the file being closed still waits for the
+// abandon, as it always has: that wait is what rules the race above out.
+//
+// partialMu guards the map only and is never held across a syscall. It used
+// to be held across every Close and Remove, and on Windows a Close waits for
+// every outstanding reference on the handle: one was seen to park under load
+// with the lock held (its cause is not established), and every other file's
+// register and unregister, which is the receive loop, parked behind it. With
+// the per-entry rule only the parked file's owner waits.
+//
+// An abandon that takes an entry's lock after the last byte but before the
+// owner's unregister deletes a complete .part during an explicit user abort,
+// which is accepted: the sender was never told the transfer completed.
 //
 // A map rather than a single slot: the desktop shares this package and can in
 // principle run more than one receive in a process lifetime; a single slot
 // could be cleared by the wrong one.
 var (
 	partialMu    sync.Mutex
-	partialFiles = map[*os.File]struct{}{}
+	partialFiles = map[*os.File]*partialEntry{}
 )
+
+// partialEntry is one registered file's ownership lock. done records that the
+// file has been dealt with, closed and removed by an abandon or handed back
+// by its owner's unregister, so whichever comes second leaves it alone.
+type partialEntry struct {
+	mu   sync.Mutex
+	done bool
+}
 
 func registerPartial(f *os.File) {
 	partialMu.Lock()
 	defer partialMu.Unlock()
-	partialFiles[f] = struct{}{}
+	partialFiles[f] = &partialEntry{}
 }
 
+// unregisterPartial hands the file back to its owner. Deleting the entry
+// under partialMu hides it from every later abandon; taking the entry's own
+// lock afterwards waits out an abandon that is closing this file right now;
+// marking it done makes an abandon that holds it in its snapshot, but has not
+// reached it yet, skip it.
 func unregisterPartial(f *os.File) {
 	partialMu.Lock()
-	defer partialMu.Unlock()
+	e := partialFiles[f]
 	delete(partialFiles, f)
+	partialMu.Unlock()
+	if e == nil {
+		return
+	}
+	e.mu.Lock()
+	e.done = true
+	e.mu.Unlock()
 }
 
 // discardPart drops a staging file the receive loop is giving up on.
@@ -68,20 +104,77 @@ func discardPart(f *os.File) {
 	}
 }
 
+// closePartial is the Close AbandonPartials makes. A seam: a Close that parks
+// cannot be produced on demand, so a test swaps in one that blocks.
+var closePartial = func(f *os.File) error { return f.Close() }
+
 // AbandonPartials best-effort removes every in-flight staging file. Close
 // comes first: Go opens files on Windows without FILE_SHARE_DELETE, so
 // removing a file the receive loop still holds open fails with a sharing
 // violation, and the receive loop's own next Write failing with "file already
 // closed" is irrelevant to a process that is exiting. Callers: the CLI signal
-// handler before os.Exit, the desktop's shutdown hook.
+// handler before os.Exit and the desktop's shutdown hook, both through
+// AbandonPartialsWithin.
+//
+// Three phases, so partialMu is never held across a syscall (see the registry
+// comment): snapshot the entries under partialMu; close and remove each file
+// under its entry's lock only, skipping one its owner has already
+// unregistered; delete the entries under partialMu.
 func AbandonPartials() {
+	type pending struct {
+		f *os.File
+		e *partialEntry
+	}
 	partialMu.Lock()
-	defer partialMu.Unlock()
-	for f := range partialFiles {
-		name := f.Name()
-		_ = f.Close()
-		_ = os.Remove(name)
-		delete(partialFiles, f)
+	// Read once: a test restores the seam while an abandon that
+	// AbandonPartialsWithin stopped waiting for may still be running.
+	closeFile := closePartial
+	snapshot := make([]pending, 0, len(partialFiles))
+	for f, e := range partialFiles {
+		snapshot = append(snapshot, pending{f, e})
+	}
+	partialMu.Unlock()
+
+	for _, p := range snapshot {
+		p.e.mu.Lock()
+		if !p.e.done {
+			name := p.f.Name()
+			_ = closeFile(p.f)
+			_ = os.Remove(name)
+			p.e.done = true
+		}
+		p.e.mu.Unlock()
+	}
+
+	partialMu.Lock()
+	for _, p := range snapshot {
+		if partialFiles[p.f] == p.e {
+			delete(partialFiles, p.f)
+		}
+	}
+	partialMu.Unlock()
+}
+
+// AbandonPartialsWithin runs AbandonPartials and waits for it at most d,
+// reporting whether it finished. The exit paths call this form so a Close
+// that parks cannot hold the process: the abandon carries on in the
+// background until the process ends. A file it has not finished stays as a
+// .part unless its owner completes and verifies it first; partSuffix
+// guarantees a .part is never mistaken for a finished file, and the next
+// receive de-collides around it.
+func AbandonPartialsWithin(d time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		AbandonPartials()
+	}()
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		return false
 	}
 }
 

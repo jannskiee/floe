@@ -156,10 +156,12 @@ func (a *App) startup(ctx context.Context) {
 // its .part staging file open; its deferred cleanup will not get to run before
 // the process ends, so tidy the staging file here. Safe at any moment: only
 // .part files are registered, and a completed file's commit rename vacated
-// that path, so nothing that finished can be touched.
+// that path, so nothing that finished can be touched. Bounded, so a Close
+// that parks cannot keep the app from quitting: past 5 s the .part stays,
+// which never looks like a finished file.
 func (a *App) shutdown(ctx context.Context) {
 	a.shuttingDown.Store(true) // ends the quit retry (closequit.go)
-	transfer.AbandonPartials()
+	transfer.AbandonPartialsWithin(5 * time.Second)
 	// A quit that did not come through ConfirmClose (no link was live when it
 	// started) still ends the lane; idempotent after ConfirmClose.
 	a.lane().closeForQuit()
