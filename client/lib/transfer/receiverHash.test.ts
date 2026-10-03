@@ -598,6 +598,36 @@ describe('receiver: per-file SHA-256', () => {
             expect(h.completed).toEqual([]);
             expect(h.errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
         });
+
+        it('cannot leave the check pending when the read-back never settles', async () => {
+            // readBack resolves at the hash bound (CP0-F2): a part whose
+            // read-back hangs must not hold every later frame behind the check,
+            // keep settled() from resolving, or keep the close decision waiting.
+            vi.stubGlobal(
+                'Blob',
+                class extends RealBlob {
+                    slice(): Blob {
+                        return { arrayBuffer: () => new Promise(() => {}) } as unknown as Blob;
+                    }
+                }
+            );
+            const h = failing({
+                hashBlob: async (b) => digestOf(new Uint8Array(await b.arrayBuffer())),
+                hashBoundMs: () => 20,
+            });
+            const a = payload(100);
+            h.rx.handleMessage(metadataMessage('a', 'a.bin', a.byteLength, 1, 1, 0));
+            h.rx.handleMessage(a);
+            h.rx.handleMessage(endMessage(digestOf(a)));
+            const outcome = await Promise.race([
+                h.rx.settled().then(() => 'settled'),
+                new Promise((r) => setTimeout(() => r('hung'), 500)),
+            ]);
+            expect(outcome).toBe('settled');
+            expect(h.errors).toEqual([]);
+            expect(h.completed).toHaveLength(1);
+            expect(h.completed[0].verified).toBe(true);
+        });
     });
 
     it('verifies a file that crossed a spill, built from every part in order', async () => {
