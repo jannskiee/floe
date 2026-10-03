@@ -461,8 +461,11 @@ describe('the layout (D-136)', () => {
             expect(el.className, el.textContent!).toContain('text-zinc-400');
         }
         expect(screen.getByText(/^Only 31\.0 GB free on D:/).className).toContain('text-amber-300/80');
-        // The folder wraps inside the card instead of overflowing it.
-        expect(screen.getByText(prompt.folder).className).toContain('break-all');
+        // The folder wraps inside the card instead of overflowing it, at its
+        // spaces first: break-all cut "from" into "f" and "rom" (QA-H6 L-1).
+        const into = screen.getByText(prompt.folder).className.split(' ');
+        expect(into).toContain('[overflow-wrap:anywhere]');
+        expect(into).not.toContain('break-all');
         // The Accept and Decline row carries the id Review scrolls to.
         expect(accept.parentElement!.id).toBe(PROMPT_ACTIONS_ID);
     });
@@ -529,7 +532,8 @@ describe('the layout (D-136)', () => {
         const {container, rerender} = render(<RequestLinkView {...at('receiving', {accepted})}/>);
         expect(screen.getByText('RECEIVING 1 OF 12 FROM ACME FOOTAGE')).toBeTruthy();
         const into = screen.getByText(prompt.folder);
-        expect(into.className).toContain('break-all');
+        expect(into.className.split(' ')).toContain('[overflow-wrap:anywhere]');
+        expect(into.className.split(' ')).not.toContain('break-all');
         expect(into.parentElement!.textContent).toBe(`Into ${prompt.folder}`);
         expect(container.textContent).not.toMatch(/0 B of 0 B|RECEIVING 0 OF 0/);
         rerender(<RequestLinkView {...at('receiving', {accepted, progress: progress('a.mov')})}/>);
@@ -573,6 +577,95 @@ describe('the layout (D-136)', () => {
             expect(screen.getByText(text).className.split(' '), phase).toContain('[overflow-wrap:anywhere]');
             unmount();
         }
+    });
+
+    it('the Into line breaks at spaces, the way the headings above it do (QA-H6 L-1)', () => {
+        // break-all wrapped a spaced folder as "...review f" / "rom the Lisbon
+        // studio": every letter was a break point. anywhere breaks inside a
+        // word only when the word cannot fit, so a long unspaced name still
+        // stays inside the card. jsdom has no layout, so the class is checked.
+        const folder = 'save-base\\Acme footage for the autumn launch review from the Lisbon studio 2026-10-03 2104';
+        const s = snap({state: 'deciding', prompt: {...prompt, folder}});
+        for (const [phase, over] of [
+            ['deciding', {snap: s}],
+            ['receiving', {snap: snap({state: 'receiving', route: 'direct'}), accepted: {files: 1, folder}}],
+        ] as const) {
+            const {unmount} = render(<RequestLinkView {...at(phase, over)}/>);
+            const span = screen.getByText(folder);
+            expect(span.parentElement!.textContent, phase).toBe(`Into ${folder}`);
+            expect(span.className.split(' '), phase).toContain('[overflow-wrap:anywhere]');
+            expect(span.className.split(' '), phase).not.toContain('break-all');
+            unmount();
+        }
+    });
+
+    it('SAVE TO cuts a long folder in the middle while the field is at rest, and edits the whole path (QA-H6 L-2)', async () => {
+        // At 1000 x 640 the field cut "...\l12-scratch\save-base" at its end, so
+        // the folder that says where the files go was the part hidden. Done and
+        // History cut in the middle (M5); the Ready form now does too, with the
+        // same helper. The field's own value stays the whole path: UIA,
+        // Playwright and a screen reader read that, and focus shows it to edit.
+        const user = userEvent.setup();
+        const long = 'C:\\Users\\Admin\\floe-audit\\fu27-h6\\l12-scratch\\save-base';
+        const cut = 'C:\\...\\fu27-h6\\l12-scratch\\save-base';
+        const {rerender} = render(<RequestLinkView {...at('ready', {saveDir: long})}/>);
+        const field = screen.getByLabelText('Save to') as HTMLInputElement;
+        expect(field.value).toBe(long);
+        const shown = screen.getByText(cut);
+        const shownClasses = shown.className.split(' ');
+        // In a Windows contrast theme the forced text color replaces the
+        // field's transparent one (only background-color keeps its alpha), so
+        // the overlay steps aside and the field shows its own text, cut at
+        // the end, rather than two paths drawn on top of each other.
+        expect(shownClasses).toContain('forced-colors:hidden');
+        // What places the overlay, none of which jsdom can see: out of the hit
+        // test (a click on the text must still focus the field), over the
+        // field's box and no wider, and in the field's own box model so the
+        // two texts line up.
+        for (const c of ['pointer-events-none', 'absolute', 'inset-0', 'truncate', 'border', 'border-transparent', 'px-3', 'py-2', 'text-sm']) expect(shownClasses).toContain(c);
+        expect(shown.parentElement!.className.split(' ')).toContain('relative');
+        expect(shown.getAttribute('aria-hidden')).toBe('true');
+        expect(shown.textContent!.length).toBeLessThanOrEqual(36);
+        expect(field.title).toBe(long);
+        expect(field.style.color).toBe('transparent');
+        // Only the focus ring transitions, cut or not: a color transition
+        // would fade the whole path in under the cut one on blur, and blank
+        // the field and fade it back in when the cut ends.
+        expect(field.style.transitionProperty).toBe('box-shadow');
+
+        // Focused: the whole path, as typed, and nothing laid over it.
+        await user.click(field);
+        expect(screen.queryByText(cut)).toBeNull();
+        expect(field.style.color).toBe('');
+        expect(field.style.transitionProperty).toBe('box-shadow');
+        expect(field.title).toBe('');
+        expect(field.value).toBe(long);
+        // At rest again: the middle cut is back.
+        await user.tab();
+        expect(screen.getByText(cut)).toBeTruthy();
+
+        // While the link is being made the field is disabled, and the cut text dims with it.
+        rerender(<RequestLinkView {...at('making', {saveDir: long})}/>);
+        expect(screen.getByText(cut).className.split(' ')).toContain('opacity-50');
+
+        // A folder that fits shows as the field's own text, with no title.
+        rerender(<RequestLinkView {...at('ready', {saveDir: 'D:\\Footage\\Floe requests'})}/>);
+        expect(screen.queryByText('D:\\Footage\\Floe requests')).toBeNull();
+        expect(field.style.color).toBe('');
+        expect(field.style.transitionProperty).toBe('box-shadow');
+        expect(field.title).toBe('');
+    });
+
+    it('Review leaves 16 px under the Accept row, from a scroll margin on the row alone (QA-H6 L-4)', () => {
+        // Review scrolls this row into view (block nearest); with no margin it
+        // ended flush with the window's bottom edge at 1000 x 640. The margin
+        // is on the row only: Accept and Decline keep none, so a Tab onto
+        // either scrolls exactly as before, and nothing moves when a request
+        // arrives (no scroll happens then).
+        render(<RequestLinkView {...at('deciding')}/>);
+        const row = document.getElementById(PROMPT_ACTIONS_ID)!;
+        expect(row.className.split(' ')).toContain('scroll-mb-4');
+        for (const b of within(row).getAllByRole('button')) expect(b.className).not.toMatch(/scroll-m/);
     });
 });
 

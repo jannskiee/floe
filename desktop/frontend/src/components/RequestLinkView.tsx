@@ -32,12 +32,21 @@ export const LABEL_INPUT_ID = 'floe-request-label';
 // space, which in this tracked uppercase mono is wider than the card (FU-04,
 // case d). anywhere, not break-all, so a spaced label still breaks at spaces.
 const headClass = 'px-0.5 font-mono text-[10px] font-medium uppercase leading-4 tracking-[0.2em] text-zinc-300 [overflow-wrap:anywhere]';
+// The folder after "Into" (P3) on the prompt and while a drop receives, by the
+// same rule: break-all split a spaced label's folder inside a word ("f" /
+// "rom", QA-H6 L-1) right under a heading that broke at its spaces.
+const intoClass = 'font-mono text-zinc-300 [overflow-wrap:anywhere]';
 const t1Class = 'text-sm leading-normal text-zinc-200';
 const t2Class = 'text-xs leading-relaxed text-zinc-400';
 const t3Class = 'text-xs leading-relaxed text-zinc-500';
 const warnClass = 'text-xs leading-relaxed text-amber-300/80';
 // The Done folder name, in characters (12 px mono beside Show in folder).
 const DONE_FOLDER_MAX = 34;
+// The SAVE TO field's text at rest, in characters. The card is 448 px at every
+// window size (max-w-lg less px-8), which leaves the field 270 px of text
+// beside Browse; QA-H6 capture 11 fit 40 characters of a typical path in
+// 14 px Geist (6.75 px each), so 36 leaves room for wider letters.
+const SAVE_TO_MAX = 36;
 // The quiet right-rail text action (Dismiss), the History row's Remove look.
 const quietClass = '-mr-2 rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice/60';
 
@@ -106,8 +115,16 @@ function ReadyForm({phase, errorCode, hideIP, saveDir, onSaveDirChange, onMake, 
     // View-local only: what the owner is typing and choosing.
     const [label, setLabel] = useState('');
     const [lifetime, setLifetime] = useState<'24h' | '7d'>('24h');
+    const [saveFocused, setSaveFocused] = useState(false);
     const making = phase === 'making';
     const edited = () => { if (phase === 'error') onEdit(); };
+    // At rest, a folder too long for the field is cut in the middle, the way
+    // Done and History cut theirs (M5), so the folder the files land in stays
+    // in view (QA-H6 L-2: the end was cut). Only the picture changes: the
+    // field's value stays the whole path, which UIA, Playwright and a screen
+    // reader read, and focus shows it whole to edit.
+    const savePath = shortPath(saveDir, SAVE_TO_MAX);
+    const saveCut = !saveFocused && savePath !== saveDir;
     return (
         <div className="space-y-4">
             <div className="space-y-2">
@@ -128,16 +145,40 @@ function ReadyForm({phase, errorCode, hideIP, saveDir, onSaveDirChange, onMake, 
             <div className="space-y-2">
                 <Eyebrow className="px-0.5"><label htmlFor="floe-request-save">{copy.SAVE_TO_EYEBROW}</label></Eyebrow>
                 <div className="flex gap-3">
-                    <Input
-                        id="floe-request-save"
-                        className="flex-1"
-                        placeholder={copy.SAVE_TO_PLACEHOLDER}
-                        value={saveDir}
-                        onChange={(e) => { onSaveDirChange(e.target.value); edited(); }}
-                        disabled={making}
-                        autoComplete="off"
-                        spellCheck={false}
-                    />
+                    <div className="relative min-w-0 flex-1">
+                        {/* The cut path is drawn over the field in the field's
+                            own box (1 px border, px-3 py-2, text-sm), and the
+                            field's text is made transparent under it; an
+                            inline style, because cn has no tailwind-merge and
+                            a second text color class would not reliably win.
+                            Its color never transitions, cut or not: on blur
+                            the whole path would fade under the cut one, and
+                            when the cut ends the field would blank and fade
+                            back in (150 ms each); the focus ring still fades.
+                            Nothing else changes its color (disabled uses
+                            opacity). In a contrast theme the forced text
+                            color replaces transparent (only background-color
+                            keeps its alpha), so there the overlay is hidden
+                            and the field shows its own text, cut at the end. */}
+                        <Input
+                            id="floe-request-save"
+                            placeholder={copy.SAVE_TO_PLACEHOLDER}
+                            value={saveDir}
+                            title={saveCut ? saveDir : undefined}
+                            style={{color: saveCut ? 'transparent' : undefined, transitionProperty: 'box-shadow'}}
+                            onFocus={() => setSaveFocused(true)}
+                            onBlur={() => setSaveFocused(false)}
+                            onChange={(e) => { onSaveDirChange(e.target.value); edited(); }}
+                            disabled={making}
+                            autoComplete="off"
+                            spellCheck={false}
+                        />
+                        {saveCut && (
+                            <span aria-hidden className={cn('pointer-events-none absolute inset-0 truncate border border-transparent px-3 py-2 text-sm text-zinc-100 forced-colors:hidden', making && 'opacity-50')}>
+                                {savePath}
+                            </span>
+                        )}
+                    </div>
                     <Button variant="outline" onClick={onBrowse} disabled={making}>
                         <Folder/> {copy.BROWSE}
                     </Button>
@@ -363,7 +404,7 @@ function Prompt({snap, onAnswer, onGuardLift, onPromptVisible}: RequestLinkViewP
             <div className="space-y-2">
                 <h3 id={PROMPT_HEADING_ID} tabIndex={-1} className={cn(headClass, 'outline-none')}>{copy.promptHeading(snap.label)}</h3>
                 <p className="text-sm font-medium text-zinc-100">{copy.promptSize(prompt.files, prompt.totalBytes)}</p>
-                <p className={t2Class}>{copy.INTO} <span className="break-all font-mono text-zinc-300">{prompt.folder}</span></p>
+                <p className={t2Class}>{copy.INTO} <span className={intoClass}>{prompt.folder}</span></p>
                 {prompt.warnings.map((w) => {
                     const line = copy.warningLine(w, prompt, snap.saveDir);
                     // P11 is advice, not a fact about this drop, so it is not amber.
@@ -373,7 +414,12 @@ function Prompt({snap, onAnswer, onGuardLift, onPromptVisible}: RequestLinkViewP
                 {/* P10 is read before the decision, above the buttons. */}
                 <p className={t2Class}>{copy.PROMPT_CAUTION}</p>
             </div>
-            <div ref={block} id={PROMPT_ACTIONS_ID} className="flex gap-3">
+            {/* scroll-mb-4: Review's scrollIntoView stops 16 px short of the
+                window's bottom edge, not flush with it (QA-H6 L-4). A scroll
+                margin moves nothing on screen; it only changes where that
+                scroll ends. On the row, not the buttons, so a Tab onto Accept
+                or Decline scrolls as before. */}
+            <div ref={block} id={PROMPT_ACTIONS_ID} className="flex scroll-mb-4 gap-3">
                 <Button className={cn('flex-1', guardClass)} aria-disabled={guarded} onPointerDown={onDown} onClick={answer('accept')}>
                     {copy.ACCEPT}
                 </Button>
@@ -410,7 +456,7 @@ function Receiving({snap, progress, accepted, onCancelDrop}: RequestLinkViewProp
         <div className="space-y-4">
             <div className="space-y-2">
                 <p className={headClass}>{copy.receivingHeading(index, count, snap.label)}</p>
-                {folder && <p className={t2Class}>{copy.INTO} <span className="break-all font-mono text-zinc-300">{folder}</span></p>}
+                {folder && <p className={t2Class}>{copy.INTO} <span className={intoClass}>{folder}</span></p>}
             </div>
             <div className="space-y-2">
                 <div className="flex items-baseline justify-between gap-3 font-mono text-[11px] text-zinc-400">
