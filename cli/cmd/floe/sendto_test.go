@@ -569,6 +569,13 @@ type cliRun struct {
 // every CLI run in this build sets it.
 func startCLI(t *testing.T, args ...string) *cliRun {
 	t.Helper()
+	return startCLIEnv(t, nil, args...)
+}
+
+// startCLIEnv is startCLI with env set in the environment after the reset,
+// as the user's shell would hold it (FLOE_SERVER, say).
+func startCLIEnv(t *testing.T, env map[string]string, args ...string) *cliRun {
+	t.Helper()
 	resetSharedFlags(t)
 	to := sendCmd.Flags().Lookup("to")
 	if err := to.Value.Set(""); err != nil {
@@ -584,6 +591,9 @@ func startCLI(t *testing.T, args ...string) *cliRun {
 		to.Changed = false
 	})
 	t.Setenv("FLOE_NO_STATS", "1")
+	for k, v := range env {
+		t.Setenv(k, v)
+	}
 	rootCmd.SetOut(nil)
 	rootCmd.SetErr(nil)
 	rootCmd.SetArgs(append([]string{"send"}, args...))
@@ -629,9 +639,17 @@ func runCLI(t *testing.T, args ...string) *cliRun {
 	return startCLI(t, args...).wait(t, 90*time.Second)
 }
 
-// linkFor is a request link on floe.one for a fresh room; the fake server
-// never checks the id, and --server is always typed beside it.
+// linkFor is a request link on a self-hosted server for a fresh room; the
+// fake server never checks the id, and --server is always typed beside it. A
+// floe.one link would end on TL-10 beside any server but api.floe.one (FU-46,
+// F5-4), so the tests that run against the fake use another host.
 func linkFor() string {
+	return "https://files.example.com/floe/r/Xk3p9Q0aB1c#" + uuid.New().String()
+}
+
+// floeLinkFor is a request link on floe.one for a fresh room, for the tests
+// that run with no server chosen (the stubbed network refuses api.floe.one).
+func floeLinkFor() string {
 	return "https://floe.one/r/Xk3p9Q0aB1c#" + uuid.New().String()
 }
 
@@ -922,8 +940,8 @@ func TestSendToLabelJoinsTypedPaths(t *testing.T) {
 	oneFile(t, dir, filepath.Join("shoot", "c.bin"), 3000)
 	shoot := filepath.Join(dir, "shoot")
 	// No ICE fetch is allowed, so the command ends on TL-10 right after
-	// START, before any network.
-	r := runCLI(t, a, shoot, "--to", linkFor()).read(o)
+	// START, before any network. A floe.one link, since no server is chosen.
+	r := runCLI(t, a, shoot, "--to", floeLinkFor()).read(o)
 	wantOutcome(t, r, tlSetupFailed)
 	want := "\n  Sending   " + a + ", " + shoot + " (3 files, " + transfer.FormatBytes(6000) + ")\n"
 	if !strings.Contains(r.stdout, want) {
@@ -1091,7 +1109,8 @@ func TestSendToLinkTypedAsAPathIsNeverPrintedBack(t *testing.T) {
 // for the card's TestSendToOtherServerLinkNeedsServerFlag: a link made on
 // another server, with no --server and no FLOE_SERVER, ends on TL-10 before
 // any network call, so neither api.floe.one nor any other server learns its
-// room id. A server named either way lets the same link through.
+// room id. A server named either way lets the same link through. A floe.one
+// link goes through only to api.floe.one (FU-46, F5-4).
 func TestSendToOtherServerLinkEndsWithoutANetworkCall(t *testing.T) {
 	o := captureOutput(t)
 	room := uuid.New().String()
@@ -1104,21 +1123,40 @@ func TestSendToOtherServerLinkEndsWithoutANetworkCall(t *testing.T) {
 		t.Fatalf("network calls made: ICE %d, connect %d", net.ice.Load(), net.connect.Load())
 	}
 
+	const (
+		floeServer = "https://api.floe.one"
+		selfHosted = "https://files.example.com"
+	)
+	floe := "https://floe.one/r/Xk3p9Q0aB1c#" + room
 	for _, c := range []struct {
 		link   string
 		chosen bool
+		server string
 		want   bool
 	}{
-		{other, false, true},
-		{other, true, false},
-		{"https://floe.one/r/Xk3p9Q0aB1c#" + room, false, false},
-		{"https://WWW.floe.one/r/Xk3p9Q0aB1c#" + room, false, false},
-		{"floe.one/r/Xk3p9Q0aB1c#" + room, false, false},
-		{"https://floe.one.example.com/r/Xk3p9Q0aB1c#" + room, false, true},
-		{"http://localhost:3000/r/Xk3p9Q0aB1c#" + room, false, true},
+		{other, false, floeServer, true},
+		{other, true, selfHosted, false},
+		{floe, false, floeServer, false},
+		{"https://WWW.floe.one/r/Xk3p9Q0aB1c#" + room, false, floeServer, false},
+		{"floe.one/r/Xk3p9Q0aB1c#" + room, false, floeServer, false},
+		{"https://floe.one./r/Xk3p9Q0aB1c#" + room, false, floeServer, false},
+		{"https://floe.one.example.com/r/Xk3p9Q0aB1c#" + room, false, floeServer, true},
+		{"http://localhost:3000/r/Xk3p9Q0aB1c#" + room, false, floeServer, true},
+		// F5-4: a floe.one link with a server chosen goes through only when
+		// that server is api.floe.one once normalized.
+		{floe, true, floeServer, false},
+		{floe, true, " https://api.floe.one// ", false},
+		{floe, true, selfHosted, true},
+		{floe, true, "http://127.0.0.1:3001", true},
+		{floe, true, "https://floe.one", true},
+		{floe, true, "http://api.floe.one", true},
+		{floe, true, "https://api.floe.one.example.com", true},
+		{"https://www.floe.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		{"floe.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		{"https://floe.one./r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
 	} {
-		if got := linkServerMismatch(c.link, c.chosen); got != c.want {
-			t.Errorf("linkServerMismatch(%q, %v) = %v, want %v", c.link, c.chosen, got, c.want)
+		if got := linkServerMismatch(c.link, c.chosen, c.server); got != c.want {
+			t.Errorf("linkServerMismatch(%q, %v, %q) = %v, want %v", c.link, c.chosen, c.server, got, c.want)
 		}
 	}
 	// FLOE_SERVER names the server as well as --server does.
@@ -1130,6 +1168,70 @@ func TestSendToOtherServerLinkEndsWithoutANetworkCall(t *testing.T) {
 	}) {
 		t.Fatal("FLOE_SERVER does not count as a chosen server")
 	}
+}
+
+// TestSendToFloeLinkWithAnotherServerEndsWithoutANetworkCall (FU-46, FU-32
+// F5-4): a floe.one link's room lives only on api.floe.one, so a run pointed
+// at any other server (FLOE_SERVER, the standing setting a self-hoster keeps,
+// or --server typed) ends on TL-10 before any network call. That server never
+// sees the ICE fetch or the request-join that would hand it the room id, with
+// which its operator could take the link's one seat on api.floe.one. A server
+// that normalizes to api.floe.one lets the link through to the ICE fetch,
+// which the stub refuses.
+func TestSendToFloeLinkWithAnotherServerEndsWithoutANetworkCall(t *testing.T) {
+	prev := sendToJoinTimeout
+	sendToJoinTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { sendToJoinTimeout = prev })
+	room := uuid.New().String()
+	for _, c := range []struct {
+		name string
+		link string
+		// envServer: FLOE_SERVER is the fake's URL; otherwise --server is.
+		envServer bool
+	}{
+		{"FLOE_SERVER set", "https://floe.one/r/Xk3p9Q0aB1c#" + room, true},
+		{"FLOE_SERVER set, www and no scheme", "www.floe.one/r/Xk3p9Q0aB1c#" + room, true},
+		{"--server typed", "https://WWW.floe.one/r/Xk3p9Q0aB1c#" + room, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			o := captureOutput(t)
+			s := newReqServer(t, "none")
+			net := stubNetwork(t, s.URL)
+			p, _ := oneFile(t, t.TempDir(), "a.bin", 16)
+			var r *cliRun
+			if c.envServer {
+				r = startCLIEnv(t, map[string]string{"FLOE_SERVER": s.URL}, p, "--to", c.link)
+			} else {
+				r = startCLI(t, p, "--to", c.link, "--server", s.URL)
+			}
+			r.wait(t, 30*time.Second).read(o)
+			if ice, connect := net.ice.Load(), net.connect.Load(); ice != 0 || connect != 0 {
+				t.Fatalf("network calls made: ICE %d, connect %d", ice, connect)
+			}
+			if _, total := s.hitCount("/"); total != 0 {
+				t.Fatalf("the other server was hit %d times", total)
+			}
+			wantOutcome(t, r, tlSetupFailed)
+			if strings.Contains(r.stdout, "Sending") {
+				t.Fatalf("START was printed before the server was checked:\n%s", r.stdout)
+			}
+			if strings.Contains(r.stdout+r.stderr, room) {
+				t.Fatalf("the room id was printed:\nstdout:\n%s\nstderr:\n%s", r.stdout, r.stderr)
+			}
+		})
+	}
+	t.Run("FLOE_SERVER names api.floe.one", func(t *testing.T) {
+		o := captureOutput(t)
+		// Nothing is allowed: the fetch is counted and refused, never made.
+		net := stubNetwork(t, "")
+		p, _ := oneFile(t, t.TempDir(), "a.bin", 16)
+		r := startCLIEnv(t, map[string]string{"FLOE_SERVER": " https://api.floe.one/ "}, p, "--to", floeLinkFor())
+		r.wait(t, 30*time.Second).read(o)
+		wantOutcome(t, r, tlSetupFailed)
+		if ice, connect := net.ice.Load(), net.connect.Load(); ice != 1 || connect != 0 {
+			t.Fatalf("ICE fetches %d, connects %d; want the one refused fetch", ice, connect)
+		}
+	})
 }
 
 // TestSendToRelayOnlyWithoutARelayEndsBeforeTheJoin: --relay-only against a

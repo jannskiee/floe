@@ -27,6 +27,7 @@ import (
 	"github.com/jannskiee/floe/cli/engine/code"
 	"github.com/jannskiee/floe/cli/engine/ice"
 	"github.com/jannskiee/floe/cli/engine/peer"
+	"github.com/jannskiee/floe/cli/engine/serverurl"
 	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/jannskiee/floe/cli/engine/transfer"
 	"github.com/pion/webrtc/v4"
@@ -346,12 +347,13 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 
 	// TL-09, before the walk and before any network, so an incomplete link
 	// never reaches anyone. The link id is dropped here; only the room id
-	// ever leaves this machine, in request-join.
+	// ever leaves this machine, in request-join, and only to a server that
+	// can hold the link's room (linkServerMismatch, TL-10).
 	_, roomID, err := code.ParseRequestLink(flagTo)
 	if err != nil {
 		return r.fail(cmd, lineIncompleteLink)
 	}
-	if linkServerMismatch(flagTo, serverChosen(cmd, os.Getenv)) {
+	if linkServerMismatch(flagTo, serverChosen(cmd, os.Getenv), flagServer) {
 		return r.fail(cmd, lineCouldNotConnect)
 	}
 
@@ -722,16 +724,26 @@ func routeOf(conn *peer.Connection) string {
 	return route
 }
 
+// floeOneServer is floe.one's signaling server, the --server default and the
+// only server that holds the room of a link made on floe.one.
+const floeOneServer = "https://api.floe.one"
+
 // linkServerMismatch reports whether a link was made on a server this run is
-// not pointed at: its host is not floe.one or www.floe.one, and no server was
-// chosen. Joining would then ask api.floe.one about a room it has never seen,
-// and hand it the room id on the way, so the send ends first with TL-10
-// (D-144.8) and no network call at all. A link typed without its scheme is
-// read as https.
-func linkServerMismatch(link string, serverChosen bool) bool {
-	if serverChosen {
-		return false
-	}
+// not pointed at, so that joining would hand the room id to a server that has
+// never seen the room. Either way the send ends first with TL-10 (D-144.8)
+// and no network call at all:
+//   - a floe.one or www.floe.one link, whose room lives only on api.floe.one,
+//     with a server that is not api.floe.one once normalized (FLOE_SERVER, a
+//     self-hoster's standing setting, or --server). That server's operator
+//     could request-join api.floe.one with the room id while the link is open
+//     and take its one seat (FU-46, FU-32 F5-4);
+//   - a link on any other host with no server chosen, which would ask
+//     api.floe.one.
+//
+// A link on another host with a server chosen goes through: the self-hosted
+// case. A link typed without its scheme is read as https, and one whose host
+// cannot be read is a mismatch.
+func linkServerMismatch(link string, serverChosen bool, server string) bool {
 	link = strings.TrimSpace(link)
 	u, err := url.Parse(link)
 	if err == nil && u.Scheme == "" && u.Host == "" {
@@ -740,11 +752,12 @@ func linkServerMismatch(link string, serverChosen bool) bool {
 	if err != nil {
 		return true
 	}
-	switch strings.ToLower(u.Hostname()) {
+	// The trailing dot of a fully qualified name reaches the same host.
+	switch strings.TrimSuffix(strings.ToLower(u.Hostname()), ".") {
 	case "floe.one", "www.floe.one":
-		return false
+		return serverurl.Normalize(server) != floeOneServer
 	}
-	return true
+	return !serverChosen
 }
 
 // serverChosen reports whether this run names its server: --server typed, or
