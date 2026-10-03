@@ -27,8 +27,8 @@ var (
 
 // errFloeLinkOtherServer ends a receive of a room link made on floe.one while
 // another server is chosen (runReceive). execute prints it as an outcome,
-// alone on the indent, and main exits 1. New copy (FU-53), pending the
-// owner's approval: approved-copy-cli.txt has no line for this case.
+// alone on the indent, and main exits 1. Added by FU-53 and approved by the
+// owner as written (D-156, approved-copy-cli.txt), byte for byte.
 var errFloeLinkOtherServer = errors.New("That link is for floe.one, but this Floe is set to use another server. Unset FLOE_SERVER or use --server https://api.floe.one, then try again.")
 
 var receiveCmd = &cobra.Command{

@@ -228,8 +228,8 @@ func captureStdout(t *testing.T, fn func()) string {
 }
 
 // lineFloeLinkOtherServer is the line receive ends on for a floe.one room
-// link with another server chosen (FU-53, FU-46 review 1 L5). New copy,
-// pending the owner's approval.
+// link with another server chosen (FU-53, FU-46 review 1 L5), approved by
+// the owner as written (D-156, approved-copy-cli.txt), byte for byte.
 const lineFloeLinkOtherServer = "That link is for floe.one, but this Floe is set to use another server. Unset FLOE_SERVER or use --server https://api.floe.one, then try again."
 
 // TestReceiveFloeLinkWithAnotherServerEndsWithoutANetworkCall (FU-53, FU-46
