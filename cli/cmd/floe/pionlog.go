@@ -35,12 +35,15 @@ var pionEnablingLevels = [...]string{"ERROR", "WARN", "INFO", "DEBUG", "TRACE"}
 // "turnc" scope for the whole process. Only the TURN client logs as "turnc",
 // and nothing floe prints is one of its lines. Someone who turned a level on
 // (ERROR, WARN, INFO, DEBUG or TRACE, as PION_LOG_ or PIONS_LOG_) is
-// debugging pion, and gets exactly the levels they asked for, the TURN
-// client's lines included. Someone who set only a DISABLE variable asked for
-// less, so turnc joins the one pion reads: PION_LOG_DISABLE, or
-// PIONS_LOG_DISABLE when that one is empty. pion lower-cases the value and
-// splits it on commas without trimming, and "all" disables nothing there, so
-// turnc is added unless one of those pieces is exactly "turnc" already.
+// debugging pion, and floe leaves every pion variable as it is. That leaves
+// turnc on even when the level names other scopes only: with
+// PION_LOG_TRACE=ice, turnc logs at pion's default ERROR level, so its ERROR
+// line, the one a forged reason reaches, prints raw again. Someone who set
+// only a DISABLE variable asked for less, so turnc joins the one pion reads:
+// PION_LOG_DISABLE, or PIONS_LOG_DISABLE when that one is empty. pion
+// lower-cases the value and splits it on commas without trimming, and "all"
+// disables nothing there, so turnc is added unless one of those pieces is
+// exactly "turnc" already.
 //
 // Remove this once pion/ice hands the TURN client the setting engine's
 // factory: pion/ice v4.4.3 does (pion/ice#976), and pion/webrtc v4.2.21 is
