@@ -1,6 +1,15 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
-import { createReceiver, MAX_QUEUED_WHILE_PENDING, type ReceivedFile, type ReceiverDeps } from './receiver';
+import {
+    createReceiver,
+    MAX_QUEUED_WHILE_PENDING,
+    INTERNAL_ERROR_MESSAGE,
+    OUT_OF_MEMORY_MESSAGE,
+    SPILL_BYTES,
+    type ReceiveFailure,
+    type ReceivedFile,
+    type ReceiverDeps,
+} from './receiver';
 import { metadataMessage, endMessage, incompatibleMessage, CONTROL_MSG_MAX, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION } from './protocol';
 
 describe('receiver: per-file SHA-256', () => {
@@ -456,5 +465,194 @@ describe('receiver: per-file SHA-256', () => {
         expect(parsed.reason.length).toBeGreaterThan(0);
         // Uncoded callers still send exactly the old frame shape.
         expect(Object.keys(JSON.parse(incompatibleMessage('x')))).toEqual(['type', 'reason', 'pv', 'pvMin']);
+    });
+
+    // FU-48. P2PTransfer.tsx wires peer.on('close', rx.dispose) (#500) next to a
+    // close handler that waits on settled(). A Go sender closes about 50 ms
+    // after its last end marker, while this side may still be hashing the file
+    // it sent, so the close lands in the middle of the check. The file is whole
+    // by then: the close must not cost the person their last file.
+    describe('a close while a check is pending', () => {
+        it('still hands over the file being checked, once, verified', async () => {
+            const held = heldHash();
+            const h = harness({ hashBlob: held.hashBlob });
+            const a = payload(400);
+            feed(h, 'a', a, 1, 1, endMessage(digestOf(a)));
+            // The same order as the component: the close handler asks for
+            // settled() first, then dispose runs on the same event.
+            const closed = h.rx.settled();
+            h.rx.dispose();
+            held.release(digestOf(a));
+            await closed;
+            expect(h.errors).toEqual([]);
+            expect(h.completed).toHaveLength(1);
+            expect(h.completed[0].verified).toBe(true);
+            expect(new Uint8Array(await h.completed[0].blob.arrayBuffer())).toEqual(a);
+            expect(h.allComplete).toEqual([[400, 1]]);
+        });
+
+        it('still refuses a file that does not match, and says so', async () => {
+            const held = heldHash();
+            const h = harness({ hashBlob: held.hashBlob });
+            const a = payload(300);
+            feed(h, 'a', a, 1, 1, endMessage(digestOf(a)));
+            const closed = h.rx.settled();
+            h.rx.dispose();
+            held.release(digestOf(payload(300, 2)));
+            await closed;
+            expect(h.completed).toEqual([]);
+            expect(h.errors).toEqual([MISMATCH]);
+            expect(h.allComplete).toEqual([]);
+        });
+
+        it('reads none of the frames that waited, and nothing after the close', async () => {
+            const held = heldHash();
+            const h = harness({ hashBlob: held.hashBlob });
+            const a = payload(200);
+            feed(h, 'a', a, 1, 2, endMessage(digestOf(a)));
+            // The next file's metadata was already queued when the connection went.
+            h.rx.handleMessage(metadataMessage('b', 'b.bin', 10, 2, 2, 0));
+            const closed = h.rx.settled();
+            h.rx.dispose();
+            h.rx.handleMessage(metadataMessage('c', 'c.bin', 10, 2, 2, 0));
+            held.release(digestOf(a));
+            await closed;
+            expect(h.completed.map((f) => f.fileName)).toEqual(['a.bin']);
+            // No ack for b or c: nobody is there to read one.
+            expect(h.acks().map((m) => m.id)).toEqual(['a']);
+            expect(h.errors).toEqual([]);
+        });
+    });
+
+    // The read-back of a file's last part settles with the digest (#501's merge
+    // note). The probe here rejects one macrotask later, after a digest that
+    // already came back null, which is what the hash worker answers when the
+    // same broken part fails its read.
+    describe('a broken last part', () => {
+        const RealBlob = Blob;
+        afterEach(() => {
+            vi.unstubAllGlobals();
+        });
+
+        function brokenLate(): void {
+            vi.stubGlobal(
+                'Blob',
+                class extends RealBlob {
+                    slice(): Blob {
+                        return {
+                            arrayBuffer: () =>
+                                new Promise((_, reject) =>
+                                    setTimeout(() => reject(new DOMException('', 'NotReadableError')), 0)
+                                ),
+                        } as unknown as Blob;
+                    }
+                }
+            );
+        }
+
+        function failing(deps: ReceiverDeps) {
+            const errors: string[] = [];
+            const failures: (ReceiveFailure | undefined)[] = [];
+            const completed: ReceivedFile[] = [];
+            const rx = createReceiver(
+                {
+                    send: () => {},
+                    onFileComplete: (f) => completed.push(f),
+                    onError: (m, f) => {
+                        errors.push(m);
+                        failures.push(f);
+                    },
+                },
+                deps
+            );
+            return { rx, errors, failures, completed };
+        }
+
+        it('stops with the out-of-memory message instead of handing the file over unverified', async () => {
+            brokenLate();
+            const h = failing({ hashBlob: async () => null });
+            const a = payload(500);
+            h.rx.handleMessage(metadataMessage('a', 'a.bin', a.byteLength, 1, 1, 0));
+            h.rx.handleMessage(a);
+            h.rx.handleMessage(endMessage(digestOf(a)));
+            await h.rx.settled();
+            expect(h.completed).toEqual([]);
+            expect(h.errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
+            expect(h.failures[0]).toMatchObject({ code: 'out-of-memory', received: 500, expected: 500 });
+        });
+
+        it('still stops on it when the connection closed during the check', async () => {
+            // #500's out-of-memory stop survives the close: the file is not
+            // handed over just because the close let its check finish.
+            brokenLate();
+            const held = heldHash();
+            const h = failing({ hashBlob: held.hashBlob });
+            const a = payload(500);
+            h.rx.handleMessage(metadataMessage('a', 'a.bin', a.byteLength, 1, 1, 0));
+            h.rx.handleMessage(a);
+            h.rx.handleMessage(endMessage(digestOf(a)));
+            const closed = h.rx.settled();
+            h.rx.dispose();
+            held.release(null);
+            await closed;
+            expect(h.completed).toEqual([]);
+            expect(h.errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
+        });
+    });
+
+    it('verifies a file that crossed a spill, built from every part in order', async () => {
+        // takeBlob on the checked path: the spilled parts and the held tail,
+        // composed, are exactly what was sent.
+        const h = harness();
+        const a = payload(SPILL_BYTES + 4321, 3);
+        feed(h, 'a', a, 1, 1, endMessage(digestOf(a)));
+        await h.rx.settled();
+        expect(h.errors).toEqual([]);
+        expect(h.completed).toHaveLength(1);
+        expect(h.completed[0].verified).toBe(true);
+        expect(h.completed[0].blob.size).toBe(a.byteLength);
+    });
+
+    it('stops once when a frame that waited out a check throws', async () => {
+        // drain hands queued frames to runMessage: a throw there is caught,
+        // latched and reported once, the same as a frame that arrived live.
+        const held = heldHash();
+        const sent: (string | Uint8Array)[] = [];
+        const errors: string[] = [];
+        const failures: (ReceiveFailure | undefined)[] = [];
+        const completed: string[] = [];
+        const rx = createReceiver(
+            {
+                send: (d) => sent.push(d),
+                onFileStart: (index) => {
+                    if (index === 2) throw new TypeError('render failed');
+                },
+                onFileComplete: (f) => completed.push(f.fileName),
+                onError: (m, f) => {
+                    errors.push(m);
+                    failures.push(f);
+                },
+            },
+            { hashBlob: held.hashBlob }
+        );
+        const a = payload(100);
+        rx.handleMessage(metadataMessage('a', 'a.bin', a.byteLength, 1, 2, 0));
+        rx.handleMessage(a);
+        rx.handleMessage(endMessage(digestOf(a)));
+        rx.handleMessage(metadataMessage('b', 'b.bin', 10, 2, 2, 0));
+        held.release(digestOf(a));
+        await new Promise((r) => setTimeout(r, 0));
+        expect(completed).toEqual(['a.bin']);
+        expect(errors).toEqual([INTERNAL_ERROR_MESSAGE]);
+        expect(failures[0]).toMatchObject({ code: 'internal', received: 0, expected: null });
+        // The sender is told, with the closed set's code and the one file
+        // already handed over.
+        const abort = JSON.parse(new TextDecoder().decode(sent[sent.length - 1] as Uint8Array));
+        expect(abort).toMatchObject({ type: 'incompatible', code: 'write-failed', saved: 1 });
+        // Latched: nothing after it reopens the transfer, and settled() is free.
+        rx.handleMessage(payload(10, 4));
+        rx.handleMessage(endMessage());
+        expect(errors).toHaveLength(1);
+        await expect(rx.settled()).resolves.toBeUndefined();
     });
 });

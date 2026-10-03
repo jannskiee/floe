@@ -169,7 +169,8 @@ export function createReceiver(
     let aborted = false;
     // Set when the connection closing is what stopped the receiver, rather than
     // a failure it already reported. A part found broken after that still has
-    // to be reported: see probe.
+    // to be reported (see probe), and a SHA-256 check in progress still
+    // finishes (see dispose).
     let closed = false;
     // The announced size of the file being received, once validated, or null
     // when the peer announced nothing we can compare against.
@@ -426,10 +427,18 @@ export function createReceiver(
 
     // The connection closed. Stops the receiver and lets go of every chunk it
     // holds: without it a transfer that died partway kept its partial file for
-    // the life of the tab.
+    // the life of the tab. The frames waiting out a check go too, unread.
+    //
+    // A file whose SHA-256 is being checked is not partial: every byte is in
+    // and its chunks are already released, so its check finishes and the file
+    // is handed over or refused as usual (see the verdict at `end`). A Go
+    // sender closes about 50 ms after its last end marker, which is usually
+    // in the middle of that check; stopping it here dropped the last file of
+    // every Go-to-browser transfer whose check outlasted the close.
     function dispose(): void {
         if (!aborted) closed = true;
         release();
+        queued = [];
     }
 
     function release(): void {
@@ -711,8 +720,11 @@ export function createReceiver(
                                 // A null digest (no Worker, a worker failure, the time
                                 // bound) keeps the file unverified: a missing check never
                                 // claims a match, and the byte count already passed.
-                                // A transfer stopped during the check hands nothing over.
-                                if (aborted) return;
+                                // A transfer stopped during the check hands nothing over,
+                                // unless the connection closing is all that stopped it
+                                // (see dispose): a failure, a broken part included,
+                                // clears `closed` when it reports.
+                                if (aborted && !closed) return;
                                 if (got !== null && got !== want) refuseHash(false);
                                 else complete(meta, blob, size, got === want);
                             } finally {
