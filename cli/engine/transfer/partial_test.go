@@ -194,6 +194,13 @@ func TestAbandonPartialsRemovesInflight(t *testing.T) {
 	if left := listDir(t, dir); len(left) != 0 {
 		t.Fatalf("expected the staging file removed, found %v", left)
 	}
+	// Keyed on f, not on the map's length: other tests can leave entries.
+	partialMu.Lock()
+	_, kept := partialFiles[f]
+	partialMu.Unlock()
+	if kept {
+		t.Fatal("the abandon left the file's registry entry behind")
+	}
 }
 
 // TestAbandonPartialsSparesCompletedFile reproduces the historical hazard: an
