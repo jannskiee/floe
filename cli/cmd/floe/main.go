@@ -273,14 +273,22 @@ func handleInterrupts(sigCh <-chan os.Signal, exit func(int)) {
 		return
 	}
 	// Message first: feedback must be instant, and the cleanup below touches
-	// the disk (an AV scanner holding the file could stall it).
-	fmt.Fprintln(os.Stderr, line)
-	stop()
+	// the disk (an AV scanner holding the file could stall it). With the
+	// receive's stop step the line waits for it (at most interruptStopBound,
+	// about 0.2 s measured): until the step closes the connection the receive
+	// loop keeps drawing its progress bar, which redrew below "Canceled." in 8
+	// of 8 runs (FU-54 review 2 M1).
+	step := interruptStop.Load()
 	deadline := time.Now().Add(interruptCleanupBound)
+	if step == nil {
+		fmt.Fprintln(os.Stderr, line)
+	}
+	stop()
 	// The receive's stop step, before the cleanup: once the connection is
 	// closed, the write failure the cleanup causes has nowhere to go.
-	if step := interruptStop.Load(); step != nil {
+	if step != nil {
 		runWithin(*step, interruptStopBound)
+		fmt.Fprintln(os.Stderr, line)
 	}
 	// os.Exit skips every defer, including the receiver's partial-file
 	// cleanup. Remove the in-flight .part staging file here so a Ctrl+C leaves

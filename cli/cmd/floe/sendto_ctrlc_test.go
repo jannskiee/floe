@@ -58,8 +58,12 @@ func newCtrlC(t *testing.T) *ctrlC {
 	// stand-in does nothing; main_test.go holds the real call to its order.
 	prevAbandon := abandonPartials
 	abandonPartials = func(time.Duration) {}
+	// A receive test earlier in the run leaves its stop step in place, as the
+	// binary does for the rest of the process (FU-54 review 2 N1).
+	resetReceiveStop()
 	go handleInterrupts(c.sig, c.exits.exit)
 	t.Cleanup(func() {
+		resetReceiveStop()
 		parkUntilExit = prev
 		abandonPartials = prevAbandon
 		close(c.sig) // frees the goroutine that waits for a second signal
