@@ -1,7 +1,9 @@
 package main
 
-// A stopgap for the one pion logger that floe cannot route through its own
-// escaping factory (FU-32 F2-1).
+// pion log scopes turned off from the environment: a stopgap for the one pion
+// logger that floe cannot route through its own escaping factory (FU-32
+// F2-1), and the peer connection's and the data channel's on the
+// request-link send (FU-32 F2-2, FU-46 review 1 L1).
 
 import (
 	"os"
@@ -48,7 +50,43 @@ var pionEnablingLevels = [...]string{"ERROR", "WARN", "INFO", "DEBUG", "TRACE"}
 // Remove this once pion/ice hands the TURN client the setting engine's
 // factory: pion/ice v4.4.3 does (pion/ice#976), and pion/webrtc v4.2.21 is
 // the first release that requires it.
-func quietTURNClientLog() {
+func quietTURNClientLog() { quietPionScope("turnc") }
+
+// quietPeerConnectionLog disables pion's "pc" and "datachannel" scopes by the
+// same rule, on the request-link send only (FU-46, FU-32 F2-2, review 1 L1).
+// runSendTo calls it before it makes its peer: peer.New builds its logger
+// factory from pion's default, which reads the environment then
+// (engine/peer/logging.go), and pion/webrtc hands that factory to the data
+// channels it accepts.
+//
+// The link's host is a stranger, and D-147 (2) keeps every word it chooses
+// off the visitor's terminal. FU-40's escape writes controls visibly, but
+// printable text, ordinary or no-break spaces included, passes, so two lines
+// at pion's default ERROR level printed the host's own sentence:
+//   - pion/webrtc v4.2.19 logs a trickled candidate whose ufrag matches
+//     nothing in the remote description as "pc ERROR: dropping candidate
+//     with ufrag <ufrag> ...", the ufrag the host's (Latin-1 passes pion's
+//     candidate reader), up to about 1 KiB a line;
+//   - pion/datachannel v1.6.2 logs any DCEP message but an ACK on an open
+//     channel as "datachannel ERROR: Failed to handle DCEP: ... Label(<label>)
+//     Protocol(<protocol>)", both strings from a DATA_CHANNEL_OPEN the host
+//     wrote, up to 64 KiB a line and once per message (a modified host stack
+//     can send it; a browser cannot).
+//
+// Both scopes' other lines are pion's diagnostics, which this path never
+// prints anyway: every outcome there is a fixed line. Plain send and receive
+// keep both scopes.
+func quietPeerConnectionLog() {
+	quietPionScope("pc")
+	quietPionScope("datachannel")
+}
+
+// quietPionScope disables pion's scope (lower case, as pion names its own)
+// unless the person running floe has turned a pion log level on, the rule
+// quietTURNClientLog states for turnc: nothing changes while a PION_LOG_ or
+// PIONS_LOG_ ERROR, WARN, INFO, DEBUG or TRACE is set, and otherwise scope
+// joins the DISABLE variable pion reads unless pion reads it there already.
+func quietPionScope(scope string) {
 	for _, prefix := range [...]string{"PION_LOG_", "PIONS_LOG_"} {
 		for _, level := range pionEnablingLevels {
 			if os.Getenv(prefix+level) != "" {
@@ -63,15 +101,15 @@ func quietTURNClientLog() {
 		}
 	}
 	if value == "" {
-		_ = os.Setenv(name, "turnc")
+		_ = os.Setenv(name, scope)
 		return
 	}
-	for _, scope := range strings.Split(strings.ToLower(value), ",") {
-		if scope == "turnc" {
+	for _, s := range strings.Split(strings.ToLower(value), ",") {
+		if s == scope {
 			return
 		}
 	}
-	_ = os.Setenv(name, value+",turnc")
+	_ = os.Setenv(name, value+","+scope)
 }
 
 // At process start, before main and so before any command can build a peer.

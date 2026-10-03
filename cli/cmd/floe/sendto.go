@@ -19,6 +19,8 @@ import (
 	"io/fs"
 	"net/url"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -27,6 +29,7 @@ import (
 	"github.com/jannskiee/floe/cli/engine/code"
 	"github.com/jannskiee/floe/cli/engine/ice"
 	"github.com/jannskiee/floe/cli/engine/peer"
+	"github.com/jannskiee/floe/cli/engine/serverurl"
 	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/jannskiee/floe/cli/engine/transfer"
 	"github.com/pion/webrtc/v4"
@@ -334,10 +337,11 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 	// TL-32: the check and the sentence a plain send makes. Its sentence
 	// quotes the path, so a request link typed where a path goes (the --to
 	// value and the path swapped) ends on TL-09 instead, and the link, room
-	// id and all, is never printed back (review lens B re-check N5).
+	// id and all, is never printed back (review lens B re-check N5), in every
+	// shape that carries the room id (looksLikeRequestLink, FU-46).
 	for _, p := range args {
 		if _, err := os.Stat(p); err != nil {
-			if _, _, linkErr := code.ParseRequestLink(p); linkErr == nil {
+			if looksLikeRequestLink(p) {
 				return r.fail(cmd, lineIncompleteLink)
 			}
 			return r.keep(cmd, fmt.Errorf("cannot read %s: %w", p, err))
@@ -346,12 +350,13 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 
 	// TL-09, before the walk and before any network, so an incomplete link
 	// never reaches anyone. The link id is dropped here; only the room id
-	// ever leaves this machine, in request-join.
+	// ever leaves this machine, in request-join, and only to a server that
+	// can hold the link's room (linkServerMismatch, TL-10).
 	_, roomID, err := code.ParseRequestLink(flagTo)
 	if err != nil {
 		return r.fail(cmd, lineIncompleteLink)
 	}
-	if linkServerMismatch(flagTo, serverChosen(cmd, os.Getenv)) {
+	if linkServerMismatch(flagTo, serverChosen(cmd, os.Getenv), flagServer) {
 		return r.fail(cmd, lineCouldNotConnect)
 	}
 
@@ -391,7 +396,12 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 	}
 	defer sc.Close()
 	// The peer exists before the join (spec 07 4.8): the host offers the
-	// moment the server seats this visitor.
+	// moment the server seats this visitor. pion's pc and datachannel scopes
+	// go off first, since peer.New reads pion's levels from the environment:
+	// pc's "dropping candidate" line quotes a ufrag the host chose, and
+	// datachannel's "Failed to handle DCEP" line a channel label and protocol
+	// it wrote (quietPeerConnectionLog).
+	quietPeerConnectionLog()
 	conn, err := peer.New(iceServers, sc, peerOptions()...)
 	if err != nil {
 		return r.fail(cmd, lineCouldNotConnect)
@@ -482,10 +492,12 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 // (TL-03 replaces it), the stop Ctrl+C closes, a bar line ended before an
 // outcome that lands mid-file (the copy draws TL-16 to TL-26's saved forms
 // and TL-27 on lines of their own), TL-02's "Peer version:" line only for a
-// release-shaped host version (D-147 (2): the host is a stranger's, and that
-// field was the one text of its choosing this path printed), the ack
-// callback that tracks the phase, and the connection's own pump (see
-// peer.Early).
+// release-shaped host version (D-147 (2): the host is a stranger's, and no
+// text of its choosing may print here; pion's pc line, which quoted a
+// trickled candidate's ufrag, and its datachannel line, which quoted a
+// DATA_CHANNEL_OPEN's label and protocol, are off on this path too, by
+// quietPeerConnectionLog), the ack callback that tracks the phase, and the
+// connection's own pump (see peer.Early).
 func sendToOptions(early *peer.Early, stop <-chan struct{}, onAck func(int), onDelivered func(transfer.Delivered)) transfer.SendOptions {
 	return transfer.SendOptions{
 		Messages:               early.Msgs,
@@ -723,15 +735,21 @@ func routeOf(conn *peer.Connection) string {
 }
 
 // linkServerMismatch reports whether a link was made on a server this run is
-// not pointed at: its host is not floe.one or www.floe.one, and no server was
-// chosen. Joining would then ask api.floe.one about a room it has never seen,
-// and hand it the room id on the way, so the send ends first with TL-10
-// (D-144.8) and no network call at all. A link typed without its scheme is
-// read as https.
-func linkServerMismatch(link string, serverChosen bool) bool {
-	if serverChosen {
-		return false
-	}
+// not pointed at, so that joining would hand the room id to a server that has
+// never seen the room. Either way the send ends first with TL-10 (D-144.8)
+// and no network call at all:
+//   - a floe.one or www.floe.one link, whose room lives only on api.floe.one,
+//     with a server that is not api.floe.one (isFloeOneServer; FLOE_SERVER, a
+//     self-hoster's standing setting, or --server). That server's operator
+//     could request-join api.floe.one with the room id while the link is open
+//     and take its one seat (FU-46, FU-32 F5-4);
+//   - a link on any other host with no server chosen, which would ask
+//     api.floe.one.
+//
+// A link on another host with a server chosen goes through: the self-hosted
+// case. A link typed without its scheme is read as https, and one whose host
+// cannot be read is a mismatch.
+func linkServerMismatch(link string, serverChosen bool, server string) bool {
 	link = strings.TrimSpace(link)
 	u, err := url.Parse(link)
 	if err == nil && u.Scheme == "" && u.Host == "" {
@@ -740,11 +758,117 @@ func linkServerMismatch(link string, serverChosen bool) bool {
 	if err != nil {
 		return true
 	}
-	switch strings.ToLower(u.Hostname()) {
+	// The trailing dot of a fully qualified name reaches the same host.
+	switch strings.TrimSuffix(strings.ToLower(u.Hostname()), ".") {
 	case "floe.one", "www.floe.one":
+		return !isFloeOneServer(server)
+	}
+	return !serverChosen
+}
+
+// isFloeOneServer reports whether server is floe.one's signaling server, the
+// --server default and the only server that holds the room of a link made on
+// floe.one, in any spelling that reaches it: once normalized, https (url.Parse
+// lower-cases the scheme), the host api.floe.one in any case and with one
+// trailing dot, port empty or 443, path empty or "/", and no userinfo, query
+// or fragment (FU-46 review 1 N4; an exact string compare refused
+// https://API.floe.one and https://api.floe.one:443, which used to work).
+// Anything else, http, another port, a path the requests would be appended
+// to, is not, and a floe.one link with it ends on TL-10.
+func isFloeOneServer(server string) bool {
+	s := serverurl.Normalize(server)
+	if strings.ContainsAny(s, "?#") {
 		return false
 	}
-	return true
+	u, err := url.Parse(s)
+	if err != nil || u.Scheme != "https" || u.Opaque != "" || u.User != nil {
+		return false
+	}
+	if u.Path != "" && u.Path != "/" {
+		return false
+	}
+	if strings.HasSuffix(u.Host, ":") {
+		return false
+	}
+	if port := u.Port(); port != "" && port != "443" {
+		return false
+	}
+	return strings.TrimSuffix(strings.ToLower(u.Hostname()), ".") == "api.floe.one"
+}
+
+// roomIDLead is a room id as the server's UUID_REGEX takes it (engine/code's
+// uuidShape), anchored at the start only.
+var roomIDLead = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
+
+// looksLikeRequestLink reports whether a path that could not be read is a
+// request link, so that the send ends on a fixed line instead of the stat
+// sentence, which quotes the path: a request link's fragment is its room id,
+// the key to its one seat (FU-46, FU-32 F5-3). It is wider than
+// code.ParseRequestLink, which takes only the exact /r/<link id> path, and
+// takes every link that does: as code.Resolve refuses a request link in any
+// shape, a room id after a # counts whatever comes before it, so a link id a
+// character short or long, an extra path segment, or angle brackets or
+// quotes around the link (they sit before the # and after the room id) still
+// carry the key. Wider still, a # followed by a room id counts:
+//   - wherever it is (a doubled #), and after spaces (a space typed after it);
+//   - when only the start of what follows is a room id (a bad escape or
+//     stray text after it);
+//   - in the argument with its percent escapes decoded, up to three times
+//     over, every valid one even beside a bad one: a # sent as %23, the shape
+//     of a link inside a mail-safety redirector's ?url=, %2523 when that
+//     redirector's link is wrapped again (FU-46 review 1 L2).
+//
+// A room link spells its fragment #room=, so none matches.
+func looksLikeRequestLink(arg string) bool {
+	s := arg
+	for range 4 {
+		if hashBeforeRoomID(s) {
+			return true
+		}
+		decoded := percentDecodeLoose(s)
+		if decoded == s {
+			return false
+		}
+		s = decoded
+	}
+	return false
+}
+
+// hashBeforeRoomID reports whether any # in s is followed, after spaces or
+// tabs, by a room id.
+func hashBeforeRoomID(s string) bool {
+	for {
+		_, after, ok := strings.Cut(s, "#")
+		if !ok {
+			return false
+		}
+		if roomIDLead.MatchString(strings.TrimLeft(after, " \t")) {
+			return true
+		}
+		s = after
+	}
+}
+
+// percentDecodeLoose decodes every valid %XX escape in s and keeps every
+// other byte as it is, so a bad escape does not hide the rest the way it
+// makes url.PathUnescape fail.
+func percentDecodeLoose(s string) string {
+	if !strings.Contains(s, "%") {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '%' && i+2 < len(s) {
+			if v, err := strconv.ParseUint(s[i+1:i+3], 16, 8); err == nil {
+				b.WriteByte(byte(v))
+				i += 2
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
 
 // serverChosen reports whether this run names its server: --server typed, or

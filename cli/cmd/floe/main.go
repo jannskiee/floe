@@ -308,10 +308,11 @@ func main() {
 // completion are added inside ExecuteC and keep cobra's printing too.
 //
 // Two returns are not failures to prefix. An outcomeError (TL-33's link
-// refusal in receive) prints alone on the two-space indent, without
-// "Error: ", as its approved copy reads. errSendToEnded prints nothing: the
-// request-link send has already printed the lines that end it (sendto.go).
-// Both still return the error, so main exits 1.
+// refusal in receive, a plain send's request link typed as a path, D-153)
+// prints alone on the two-space indent, without "Error: ", as its approved
+// copy reads. errSendToEnded prints nothing: the request-link send has
+// already printed the lines that end it (sendto.go). Both still return the
+// error, so main exits 1.
 func execute() error {
 	for _, c := range rootCmd.Commands() {
 		c.SilenceErrors = true
@@ -329,7 +330,8 @@ func execute() error {
 }
 
 // outcomeError is an error that is an outcome, not a failure (TL-33's link
-// refusal): execute prints it alone on the two-space indent, without "Error: ".
+// refusal, errLinkTypedAsPath): execute prints it alone on the two-space
+// indent, without "Error: ".
 type outcomeError struct{ error }
 
 func (e outcomeError) Unwrap() error { return e.error }
