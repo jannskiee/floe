@@ -227,8 +227,10 @@ func main() {
 		// cleanup. Remove the in-flight .part staging file here so a Ctrl+C
 		// leaves the output directory as clean as any other failure. Safe at
 		// any moment: only .part files are ever registered, and a completed
-		// file's rename vacated that path.
-		transfer.AbandonPartials()
+		// file's rename vacated that path. Bounded, so a Close that parks
+		// cannot keep a canceled receive from exiting: past 5 s the exit goes
+		// ahead and the .part stays, which never looks like a finished file.
+		transfer.AbandonPartialsWithin(5 * time.Second)
 		os.Exit(130)
 	}()
 

@@ -6,6 +6,7 @@ package transfer
 // invariant, the never-overwrite commit, and the Ctrl+C abandon path.
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -228,6 +229,317 @@ func TestAbandonPartialsSparesCompletedFile(t *testing.T) {
 	}
 	if strings.Contains(strings.Join(listDir(t, dir), " "), partSuffix) {
 		t.Fatalf("a staging file survived: %v", listDir(t, dir))
+	}
+}
+
+// TestAbandonDoesNotStallOtherFilesWhileACloseParks pins the registry rule
+// that partialMu is never held across a syscall. On Windows a Close waits for
+// every outstanding reference on the handle, and one was seen to park under
+// load while the map lock was held across it: every other file's register and
+// unregister (the receive loop) parked behind it. Here the seam parks file
+// A's Close, and an unrelated file B must still register and unregister at
+// once, untouched.
+func TestAbandonDoesNotStallOtherFilesWhileACloseParks(t *testing.T) {
+	dir := t.TempDir()
+	a := claimForTest(t, filepath.Join(dir, "a.bin"))
+	parked, release := parkClose(t, func(f *os.File) bool { return f == a })
+	registerPartial(a)
+	abandoned := goAbandon()
+	awaitParked(t, parked, a)
+
+	b := claimForTest(t, filepath.Join(dir, "b.bin"))
+	bDone := make(chan struct{})
+	go func() {
+		defer close(bDone)
+		registerPartial(b)
+		unregisterPartial(b)
+	}()
+	select {
+	case <-bDone:
+	case <-time.After(time.Second):
+		release()
+		awaitClosed(t, bDone, "the unrelated file's register and unregister")
+		awaitClosed(t, abandoned, "the abandon")
+		t.Fatal("registering and unregistering an unrelated file waited on another file's parked Close")
+	}
+
+	release()
+	awaitClosed(t, abandoned, "the abandon")
+	if _, err := os.Lstat(a.Name()); !os.IsNotExist(err) {
+		t.Fatalf("the abandoned staging file survived: %v", err)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatalf("B's own Close = %v, want nil: the abandon touched a file it never saw registered", err)
+	}
+}
+
+// TestAbandonStillOwnsTheFileItIsClosing pins the other half of the rule, the
+// ordering the registry comment records: the owner of the file an abandon is
+// closing still waits for that Close and Remove before its unregister
+// returns, so it cannot reach its commit rename while the abandon removes the
+// path (the delete disposition would follow the file to its final name). It
+// then finds its handle closed: os.ErrClosed, the receiver's fingerprint for
+// an abandoned transfer. Releasing the map lock early with no per-entry lock
+// passes the test above and fails this one.
+func TestAbandonStillOwnsTheFileItIsClosing(t *testing.T) {
+	dir := t.TempDir()
+	a := claimForTest(t, filepath.Join(dir, "a.bin"))
+	if _, err := a.Write([]byte("half")); err != nil {
+		t.Fatal(err)
+	}
+	parked, release := parkClose(t, func(f *os.File) bool { return f == a })
+	registerPartial(a)
+	abandoned := goAbandon()
+	awaitParked(t, parked, a)
+
+	unregistered := make(chan struct{})
+	go func() {
+		defer close(unregistered)
+		unregisterPartial(a)
+	}()
+	select {
+	case <-unregistered:
+		release()
+		awaitClosed(t, abandoned, "the abandon")
+		t.Fatal("the owner's unregister returned while the abandon was still closing its file")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	release()
+	awaitClosed(t, unregistered, "the owner's unregister")
+	awaitClosed(t, abandoned, "the abandon")
+	if err := a.Close(); !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("the owner's own Close = %v, want os.ErrClosed (the abandon's fingerprint)", err)
+	}
+	if _, err := os.Lstat(a.Name()); !os.IsNotExist(err) {
+		t.Fatalf("the abandoned staging file survived: %v", err)
+	}
+}
+
+// TestOwnerThatUnregistersFirstIsNeverTouchedByAbandon: once its unregister
+// has returned, an owner's file is its own. The abandon never closes it, the
+// owner's Close succeeds and its commit lands under the final name, both when
+// the unregister came before the abandon started and when it came while the
+// abandon held the entry in its snapshot but was parked on another file's
+// Close (the entry's done mark is what makes the abandon skip it then).
+func TestOwnerThatUnregistersFirstIsNeverTouchedByAbandon(t *testing.T) {
+	dir := t.TempDir()
+	type staged struct {
+		f                   *os.File
+		dest, base, payload string
+	}
+	stage := func(name, payload string) staged {
+		t.Helper()
+		base := filepath.Join(dir, name)
+		f, dest, err := claimPart(base, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = f.Close() })
+		if _, err := f.Write([]byte(payload)); err != nil {
+			t.Fatal(err)
+		}
+		return staged{f, dest, base, payload}
+	}
+	a := stage("a.bin", "a-payload")
+	x := stage("x.bin", "x-payload")
+	y := stage("y.bin", "y-payload")
+
+	// The seam records every Close the abandon makes and parks the first of x
+	// and y it reaches.
+	var mu sync.Mutex
+	var closed []*os.File
+	var first *os.File
+	parked, release := parkClose(t, func(f *os.File) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		closed = append(closed, f)
+		if first == nil && (f == x.f || f == y.f) {
+			first = f
+			return true
+		}
+		return false
+	})
+	ownerCommits := func(s staged) {
+		t.Helper()
+		mu.Lock()
+		for _, c := range closed {
+			if c == s.f {
+				mu.Unlock()
+				t.Fatalf("the abandon closed %s after its owner unregistered it", s.f.Name())
+			}
+		}
+		mu.Unlock()
+		if err := s.f.Close(); err != nil {
+			t.Fatalf("the owner's own Close of %s = %v, want nil", s.f.Name(), err)
+		}
+		final, err := commitPart(s.f.Name(), s.dest, s.base)
+		if err != nil {
+			t.Fatalf("commitPart: %v", err)
+		}
+		if got, err := os.ReadFile(final); err != nil || string(got) != s.payload {
+			t.Fatalf("committed file holds %q, %v; want %q", got, err, s.payload)
+		}
+	}
+
+	// Unregistered before the abandon starts.
+	registerPartial(a.f)
+	unregisterPartial(a.f)
+	AbandonPartials()
+	ownerCommits(a)
+
+	// Unregistered while the abandon holds the entry in its snapshot, parked
+	// on the other file's Close.
+	registerPartial(x.f)
+	registerPartial(y.f)
+	abandoned := goAbandon()
+	var p *os.File
+	select {
+	case p = <-parked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the abandon never reached a Close the seam parks")
+	}
+	owner, other := x, y
+	if p == x.f {
+		owner, other = y, x
+	}
+	unregistered := make(chan struct{})
+	go func() {
+		defer close(unregistered)
+		unregisterPartial(owner.f)
+	}()
+	select {
+	case <-unregistered:
+	case <-time.After(time.Second):
+		release()
+		awaitClosed(t, unregistered, "the owner's unregister")
+		awaitClosed(t, abandoned, "the abandon")
+		t.Fatal("an owner whose file the abandon had not reached waited on another file's parked Close")
+	}
+	release()
+	awaitClosed(t, abandoned, "the abandon")
+	ownerCommits(owner)
+	if _, err := os.Lstat(other.f.Name()); !os.IsNotExist(err) {
+		t.Fatalf("the parked file's staging file survived the abandon: %v", err)
+	}
+}
+
+// TestAbandonPartialsWithinReturnsOnAParkedClose pins the bound the two exit
+// paths (the CLI's Ctrl+C handler and the desktop's shutdown hook) rely on: a
+// Close that parks cannot hold an exiting process. The abandon carries on in
+// the background and still removes the file once the Close returns, and a
+// run that does not park reports that it finished.
+func TestAbandonPartialsWithinReturnsOnAParkedClose(t *testing.T) {
+	dir := t.TempDir()
+	a := claimForTest(t, filepath.Join(dir, "a.bin"))
+	parked, release := parkClose(t, func(f *os.File) bool { return f == a })
+	registerPartial(a)
+
+	start := time.Now()
+	finished := AbandonPartialsWithin(100 * time.Millisecond)
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Fatalf("AbandonPartialsWithin(100ms) returned after %v with a parked Close, want within 500ms", elapsed)
+	}
+	if finished {
+		t.Fatal("AbandonPartialsWithin reported finished while a Close was parked")
+	}
+	awaitParked(t, parked, a)
+	release()
+	awaitGone(t, a.Name())
+
+	c := claimForTest(t, filepath.Join(dir, "c.bin"))
+	registerPartial(c)
+	if !AbandonPartialsWithin(5 * time.Second) {
+		t.Fatal("AbandonPartialsWithin reported unfinished with no Close parked")
+	}
+	if _, err := os.Lstat(c.Name()); !os.IsNotExist(err) {
+		t.Fatalf("the staging file survived the bounded abandon: %v", err)
+	}
+}
+
+// parkClose swaps the closePartial seam for one that parks the Close of every
+// file park picks until release is called, sending each parked file on the
+// returned channel first. Its cleanup releases and restores the seam, so a
+// failing test never leaves an abandon parked, its entries still registered,
+// for the tests after it. The package has no t.Parallel, so the process-wide
+// swap is safe.
+func parkClose(t *testing.T, park func(*os.File) bool) (parked <-chan *os.File, release func()) {
+	t.Helper()
+	ch := make(chan *os.File, 8)
+	gate := make(chan struct{})
+	var once sync.Once
+	release = func() { once.Do(func() { close(gate) }) }
+	prev := closePartial
+	closePartial = func(f *os.File) error {
+		if park(f) {
+			ch <- f
+			<-gate
+		}
+		return f.Close()
+	}
+	t.Cleanup(func() {
+		release()
+		closePartial = prev
+	})
+	return ch, release
+}
+
+// claimForTest claims a .part staging file at base and closes it at cleanup
+// (a no-op once something else has), so a failing test never leaves a handle
+// that keeps t.TempDir from being removed on Windows.
+func claimForTest(t *testing.T, base string) *os.File {
+	t.Helper()
+	f, _, err := claimPart(base, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	return f
+}
+
+// goAbandon runs AbandonPartials on its own goroutine; the channel closes
+// when it returns.
+func goAbandon() <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		AbandonPartials()
+	}()
+	return done
+}
+
+func awaitParked(t *testing.T, parked <-chan *os.File, want *os.File) {
+	t.Helper()
+	select {
+	case f := <-parked:
+		if f != want {
+			t.Fatalf("the seam parked %s, want %s", f.Name(), want.Name())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the abandon never reached the Close the seam parks")
+	}
+}
+
+func awaitClosed(t *testing.T, ch <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("%s did not return within 5 s", what)
+	}
+}
+
+func awaitGone(t *testing.T, path string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Lstat(path); os.IsNotExist(err) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s still exists 5 s after its parked Close was released", path)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

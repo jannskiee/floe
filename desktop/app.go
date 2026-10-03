@@ -6,6 +6,7 @@ import (
 	goruntime "runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jannskiee/floe/cli/engine/transfer"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -139,9 +140,11 @@ func (a *App) startup(ctx context.Context) {
 // its .part staging file open; its deferred cleanup will not get to run before
 // the process ends, so tidy the staging file here. Safe at any moment: only
 // .part files are registered, and a completed file's commit rename vacated
-// that path, so nothing that finished can be touched.
+// that path, so nothing that finished can be touched. Bounded, so a Close
+// that parks cannot keep the app from quitting: past 5 s the .part stays,
+// which never looks like a finished file.
 func (a *App) shutdown(ctx context.Context) {
-	transfer.AbandonPartials()
+	transfer.AbandonPartialsWithin(5 * time.Second)
 }
 
 // onSecondInstanceLaunch fires when Floe is launched again while already running.
