@@ -115,12 +115,35 @@ const PROGRESS_STEP = 1024 * 1024; // 1 MB
 // Other engines keep Blob bytes in memory; there this changes no total, it
 // only removes the second full copy `end` used to make. Large enough that the
 // per-part overhead is noise, small next to any device's memory.
+//
+// The line counts bytes, so the number of copies is bounded separately (see
+// STAGE_BYTES), and only the open file holds any: a metadata for another id
+// lets the file it leaves go. Before both, a sender writing one-byte frames
+// kept 16 M copies, about 1.6 GiB of heap, before the first spill, a renderer
+// kill that fail() never sees, and one rotating ids kept just under this line
+// in the tab for every id it opened (review R0-06-H6 L1).
 export const SPILL_BYTES = 16 * 1024 * 1024; // 16 MiB
+
+// A frame smaller than this is copied into the file's staging buffer of this
+// size rather than becoming a copy of its own; the buffer joins the held
+// copies when the next frame does not fit or a larger frame follows. So the
+// tab holds at most about two copies per STAGE_BYTES of a file whatever the
+// frame sizes, and every part is still cut at the SPILL_BYTES line. Measured
+// in Node 22: a one-byte copy costs about 100 B of heap and 300 B of process
+// memory, and a count line that spilled every 1024 copies (the review's trial
+// fix) still left process memory 416 MiB up after 2 M one-byte frames,
+// because the Blob keeps each copy as its own piece (2 M one-byte pieces:
+// 411 MiB; the same bytes joined: 6 MiB). Floe's senders write frames of
+// 16 KiB or more apart from each file's last, so those are copied as they
+// always were.
+const STAGE_BYTES = 16 * 1024;
 
 interface PartialDownload {
     parts: Blob[]; // spilled, in order
     held: ArrayBuffer[]; // tight chunk copies not yet spilled, in order
-    heldBytes: number;
+    stage: Uint8Array<ArrayBuffer> | null; // small frames gathered (see STAGE_BYTES); null when none are
+    staged: number; // bytes in use in `stage`, after everything in `held`
+    heldBytes: number; // bytes in `held` and `stage` together
     received: number;
     lastReported: number; // `received` value at the last onProgress emission
     tail: Promise<void> | null; // the read-back of the newest part (see probe), null before the first
@@ -382,11 +405,21 @@ export function createReceiver(
     // Moves the held chunk copies into one Blob part, then checks it. The
     // check is kept as the file's tail, which a SHA-256 check waits for.
     function spill(file: PartialDownload): void {
+        unstage(file);
         const part = new Blob(file.held);
         file.parts.push(part);
         file.held = [];
         file.heldBytes = 0;
         file.tail = probe(part, { received: file.received, expected: expectedSize });
+    }
+
+    // Moves the staged bytes to the end of the held copies as one tight copy
+    // (a full stage is one already). A stage only exists with bytes in it.
+    function unstage(file: PartialDownload): void {
+        if (file.stage === null) return;
+        file.held.push(file.staged === STAGE_BYTES ? file.stage.buffer : file.stage.slice(0, file.staged).buffer);
+        file.stage = null;
+        file.staged = 0;
     }
 
     // Chromium does not throw when its blob storage is full (Incognito pages
@@ -554,6 +587,19 @@ export function createReceiver(
                     }
                 }
 
+                // A metadata for another id means the sender abandoned the
+                // open file without an end, and the file is let go, as the Go
+                // receiver deletes its .part: its copies and parts go, and a
+                // later metadata for it starts over at offset 0. Kept for a
+                // resume, a sender rotating ids held just under SPILL_BYTES
+                // in the tab per id, and spilling it instead would still keep
+                // a part per switch for one alternating two ids (review
+                // R0-06-H6 L1). No Floe sender switches ids inside a file:
+                // each stops the transfer on any failure. The same id again
+                // is a resume and keeps everything.
+                if (currentMetadata !== null && currentMetadata.id !== msg.id) {
+                    partialDownloads.delete(currentMetadata.id);
+                }
                 currentMetadata = msg;
                 senderSentVersion = typeof msg.ver === 'string' && msg.ver !== '';
                 // classifyControl casts the metadata JSON straight to its
@@ -572,7 +618,16 @@ export function createReceiver(
                 if (existing) {
                     offset = existing.received;
                 } else {
-                    partialDownloads.set(msg.id, { parts: [], held: [], heldBytes: 0, received: 0, lastReported: 0, tail: null });
+                    partialDownloads.set(msg.id, {
+                        parts: [],
+                        held: [],
+                        stage: null,
+                        staged: 0,
+                        heldBytes: 0,
+                        received: 0,
+                        lastReported: 0,
+                        tail: null,
+                    });
                 }
 
                 // Send ack with protocol version fields so the sender can verify
@@ -768,8 +823,17 @@ export function createReceiver(
         // delivers a Node Buffer whose `.slice()` is a non-copying view, so storing
         // `buf.slice().buffer` would pin (and later mis-read) the whole backing buffer.
         // `new Uint8Array(buf)` copies exactly buf.byteLength bytes; `.buffer` is then
-        // a tight ArrayBuffer of that length.
-        fileData.held.push(new Uint8Array(buf).buffer);
+        // a tight ArrayBuffer of that length. A small frame is copied into the
+        // stage instead (see STAGE_BYTES), and an empty one leaves nothing.
+        if (buf.byteLength >= STAGE_BYTES) {
+            unstage(fileData); // what was staged came first
+            fileData.held.push(new Uint8Array(buf).buffer);
+        } else if (buf.byteLength > 0) {
+            if (fileData.stage !== null && fileData.staged + buf.byteLength > STAGE_BYTES) unstage(fileData);
+            if (fileData.stage === null) fileData.stage = new Uint8Array(STAGE_BYTES);
+            fileData.stage.set(buf, fileData.staged);
+            fileData.staged += buf.byteLength;
+        }
         fileData.heldBytes += buf.byteLength;
         fileData.received += buf.byteLength;
         if (fileData.heldBytes >= SPILL_BYTES) spill(fileData);
