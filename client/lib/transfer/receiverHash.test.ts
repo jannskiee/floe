@@ -655,4 +655,49 @@ describe('receiver: per-file SHA-256', () => {
         expect(errors).toHaveLength(1);
         await expect(rx.settled()).resolves.toBeUndefined();
     });
+
+    it('stops once when a frame that arrives during a check cannot even be measured', async () => {
+        // The control cap's TextEncoder runs inside runMessage's try like any
+        // other allocation (#500's merge note): out of memory there stops the
+        // transfer once instead of escaping into simple-peer's emitter, and the
+        // file being checked is not handed over after it.
+        const held = heldHash();
+        const errors: string[] = [];
+        const failures: (ReceiveFailure | undefined)[] = [];
+        const completed: string[] = [];
+        const rx = createReceiver(
+            {
+                send: () => {},
+                onFileComplete: (f) => completed.push(f.fileName),
+                onError: (m, f) => {
+                    errors.push(m);
+                    failures.push(f);
+                },
+            },
+            { hashBlob: held.hashBlob }
+        );
+        const a = payload(100);
+        rx.handleMessage(metadataMessage('a', 'a.bin', a.byteLength, 1, 2, 0));
+        rx.handleMessage(a);
+        rx.handleMessage(endMessage(digestOf(a)));
+        vi.stubGlobal(
+            'TextEncoder',
+            class {
+                encode(): Uint8Array {
+                    throw new RangeError('Array buffer allocation failed');
+                }
+            }
+        );
+        try {
+            expect(() => rx.handleMessage(metadataMessage('b', 'b.bin', 10, 2, 2, 0))).not.toThrow();
+            expect(() => rx.handleMessage(metadataMessage('c', 'c.bin', 10, 2, 2, 0))).not.toThrow();
+        } finally {
+            vi.unstubAllGlobals();
+        }
+        held.release(digestOf(a));
+        await rx.settled();
+        expect(errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
+        expect(failures[0]).toMatchObject({ code: 'out-of-memory', received: 0, expected: null });
+        expect(completed).toEqual([]);
+    });
 });
