@@ -751,14 +751,16 @@ func routeOf(conn *peer.Connection) string {
 //
 // A link on another host with a server chosen goes through: the self-hosted
 // case. A link typed without its scheme is read as https, and one whose host
-// cannot be read is a mismatch.
+// cannot be read is a mismatch, a server chosen or not: https:///floe.one/r/...,
+// https:/floe.one/... and /floe.one/... parse with no host, and a browser
+// reads each as floe.one (FU-53 review 1 L-2).
 func linkServerMismatch(link string, serverChosen bool, server string) bool {
 	link = strings.TrimSpace(link)
 	u, err := url.Parse(link)
 	if err == nil && u.Scheme == "" && u.Host == "" {
 		u, err = url.Parse("https://" + link)
 	}
-	if err != nil {
+	if err != nil || u.Hostname() == "" {
 		return true
 	}
 	if isFloeOneLinkHost(u.Hostname()) {

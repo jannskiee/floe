@@ -1334,6 +1334,12 @@ func TestSendToOtherServerLinkEndsWithoutANetworkCall(t *testing.T) {
 		{"https://ｆｌｏｅ.one/r/Xk3p9Q0aB1c#" + room, false, floeServer, false},
 		{"https://ｆｌｏｅ.one.example.com/r/Xk3p9Q0aB1c#" + room, true, selfHosted, false},
 		{"https://ｆｌｏｅ.one.example.com/r/Xk3p9Q0aB1c#" + room, false, floeServer, true},
+		// FU-53 review 1 L-2: a link whose host url.Parse cannot read (the
+		// slashes a browser reads past) is a mismatch with a server chosen
+		// too, never the self-hosted case.
+		{"https:///floe.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		{"https:/floe.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
+		{"/floe.one/r/Xk3p9Q0aB1c#" + room, true, selfHosted, true},
 	} {
 		if got := linkServerMismatch(c.link, c.chosen, c.server); got != c.want {
 			t.Errorf("linkServerMismatch(%q, %v, %q) = %v, want %v", c.link, c.chosen, c.server, got, c.want)
@@ -1372,6 +1378,8 @@ func TestSendToFloeLinkWithAnotherServerEndsWithoutANetworkCall(t *testing.T) {
 		{"FLOE_SERVER set", "https://floe.one/r/Xk3p9Q0aB1c#" + room, true},
 		{"FLOE_SERVER set, www and no scheme", "www.floe.one/r/Xk3p9Q0aB1c#" + room, true},
 		{"--server typed", "https://WWW.floe.one/r/Xk3p9Q0aB1c#" + room, false},
+		// L-2 (FU-53 review 1): no host url.Parse can read.
+		{"FLOE_SERVER set, three slashes", "https:///floe.one/r/Xk3p9Q0aB1c#" + room, true},
 		// N1 (FU-53): the host in fullwidth letters, as a browser reads it.
 		{"--server typed, fullwidth", "https://ｆｌｏｅ.one/r/Xk3p9Q0aB1c#" + room, false},
 		{"FLOE_SERVER set, fullwidth www and dots", "https://www．ｆｌｏｅ．one/r/Xk3p9Q0aB1c#" + room, true},
