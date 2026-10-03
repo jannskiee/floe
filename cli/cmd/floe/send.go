@@ -33,8 +33,8 @@ var flagTo string
 // path goes, the likeliest mistake of someone who forgot --to. The stat
 // sentence it replaces quoted the path, and so printed the link and its room
 // id twice into scrollback (FU-46, FU-32 F5-3). execute prints it as an
-// outcome, alone on the indent, and main exits 1. New copy pending the
-// owner's approval: approved-copy-cli.txt has no line that points to --to.
+// outcome, alone on the indent, and main exits 1. The line is approved copy
+// (D-153, approved-copy-cli.txt), byte for byte.
 var errLinkTypedAsPath = errors.New("That looks like a request link, not a file. To send to it, use: floe send <files> --to <link>")
 
 func init() {
