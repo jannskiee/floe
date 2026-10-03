@@ -42,6 +42,11 @@ const t3Class = 'text-xs leading-relaxed text-zinc-500';
 const warnClass = 'text-xs leading-relaxed text-amber-300/80';
 // The Done folder name, in characters (12 px mono beside Show in folder).
 const DONE_FOLDER_MAX = 34;
+// The SAVE TO field's text at rest, in characters. The card is 448 px at every
+// window size (max-w-lg less px-8), which leaves the field 270 px of text
+// beside Browse; QA-H6 capture 11 fit 40 characters of a typical path in
+// 14 px Geist (6.75 px each), so 36 leaves room for wider letters.
+const SAVE_TO_MAX = 36;
 // The quiet right-rail text action (Dismiss), the History row's Remove look.
 const quietClass = '-mr-2 rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice/60';
 
@@ -110,8 +115,16 @@ function ReadyForm({phase, errorCode, hideIP, saveDir, onSaveDirChange, onMake, 
     // View-local only: what the owner is typing and choosing.
     const [label, setLabel] = useState('');
     const [lifetime, setLifetime] = useState<'24h' | '7d'>('24h');
+    const [saveFocused, setSaveFocused] = useState(false);
     const making = phase === 'making';
     const edited = () => { if (phase === 'error') onEdit(); };
+    // At rest, a folder too long for the field is cut in the middle, the way
+    // Done and History cut theirs (M5), so the folder the files land in stays
+    // in view (QA-H6 L-2: the end was cut). Only the picture changes: the
+    // field's value stays the whole path, which UIA, Playwright and a screen
+    // reader read, and focus shows it whole to edit.
+    const savePath = shortPath(saveDir, SAVE_TO_MAX);
+    const saveCut = !saveFocused && savePath !== saveDir;
     return (
         <div className="space-y-4">
             <div className="space-y-2">
@@ -132,16 +145,34 @@ function ReadyForm({phase, errorCode, hideIP, saveDir, onSaveDirChange, onMake, 
             <div className="space-y-2">
                 <Eyebrow className="px-0.5"><label htmlFor="floe-request-save">{copy.SAVE_TO_EYEBROW}</label></Eyebrow>
                 <div className="flex gap-3">
-                    <Input
-                        id="floe-request-save"
-                        className="flex-1"
-                        placeholder={copy.SAVE_TO_PLACEHOLDER}
-                        value={saveDir}
-                        onChange={(e) => { onSaveDirChange(e.target.value); edited(); }}
-                        disabled={making}
-                        autoComplete="off"
-                        spellCheck={false}
-                    />
+                    <div className="relative min-w-0 flex-1">
+                        {/* The cut path is drawn over the field in the field's
+                            own box (1 px border, px-3 py-2, text-sm), and the
+                            field's text is made transparent under it; an
+                            inline style, because cn has no tailwind-merge and
+                            a second text color class would not reliably win.
+                            Its color does not transition on the way out, or
+                            the whole path would fade under the cut one for
+                            150 ms on blur; the focus ring still fades. */}
+                        <Input
+                            id="floe-request-save"
+                            placeholder={copy.SAVE_TO_PLACEHOLDER}
+                            value={saveDir}
+                            title={saveCut ? saveDir : undefined}
+                            style={saveCut ? {color: 'transparent', transitionProperty: 'box-shadow'} : undefined}
+                            onFocus={() => setSaveFocused(true)}
+                            onBlur={() => setSaveFocused(false)}
+                            onChange={(e) => { onSaveDirChange(e.target.value); edited(); }}
+                            disabled={making}
+                            autoComplete="off"
+                            spellCheck={false}
+                        />
+                        {saveCut && (
+                            <span aria-hidden className={cn('pointer-events-none absolute inset-0 truncate border border-transparent px-3 py-2 text-sm text-zinc-100', making && 'opacity-50')}>
+                                {savePath}
+                            </span>
+                        )}
+                    </div>
                     <Button variant="outline" onClick={onBrowse} disabled={making}>
                         <Folder/> {copy.BROWSE}
                     </Button>

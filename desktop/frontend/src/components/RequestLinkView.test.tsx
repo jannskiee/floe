@@ -598,6 +598,45 @@ describe('the layout (D-136)', () => {
             unmount();
         }
     });
+
+    it('SAVE TO cuts a long folder in the middle while the field is at rest, and edits the whole path (QA-H6 L-2)', async () => {
+        // At 1000 x 640 the field cut "...\l12-scratch\save-base" at its end, so
+        // the folder that says where the files go was the part hidden. Done and
+        // History cut in the middle (M5); the Ready form now does too, with the
+        // same helper. The field's own value stays the whole path: UIA,
+        // Playwright and a screen reader read that, and focus shows it to edit.
+        const user = userEvent.setup();
+        const long = 'C:\\Users\\Admin\\floe-audit\\fu27-h6\\l12-scratch\\save-base';
+        const cut = 'C:\\...\\fu27-h6\\l12-scratch\\save-base';
+        const {rerender} = render(<RequestLinkView {...at('ready', {saveDir: long})}/>);
+        const field = screen.getByLabelText('Save to') as HTMLInputElement;
+        expect(field.value).toBe(long);
+        const shown = screen.getByText(cut);
+        expect(shown.getAttribute('aria-hidden')).toBe('true');
+        expect(shown.textContent!.length).toBeLessThanOrEqual(36);
+        expect(field.title).toBe(long);
+        expect(field.style.color).toBe('transparent');
+
+        // Focused: the whole path, as typed, and nothing laid over it.
+        await user.click(field);
+        expect(screen.queryByText(cut)).toBeNull();
+        expect(field.style.color).toBe('');
+        expect(field.title).toBe('');
+        expect(field.value).toBe(long);
+        // At rest again: the middle cut is back.
+        await user.tab();
+        expect(screen.getByText(cut)).toBeTruthy();
+
+        // While the link is being made the field is disabled, and the cut text dims with it.
+        rerender(<RequestLinkView {...at('making', {saveDir: long})}/>);
+        expect(screen.getByText(cut).className.split(' ')).toContain('opacity-50');
+
+        // A folder that fits shows as the field's own text, with no title.
+        rerender(<RequestLinkView {...at('ready', {saveDir: 'D:\\Footage\\Floe requests'})}/>);
+        expect(screen.queryByText('D:\\Footage\\Floe requests')).toBeNull();
+        expect(field.style.color).toBe('');
+        expect(field.title).toBe('');
+    });
 });
 
 describe('every state', () => {
