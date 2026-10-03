@@ -727,6 +727,14 @@ export function createReceiver(
                                 if (aborted && !closed) return;
                                 if (got !== null && got !== want) refuseHash(false);
                                 else complete(meta, blob, size, got === want);
+                            } catch (err) {
+                                // The end frame's own work, finished late, so outside
+                                // runMessage: a throw while the file is handed over
+                                // (a callback, say) stops the transfer once, as it does
+                                // on the unchecked path (#500). One after a stop that
+                                // already spoke surfaces instead, as in runMessage.
+                                if (aborted && !closed) throw err;
+                                fail(err);
                             } finally {
                                 drain();
                             }

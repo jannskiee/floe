@@ -660,6 +660,45 @@ describe('receiver: per-file SHA-256', () => {
         await expect(rx.settled()).resolves.toBeUndefined();
     });
 
+    it('stops once when handing a checked file over throws', async () => {
+        // main's 'reports no sizes for a throw after the file was handed over'
+        // (#500), on the checked path every current sender takes: the hand-over
+        // runs after the digest, outside runMessage, and must still stop once.
+        const held = heldHash();
+        const sent: (string | Uint8Array)[] = [];
+        const errors: string[] = [];
+        const failures: (ReceiveFailure | undefined)[] = [];
+        const rx = createReceiver(
+            {
+                send: (d) => sent.push(d),
+                onFileComplete: () => {
+                    throw new TypeError('render failed');
+                },
+                onError: (m, f) => {
+                    errors.push(m);
+                    failures.push(f);
+                },
+            },
+            { hashBlob: held.hashBlob }
+        );
+        const a = payload(100);
+        rx.handleMessage(metadataMessage('a', 'a.bin', 100, 1, 2, 0));
+        rx.handleMessage(a);
+        rx.handleMessage(endMessage(digestOf(a)));
+        rx.handleMessage(metadataMessage('b', 'b.bin', 10, 2, 2, 0));
+        const done = rx.settled();
+        held.release(digestOf(a));
+        await done;
+        expect(errors).toEqual([INTERNAL_ERROR_MESSAGE]);
+        expect(failures[0]).toMatchObject({ code: 'internal', received: 0, expected: null });
+        // The file the page failed to record is not followed by the next one.
+        const acks = sent.filter((s): s is string => typeof s === 'string').map((s) => JSON.parse(s).id);
+        expect(acks).toEqual(['a']);
+        // The sender is told; the file that threw was never counted as handed over.
+        const abort = JSON.parse(new TextDecoder().decode(sent[sent.length - 1] as Uint8Array));
+        expect(abort).toMatchObject({ type: 'incompatible', code: 'write-failed', saved: 0 });
+    });
+
     it('stops once when a frame that arrives during a check cannot even be measured', async () => {
         // The control cap's TextEncoder runs inside runMessage's try like any
         // other allocation (#500's merge note): out of memory there stops the
