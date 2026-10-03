@@ -64,3 +64,58 @@ func TestQuietTURNClientLogLeavesChosenLevelsAlone(t *testing.T) {
 		})
 	}
 }
+
+// TestQuietPeerConnectionLogSharesTheTURNRule (FU-46, FU-32 F2-2): the
+// request-link send's pc scope goes off by quietTURNClientLog's rule, after
+// it at process start: pc joins the DISABLE variable pion reads, beside
+// turnc, unless pion reads it there already, and a level that turns logging
+// on leaves the environment alone, so a person debugging pion still sees the
+// pc lines. Checked the way pion reads it, through a default factory made
+// afterwards; a scope no pion package uses keeps pion's default level.
+func TestQuietPeerConnectionLogSharesTheTURNRule(t *testing.T) {
+	cases := []struct {
+		name  string
+		set   map[string]string
+		want  map[string]string // the variables afterwards; "" is unset
+		quiet bool              // pion's default factory prints nothing for pc
+	}{
+		{"nothing set", nil, map[string]string{"PION_LOG_DISABLE": "turnc,pc"}, true},
+		{"PION_LOG_DISABLE=mdns", map[string]string{"PION_LOG_DISABLE": "mdns"}, map[string]string{"PION_LOG_DISABLE": "mdns,turnc,pc"}, true},
+		{"PION_LOG_DISABLE=PC", map[string]string{"PION_LOG_DISABLE": "PC"}, map[string]string{"PION_LOG_DISABLE": "PC,turnc"}, true},
+		{"PIONS_LOG_DISABLE=ice", map[string]string{"PIONS_LOG_DISABLE": "ice"}, map[string]string{"PIONS_LOG_DISABLE": "ice,turnc,pc", "PION_LOG_DISABLE": ""}, true},
+		{"PION_LOG_DEBUG=pc", map[string]string{"PION_LOG_DEBUG": "pc"}, map[string]string{"PION_LOG_DEBUG": "pc", "PION_LOG_DISABLE": ""}, false},
+		{"PION_LOG_TRACE=ice", map[string]string{"PION_LOG_TRACE": "ice"}, map[string]string{"PION_LOG_TRACE": "ice", "PION_LOG_DISABLE": ""}, false},
+		{"PIONS_LOG_ERROR=all", map[string]string{"PIONS_LOG_ERROR": "all"}, map[string]string{"PIONS_LOG_ERROR": "all", "PION_LOG_DISABLE": ""}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, prefix := range []string{"PION_LOG_", "PIONS_LOG_"} {
+				for _, level := range []string{"DISABLE", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"} {
+					t.Setenv(prefix+level, "")
+				}
+			}
+			for k, v := range tc.set {
+				t.Setenv(k, v)
+			}
+			quietTURNClientLog()
+			quietPeerConnectionLog()
+			for k, want := range tc.want {
+				if got := os.Getenv(k); got != want {
+					t.Errorf("%s = %q, want %q", k, got, want)
+				}
+			}
+			var buf bytes.Buffer
+			f := logging.NewDefaultLoggerFactory()
+			f.Writer = &buf
+			f.NewLogger("pc").Errorf("dropping candidate with ufrag %s because it doesn't match the current ufrags", "x")
+			if quiet := buf.Len() == 0; quiet != tc.quiet {
+				t.Errorf("pion's default factory printed %q for pc; want quiet=%v", buf.String(), tc.quiet)
+			}
+			buf.Reset()
+			f.NewLogger("floe-control").Errorf("still printed")
+			if !bytes.Contains(buf.Bytes(), []byte("floe-control ERROR: ")) {
+				t.Errorf("a scope other than turnc and pc lost pion's default ERROR level: %q", buf.String())
+			}
+		})
+	}
+}

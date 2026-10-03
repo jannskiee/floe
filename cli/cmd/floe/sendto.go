@@ -395,7 +395,10 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 	}
 	defer sc.Close()
 	// The peer exists before the join (spec 07 4.8): the host offers the
-	// moment the server seats this visitor.
+	// moment the server seats this visitor. pion's pc scope goes off first,
+	// since peer.New reads pion's levels from the environment: its "dropping
+	// candidate" line quotes a ufrag the host chose (quietPeerConnectionLog).
+	quietPeerConnectionLog()
 	conn, err := peer.New(iceServers, sc, peerOptions()...)
 	if err != nil {
 		return r.fail(cmd, lineCouldNotConnect)
@@ -486,10 +489,11 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 // (TL-03 replaces it), the stop Ctrl+C closes, a bar line ended before an
 // outcome that lands mid-file (the copy draws TL-16 to TL-26's saved forms
 // and TL-27 on lines of their own), TL-02's "Peer version:" line only for a
-// release-shaped host version (D-147 (2): the host is a stranger's, and that
-// field was the one text of its choosing this path printed), the ack
-// callback that tracks the phase, and the connection's own pump (see
-// peer.Early).
+// release-shaped host version (D-147 (2): the host is a stranger's, and no
+// text of its choosing may print here; pion's pc line, which quoted a
+// trickled candidate's ufrag, is off on this path too, by
+// quietPeerConnectionLog), the ack callback that tracks the phase, and the
+// connection's own pump (see peer.Early).
 func sendToOptions(early *peer.Early, stop <-chan struct{}, onAck func(int), onDelivered func(transfer.Delivered)) transfer.SendOptions {
 	return transfer.SendOptions{
 		Messages:               early.Msgs,

