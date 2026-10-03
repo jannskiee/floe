@@ -302,15 +302,22 @@ export function createReceiver(
     // until one of them starts another check or the transfer stops. Through
     // runMessage, so a throw from a frame that waited is caught and latched
     // like any other instead of escaping the promise chain with nothing latched.
+    //
+    // In a finally, because runMessage lets a throw from a frame that already
+    // stopped the transfer surface: that must not leave settled() waiters, the
+    // component's close and error handlers among them, waiting for good.
     function drain(): void {
-        while (!pending && !aborted && queued.length > 0) {
-            runMessage(queued.shift() as string);
-        }
-        if (aborted) queued = [];
-        if (!pending) {
-            const waiters = settledWaiters;
-            settledWaiters = [];
-            for (const resolve of waiters) resolve();
+        try {
+            while (!pending && !aborted && queued.length > 0) {
+                runMessage(queued.shift() as string);
+            }
+        } finally {
+            if (aborted) queued = [];
+            if (!pending) {
+                const waiters = settledWaiters;
+                settledWaiters = [];
+                for (const resolve of waiters) resolve();
+            }
         }
     }
 

@@ -729,6 +729,45 @@ describe('receiver: per-file SHA-256', () => {
         expect(abort).toMatchObject({ type: 'incompatible', code: 'write-failed', saved: 0 });
     });
 
+    it('frees settled() when a frame that waited out a check throws after stopping', async () => {
+        // runMessage lets a throw from a frame that already stopped the transfer
+        // surface, once (it has said what went wrong). Inside drain that throw
+        // must not skip resolving settled(): the component's close and error
+        // handlers wait on it before they decide what the screen says.
+        const surfaced: unknown[] = [];
+        const onRejection = (reason: unknown) => surfaced.push(reason);
+        // A listener of our own: vitest treats the rejection as handled here.
+        process.on('unhandledRejection', onRejection);
+        try {
+            const held = heldHash();
+            const rx = createReceiver(
+                {
+                    send: () => {},
+                    onError: () => {
+                        throw new TypeError('banner failed');
+                    },
+                },
+                { hashBlob: held.hashBlob }
+            );
+            const a = payload(100);
+            rx.handleMessage(metadataMessage('a', 'a.bin', a.byteLength, 1, 2, 0));
+            rx.handleMessage(a);
+            rx.handleMessage(endMessage(digestOf(a)));
+            // The sender stops while the first file is checked; its frame waits.
+            rx.handleMessage(incompatibleMessage('sender stopped'));
+            const done = rx.settled().then(() => 'settled');
+            held.release(digestOf(a));
+            const outcome = await Promise.race([done, new Promise((r) => setTimeout(() => r('hung'), 200))]);
+            expect(outcome).toBe('settled');
+            // The throw still surfaces, once.
+            await new Promise((r) => setTimeout(r, 0));
+            expect(surfaced).toHaveLength(1);
+            expect((surfaced[0] as Error).message).toBe('banner failed');
+        } finally {
+            process.off('unhandledRejection', onRejection);
+        }
+    });
+
     it('stops once when a frame that arrives during a check cannot even be measured', async () => {
         // The control cap's TextEncoder runs inside runMessage's try like any
         // other allocation (#500's merge note): out of memory there stops the
