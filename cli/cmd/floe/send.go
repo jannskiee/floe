@@ -181,10 +181,28 @@ func runSend(cmd *cobra.Command, args []string) error {
 	defer close(quit)
 	closeOnFailed(conn, quit)
 	early := conn.Early()
-	return transfer.SendFilesWithOptions(dc, args, version, transfer.SendOptions{
+	return plainSendEnd(transfer.SendFilesWithOptions(dc, args, version, transfer.SendOptions{
 		Messages: early.Msgs,
 		Closed:   early.Closed,
-	})
+	}))
+}
+
+// errTheyStopped is the plain send's line when the receiver ended the
+// transfer itself (code stopped: floe receive's Ctrl+C, FU-54), printed
+// behind cobra's "Error: ". Approved by the owner as written (D-159,
+// approved-copy-cli.txt), byte for byte. floe send --to keeps TL-24, the
+// engine's own sentence for the code.
+var errTheyStopped = errors.New("They stopped the transfer.")
+
+// plainSendEnd is the plain send's error as it prints: code stopped becomes
+// errTheyStopped, and every other error, every other code among them, is
+// returned as it came.
+func plainSendEnd(err error) error {
+	var stopped *transfer.PeerStoppedError
+	if errors.As(err, &stopped) && stopped.Code == transfer.CodeStopped {
+		return errTheyStopped
+	}
+	return err
 }
 
 // shortCodeWarning is the line send prints when the server gives no code. The

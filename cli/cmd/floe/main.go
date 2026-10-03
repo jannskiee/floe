@@ -221,6 +221,24 @@ func setupFailureLine(err error) string {
 // every command prints "Canceled." as it always has.
 var interruptHook atomic.Pointer[func() (line string, stop func())]
 
+// interruptStop, when set, is a step the handler runs after the line and the
+// hook's stop and before the partial-file cleanup: floe receive sets one
+// (receive.go, FU-54), which tells the sender why the transfer ended and
+// closes the connection, so the cleanup that follows cannot make the receive
+// loop report a write failure. Unlike interruptHook it is never consulted for
+// the second signal: a command that sets only this keeps its second Ctrl+C
+// swallowed while the cleanup runs (review re-check LA2-5, FU-54 review 1 M1).
+var interruptStop atomic.Pointer[func()]
+
+// interruptCleanupBound is the one deadline the step and the partial-file
+// cleanup share (FU-12's 5 s): the cleanup gets what the step left of it.
+// interruptStopBound caps the step itself (FU-54 review 1 L5), so the cleanup
+// always keeps at least 4 s. Vars only so a test can hold them to their values.
+var (
+	interruptCleanupBound = 5 * time.Second
+	interruptStopBound    = 1 * time.Second
+)
+
 // interruptLine is what the Ctrl+C handler prints, and the stop it runs after
 // printing and before the partial-file cleanup. A hook answers within a
 // short bound (the request-link send waits at most sendToStopWait for its
@@ -255,24 +273,53 @@ func handleInterrupts(sigCh <-chan os.Signal, exit func(int)) {
 		return
 	}
 	// Message first: feedback must be instant, and the cleanup below touches
-	// the disk (an AV scanner holding the file could stall it).
-	fmt.Fprintln(os.Stderr, line)
+	// the disk (an AV scanner holding the file could stall it). With the
+	// receive's stop step the line waits for it (at most interruptStopBound,
+	// about 0.2 s measured): until the step closes the connection the receive
+	// loop keeps drawing its progress bar, which redrew below "Canceled." in 8
+	// of 8 runs (FU-54 review 2 M1).
+	step := interruptStop.Load()
+	deadline := time.Now().Add(interruptCleanupBound)
+	if step == nil {
+		fmt.Fprintln(os.Stderr, line)
+	}
 	stop()
+	// The receive's stop step, before the cleanup: once the connection is
+	// closed, the write failure the cleanup causes has nowhere to go.
+	if step != nil {
+		runWithin(*step, interruptStopBound)
+		fmt.Fprintln(os.Stderr, line)
+	}
 	// os.Exit skips every defer, including the receiver's partial-file
 	// cleanup. Remove the in-flight .part staging file here so a Ctrl+C leaves
 	// the output directory as clean as any other failure. Safe at any moment:
 	// only .part files are ever registered, and a completed file's rename
-	// vacated that path. Bounded, so a Close that parks cannot keep a canceled
-	// receive from exiting: past 5 s the exit goes ahead and the .part stays,
-	// which never looks like a finished file.
-	abandonPartials()
+	// vacated that path. Bounded by what is left of the one 5 s deadline, so a
+	// Close that parks cannot keep a canceled receive from exiting: past it
+	// the exit goes ahead and the .part stays, which never looks like a
+	// finished file.
+	abandonPartials(time.Until(deadline))
 	exit(130)
 }
 
+// runWithin runs step and waits for it at most d; a step that stalls carries
+// on in the background until the process exits.
+func runWithin(step func(), d time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		step()
+	}()
+	select {
+	case <-done:
+	case <-time.After(d):
+	}
+}
+
 // abandonPartials is the partial-file cleanup the handler runs before its
-// exit: transfer.AbandonPartialsWithin with its 5 s bound in every build, a
-// var so a test can hold it.
-var abandonPartials = func() { transfer.AbandonPartialsWithin(5 * time.Second) }
+// exit: transfer.AbandonPartialsWithin, bounded by what is left of the
+// handler's 5 s deadline, a var so a test can hold it.
+var abandonPartials = func(within time.Duration) { transfer.AbandonPartialsWithin(within) }
 
 // cutRunes returns s cut to max runes, the last one an ellipsis when it was
 // longer.

@@ -137,6 +137,7 @@ func (e exitRecorder) awaitExit(t *testing.T, bound time.Duration, what string) 
 func startHandler(t *testing.T, hook func() (string, func())) (chan os.Signal, exitRecorder) {
 	t.Helper()
 	interruptHook.Store(&hook)
+	resetReceiveStop()
 	sig := make(chan os.Signal, 1)
 	exits := make(exitRecorder, 4)
 	go handleInterrupts(sig, exits.exit)
@@ -227,11 +228,12 @@ func TestHandleInterruptsLeavesAFinishedCommandAlone(t *testing.T) {
 func TestHandleInterruptsPlainCommandKeepsTodaysHandler(t *testing.T) {
 	o := captureOutput(t)
 	interruptHook.Store(nil)
+	resetReceiveStop()
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	var releaseOnce sync.Once
 	prev := abandonPartials
-	abandonPartials = func() {
+	abandonPartials = func(time.Duration) {
 		close(entered)
 		<-release
 	}
