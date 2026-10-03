@@ -38,7 +38,7 @@ import {RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, probeIsRelay} fro
 import {buildShareLink, getRoomFromUrl, isValidRoomId} from '@/lib/roomLink';
 import {classifyPeerError} from '@/lib/peerErrors';
 import {decideReceiverClose} from '@/lib/receiverClose';
-import {describeSenderStop} from '@/lib/senderStop';
+import {describeSenderStop, senderCloseInterrupted} from '@/lib/senderStop';
 import {verifiedLine, VERIFIED_LINE} from '@/lib/verifiedLine';
 import {peerDisconnectAction} from '@/lib/peerDisconnect';
 import {copyText} from '@/lib/clipboard';
@@ -916,7 +916,13 @@ export function P2PTransfer() {
                 // stops without a word: the screen stayed on "Sending: <name>".
                 // Same status the error handler uses mid-transfer; the words
                 // stay neutral because a failed network ends up here too.
-                if (!transferCompleteRef.current && progressRef.current > 0 && closedByUsRef.current !== peer) {
+                if (
+                    senderCloseInterrupted({
+                        transferComplete: transferCompleteRef.current,
+                        progress: progressRef.current,
+                        closedByUs: closedByUsRef.current === peer,
+                    })
+                ) {
                     setError((prev) => prev || 'The connection closed before the transfer finished.');
                     setStatus('Connection interrupted');
                 }

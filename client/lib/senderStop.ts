@@ -28,3 +28,18 @@ export function describeSenderStop(stop: {
 }): string | null {
     return stop.code === 'hash-mismatch' ? SENDER_HASH_STOP : null;
 }
+
+/**
+ * Whether the sender's close handler says the connection was interrupted: the
+ * transfer had started and not finished, and this side did not close it. A
+ * receiver that stops mid-file (it ran out of memory, or its tab closed)
+ * closes the connection, and the send engine then stops without a word, so
+ * without this the screen stayed on "Sending: <name>" (#500).
+ */
+export function senderCloseInterrupted(close: {
+    transferComplete: boolean;
+    progress: number;
+    closedByUs: boolean;
+}): boolean {
+    return !close.transferComplete && close.progress > 0 && !close.closedByUs;
+}

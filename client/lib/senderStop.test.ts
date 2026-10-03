@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeSenderStop, SENDER_HASH_STOP } from './senderStop';
+import { describeSenderStop, SENDER_HASH_STOP, senderCloseInterrupted } from './senderStop';
 
 // The code type is deliberately not imported here: the consumer-map checker
 // counts that name as a peer-field token, and its warning total is a max
@@ -48,5 +48,19 @@ describe('describeSenderStop', () => {
             'The other side discarded a file that did not match what was sent. Try sending again.'
         );
         expect(SENDER_HASH_STOP).not.toMatch(/SHA|256|[0-9a-f]{64}/);
+    });
+});
+
+describe('senderCloseInterrupted', () => {
+    const base = { transferComplete: false, progress: 40, closedByUs: false };
+
+    it('says interrupted when a started transfer loses a connection this side did not close', () => {
+        expect(senderCloseInterrupted(base)).toBe(true);
+    });
+
+    it('stays quiet once every file was sent, before any byte moved, or when this side closed', () => {
+        expect(senderCloseInterrupted({ ...base, transferComplete: true })).toBe(false);
+        expect(senderCloseInterrupted({ ...base, progress: 0 })).toBe(false);
+        expect(senderCloseInterrupted({ ...base, closedByUs: true })).toBe(false);
     });
 });
