@@ -151,19 +151,21 @@ function ReadyForm({phase, errorCode, hideIP, saveDir, onSaveDirChange, onMake, 
                             field's text is made transparent under it; an
                             inline style, because cn has no tailwind-merge and
                             a second text color class would not reliably win.
-                            Its color does not transition on the way out, or
-                            the whole path would fade under the cut one for
-                            150 ms on blur; the focus ring still fades. In a
-                            contrast theme the forced text color replaces
-                            transparent (only background-color keeps its
-                            alpha), so there the overlay is hidden and the
-                            field shows its own text, cut at the end. */}
+                            Its color never transitions, cut or not: on blur
+                            the whole path would fade under the cut one, and
+                            when the cut ends the field would blank and fade
+                            back in (150 ms each); the focus ring still fades.
+                            Nothing else changes its color (disabled uses
+                            opacity). In a contrast theme the forced text
+                            color replaces transparent (only background-color
+                            keeps its alpha), so there the overlay is hidden
+                            and the field shows its own text, cut at the end. */}
                         <Input
                             id="floe-request-save"
                             placeholder={copy.SAVE_TO_PLACEHOLDER}
                             value={saveDir}
                             title={saveCut ? saveDir : undefined}
-                            style={saveCut ? {color: 'transparent', transitionProperty: 'box-shadow'} : undefined}
+                            style={{color: saveCut ? 'transparent' : undefined, transitionProperty: 'box-shadow'}}
                             onFocus={() => setSaveFocused(true)}
                             onBlur={() => setSaveFocused(false)}
                             onChange={(e) => { onSaveDirChange(e.target.value); edited(); }}

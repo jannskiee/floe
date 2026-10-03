@@ -622,11 +622,16 @@ describe('the layout (D-136)', () => {
         expect(shown.textContent!.length).toBeLessThanOrEqual(36);
         expect(field.title).toBe(long);
         expect(field.style.color).toBe('transparent');
+        // Only the focus ring transitions, cut or not: a color transition
+        // would fade the whole path in under the cut one on blur, and blank
+        // the field and fade it back in when the cut ends.
+        expect(field.style.transitionProperty).toBe('box-shadow');
 
         // Focused: the whole path, as typed, and nothing laid over it.
         await user.click(field);
         expect(screen.queryByText(cut)).toBeNull();
         expect(field.style.color).toBe('');
+        expect(field.style.transitionProperty).toBe('box-shadow');
         expect(field.title).toBe('');
         expect(field.value).toBe(long);
         // At rest again: the middle cut is back.
@@ -641,6 +646,7 @@ describe('the layout (D-136)', () => {
         rerender(<RequestLinkView {...at('ready', {saveDir: 'D:\\Footage\\Floe requests'})}/>);
         expect(screen.queryByText('D:\\Footage\\Floe requests')).toBeNull();
         expect(field.style.color).toBe('');
+        expect(field.style.transitionProperty).toBe('box-shadow');
         expect(field.title).toBe('');
     });
 
