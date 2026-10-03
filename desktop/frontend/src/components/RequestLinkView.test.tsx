@@ -612,6 +612,12 @@ describe('the layout (D-136)', () => {
         const field = screen.getByLabelText('Save to') as HTMLInputElement;
         expect(field.value).toBe(long);
         const shown = screen.getByText(cut);
+        const shownClasses = shown.className.split(' ');
+        // In a Windows contrast theme the forced text color replaces the
+        // field's transparent one (only background-color keeps its alpha), so
+        // the overlay steps aside and the field shows its own text, cut at
+        // the end, rather than two paths drawn on top of each other.
+        expect(shownClasses).toContain('forced-colors:hidden');
         expect(shown.getAttribute('aria-hidden')).toBe('true');
         expect(shown.textContent!.length).toBeLessThanOrEqual(36);
         expect(field.title).toBe(long);

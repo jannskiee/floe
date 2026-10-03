@@ -153,7 +153,11 @@ function ReadyForm({phase, errorCode, hideIP, saveDir, onSaveDirChange, onMake, 
                             a second text color class would not reliably win.
                             Its color does not transition on the way out, or
                             the whole path would fade under the cut one for
-                            150 ms on blur; the focus ring still fades. */}
+                            150 ms on blur; the focus ring still fades. In a
+                            contrast theme the forced text color replaces
+                            transparent (only background-color keeps its
+                            alpha), so there the overlay is hidden and the
+                            field shows its own text, cut at the end. */}
                         <Input
                             id="floe-request-save"
                             placeholder={copy.SAVE_TO_PLACEHOLDER}
@@ -168,7 +172,7 @@ function ReadyForm({phase, errorCode, hideIP, saveDir, onSaveDirChange, onMake, 
                             spellCheck={false}
                         />
                         {saveCut && (
-                            <span aria-hidden className={cn('pointer-events-none absolute inset-0 truncate border border-transparent px-3 py-2 text-sm text-zinc-100', making && 'opacity-50')}>
+                            <span aria-hidden className={cn('pointer-events-none absolute inset-0 truncate border border-transparent px-3 py-2 text-sm text-zinc-100 forced-colors:hidden', making && 'opacity-50')}>
                                 {savePath}
                             </span>
                         )}
