@@ -612,8 +612,9 @@ func awaitGone(t *testing.T, path string) {
 // followed the file to its final name (both syscalls reported success and the
 // committed file vanished), and a freed path re-claimed by another receive
 // could be published under a stale commit's name. With unregistration before
-// the commit, under the abandon's own mutex, neither interleave exists: every
-// commit that reports success must leave its exact payload on disk.
+// the commit, under the entry lock the abandon holds, neither interleave
+// exists: every commit that reports success must leave its exact payload on
+// disk.
 func TestCommitAbandonTorture(t *testing.T) {
 	dir := t.TempDir()
 	base := filepath.Join(dir, "abandon.bin")

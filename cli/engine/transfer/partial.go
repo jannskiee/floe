@@ -39,8 +39,8 @@ import (
 // register and unregister, which is the receive loop, parked behind it. With
 // the per-entry rule only the parked file's owner waits.
 //
-// An abandon that takes an entry's lock in the instant between verification
-// and unregistration deletes a verified .part during an explicit user abort,
+// An abandon that takes an entry's lock after the last byte but before the
+// owner's unregister deletes a complete .part during an explicit user abort,
 // which is accepted: the sender was never told the transfer completed.
 //
 // A map rather than a single slot: the desktop shares this package and can in
@@ -158,9 +158,10 @@ func AbandonPartials() {
 // AbandonPartialsWithin runs AbandonPartials and waits for it at most d,
 // reporting whether it finished. The exit paths call this form so a Close
 // that parks cannot hold the process: the abandon carries on in the
-// background until the process ends, and a file it has not reached stays as
-// a .part, which partSuffix guarantees is never mistaken for a finished file
-// and which the next receive de-collides around.
+// background until the process ends. A file it has not finished stays as a
+// .part unless its owner completes and verifies it first; partSuffix
+// guarantees a .part is never mistaken for a finished file, and the next
+// receive de-collides around it.
 func AbandonPartialsWithin(d time.Duration) bool {
 	done := make(chan struct{})
 	go func() {
