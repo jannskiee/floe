@@ -1577,6 +1577,126 @@ func TestRunRequestDropResultFlagsAVolumeWithoutNamedStreams(t *testing.T) {
 	}
 }
 
+// blockedVolume stands in a volume whose answer does not come: it holds the
+// question until release is closed or five seconds pass (a network share that
+// stops answering holds the real handle open for the SMB timeout), then says
+// it carries named streams. returned closes once the stub has handed its late
+// answer back.
+type blockedVolume struct {
+	release  chan struct{}
+	returned chan struct{}
+	once     sync.Once
+}
+
+func newBlockedVolume(t *testing.T) *blockedVolume {
+	b := &blockedVolume{release: make(chan struct{}), returned: make(chan struct{})}
+	t.Cleanup(b.let)
+	return b
+}
+
+func (b *blockedVolume) let() { b.once.Do(func() { close(b.release) }) }
+
+func (b *blockedVolume) ask(string) (bool, error) {
+	defer close(b.returned)
+	select {
+	case <-b.release:
+	case <-time.After(5 * time.Second):
+	}
+	return true, nil
+}
+
+// askingGoroutines counts goroutines still inside volumeLacksMark's own ask.
+func askingGoroutines() int {
+	buf := make([]byte, 1<<20)
+	buf = buf[:runtime.Stack(buf, true)]
+	n := 0
+	for _, g := range strings.Split(string(buf), "\n\n") {
+		if strings.Contains(g, "volumeLacksMark.func") {
+			n++
+		}
+	}
+	return n
+}
+
+// TestRunRequestDropDoesNotWaitOnASlowVolume (RC-1): the volume question for
+// the Done view's not-scanned line is asked after the last file committed, and
+// on a share that stops answering the handle open can hold for the SMB timeout.
+// The lane still reaches done within the bound, with the line kept (the volume
+// counts as unable to be asked), and the late answer changes nothing.
+func TestRunRequestDropDoesNotWaitOnASlowVolume(t *testing.T) {
+	vol := newBlockedVolume(t)
+	setVar(t, &requestVolumeStreamsFn, vol.ask)
+	a, _, f, room, _ := dropApp(t, nil)
+	paths := writeFiles(t, t.TempDir(), map[string][]byte{"a.txt": randomBytes(t, 1<<10)})
+	v := joinVisitor(t, f, room)
+	v.connect(t)
+	sent := make(chan error, 1)
+	go func() { sent <- v.sendFiles(paths, transfer.SendOptions{AckTimeout: time.Minute}) }()
+	acceptNext(t, a)
+	select {
+	case err := <-sent:
+		if err != nil {
+			t.Fatalf("the visitor's send: %v", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the send did not finish")
+	}
+	v.leave()
+	// The stub holds for 5 s; the bound is shorter, so done must arrive first.
+	s := waitState(t, a, 4*time.Second, "done")
+	select {
+	case <-vol.returned:
+		t.Fatal("the stub answered before done: it never blocked, so the test proves nothing")
+	default:
+	}
+	if s.Result == nil || !s.Result.NoNamedStreams {
+		t.Fatalf("result %+v, want NoNamedStreams true: a volume that could not be asked keeps the line", s.Result)
+	}
+	vol.let()
+	select {
+	case <-vol.returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stub never returned after release")
+	}
+	waitFor(t, 5*time.Second, "the late answer to be dropped", func() bool { return askingGoroutines() == 0 })
+	if got := stateOf(a); got.State != "done" || got.Result == nil || !got.Result.NoNamedStreams {
+		t.Fatalf("after the late answer: state %q result %+v, want done with NoNamedStreams still true", got.State, got.Result)
+	}
+}
+
+// TestVolumeLacksMarkBoundsTheQuestion (RC-1): a question that outlasts the
+// bound counts as unable (the line stays), the call returns at the bound and not
+// at the answer, and the goroutine that was asking ends on its own once the
+// answer comes, instead of leaking on a send nobody receives.
+func TestVolumeLacksMarkBoundsTheQuestion(t *testing.T) {
+	setVar(t, &requestVolumeStreamsBound, 100*time.Millisecond)
+	vol := newBlockedVolume(t)
+	setVar(t, &requestVolumeStreamsFn, vol.ask)
+	start := time.Now()
+	if !volumeLacksMark(`D:\x`) {
+		t.Fatal("a question that timed out: volumeLacksMark = false, want true (unable counts as no mark)")
+	}
+	if took := time.Since(start); took > 3*time.Second {
+		t.Fatalf("volumeLacksMark took %v, want about the 100 ms bound, not the stub's 5 s", took)
+	}
+	if askingGoroutines() == 0 {
+		t.Fatal("no goroutine is asking: the stack scan cannot see the question, so the leak check below proves nothing")
+	}
+	vol.let()
+	waitFor(t, 5*time.Second, "the asking goroutine to end after the late answer", func() bool { return askingGoroutines() == 0 })
+
+	// An answer inside the bound still counts, in both directions.
+	setVar(t, &requestVolumeStreamsBound, 5*time.Second)
+	setVar(t, &requestVolumeStreamsFn, func(string) (bool, error) { return true, nil })
+	if volumeLacksMark(`D:\x`) {
+		t.Error("a volume that answers yes in time: volumeLacksMark = true, want false")
+	}
+	setVar(t, &requestVolumeStreamsFn, func(string) (bool, error) { return false, nil })
+	if !volumeLacksMark(`D:\x`) {
+		t.Error("a volume that answers no in time: volumeLacksMark = false, want true")
+	}
+}
+
 // TestDropFolderNameFitsNameMax (review 1b N2): the drop folder's name, with
 // its time stamp and a " (99)", stays within the 255-byte component limit of
 // ext4 and APFS, whatever the label; the 64-rune label cap alone is 256 bytes
