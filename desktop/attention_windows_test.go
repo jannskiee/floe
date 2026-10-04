@@ -75,6 +75,26 @@ func TestLastInputInfoSizeIs8(t *testing.T) {
 	}
 }
 
+// TestLastInputTickSetsCbSize: the size test above pins the layout, this one
+// that the call is handed a struct that already says so. GetLastInputInfo
+// fails when cbSize is not 8, and floeInFront reads a failure as "not in
+// front", so a toast would fire in front of an owner who is looking at Floe.
+func TestLastInputTickSetsCbSize(t *testing.T) {
+	var seen uint32
+	prev := getLastInputInfo
+	t.Cleanup(func() { getLastInputInfo = prev })
+	getLastInputInfo = func(li *lastInputInfo) bool {
+		seen, li.dwTime = li.cbSize, 1234
+		return true
+	}
+	if tick, ok := lastInputTick(); !ok || tick != 1234 {
+		t.Errorf("lastInputTick() = %d, %v, want 1234, true", tick, ok)
+	}
+	if seen != 8 {
+		t.Errorf("GetLastInputInfo was called with cbSize %d, want 8", seen)
+	}
+}
+
 // TestIdleSinceSurvivesTheTickWrap: both clocks are 32-bit milliseconds that
 // wrap every 49.7 days, so the difference must be taken in uint32.
 func TestIdleSinceSurvivesTheTickWrap(t *testing.T) {

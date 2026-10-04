@@ -123,6 +123,22 @@ func idleSince(tick, last uint32) time.Duration {
 	return time.Duration(tick-last) * time.Millisecond
 }
 
+// getLastInputInfo is the GetLastInputInfo call, a seam so a test can see the
+// struct as Windows is handed it.
+var getLastInputInfo = func(li *lastInputInfo) bool {
+	ok, _, _ := procGetLastInputInfo.Call(uintptr(unsafe.Pointer(li)))
+	return ok != 0
+}
+
+// lastInputTick is the tick count of the last input, and false when Windows
+// refuses (it does when cbSize is not the struct's size).
+func lastInputTick() (uint32, bool) {
+	li := lastInputInfo{}
+	li.cbSize = uint32(unsafe.Sizeof(li))
+	ok := getLastInputInfo(&li)
+	return li.dwTime, ok
+}
+
 // floeInFront reports whether Floe is the foreground window of a PC in use.
 // Wails v2 has no focus query, so this asks Windows. Any call that fails reads
 // as "not in front": a toast too many is better than one swallowed.
@@ -133,11 +149,10 @@ func floeInFront() bool {
 	}
 	var pid uint32
 	procGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
-	li := lastInputInfo{}
-	li.cbSize = uint32(unsafe.Sizeof(li))
-	if ok, _, _ := procGetLastInputInfo.Call(uintptr(unsafe.Pointer(&li))); ok == 0 {
+	last, ok := lastInputTick()
+	if !ok {
 		return false
 	}
 	tick, _, _ := procGetTickCount.Call()
-	return inFront(pid, uint32(os.Getpid()), idleSince(uint32(tick), li.dwTime))
+	return inFront(pid, uint32(os.Getpid()), idleSince(uint32(tick), last))
 }
