@@ -438,6 +438,9 @@ function Receiving({snap, progress, accepted, onCancelDrop}: RequestLinkViewProp
     // Speed and time left, averaged since this drop's first progress event
     // (the track() rule in progress.ts), keyed on the lane generation.
     const start = useRef<{gen: number; t: number; bytes: number} | null>(null);
+    // P11 latches for the drop once shown (the same key): the averaged time left
+    // wobbles around 5 min, and a line that blinks is worse than one that stays.
+    const laptopGen = useRef<number | null>(null);
     const now = Date.now();
     const done = progress ? (progress.grandTotal > 0 ? progress.totalBytes : progress.fileBytes) : 0;
     const total = progress ? (progress.grandTotal > 0 ? progress.grandTotal : progress.fileSize) : 0;
@@ -454,6 +457,8 @@ function Receiving({snap, progress, accepted, onCancelDrop}: RequestLinkViewProp
     const folder = snap.prompt?.folder || accepted?.folder || '';
     const speedText = fmtSpeed(speed);
     const etaText = fmtEta(eta);
+    if (showLaptopLine(snap, eta, dt)) laptopGen.current = snap.gen;
+    const laptopLine = snap.battery && laptopGen.current === snap.gen;
     return (
         <div className="space-y-4">
             <div className="space-y-2">
@@ -481,7 +486,7 @@ function Receiving({snap, progress, accepted, onCancelDrop}: RequestLinkViewProp
             </div>
             {etaLines(snap, eta, dt).map((l) => <p key={l} className={warnClass}>{l}</p>)}
             {/* P11 is advice, not a fact about this drop, so it is not amber. */}
-            {showLaptopLine(snap, eta, dt) && <p className={t2Class}>{copy.LAPTOP_LINE}</p>}
+            {laptopLine && <p className={t2Class}>{copy.LAPTOP_LINE}</p>}
             <div className="flex justify-end">
                 <Button variant="outline" onClick={onCancelDrop}><X/> {copy.CANCEL_DROP}</Button>
             </div>

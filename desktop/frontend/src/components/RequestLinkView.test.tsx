@@ -821,6 +821,34 @@ describe('the Receiving laptop line (P11, E-94)', () => {
         expect(screen.queryByText(LINE)).toBeNull();
     });
 
+    it('stays once shown for the drop while the averaged time left wobbles under 5 min, and a new drop starts without it (RC-6)', () => {
+        const first = (total: number): Prog => ({fileName: 'a.mov', fileIndex: 1, fileCount: 1, fileBytes: 0, fileSize: total, totalBytes: 0, grandTotal: total, savedName: 'a.mov'});
+        const total = 361 * MB;
+        const s = snap({state: 'receiving', route: 'direct', battery: true});
+        const view = render(<RequestLinkView {...props({phase: 'receiving', snap: s, progress: first(total)})}/>);
+        act(() => { vi.advanceTimersByTime(60_000); });
+        view.rerender(<RequestLinkView {...props({phase: 'receiving', snap: s, progress: {...first(total), totalBytes: 60 * MB}})}/>);
+        expect(screen.getByText(LINE)).toBeTruthy();
+        // A second later 62 MB are in: the average speed is 1.016 MB/s and the
+        // time left reads 294 s, under 5 min. The line stays.
+        act(() => { vi.advanceTimersByTime(1000); });
+        view.rerender(<RequestLinkView {...props({phase: 'receiving', snap: s, progress: {...first(total), totalBytes: 62 * MB}})}/>);
+        expect(screen.getByText(LINE)).toBeTruthy();
+        // Back over 5 min, still there.
+        act(() => { vi.advanceTimersByTime(1000); });
+        view.rerender(<RequestLinkView {...props({phase: 'receiving', snap: s, progress: {...first(total), totalBytes: 62 * MB}})}/>);
+        expect(screen.getByText(LINE)).toBeTruthy();
+
+        // The next drop (a new lane generation) starts unlatched: 60 MB in
+        // 60 s of a 360 MB drop is exactly 5 min left, which shows nothing.
+        const next = {...s, gen: s.gen + 1};
+        view.rerender(<RequestLinkView {...props({phase: 'receiving', snap: next, progress: first(360 * MB)})}/>);
+        expect(screen.queryByText(LINE)).toBeNull();
+        act(() => { vi.advanceTimersByTime(60_000); });
+        view.rerender(<RequestLinkView {...props({phase: 'receiving', snap: next, progress: {...first(360 * MB), totalBytes: 60 * MB}})}/>);
+        expect(screen.queryByText(LINE)).toBeNull();
+    });
+
     it('is never on the prompt, the form, Waiting or Done', () => {
         for (const phase of ['ready', 'waiting', 'deciding', 'done'] as const) {
             const withBattery = {...BY_PHASE[phase], battery: true};
