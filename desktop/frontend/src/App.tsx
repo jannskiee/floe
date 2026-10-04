@@ -2501,11 +2501,13 @@ function App() {
                                                     circle-check only when every file arrived
                                                     intact, read as the D-101 words and never
                                                     drawn as a digest value; a quiet check
-                                                    otherwise. */}
-                                                {sendVerified
-                                                    ? <VerifiedMark className="size-4"/>
-                                                    : <Check className="size-4 shrink-0 text-zinc-500"/>}
+                                                    otherwise. The mark follows the text in the
+                                                    DOM so a screen reader reads the count first,
+                                                    and order-first keeps the glyph leading. */}
                                                 <span>Sent {sentCount} {sentCount === 1 ? 'item' : 'items'}</span>
+                                                {sendVerified
+                                                    ? <VerifiedMark className="order-first size-4"/>
+                                                    : <Check className="order-first size-4 shrink-0 text-zinc-500"/>}
                                             </div>
                                         )}
                                         <StatusLine text={sendStatus} busy={sending}/>
@@ -2602,10 +2604,10 @@ function App() {
                                         {recvProg && <ProgressRow prog={recvProg}/>}
                                         {recvDone && !receiving && (
                                             <div className="animate-floe-in flex items-center gap-2 text-sm text-zinc-300">
-                                                {recvVerified
-                                                    ? <VerifiedMark className="size-4"/>
-                                                    : <Check className="size-4 shrink-0 text-zinc-500"/>}
                                                 <span className="truncate">Saved to {recvDir}</span>
+                                                {recvVerified
+                                                    ? <VerifiedMark className="order-first size-4"/>
+                                                    : <Check className="order-first size-4 shrink-0 text-zinc-500"/>}
                                             </div>
                                         )}
                                         {recvDir && !receiving && (() => {

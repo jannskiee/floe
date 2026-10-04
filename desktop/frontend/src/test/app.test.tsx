@@ -272,6 +272,11 @@ describe('the verification line', () => {
         expect(glyph.getAttribute('aria-hidden')).toBe('true');
         expect(glyph.getAttribute('class')).toContain('text-green-500');
         expect(row.querySelector('svg.lucide-check')).toBeNull();
+        // Reading order (RC-4): a screen reader hears "Sent 2 items" first and
+        // the words after it, while the glyph still leads the row on screen.
+        const sentText = screen.getByText(/^Sent \d+ items?$/);
+        expect(sentText.compareDocumentPosition(sr) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(glyph.getAttribute('class')).toContain('order-first');
 
         // A short count is not a match, and a count the validator refused
         // (hasVerified false) is absent, never "all matched": the row keeps
@@ -283,6 +288,7 @@ describe('the verification line', () => {
         const quiet = screen.getByText(/^Sent \d+ items?$/).parentElement!;
         expect(quiet.querySelector('svg.lucide-circle-check')).toBeNull();
         expect(quiet.querySelector('svg.lucide-check')!.getAttribute('class')).toContain('text-zinc-500');
+        expect(quiet.querySelector('svg.lucide-check')!.getAttribute('class')).toContain('order-first');
 
         act(() => {
             wails.emit('send:delivered', {files: 2, verified: 2, hasVerified: false});
@@ -321,6 +327,11 @@ describe('the verification line', () => {
         expect(row.textContent).toContain('Saved to C:\\dl');
         expect(row.querySelector('svg.lucide-circle-check')!.getAttribute('class')).toContain('text-green-500');
         expect(row.querySelector('svg.lucide-check')).toBeNull();
+        // Reading order (RC-4): "Saved to ..." comes before the words, and the
+        // glyph still leads the row on screen.
+        const savedText = screen.getByText('Saved to C:\\dl');
+        expect(savedText.compareDocumentPosition(sr) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(row.querySelector('svg.lucide-circle-check')!.getAttribute('class')).toContain('order-first');
 
         // A second receive starts from nothing: the counters are reset in
         // receive(), so the previous transfer's verdict cannot carry over.
