@@ -137,7 +137,7 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.BETA_CHIP).toBe(bare('R2'));
         expect(c.REQUEST_TAB_NAME).toBe(approved('R3'));
         expect(c.LABEL_EYEBROW.toUpperCase()).toBe(approved('R6'));
-        expect(c.LABEL_HINT).toBe(approved('R7'));
+        expect(c.LABEL_PLACEHOLDER).toBe(approved('R7'));
         expect(c.SAVE_TO_EYEBROW.toUpperCase()).toBe(approved('R8'));
         expect(c.SAVE_TO_PLACEHOLDER).toBe(approved('R9'));
         expect(c.BROWSE).toBe(approved('R10'));

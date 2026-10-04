@@ -436,7 +436,7 @@ describe('the layout (D-136)', () => {
     });
 
     it('R15 sits above Make link while Hide my IP is off, and R17 alone while it is on', () => {
-        const R15 = 'Whoever sends sees your IP address, even if you decline, unless Hide my IP is on.';
+        const R15 = 'Senders see your IP address, even if you decline.';
         const R17 = 'Hide my IP is on, so drops are capped at 2 GB.';
         const {rerender} = render(<RequestLinkView {...at('ready')}/>);
         const line = screen.getByText(R15);
@@ -451,6 +451,20 @@ describe('the layout (D-136)', () => {
         rerender(<RequestLinkView {...at('error', {hideIP: true, errorCode: 'no-relay'})}/>);
         expect(before(screen.getByRole('button', {name: 'Make link'}), screen.getByRole('alert'))).toBe(true);
         expect(screen.getByRole('alert').textContent).toMatch(/^Hide my IP needs a TURN relay/);
+    });
+
+    it('the label field carries R7 as its placeholder, and nothing sits right of LABEL (D-161)', () => {
+        const {container} = render(<RequestLinkView {...at('ready')}/>);
+        const field = screen.getByLabelText('Label') as HTMLInputElement;
+        expect(field.placeholder).toBe('Optional. Only you see it.');
+        // The words are no longer text on the page: the eyebrow row is LABEL alone.
+        expect(screen.queryByText('Optional. Only you see it.')).toBeNull();
+        expect(container.textContent).not.toMatch(/Only you see it/);
+        // LABEL stands alone above its field, on the same edge as SAVE TO and
+        // LINK ENDS (one label edge): nothing sits beside it.
+        const eyebrow = screen.getByText('Label').parentElement!;
+        expect(eyebrow.className.split(' ')).toContain('px-0.5');
+        expect([...eyebrow.parentElement!.children].map((c) => c.tagName)).toEqual(['P', 'INPUT']);
     });
 
     it('the prompt has three text lines and the buttons: no caution line, no laptop line (S-3, D-161)', () => {

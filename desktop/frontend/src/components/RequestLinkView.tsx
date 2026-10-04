@@ -129,12 +129,10 @@ function ReadyForm({phase, errorCode, hideIP, saveDir, onSaveDirChange, onMake, 
     return (
         <div className="space-y-4">
             <div className="space-y-2">
-                <div className="flex items-baseline justify-between px-0.5">
-                    <Eyebrow><label htmlFor={LABEL_INPUT_ID}>{copy.LABEL_EYEBROW}</label></Eyebrow>
-                    <span className="text-[11px] text-zinc-500">{copy.LABEL_HINT}</span>
-                </div>
+                <Eyebrow className="px-0.5"><label htmlFor={LABEL_INPUT_ID}>{copy.LABEL_EYEBROW}</label></Eyebrow>
                 <Input
                     id={LABEL_INPUT_ID}
+                    placeholder={copy.LABEL_PLACEHOLDER}
                     value={label}
                     onChange={(e) => { setLabel(e.target.value); edited(); }}
                     disabled={making}

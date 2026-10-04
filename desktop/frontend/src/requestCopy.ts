@@ -20,7 +20,7 @@ export const REQUEST_TAB = 'Request link'; // R1, rendered in uppercase
 export const BETA_CHIP = 'Beta'; // R2, rendered in uppercase
 export const REQUEST_TAB_NAME = 'Request link, beta'; // R3 (accessible name)
 export const LABEL_EYEBROW = 'Label'; // R6, rendered in uppercase
-export const LABEL_HINT = 'Optional. Only you see it.'; // R7
+export const LABEL_PLACEHOLDER = 'Optional. Only you see it.'; // R7, the label field's placeholder (D-161)
 export const SAVE_TO_EYEBROW = 'Save to'; // R8 and W7, rendered in uppercase
 export const SAVE_TO_PLACEHOLDER = 'Downloads\\Floe requests'; // R9
 export const BROWSE = 'Browse'; // R10
@@ -28,7 +28,7 @@ export const LINK_ENDS_EYEBROW = 'Link ends'; // R11, rendered in uppercase
 export const LIFETIME_24H = 'In 24 hours'; // R12
 export const LIFETIME_7D = 'In 7 days'; // R13
 export const MAKE_LINK = 'Make link'; // R14
-export const READY_IP_LINE = 'Whoever sends sees your IP address, even if you decline, unless Hide my IP is on.'; // R15, only while Hide my IP is off
+export const READY_IP_LINE = 'Senders see your IP address, even if you decline.'; // R15, only while Hide my IP is off
 export const MAKING_LINK = 'Making the link...'; // R16
 export const READY_HIDE_IP_LINE = 'Hide my IP is on, so drops are capped at 2 GB.'; // R17
 

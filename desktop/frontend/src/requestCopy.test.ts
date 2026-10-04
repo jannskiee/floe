@@ -171,6 +171,13 @@ describe('receiving and done', () => {
         expect(renamedLine(2)).toBe('2 files were renamed to end in .floe-blocked because Windows can open that kind of file by itself.');
     });
 
+    it('the Ready form reads R7 as a placeholder and R15 in one short sentence (D-161)', () => {
+        expect(copy.LABEL_PLACEHOLDER).toBe('Optional. Only you see it.');
+        expect('LABEL_HINT' in copy).toBe(false);
+        expect(copy.READY_IP_LINE).toBe('Senders see your IP address, even if you decline.');
+        expect(copy.READY_IP_LINE).not.toMatch(/Hide my IP/);
+    });
+
     it('keeps DN5 for the one case Windows cannot warn, and the check words for screen readers (DN3, DN5)', () => {
         expect(copy.NOT_SCANNED_LINE).toBe('Floe does not scan files for malware.');
         expect(copy.VERIFIED_LINE).toBe('SHA-256 matched');
