@@ -41,6 +41,7 @@ interface Row {
     state: string;
     string: string;
     status: string;
+    note: string;
 }
 
 /** The copy rows: every table line whose first cell is a copy ID. Cells are
@@ -52,7 +53,7 @@ function parseRows(md: string): Map<string, Row> {
         if (!m) continue;
         const cells = m[2].split(' | ');
         if (cells.length !== 5) throw new Error(`unexpected row shape: ${line}`);
-        rows.set(m[1], {id: m[1], state: cells[1], string: cells[2], status: cells[3]});
+        rows.set(m[1], {id: m[1], state: cells[1], string: cells[2], status: cells[3], note: cells[4]});
     }
     return rows;
 }
@@ -108,16 +109,6 @@ const NOT_RENDERED_HERE: Record<string, string> = {
     TO1: 'a toast, a Go constant (S1-DSK-05)',
     TO2: 'a toast, a Go constant (S1-DSK-05)',
     TO3: 'a toast, a Go constant (S1-DSK-05)',
-    // The Settings > Notifications rows arrive in the draft with D-162. WP-NOTIFY
-    // builds that section and replaces these eight entries with real checks.
-    NS1: 'WP-NOTIFY: the Notifications heading',
-    NS2: 'WP-NOTIFY: the Show notifications label',
-    NS3: 'WP-NOTIFY: the Show notifications description',
-    NS4: 'WP-NOTIFY: the notifications-off description',
-    NS5: 'WP-NOTIFY: the Play sound label',
-    NS6: 'WP-NOTIFY: the Windows notification settings label',
-    NS7: 'WP-NOTIFY: the Windows notification settings description',
-    NS8: 'WP-NOTIFY: the Open button',
 };
 
 describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved desktop copy (skipped: set FLOE_APPROVED_COPY to the frozen copy table to run)', () => {
@@ -145,6 +136,19 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.READY_IP_LINE).toBe(approved('R15'));
         expect(c.MAKING_LINK).toBe(approved('R16'));
         expect(c.READY_HIDE_IP_LINE).toBe(approved('R17'));
+    });
+
+    it('Notification settings rows NS1 to NS8 match byte for byte', () => {
+        expect(settings.NOTIFICATIONS_HEADING).toBe(approved('NS1'));
+        expect(settings.SHOW_NOTIFICATIONS).toBe(approved('NS2'));
+        expect(settings.SHOW_NOTIFICATIONS_ON).toBe(approved('NS3'));
+        expect(settings.SHOW_NOTIFICATIONS_OFF).toBe(approved('NS4'));
+        expect(settings.PLAY_SOUND).toBe(approved('NS5'));
+        expect(settings.WINDOWS_NOTIFICATIONS).toBe(approved('NS6'));
+        expect(settings.WINDOWS_NOTIFICATIONS_DESCRIPTION).toBe(approved('NS7'));
+        expect(settings.OPEN_NOTIFICATION_SETTINGS).toBe(approved('NS8'));
+        // The button's accessible name is in the row's note, not a row of its own.
+        expect(rows.get('NS8')?.note).toContain(`aria-label "${settings.OPEN_NOTIFICATION_SETTINGS_LABEL}"`);
     });
 
     it('Error rows match byte for byte', () => {

@@ -558,11 +558,160 @@ describe('Settings has no Beta section (S-1)', () => {
         await user.click(screen.getByRole('button', {name: 'Settings'}));
 
         const headings = screen.getAllByRole('heading', {level: 3}).map((h) => h.textContent);
-        expect(headings).toEqual(['Transfers', 'Privacy', 'Windows', 'Advanced', 'About']);
+        expect(headings).toEqual(['Transfers', 'Notifications', 'Privacy', 'Windows', 'Advanced', 'About']);
         expect(screen.queryByRole('checkbox', {name: /^Request links/})).toBeNull();
         // Opening Settings asks no server about request links either.
         await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
         expect(wails.go.RequestLinkSupport).not.toHaveBeenCalled();
+    });
+});
+
+/**
+ * Settings > Notifications (H7 S-11, D-162): Show notifications, Play sound
+ * (dimmed while the first is off) and, on Windows, a row that opens Windows'
+ * own notification settings. Each switch is Go-owned: set optimistically, call
+ * the setter, put it back if the setter throws.
+ */
+describe('Settings > Notifications (S-11)', () => {
+    const NS3 = 'For requests and transfers, while Floe is in the background.';
+    const NS4 = 'Requests still flash Floe on the taskbar.';
+    const showSwitch = () => screen.getByRole('checkbox', {name: /^Show notifications/}) as HTMLInputElement;
+    const soundSwitch = () => screen.getByRole('checkbox', {name: 'Play sound'}) as HTMLInputElement;
+    const withToasts = (noToasts: boolean, silentToasts: boolean) => {
+        wails.go.GetSettings.mockImplementation(async () => ({
+            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false, noToasts, silentToasts, migrated: true,
+        }));
+    };
+    async function openSettings() {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getByRole('button', {name: 'Settings'}));
+        return user;
+    }
+
+    it('Notifications sits after Transfers', async () => {
+        await openSettings();
+        const headings = screen.getAllByRole('heading', {level: 3}).map((h) => h.textContent);
+        expect(headings).toEqual(['Transfers', 'Notifications', 'Privacy', 'Windows', 'Advanced', 'About']);
+        expect(showSwitch().checked).toBe(true);
+        expect(soundSwitch().checked).toBe(true);
+        expect(screen.getByText(NS3)).toBeTruthy();
+        expect(screen.queryByText(NS4)).toBeNull();
+    });
+
+    it('Show notifications off calls SetToasts(false), swaps the description and dims Play sound', async () => {
+        const user = await openSettings();
+        await user.click(showSwitch());
+
+        await waitFor(() => expect(wails.go.SetToasts).toHaveBeenCalledWith(false));
+        expect(showSwitch().checked).toBe(false);
+        expect(screen.getByText(NS4)).toBeTruthy();
+        expect(screen.queryByText(NS3)).toBeNull();
+        // Dimmed, not hidden, and the sound keeps the value it had.
+        expect(soundSwitch().disabled).toBe(true);
+        expect(soundSwitch().checked).toBe(true);
+        expect(soundSwitch().closest('label')?.getAttribute('aria-disabled')).toBe('true');
+        // Nothing else was written: the whole-record save is not this switch's.
+        expect(wails.go.SetSettings).not.toHaveBeenCalled();
+        expect(wails.go.SetToastSound).not.toHaveBeenCalled();
+    });
+
+    it('a disabled Play sound ignores clicks', async () => {
+        const user = await openSettings();
+        await user.click(showSwitch());
+        await waitFor(() => expect(showSwitch().checked).toBe(false));
+        await user.click(soundSwitch());
+        expect(wails.go.SetToastSound).not.toHaveBeenCalled();
+        expect(soundSwitch().checked).toBe(true);
+    });
+
+    it('a refused SetToasts reverts the switch', async () => {
+        wails.go.SetToasts.mockRejectedValueOnce(new Error('disk full'));
+        const user = await openSettings();
+        await user.click(showSwitch());
+
+        await waitFor(() => expect(wails.go.SetToasts).toHaveBeenCalledWith(false));
+        await waitFor(() => expect(showSwitch().checked).toBe(true));
+        expect(soundSwitch().disabled).toBe(false);
+        expect(screen.getByText(NS3)).toBeTruthy();
+    });
+
+    it('Play sound calls SetToastSound(false), and a refusal reverts it', async () => {
+        const user = await openSettings();
+        await user.click(soundSwitch());
+        await waitFor(() => expect(wails.go.SetToastSound).toHaveBeenCalledWith(false));
+        expect(soundSwitch().checked).toBe(false);
+        expect(wails.go.SetToasts).not.toHaveBeenCalled();
+
+        wails.go.SetToastSound.mockRejectedValueOnce(new Error('disk full'));
+        await user.click(soundSwitch());
+        await waitFor(() => expect(wails.go.SetToastSound).toHaveBeenCalledWith(true));
+        await waitFor(() => expect(soundSwitch().checked).toBe(false));
+    });
+
+    it('Open passes ms-settings:notifications to BrowserOpenURL', async () => {
+        const user = await openSettings();
+        expect(screen.getByText('Windows notification settings')).toBeTruthy();
+        expect(screen.getByText('Banners, Notification Center and lock screen.')).toBeTruthy();
+        const open = (window as unknown as {runtime: {BrowserOpenURL: ReturnType<typeof vi.fn>}}).runtime.BrowserOpenURL;
+        const button = screen.getByRole('button', {name: 'Open Windows notification settings'});
+        expect(button.textContent).toBe('Open');
+        await user.click(button);
+        expect(open).toHaveBeenCalledTimes(1);
+        expect(open).toHaveBeenCalledWith('ms-settings:notifications');
+    });
+
+    it('noToasts and silentToasts load into the switches', async () => {
+        withToasts(true, true);
+        await openSettings();
+        await waitFor(() => expect(showSwitch().checked).toBe(false));
+        expect(soundSwitch().checked).toBe(false);
+        expect(soundSwitch().disabled).toBe(true);
+        expect(screen.getByText(NS4)).toBeTruthy();
+    });
+
+    it('a silent-only config loads as notifications on and sound off', async () => {
+        withToasts(false, true);
+        await openSettings();
+        await waitFor(() => expect(soundSwitch().checked).toBe(false));
+        expect(showSwitch().checked).toBe(true);
+        expect(soundSwitch().disabled).toBe(false);
+    });
+
+    it('Reset turns notifications and sound back on and the dialog names notifications', async () => {
+        withToasts(true, true);
+        const user = await openSettings();
+        await waitFor(() => expect(showSwitch().checked).toBe(false));
+
+        await user.click(screen.getByRole('button', {name: 'Reset'}));
+        const dialog = await screen.findByRole('dialog');
+        expect(within(dialog).getByText('Your save folder, notifications, the privacy switches and the server addresses go back to the way Floe shipped.')).toBeTruthy();
+        await user.click(within(dialog).getByRole('button', {name: 'Reset all settings'}));
+
+        await waitFor(() => expect(wails.go.SetToasts).toHaveBeenCalledWith(true));
+        expect(wails.go.SetToastSound).toHaveBeenCalledWith(true);
+        await waitFor(() => expect(showSwitch().checked).toBe(true));
+        expect(soundSwitch().checked).toBe(true);
+        expect(soundSwitch().disabled).toBe(false);
+    });
+
+    it('a reset that fails part way re-pulls the notification switches', async () => {
+        withToasts(true, true);
+        const user = await openSettings();
+        await waitFor(() => expect(showSwitch().checked).toBe(false));
+
+        // SetToasts(true) lands and SetToastSound(true) is refused: the screen
+        // must show what is on disk (notifications on, sound still off).
+        wails.go.SetToastSound.mockRejectedValueOnce(new Error('disk full'));
+        withToasts(false, true);
+        await user.click(screen.getByRole('button', {name: 'Reset'}));
+        await user.click(within(await screen.findByRole('dialog')).getByRole('button', {name: 'Reset all settings'}));
+
+        await waitFor(() => expect(wails.go.SetToastSound).toHaveBeenCalledWith(true));
+        await user.click(within(screen.getByRole('dialog')).getByRole('button', {name: 'Cancel'}));
+        await waitFor(() => expect(showSwitch().checked).toBe(true));
+        expect(soundSwitch().checked).toBe(false);
     });
 });
 
@@ -1276,8 +1425,11 @@ describe('reset leaves request links alone (S-17)', () => {
 
             await waitFor(() => expect(wails.go.SetSettings).toHaveBeenCalledWith('', '', false, true), {timeout: 2000});
             expect(wails.go.SetCheckUpdates).toHaveBeenCalledWith(true);
+            expect(wails.go.SetToasts).toHaveBeenCalledWith(true);
+            expect(wails.go.SetToastSound).toHaveBeenCalledWith(true);
+            const settingsSetters = ['SetSettings', 'SetCheckUpdates', 'SetToasts', 'SetToastSound'];
             for (const [name, fn] of Object.entries(wails.go)) {
-                if (name.startsWith('Set') && name !== 'SetSettings' && name !== 'SetCheckUpdates') expect(fn, `live ${live}: ${name}`).not.toHaveBeenCalled();
+                if (name.startsWith('Set') && !settingsSetters.includes(name)) expect(fn, `live ${live}: ${name}`).not.toHaveBeenCalled();
             }
             expect(wails.go.CloseRequestLink).not.toHaveBeenCalled();
             expect(wails.listeners.has('request:state')).toBe(true);

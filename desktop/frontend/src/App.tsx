@@ -26,6 +26,8 @@ import {
     SelectFolder,
     SetCheckUpdates,
     SetSettings,
+    SetToastSound,
+    SetToasts,
     StartSend,
     StartSendText,
     TestServer,
@@ -44,7 +46,21 @@ import {
     X,
 } from 'lucide-react';
 import {BoltMark, Button, cn, Eyebrow, Input, rowDescClass, rowLabelClass, StatusDot} from './components/ui';
-import {advancedSummary, hostOf, webPlaceholder} from './settings';
+import {
+    NOTIFICATION_SETTINGS_URI,
+    NOTIFICATIONS_HEADING,
+    OPEN_NOTIFICATION_SETTINGS,
+    OPEN_NOTIFICATION_SETTINGS_LABEL,
+    PLAY_SOUND,
+    SHOW_NOTIFICATIONS,
+    SHOW_NOTIFICATIONS_OFF,
+    SHOW_NOTIFICATIONS_ON,
+    WINDOWS_NOTIFICATIONS,
+    WINDOWS_NOTIFICATIONS_DESCRIPTION,
+    advancedSummary,
+    hostOf,
+    webPlaceholder,
+} from './settings';
 import {UNDO_WINDOW_MS, clearLabel, clearedAnnouncement, clearedLabel, restorable, restoredAnnouncement, stagedSnapshot, supersededBy, undoLabel, type Cleared} from './clear';
 import {resetWarning} from './reset';
 import {friendlyError} from './errors';
@@ -85,7 +101,7 @@ import {DOWNLOAD_URL, bareVersion, isNewerDesktopVersion} from './update';
 import TitleBar from './components/TitleBar';
 import {Tooltip} from './components/Tooltip';
 import {NoticeStack, RequestNotice, UNDO_ANCHOR_ID, UpdateNotice, UndoToast} from './components/Toasts';
-import {SettingRow, SettingField} from './components/SettingsPrimitives';
+import {SettingAction, SettingRow, SettingField} from './components/SettingsPrimitives';
 import {ProgressRow, StatusLine, FooterNote, Dropzone, FileList, FileSummary} from './components/TransferBits';
 import SharePanel from './components/SharePanel';
 import HistoryView from './components/HistoryView';
@@ -324,6 +340,11 @@ function App() {
     const [updateVer, setUpdateVer] = useState('');
     const [updateDismissed, setUpdateDismissed] = useState(false);
     const [checkUpdates, setCheckUpdates] = useState(true);
+    // Settings > Notifications. Go-owned like checkUpdates, and the zero value
+    // of both Go fields is today's behavior, so both default to on. Sound keeps
+    // its value while notifications are off: the row is dimmed, not cleared.
+    const [notificationsOn, setNotificationsOn] = useState(true);
+    const [notificationSound, setNotificationSound] = useState(true);
 
     // The Request link lane as this window sees it (requestLink.ts). Go is
     // authoritative; the reducer adopts its snapshots and keeps only what Go
@@ -380,6 +401,26 @@ function App() {
             await SetCheckUpdates(v);
         } catch {
             setCheckUpdates(!v); // revert on failure, the toggleCtxMenu pattern
+        }
+    }
+
+    // The same pattern for the two notification switches: each has its own Go
+    // setter, so the whole-record save below can never clobber them.
+    async function toggleNotifications(v: boolean) {
+        setNotificationsOn(v);
+        try {
+            await SetToasts(v);
+        } catch {
+            setNotificationsOn(!v);
+        }
+    }
+
+    async function toggleNotificationSound(v: boolean) {
+        setNotificationSound(v);
+        try {
+            await SetToastSound(v);
+        } catch {
+            setNotificationSound(!v);
         }
     }
 
@@ -500,8 +541,10 @@ function App() {
         try {
             await SetSettings('', '', false, true);
             await SetCheckUpdates(true);
+            await SetToasts(true);
+            await SetToastSound(true);
         } catch (e) {
-            // Two persists means a partial failure is possible: re-pull what
+            // Four persists means a partial failure is possible: re-pull what
             // actually landed on disk so the screen never diverges from it.
             try {
                 const c = await GetSettings();
@@ -510,6 +553,8 @@ function App() {
                 setHideIP(c.hideIP);
                 setReportStats(c.reportStats);
                 setCheckUpdates(!c.noUpdateCheck);
+                setNotificationsOn(!c.noToasts);
+                setNotificationSound(!c.silentToasts);
                 serverAddrRef.current = c.server || '';
                 webAddrRef.current = c.web || '';
             } catch { /* unreadable config: leave the screen as is */ }
@@ -521,6 +566,8 @@ function App() {
         setHideIP(false);
         setReportStats(true);
         setCheckUpdates(true);
+        setNotificationsOn(true);
+        setNotificationSound(true);
         setOutput('');
         setTestStatus('');
         serverAddrRef.current = '';
@@ -792,6 +839,8 @@ function App() {
                 // Not part of the migration below: the field never lived in
                 // localStorage, and its zero value is the shipped default.
                 setCheckUpdates(!c.noUpdateCheck);
+                setNotificationsOn(!c.noToasts);
+                setNotificationSound(!c.silentToasts);
                 if (c.migrated) {
                     setHideIP(c.hideIP);
                     setReportStats(c.reportStats);
@@ -1900,6 +1949,45 @@ function App() {
                                 </section>
 
                                 <section className="space-y-2">
+                                    <Eyebrow as="h3">{NOTIFICATIONS_HEADING}</Eyebrow>
+                                    {/* Two switches and, on Windows, the way to Windows' own settings.
+                                        Windows alone decides where a banner appears, so nothing here
+                                        pretends to a position or a duration. The taskbar flash, the
+                                        window title and the in-app notice are not switches: they are
+                                        what a request still does with notifications off. */}
+                                    <div className={cn(cardClass, insetHairline)}>
+                                        <SettingRow
+                                            checked={notificationsOn}
+                                            onChange={(v) => void toggleNotifications(v)}
+                                            label={SHOW_NOTIFICATIONS}
+                                            description={notificationsOn ? SHOW_NOTIFICATIONS_ON : SHOW_NOTIFICATIONS_OFF}
+                                        />
+                                        <SettingRow
+                                            checked={notificationSound}
+                                            onChange={(v) => void toggleNotificationSound(v)}
+                                            label={PLAY_SOUND}
+                                            disabled={!notificationsOn}
+                                        />
+                                        {isWindows && (
+                                            <SettingAction
+                                                label={WINDOWS_NOTIFICATIONS}
+                                                description={WINDOWS_NOTIFICATIONS_DESCRIPTION}
+                                                action={
+                                                    <Button
+                                                        variant="outline"
+                                                        className="h-7 shrink-0 text-xs"
+                                                        aria-label={OPEN_NOTIFICATION_SETTINGS_LABEL}
+                                                        onClick={() => BrowserOpenURL(NOTIFICATION_SETTINGS_URI)}
+                                                    >
+                                                        {OPEN_NOTIFICATION_SETTINGS}
+                                                    </Button>
+                                                }
+                                            />
+                                        )}
+                                    </div>
+                                </section>
+
+                                <section className="space-y-2">
                                     <Eyebrow as="h3">Privacy</Eyebrow>
                                     {/* Both rows state the benefit first, then the cost, because a
                                         toggle described only by its cost reads as a trap. The
@@ -2570,7 +2658,7 @@ function App() {
                     >
                         <h2 id="floe-reset-title" className="text-sm font-semibold text-white">Reset all settings?</h2>
                         <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">
-                            Your save folder, the privacy switches and the server addresses go back to the way Floe shipped.
+                            Your save folder, notifications, the privacy switches and the server addresses go back to the way Floe shipped.
                         </p>
                         {/* Names what the user will actually notice. The path is the
                             thing they cannot retype from memory, so it is shown in

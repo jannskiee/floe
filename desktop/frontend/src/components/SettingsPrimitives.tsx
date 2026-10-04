@@ -71,6 +71,26 @@ export function SettingRow({checked, onChange, label, description, disabled}: {
     );
 }
 
+/** SettingAction is a settings entry whose control is a button, not a switch:
+ *  the same padding and label treatment as SettingRow, with the button trailing.
+ *  No hover fill and no click target of its own: the button is the control, and
+ *  a fill over the whole row would promise a click that does nothing. */
+export function SettingAction({label, description, action}: {
+    label: string;
+    description?: string;
+    action: ReactNode;
+}) {
+    return (
+        <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
+            <span className="min-w-0">
+                <span className={rowLabelClass}>{label}</span>
+                {description && <span className={rowDescClass}>{description}</span>}
+            </span>
+            {action}
+        </div>
+    );
+}
+
 /** SettingField is the text-input counterpart to SettingRow: the same label and
  *  description treatment, but the control sits underneath, because a settings row
  *  is too narrow to hold a description and a usable text field side by side.
