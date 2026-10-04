@@ -398,6 +398,14 @@ describe('the request lane selectors', () => {
         }
     });
 
+    it('normalizeSnapshot reads the volume fact of a result as a boolean and nothing else as true', () => {
+        const result = (v: unknown) => normalizeSnapshot({state: 'done', result: {files: 1, saved: 1, noNamedStreams: v}}).result;
+        expect(result(true)?.noNamedStreams).toBe(true);
+        for (const junk of [undefined, null, 0, 1, 'true', {}, []]) {
+            expect(result(junk)?.noNamedStreams, String(junk)).toBe(false);
+        }
+    });
+
     it('normalizeSnapshot turns junk from the bridge into a renderable off snapshot', () => {
         expect(normalizeSnapshot(null)).toEqual(OFF_SNAPSHOT);
         expect(normalizeSnapshot({state: 'pwned', gen: 'x', prompt: {warnings: [1, 'low-space']}, result: {names: ['a', 2]}})).toMatchObject({

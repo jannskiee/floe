@@ -203,13 +203,15 @@ export function doneHeading(files: number, bytes: number): string {
     return `RECEIVED ${filesCount(files).toUpperCase()}, ${fmtBytes(bytes).toUpperCase()}`;
 }
 export const DISMISS = 'Dismiss'; // DN2
-export const VERIFIED_LINE = 'SHA-256 matched'; // DN3, the D-101 words
+/** DN3, the D-101 words. Never drawn: a green check says it, and screen readers read these. */
+export const VERIFIED_LINE = 'SHA-256 matched';
 export function renamedLine(n: number): string {
     return n === 1
         ? '1 file was renamed to end in .floe-blocked because Windows can open it by itself.' // DN4
         : `${n} files were renamed to end in .floe-blocked because Windows can open that kind of file by itself.`; // DN4p
 }
-export const NOT_SCANNED_LINE = 'Floe does not scan files for malware.'; // DN5
+/** DN5, drawn only when the save volume cannot carry the downloaded-file mark (S-7). */
+export const NOT_SCANNED_LINE = 'Floe does not scan files for malware.';
 export const SHOW_IN_FOLDER = 'Show in folder'; // DN6, DN9
 // DN8, drawn as a title and a question (DO-03, DH-03).
 export const RENAMED_CONFIRM_TITLE = 'This drop contains renamed files.';
@@ -222,7 +224,7 @@ export function folderName(path: string): string {
     return parts.length ? parts[parts.length - 1] : path;
 }
 
-/** verifiedAll: the DN3 line shows only when every file's SHA-256 matched. */
+/** verifiedAll: the DN3 check shows only when every file's SHA-256 matched. */
 export function verifiedAll(r: {files: number; saved: number; verified: number}): boolean {
     return r.files > 0 && r.saved === r.files && r.verified === r.files;
 }

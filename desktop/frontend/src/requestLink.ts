@@ -87,6 +87,11 @@ export interface RequestResult {
     bytes: number;
     verified: number;
     renamed: number;
+    /** The save volume cannot carry the Windows downloaded-file mark, or could
+     *  not be asked: Go's own fact, which brings DN5 back (S-7). Go always sends
+     *  it and normalizeSnapshot always sets it; optional only so the fixtures
+     *  that build a result by hand need not all name it. */
+    noNamedStreams?: boolean;
     folder: string;
     names: string[];
 }
@@ -246,6 +251,7 @@ export function normalizeSnapshot(raw: unknown): RequestLinkSnapshot {
             bytes: num(res.bytes),
             verified: num(res.verified),
             renamed: num(res.renamed),
+            noNamedStreams: res.noNamedStreams === true,
             folder: str(res.folder),
             names: Array.isArray(res.names) ? res.names.filter((n): n is string => typeof n === 'string') : [],
         };

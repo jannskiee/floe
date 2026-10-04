@@ -9,6 +9,7 @@ import userEvent from '@testing-library/user-event';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import RequestLinkView, {PROMPT_ACTIONS_ID, type RequestLinkViewProps} from './RequestLinkView';
 import {OFF_SNAPSHOT, type Phase, type RequestLinkSnapshot} from '../requestLink';
+import {VERIFIED_LINE} from '../requestCopy';
 import type {Prog} from '../progress';
 
 const HOSTILE = ['<img src=x onerror=alert(1)>', '$(calc)', ']]><', '\u202Eevil.exe'];
@@ -27,7 +28,7 @@ const snap = (over: Partial<RequestLinkSnapshot>): RequestLinkSnapshot => ({
 });
 
 const prompt = {files: 12, totalBytes: 38 * GB, folder: 'Floe requests\\Acme footage 2026-09-14 1405', freeBytes: 500 * GB, warnings: [], answerBy: T0 + 9 * 60000};
-const result = {files: 12, saved: 12, bytes: 38 * GB, verified: 12, renamed: 0, folder: 'D:\\Footage\\Floe requests\\Acme footage 2026-09-14 1405', names: ['a.mov']};
+const result = {files: 12, saved: 12, bytes: 38 * GB, verified: 12, renamed: 0, noNamedStreams: false, folder: 'D:\\Footage\\Floe requests\\Acme footage 2026-09-14 1405', names: ['a.mov']};
 
 const progress = (fileName: string): Prog => ({
     fileName, fileIndex: 4, fileCount: 12, fileBytes: 10, fileSize: 100, totalBytes: 1.2 * GB, grandTotal: 2.5 * GB, savedName: fileName,
@@ -326,9 +327,10 @@ describe('the result card', () => {
         }
     });
 
-    it('shows the SHA-256 line only when every file verified', () => {
+    it('marks a drop verified only when every file verified', () => {
         const {rerender} = render(<RequestLinkView {...at('done')}/>);
-        expect(screen.getByText('SHA-256 matched')).toBeTruthy();
+        // The words are for screen readers now; nothing visible says them.
+        expect(screen.getByText('SHA-256 matched').className).toContain('sr-only');
         rerender(<RequestLinkView {...at('done')} snap={snap({state: 'done', result: {...result, verified: 11}})}/>);
         expect(screen.queryByText(/SHA-256/)).toBeNull();
         // No hash value or digest-shaped text anywhere.
@@ -568,13 +570,72 @@ describe('the layout (D-136)', () => {
         expect(screen.getByText(prompt.folder)).toBeTruthy();
     });
 
-    it('Done: a plain SHA-256 line, DN5 at AA, and a folder name that keeps its end', () => {
+    it('Done: a circle-check glyph read as SHA-256 matched, only when every file verified (DN3, D-161)', () => {
+        const {container, rerender} = render(<RequestLinkView {...at('done')}/>);
+        const mark = () => container.querySelector('svg.lucide-circle-check');
+        const glyph = mark()!;
+        expect(glyph).not.toBeNull();
+        expect(glyph.getAttribute('aria-hidden')).toBe('true');
+        expect(glyph.getAttribute('class')!.split(' ')).toEqual(expect.arrayContaining(['size-3.5', 'shrink-0', 'text-green-500']));
+        // Read aloud and never drawn: the D-101 words, right after the glyph.
+        const sr = screen.getByText('SHA-256 matched');
+        expect(sr.className).toBe('sr-only');
+        expect(sr.textContent).toBe(VERIFIED_LINE);
+        expect(glyph.nextElementSibling).toBe(sr);
+        // No tooltip, and never a shield, lock, badge or seal (the never-claim list).
+        expect(container.querySelector('[title="SHA-256 matched"], [aria-label*="SHA-256"], svg title')).toBeNull();
+        expect(container.querySelector('svg.lucide-shield-check, svg.lucide-shield, svg.lucide-lock, svg.lucide-badge-check, svg.lucide-shield-alert')).toBeNull();
+        // One file short of verified: nothing is drawn and nothing is said (DN11).
+        rerender(<RequestLinkView {...at('done')} snap={snap({state: 'done', result: {...result, verified: 11}})}/>);
+        expect(mark()).toBeNull();
+        expect(screen.queryByText(/SHA-256/)).toBeNull();
+        // The Stopped card shares the component and is untouched: no mark, even when the counts match.
+        rerender(<RequestLinkView {...at('stopped')} snap={snap({state: 'stopped', code: 'disk-full', result})}/>);
+        expect(mark()).toBeNull();
+        expect(screen.queryByText(/SHA-256/)).toBeNull();
+    });
+
+    it('Done: the glyph follows the heading text, so the heading keeps its left edge', () => {
+        const {container} = render(<RequestLinkView {...at('done')}/>);
+        const heading = screen.getByText(/^RECEIVED /);
+        const glyph = container.querySelector('svg.lucide-circle-check')!;
+        expect(glyph).not.toBeNull();
+        expect(glyph.parentElement).toBe(heading.parentElement);
+        expect(heading.parentElement!.firstElementChild).toBe(heading);
+        expect(heading.compareDocumentPosition(glyph) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        // Dismiss still ends the row, on the right rail.
+        expect(screen.getByRole('button', {name: 'Dismiss'}).previousElementSibling).toBe(heading.parentElement);
+    });
+
+    it('Done: no malware line on a normal save, and no empty body group between the heading and the folder (DN5, S-7)', () => {
+        render(<RequestLinkView {...at('done')}/>);
+        expect(screen.queryByText(/scan files/)).toBeNull();
+        // Heading row, folder row, Make another link: nothing else.
+        expect(screen.getByText(/^RECEIVED /).closest('.space-y-4')!.children).toHaveLength(3);
+    });
+
+    it('Done: the malware line returns when the drive has no named streams, with the renamed line above it (DN5, S-7)', () => {
+        const noMark = {...result, noNamedStreams: true};
+        const {rerender} = render(<RequestLinkView {...at('done')} snap={snap({state: 'done', result: noMark})}/>);
+        const line = screen.getByText('Floe does not scan files for malware.');
+        expect(line.className).toContain('text-zinc-400');
+        // It is independent of the check: a verified drop on such a drive shows both.
+        expect(document.querySelector('svg.lucide-circle-check')).not.toBeNull();
+        rerender(<RequestLinkView {...at('done')} snap={snap({state: 'done', result: {...noMark, renamed: 2}})}/>);
+        const renamed = screen.getByText(/^2 files were renamed/);
+        expect(renamed.parentElement).toBe(screen.getByText('Floe does not scan files for malware.').parentElement);
+        expect(before(renamed, screen.getByText('Floe does not scan files for malware.'))).toBe(true);
+        // A renamed file alone does not bring it back on a normal drive.
+        rerender(<RequestLinkView {...at('done')} snap={snap({state: 'done', result: {...result, renamed: 2}})}/>);
+        expect(screen.queryByText(/scan files/)).toBeNull();
+        // The Stopped card never carried it.
+        rerender(<RequestLinkView {...at('stopped')} snap={snap({state: 'stopped', code: 'disk-full', result: noMark})}/>);
+        expect(screen.queryByText(/scan files/)).toBeNull();
+    });
+
+    it('Done: a folder name that keeps its end', () => {
         const long = `D:\\Footage\\Floe requests\\${'A'.repeat(64)} 2026-09-14 1405`;
         const {rerender} = render(<RequestLinkView {...at('done')} snap={snap({state: 'done', result: {...result, folder: long}})}/>);
-        const sha = screen.getByText('SHA-256 matched');
-        expect(sha.querySelector('svg')).toBeNull();
-        expect(sha.className).toContain('text-zinc-400');
-        expect(screen.getByText('Floe does not scan files for malware.').className).toContain('text-zinc-400');
         const name = screen.getByTitle(long);
         expect(name.textContent!.endsWith(' 2026-09-14 1405')).toBe(true);
         expect(name.textContent!.length).toBeLessThanOrEqual(34);

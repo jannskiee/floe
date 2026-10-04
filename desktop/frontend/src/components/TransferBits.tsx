@@ -1,10 +1,27 @@
 // The pieces the send and receive consoles are assembled from.
 
 import type {CSSProperties} from 'react';
-import {AlertCircle, ChevronDown, Files, Folder, Loader2, UploadCloud, X} from 'lucide-react';
+import {AlertCircle, ChevronDown, CircleCheck, Files, Folder, Loader2, UploadCloud, X} from 'lucide-react';
 import {Button, cn} from './ui';
 import FileIcon from './FileIcon';
 import {baseName} from '../paths';
+import {VERIFIED_LINE} from '../requestCopy';
+
+/** VerifiedMark is the one way the desktop says every file arrived intact
+ *  (D-161): a green circle-check, drawn where the words "SHA-256 matched" used
+ *  to be, and those words for screen readers only. It is not focusable and has
+ *  no tooltip, so it adds no stop and nothing mouse-only. Never a shield, lock,
+ *  seal or badge: those read as "scanned and safe" or as a verified sender,
+ *  which Floe cannot know. The caller draws it only when verifiedAll says so
+ *  and gives the size (the cn here has no tailwind-merge). */
+export function VerifiedMark({className}: {className: string}) {
+    return (
+        <>
+            <CircleCheck aria-hidden className={cn('shrink-0 text-green-500', className)}/>
+            <span className="sr-only">{VERIFIED_LINE}</span>
+        </>
+    );
+}
 
 export function ProgressRow({prog}: {prog: {pct: number; label: string}}) {
     return (

@@ -15,6 +15,7 @@ import * as copy from '../requestCopy';
 import {etaLines, guardActive, GUARD_MS, showLaptopLine, type Phase, type RequestLinkSnapshot} from '../requestLink';
 import {fmtEta, fmtSpeed, type Prog} from '../progress';
 import {shortPath} from '../paths';
+import {VerifiedMark} from './TransferBits';
 
 /** The link block and the activity slot below it: the phases in which a link
  *  exists on screen. Close link keeps one box across all of them (spec 06 5.5:
@@ -501,16 +502,27 @@ function Result({phase, snap, onDismiss, onMakeAnother, onShowInFolder}: Request
     return (
         <div className="space-y-4">
             <div className="flex items-center justify-between gap-3">
-                <p className={cn(headClass, 'leading-7')}>{done ? copy.doneHeading(r.saved, r.bytes) : copy.STOPPED_HEADING}</p>
+                {/* The check trails the heading, so the heading keeps its left
+                    edge (D-136 L8 was a leading icon pushing text right). It
+                    is drawn only on Done: the Stopped card shares this
+                    component and says nothing of verification. */}
+                <div className="flex min-w-0 items-center gap-2">
+                    <p className={cn(headClass, 'leading-7')}>{done ? copy.doneHeading(r.saved, r.bytes) : copy.STOPPED_HEADING}</p>
+                    {done && copy.verifiedAll(r) && <VerifiedMark className="size-3.5"/>}
+                </div>
                 <button type="button" className={quietClass} onClick={onDismiss}>{copy.DISMISS}</button>
             </div>
             {done ? (
-                <div className="space-y-2">
-                    {/* The same plain line as the code receive: one left edge. */}
-                    {copy.verifiedAll(r) && <p className={t2Class}>{copy.VERIFIED_LINE}</p>}
-                    {r.renamed > 0 && <p className={warnClass}>{copy.renamedLine(r.renamed)}</p>}
-                    <p className={t2Class}>{copy.NOT_SCANNED_LINE}</p>
-                </div>
+                // Nothing here on a normal save: DN5 returns only where the
+                // save volume cannot carry the downloaded-file mark (S-7), and
+                // the renamed line only after renames, so an empty group is
+                // never drawn.
+                (r.renamed > 0 || r.noNamedStreams) && (
+                    <div className="space-y-2">
+                        {r.renamed > 0 && <p className={warnClass}>{copy.renamedLine(r.renamed)}</p>}
+                        {r.noNamedStreams && <p className={t2Class}>{copy.NOT_SCANNED_LINE}</p>}
+                    </div>
+                )
             ) : (
                 // The stop and, for save-blocked, the kept file are one
                 // statement: one group, 8 px apart.

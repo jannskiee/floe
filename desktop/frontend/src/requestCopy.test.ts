@@ -171,7 +171,12 @@ describe('receiving and done', () => {
         expect(renamedLine(2)).toBe('2 files were renamed to end in .floe-blocked because Windows can open that kind of file by itself.');
     });
 
-    it('shows the SHA-256 line only when every file verified', () => {
+    it('keeps DN5 for the one case Windows cannot warn, and the check words for screen readers (DN3, DN5)', () => {
+        expect(copy.NOT_SCANNED_LINE).toBe('Floe does not scan files for malware.');
+        expect(copy.VERIFIED_LINE).toBe('SHA-256 matched');
+    });
+
+    it('shows the verified mark only when every file verified', () => {
         expect(copy.verifiedAll({files: 12, saved: 12, verified: 12})).toBe(true);
         expect(copy.verifiedAll({files: 12, saved: 12, verified: 11})).toBe(false);
         expect(copy.verifiedAll({files: 12, saved: 11, verified: 12})).toBe(false);
