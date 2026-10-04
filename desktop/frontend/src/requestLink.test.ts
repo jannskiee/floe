@@ -398,12 +398,15 @@ describe('the request lane selectors', () => {
         }
     });
 
-    it('normalizeSnapshot reads the volume fact of a result as a boolean and nothing else as true', () => {
+    it('normalizeSnapshot hides the not-scanned line only for an explicit false: absent or junk shows it (S-7, RC-2)', () => {
         const result = (v: unknown) => normalizeSnapshot({state: 'done', result: {files: 1, saved: 1, noNamedStreams: v}}).result;
+        expect(result(false)?.noNamedStreams).toBe(false);
         expect(result(true)?.noNamedStreams).toBe(true);
-        for (const junk of [undefined, null, 0, 1, 'true', {}, []]) {
-            expect(result(junk)?.noNamedStreams, String(junk)).toBe(false);
+        for (const junk of [undefined, null, 0, 1, 'true', 'false', {}, []]) {
+            expect(result(junk)?.noNamedStreams, String(junk)).toBe(true);
         }
+        // The key missing altogether reads the same way as junk.
+        expect(normalizeSnapshot({state: 'done', result: {files: 1, saved: 1}}).result?.noNamedStreams).toBe(true);
     });
 
     it('normalizeSnapshot turns junk from the bridge into a renderable off snapshot', () => {

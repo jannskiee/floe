@@ -251,7 +251,7 @@ export function normalizeSnapshot(raw: unknown): RequestLinkSnapshot {
             bytes: num(res.bytes),
             verified: num(res.verified),
             renamed: num(res.renamed),
-            noNamedStreams: res.noNamedStreams === true,
+            noNamedStreams: res.noNamedStreams !== false,
             folder: str(res.folder),
             names: Array.isArray(res.names) ? res.names.filter((n): n is string => typeof n === 'string') : [],
         };
