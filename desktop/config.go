@@ -43,14 +43,9 @@ type appConfig struct {
 	// vouch for a field that did not exist when the record was written.
 	NoUpdateCheck bool `json:"noUpdateCheck"`
 
-	// RequestLinks is the Settings > Beta > Request links switch. Unlike
-	// NoUpdateCheck it needs no inversion: its zero value, off, is the shipped
-	// default, so a desktop.json written before the field existed loads with
-	// the Beta off. Written only by SetRequestLinks; settingsFromArgs carries it
-	// over so a Settings save cannot clear it (E-56). There is deliberately no
-	// environment override (spec 06 4.19): the server's feature list is the only
-	// other thing that can keep it from working.
-	RequestLinks bool `json:"requestLinks"`
+	// There is no request-links field: the Settings switch is gone (H7 S-1,
+	// S-2). A desktop.json written while it existed still carries a
+	// "requestLinks" key; json.Unmarshal ignores it and the next save drops it.
 
 	// Migrated records that the two toggles above came from somewhere real: either
 	// the user, or the one-time import of the localStorage keys they used to live

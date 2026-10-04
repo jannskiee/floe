@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -366,117 +367,35 @@ func TestMigrateWebviewProfileAdoptsOverEmptyHusk(t *testing.T) {
 	}
 }
 
-// TestSettingsFromArgsKeepsRequestLinks is E-56: the Settings screen saves the
-// whole record through settingsFromArgs, which knows nothing about the Beta
-// switch, so without the carry-over every Hide my IP or stats toggle, and every
-// address blur, would silently turn request links off.
-func TestSettingsFromArgsKeepsRequestLinks(t *testing.T) {
-	for _, on := range []bool{true, false} {
-		cur := appConfig{RequestLinks: on, Migrated: true}
-		got := settingsFromArgs(cur, "https://floe.example.com/", "https://app.example.com", true, false)
-		if got.RequestLinks != on {
-			t.Errorf("settingsFromArgs turned RequestLinks from %v to %v", on, got.RequestLinks)
-		}
-		if got.Server != "https://floe.example.com" || got.Web != "https://app.example.com" || !got.HideIP || got.ReportStats {
-			t.Errorf("argument fields wrong: %+v", got)
-		}
-	}
-}
-
-// TestRequestLinksFieldRoundTrip pins the switched-on state, the non-default
-// choice and so the one a widening bug would silently drop.
-func TestRequestLinksFieldRoundTrip(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "floe", "desktop.json")
-
-	want := appConfig{ReportStats: true, RequestLinks: true, Migrated: true}
-	if err := saveConfigTo(path, want); err != nil {
-		t.Fatalf("saveConfigTo: %v", err)
-	}
-	if got := loadConfigFrom(path); got != want {
-		t.Errorf("loadConfigFrom = %+v, want %+v", got, want)
-	}
-}
-
-// TestAbsentRequestLinksFieldDefaultsOff: every desktop.json written before the
-// field existed must load with the Beta off, the shipped default. The zero
-// value already says so; this pins that nobody inverts it.
-func TestAbsentRequestLinksFieldDefaultsOff(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "pre-feature.json")
-	body := `{"server":"https://floe.example.com","web":"","hideIP":true,"reportStats":false,"noUpdateCheck":true,"migrated":true}`
+// TestLoadConfigIgnoresLegacyRequestLinksKey (H7 S-2): a desktop.json written
+// while the Beta switch existed still carries "requestLinks". It must load
+// with every other field intact, and the next save must not write the key
+// back, so the file sheds it the first time anything changes.
+func TestLoadConfigIgnoresLegacyRequestLinksKey(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "legacy.json")
+	body := `{"server":"https://x.test","hideIP":true,"requestLinks":true,"migrated":true}`
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
+
 	got := loadConfigFrom(path)
-	if got.RequestLinks {
-		t.Error("a pre-feature config loaded with RequestLinks on; the Beta must be off until the owner turns it on")
-	}
-	if got.Server != "https://floe.example.com" || !got.HideIP || got.ReportStats || !got.NoUpdateCheck || !got.Migrated {
-		t.Errorf("pre-feature fields damaged: %+v", got)
-	}
-}
-
-// TestWithRequestLinksTouchesOnlyThatField: SetRequestLinks is a
-// read-modify-write of the whole record, so the helper it builds on must hand
-// back every other field exactly as it found it.
-func TestWithRequestLinksTouchesOnlyThatField(t *testing.T) {
-	cur := appConfig{
-		Server:        "https://floe.example.com",
-		Web:           "https://app.example.com",
-		HideIP:        true,
-		ReportStats:   false,
-		NoUpdateCheck: true,
-		Migrated:      true,
-	}
-	on := withRequestLinks(cur, true)
-	want := cur
-	want.RequestLinks = true
-	if on != want {
-		t.Errorf("withRequestLinks(cur, true) = %+v, want %+v", on, want)
-	}
-	if off := withRequestLinks(on, false); off != cur {
-		t.Errorf("withRequestLinks(on, false) = %+v, want %+v", off, cur)
-	}
-}
-
-// TestRequestLinksSaveKeepsEverySetting is the settings round trip FT-03 asks
-// for: through both writers and the file, in both orders, reportStats,
-// NoUpdateCheck and the two server addresses come back untouched beside the new
-// field. reportStats false and NoUpdateCheck true are the non-default choices,
-// the ones a clobbering writer would silently reset.
-func TestRequestLinksSaveKeepsEverySetting(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "floe", "desktop.json")
-	base := appConfig{
-		Server:        "https://files.example.com",
-		Web:           "https://app.example.com",
-		HideIP:        false,
-		ReportStats:   false,
-		NoUpdateCheck: true,
-		Migrated:      true,
+	if got.Server != "https://x.test" || !got.HideIP || !got.Migrated {
+		t.Fatalf("legacy file damaged on load: %+v", got)
 	}
 
-	// The Beta switch writes first, then a Settings save lands on top.
-	if err := saveConfigTo(path, withRequestLinks(base, true)); err != nil {
+	out := filepath.Join(dir, "resaved.json")
+	if err := saveConfigTo(out, got); err != nil {
+		t.Fatalf("saveConfigTo: %v", err)
+	}
+	raw, err := os.ReadFile(out)
+	if err != nil {
 		t.Fatal(err)
 	}
-	afterSettings := settingsFromArgs(loadConfigFrom(path), base.Server, base.Web, true, base.ReportStats)
-	if err := saveConfigTo(path, afterSettings); err != nil {
-		t.Fatal(err)
+	if strings.Contains(string(raw), "requestLinks") {
+		t.Errorf("a re-save wrote the retired requestLinks key back:\n%s", raw)
 	}
-	got := loadConfigFrom(path)
-	want := base
-	want.HideIP = true
-	want.RequestLinks = true
-	if got != want {
-		t.Errorf("switch then settings save = %+v, want %+v", got, want)
-	}
-
-	// The other order: a Settings save, then the switch turned off again.
-	if err := saveConfigTo(path, withRequestLinks(loadConfigFrom(path), false)); err != nil {
-		t.Fatal(err)
-	}
-	got = loadConfigFrom(path)
-	want.RequestLinks = false
-	if got != want {
-		t.Errorf("settings save then switch off = %+v, want %+v", got, want)
+	if again := loadConfigFrom(out); again != got {
+		t.Errorf("re-saved record = %+v, want %+v", again, got)
 	}
 }

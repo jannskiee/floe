@@ -4,8 +4,6 @@ package main
 // it. endpoints_test.go already tested this seam before the file existed.
 
 import (
-	"errors"
-
 	"github.com/jannskiee/floe/cli/engine/serverurl"
 )
 
@@ -83,10 +81,10 @@ func (a *App) SetSettings(server, web string, hideIP, reportStats bool) error {
 }
 
 // settingsFromArgs builds the record SetSettings persists. Fields owned by
-// other setters (NoUpdateCheck via SetCheckUpdates, RequestLinks via
-// SetRequestLinks) are carried over from the current record: SetSettings used
-// to construct a fresh appConfig from only its arguments, which silently
-// zeroed any field the Settings screen did not know about on every save.
+// other setters (NoUpdateCheck via SetCheckUpdates) are carried over from the
+// current record: SetSettings used to construct a fresh appConfig from only
+// its arguments, which silently zeroed any field the Settings screen did not
+// know about on every save.
 func settingsFromArgs(cur appConfig, server, web string, hideIP, reportStats bool) appConfig {
 	return normalizeConfig(appConfig{
 		Server:        server,
@@ -94,7 +92,6 @@ func settingsFromArgs(cur appConfig, server, web string, hideIP, reportStats boo
 		HideIP:        hideIP,
 		ReportStats:   reportStats,
 		NoUpdateCheck: cur.NoUpdateCheck,
-		RequestLinks:  cur.RequestLinks,
 		Migrated:      true,
 	})
 }
@@ -108,62 +105,6 @@ func (a *App) SetCheckUpdates(enabled bool) error {
 	defer a.mu.Unlock()
 	cfg := a.cfg
 	cfg.NoUpdateCheck = !enabled
-	if err := saveConfig(cfg); err != nil {
-		return err
-	}
-	a.cfg = cfg
-	return nil
-}
-
-// withRequestLinks is the record SetRequestLinks persists: the current one with
-// only the Beta switch changed. A pure helper so tests never call the bound
-// setter, which writes the real desktop.json (F-04).
-func withRequestLinks(cfg appConfig, enabled bool) appConfig {
-	cfg.RequestLinks = enabled
-	return cfg
-}
-
-// The two refusals of the Beta switch (D-115). Not user-facing copy: the
-// Settings switch reverts on any error, the toggleCheckUpdates pattern.
-var (
-	errRequestLinksLive        = errors.New("a request link is open; close it before turning request links off")
-	errRequestLinksUnsupported = errors.New("this server does not offer request links")
-)
-
-// requestLinksChange is the D-115 rule for flipping the switch: turning it
-// off is refused while a link is live (made, open, deciding or receiving), so
-// the Beta can never strand a link, and otherwise always allowed, even when
-// the server no longer lists request-1; turning it on needs request-1 right
-// now. support is called only for turning it on.
-func requestLinksChange(enabled, live bool, support func() FeatureResult) error {
-	if !enabled {
-		if live {
-			return errRequestLinksLive
-		}
-		return nil
-	}
-	if !support().RequestLinks {
-		return errRequestLinksUnsupported
-	}
-	return nil
-}
-
-// SetRequestLinks persists the Settings > Beta > Request links switch alone,
-// leaving every other setting untouched. Holds the lock across the whole
-// read-modify-write for the same reason SetCheckUpdates does: the setters race
-// on quick toggle flips, and a stale snapshot would resurrect an old record.
-// The request-1 probe for turning it on runs first, outside the lock (it is
-// network I/O); the lane is read through its atomic, never its mutex.
-func (a *App) SetRequestLinks(enabled bool) error {
-	if err := requestLinksChange(enabled, a.lane().liveNow(), func() FeatureResult {
-		server, _ := a.endpoints()
-		return requestLinkSupport(server)
-	}); err != nil {
-		return err
-	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	cfg := withRequestLinks(a.cfg, enabled)
 	if err := saveConfig(cfg); err != nil {
 		return err
 	}
