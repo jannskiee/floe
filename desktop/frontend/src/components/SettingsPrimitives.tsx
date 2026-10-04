@@ -17,7 +17,7 @@ export function Switch({checked, onChange, disabled}: {checked: boolean; onChang
                 checked={checked}
                 // Native disabled, not aria-disabled: a disabled checkbox cannot
                 // be toggled by a click on its label, by Space, or by a screen
-                // reader, which is the whole guarantee the Beta switch needs.
+                // reader, which is the whole guarantee a dimmed setting needs.
                 disabled={disabled}
                 onChange={(e) => onChange(e.target.checked)}
                 className="peer sr-only"
@@ -43,10 +43,11 @@ export function Switch({checked, onChange, disabled}: {checked: boolean; onChang
  *  a trailing switch. The hover fill is the row's interactivity signal (the card
  *  clips it to the rounded corners); the whole row stays one click target.
  *
- *  disabled keeps the row's words and dims the whole row (the approved Beta
- *  look, DS-03 and DS-04): no hover fill, a not-allowed cursor, aria-disabled on
- *  the label and native disabled on the checkbox. The description is where a
- *  disabled row says why, so callers swap it rather than hide it. */
+ *  disabled keeps the row's words and dims the whole row (the look DS-03 and
+ *  DS-04 approved for a locked row): no hover fill, a not-allowed cursor,
+ *  aria-disabled on the label and native disabled on the checkbox. The
+ *  description is where a disabled row says why, so callers swap it rather than
+ *  hide it. */
 export function SettingRow({checked, onChange, label, description, disabled}: {
     checked: boolean;
     onChange: (v: boolean) => void;

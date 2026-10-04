@@ -123,8 +123,8 @@ func probeHealth(base string) (ProbeResult, []string) {
 	return ProbeResult{OK: true}, features
 }
 
-// FeatureResult is the Go-side /health probe for the Beta switch: whether the
-// server answered as a healthy Floe server, and whether it lists request-1.
+// FeatureResult is the Go-side /health probe for the request link lane: whether
+// the server answered as a healthy Floe server, and whether it lists request-1.
 // One struct return, never a (T, error) pair, for the reason ProbeResult gives.
 type FeatureResult struct {
 	Reachable    bool `json:"reachable"`
