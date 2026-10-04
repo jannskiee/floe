@@ -14,8 +14,6 @@ import {
     phase,
     reduce,
     requestLinkKind,
-    settingsLocked,
-    showRow,
     type RequestEvent,
     type RequestLinkSnapshot,
     type RequestUI,
@@ -65,24 +63,38 @@ const run = (ui: RequestUI, ...events: RequestEvent[]) => events.reduce(reduce, 
 const at = (state: string, over: Partial<RequestLinkSnapshot> = {}) => (ui: RequestUI) =>
     reduce(ui, {type: 'SNAPSHOT', snap: snap({state, gen: ui.snap.gen, ...over})});
 
-// Switch on, request-1 listed: the Ready baseline most transitions start from.
-const ready = run(initialRequestUI, {type: 'FEATURE', switchOn: true, requestLinks: true});
+// An idle lane, nothing probed: the Ready baseline most transitions start from.
+const ready = initialRequestUI;
 const waiting = run(ready, {type: 'MAKE'}, {type: 'SNAPSHOT', snap: snap({state: 'waiting', gen: 1, link: 'l', expiresAt: 9})}, {type: 'MAKE_DONE'});
 const deciding = at('deciding', {promptGen: 1, prompt: {files: 12, totalBytes: 1, folder: 'f', freeBytes: 1, warnings: [], answerBy: 1}})(waiting);
 const receiving = at('receiving', {route: 'direct'})(deciding);
 const result = {files: 12, saved: 12, bytes: 1, verified: 12, renamed: 0, folder: 'D:\\f', names: []};
 
+describe('an idle lane (H7 S-1)', () => {
+    it('an idle lane is ready with no switch and no probe', () => {
+        expect(phase(initialRequestUI)).toBe('ready');
+        for (const state of ['off', 'ready']) {
+            expect(phase(reduce(initialRequestUI, {type: 'SNAPSHOT', snap: snap({state})})), state).toBe('ready');
+        }
+    });
+
+    it('a result put away returns to ready, not off', () => {
+        const refused = run(initialRequestUI, {type: 'MAKE'}, {type: 'SNAPSHOT', snap: snap({state: 'error', code: 'disabled', gen: 1})}, {type: 'MAKE_DONE'});
+        expect(phase(refused)).toBe('error');
+        expect(phase(reduce(refused, {type: 'DISMISS'}))).toBe('ready');
+        const done = run(initialRequestUI, {type: 'MAKE'}, {type: 'SNAPSHOT', snap: snap({state: 'done', gen: 1, result})}, {type: 'MAKE_DONE'});
+        expect(phase(done)).toBe('done');
+        expect(phase(reduce(done, {type: 'DISMISS'}))).toBe('ready');
+    });
+
+    it('an unknown state from the bridge reads as an idle lane, never as a link', () => {
+        const odd = reduce(initialRequestUI, {type: 'SNAPSHOT', snap: normalizeSnapshot({state: 'pwned'})});
+        expect(odd.snap.state).toBe('off');
+        expect(phase(odd)).toBe('ready');
+    });
+});
+
 describe('the request lane reducer', () => {
-    it('T1 feature on shows Ready', () => {
-        expect(phase(initialRequestUI)).toBe('off');
-        expect(phase(ready)).toBe('ready');
-    });
-
-    it('T2 switch off or feature missing goes back to Off', () => {
-        expect(phase(reduce(ready, {type: 'FEATURE', switchOn: false}))).toBe('off');
-        expect(phase(reduce(ready, {type: 'FEATURE', requestLinks: false}))).toBe('off');
-    });
-
     it('T3 Make link then a waiting snapshot shows Waiting with the link open', () => {
         const making = reduce(ready, {type: 'MAKE'});
         expect(phase(making)).toBe('making');
@@ -303,21 +315,6 @@ describe('the request lane reducer', () => {
 });
 
 describe('the request lane selectors', () => {
-    it('showRow keeps the row while a drop runs after request-1 disappears', () => {
-        for (const s of ['making', 'waiting', 'reconnecting', 'connecting', 'deciding', 'declined', 'receiving', 'done', 'stopped']) {
-            expect(showRow(true, false, s), s).toBe(true);
-        }
-        expect(showRow(true, false, 'off')).toBe(false);
-        expect(showRow(true, false, 'ended')).toBe(false);
-        expect(showRow(true, true, 'off')).toBe(true);
-    });
-
-    it('showRow hides the row when the switch is off', () => {
-        for (const s of ['off', 'ready', 'waiting', 'receiving', 'done']) {
-            expect(showRow(false, true, s), s).toBe(false);
-        }
-    });
-
     it('guardActive is true for 1 s after render and after focus returns', () => {
         expect(guardActive(1000, 1000, null)).toBe(true);
         expect(guardActive(1999, 1000, null)).toBe(true);
@@ -367,11 +364,6 @@ describe('the request lane selectors', () => {
         expect(canMake('ready')).toBe(true);
         expect(canMake('error')).toBe(true);
         for (const p of ['making', 'waiting', 'deciding', 'receiving', 'done'] as const) expect(canMake(p)).toBe(false);
-    });
-
-    it('the Settings switch locks from making a link until its result is put away', () => {
-        for (const p of ['making', 'waiting', 'deciding', 'receiving', 'done', 'stopped'] as const) expect(settingsLocked(p)).toBe(true);
-        for (const p of ['off', 'ready', 'error', 'ended'] as const) expect(settingsLocked(p)).toBe(false);
     });
 
     it('normalizeSnapshot turns junk from the bridge into a renderable off snapshot', () => {

@@ -6,7 +6,7 @@
  * The table's path comes from FLOE_APPROVED_COPY and from nowhere else. Unset
  * (CI, a contributor's machine) the whole block is skipped under a title that
  * says how to run it; the build lane and QA set it on every run so the check
- * never skips silently there. The literal expectations in settings.test.ts and
+ * never skips silently there. The literal expectations in
  * requestCopy.test.ts keep pinning the same strings everywhere; this file is
  * what ties those literals to the approved source.
  *
@@ -20,13 +20,7 @@
  * string can come out of requestCopy.ts.
  */
 import {describe, expect, it} from 'vitest';
-import {
-    BETA_HEADING,
-    REQUEST_LINKS_LABEL,
-    REQUEST_LINKS_LINK_OPEN_LINE,
-    REQUEST_LINKS_NO_SERVER_LINE,
-    REQUEST_LINKS_ON_LINE,
-} from './settings';
+import * as settings from './settings';
 import * as c from './requestCopy';
 import {friendlyError} from './errors';
 import {fmtBytes} from './incoming';
@@ -114,6 +108,16 @@ const NOT_RENDERED_HERE: Record<string, string> = {
     TO1: 'a toast, a Go constant (S1-DSK-05)',
     TO2: 'a toast, a Go constant (S1-DSK-05)',
     TO3: 'a toast, a Go constant (S1-DSK-05)',
+    // The Settings > Notifications rows arrive in the draft with D-162. WP-NOTIFY
+    // builds that section and replaces these eight entries with real checks.
+    NS1: 'WP-NOTIFY: the Notifications heading',
+    NS2: 'WP-NOTIFY: the Show notifications label',
+    NS3: 'WP-NOTIFY: the Show notifications description',
+    NS4: 'WP-NOTIFY: the notifications-off description',
+    NS5: 'WP-NOTIFY: the Play sound label',
+    NS6: 'WP-NOTIFY: the Windows notification settings label',
+    NS7: 'WP-NOTIFY: the Windows notification settings description',
+    NS8: 'WP-NOTIFY: the Open button',
 };
 
 describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved desktop copy (skipped: set FLOE_APPROVED_COPY to the frozen copy table to run)', () => {
@@ -121,15 +125,8 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         // One row per ID; a parse that finds a handful means the table format
         // moved and every check below would be vacuous.
         expect(rows.size).toBeGreaterThan(120);
-        expect(approved('S1')).toBe('Beta');
-    });
-
-    it('Settings rows S1 to S5 match byte for byte', () => {
-        expect(BETA_HEADING).toBe(approved('S1'));
-        expect(REQUEST_LINKS_LABEL).toBe(approved('S2'));
-        expect(REQUEST_LINKS_ON_LINE).toBe(approved('S3'));
-        expect(REQUEST_LINKS_NO_SERVER_LINE).toBe(approved('S4'));
-        expect(REQUEST_LINKS_LINK_OPEN_LINE).toBe(approved('S5'));
+        // The word the cut S1 had lives on as the R2 chip (D-160).
+        expect(bare('R2')).toBe('Beta');
     });
 
     it('Receive row and Ready rows match byte for byte', () => {
@@ -317,16 +314,25 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
     it('no cut row can come out of requestCopy.ts', () => {
         const cut = [...rows.values()].filter((r) => r.status.startsWith('CUT'));
         expect(cut.map((r) => r.id).sort()).toEqual([
-            'C3', 'DN10', 'E3', 'E8', 'H1', 'H3', 'P7', 'Q1', 'R18', 'R19', 'R4', 'R5', 'ST15', 'ST2', 'V7', 'V8', 'W6', 'W7', 'W9', 'X4',
+            'C3', 'DN10', 'E3', 'E8', 'H1', 'H3', 'P7', 'Q1', 'R18', 'R19', 'R4', 'R5', 'S1', 'S2', 'S3', 'S4', 'S5', 'ST15', 'ST2', 'V7', 'V8', 'W6', 'W7', 'W9', 'X4',
         ]);
         const out: string[] = [];
         for (const v of Object.values(c) as unknown[]) if (typeof v === 'string') out.push(v);
+        // The Settings copy too: the Beta section is gone, and its words must
+        // not come back through settings.ts.
+        for (const v of Object.values(settings) as unknown[]) if (typeof v === 'string') out.push(v);
+        // A cut row whose words a live row also owns is exempt: nothing can
+        // tell the two apart (the cut S1 "Beta" is the live R2 chip).
+        const live = new Set(
+            [...rows.values()].filter((r) => !r.status.startsWith('CUT')).map((r) => r.string.replace(/ \([^()]*\)$/, '')),
+        );
         for (const code of ['denied', 'too-slow', 'network', 'server-restart', 'battery-standby', 'pending-rename', 'web-address']) {
             out.push(c.errorLine(code), c.endedLine(code, END), c.stoppedCard(code, 4, 12), c.stoppedFull(code, 4, 12),
                 c.warningLine(code, {freeBytes: 1, totalBytes: 1}, SAVE));
         }
         for (const r of cut) {
             const s = r.string.replace(/ \([^()]*\)$/, '');
+            if (live.has(s)) continue;
             // A fragment under three words is compared by equality: H1's "link
             // open" sat inside the old D2 ("Keep this link open for ..."), and a
             // two-word cut must not forbid every sentence that happens to hold it.

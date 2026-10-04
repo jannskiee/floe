@@ -20,13 +20,11 @@ import {
     OpenFolder,
     PasteFiles,
     ReceiveByCode,
-    RequestLinkSupport,
     RetryRequestLink,
     RevealFile,
     SelectFiles,
     SelectFolder,
     SetCheckUpdates,
-    SetRequestLinks,
     SetSettings,
     StartSend,
     StartSendText,
@@ -46,7 +44,7 @@ import {
     X,
 } from 'lucide-react';
 import {BoltMark, Button, cn, Eyebrow, Input, rowDescClass, rowLabelClass, StatusDot} from './components/ui';
-import {BETA_HEADING, REQUEST_LINKS_LABEL, advancedSummary, hostOf, requestLinksSwitch, webPlaceholder, type RequestFeature} from './settings';
+import {advancedSummary, hostOf, webPlaceholder} from './settings';
 import {UNDO_WINDOW_MS, clearLabel, clearedAnnouncement, clearedLabel, restorable, restoredAnnouncement, stagedSnapshot, supersededBy, undoLabel, type Cleared} from './clear';
 import {resetWarning} from './reset';
 import {friendlyError} from './errors';
@@ -60,8 +58,6 @@ import {
     parsePastedLink,
     phase as requestPhase,
     reduce as reduceRequest,
-    settingsLocked,
-    showRow,
     viewSnapshot,
 } from './requestLink';
 import {
@@ -329,12 +325,6 @@ function App() {
     const [updateDismissed, setUpdateDismissed] = useState(false);
     const [checkUpdates, setCheckUpdates] = useState(true);
 
-    // Settings > Beta > Request links. Go owns the value (desktop.json, off by
-    // default) and the probe (the webview's CSP blocks the fetch). null means
-    // the server has not been asked yet this launch.
-    const [requestLinksOn, setRequestLinksOn] = useState(false);
-    const [requestFeature, setRequestFeature] = useState<RequestFeature | null>(null);
-
     // The Request link lane as this window sees it (requestLink.ts). Go is
     // authoritative; the reducer adopts its snapshots and keeps only what Go
     // never sees. None of it feeds `busy`: an open link must never lock out
@@ -390,17 +380,6 @@ function App() {
             await SetCheckUpdates(v);
         } catch {
             setCheckUpdates(!v); // revert on failure, the toggleCtxMenu pattern
-        }
-    }
-
-    // Owned by its own Go setter, like the update check, so a whole-record
-    // Settings save can never clobber it (settingsFromArgs carries it over).
-    async function toggleRequestLinks(v: boolean) {
-        setRequestLinksOn(v);
-        try {
-            await SetRequestLinks(v);
-        } catch {
-            setRequestLinksOn(!v); // revert on failure, the toggleCtxMenu pattern
         }
     }
 
@@ -518,17 +497,9 @@ function App() {
     // Do not "fix" this by wiring the context menu in.
     async function resetAllSettings() {
         setResetErr('');
-        // While the lane holds a link, a drop or its result, the Beta switch is
-        // locked (S5), and Reset honors the lock like the switch does: turning
-        // it off here would tear down the request listeners and strand the link
-        // with no way to reach or close it. Everything else still resets.
-        const keepRequestLinks = settingsLocked(requestPhase(reqUI));
         try {
             await SetSettings('', '', false, true);
             await SetCheckUpdates(true);
-            // Off is the shipped default (F-05). Its own setter, so the reset
-            // cannot rely on SetSettings, which carries the switch over.
-            if (!keepRequestLinks) await SetRequestLinks(false);
         } catch (e) {
             // Two persists means a partial failure is possible: re-pull what
             // actually landed on disk so the screen never diverges from it.
@@ -539,7 +510,6 @@ function App() {
                 setHideIP(c.hideIP);
                 setReportStats(c.reportStats);
                 setCheckUpdates(!c.noUpdateCheck);
-                setRequestLinksOn(!!c.requestLinks);
                 serverAddrRef.current = c.server || '';
                 webAddrRef.current = c.web || '';
             } catch { /* unreadable config: leave the screen as is */ }
@@ -551,7 +521,6 @@ function App() {
         setHideIP(false);
         setReportStats(true);
         setCheckUpdates(true);
-        if (!keepRequestLinks) setRequestLinksOn(false);
         setOutput('');
         setTestStatus('');
         serverAddrRef.current = '';
@@ -746,12 +715,11 @@ function App() {
 
     // The Request link's two events, in their own effect with their own
     // teardown (KL-3): the mount effect above keeps exactly its eleven
-    // listeners. Registered only while the Beta switch is on, so a launch with
-    // the switch off (the default) registers nothing and asks Go for nothing
-    // (FT-03). The switch cannot turn off while the lane holds a link or a
-    // drop (S5), so these never go away under one. GetRequestLink is pulled
-    // after both listeners exist, the GetPendingFiles ordering: a snapshot
-    // emitted in between would otherwise be lost.
+    // listeners. Registered at launch (H7 S-1, FT-03b): they are local Wails
+    // events and a call into Go, not network traffic, and no server is asked
+    // anything before Make link. GetRequestLink is pulled after both
+    // listeners exist, the GetPendingFiles ordering: a snapshot emitted in
+    // between would otherwise be lost.
     //
     // A lane generation is one link and at most one drop, and Go emits
     // request:progress for the current generation only, so a snapshot naming
@@ -761,7 +729,6 @@ function App() {
     // It clears here, in event order, so a progress event right behind that
     // snapshot still shows.
     useEffect(() => {
-        if (!requestLinksOn) return;
         const adopt = (s: unknown) => {
             const snap = normalizeSnapshot(s);
             if (snap.gen > reqProgressGen.current) {
@@ -777,12 +744,7 @@ function App() {
             EventsOff('request:state');
             EventsOff('request:progress');
         };
-    }, [requestLinksOn]);
-
-    // The switch and the probe feed the lane's Off and Ready (T1, T2).
-    useEffect(() => {
-        dispatchReq({type: 'FEATURE', switchOn: requestLinksOn, requestLinks: !!requestFeature?.reachable && !!requestFeature?.requestLinks});
-    }, [requestLinksOn, requestFeature]);
+    }, []);
 
     // X5: Floe closed last time with a link open (O7). The marker holds only
     // the link's end time, never the link. Read once and cleared at once; a
@@ -830,8 +792,6 @@ function App() {
                 // Not part of the migration below: the field never lived in
                 // localStorage, and its zero value is the shipped default.
                 setCheckUpdates(!c.noUpdateCheck);
-                // Same: Go-owned from the start, and false (off) is the default.
-                setRequestLinksOn(!!c.requestLinks);
                 if (c.migrated) {
                     setHideIP(c.hideIP);
                     setReportStats(c.reportStats);
@@ -850,43 +810,12 @@ function App() {
             .catch(() => {});
     }, []);
 
-    // The request-1 probe, in its own small effect (never the mount effect).
-    // It runs where its answer is used: whenever Settings opens (the Beta
-    // switch's state and line) and while the switch is on. With the switch off
-    // and Settings closed it never runs, so a launch with the Beta off (the
-    // default) sends nothing of the feature anywhere (FT-03). The live flag
-    // drops an answer that lands after the screen moved on.
-    useEffect(() => {
-        if (!settingsOpen && !requestLinksOn) return;
-        let live = true;
-        RequestLinkSupport()
-            .then((f) => { if (live) setRequestFeature({reachable: !!f?.reachable, requestLinks: !!f?.requestLinks}); })
-            .catch(() => { if (live) setRequestFeature({reachable: false, requestLinks: false}); });
-        return () => { live = false; };
-    }, [settingsOpen, requestLinksOn]);
-
-    // The probe again on entering Receive, and every 60 s while the row can
-    // show there, so a kill switch flipped on the server reaches the row within
-    // a minute (spec 06 4.18). Only with the switch on.
-    useEffect(() => {
-        if (!requestLinksOn || mode !== 'receive' || settingsOpen) return;
-        let live = true;
-        const probe = () => {
-            RequestLinkSupport()
-                .then((f) => { if (live) setRequestFeature({reachable: !!f?.reachable, requestLinks: !!f?.requestLinks}); })
-                .catch(() => { if (live) setRequestFeature({reachable: false, requestLinks: false}); });
-        };
-        probe();
-        const id = window.setInterval(probe, 60_000);
-        return () => { live = false; clearInterval(id); };
-    }, [requestLinksOn, mode, settingsOpen]);
-
     // Entering Receive shows REQUEST LINK while the lane has something to say
     // (a link, a drop, a result, an error or the X5 line), CODE otherwise.
-    const reqPhaseRef = useRef('off');
+    const reqPhaseRef = useRef('ready');
     useEffect(() => {
         if (mode !== 'receive') return;
-        setReceiveKind(reqPhaseRef.current === 'off' || reqPhaseRef.current === 'ready' ? 'code' : 'request');
+        setReceiveKind(reqPhaseRef.current === 'ready' ? 'code' : 'request');
     }, [mode]);
 
     // The next-launch marker: set to the link's end time while a link is
@@ -1421,8 +1350,7 @@ function App() {
         // A request or drop link is for a web browser: say so and offer to
         // open it, and never call ReceiveByCode, which claims a transfer
         // generation before it resolves and toasts on failure (S1-DSK-07).
-        // Works whether or not the Beta switch is on: anyone can be sent
-        // somebody else's request link.
+        // Anyone can be sent somebody else's request link.
         const pasted = parsePastedLink(code);
         if (pasted) {
             setPastedRequestLink(pasted.href);
@@ -1621,10 +1549,7 @@ function App() {
     const dropMoving = reqUI.snap.state === 'receiving';
     const dropRelay = dropMoving && reqUI.snap.route === 'relay';
     const dropDirect = dropMoving && reqUI.snap.route === 'direct';
-    // Read on the displayed phase, so a result the owner has put away no
-    // longer holds the row open once request-1 is gone.
-    const rowVisible = showRow(requestLinksOn, reqUI.featurePresent, reqPhase);
-    const onRequestView = !settingsOpen && mode === 'receive' && rowVisible && receiveKind === 'request';
+    const onRequestView = !settingsOpen && mode === 'receive' && receiveKind === 'request';
     // On REQUEST LINK the card's top is one anchored spot for every state, so
     // a prompt mounting below cannot re-center it and move Close link
     // (VR3-D03), and no state starts the card higher or lower than another
@@ -1847,11 +1772,6 @@ function App() {
     // Three states, not two. See settings.ts and its test.
     const advSummary = advancedSummary(serverAddr, webAddr);
 
-    // The Beta switch's state and its one line: locked with S5 while the lane
-    // holds a link, a drop or its result, so turning the Beta off never
-    // strands one.
-    const betaSwitch = requestLinksSwitch(requestFeature, settingsLocked(reqPhase), requestLinksOn);
-
     return (
         <div className="flex h-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100 selection:bg-ice/20">
             <TitleBar onSettings={() => setSettingsOpen((o) => !o)} settingsActive={settingsOpen} onStartOver={startOver}/>
@@ -2033,22 +1953,6 @@ function App() {
                                         </div>
                                     </section>
                                 )}
-
-                                {/* After Windows and before Advanced (F-10, OD-31 O8); in
-                                    the Store build, where Windows is absent, directly after
-                                    Privacy. One row, off by default. */}
-                                <section className="space-y-2">
-                                    <Eyebrow as="h3">{BETA_HEADING}</Eyebrow>
-                                    <div className={cardClass}>
-                                        <SettingRow
-                                            checked={requestLinksOn}
-                                            onChange={(v) => void toggleRequestLinks(v)}
-                                            label={REQUEST_LINKS_LABEL}
-                                            description={betaSwitch.description}
-                                            disabled={betaSwitch.disabled}
-                                        />
-                                    </div>
-                                </section>
 
                                 <section className="space-y-2">
                                     <Eyebrow as="h3">Advanced</Eyebrow>
@@ -2540,7 +2444,7 @@ function App() {
                                 ) : mode === 'receive' ? (
                                 /* ── RECEIVE VIEW ─────────────────────────────── */
                                     <div className="space-y-4">
-                                        {rowVisible && receiveRow}
+                                        {receiveRow}
                                         <div className="space-y-2">
                                             <Eyebrow>Code or link</Eyebrow>
                                             <Input
