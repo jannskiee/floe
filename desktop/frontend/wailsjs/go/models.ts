@@ -90,6 +90,7 @@ export namespace main {
 	    reconnectUntil?: number;
 	    missedAt?: number;
 	    suggestClose: boolean;
+	    battery: boolean;
 	    prompt?: RequestPrompt;
 	    result?: RequestResult;
 	
@@ -112,6 +113,7 @@ export namespace main {
 	        this.reconnectUntil = source["reconnectUntil"];
 	        this.missedAt = source["missedAt"];
 	        this.suggestClose = source["suggestClose"];
+	        this.battery = source["battery"];
 	        this.prompt = this.convertValues(source["prompt"], RequestPrompt);
 	        this.result = this.convertValues(source["result"], RequestResult);
 	    }

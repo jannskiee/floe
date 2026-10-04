@@ -78,6 +78,13 @@ type RequestLinkSnapshot struct {
 	// SuggestClose is set after two prompts on this link ended without Accept
 	// within 10 minutes (E-40, W13).
 	SuggestClose bool `json:"suggestClose"`
+	// Battery says this PC may run on a battery: Windows' answer when it is
+	// asked at a prompt (power.go), "maybe" off Windows and when Windows could
+	// not say. Go's own fact about this PC, never peer data. The Receiving view
+	// reads it for the laptop line (P11, E-94); the prompt no longer carries
+	// that line as a warning. The lane only advises: the display is never held
+	// on (E-47, OD-31).
+	Battery bool `json:"battery"`
 	// Prompt is present only while deciding.
 	Prompt *RequestPrompt `json:"prompt,omitempty"`
 	// Result is present once a drop was accepted: done, or stopped after
@@ -96,7 +103,7 @@ type RequestPrompt struct {
 	Folder    string `json:"folder"`
 	FreeBytes int64  `json:"freeBytes"` // free space on the save volume
 	// Warnings are codes, never text: low-space, file-too-large-for-drive,
-	// relay-over-cap, laptop-power.
+	// relay-over-cap.
 	Warnings []string `json:"warnings"`
 	AnswerBy int64    `json:"answerBy"`
 }
@@ -192,6 +199,7 @@ type requestLane struct {
 	reconnectUntil time.Time
 	missedAt       time.Time
 	suggestClose   bool
+	battery        bool // set at each prompt; see RequestLinkSnapshot.Battery
 	prompt         *RequestPrompt
 	result         *RequestResult
 	dropCancel     func() // set while a drop runs (S1-DSK-03b)
@@ -373,6 +381,7 @@ func (l *requestLane) snapshotLocked() RequestLinkSnapshot {
 		SaveDir:      l.saveDir,
 		Route:        l.route,
 		SuggestClose: l.suggestClose,
+		Battery:      l.battery,
 	}
 	if !l.expiresAt.IsZero() {
 		s.ExpiresAt = l.expiresAt.UnixMilli()
@@ -640,7 +649,7 @@ func (a *App) MakeRequestLink(label string, saveDir string, lifetime string) Req
 	l.cancelled = false
 	l.endLocked("", "")
 	l.expiresAt = time.Time{}
-	l.route, l.result, l.missedAt, l.suggestClose = "", nil, time.Time{}, false
+	l.route, l.result, l.missedAt, l.suggestClose, l.battery = "", nil, time.Time{}, false, false
 	l.promptEnds, l.ownerStop = nil, false
 	l.label = displayLabel(label)
 	l.saveDir = saveDir
@@ -1220,23 +1229,6 @@ func (l *requestLane) closeForQuit() {
 	}
 }
 
-// withLaptopPower returns warnings with the laptop-power code once, last,
-// when battery says this PC may run on one (P11, superseding E-27's "no
-// power-state API is asked"), and without it otherwise. The display is never
-// held on; the lane warns only (E-47, OD-31).
-func withLaptopPower(warnings []string, battery bool) []string {
-	out := make([]string, 0, len(warnings)+1)
-	for _, w := range warnings {
-		if w != "laptop-power" {
-			out = append(out, w)
-		}
-	}
-	if !battery {
-		return out
-	}
-	return append(out, "laptop-power")
-}
-
 // openPrompt moves generation rg to deciding with p, the prompt the Decide
 // callback computed (S1-DSK-03b), and returns its promptGen; 0 when rg no
 // longer owns the lane. A stale answer left in decision is drained first so
@@ -1253,7 +1245,7 @@ func (a *App) openPrompt(rg uint64, p RequestPrompt) uint64 {
 		}
 		l.promptGen++
 		pg = l.promptGen
-		p.Warnings = withLaptopPower(p.Warnings, battery)
+		l.battery = battery
 		l.prompt = &p
 		l.setStateLocked("deciding", "")
 		quiet = l.pruneEndsLocked()

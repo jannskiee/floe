@@ -40,8 +40,9 @@ var wakeStop chan struct{}
 // transfer proceeds regardless), matching the app's best-effort notify().
 //
 // The request lane never adds ES_DISPLAY_REQUIRED; warn only (OD-31, E-47):
-// every Accept prompt carries the laptop-power line instead, and the hold is
-// taken at Accept and dropped when the drop ends, never while a link waits.
+// the Receiving view carries the laptop line instead (P11, power.go), and the
+// hold is taken at Accept and dropped when the drop ends, never while a link
+// waits.
 func blockSleep() {
 	if wakeStop != nil {
 		return

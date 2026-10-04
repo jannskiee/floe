@@ -1,8 +1,8 @@
 package main
 
-// The battery question the prompt's laptop line asks (power.go), answered by
-// Windows. The _windows suffix is the build constraint, on purpose;
-// power_other.go is the twin for every other GOOS.
+// The battery question the Receiving view's laptop line asks (power.go),
+// answered by Windows. The _windows suffix is the build constraint, on
+// purpose; power_other.go is the twin for every other GOOS.
 
 import "unsafe"
 

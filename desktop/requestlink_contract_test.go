@@ -15,6 +15,7 @@ func TestRequestLinkSnapshotJSONShape(t *testing.T) {
 		State: "deciding", Code: "", Gen: 3, PromptGen: 2, Link: "l", Label: "x",
 		SaveDir: "d", ExpiresAt: 1, Route: "direct", ReconnectUntil: 2, MissedAt: 3,
 		SuggestClose: true,
+		Battery:      true,
 		Prompt:       &RequestPrompt{Files: 1, TotalBytes: 2, Folder: "f", FreeBytes: 3, Warnings: []string{"low-space"}, AnswerBy: 4},
 		Result:       &RequestResult{Files: 1, Saved: 1, Bytes: 2, Verified: 1, Renamed: 0, Folder: "f", Names: []string{"a"}},
 	}
@@ -26,7 +27,7 @@ func TestRequestLinkSnapshotJSONShape(t *testing.T) {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []string{"state", "code", "gen", "seq", "promptGen", "link", "label", "saveDir", "expiresAt", "route", "reconnectUntil", "missedAt", "suggestClose", "prompt", "result"} {
+	for _, k := range []string{"state", "code", "gen", "seq", "promptGen", "link", "label", "saveDir", "expiresAt", "route", "reconnectUntil", "missedAt", "suggestClose", "battery", "prompt", "result"} {
 		if _, ok := m[k]; !ok {
 			t.Errorf("snapshot JSON lacks %q: %s", k, raw)
 		}

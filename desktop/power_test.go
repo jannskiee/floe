@@ -1,9 +1,6 @@
 package main
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
 // TestBatteryPresent (P11): only Windows' definite "no system battery"
 // (BatteryFlag 128) reads as no battery; unknown (255) and every charge
@@ -21,21 +18,41 @@ func TestBatteryPresent(t *testing.T) {
 	}
 }
 
-// TestPromptOmitsLaptopLineWithoutBattery (P11, D-136 L12): on a PC Windows
-// says has no system battery, the prompt carries its real warnings and no
-// laptop line, which would be advice about a lid that does not exist.
-func TestPromptOmitsLaptopLineWithoutBattery(t *testing.T) {
-	setVar(t, &hasBatteryFn, func() bool { return false })
-	a := &App{notifyFn: func(string, string) {}}
-	a.lane().emitFn = func(string, any) {}
-	forceGen(a, 1)
-	a.openPrompt(1, RequestPrompt{Files: 2, Warnings: []string{"low-space", "laptop-power"}})
-	if got := strings.Join(a.GetRequestLink().Prompt.Warnings, ","); got != "low-space" {
-		t.Fatalf("warnings %q on a PC with no battery, want low-space alone", got)
+// TestSnapshotCarriesTheBatteryFact (P11, E-94): the battery answer rides the
+// lane's snapshot, from the prompt on through Receiving, where the laptop line
+// now lives. It is Go's own fact about this PC, asked once per prompt outside
+// the lane lock, and never a prompt warning.
+func TestSnapshotCarriesTheBatteryFact(t *testing.T) {
+	for _, battery := range []bool{true, false} {
+		setVar(t, &hasBatteryFn, func() bool { return battery })
+		a := &App{notifyFn: func(string, string) {}, wake: &wakeGuard{onBlock: func() {}, onAllow: func() {}}}
+		a.lane().emitFn = func(string, any) {}
+		forceGen(a, 1)
+		a.openPrompt(1, RequestPrompt{Files: 2})
+		if got := a.GetRequestLink(); got.State != "deciding" || got.Battery != battery {
+			t.Fatalf("battery %v: deciding snapshot says %v", battery, got.Battery)
+		}
+		if !a.acceptDrop(1) {
+			t.Fatal("Accept found the lane gone")
+		}
+		if got := a.GetRequestLink(); got.State != "receiving" || got.Battery != battery {
+			t.Fatalf("battery %v: receiving snapshot says %v", battery, got.Battery)
+		}
+		forceState(a, "off", 0)
 	}
-	a.openPrompt(1, RequestPrompt{})
-	if got := a.GetRequestLink().Prompt.Warnings; len(got) != 0 {
-		t.Fatalf("warnings %q on a PC with no battery and nothing to warn about", got)
+}
+
+// TestMakeLinkForgetsTheBatteryFact: a new link starts from nothing, so a
+// fact asked for the last link's prompt never reads as this link's.
+func TestMakeLinkForgetsTheBatteryFact(t *testing.T) {
+	f := newFakeSignalServer(t)
+	a, _ := laneApp(t, f)
+	l := a.lane()
+	l.mu.Lock()
+	l.battery = true
+	l.mu.Unlock()
+	first := makeWaiting(t, a)
+	if first.Battery {
+		t.Fatal("a fresh link's snapshot still says the last prompt's battery fact")
 	}
-	forceState(a, "off", 0)
 }
