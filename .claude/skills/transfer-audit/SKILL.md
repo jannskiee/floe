@@ -404,7 +404,11 @@ toast activator keys
 `LocalServer32`) are rewritten by every unpackaged launch too and are
 deliberately not restored, because the next launch of a real unpackaged
 Floe corrects them, packaged builds never read them, and go-toast shares
-one CLSID across apps.
+one CLSID across apps. H7 (S-14) specifies that the same `AppUserModelId`
+key also carries `DisplayName` = `Floe`, written at launch before the
+notification service starts so Windows lists the app as Floe; the audits
+do not restore that value either, and an exe copy with its own name gets
+its own key beside this one.
 
 ## 7. Head profile (what the next release will do)
 
@@ -517,9 +521,13 @@ to it, so none ever runs as a plain cell.
   swallowed by the prompt's guard, which re-arms on focus, so Accept and
   Decline are repeated (three Invokes at most), never sooner than 1.2 s
   after the prompt was first seen or after the previous Invoke. An exe has
-  no bound GetSettings or SetSettings: the Beta switch and a proxy's server
-  address ride the desktop.json it launches with (`requestLinks:true`,
-  `serverOverride`), and the switch's TogglePattern state is the read-back.
+  no bound GetSettings or SetSettings: a proxy's server address rides the
+  desktop.json it launches with (`serverOverride`). Since H7 (D-160) there
+  is no Beta switch and no `requestLinks` key to seed (a legacy one in a
+  desktop.json is ignored by the app and left as it is): the host waits up
+  to 10 s for the REQUEST LINK choice on Receive, clicking RECEIVE once
+  when the window is on another tab, and a build that never shows it is a
+  `request-flow` FAIL at `host.start`.
   On an exe lane the TA-17 cells with a desktop side are NA
   `single-instance` (the host holds the one app instance).
 - TA-16 (`H-DIR-C2D-req`, head only) makes the CLI the visitor:
@@ -542,9 +550,10 @@ to it, so none ever runs as a plain cell.
   `reportStats:false`, `migrated:true` and the local server
   (`GetSettings`), as for any wailsdev receiver; otherwise the cell is
   ERROR `wailsdev-config` and the host is never driven.
-- Each attempt makes its own link: Hide my IP on for TA-12, the Beta switch
-  `Request links` on (retried for 10 s while the app's own feature probe
-  keeps it disabled), Make link with the Save to field set to the
+- Each attempt makes its own link: Hide my IP on for TA-12, the REQUEST LINK
+  tab awaited (10 s; no Settings switch since H7, and a server without
+  request-1 answers at Make link with E1, a `request-flow` FAIL naming
+  `disabled`), Make link with the Save to field set to the
   attempt's own `out` folder (never the owner's DownloadsFloe requests;
   a field that does not take is SKIP `desktop-savedir`), then Read link.
 - The visitor is a fresh Chromium context on `/r`: the files go into the
@@ -558,8 +567,12 @@ to it, so none ever runs as a plain cell.
   host pill or the lane's route); the host's stats proof and 0 report
   attempts on every visitor (a `floe:bytes-reported` event on a visitor
   is a safety stop); the host's saved and verified counts, its done heading
-  and SHA sentence, and the visitor's arrived title and SHA line, each SHA
-  line shown only when every file verified; the received files byte for
+  and the check mark's SHA-256 matched text (since D-161 the sr-only span
+  beside the green check, read as a Text node on UIA and a span on the dev
+  page; on an exe host it is the only account, so a done view without it is
+  a `request-flow` FAIL that names the host's view), and the visitor's
+  arrived title and SHA line, each SHA mark shown only when every file
+  verified; the received files byte for
   byte inside the one exclusive subfolder the host reports, nothing loose
   beside it (`request-manifest`, `hash-mismatch`, `stale-part`); a fresh
   visitor reading the link used up afterwards. A failed step is FAIL
@@ -603,7 +616,7 @@ to it, so none ever runs as a plain cell.
   W2W cell.
 - Teardown, pass or fail, and on an interrupt too (the host leg's stop):
   a running drop is canceled, the cell's link closed or its result put
-  away, the blip's addresses and the Beta switch restored. Every request
+  away and the blip's addresses restored. Every request
   verb first brings the host page back to Receive > REQUEST LINK when it
   is not showing it, so a page that moved to Send still gets its link
   closed. Only a link generation the cell made is touched at teardown. A
@@ -612,9 +625,9 @@ to it, so none ever runs as a plain cell.
   evidence root (a leftover of an earlier cell, noted as swept); any other
   is the owner's, is left exactly as it is, and the cell is ERROR
   `host-busy` before any click. A release that does not leave the host as
-  found (the link still open, the result still showing, the address or
-  the Beta switch not restored, or a release that outlived the teardown
-  budget) turns a cell that otherwise passed into ERROR `host-release`; a
+  found (the link still open, the result still showing, the address not
+  restored, or a release that outlived the teardown budget) turns a cell
+  that otherwise passed into ERROR `host-release`; a
   cell that already failed keeps its own finding with the same words as a
   note.
 - The link carries the room after `#`: it goes to the visitor's

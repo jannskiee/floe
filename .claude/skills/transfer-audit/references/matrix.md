@@ -172,21 +172,23 @@ The host verbs on the wailsdev lane (`scripts/lib/desktop.mjs`
 
 | Verb              | Clicks                                                  | Reads back                               |
 | ----------------- | ------------------------------------------------------- | ---------------------------------------- |
+| awaitRequestTab   | `Receive` once, only when the REQUEST LINK choice is not showing | `Request link, beta` shows within 10 s (H7: always there, no Settings switch) |
 | makeRequestLink   | `Receive`, `Request link, beta`, `Make another link` (from the ended view), the Save to field (the run's own folder, required), `In 7 days` (7d only), `Make link` | the field's value, `Copy link` shows (waiting) or the lane's error code, the link's folder in `GetRequestLink` |
 | readRequestLink   | nothing                                                 | `GetRequestLink` link, matched to the link block's input |
 | acceptRequest     | `Accept`, at least 1200 ms after the prompt was seen    | `Accept` gone (the prompt left)          |
 | declineRequest    | `Decline`, at least 1200 ms after the prompt was seen   | `Keep waiting` shows (declined)          |
 | keepWaiting       | `Keep waiting` (only from the declined view)            | `Copy link` shows again (waiting)        |
 | closeRequestLink  | `Close link`                                            | `Make another link` shows (ended)        |
-| readRequestResult | nothing                                                 | the done heading `RECEIVED N FILES, ...` and whether the SHA sentence shows |
-| dismissRequestResult | `Dismiss`                                          | `Dismiss` gone (the lane back to Ready, the Beta switch unlocked) |
+| readRequestResult | nothing                                                 | the done heading `RECEIVED N FILES, ...` and whether the check mark's `SHA-256 matched` text shows |
+| dismissRequestResult | `Dismiss`                                          | `Dismiss` gone (the lane back to Ready) |
 | cancelRequestDrop | `Cancel drop` (teardown of a drop still receiving)     | `Cancel drop` gone                       |
 | setAddresses      | nothing (the app's own `SetSettings`, TA-13 only)       | `GetSettings` server and web             |
 
-The runner also flips Settings > Beta > `Request links` on (and back off
-at teardown when it turned it on), through the same label click as Hide my
-IP, retried for 10 s while the app's own feature probe keeps the switch
-disabled.
+The runner no longer touches Settings for the request link: H7 (D-160) removed
+the Settings > Beta > `Request links` switch, the REQUEST LINK tab is always
+on Receive, and `awaitRequestTab` waits for it. A server without request-1
+(the kill switch) leaves the tab in place and ends Make link in E1. Only
+Hide my IP is still flipped through a Settings label click (TA-12).
 
 ## What each surface can do
 
