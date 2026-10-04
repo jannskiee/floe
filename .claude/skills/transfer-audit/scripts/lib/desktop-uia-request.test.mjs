@@ -324,14 +324,14 @@ test('requestStateFromItems names every view from its buttons and fixed copy', (
         warnings: ['low-space'],
     });
     // The laptop line stays readable where a build still draws it on the
-    // prompt (pre-H7), but its absence is never a finding.
-    const legacy = requestStateFromItems([
-        B('Accept'),
-        B('Decline'),
-        T('3 files, 64.0 MB'),
-        T('On a laptop, plug in and keep the lid open.'),
-    ]);
-    assert.deepEqual(legacy.prompt.warnings, ['laptop-power']);
+    // prompt (pre-H7), but its absence is never a finding. H7 words it
+    // "Keep this laptop plugged in and open." and draws it on Receiving only,
+    // so on a prompt either wording is a line that should not be there: it
+    // is read as laptop-power and lands in the attempt's evidence.
+    for (const line of ['On a laptop, plug in and keep the lid open.', 'Keep this laptop plugged in and open.']) {
+        const withLine = requestStateFromItems([B('Accept'), B('Decline'), T('3 files, 64.0 MB'), T(line)]);
+        assert.deepEqual(withLine.prompt.warnings, ['laptop-power'], line);
+    }
     const cap = requestStateFromItems([B('Accept'), B('Decline'), T('1 file, 3.0 GB'), T('Hide my IP is on, so this 3.0 GB drop will stop before any file.')]);
     assert.deepEqual(cap.prompt.warnings, ['relay-over-cap']);
     const stopped = requestStateFromItems([B('Dismiss'), T('DROP STOPPED'), T('The sender stopped this drop. 1 of 2 files were saved.')]);

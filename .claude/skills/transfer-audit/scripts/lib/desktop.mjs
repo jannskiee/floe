@@ -320,14 +320,16 @@ export const REQUEST_COPY = Object.freeze({
     renamedOne: /^1 file was renamed to end in \.floe-blocked/i, // DN4
     renamedMany: /^(\d+) files were renamed to end in \.floe-blocked/i, // DN4p
     // P4, P5, P6, P11: warningLine(code), mapped back to the code. P11 (the
-    // laptop line) left the prompt in H7 (D-161) for the Receiving view and
-    // only on a PC with a battery, so its absence on a prompt is never a
-    // finding; the regex stays for a build that still draws it there.
+    // laptop line) left the prompt in H7 (D-161) for the Receiving view, where
+    // it reads "Keep this laptop plugged in and open." and shows only on a PC
+    // with a battery, so its absence on a prompt is never a finding. Either
+    // wording is still read here, so a prompt that draws the line (the HP
+    // build, or a regression) shows laptop-power in the attempt's evidence.
     warnings: Object.freeze([
         ['low-space', /^Only .+ free on .+\. The drop will stop when the drive fills\.$/i],
         ['file-too-large-for-drive', /^This drive cannot save files over 4 GB, so this drop will stop\.$/i],
         ['relay-over-cap', /^Hide my IP is on, so this .+ drop will stop before any file\.$/i],
-        ['laptop-power', /^On a laptop, plug in and keep the lid open\.$/i],
+        ['laptop-power', /^(?:On a laptop, plug in and keep the lid open|Keep this laptop plugged in and open)\.$/i],
     ]),
 });
 
