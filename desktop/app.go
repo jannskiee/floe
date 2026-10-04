@@ -242,6 +242,12 @@ func (a *App) PasteFiles() []string {
 	return nil
 }
 
+// floeInFrontFn is the foreground rule's seam: whether Floe is the window in
+// front on a PC that is in use (attention_windows.go; always false elsewhere).
+// It lives here, in an untagged file, so notify compiles on every platform.
+// testmain_test.go pins it false so no test depends on the machine it runs on.
+var floeInFrontFn = floeInFront
+
 // notify sends a best-effort OS notification. Failures are ignored so a transfer
 // outcome never depends on the notification succeeding. notifyFn is the test
 // seam: nil means the real Wails runtime notification.

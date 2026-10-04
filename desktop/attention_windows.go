@@ -11,6 +11,7 @@ package main
 import (
 	"os"
 	"sync"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -21,6 +22,9 @@ var (
 	procGetWindowThreadProcessId = user32.NewProc("GetWindowThreadProcessId")
 	procIsWindowVisible          = user32.NewProc("IsWindowVisible")
 	procFlashWindowEx            = user32.NewProc("FlashWindowEx")
+	procGetForegroundWindow      = user32.NewProc("GetForegroundWindow")
+	procGetLastInputInfo         = user32.NewProc("GetLastInputInfo")
+	procGetTickCount             = kernel32.NewProc("GetTickCount")
 )
 
 // FLASHWINFO dwFlags (winuser.h).
@@ -92,3 +96,48 @@ func flashTaskbar() { flashWindow(flashwAll | flashwTimerNoFG) }
 
 // stopFlash stops the flash and restores the button.
 func stopFlash() { flashWindow(flashwStop) }
+
+// inFrontIdleLimit is how long the PC may sit unused before Floe's own
+// foreground window stops counting as "in front": a window left open in front
+// of an empty chair is where a toast is most needed.
+const inFrontIdleLimit = 60 * time.Second
+
+// lastInputInfo is LASTINPUTINFO: 8 bytes, cbSize then the tick count of the
+// last keyboard or mouse input. cbSize is always computed with unsafe.Sizeof.
+type lastInputInfo struct {
+	cbSize uint32
+	dwTime uint32
+}
+
+// inFront is the foreground rule (S-12): the window in front belongs to this
+// process and the PC was used within the idle limit. A foreground window of
+// nobody's (pid 0: a lock screen, a window switch in progress) is never Floe.
+func inFront(fgPID, ownPID uint32, idle time.Duration) bool {
+	return fgPID != 0 && fgPID == ownPID && idle < inFrontIdleLimit
+}
+
+// idleSince is the time since the last input. Both clocks are 32-bit
+// milliseconds that wrap every 49.7 days, so the difference is taken in
+// uint32: across a wrap it is still the small number it should be.
+func idleSince(tick, last uint32) time.Duration {
+	return time.Duration(tick-last) * time.Millisecond
+}
+
+// floeInFront reports whether Floe is the foreground window of a PC in use.
+// Wails v2 has no focus query, so this asks Windows. Any call that fails reads
+// as "not in front": a toast too many is better than one swallowed.
+func floeInFront() bool {
+	hwnd, _, _ := procGetForegroundWindow.Call()
+	if hwnd == 0 {
+		return false
+	}
+	var pid uint32
+	procGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
+	li := lastInputInfo{}
+	li.cbSize = uint32(unsafe.Sizeof(li))
+	if ok, _, _ := procGetLastInputInfo.Call(uintptr(unsafe.Pointer(&li))); ok == 0 {
+		return false
+	}
+	tick, _, _ := procGetTickCount.Call()
+	return inFront(pid, uint32(os.Getpid()), idleSince(uint32(tick), li.dwTime))
+}

@@ -44,6 +44,10 @@ func TestMain(m *testing.M) {
 	for _, k := range []string{"TMP", "TEMP", "TMPDIR"} {
 		os.Setenv(k, tmp)
 	}
+	// Whether Floe is the foreground window is a fact about the machine the
+	// tests run on, and it would silently swallow every toast a test expects.
+	// TestNotifySkippedWhileFloeInFront sets it itself.
+	floeInFrontFn = func() bool { return false }
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)
