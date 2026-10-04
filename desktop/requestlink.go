@@ -119,12 +119,14 @@ type RequestResult struct {
 	Folder   string   `json:"folder"`   // the absolute exclusive subfolder
 	Names    []string `json:"names"`
 
-	// NoNamedStreams is true unless the save volume positively says it can
-	// carry the Windows downloaded-file mark (a Zone.Identifier named stream).
-	// Where it cannot (FAT32, exFAT, many network shares) the mark is never
-	// written, Windows has nothing to warn with when a file is opened, and
-	// the Done view keeps its not-scanned line (H7 S-7). A volume that could
-	// not be asked counts as unable. Go's own fact, never peer data.
+	// NoNamedStreams is false only when the save volume positively answered
+	// that it can carry the Windows downloaded-file mark (a Zone.Identifier
+	// named stream). It is true where the volume cannot (FAT32, exFAT, many
+	// network shares), and also true when the volume could not be asked (an
+	// error, or no answer within a short bound) and on every platform but
+	// Windows. The name reads as a fact about the volume; what it decides is
+	// that the Done view keeps its not-scanned line (H7 S-7), so every doubt
+	// lands on true. Go's own fact, never peer data.
 	NoNamedStreams bool `json:"noNamedStreams"`
 }
 

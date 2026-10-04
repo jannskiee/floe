@@ -87,10 +87,13 @@ export interface RequestResult {
     bytes: number;
     verified: number;
     renamed: number;
-    /** The save volume cannot carry the Windows downloaded-file mark, or could
-     *  not be asked: Go's own fact, which brings DN5 back (S-7). Go always sends
-     *  it and normalizeSnapshot always sets it; optional only so the fixtures
-     *  that build a result by hand need not all name it. */
+    /** False only when the save volume positively answered that it can carry the
+     *  Windows downloaded-file mark. True where it cannot, and also true when the
+     *  volume could not be asked and off Windows: every doubt lands on true,
+     *  because true is what brings DN5 back (S-7). Go's own fact. Go always sends
+     *  it and normalizeSnapshot always sets it (absent or junk reads as true);
+     *  optional only so the fixtures that build a result by hand need not all
+     *  name it. */
     noNamedStreams?: boolean;
     folder: string;
     names: string[];
