@@ -86,9 +86,6 @@ function installWails() {
         MakeRequestLink: vi.fn(async () => ({...offSnapshot, state: 'error', code: 'disabled'})),
         RequestLinkSupport: vi.fn(async () => ({reachable: false, requestLinks: false})),
         RetryRequestLink: vi.fn(async () => {}),
-        SetRequestLinks: vi.fn(async (enabled: boolean) => {
-            if (enabled) throw new Error('request links are not available in this build');
-        }),
     };
 
     const probe: WailsProbe = {

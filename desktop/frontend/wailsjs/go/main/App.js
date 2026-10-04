@@ -106,10 +106,6 @@ export function SetCheckUpdates(arg1) {
   return window['go']['main']['App']['SetCheckUpdates'](arg1);
 }
 
-export function SetRequestLinks(arg1) {
-  return window['go']['main']['App']['SetRequestLinks'](arg1);
-}
-
 export function SetSettings(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['SetSettings'](arg1, arg2, arg3, arg4);
 }
