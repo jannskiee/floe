@@ -743,6 +743,32 @@ test('a build that does not show the REQUEST LINK tab is a keyed request-flow FA
     assert.equal(clicksOf(w, 'Settings').length, 0);
 });
 
+// Critic M8 (H7 round): on the UIA lane the done view is the host's whole
+// account, so the check mark's screen-reader text ("SHA-256 matched") is the
+// only proof of verification the cell can read. The old compare was a flag
+// against itself, so its own words could never name the host's view; a done
+// view without the text must fail as the HOST's, whatever the visitor shows.
+test('TA-10 on an exe host whose done view carries no SHA-256 matched text: FAIL request-flow naming the host view, not the visitor', async () => {
+    const w = fakeRequestWorld({ lane: 'uia', faults: ['heading-lie'] });
+    const ctx = ctxFor(w, { buildFor: EXE_BUILD, userAway: true });
+    const r = await runCell(small('H-DIR-W2D-req'), ctx);
+    assert.equal(r.verdict, 'FAIL', r.note);
+    assert.equal(r.reason, 'request-flow');
+    assert.match(r.note, /the host's done view carries no SHA-256 matched text/);
+    assert.equal(r.attempts[0].request.hostView.verifiedLine, false);
+    assert.equal(r.attempts.length, 1, 'a request-flow finding is never retried');
+});
+
+test('TA-10 on an exe host with a short verify: the same host-view finding, whether or not the visitor claims a SHA line', async () => {
+    for (const faults of [['verified-short'], ['verified-short', 'sha-line-lie']]) {
+        const w = fakeRequestWorld({ lane: 'uia', faults });
+        const ctx = ctxFor(w, { buildFor: EXE_BUILD, userAway: true });
+        const r = await runCell(small('H-DIR-W2D-req'), ctx);
+        assert.equal(r.verdict, 'FAIL', `${faults}: ${r.note}`);
+        assert.match(r.note, /the host's done view carries no SHA-256 matched text/, `${faults}`);
+    }
+});
+
 test('TA-10 on an exe host whose window lost the foreground: the first Accept is swallowed by the re-armed guard and the second lands (G2-F1)', async () => {
     const w = fakeRequestWorld({ lane: 'uia' });
     // Once a visitor sends, the window is no longer the foreground one.

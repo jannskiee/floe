@@ -356,8 +356,9 @@ const isAbsWin = (p) =>
  * save folder) and warnings, and a result's counts (DN1 carries the saved
  * count; DN3, the check mark's sr-only text, shows only when every file
  * matched, so it alone vouches for files and verified, which read null
- * without it). `gen` and `saveDir` are the UIA driver's own record of the
- * links it made: the view shows neither.
+ * without it; verifyRequest in request.mjs fails a done view without it).
+ * `gen` and `saveDir` are the UIA driver's own record of the links it made:
+ * the view shows neither.
  * `state` is `unknown` when the view is not showing (another tab, Settings).
  */
 export function requestStateFromItems(items, { gen = 0, saveDir = '' } = {}) {

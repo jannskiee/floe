@@ -34,7 +34,7 @@ import {
     runAttempt,
     statsProofCheck,
 } from './cell.mjs';
-import { desktopFmtBytes, safeCode, samePath } from './desktop.mjs';
+import { REQUEST_STRINGS, desktopFmtBytes, safeCode, samePath } from './desktop.mjs';
 import { compareOutputs, ensureFixture, walkOutputs } from './fixtures.mjs';
 import { REQUEST_CADDY_RECONNECT_MS, isLoopbackUrl } from './matrix.mjs';
 import { redactRequestLinks } from './report.mjs';
@@ -1007,7 +1007,20 @@ async function verifyRequest(cell, ctx, rec, st, fixture, T) {
     };
     if (view.files !== N)
         throw flow('verify', `the done heading reads ${JSON.stringify(view.heading)}, not ${N} file(s)`);
-    const allVerified = uia ? view.verifiedLine === true : r.verified === N;
+    // Critic M8 (H7 round). Since D-161 the verified words are the check
+    // mark's screen-reader text, and on the UIA lane the done view is the
+    // host's whole account: there is no GetRequestLink count to cross-check
+    // it with. A view without the text, because a window does not expose the
+    // span or its words changed, proves nothing, and the finding must name
+    // the host's view, never the visitor's line. A modern visitor always
+    // sends digests (P0-27, P0-22), so a clean drop always shows it. The old
+    // compare here was the flag against itself and could never fail.
+    if (uia && view.verifiedLine !== true)
+        throw flow(
+            'verify',
+            `the host's done view carries no ${REQUEST_STRINGS.verifiedLine} text (the check mark's screen-reader span), so the drop is not proven verified`
+        );
+    const allVerified = r.verified === N;
     if (view.verifiedLine !== allVerified)
         throw flow(
             'verify',
