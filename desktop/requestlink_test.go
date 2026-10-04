@@ -1434,17 +1434,16 @@ func TestRequestToastsAreConstant(t *testing.T) {
 // package is imported directly, with one exception (H7 S-13): toast_windows.go
 // imports exactly go-toast v2 for the silent push, and toastFor there builds
 // the only toast.Notification, from a title, a body, foreground activation and
-// silent audio and nothing else. Because the whole package is scanned, the
+// silent audio and nothing else. notify hands pushToast and pushFn its own
+// title and body untouched. Because the whole package is scanned, the
 // S1-DSK-03b drop (runRequestDrop) is covered by name without being listed.
 func TestNoDirectNotifyInRequestLane(t *testing.T) {
 	type use struct{ name, owner string }
 	allowed := map[use]bool{
 		{"notify", "app.go:(*App).notify"}:                             false,
 		{"notifyFn", "app.go:(*App).notify"}:                           false,
-		{"SendNotification", "app.go:(*App).notify"}:                   false,
-		{"NotificationOptions", "app.go:(*App).notify"}:                false,
-		{"InitializeNotifications", "app.go:(*App).startup"}:           false,
-		{"notifyFn", "app.go:App"}:                                     false,
+		{"pushFn", "app.go:(*App).notify"}:                             false,
+		{"pushToast", "app.go:(*App).notify"}:                          false,
 		{"SendNotification", "toast_windows.go:pushToast"}:             false,
 		{"NotificationOptions", "toast_windows.go:pushToast"}:          false,
 		{"SendNotification", "toast_other.go:pushToast"}:               false,
@@ -1454,6 +1453,9 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 		{"toastFor", "toast_windows.go:toastFor"}:                      false,
 		{"toastFor", "toast_windows.go:pushToast"}:                     false,
 		{"Notification", "toast_windows.go:toastFor"}:                  false,
+		{"InitializeNotifications", "app.go:(*App).startup"}:           false,
+		{"notifyFn", "app.go:App"}:                                     false,
+		{"pushFn", "app.go:App"}:                                       false,
 		{"notify", "app.go:(*App).notifyTransferFailed"}:               false,
 		{"notifyTransferFailed", "app.go:(*App).notifyTransferFailed"}: false,
 		{"notify", "transfer.go:(*App).runSend"}:                       false,
@@ -1467,11 +1469,12 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 	// reach go-toast too, and so would any later one (review 2b L1).
 	named := map[string]bool{
 		"notify": true, "notifyFn": true, "notifyTransferFailed": true,
-		"pushToast": true, "toastFor": true,
+		"pushToast": true, "pushFn": true, "toastFor": true,
 	}
 	watched := func(name string) bool { return named[name] || strings.Contains(name, "Notification") }
 	keys := map[string]bool{"toastRequestArrived": true, "toastDropDone": true, "toastDropFailed": true}
 	const laneOwner = "requestlink.go:(*App).notifyRequest"
+	const notifyOwner = "app.go:(*App).notify"
 	const toastImport = `"git.sr.ht/~jackmordaunt/go-toast/v2"`
 
 	files, err := filepath.Glob("*.go")
@@ -1479,7 +1482,7 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 		t.Fatal(err)
 	}
 	fset := token.NewFileSet()
-	parsed, laneNotify := 0, 0
+	parsed, laneNotify, pushCalls := 0, 0, 0
 	var sawRequest, sawTable, sawToastFor, sawToastImport bool
 	for _, file := range files {
 		if strings.HasSuffix(file, "_test.go") {
@@ -1502,15 +1505,22 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 		for _, decl := range f.Decls {
 			owner := file + ":" + declOwner(decl)
 			fd, _ := decl.(*ast.FuncDecl)
-			// The identifiers that are a call's function, with their call.
+			// The identifiers that are a call's function, with their call, and
+			// the field names a nil comparison reads (a.pushFn != nil).
 			callOf := map[*ast.Ident]*ast.CallExpr{}
+			nilCmp := map[*ast.Ident]bool{}
 			ast.Inspect(decl, func(n ast.Node) bool {
-				if call, ok := n.(*ast.CallExpr); ok {
-					switch fn := call.Fun.(type) {
+				switch n := n.(type) {
+				case *ast.CallExpr:
+					switch fn := n.Fun.(type) {
 					case *ast.Ident:
-						callOf[fn] = call
+						callOf[fn] = n
 					case *ast.SelectorExpr:
-						callOf[fn.Sel] = call
+						callOf[fn.Sel] = n
+					}
+				case *ast.BinaryExpr:
+					if sel, ok := n.X.(*ast.SelectorExpr); ok && isIdent(n.Y, "nil") && (n.Op == token.NEQ || n.Op == token.EQL) {
+						nilCmp[sel.Sel] = true
 					}
 				}
 				return true
@@ -1562,9 +1572,24 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 						if call == nil || len(call.Args) != 2 || !isStringLit(call.Args[1]) {
 							t.Errorf("%v: notifyTransferFailed's body is not a string literal", at)
 						}
-					case id.Name == "notify" && owner != "app.go:(*App).notify":
+					case id.Name == "notify" && owner != notifyOwner:
 						if call == nil || len(call.Args) != 2 || !isStringLit(call.Args[0]) || !isStringLit(call.Args[1]) {
 							t.Errorf("%v: %s calls notify with something other than two string literals", at, owner)
+						}
+					case (id.Name == "pushToast" || id.Name == "pushFn") && owner == notifyOwner:
+						// pushFn(title, body, silent) and pushToast(ctx, title, body,
+						// silent): notify's own parameters, never rebuilt. A nil
+						// comparison of the seam is the only other way to name it.
+						ti, bi := 0, 1
+						if id.Name == "pushToast" {
+							ti, bi = 1, 2
+						}
+						switch {
+						case call != nil && len(call.Args) > bi && isIdent(call.Args[ti], "title") && isIdent(call.Args[bi], "body"):
+							pushCalls++
+						case nilCmp[id]:
+						default:
+							t.Errorf("%v: notify reaches %s other than with its own title and body", at, id.Name)
 						}
 					case id.Name == "toastFor" && owner == "toast_windows.go:pushToast":
 						if call == nil || len(call.Args) != 2 || !isIdent(call.Args[0], "title") || !isIdent(call.Args[1], "body") {
@@ -1604,6 +1629,27 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 					return true
 				})
 			}
+			if fd != nil && owner == notifyOwner {
+				// The text notify hands on is the text it was given: nothing in
+				// its body sets, declares or shadows title or body.
+				ast.Inspect(fd.Body, func(n ast.Node) bool {
+					switch s := n.(type) {
+					case *ast.AssignStmt:
+						for _, e := range s.Lhs {
+							if isIdent(e, "title") || isIdent(e, "body") {
+								t.Errorf("%v: notify assigns its title or body", fset.Position(s.Pos()))
+							}
+						}
+					case *ast.ValueSpec:
+						for _, id := range s.Names {
+							if id.Name == "title" || id.Name == "body" {
+								t.Errorf("%v: notify declares its own %s", fset.Position(s.Pos()), id.Name)
+							}
+						}
+					}
+					return true
+				})
+			}
 			if fd != nil && owner == "toast_windows.go:toastFor" {
 				sawToastFor = true
 				checkToastFor(t, fset, fd)
@@ -1618,6 +1664,9 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 	}
 	if laneNotify != 1 {
 		t.Errorf("notifyRequest references notify %d times, want exactly its one call", laneNotify)
+	}
+	if pushCalls != 2 {
+		t.Errorf("notify calls pushToast and pushFn %d times in all, want exactly one call each", pushCalls)
 	}
 	for u, seen := range allowed {
 		if !seen {

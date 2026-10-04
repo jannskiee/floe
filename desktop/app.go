@@ -86,6 +86,10 @@ type App struct {
 	// runtime notification (see notify).
 	notifyFn func(title, body string)
 
+	// pushFn is the second test seam: delivery with the sound flag, reached
+	// when notifyFn is nil. nil means pushToast.
+	pushFn func(title, body string, silent bool)
+
 	// quitFn is the test seam for quitting; nil means runtime.Quit, which
 	// log.Fatals on the nil context a bare test App carries.
 	quitFn func()
@@ -252,15 +256,33 @@ func (a *App) PasteFiles() []string {
 // testmain_test.go pins it false so no test depends on the machine it runs on.
 var floeInFrontFn = floeInFront
 
-// notify sends a best-effort OS notification. Failures are ignored so a transfer
-// outcome never depends on the notification succeeding. notifyFn is the test
-// seam: nil means the real Wails runtime notification.
+// notify is the one gate every OS toast passes (S-11, S-12). It sends a
+// best-effort notification: failures are ignored so a transfer outcome never
+// depends on the notification succeeding. Nothing is sent when Show
+// notifications is off, or while Floe is the window in front on a PC in use
+// (the screen already shows the prompt or the result). The flash, the title
+// and the in-app notice are not here and never turn off.
+//
+// The preferences are read now, under mu, and mu is released before delivery:
+// the toast can take a while, and no caller of notify holds mu or the lane's
+// lock. notifyFn and pushFn are the test seams; with neither set the toast
+// goes to pushToast, with the sound preference as its silent flag.
 func (a *App) notify(title, body string) {
+	a.mu.Lock()
+	off, silent, ctx := a.cfg.NoToasts, a.cfg.SilentToasts, a.ctx
+	a.mu.Unlock()
+	if off || floeInFrontFn() {
+		return
+	}
 	if a.notifyFn != nil {
 		a.notifyFn(title, body)
 		return
 	}
-	_ = runtime.SendNotification(a.ctx, runtime.NotificationOptions{Title: title, Body: body})
+	if a.pushFn != nil {
+		a.pushFn(title, body, silent)
+		return
+	}
+	pushToast(ctx, title, body, silent)
 }
 
 // notifyTransferFailed sends the failure toast unless the transfer was
