@@ -123,6 +123,10 @@ func (a *App) startup(ctx context.Context) {
 	a.mu.Lock()
 	a.ctx = ctx
 	a.mu.Unlock()
+	// Name the toast sender "Floe" before Wails registers it: Wails and
+	// go-toast fill the name in only while it is empty, and what Windows would
+	// list otherwise is the exe's file name (S-14).
+	setToastDisplayName()
 	// Best-effort: register the app for OS notifications (sets up the toast
 	// AppUserModelID on Windows). Errors are non-fatal.
 	_ = runtime.InitializeNotifications(ctx)

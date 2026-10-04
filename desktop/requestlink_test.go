@@ -1431,7 +1431,10 @@ func TestRequestToastsAreConstant(t *testing.T) {
 // call passes exactly the title and body requestToastText returned, every
 // reference to notifyRequest is a call with a table key, and requestToastText
 // returns constants. The transfer lane's calls pass string literals. No toast
-// package is imported directly. Because the whole package is scanned, the
+// package is imported directly, with one exception (H7 S-13): toast_windows.go
+// imports exactly go-toast v2 for the silent push, and toastFor there builds
+// the only toast.Notification, from a title, a body, foreground activation and
+// silent audio and nothing else. Because the whole package is scanned, the
 // S1-DSK-03b drop (runRequestDrop) is covered by name without being listed.
 func TestNoDirectNotifyInRequestLane(t *testing.T) {
 	type use struct{ name, owner string }
@@ -1442,6 +1445,15 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 		{"NotificationOptions", "app.go:(*App).notify"}:                false,
 		{"InitializeNotifications", "app.go:(*App).startup"}:           false,
 		{"notifyFn", "app.go:App"}:                                     false,
+		{"SendNotification", "toast_windows.go:pushToast"}:             false,
+		{"NotificationOptions", "toast_windows.go:pushToast"}:          false,
+		{"SendNotification", "toast_other.go:pushToast"}:               false,
+		{"NotificationOptions", "toast_other.go:pushToast"}:            false,
+		{"pushToast", "toast_windows.go:pushToast"}:                    false,
+		{"pushToast", "toast_other.go:pushToast"}:                      false,
+		{"toastFor", "toast_windows.go:toastFor"}:                      false,
+		{"toastFor", "toast_windows.go:pushToast"}:                     false,
+		{"Notification", "toast_windows.go:toastFor"}:                  false,
 		{"notify", "app.go:(*App).notifyTransferFailed"}:               false,
 		{"notifyTransferFailed", "app.go:(*App).notifyTransferFailed"}: false,
 		{"notify", "transfer.go:(*App).runSend"}:                       false,
@@ -1453,10 +1465,14 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 	// The app's own names, and every identifier naming a Wails notification
 	// symbol: SendNotificationWithActions and RegisterNotificationCategory
 	// reach go-toast too, and so would any later one (review 2b L1).
-	named := map[string]bool{"notify": true, "notifyFn": true, "notifyTransferFailed": true}
+	named := map[string]bool{
+		"notify": true, "notifyFn": true, "notifyTransferFailed": true,
+		"pushToast": true, "toastFor": true,
+	}
 	watched := func(name string) bool { return named[name] || strings.Contains(name, "Notification") }
 	keys := map[string]bool{"toastRequestArrived": true, "toastDropDone": true, "toastDropFailed": true}
 	const laneOwner = "requestlink.go:(*App).notifyRequest"
+	const toastImport = `"git.sr.ht/~jackmordaunt/go-toast/v2"`
 
 	files, err := filepath.Glob("*.go")
 	if err != nil {
@@ -1464,7 +1480,7 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 	}
 	fset := token.NewFileSet()
 	parsed, laneNotify := 0, 0
-	var sawRequest, sawTable bool
+	var sawRequest, sawTable, sawToastFor, sawToastImport bool
 	for _, file := range files {
 		if strings.HasSuffix(file, "_test.go") {
 			continue
@@ -1476,7 +1492,11 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 		parsed++
 		for _, imp := range f.Imports {
 			if strings.Contains(strings.ToLower(imp.Path.Value), "toast") {
-				t.Errorf("%s imports %s: a notification goes through notify only", file, imp.Path.Value)
+				if file == "toast_windows.go" && imp.Path.Value == toastImport {
+					sawToastImport = true
+					continue
+				}
+				t.Errorf("%s imports %s: a notification goes through notify only, and only toast_windows.go may import go-toast", file, imp.Path.Value)
 			}
 		}
 		for _, decl := range f.Decls {
@@ -1546,6 +1566,10 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 						if call == nil || len(call.Args) != 2 || !isStringLit(call.Args[0]) || !isStringLit(call.Args[1]) {
 							t.Errorf("%v: %s calls notify with something other than two string literals", at, owner)
 						}
+					case id.Name == "toastFor" && owner == "toast_windows.go:pushToast":
+						if call == nil || len(call.Args) != 2 || !isIdent(call.Args[0], "title") || !isIdent(call.Args[1], "body") {
+							t.Errorf("%v: pushToast builds its toast from something other than its own title and body", at)
+						}
 					case id.Name == "notifyTransferFailed":
 						if call == nil || len(call.Args) != 2 || !isStringLit(call.Args[1]) {
 							t.Errorf("%v: %s calls notifyTransferFailed without a literal title", at, owner)
@@ -1580,10 +1604,17 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 					return true
 				})
 			}
+			if fd != nil && owner == "toast_windows.go:toastFor" {
+				sawToastFor = true
+				checkToastFor(t, fset, fd)
+			}
 		}
 	}
 	if parsed < 10 || !sawRequest || !sawTable {
 		t.Fatalf("parsed %d files, notifyRequest found %v, requestToastText found %v", parsed, sawRequest, sawTable)
+	}
+	if !sawToastFor || !sawToastImport {
+		t.Errorf("toast_windows.go: toastFor found %v, go-toast import found %v; the exception exists for exactly that file", sawToastFor, sawToastImport)
 	}
 	if laneNotify != 1 {
 		t.Errorf("notifyRequest references notify %d times, want exactly its one call", laneNotify)
@@ -1637,6 +1668,79 @@ func recvTypeName(e ast.Expr) string {
 		return recvTypeName(e.X)
 	}
 	return "?"
+}
+
+// checkToastFor pins the one place a toast.Notification is built (H7 S-13):
+// toastFor(title, body) has exactly one statement, a return of one literal
+// whose keys are Title, Body, ActivationType and Audio and whose values are
+// title, body, toast.Foreground and toast.Silent. No Icon, HeroIcon, Actions,
+// Inputs or ActivationArguments (a launch value runs on a click), and no free
+// audio: the sound is the preference's to give back by taking the other path.
+func checkToastFor(t *testing.T, fset *token.FileSet, fd *ast.FuncDecl) {
+	t.Helper()
+	var params []string
+	for _, f := range fd.Type.Params.List {
+		for _, n := range f.Names {
+			params = append(params, n.Name)
+		}
+	}
+	if strings.Join(params, ",") != "title,body" {
+		t.Errorf("%v: toastFor takes (%s), want (title, body)", fset.Position(fd.Pos()), strings.Join(params, ", "))
+	}
+	if len(fd.Body.List) != 1 {
+		t.Fatalf("%v: toastFor has %d statements, want its one return", fset.Position(fd.Pos()), len(fd.Body.List))
+	}
+	ret, ok := fd.Body.List[0].(*ast.ReturnStmt)
+	if !ok || len(ret.Results) != 1 {
+		t.Fatalf("%v: toastFor is not a single return", fset.Position(fd.Pos()))
+	}
+	lit, ok := ret.Results[0].(*ast.CompositeLit)
+	if !ok {
+		t.Fatalf("%v: toastFor does not return a literal", fset.Position(ret.Pos()))
+	}
+	want := map[string]string{"Title": "title", "Body": "body", "ActivationType": "toast.Foreground", "Audio": "toast.Silent"}
+	seen := map[string]bool{}
+	for _, e := range lit.Elts {
+		kv, ok := e.(*ast.KeyValueExpr)
+		key, isKey := "", false
+		if ok {
+			if id, ok := kv.Key.(*ast.Ident); ok {
+				key, isKey = id.Name, true
+			}
+		}
+		if !isKey {
+			t.Errorf("%v: toastFor's literal has an element that is not a Key: value pair", fset.Position(e.Pos()))
+			continue
+		}
+		w, listed := want[key]
+		if !listed {
+			t.Errorf("%v: toastFor sets %s; only Title, Body, ActivationType and Audio are allowed", fset.Position(e.Pos()), key)
+			continue
+		}
+		if got := dottedName(kv.Value); got != w {
+			t.Errorf("%v: toastFor sets %s to %q, want %s", fset.Position(e.Pos()), key, got, w)
+		}
+		seen[key] = true
+	}
+	for key := range want {
+		if !seen[key] {
+			t.Errorf("%v: toastFor does not set %s", fset.Position(lit.Pos()), key)
+		}
+	}
+}
+
+// dottedName spells an identifier or a pkg.Name selector, and "" for any
+// other expression.
+func dottedName(e ast.Expr) string {
+	switch e := e.(type) {
+	case *ast.Ident:
+		return e.Name
+	case *ast.SelectorExpr:
+		if x, ok := e.X.(*ast.Ident); ok {
+			return x.Name + "." + e.Sel.Name
+		}
+	}
+	return ""
 }
 
 // toastTextVars returns the two identifiers notifyRequest defines from
