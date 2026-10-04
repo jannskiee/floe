@@ -4,11 +4,12 @@
 // It models the host states of spec 06 4.4 as the buttons each one shows
 // (names from the frozen copy, REQUEST_STRINGS), the 1 s input guard on the
 // prompt's buttons (a click inside it is ignored, as the frontend ignores
-// it), the Settings screen with its Hide my IP and Request links switches,
-// the Save to field, and the Wails bindings GetSettings, SetSettings,
-// SetRequestLinks and GetRequestLink on window.go.main.App. Time is a fake
-// clock the verbs read through `now` and advance through `nap`, so no test
-// sleeps.
+// it), the Settings screen with its Hide my IP switch (H7 has no Request
+// links switch: the REQUEST LINK tab is always there, and a server without
+// request-1 answers at Make link with E1), the Save to field, and the Wails
+// bindings GetSettings, SetSettings and GetRequestLink on
+// window.go.main.App. Time is a fake clock the verbs read through `now` and
+// advance through `nap`, so no test sleeps.
 import path from 'node:path';
 
 export const FAKE_ROOM = '6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f';
@@ -19,8 +20,7 @@ export const VERIFIED_LINE = 'SHA-256 matched';
 // screen-reader twin beside the chip's word while nothing moves.
 export const HIDE_IP_NOTE = 'Hide my IP is on. Transfers go through the relay (capped at 2 GB).';
 
-// The lane states that show the link block (RequestLinkView.tsx LINK_PHASES)
-// and the ones that lock the Beta switch (requestLink.ts HOLDS).
+// The lane states that show the link block (RequestLinkView.tsx LINK_PHASES).
 const LINK_STATES = new Set([
     'waiting',
     'reconnecting',
@@ -28,7 +28,6 @@ const LINK_STATES = new Set([
     'deciding',
     'declined',
 ]);
-const HOLDS = new Set([...LINK_STATES, 'making', 'receiving', 'done', 'stopped']);
 
 const VIEW_BUTTONS = {
     ready: ['Make link'],
@@ -47,10 +46,6 @@ const SWITCHES = [
     {
         key: 'hideIP',
         name: 'Hide my IP address Route every transfer through the relay.',
-    },
-    {
-        key: 'requestLinks',
-        name: 'Request links Let someone send files to this PC through a link you make. Works while Floe is open.',
     },
 ];
 
@@ -78,9 +73,16 @@ export function fakeRequestDom({
     guardMs = 1000,
     withBinding = true,
     settings = {},
+    // The server's request-1 answer, which is now the whole gate: the tab
+    // shows either way, and Make link on a server without it ends in E1.
     featureOn = true,
+    // A build that does not show the REQUEST LINK tab at all (a pre-H7 build
+    // with its Settings switch off).
+    hideTab = false,
     saveDirStuck = false,
-    betaStuck = false,
+    // A Settings switch that is disabled and ignores clicks (Hide my IP
+    // reads disabled while a transfer is busy).
+    switchStuck = false,
     makeError = null,
     // TA-13 shapes: a SetSettings that keeps the old server address, and a
     // host that makes its link on the old address whatever Settings reads.
@@ -136,7 +138,6 @@ export function fakeRequestDom({
             hideIP: false,
             reportStats: false,
             migrated: true,
-            requestLinks: true,
             ...settings,
         },
         // Set by tests/fake-request-world.mjs.
@@ -193,8 +194,6 @@ export function fakeRequestDom({
         }
         if (dom.onTick) dom.onTick(clock.t);
     };
-    const rowOn = () =>
-        dom.settings.requestLinks && (dom.featureOn || HOLDS.has(dom.state));
     // Receive > CODE | REQUEST LINK: the row, and the view under it, show
     // only on the Receive tab.
     const onRequestView = () =>
@@ -203,7 +202,7 @@ export function fakeRequestDom({
         tick();
         const out = ['Settings', 'Receive'];
         if (dom.settingsOpen || dom.closed) return dom.closed ? [] : out;
-        if (dom.mode === 'receive' && rowOn()) {
+        if (dom.mode === 'receive' && !hideTab) {
             out.push('Request link, beta');
             if (dom.requestView) out.push(...(VIEW_BUTTONS[dom.state] || []));
         }
@@ -222,9 +221,9 @@ export function fakeRequestDom({
     };
     const visible = (name) => visibleButtons().includes(name);
     const makeLink = () => {
-        if (makeError) {
+        if (makeError || !dom.featureOn) {
             dom.state = 'error';
-            dom.code = makeError;
+            dom.code = makeError ?? 'disabled';
             return;
         }
         dom.gen += 1;
@@ -379,12 +378,16 @@ export function fakeRequestDom({
                 break;
             case 'deciding':
                 out.push('SOMEONE WANTS TO SEND YOU FILES');
-                // P2 and P3 (RequestLinkView.tsx Prompt): the count and size
-                // as one string, then "Into " and the host-computed folder
-                // as two leaves. The UIA lane reads the prompt from these.
+                // P2, P8 and P3 (RequestLinkView.tsx Prompt): the count and
+                // size as one string with the answer window at the right
+                // end of the same row (its own element, minutes only), then
+                // "Into " and the host-computed folder as two leaves. The
+                // UIA lane reads the prompt from these. H7 has no caution
+                // line (P10) and no laptop line on the prompt (P11).
                 if (dom.prompt)
                     out.push(
                         `${dom.prompt.files} ${dom.prompt.files === 1 ? 'file' : 'files'}, ${fmtBytes(dom.prompt.totalBytes)}`,
+                        `Answer within ${Math.max(1, Math.ceil((dom.prompt.answerBy - clock.t) / 60_000))} min`,
                         'Into ',
                         dom.prompt.folder
                     );
@@ -401,11 +404,15 @@ export function fakeRequestDom({
                 out.push(
                     `RECEIVED ${r.saved} ${r.saved === 1 ? 'FILE' : 'FILES'}, ${mb(r.bytes)}`
                 );
+                // DN3 (D-161): a green check beside the heading, aria-hidden,
+                // and the words as an sr-only span of their own. The span is
+                // the only trace of verification a reader sees, so
+                // forceVerifiedLine false models a window that does not
+                // expose it. DN5 left the view (docs only).
                 const shown =
                     dom.forceVerifiedLine ??
                     (r.files > 0 && r.saved === r.files && r.verified === r.files);
                 if (shown) out.push(VERIFIED_LINE);
-                out.push('Floe does not scan files for malware.');
                 // DN6's folder row: the drop folder's own name (the full
                 // path rides only its title attribute).
                 if (r.folder && r.saved > 0) out.push(path.basename(r.folder));
@@ -447,11 +454,6 @@ export function fakeRequestDom({
             name instanceof RegExp ? name.test(s.name) : s.name === name
         );
         if (!sw) throw new Error(`fake dom: no checkbox named ${name}`);
-        const disabled = () =>
-            sw.key === 'requestLinks' &&
-            (betaStuck ||
-                HOLDS.has(dom.state) ||
-                (!dom.settings.requestLinks && !dom.featureOn));
         return {
             async isChecked() {
                 return Boolean(dom.settings[sw.key]);
@@ -463,7 +465,7 @@ export function fakeRequestDom({
                             throw new Error(
                                 `fake dom: the ${sw.key} switch is on the Settings screen, which is closed`
                             );
-                        if (disabled()) return;
+                        if (switchStuck) return;
                         dom.settings[sw.key] = !dom.settings[sw.key];
                     },
                 };
@@ -531,9 +533,6 @@ export function fakeRequestDom({
                         reportStats,
                         migrated: true,
                     });
-                },
-                SetRequestLinks: async (v) => {
-                    dom.settings.requestLinks = Boolean(v);
                 },
             };
             globalThis.window = withBinding
@@ -652,11 +651,7 @@ export function fakeRequestDom({
                     key: sw.key,
                     name: sw.name,
                     on: Boolean(dom.settings[sw.key]),
-                    disabled:
-                        sw.key === 'requestLinks' &&
-                        (betaStuck ||
-                            HOLDS.has(dom.state) ||
-                            (!dom.settings.requestLinks && !dom.featureOn)),
+                    disabled: switchStuck,
                 })),
             setSwitch: (key, on) => {
                 dom.settings[key] = Boolean(on);

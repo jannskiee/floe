@@ -287,9 +287,9 @@ test('fake helper: snapshot sends values only when asked, and toggle frames rege
         assert.match(withValues.items[1].value, /\/r\/Xk3p9Q0aB1c#/);
         assert.equal(withValues.items[1].readOnly, true);
         assert.equal(withValues.items[2].toggle, 'Off');
-        const on = await c.toggle(4242, /^Request links/i, true);
+        const on = await c.toggle(4242, /^Show notifications/i, true);
         assert.deepEqual([on.before, on.after, on.changed], [false, true, true]);
-        const again = await c.toggle(4242, /^Request links/i, true);
+        const again = await c.toggle(4242, /^Show notifications/i, true);
         assert.equal(again.changed, false);
         assert.equal((await c.snapshot(4242, { values: true })).items[2].toggle, 'On');
         await assert.rejects(
@@ -368,7 +368,7 @@ test(
             // FU-26: toggle and snapshot values reach the helper's own
             // parameter checks before any window is touched.
             await assert.rejects(
-                c.toggle(1, /^Request links/, true),
+                c.toggle(1, /^Show notifications/, true),
                 (err) => err.reason === 'not-a-window'
             );
             await assert.rejects(

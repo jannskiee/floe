@@ -1302,14 +1302,16 @@ function Invoke-SelfTest {
     $missing = Select-Index @() 0
     Check 'fixture-empty-collection' ($null -eq $missing) ''
 
-    # 7b. toggle (the request link verbs' Beta switch): a Settings switch is
-    #     named by its whole label, so the match is a regex over CheckBoxes
-    #     only; a Button carrying the same words is never a candidate.
+    # 7b. toggle (the Settings switch verb, Hide my IP in the audits): a
+    #     Settings switch is named by its whole label, so the match is a regex
+    #     over CheckBoxes only; a Button carrying the same words is never a
+    #     candidate. The fixture names the H7 Notifications switch (NS2, NS3);
+    #     the Request links switch left Settings in H7 (D-160).
     $sw = New-Object System.Collections.ArrayList
     [void]$sw.Add(@{ el = $null; i = 0; name = 'Hide my IP address Route every transfer through the relay.'; help = ''; type = 'CheckBox'; enabled = $true })
-    [void]$sw.Add(@{ el = $null; i = 1; name = 'Request links Let someone send files to this PC through a link you make. Works while Floe is open.'; help = ''; type = 'CheckBox'; enabled = $true })
-    [void]$sw.Add(@{ el = $null; i = 2; name = 'Request links'; help = ''; type = 'Button'; enabled = $true })
-    $rxReq = New-Object Text.RegularExpressions.Regex('^Request links', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    [void]$sw.Add(@{ el = $null; i = 1; name = 'Show notifications For requests and transfers, while Floe is in the background.'; help = ''; type = 'CheckBox'; enabled = $true })
+    [void]$sw.Add(@{ el = $null; i = 2; name = 'Show notifications'; help = ''; type = 'Button'; enabled = $true })
+    $rxReq = New-Object Text.RegularExpressions.Regex('^Show notifications', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
     $togReq = @(Select-ToggleCandidates $sw $rxReq)
     Check 'fixture-toggle-checkbox-only' ($togReq.Count -eq 1 -and $togReq[0].i -eq 1) "count=$($togReq.Count)"
     $rxAny = New-Object Text.RegularExpressions.Regex('e', [Text.RegularExpressions.RegexOptions]::IgnoreCase)

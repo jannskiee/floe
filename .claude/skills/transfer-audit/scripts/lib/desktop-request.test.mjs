@@ -45,7 +45,6 @@ test('the request strings are the frozen copy, and the wait exceeds the guard', 
         decline: 'Decline',
         keepWaiting: 'Keep waiting',
         makeAnother: 'Make another link',
-        betaSwitch: 'Request links',
         saveToPlaceholder: 'Downloads\\Floe requests',
         dismiss: 'Dismiss',
         cancelDrop: 'Cancel drop',
@@ -58,10 +57,33 @@ test('the request strings are the frozen copy, and the wait exceeds the guard', 
     assert.equal(HIDE_IP_NOTE, 'Hide my IP is on. Transfers go through the relay (capped at 2 GB).');
     assert.equal(ACCEPT_GUARD_MS, 1000);
     assert.ok(ACCEPT_WAIT_MS >= 1200);
-    assert.ok(RE.requestLinksRow.test(REQUEST_STRINGS.betaSwitch));
+    // H7 (D-160): no Settings > Beta > Request links row to key on.
+    assert.equal('requestLinksRow' in RE, false);
     assert.ok(RE.requestDone.test('RECEIVED 1 FILE, 64.0 MB'));
     assert.ok(RE.requestDone.test('RECEIVED 12 FILES, 38.0 GB'));
     assert.ok(!RE.requestDone.test('RECEIVING 1 OF 1'));
+});
+
+// H7 (D-160): the tab is always there, so a request host waits for it
+// instead of toggling a switch. A page on Send gets one RECEIVE click.
+test('wailsdev awaitRequestTab: from Send it clicks RECEIVE once and sees the choice; on Receive it clicks nothing; a build without the tab reports not shown', async () => {
+    const a = fakeRequestDom();
+    a.dom.mode = 'send';
+    const r = await driverOn(a).awaitRequestTab({ now: a.now, nap: a.nap });
+    assert.equal(r.shown, true);
+    assert.equal(r.via, 'playwright');
+    assert.deepEqual(a.dom.clicks.map((c) => c.name), ['Receive']);
+
+    const b = fakeRequestDom();
+    assert.equal((await driverOn(b).awaitRequestTab({ now: b.now, nap: b.nap })).shown, true);
+    assert.deepEqual(b.dom.clicks, [], 'already on Receive: no click');
+
+    const c = fakeRequestDom({ hideTab: true });
+    const t0 = c.now();
+    const none = await driverOn(c).awaitRequestTab({ now: c.now, nap: c.nap, timeoutMs: 2_000 });
+    assert.equal(none.shown, false);
+    assert.ok(none.waitedMs >= 2_000 && c.now() - t0 < 5_000, 'it waited out its own budget and no longer');
+    assert.equal(c.dom.settingsOpen, false, 'Settings was never opened');
 });
 
 test('wailsdev AcceptRequest never clicks before 1200 ms from the prompt, on a fake clock', async () => {
@@ -249,7 +271,7 @@ test('wailsdev done view: the heading counts the files, the SHA sentence shows o
     f.dom.result = { ...f.dom.result, verified: 0 };
     assert.equal((await d.readRequestResult()).verifiedLine, false);
     await d.dismissRequestResult({ now: f.now, nap: f.nap });
-    assert.equal(f.dom.state, 'ready', 'the lane is back to Ready, so the Beta switch unlocks');
+    assert.equal(f.dom.state, 'ready', 'the lane is back to Ready');
 
     const g = fakeRequestDom();
     const e = driverOn(g);

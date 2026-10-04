@@ -177,20 +177,41 @@ test('UIA CloseLink ends the link, CancelDrop stops a drop and Dismiss puts the 
     }
 });
 
-test('UIA setToggle sets the Request links switch through TogglePattern and reads it back; a stuck switch reads unchanged', async () => {
-    const { h, driver } = hostWith({ settings: { requestLinks: false } });
+// Settings has no Request links switch since H7 (D-160); the generic switch
+// verb still serves Hide my IP, the relay forcer.
+test('UIA setToggle sets the Hide my IP switch through TogglePattern and reads it back; a stuck switch reads unchanged; the Beta switch is gone', async () => {
+    const { h, driver } = hostWith({ settings: { hideIP: false } });
     await driver.click('Settings', { controlType: 'Button' });
-    const on = await driver.setToggle(/^Request links/, true);
+    const on = await driver.setToggle(/^Hide my IP/, true);
     assert.deepEqual([on.before, on.after, on.changed], [false, true, true]);
-    assert.equal(h.dom.settings.requestLinks, true);
-    const again = await driver.setToggle(/^Request links/, true);
+    assert.equal(h.dom.settings.hideIP, true);
+    const again = await driver.setToggle(/^Hide my IP/, true);
     assert.equal(again.changed, false, 'no Toggle when it already reads on');
+    await assert.rejects(driver.setToggle(/^Request links/, true), (e) => e.reason === 'not-found');
     await driver.click('Settings', { controlType: 'Button' });
 
-    const stuck = hostWith({ settings: { requestLinks: false }, betaStuck: true });
+    const stuck = hostWith({ settings: { hideIP: false }, switchStuck: true });
     await stuck.driver.click('Settings', { controlType: 'Button' });
-    const r = await stuck.driver.setToggle(/^Request links/, true);
+    const r = await stuck.driver.setToggle(/^Hide my IP/, true);
     assert.deepEqual([r.before, r.after, r.changed], [false, false, false]);
+});
+
+test('UIA awaitRequestTab: from Send it clicks RECEIVE once and sees the REQUEST LINK choice, on Receive it clicks nothing, and a build without the tab reports not shown', async () => {
+    const a = hostWith();
+    a.h.dom.mode = 'send';
+    const r = await a.driver.awaitRequestTab(a.clock);
+    assert.equal(r.shown, true);
+    assert.equal(r.via, 'uia');
+    assert.equal(clicksOf(a.client, 'Receive').length, 1);
+
+    const b = hostWith();
+    assert.equal((await b.driver.awaitRequestTab(b.clock)).shown, true);
+    assert.equal(b.client.calls.filter(([c]) => c === 'click').length, 0, 'already on Receive: no click');
+
+    const c = hostWith({ hideTab: true });
+    const none = await c.driver.awaitRequestTab({ ...c.clock, timeoutMs: 2_000 });
+    assert.equal(none.shown, false);
+    assert.equal(c.h.dom.settingsOpen, false, 'Settings was never opened');
 });
 
 test('the away guard: an exe request host re-reads the input idle time before every pattern call and stops as SKIP present when the owner is back, having clicked nothing', async () => {
@@ -235,6 +256,15 @@ test('UIA readRequestResult and requestSnapshot on the done view: the heading, t
         assert.equal(view.files, 1);
         assert.equal(view.verifiedLine, true);
         assert.match(view.heading, /^RECEIVED 1 FILE, 64\.0 MB$/);
+        // D-161: the words are the check mark's screen-reader text, a Text
+        // node of its own after the heading, and nothing else on the done
+        // view carries them (DN5 left the view).
+        const texts = (await driver._items()).filter((x) => x.type === 'Text').map((x) => x.name);
+        assert.deepEqual(texts.filter((t) => /SHA-256|malware|scan files/i.test(t)), ['SHA-256 matched']);
+        // A window that does not expose the span reads as no verified line.
+        h.dom.forceVerifiedLine = false;
+        assert.equal((await driver.readRequestResult()).verifiedLine, false);
+        h.dom.forceVerifiedLine = undefined;
         // Without the SHA line the counts it vouches for are unknown.
         h.dom.result = { ...h.dom.result, verified: 0 };
         const short = await driver.requestSnapshot();
@@ -273,23 +303,35 @@ test('requestStateFromItems names every view from its buttons and fixed copy', (
         assert.equal(s.state, want.state, JSON.stringify(items));
         if (want.code) assert.equal(s.code, want.code, JSON.stringify(items));
     }
+    // H7 (D-161): the answer window sits on the size row as its own text,
+    // and the laptop line is no longer on the prompt (it shows on Receiving,
+    // and only on a PC with a battery), so a prompt without it reads clean.
     const deciding = requestStateFromItems([
         B('Accept'),
         B('Decline'),
         T('SOMEONE WANTS TO SEND YOU FILES'),
         T('3 files, 64.0 MB'),
+        T('Answer within 9 min'),
         T('Into '),
         T('C:\\audit\\out\\Request 2026-09-30 2140'),
         T('Only 1.0 GB free on C:. The drop will stop when the drive fills.'),
-        T('On a laptop, plug in and keep the lid open.'),
     ], { saveDir: 'C:\\audit\\out' });
     assert.deepEqual(deciding.prompt, {
         files: 3,
         totalBytes: null,
         sizeText: '64.0 MB',
         folder: 'C:\\audit\\out\\Request 2026-09-30 2140',
-        warnings: ['low-space', 'laptop-power'],
+        warnings: ['low-space'],
     });
+    // The laptop line stays readable where a build still draws it on the
+    // prompt (pre-H7), but its absence is never a finding.
+    const legacy = requestStateFromItems([
+        B('Accept'),
+        B('Decline'),
+        T('3 files, 64.0 MB'),
+        T('On a laptop, plug in and keep the lid open.'),
+    ]);
+    assert.deepEqual(legacy.prompt.warnings, ['laptop-power']);
     const cap = requestStateFromItems([B('Accept'), B('Decline'), T('1 file, 3.0 GB'), T('Hide my IP is on, so this 3.0 GB drop will stop before any file.')]);
     assert.deepEqual(cap.prompt.warnings, ['relay-over-cap']);
     const stopped = requestStateFromItems([B('Dismiss'), T('DROP STOPPED'), T('The sender stopped this drop. 1 of 2 files were saved.')]);

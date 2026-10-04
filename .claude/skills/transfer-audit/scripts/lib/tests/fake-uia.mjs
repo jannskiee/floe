@@ -143,9 +143,10 @@ function readText(req) {
 
 const flaky = new Map();
 let wedged = false;
-// The Settings > Beta > Request links switch the toggle command flips.
+// The Settings > Notifications > Show notifications switch the toggle
+// command flips (NS2 and NS3; Settings has no Request links switch since H7).
 const SWITCH_NAME =
-    'Request links Let someone send files to this PC through a link you make. Works while Floe is open.';
+    'Show notifications For requests and transfers, while Floe is in the background.';
 let switchOn = false;
 const out = (obj) => process.stdout.write(JSON.stringify(obj) + '\n');
 

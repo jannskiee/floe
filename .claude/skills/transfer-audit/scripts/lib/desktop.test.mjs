@@ -146,6 +146,12 @@ test('editDesktopJson keeps the record and forces the five keys', () => {
     assert.throws(() => editDesktopJson('{not json', {}));
 });
 
+test('editDesktopJson never writes a requestLinks key (D-160: the app has no such setting), and a legacy one in the record is left exactly as it was', () => {
+    assert.equal('requestLinks' in JSON.parse(editDesktopJson('', { requestLinks: true })), false);
+    assert.equal(JSON.parse(editDesktopJson('{"requestLinks":false}', { requestLinks: true })).requestLinks, false);
+    assert.equal(JSON.parse(editDesktopJson('{"server":"x"}', {})).requestLinks, undefined);
+});
+
 test('sendButtonName, receiverTarget, pillVerdict, classifyStatus, sameText', () => {
     assert.equal(sendButtonName(0), 'Send');
     assert.equal(sendButtonName(1), 'Send 1 item');
@@ -2625,7 +2631,7 @@ test('PlaywrightDriver.toCodeView presses Code only when it shows and is not pre
     for (const [shown, pressed, want] of [
         [true, false, ['Code']], // the view kept Request link from the last cell
         [true, true, []], // already on Code
-        [false, false, []], // the beta is off: no choice row at all
+        [false, false, []], // not on Receive: no choice row on the page
     ]) {
         const page = codeChoicePage({ shown, pressed });
         const pressedIt = await new PlaywrightDriver(page, null, {}).toCodeView();
