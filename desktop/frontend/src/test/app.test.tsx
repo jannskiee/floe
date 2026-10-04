@@ -262,19 +262,33 @@ describe('the verification line', () => {
             wails.emit('send:done');
             wails.emit('send:delivered', {files: 2, verified: 2, hasVerified: true});
         });
-        expect(await screen.findByText('SHA-256 matched')).toBeTruthy();
+        // The words are for screen readers now: a green circle-check sits
+        // where the done row's plain check was, and no line says them (D-161).
+        const sr = await screen.findByText('SHA-256 matched');
+        expect(sr.className).toBe('sr-only');
+        const row = sr.parentElement!;
+        expect(row.textContent).toContain('Sent ');
+        const glyph = row.querySelector('svg.lucide-circle-check')!;
+        expect(glyph.getAttribute('aria-hidden')).toBe('true');
+        expect(glyph.getAttribute('class')).toContain('text-green-500');
+        expect(row.querySelector('svg.lucide-check')).toBeNull();
 
         // A short count is not a match, and a count the validator refused
-        // (hasVerified false) is absent, never "all matched".
+        // (hasVerified false) is absent, never "all matched": the row keeps
+        // a plain, quiet check and nothing else.
         act(() => {
             wails.emit('send:delivered', {files: 2, verified: 1, hasVerified: true});
         });
         await waitFor(() => expect(screen.queryByText('SHA-256 matched')).toBeNull());
+        const quiet = screen.getByText(/^Sent \d+ items?$/).parentElement!;
+        expect(quiet.querySelector('svg.lucide-circle-check')).toBeNull();
+        expect(quiet.querySelector('svg.lucide-check')!.getAttribute('class')).toContain('text-zinc-500');
 
         act(() => {
             wails.emit('send:delivered', {files: 2, verified: 2, hasVerified: false});
         });
         await waitFor(() => expect(screen.queryByText('SHA-256 matched')).toBeNull());
+        expect(document.querySelector('svg.lucide-circle-check')).toBeNull();
     });
 
     it('shows SHA-256 matched after a receive whose every recv:file-done was verified, and resets on the next receive', async () => {
@@ -299,12 +313,44 @@ describe('the verification line', () => {
             wails.emit('recv:file-done', {savedName: 'b.bin', bytes: 20, verified: true});
         });
         await act(async () => { finish('C:\\dl'); });
-        expect(await screen.findByText('SHA-256 matched')).toBeTruthy();
+        // Words for screen readers only; the saved row's check turns into the
+        // green circle-check, and the line of words is gone (D-161).
+        const sr = await screen.findByText('SHA-256 matched');
+        expect(sr.className).toBe('sr-only');
+        const row = sr.parentElement!;
+        expect(row.textContent).toContain('Saved to C:\\dl');
+        expect(row.querySelector('svg.lucide-circle-check')!.getAttribute('class')).toContain('text-green-500');
+        expect(row.querySelector('svg.lucide-check')).toBeNull();
 
         // A second receive starts from nothing: the counters are reset in
         // receive(), so the previous transfer's verdict cannot carry over.
         await user.click(start());
         await waitFor(() => expect(screen.queryByText('SHA-256 matched')).toBeNull());
+        expect(document.querySelector('svg.lucide-circle-check')).toBeNull();
+    });
+
+    it('keeps a quiet check on a receive that was not verified (a peer that sends no checksums)', async () => {
+        let finish!: (dir: string) => void;
+        wails.go.ReceiveByCode.mockImplementation(
+            () => new Promise<string>((resolve) => { finish = resolve; })
+        );
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        const named = () => screen.getAllByRole('button', {name: 'Receive'});
+        await user.click(named()[0]);
+        await user.type(screen.getByPlaceholderText('amber-otter-cloud'), 'amber-otter-cloud');
+        await user.click(named().find((b) => b.className.includes('w-full'))!);
+        act(() => {
+            wails.emit('recv:file-done', {savedName: 'a.bin', bytes: 10, verified: true});
+            wails.emit('recv:file-done', {savedName: 'b.bin', bytes: 20, verified: false});
+        });
+        await act(async () => { finish('C:\\dl'); });
+        const saved = await screen.findByText('Saved to C:\\dl');
+        const row = saved.parentElement!;
+        expect(screen.queryByText(/SHA-256/)).toBeNull();
+        expect(row.querySelector('svg.lucide-circle-check')).toBeNull();
+        expect(row.querySelector('svg.lucide-check')!.getAttribute('class')).toContain('text-zinc-500');
     });
 });
 

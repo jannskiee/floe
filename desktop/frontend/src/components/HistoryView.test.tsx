@@ -162,11 +162,44 @@ describe('request rows', () => {
     it('request row Show in folder opens the folder directly when nothing was renamed', async () => {
         mount([request()]);
         await openRow();
-        expect(screen.getByText('SHA-256 matched')).toBeTruthy();
+        // Words for screen readers only; the green check is what is drawn.
+        expect(screen.getByText('SHA-256 matched').className).toBe('sr-only');
         await userEvent.click(screen.getByRole('button', {name: 'Show in folder'}));
         expect(wails.go.OpenFolder).toHaveBeenCalledTimes(1);
         expect(wails.go.OpenFolder).toHaveBeenCalledWith(FOLDER);
         expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('a verified request row hangs a green check in the gutter of its folder line, and says nothing in words (D-161)', async () => {
+        const {container} = mount([request()]);
+        await openRow();
+        const glyph = container.querySelector('svg.lucide-circle-check')!;
+        expect(glyph).not.toBeNull();
+        expect(glyph.getAttribute('aria-hidden')).toBe('true');
+        expect(glyph.getAttribute('class')!.split(' ')).toEqual(expect.arrayContaining(['absolute', 'left-0', 'size-3.5', 'text-green-500']));
+        const sr = screen.getByText('SHA-256 matched');
+        expect(sr.className).toBe('sr-only');
+        // Beside the folder line, in its 28 px gutter, and not a line of its own.
+        const folder = screen.getByTitle(FOLDER);
+        expect(folder.className.split(' ')).toContain('pl-7');
+        expect(glyph.parentElement).toBe(folder.parentElement);
+        expect(sr.parentElement).toBe(folder.parentElement);
+        expect(folder.parentElement!.className.split(' ')).toContain('relative');
+    });
+
+    it('no check on a request row that was not fully verified, on a stopped row, or on a plain receive', async () => {
+        const {container, unmount} = mount([request({verified: 1})]);
+        await openRow();
+        expect(container.querySelector('svg.lucide-circle-check')).toBeNull();
+        expect(screen.queryByText(/SHA-256/)).toBeNull();
+        unmount();
+        const stopped = mount([request({stopped: 'disk-full', count: 2, offered: 2, verified: 2})]);
+        await openRow();
+        expect(stopped.container.querySelector('svg.lucide-circle-check')).toBeNull();
+        stopped.unmount();
+        const plain = mount([received]);
+        await userEvent.click(rowButton(/report\.pdf/));
+        expect(plain.container.querySelector('svg.lucide-circle-check')).toBeNull();
     });
 
     it('request row Show in folder asks first when files were renamed', async () => {

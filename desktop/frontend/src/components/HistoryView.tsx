@@ -5,8 +5,9 @@ import {cn, Eyebrow} from './ui';
 import {fmtWhen, histKey, type HistEntry} from '../history';
 import {fmtBytes} from '../incoming';
 import {shortPath} from '../paths';
-import {VERIFIED_LINE, keptPartLine, renamedLine, stoppedFull, verifiedAll} from '../requestCopy';
+import {keptPartLine, renamedLine, stoppedFull, verifiedAll} from '../requestCopy';
 import {RenamedConfirm} from './RequestLinkView';
+import {VerifiedMark} from './TransferBits';
 
 // The received folder, in characters: 12 px mono (Geist Mono advances 7.2 px)
 // in the expanded row's 348 px, or 342 px once the list scrolls and its 6 px
@@ -121,10 +122,15 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
                                             <p className="break-all pl-7 text-xs text-zinc-500">{h.names[0]}</p>
                                         ) : null}
                                         {h.kind === 'recv' && h.dir && (
-                                            <p className="truncate pl-7 font-mono text-xs text-zinc-500" title={dir !== h.dir ? h.dir : undefined}>{dir}</p>
-                                        )}
-                                        {request && !h.stopped && verifiedAll({files: offered, saved: h.count, verified: h.verified ?? 0}) && (
-                                            <p className="pl-7 text-xs leading-relaxed text-zinc-500">{VERIFIED_LINE}</p>
+                                            // A verified request row hangs its green check in the
+                                            // 28 px gutter of the folder line, under the row's
+                                            // arrow, so no line of words is drawn (D-161).
+                                            <div className="relative">
+                                                {request && !h.stopped && verifiedAll({files: offered, saved: h.count, verified: h.verified ?? 0}) && (
+                                                    <VerifiedMark className="absolute left-0 top-px size-3.5"/>
+                                                )}
+                                                <p className="truncate pl-7 font-mono text-xs text-zinc-500" title={dir !== h.dir ? h.dir : undefined}>{dir}</p>
+                                            </div>
                                         )}
                                         {request && (h.renamed ?? 0) > 0 && (
                                             <p className="pl-7 text-xs leading-relaxed text-amber-300/80">{renamedLine(h.renamed ?? 0)}</p>
