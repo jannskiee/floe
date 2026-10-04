@@ -457,6 +457,12 @@ describe('the layout (D-136)', () => {
         const {container} = render(<RequestLinkView {...at('ready')}/>);
         const field = screen.getByLabelText('Label') as HTMLInputElement;
         expect(field.placeholder).toBe('Optional. Only you see it.');
+        // The placeholder carries a fact the owner needs, so it is zinc-400 (AA
+        // on the field), not the shared Input's zinc-500 (RC-5). It wins the
+        // cascade because the important modifier outranks the shared class,
+        // and only this field says it: the folder field keeps the default.
+        expect(field.className.split(' ')).toContain('placeholder:text-zinc-400!');
+        expect((screen.getByLabelText('Save to') as HTMLInputElement).className).not.toContain('placeholder:text-zinc-400');
         // The words are no longer text on the page: the eyebrow row is LABEL alone.
         expect(screen.queryByText('Optional. Only you see it.')).toBeNull();
         expect(container.textContent).not.toMatch(/Only you see it/);

@@ -133,6 +133,7 @@ function ReadyForm({phase, errorCode, hideIP, saveDir, onSaveDirChange, onMake, 
                 <Input
                     id={LABEL_INPUT_ID}
                     placeholder={copy.LABEL_PLACEHOLDER}
+                    className="placeholder:text-zinc-400!"
                     value={label}
                     onChange={(e) => { setLabel(e.target.value); edited(); }}
                     disabled={making}
