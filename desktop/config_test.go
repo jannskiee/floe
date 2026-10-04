@@ -399,3 +399,115 @@ func TestLoadConfigIgnoresLegacyRequestLinksKey(t *testing.T) {
 		t.Errorf("re-saved record = %+v, want %+v", again, got)
 	}
 }
+
+// TestToastPrefsDefaultOnWhenAbsent is the reason both toast fields are
+// inverted (H7 S-11): a desktop.json from before them must keep every toast,
+// with its sound, so the zero value is today's behavior.
+func TestToastPrefsDefaultOnWhenAbsent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pre-toasts.json")
+	body := `{"server":"","web":"","hideIP":false,"reportStats":true,"noUpdateCheck":true,"migrated":true}`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := loadConfigFrom(path)
+	if got.NoToasts || got.SilentToasts {
+		t.Errorf("a pre-toasts config loaded as noToasts=%v silentToasts=%v; existing installs would lose their toasts", got.NoToasts, got.SilentToasts)
+	}
+	if !got.Migrated || !got.NoUpdateCheck || !got.ReportStats {
+		t.Errorf("neighboring fields damaged: %+v", got)
+	}
+}
+
+// TestToastPrefsRoundTrip pins each non-default state on its own: true is the
+// choice a widening bug would silently drop, and a field that only survives
+// together with the other proves nothing.
+func TestToastPrefsRoundTrip(t *testing.T) {
+	for name, want := range map[string]appConfig{
+		"off":    {ReportStats: true, NoToasts: true, Migrated: true},
+		"silent": {ReportStats: true, SilentToasts: true, Migrated: true},
+		"both":   {ReportStats: true, NoToasts: true, SilentToasts: true, Migrated: true},
+	} {
+		path := filepath.Join(t.TempDir(), "floe", "desktop.json")
+		if err := saveConfigTo(path, want); err != nil {
+			t.Fatalf("%s: saveConfigTo: %v", name, err)
+		}
+		if got := loadConfigFrom(path); got != want {
+			t.Errorf("%s: loadConfigFrom = %+v, want %+v", name, got, want)
+		}
+	}
+}
+
+// TestSettingsFromArgsKeepsToastPrefs: the Settings screen's whole-record save
+// knows nothing about the two toast fields, so they must carry over from the
+// current record, as NoUpdateCheck does.
+func TestSettingsFromArgsKeepsToastPrefs(t *testing.T) {
+	cur := appConfig{NoToasts: true, SilentToasts: true, Migrated: true}
+	got := settingsFromArgs(cur, "https://floe.example.com/", "", true, false)
+	if !got.NoToasts || !got.SilentToasts {
+		t.Errorf("settingsFromArgs dropped a toast preference: %+v", got)
+	}
+	if got.Server != "https://floe.example.com" || !got.HideIP || got.ReportStats || !got.Migrated {
+		t.Errorf("argument fields wrong: %+v", got)
+	}
+}
+
+// TestWithToastsTouchesOnlyItsField and its sound twin: each pure helper flips
+// one field and leaves the rest of the record untouched.
+func TestWithToastsTouchesOnlyItsField(t *testing.T) {
+	base := appConfig{Server: "https://x.test", HideIP: true, NoUpdateCheck: true, SilentToasts: true, Migrated: true}
+	off := withToasts(base, false)
+	want := base
+	want.NoToasts = true
+	if off != want {
+		t.Errorf("withToasts(false) = %+v, want %+v", off, want)
+	}
+	if on := withToasts(off, true); on != base {
+		t.Errorf("withToasts(true) = %+v, want %+v", on, base)
+	}
+}
+
+func TestWithToastSoundTouchesOnlyItsField(t *testing.T) {
+	base := appConfig{Server: "https://x.test", HideIP: true, NoUpdateCheck: true, NoToasts: true, Migrated: true}
+	quiet := withToastSound(base, false)
+	want := base
+	want.SilentToasts = true
+	if quiet != want {
+		t.Errorf("withToastSound(false) = %+v, want %+v", quiet, want)
+	}
+	if loud := withToastSound(quiet, true); loud != base {
+		t.Errorf("withToastSound(true) = %+v, want %+v", loud, base)
+	}
+}
+
+// TestSetToastsAndSoundPersistAndKeepEverythingElse drives the two bound
+// setters against the test home (TestMain points desktop.json there): each
+// writes its own field, neither disturbs the other or any other setting, and a
+// later SetSettings carries both through.
+func TestSetToastsAndSoundPersistAndKeepEverythingElse(t *testing.T) {
+	a := &App{cfg: appConfig{Server: "https://x.test", HideIP: true, ReportStats: true, NoUpdateCheck: true, Migrated: true}}
+	if err := a.SetToasts(false); err != nil {
+		t.Fatalf("SetToasts: %v", err)
+	}
+	if err := a.SetToastSound(false); err != nil {
+		t.Fatalf("SetToastSound: %v", err)
+	}
+	want := appConfig{Server: "https://x.test", HideIP: true, ReportStats: true, NoUpdateCheck: true, NoToasts: true, SilentToasts: true, Migrated: true}
+	if got := a.GetSettings(); got != want {
+		t.Fatalf("settings after both setters = %+v, want %+v", got, want)
+	}
+	if got := loadConfig(); got != want {
+		t.Fatalf("persisted settings = %+v, want %+v", got, want)
+	}
+	if err := a.SetSettings("https://y.test", "", false, true); err != nil {
+		t.Fatalf("SetSettings: %v", err)
+	}
+	if got := loadConfig(); !got.NoToasts || !got.SilentToasts || got.Server != "https://y.test" {
+		t.Errorf("a whole-record save lost a toast preference: %+v", got)
+	}
+	if err := a.SetToasts(true); err != nil {
+		t.Fatalf("SetToasts(true): %v", err)
+	}
+	if got := a.GetSettings(); got.NoToasts || !got.SilentToasts {
+		t.Errorf("SetToasts(true) = %+v, want notifications back on and sound still off", got)
+	}
+}

@@ -43,6 +43,14 @@ type appConfig struct {
 	// vouch for a field that did not exist when the record was written.
 	NoUpdateCheck bool `json:"noUpdateCheck"`
 
+	// NoToasts and SilentToasts are Settings > Notifications. Inverted for the
+	// same reason as NoUpdateCheck: the zero values (toasts shown, with sound)
+	// are today's behavior, so a desktop.json written before them keeps every
+	// toast. Named Toasts, never Notification: TestNoDirectNotifyInRequestLane
+	// fails any identifier holding that word that is not on its allowlist.
+	NoToasts     bool `json:"noToasts"`
+	SilentToasts bool `json:"silentToasts"`
+
 	// There is no request-links field: the Settings switch is gone (H7 S-1,
 	// S-2). A desktop.json written while it existed still carries a
 	// "requestLinks" key; json.Unmarshal ignores it and the next save drops it.
