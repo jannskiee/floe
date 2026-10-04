@@ -61,6 +61,9 @@ export interface RequestLinkSnapshot {
     reconnectUntil?: number;
     missedAt?: number;
     suggestClose: boolean;
+    /** This PC may run on a battery: Go's own fact, asked at each prompt (P11,
+     *  E-94). The Receiving view's laptop line reads it. */
+    battery: boolean;
     prompt?: RequestPrompt;
     result?: RequestResult;
 }
@@ -96,7 +99,7 @@ export type Phase =
 
 export const OFF_SNAPSHOT: RequestLinkSnapshot = {
     state: 'off', code: '', gen: 0, seq: 0, promptGen: 0, link: '', label: '', saveDir: '',
-    expiresAt: 0, route: '', suggestClose: false,
+    expiresAt: 0, route: '', suggestClose: false, battery: false,
 };
 
 const PHASES = new Set<string>([
@@ -220,6 +223,7 @@ export function normalizeSnapshot(raw: unknown): RequestLinkSnapshot {
         expiresAt: num(r.expiresAt),
         route: str(r.route),
         suggestClose: r.suggestClose === true,
+        battery: r.battery === true,
     };
     if (num(r.reconnectUntil)) out.reconnectUntil = num(r.reconnectUntil);
     if (num(r.missedAt)) out.missedAt = num(r.missedAt);
@@ -364,6 +368,16 @@ export const GUARD_MS = 1000;
 export function guardActive(now: number, mountedAt: number, focusAt: number | null): boolean {
     if (now - mountedAt < GUARD_MS) return true;
     return focusAt !== null && now - focusAt < GUARD_MS;
+}
+
+/** showLaptopLine: P11 shows on a receiving drop only on a PC with a battery,
+ *  and only while the time left reads over 5 minutes, from the same average
+ *  and the same first-minute guard as etaLines: a short drop never needs the
+ *  advice, and an early estimate is noise. */
+export function showLaptopLine(snap: RequestLinkSnapshot, etaSeconds: number, elapsedSeconds: number): boolean {
+    if (snap.state !== 'receiving' || !snap.battery) return false;
+    if (!(elapsedSeconds >= 60) || !Number.isFinite(etaSeconds)) return false;
+    return etaSeconds > 5 * 60;
 }
 
 /** etaLines: the long-drop warning under a receiving drop's progress. Nothing

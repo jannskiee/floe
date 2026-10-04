@@ -451,15 +451,41 @@ describe('the layout (D-136)', () => {
         expect(screen.getByRole('alert').textContent).toMatch(/^Hide my IP needs a TURN relay/);
     });
 
-    it('the prompt: P10 above Accept, every needed line at AA, the laptop line not amber', () => {
+    it('the prompt has three text lines and the buttons: no caution line, no laptop line (S-3, D-161)', () => {
+        const {rerender} = render(<RequestLinkView {...at('deciding')}/>);
+        const group = screen.getByRole('heading', {level: 3}).parentElement!;
+        // The heading, the size row and the folder row: nothing else above the buttons.
+        expect(group.children).toHaveLength(3);
+        expect(group.textContent).not.toMatch(/Accept only if|laptop|plug/i);
+        // A warning of this drop still adds its own amber line; the old laptop
+        // code, if a stale host sent it, draws nothing.
         const warned = snap({state: 'deciding', prompt: {...prompt, freeBytes: 31 * GB, warnings: ['low-space', 'laptop-power']}});
+        rerender(<RequestLinkView {...at('deciding', {snap: warned})}/>);
+        expect(screen.getByRole('heading', {level: 3}).parentElement!.children).toHaveLength(4);
+        expect(document.body.textContent).not.toMatch(/laptop|plug|Accept only if/i);
+    });
+
+    it('the prompt: Answer within sits at the right end of the size row, at AA, outside live regions', () => {
+        render(<RequestLinkView {...at('deciding')}/>);
+        const size = screen.getByText('12 files, 38.0 GB');
+        const within = screen.getByText(/^Answer within \d+ min$/);
+        const row = size.parentElement!;
+        expect(within.parentElement).toBe(row);
+        expect(row.firstElementChild).toBe(size);
+        expect(row.lastElementChild).toBe(within);
+        expect(row.className.split(' ')).toEqual(expect.arrayContaining(['flex', 'items-baseline', 'justify-between', 'gap-3']));
+        expect(within.className.split(' ')).toEqual(expect.arrayContaining(['shrink-0', 'text-xs', 'tabular-nums', 'text-zinc-400']));
+        expect(within.closest('[aria-live], [role="status"], [role="alert"], [role="log"]')).toBeNull();
+    });
+
+    it('the prompt: the folder row keeps Into and no glyph, the warnings stay amber, the buttons carry the Review id', () => {
+        const warned = snap({state: 'deciding', prompt: {...prompt, freeBytes: 31 * GB, warnings: ['low-space']}});
         render(<RequestLinkView {...at('deciding', {snap: warned})}/>);
         const accept = screen.getByRole('button', {name: 'Accept'});
-        const p10 = screen.getByText('Accept only if you expect files from the person you sent this link to.');
-        expect(before(p10, accept)).toBe(true);
-        for (const el of [p10, screen.getByText(/^Answer within \d+ min$/), screen.getByText('On a laptop, plug in and keep the lid open.')]) {
-            expect(el.className, el.textContent!).toContain('text-zinc-400');
-        }
+        const folderRow = screen.getByText(prompt.folder).parentElement!;
+        expect(folderRow.textContent).toBe(`Into ${prompt.folder}`);
+        expect(folderRow.querySelector('svg')).toBeNull();
+        expect(folderRow.className).toContain('text-zinc-400');
         expect(screen.getByText(/^Only 31\.0 GB free on D:/).className).toContain('text-amber-300/80');
         // The folder wraps inside the card instead of overflowing it, at its
         // spaces first: break-all cut "from" into "f" and "rom" (QA-H6 L-1).
@@ -666,6 +692,62 @@ describe('the layout (D-136)', () => {
         const row = document.getElementById(PROMPT_ACTIONS_ID)!;
         expect(row.className.split(' ')).toContain('scroll-mb-4');
         for (const b of within(row).getAllByRole('button')) expect(b.className).not.toMatch(/scroll-m/);
+    });
+});
+
+describe('the Receiving laptop line (P11, E-94)', () => {
+    const LINE = 'Keep this laptop plugged in and open.';
+    const MB = 1024 ** 2;
+    beforeEach(() => {
+        vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date']});
+        vi.setSystemTime(T0);
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    // A drop of `total` bytes that has moved `done` of them in `secs` seconds,
+    // so Receiving averages done / secs since its first progress event and the
+    // time left is (total - done) / that speed.
+    function drop(battery: boolean, secs: number, done: number, total: number) {
+        const s = snap({state: 'receiving', route: 'direct', battery});
+        const first: Prog = {fileName: 'a.mov', fileIndex: 1, fileCount: 1, fileBytes: 0, fileSize: total, totalBytes: 0, grandTotal: total, savedName: 'a.mov'};
+        const view = render(<RequestLinkView {...props({phase: 'receiving', snap: s, progress: first})}/>);
+        act(() => { vi.advanceTimersByTime(secs * 1000); });
+        view.rerender(<RequestLinkView {...props({phase: 'receiving', snap: s, progress: {...first, totalBytes: done}})}/>);
+        return view;
+    }
+
+    it('shows above Cancel drop on a PC with a battery while more than 5 min remain', () => {
+        // 60 MB in 60 s is 1 MB/s, so 301 MB more is 301 s: just over 5 min.
+        drop(true, 60, 60 * MB, 361 * MB);
+        const line = screen.getByText(LINE);
+        expect(line.className.split(' ')).toContain('text-zinc-400');
+        expect(line.closest('[aria-live], [role="status"], [role="alert"]')).toBeNull();
+        const cancel = screen.getByRole('button', {name: /Cancel drop/});
+        expect(line.compareDocumentPosition(cancel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        // The progress numbers stay above it.
+        expect(screen.getByText(/left$/).compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('is gone at exactly 5 min left, on a PC with no battery, and in the first minute', () => {
+        drop(true, 60, 60 * MB, 360 * MB).unmount();
+        expect(screen.queryByText(LINE)).toBeNull();
+        drop(false, 60, 60 * MB, 361 * MB).unmount();
+        expect(screen.queryByText(LINE)).toBeNull();
+        // 59 s is too early for any estimate, however long the drop would take.
+        drop(true, 59, 59 * MB, 5000 * MB).unmount();
+        expect(screen.queryByText(LINE)).toBeNull();
+    });
+
+    it('is never on the prompt, the form, Waiting or Done', () => {
+        for (const phase of ['ready', 'waiting', 'deciding', 'done'] as const) {
+            const withBattery = {...BY_PHASE[phase], battery: true};
+            const {unmount} = render(<RequestLinkView {...at(phase, {snap: withBattery})}/>);
+            expect(screen.queryByText(LINE), phase).toBeNull();
+            expect(document.body.textContent, phase).not.toMatch(/laptop/i);
+            unmount();
+        }
     });
 });
 

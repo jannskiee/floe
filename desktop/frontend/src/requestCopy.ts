@@ -145,8 +145,9 @@ export function driveOf(saveDir: string): string {
     return saveDir;
 }
 
-/** warningLine maps a prompt warning code to its line (P4, P5, P6, P11), or
- *  '' for a code this build does not know. */
+/** warningLine maps a prompt warning code to its line (P4, P5, P6), or '' for a
+ *  code this build does not know. The laptop-power code is no longer one: P11
+ *  is the Receiving view's LAPTOP_LINE (E-94). */
 export function warningLine(code: string, p: {freeBytes: number; totalBytes: number}, saveDir: string): string {
     switch (code) {
         case 'low-space':
@@ -155,8 +156,6 @@ export function warningLine(code: string, p: {freeBytes: number; totalBytes: num
             return 'This drive cannot save files over 4 GB, so this drop will stop.'; // P5
         case 'relay-over-cap':
             return `Hide my IP is on, so this ${fmtBytes(p.totalBytes)} drop will stop before any file.`; // P6
-        case 'laptop-power':
-            return 'On a laptop, plug in and keep the lid open.'; // P11
         default:
             return '';
     }
@@ -170,12 +169,14 @@ export function answerWithin(answerBy: number, now: number): string {
 }
 export const ACCEPT = 'Accept'; // P9
 export const DECLINE = 'Decline'; // P9
-export const PROMPT_CAUTION = 'Accept only if you expect files from the person you sent this link to.'; // P10
+// P10 is cut (D-161): the caution lives in the docs, request-links.mdx#accept-or-decline.
 export const DECLINED_LINE = 'You declined. Nothing was saved.'; // D1
 export const DECLINED_QUESTION = 'Keep waiting for the person you sent it to?'; // D2
 export const KEEP_WAITING = 'Keep waiting'; // D3
 
 // ---- Receiving -------------------------------------------------------------
+/** P11: advice for a PC with a battery, shown while a long drop receives. */
+export const LAPTOP_LINE = 'Keep this laptop plugged in and open.';
 /** V1: file N of M, from the owner's label when there is one. */
 export function receivingHeading(index: number, count: number, label: string): string {
     return `RECEIVING ${index} OF ${count}${label ? ` FROM ${label.toUpperCase()}` : ''}`;

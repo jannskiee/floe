@@ -12,7 +12,7 @@ import {useEffect, useRef, useState, type MouseEvent} from 'react';
 import {AlertCircle, ChevronDown, Folder, FolderOpen, Loader2, X} from 'lucide-react';
 import {Button, cn, Eyebrow, Input} from './ui';
 import * as copy from '../requestCopy';
-import {etaLines, guardActive, GUARD_MS, type Phase, type RequestLinkSnapshot} from '../requestLink';
+import {etaLines, guardActive, GUARD_MS, showLaptopLine, type Phase, type RequestLinkSnapshot} from '../requestLink';
 import {fmtEta, fmtSpeed, type Prog} from '../progress';
 import {shortPath} from '../paths';
 
@@ -403,16 +403,18 @@ function Prompt({snap, onAnswer, onGuardLift, onPromptVisible}: RequestLinkViewP
         <div className="space-y-4">
             <div className="space-y-2">
                 <h3 id={PROMPT_HEADING_ID} tabIndex={-1} className={cn(headClass, 'outline-none')}>{copy.promptHeading(snap.label)}</h3>
-                <p className="text-sm font-medium text-zinc-100">{copy.promptSize(prompt.files, prompt.totalBytes)}</p>
+                {/* The answer window shares the size row, at the right end and
+                    outside every live region (P8, D-143): the prompt reads as
+                    three lines and the buttons. */}
+                <div className="flex items-baseline justify-between gap-3">
+                    <p className="text-sm font-medium text-zinc-100">{copy.promptSize(prompt.files, prompt.totalBytes)}</p>
+                    <p className="shrink-0 text-xs tabular-nums text-zinc-400">{copy.answerWithin(prompt.answerBy, now)}</p>
+                </div>
                 <p className={t2Class}>{copy.INTO} <span className={intoClass}>{prompt.folder}</span></p>
                 {prompt.warnings.map((w) => {
                     const line = copy.warningLine(w, prompt, snap.saveDir);
-                    // P11 is advice, not a fact about this drop, so it is not amber.
-                    return line ? <p key={w} className={w === 'laptop-power' ? t2Class : warnClass}>{line}</p> : null;
+                    return line ? <p key={w} className={warnClass}>{line}</p> : null;
                 })}
-                <p className={t2Class}>{copy.answerWithin(prompt.answerBy, now)}</p>
-                {/* P10 is read before the decision, above the buttons. */}
-                <p className={t2Class}>{copy.PROMPT_CAUTION}</p>
             </div>
             {/* scroll-mb-4: Review's scrollIntoView stops 16 px short of the
                 window's bottom edge, not flush with it (QA-H6 L-4). A scroll
@@ -478,6 +480,8 @@ function Receiving({snap, progress, accepted, onCancelDrop}: RequestLinkViewProp
                 )}
             </div>
             {etaLines(snap, eta, dt).map((l) => <p key={l} className={warnClass}>{l}</p>)}
+            {/* P11 is advice, not a fact about this drop, so it is not amber. */}
+            {showLaptopLine(snap, eta, dt) && <p className={t2Class}>{copy.LAPTOP_LINE}</p>}
             <div className="flex justify-end">
                 <Button variant="outline" onClick={onCancelDrop}><X/> {copy.CANCEL_DROP}</Button>
             </div>
