@@ -38,6 +38,7 @@ export namespace main {
 	    renamed: number;
 	    folder: string;
 	    names: string[];
+	    noNamedStreams: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new RequestResult(source);
@@ -52,6 +53,7 @@ export namespace main {
 	        this.renamed = source["renamed"];
 	        this.folder = source["folder"];
 	        this.names = source["names"];
+	        this.noNamedStreams = source["noNamedStreams"];
 	    }
 	}
 	export class RequestPrompt {

@@ -17,7 +17,7 @@ func TestRequestLinkSnapshotJSONShape(t *testing.T) {
 		SuggestClose: true,
 		Battery:      true,
 		Prompt:       &RequestPrompt{Files: 1, TotalBytes: 2, Folder: "f", FreeBytes: 3, Warnings: []string{"low-space"}, AnswerBy: 4},
-		Result:       &RequestResult{Files: 1, Saved: 1, Bytes: 2, Verified: 1, Renamed: 0, Folder: "f", Names: []string{"a"}},
+		Result:       &RequestResult{Files: 1, Saved: 1, Bytes: 2, Verified: 1, Renamed: 0, NoNamedStreams: true, Folder: "f", Names: []string{"a"}},
 	}
 	raw, err := json.Marshal(snap)
 	if err != nil {
@@ -39,7 +39,7 @@ func TestRequestLinkSnapshotJSONShape(t *testing.T) {
 		}
 	}
 	result := m["result"].(map[string]any)
-	for _, k := range []string{"files", "saved", "bytes", "verified", "renamed", "folder", "names"} {
+	for _, k := range []string{"files", "saved", "bytes", "verified", "renamed", "noNamedStreams", "folder", "names"} {
 		if _, ok := result[k]; !ok {
 			t.Errorf("result JSON lacks %q", k)
 		}

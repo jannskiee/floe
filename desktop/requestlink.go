@@ -118,6 +118,14 @@ type RequestResult struct {
 	Renamed  int      `json:"renamed"`  // files renamed to .floe-blocked
 	Folder   string   `json:"folder"`   // the absolute exclusive subfolder
 	Names    []string `json:"names"`
+
+	// NoNamedStreams is true unless the save volume positively says it can
+	// carry the Windows downloaded-file mark (a Zone.Identifier named stream).
+	// Where it cannot (FAT32, exFAT, many network shares) the mark is never
+	// written, Windows has nothing to warn with when a file is opened, and
+	// the Done view keeps its not-scanned line (H7 S-7). A volume that could
+	// not be asked counts as unable. Go's own fact, never peer data.
+	NoNamedStreams bool `json:"noNamedStreams"`
 }
 
 // The lane's timings. Liveness is the engine's own ping and read deadline

@@ -1503,6 +1503,80 @@ func TestRequestResultNamesCapped(t *testing.T) {
 	}
 }
 
+// TestVolumeLacksMarkFailsSafe (S-7): the Done view's not-scanned line stays
+// unless the volume positively says it carries named streams. A volume that
+// says no, and one that could not be asked at all (an error beside a yes is
+// still no answer), lack the mark.
+func TestVolumeLacksMarkFailsSafe(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		carries bool
+		err     error
+		want    bool
+	}{
+		{"carries named streams", true, nil, false},
+		{"no named streams", false, nil, true},
+		{"could not be asked", false, errors.New("boom"), true},
+		{"a yes beside an error", true, errors.New("boom"), true},
+	} {
+		setVar(t, &requestVolumeStreamsFn, func(string) (bool, error) { return c.carries, c.err })
+		if got := volumeLacksMark(`D:\x`); got != c.want {
+			t.Errorf("%s: volumeLacksMark = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// TestRunRequestDropResultFlagsAVolumeWithoutNamedStreams (S-7): a done drop's
+// result says whether its folder's volume can carry the Windows downloaded-file
+// mark, asked of the drop's own folder. The Done view draws the not-scanned
+// line from this flag alone, so a volume that cannot be marked keeps it.
+func TestRunRequestDropResultFlagsAVolumeWithoutNamedStreams(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		carries bool
+		want    bool
+	}{
+		{"a volume with named streams", true, false},
+		{"a volume without named streams", false, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var mu sync.Mutex
+			var asked []string
+			setVar(t, &requestVolumeStreamsFn, func(dir string) (bool, error) {
+				mu.Lock()
+				defer mu.Unlock()
+				asked = append(asked, dir)
+				return c.carries, nil
+			})
+			a, _, f, room, _ := dropApp(t, nil)
+			paths := writeFiles(t, t.TempDir(), map[string][]byte{"a.txt": randomBytes(t, 1<<10)})
+			v := joinVisitor(t, f, room)
+			v.connect(t)
+			sent := make(chan error, 1)
+			go func() { sent <- v.sendFiles(paths, transfer.SendOptions{AckTimeout: time.Minute}) }()
+			acceptNext(t, a)
+			select {
+			case err := <-sent:
+				if err != nil {
+					t.Fatalf("the visitor's send: %v", err)
+				}
+			case <-time.After(30 * time.Second):
+				t.Fatal("the send did not finish")
+			}
+			v.leave()
+			s := waitState(t, a, 15*time.Second, "done")
+			if s.Result == nil || s.Result.NoNamedStreams != c.want {
+				t.Fatalf("result %+v, want NoNamedStreams %v", s.Result, c.want)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if len(asked) == 0 || asked[len(asked)-1] != s.Result.Folder {
+				t.Fatalf("the volume was asked about %q, want the drop's own folder %q", asked, s.Result.Folder)
+			}
+		})
+	}
+}
+
 // TestDropFolderNameFitsNameMax (review 1b N2): the drop folder's name, with
 // its time stamp and a " (99)", stays within the 255-byte component limit of
 // ext4 and APFS, whatever the label; the 64-rune label cap alone is 256 bytes
