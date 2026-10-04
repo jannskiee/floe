@@ -462,7 +462,7 @@ describe('the layout (D-136)', () => {
         // cascade because the important modifier outranks the shared class,
         // and only this field says it: the folder field keeps the default.
         expect(field.className.split(' ')).toContain('placeholder:text-zinc-400!');
-        expect((screen.getByLabelText('Save to') as HTMLInputElement).className).not.toContain('placeholder:text-zinc-400');
+        expect((screen.getByLabelText('Save to') as HTMLInputElement).className).not.toContain('text-zinc-400');
         // The words are no longer text on the page: the eyebrow row is LABEL alone.
         expect(screen.queryByText('Optional. Only you see it.')).toBeNull();
         expect(container.textContent).not.toMatch(/Only you see it/);
