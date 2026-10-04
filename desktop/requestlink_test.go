@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1435,7 +1436,10 @@ func TestRequestToastsAreConstant(t *testing.T) {
 // imports exactly go-toast v2 for the silent push, and toastFor there builds
 // the only toast.Notification, from a title, a body, foreground activation and
 // silent audio and nothing else. notify hands pushToast and pushFn its own
-// title and body untouched. Because the whole package is scanned, the
+// title and body untouched, and pushToast sends them as exactly that and
+// nothing more: the Wails options are built inline from Title and Body, and
+// the value toastFor returns has no use but its one Push call. Because the
+// whole package is scanned, the
 // S1-DSK-03b drop (runRequestDrop) is covered by name without being listed.
 func TestNoDirectNotifyInRequestLane(t *testing.T) {
 	type use struct{ name, owner string }
@@ -1631,12 +1635,15 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 			}
 			if fd != nil && owner == notifyOwner {
 				// The text notify hands on is the text it was given: nothing in
-				// its body sets, declares or shadows title or body.
+				// its body sets, declares or shadows title or body. A type
+				// switch bind and an if or select init are assignments, so the
+				// AssignStmt case covers them.
+				isText := func(e ast.Expr) bool { return isIdent(e, "title") || isIdent(e, "body") }
 				ast.Inspect(fd.Body, func(n ast.Node) bool {
 					switch s := n.(type) {
 					case *ast.AssignStmt:
 						for _, e := range s.Lhs {
-							if isIdent(e, "title") || isIdent(e, "body") {
+							if isText(e) {
 								t.Errorf("%v: notify assigns its title or body", fset.Position(s.Pos()))
 							}
 						}
@@ -1646,6 +1653,23 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 								t.Errorf("%v: notify declares its own %s", fset.Position(s.Pos()), id.Name)
 							}
 						}
+					case *ast.RangeStmt:
+						if isText(s.Key) || isText(s.Value) {
+							t.Errorf("%v: notify ranges into its title or body", fset.Position(s.Pos()))
+						}
+					case *ast.FuncLit:
+						for _, fl := range []*ast.FieldList{s.Type.Params, s.Type.Results} {
+							if fl == nil {
+								continue
+							}
+							for _, f := range fl.List {
+								for _, id := range f.Names {
+									if id.Name == "title" || id.Name == "body" {
+										t.Errorf("%v: notify holds a function literal that shadows %s", fset.Position(s.Pos()), id.Name)
+									}
+								}
+							}
+						}
 					}
 					return true
 				})
@@ -1653,6 +1677,9 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 			if fd != nil && owner == "toast_windows.go:toastFor" {
 				sawToastFor = true
 				checkToastFor(t, fset, fd)
+			}
+			if fd != nil && (owner == "toast_windows.go:pushToast" || owner == "toast_other.go:pushToast") {
+				checkPushToast(t, fset, fd, file)
 			}
 		}
 	}
@@ -1747,7 +1774,20 @@ func checkToastFor(t *testing.T, fset *token.FileSet, fd *ast.FuncDecl) {
 	if !ok {
 		t.Fatalf("%v: toastFor does not return a literal", fset.Position(ret.Pos()))
 	}
-	want := map[string]string{"Title": "title", "Body": "body", "ActivationType": "toast.Foreground", "Audio": "toast.Silent"}
+	checkKeyedLiteral(t, fset, lit, "toastFor", map[string]string{
+		"Title": "title", "Body": "body", "ActivationType": "toast.Foreground", "Audio": "toast.Silent",
+	})
+}
+
+// checkKeyedLiteral requires lit to be made of Key: value pairs, exactly the
+// keys of want, each with the value want spells (an identifier or pkg.Name).
+func checkKeyedLiteral(t *testing.T, fset *token.FileSet, lit *ast.CompositeLit, who string, want map[string]string) {
+	t.Helper()
+	var names []string
+	for key := range want {
+		names = append(names, key)
+	}
+	sort.Strings(names)
 	seen := map[string]bool{}
 	for _, e := range lit.Elts {
 		kv, ok := e.(*ast.KeyValueExpr)
@@ -1758,23 +1798,105 @@ func checkToastFor(t *testing.T, fset *token.FileSet, fd *ast.FuncDecl) {
 			}
 		}
 		if !isKey {
-			t.Errorf("%v: toastFor's literal has an element that is not a Key: value pair", fset.Position(e.Pos()))
+			t.Errorf("%v: %s's literal has an element that is not a Key: value pair", fset.Position(e.Pos()), who)
 			continue
 		}
 		w, listed := want[key]
 		if !listed {
-			t.Errorf("%v: toastFor sets %s; only Title, Body, ActivationType and Audio are allowed", fset.Position(e.Pos()), key)
+			t.Errorf("%v: %s sets %s; only %s are allowed", fset.Position(e.Pos()), who, key, strings.Join(names, ", "))
 			continue
 		}
 		if got := dottedName(kv.Value); got != w {
-			t.Errorf("%v: toastFor sets %s to %q, want %s", fset.Position(e.Pos()), key, got, w)
+			t.Errorf("%v: %s sets %s to %q, want %s", fset.Position(e.Pos()), who, key, got, w)
 		}
 		seen[key] = true
 	}
 	for key := range want {
 		if !seen[key] {
-			t.Errorf("%v: toastFor does not set %s", fset.Position(lit.Pos()), key)
+			t.Errorf("%v: %s does not set %s", fset.Position(lit.Pos()), who, key)
 		}
+	}
+}
+
+// checkPushToast pins what pushToast does with the text once notify has handed
+// it over (H7 review R-S-1 F1), in both toast_windows.go and toast_other.go.
+// The one SendNotification call takes its options as an inline literal with
+// exactly Title: title and Body: body, so nothing can edit them between the
+// literal and the send. On Windows the silent path also holds the value
+// toastFor returns: it is declared once, from toastFor, and its one use is its
+// own Push() call. An assignment to a field of it (ActivationArguments is a
+// launch value that runs on a click, Icon and Body are what Windows shows),
+// another method, or handing it on would reach the toast past the pin on
+// toastFor's literal, which ends where its return does.
+func checkPushToast(t *testing.T, fset *token.FileSet, fd *ast.FuncDecl, file string) {
+	t.Helper()
+	sends, optionIdents := 0, 0
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.CallExpr:
+			if sel, ok := n.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "SendNotification" {
+				sends++
+				var lit *ast.CompositeLit
+				if len(n.Args) == 2 {
+					lit, _ = n.Args[1].(*ast.CompositeLit)
+				}
+				if lit == nil || dottedName(lit.Type) != "runtime.NotificationOptions" {
+					t.Errorf("%v: %s sends something other than an inline runtime.NotificationOptions literal", fset.Position(n.Pos()), file)
+					return true
+				}
+				checkKeyedLiteral(t, fset, lit, file+" pushToast", map[string]string{"Title": "title", "Body": "body"})
+			}
+		case *ast.Ident:
+			if n.Name == "NotificationOptions" {
+				optionIdents++
+			}
+		}
+		return true
+	})
+	if sends != 1 || optionIdents != 1 {
+		t.Errorf("%v: %s pushToast has %d SendNotification calls and %d NotificationOptions references, want one each", fset.Position(fd.Pos()), file, sends, optionIdents)
+	}
+	if file != "toast_windows.go" {
+		return
+	}
+	var def *ast.Ident
+	defs, toastRefs := 0, 0
+	for _, st := range fd.Body.List {
+		as, ok := st.(*ast.AssignStmt)
+		if !ok || as.Tok != token.DEFINE || len(as.Lhs) != 1 || len(as.Rhs) != 1 {
+			continue
+		}
+		if call, ok := as.Rhs[0].(*ast.CallExpr); ok && isIdent(call.Fun, "toastFor") {
+			defs++
+			def, _ = as.Lhs[0].(*ast.Ident)
+		}
+	}
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		if id, ok := n.(*ast.Ident); ok && id.Name == "toastFor" {
+			toastRefs++
+		}
+		return true
+	})
+	if def == nil || defs != 1 || toastRefs != 1 {
+		t.Errorf("%v: pushToast must declare its toast once, as a top-level statement, from its one call to toastFor (%d declarations, %d references)", fset.Position(fd.Pos()), defs, toastRefs)
+		return
+	}
+	uses, pushes := 0, 0
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.Ident:
+			if n.Name == def.Name && n != def {
+				uses++
+			}
+		case *ast.CallExpr:
+			if sel, ok := n.Fun.(*ast.SelectorExpr); ok && isIdent(sel.X, def.Name) && sel.Sel.Name == "Push" && len(n.Args) == 0 {
+				pushes++
+			}
+		}
+		return true
+	})
+	if uses != 1 || pushes != 1 {
+		t.Errorf("%v: pushToast names the toast %s %d times beyond its declaration and calls %s.Push() %d times; its one use must be that Push()", fset.Position(fd.Pos()), def.Name, uses, def.Name, pushes)
 	}
 }
 
