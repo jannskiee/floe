@@ -99,3 +99,23 @@ func volumeInfo(dir string) (string, uint32, error) {
 	}
 	return windows.UTF16ToString(name), flags, nil
 }
+
+// volumeNamedStreams reports whether the volume under dir can carry named
+// (alternate) data streams, which is what the downloaded-file mark needs:
+// applyMOTW writes a Zone.Identifier stream. NTFS and ReFS can; FAT32, exFAT
+// and many network shares cannot, and there the write fails and Windows has
+// nothing to warn with when the file is opened. It asks the volume, as
+// volumeMaxFileSize does, so a junction or a subst drive answers for the
+// volume the files land on.
+func volumeNamedStreams(dir string) (bool, error) {
+	_, flags, err := volumeInfo(dir)
+	if err != nil {
+		return false, err
+	}
+	return hasNamedStreams(flags), nil
+}
+
+// hasNamedStreams reads FILE_NAMED_STREAMS, the one file system flag that
+// says the volume keeps alternate data streams, from the flags
+// GetVolumeInformationByHandle returned.
+func hasNamedStreams(flags uint32) bool { return flags&windows.FILE_NAMED_STREAMS != 0 }

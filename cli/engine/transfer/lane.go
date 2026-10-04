@@ -1,7 +1,7 @@
 package transfer
 
 // What the desktop request lane needs from the engine beyond ReceiveOptions:
-// the two volume questions, the 24-hour cap and the open-channel deadline.
+// the volume questions, the 24-hour cap and the open-channel deadline.
 // Each is a helper the lane applies around the receive loop, so the loop
 // itself gains no modes and the CLI's behavior does not change.
 
@@ -21,6 +21,14 @@ func DiskFree(dir string) (int64, error) { return diskFree(dir) }
 // of or the platform cannot say. The lane reads it for the prompt's
 // drive-limit warning; layer 1 refuses a larger file on its own.
 func VolumeMaxFileSize(dir string) (int64, error) { return volumeMaxFileSize(dir) }
+
+// VolumeNamedStreams reports whether the volume under dir can carry the
+// Windows downloaded-file mark, the Zone.Identifier stream applyMOTW writes:
+// false on FAT32, exFAT and many network shares, where Windows then has
+// nothing to warn with at open time, and false off Windows, where no mark is
+// written at all. The lane reads it for the Done view's not-scanned line. An
+// error means the volume could not say.
+func VolumeNamedStreams(dir string) (bool, error) { return volumeNamedStreams(dir) }
 
 // DropTimeLimit is the most time one request-link drop may take (spec 06 4.5
 // step 12). There is no throughput floor and no too-slow code (E-24): a drop
