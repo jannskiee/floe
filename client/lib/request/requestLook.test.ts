@@ -75,4 +75,25 @@ describe('the /r look', () => {
         }
         expect(dim).toEqual(['RequestDropzone.tsx <Plus', 'RequestShell.tsx <footer']);
     });
+
+    it('every card is the same opaque frosted surface over the backdrop', () => {
+        // Since D-165 art sits behind the card. A see-through card would let
+        // it under the text, where e2e/request-look.spec.ts cannot measure it
+        // (it composites background colors, not art), so the card is at least
+        // 85% opaque zinc-950, frosted, and one class string on every card.
+        const cards = ['RequestReady.tsx', 'RequestStatus.tsx', 'RequestProgress.tsx', 'NoticeCard.tsx'].map((name) => {
+            const m = /<section className="([^"]*)"/.exec(read(name));
+            expect(m, name).not.toBeNull();
+            return m![1];
+        });
+        expect(new Set(cards).size, cards.join(' | ')).toBe(1);
+        const classes = cards[0].split(/\s+/);
+        const alpha = classes.map((c) => /^bg-zinc-950\/(\d+)$/.exec(c)?.[1]).find(Boolean);
+        expect(Number(alpha ?? 0), cards[0]).toBeGreaterThanOrEqual(85);
+        expect(classes.some((c) => c.startsWith('backdrop-blur'))).toBe(true);
+        // No glow on the card's edges, the top edge above all (the owner,
+        // 2026-10-07): no ice tint, no lit pseudo-element line, no inner
+        // highlight. A plain hairline border and a neutral depth shadow.
+        expect(cards[0], cards[0]).not.toMatch(/ice|before:|after:|inset|ring-/);
+    });
 });

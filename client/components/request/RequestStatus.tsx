@@ -45,7 +45,7 @@ export function RequestStatus({
 }) {
     const done = copy.marker === 'done';
     return (
-        <section className="w-full rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 sm:p-7">
+        <section className="w-full rounded-2xl border border-white/[0.08] bg-zinc-950/85 p-6 shadow-[0_40px_90px_-30px_rgb(0_0_0/0.9)] backdrop-blur-xl sm:p-7">
             <div className="flex items-start justify-between gap-4">
                 <div className="flex min-w-0 items-start gap-2.5">
                     <Marker kind={copy.marker} />
