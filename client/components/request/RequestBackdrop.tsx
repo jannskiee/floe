@@ -12,8 +12,10 @@
  *
  * The contours are iso-lines of a height field, traced once offline; the path
  * data is kept as drawn for two frames, a 1440 x 900 window and a 390 x 844
- * phone. Each frame covers the viewport (xMidYMid slice) and its strokes stay
- * 1px at any scale (non-scaling-stroke). One path per alpha tier.
+ * phone, chosen by the window's shape rather than its width (a portrait
+ * tablet sliced from the wide frame showed almost none of it). Each frame
+ * covers the viewport (xMidYMid slice) and its strokes stay 1px at any scale
+ * (non-scaling-stroke). One path per alpha tier.
  */
 
 const ICE = '#bfe0f2';
@@ -33,8 +35,8 @@ const NARROW: readonly Tier[] = [
     [0.16, 'M276 856c2-4 6-16 9-25s5-18 9-26s9-16 15-23s14-11 22-16s12-6 24-12s41-21 49-25'],
 ];
 
-// The three lights, at the top and in two opposite corners; phones get them
-// re-sized for the tall frame.
+// The three lights, at the top and in two opposite corners; a portrait window
+// gets them re-sized for the tall frame.
 const LIGHT_WIDE =
     'radial-gradient(900px 520px at 50% -14%, rgb(191 224 242 / 0.07), transparent 70%), ' +
     'radial-gradient(760px 560px at 100% 100%, rgb(191 224 242 / 0.06), transparent 70%), ' +
@@ -102,8 +104,8 @@ function Field({ id, w, h, vignette, top, bottom, tiers, className }: {
 export function RequestBackdrop() {
     return (
         <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-            <div className="absolute inset-0 hidden sm:block" style={{ background: LIGHT_WIDE }} />
-            <div className="absolute inset-0 sm:hidden" style={{ background: LIGHT_NARROW }} />
+            <div className="absolute inset-0 hidden landscape:block" style={{ background: LIGHT_WIDE }} />
+            <div className="absolute inset-0 landscape:hidden" style={{ background: LIGHT_NARROW }} />
             <Field
                 id="r-ice-wide"
                 w={1440}
@@ -112,7 +114,7 @@ export function RequestBackdrop() {
                 top={[48, 240, 96]}
                 bottom={[852, 220, 84]}
                 tiers={WIDE}
-                className="hidden sm:block"
+                className="hidden landscape:block"
             />
             <Field
                 id="r-ice-narrow"
@@ -122,7 +124,7 @@ export function RequestBackdrop() {
                 top={[42, 120, 56]}
                 bottom={[808, 110, 44]}
                 tiers={NARROW}
-                className="sm:hidden"
+                className="landscape:hidden"
             />
         </div>
     );

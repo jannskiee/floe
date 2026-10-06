@@ -45,8 +45,10 @@ export function RequestShell() {
                 goes nowhere: one task on this page. Since D-166 it is the big
                 wordmark of the floe.one hero, sized by the viewport height
                 (and width, on a phone) so the card still leads on a short
-                window. */}
-            <p className="pt-8 text-[length:clamp(3.25rem,min(11dvh,14vw),7.5rem)] leading-none font-extrabold tracking-tighter text-white drop-shadow-2xl sm:pt-10">
+                window. Its own bottom padding keeps it off the card once the
+                page is taller than the window, where <main> has no free space
+                left to center in (a 10 px gap at 1280 x 720 without it). */}
+            <p className="pt-[clamp(1.5rem,4.5svh,2.5rem)] pb-[clamp(1rem,3.5svh,2rem)] text-[length:clamp(3.25rem,min(11svh,14vw),7.5rem)] leading-none font-extrabold tracking-tighter text-white drop-shadow-2xl">
                 Floe
             </p>
 
