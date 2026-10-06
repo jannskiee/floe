@@ -1435,10 +1435,14 @@ func TestRequestToastsAreConstant(t *testing.T) {
 // package is imported directly, with one exception (H7 S-13): toast_windows.go
 // imports exactly go-toast v2 for the silent push, and toastFor there builds
 // the only toast.Notification, from a title, a body, foreground activation and
-// silent audio and nothing else. notify hands pushToast and pushFn its own
-// title and body untouched, and pushToast sends them as exactly that and
-// nothing more: the Wails options are built inline from Title and Body, and
-// the value toastFor returns has no use but its one Push call. Because the
+// silent audio and nothing else; no other go-toast name appears in that file,
+// and the import goes by no name but toast. notify hands pushToast and pushFn its own
+// title and body untouched, in calls of exactly four and three arguments, and
+// pushToast, whose parameters are exactly (ctx, title, body, silent), sends
+// them as exactly that and nothing more: neither function assigns, declares,
+// ranges into, shadows or takes the address of its title or body, the Wails
+// options are built inline from Title and Body, and the value toastFor returns
+// has no use but its one Push call (R-OPUS-1 OP-1). Because the
 // whole package is scanned, the
 // S1-DSK-03b drop (runRequestDrop) is covered by name without being listed.
 func TestNoDirectNotifyInRequestLane(t *testing.T) {
@@ -1499,7 +1503,7 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 		parsed++
 		for _, imp := range f.Imports {
 			if strings.Contains(strings.ToLower(imp.Path.Value), "toast") {
-				if file == "toast_windows.go" && imp.Path.Value == toastImport {
+				if file == "toast_windows.go" && imp.Path.Value == toastImport && (imp.Name == nil || imp.Name.Name == "toast") {
 					sawToastImport = true
 					continue
 				}
@@ -1584,12 +1588,12 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 						// pushFn(title, body, silent) and pushToast(ctx, title, body,
 						// silent): notify's own parameters, never rebuilt. A nil
 						// comparison of the seam is the only other way to name it.
-						ti, bi := 0, 1
+						ti, bi, argc := 0, 1, 3
 						if id.Name == "pushToast" {
-							ti, bi = 1, 2
+							ti, bi, argc = 1, 2, 4
 						}
 						switch {
-						case call != nil && len(call.Args) > bi && isIdent(call.Args[ti], "title") && isIdent(call.Args[bi], "body"):
+						case call != nil && len(call.Args) == argc && isIdent(call.Args[ti], "title") && isIdent(call.Args[bi], "body"):
 							pushCalls++
 						case nilCmp[id]:
 						default:
@@ -1634,42 +1638,15 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 				})
 			}
 			if fd != nil && owner == notifyOwner {
-				// The text notify hands on is the text it was given: nothing in
-				// its body sets, declares or shadows title or body. A type
-				// switch bind and an if or select init are assignments, so the
-				// AssignStmt case covers them.
-				isText := func(e ast.Expr) bool { return isIdent(e, "title") || isIdent(e, "body") }
-				ast.Inspect(fd.Body, func(n ast.Node) bool {
-					switch s := n.(type) {
-					case *ast.AssignStmt:
-						for _, e := range s.Lhs {
-							if isText(e) {
-								t.Errorf("%v: notify assigns its title or body", fset.Position(s.Pos()))
-							}
-						}
-					case *ast.ValueSpec:
-						for _, id := range s.Names {
-							if id.Name == "title" || id.Name == "body" {
-								t.Errorf("%v: notify declares its own %s", fset.Position(s.Pos()), id.Name)
-							}
-						}
-					case *ast.RangeStmt:
-						if isText(s.Key) || isText(s.Value) {
-							t.Errorf("%v: notify ranges into its title or body", fset.Position(s.Pos()))
-						}
-					case *ast.FuncLit:
-						for _, fl := range []*ast.FieldList{s.Type.Params, s.Type.Results} {
-							if fl == nil {
-								continue
-							}
-							for _, f := range fl.List {
-								for _, id := range f.Names {
-									if id.Name == "title" || id.Name == "body" {
-										t.Errorf("%v: notify holds a function literal that shadows %s", fset.Position(s.Pos()), id.Name)
-									}
-								}
-							}
-						}
+				checkTextUnchanged(t, fset, fd, "notify")
+			}
+			// In toast_windows.go a go-toast name (toast.X) appears only inside
+			// toastFor: another call such as toast.SetAppData would set what the
+			// PowerShell fallback script carries, past toastFor's pin.
+			if file == "toast_windows.go" && owner != "toast_windows.go:toastFor" {
+				ast.Inspect(decl, func(n ast.Node) bool {
+					if sel, ok := n.(*ast.SelectorExpr); ok && isIdent(sel.X, "toast") {
+						t.Errorf("%v: %s names toast.%s; only toastFor may use go-toast", fset.Position(sel.Pos()), owner, sel.Sel.Name)
 					}
 					return true
 				})
@@ -1679,6 +1656,7 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 				checkToastFor(t, fset, fd)
 			}
 			if fd != nil && (owner == "toast_windows.go:pushToast" || owner == "toast_other.go:pushToast") {
+				checkTextUnchanged(t, fset, fd, file+" pushToast")
 				checkPushToast(t, fset, fd, file)
 			}
 		}
@@ -1818,6 +1796,54 @@ func checkKeyedLiteral(t *testing.T, fset *token.FileSet, lit *ast.CompositeLit,
 	}
 }
 
+// checkTextUnchanged: the text a function hands on is the text it was given.
+// Nothing in its body sets, declares, ranges into, shadows or takes the address
+// of title or body (R-OPUS-1 OP-1: a write through &title passed the old
+// check). A type switch bind and an if or select init are assignments, so the
+// AssignStmt case covers them.
+func checkTextUnchanged(t *testing.T, fset *token.FileSet, fd *ast.FuncDecl, who string) {
+	t.Helper()
+	isText := func(e ast.Expr) bool { return isIdent(e, "title") || isIdent(e, "body") }
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		switch s := n.(type) {
+		case *ast.AssignStmt:
+			for _, e := range s.Lhs {
+				if isText(e) {
+					t.Errorf("%v: %s assigns its title or body", fset.Position(s.Pos()), who)
+				}
+			}
+		case *ast.ValueSpec:
+			for _, id := range s.Names {
+				if id.Name == "title" || id.Name == "body" {
+					t.Errorf("%v: %s declares its own %s", fset.Position(s.Pos()), who, id.Name)
+				}
+			}
+		case *ast.RangeStmt:
+			if isText(s.Key) || isText(s.Value) {
+				t.Errorf("%v: %s ranges into its title or body", fset.Position(s.Pos()), who)
+			}
+		case *ast.UnaryExpr:
+			if s.Op == token.AND && isText(s.X) {
+				t.Errorf("%v: %s takes the address of its title or body", fset.Position(s.Pos()), who)
+			}
+		case *ast.FuncLit:
+			for _, fl := range []*ast.FieldList{s.Type.Params, s.Type.Results} {
+				if fl == nil {
+					continue
+				}
+				for _, f := range fl.List {
+					for _, id := range f.Names {
+						if id.Name == "title" || id.Name == "body" {
+							t.Errorf("%v: %s holds a function literal that shadows %s", fset.Position(s.Pos()), who, id.Name)
+						}
+					}
+				}
+			}
+		}
+		return true
+	})
+}
+
 // checkPushToast pins what pushToast does with the text once notify has handed
 // it over (H7 review R-S-1 F1), in both toast_windows.go and toast_other.go.
 // The one SendNotification call takes its options as an inline literal with
@@ -1830,6 +1856,15 @@ func checkKeyedLiteral(t *testing.T, fset *token.FileSet, lit *ast.CompositeLit,
 // toastFor's literal, which ends where its return does.
 func checkPushToast(t *testing.T, fset *token.FileSet, fd *ast.FuncDecl, file string) {
 	t.Helper()
+	var params []string
+	for _, f := range fd.Type.Params.List {
+		for _, id := range f.Names {
+			params = append(params, id.Name+" "+dottedName(f.Type))
+		}
+	}
+	if got := strings.Join(params, ", "); got != "ctx context.Context, title string, body string, silent bool" || fd.Type.Results != nil {
+		t.Errorf("%v: %s pushToast takes (%s), want exactly (ctx context.Context, title, body string, silent bool) and no results", fset.Position(fd.Pos()), file, got)
+	}
 	sends, optionIdents := 0, 0
 	ast.Inspect(fd.Body, func(n ast.Node) bool {
 		switch n := n.(type) {
