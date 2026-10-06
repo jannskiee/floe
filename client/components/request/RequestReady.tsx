@@ -45,7 +45,7 @@ export interface RequestReadyProps {
 export function RequestReady(props: RequestReadyProps) {
     const hasFiles = props.rows.length > 0;
     return (
-        <section className="w-full rounded-2xl border border-white/[0.08] bg-zinc-950/85 p-6 shadow-[0_40px_90px_-30px_rgb(0_0_0/0.9)] backdrop-blur-xl sm:p-7">
+        <section className="w-full rounded-2xl border border-white/[0.08] bg-zinc-950/85 p-6 shadow-[0_40px_90px_-30px_rgb(0_0_0/0.9)] sm:p-7">
             <ReadyHeader />
             <RequestDropzone
                 hasFiles={hasFiles}

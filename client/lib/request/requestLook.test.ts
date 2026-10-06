@@ -76,12 +76,14 @@ describe('the /r look', () => {
         expect(dim).toEqual(['RequestDropzone.tsx <Plus', 'RequestShell.tsx <footer']);
     });
 
-    it('every card is the same opaque frosted surface over the backdrop', () => {
+    it('every card is the same opaque surface over the backdrop, with plain edges', () => {
         // Since D-165 art sits behind the card. A see-through card would let
         // it under the text, where e2e/request-look.spec.ts cannot measure it
         // (it composites background colors, not art), so the card is at least
-        // 85% opaque zinc-950, frosted, and one class string on every card.
-        const cards = ['RequestReady.tsx', 'RequestStatus.tsx', 'RequestProgress.tsx', 'NoticeCard.tsx'].map((name) => {
+        // 85% opaque zinc-950, and one class string on every card. No backdrop
+        // blur: at 85% it drew nothing and still cost a pass on every scroll.
+        const files = ['RequestReady.tsx', 'RequestStatus.tsx', 'RequestProgress.tsx', 'NoticeCard.tsx'];
+        const cards = files.map((name) => {
             const m = /<section className="([^"]*)"/.exec(read(name));
             expect(m, name).not.toBeNull();
             return m![1];
@@ -90,10 +92,11 @@ describe('the /r look', () => {
         const classes = cards[0].split(/\s+/);
         const alpha = classes.map((c) => /^bg-zinc-950\/(\d+)$/.exec(c)?.[1]).find(Boolean);
         expect(Number(alpha ?? 0), cards[0]).toBeGreaterThanOrEqual(85);
-        expect(classes.some((c) => c.startsWith('backdrop-blur'))).toBe(true);
         // No glow on the card's edges, the top edge above all (the owner,
-        // 2026-10-07): no ice tint, no lit pseudo-element line, no inner
-        // highlight. A plain hairline border and a neutral depth shadow.
-        expect(cards[0], cards[0]).not.toMatch(/ice|before:|after:|inset|ring-/);
+        // 2026-10-07): no ice tint or ice-colored shadow, no lit pseudo-element
+        // or 1px child line, no lighter top border, no inner highlight. A plain
+        // hairline border and a neutral depth shadow.
+        expect(cards[0], cards[0]).not.toMatch(/ice|191|before:|after:|inset|ring-|border-t-|via-|from-|bg-linear|bg-gradient|backdrop-blur/);
+        for (const name of files) expect(read(name), name).not.toMatch(/-top-px|top-\[-1px\]/);
     });
 });
