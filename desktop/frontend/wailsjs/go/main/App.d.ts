@@ -54,9 +54,11 @@ export function SelectFolder():Promise<string>;
 
 export function SetCheckUpdates(arg1:boolean):Promise<void>;
 
-export function SetRequestLinks(arg1:boolean):Promise<void>;
-
 export function SetSettings(arg1:string,arg2:string,arg3:boolean,arg4:boolean):Promise<void>;
+
+export function SetToastSound(arg1:boolean):Promise<void>;
+
+export function SetToasts(arg1:boolean):Promise<void>;
 
 export function StartSend(arg1:Array<string>,arg2:boolean):Promise<void>;
 

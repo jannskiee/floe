@@ -310,7 +310,7 @@ func healthServer(body string) *httptest.Server {
 	return httptest.NewServer(mux)
 }
 
-// TestProbeHealthReadsFeatures: the Beta switch reads request-1 out of the
+// TestProbeHealthReadsFeatures: the request link lane reads request-1 out of the
 // server's feature list; unknown names beside it are ignored, never an error.
 func TestProbeHealthReadsFeatures(t *testing.T) {
 	srv := healthServer(`{"status":"healthy","uptime":1,"features":["portal-9","request-1","x"]}`)

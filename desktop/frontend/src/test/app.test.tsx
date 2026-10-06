@@ -17,8 +17,8 @@ import App from '../App';
 // The generated declarations as text, through Vite's raw import (the frontend
 // carries no Node types, so no fs).
 import appDts from '../../wailsjs/go/main/App.d.ts?raw';
-import {AnswerRequest, GetRequestLink, MakeRequestLink, RequestLinkSupport, SetRequestLinks} from '../../wailsjs/go/main/App';
-import {REQUEST_BINDINGS} from './requestFixtures';
+import {AnswerRequest, GetRequestLink, MakeRequestLink, RequestLinkSupport} from '../../wailsjs/go/main/App';
+import {REQUEST_BINDINGS, offSnapshot} from './requestFixtures';
 
 // main.tsx wraps App in StrictMode, so the tests do too. Not ceremony:
 // StrictMode double-invokes effects, which is what turns the balance assertion
@@ -26,7 +26,7 @@ import {REQUEST_BINDINGS} from './requestFixtures';
 // down once".
 const mount = () => render(<StrictMode><App /></StrictMode>);
 
-const settled = () => waitFor(() => expect(wails.listeners.size).toBe(13));
+const settled = () => waitFor(() => expect(wails.listeners.size).toBe(15));
 
 describe('the mount effect', () => {
     it('registers every Go listener and tears down every one', async () => {
@@ -35,8 +35,9 @@ describe('the mount effect', () => {
 
         // Not a hand-copied list for its own sake: the assertion is that OFF
         // mirrors ON, whatever ON turns out to be.
-        // The last two belong to the verification effect that sits after this
-        // one, with its own teardown; the balance assertion below covers both.
+        // The verification pair and the request pair belong to effects that sit
+        // after this one, each with its own teardown; the balance assertion
+        // below covers all of them.
         expect([...wails.listeners.keys()].sort()).toEqual([
             'close:blocked',
             'files:open',
@@ -44,6 +45,8 @@ describe('the mount effect', () => {
             'recv:incoming',
             'recv:progress',
             'recv:route',
+            'request:progress',
+            'request:state',
             'send:code',
             'send:delivered',
             'send:done',
@@ -67,33 +70,80 @@ describe('the mount effect', () => {
         expect(offs.length).toBe(ons.length);
     });
 
-    // FT-03: the Request link is off by default, and off means off. Nothing
-    // of the feature may run at launch, not even a probe, so a build whose
-    // lane is broken cannot touch a user who never turned it on.
-    it('runs no request binding at mount while the switch is off', async () => {
+    // FT-03b (H7 S-1): no switch, so the lane's two events and the
+    // GetRequestLink pull register at launch. They are Wails events and a call
+    // into Go, not network traffic: nothing asks a server before Make link.
+    it('launch registers request listeners and pulls GetRequestLink but asks no server (FT-03b)', async () => {
         mount();
         await settled();
         await waitFor(() => expect(wails.go.GetSettings).toHaveBeenCalled());
+        await waitFor(() => expect(wails.go.GetRequestLink).toHaveBeenCalled());
         // Let the GetSettings promise and every effect it schedules settle.
         await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
 
+        expect([...wails.listeners.keys()].filter((k) => k.startsWith('request:')).sort()).toEqual(['request:progress', 'request:state']);
         for (const name of REQUEST_BINDINGS) {
+            if (name === 'GetRequestLink') continue;
             expect(wails.go[name], name).not.toHaveBeenCalled();
         }
-        expect([...wails.listeners.keys()].filter((k) => k.startsWith('request:'))).toEqual([]);
         // Nor does it write anything of its own to storage (review F4).
         expect(Object.keys(localStorage).filter((k) => k.startsWith('floe:request'))).toEqual([]);
     });
 
+    it('the Request link tab and its BETA chip show at launch', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
+
+        const tab = await screen.findByRole('button', {name: 'Request link, beta'});
+        expect(tab.getAttribute('aria-pressed')).toBe('false');
+        const chip = screen.getByText('Beta', {selector: 'span'});
+        expect(chip.getAttribute('aria-hidden')).toBe('true');
+        expect(chip.parentElement!.contains(tab)).toBe(true);
+        // Seeing the tab asked no server anything.
+        expect(wails.go.RequestLinkSupport).not.toHaveBeenCalled();
+    });
+
+    // The default stub answers Make link the way a server with its kill switch
+    // on does (disabled). Make link is the authority: the sentence shows under
+    // the button, the tab stays, and the form stays usable.
+    it('a server that lists no request-1: Make link shows E1 under the button and the tab stays', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
+        await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
+        const make = screen.getByRole('button', {name: 'Make link'});
+        await user.click(make);
+
+        const alert = await screen.findByRole('alert');
+        expect(alert.textContent).toBe('Request links are turned off on this server right now.');
+        expect(make.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(screen.getByRole('button', {name: 'Request link, beta'}).getAttribute('aria-pressed')).toBe('true');
+        expect(screen.getByRole('button', {name: 'Make link'})).toBeTruthy();
+        expect(screen.queryByRole('button', {name: 'Copy link'})).toBeNull();
+        expect(wails.go.RequestLinkSupport).not.toHaveBeenCalled();
+    });
+
+    it('an unreachable server: Make link shows E4 and the tab stays', async () => {
+        wails.go.MakeRequestLink.mockImplementation(async () => ({...offSnapshot, gen: 1, seq: 1, state: 'error', code: 'unknown'}));
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
+        await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
+        await user.click(screen.getByRole('button', {name: 'Make link'}));
+
+        expect((await screen.findByRole('alert')).textContent).toBe('Floe could not make a link. Try again later.');
+        expect(screen.getByRole('button', {name: 'Request link, beta'})).toBeTruthy();
+    });
+
     it('remembers the request save folder only when the owner chooses one', async () => {
-        wails.go.GetSettings.mockImplementation(async () => ({
-            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false, requestLinks: true, migrated: true,
-        }));
-        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: true}));
         wails.go.SelectFolder.mockImplementation(async () => 'D:\\Footage\\Floe requests');
         const user = userEvent.setup();
         mount();
-        await waitFor(() => expect(wails.listeners.size).toBe(15));
+        await settled();
         await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
         await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
         expect(localStorage.getItem('floe:requestSaveDir')).toBeNull();
@@ -493,106 +543,175 @@ describe('the Wails mock', () => {
         await expect(GetRequestLink()).resolves.toMatchObject({state: 'off', link: ''});
         await expect(AnswerRequest(1, 'accept')).resolves.toMatchObject({state: 'off'});
         await expect(RequestLinkSupport()).resolves.toEqual({reachable: false, requestLinks: false});
-        await expect(SetRequestLinks(true)).rejects.toThrow();
-        await expect(SetRequestLinks(false)).resolves.toBeUndefined();
     });
 });
 
 /**
- * Settings > Beta > Request links (S1-DSK-02). Off by default, usable only
- * against a server whose /health lists request-1, reset by Reset all settings.
+ * Settings has no request-links switch (H7 S-1, D-160): the lane is always
+ * there, and Make link is the authority about the server.
  */
-describe('the Beta switch', () => {
-    const betaSwitch = () => screen.getByRole('checkbox', {name: /^Request links/}) as HTMLInputElement;
-
-    it('Beta section sits after Windows and before Advanced', async () => {
+describe('Settings has no Beta section (S-1)', () => {
+    it('Settings has no Beta section', async () => {
         const user = userEvent.setup();
         mount();
         await settled();
         await user.click(screen.getByRole('button', {name: 'Settings'}));
 
         const headings = screen.getAllByRole('heading', {level: 3}).map((h) => h.textContent);
-        expect(headings).toEqual(['Transfers', 'Privacy', 'Windows', 'Beta', 'Advanced', 'About']);
+        expect(headings).toEqual(['Transfers', 'Notifications', 'Privacy', 'Windows', 'Advanced', 'About']);
+        expect(screen.queryByRole('checkbox', {name: /^Request links/})).toBeNull();
+        // Opening Settings asks no server about request links either.
+        await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+        expect(wails.go.RequestLinkSupport).not.toHaveBeenCalled();
     });
+});
 
-    it('a disabled setting row ignores clicks', async () => {
-        // The stubbed probe: the server is not reachable, so the switch is
-        // disabled with the server line.
-        const user = userEvent.setup();
-        mount();
-        await settled();
-        await user.click(screen.getByRole('button', {name: 'Settings'}));
-
-        const line = await screen.findByText('Not available on this server right now.');
-        await waitFor(() => expect(wails.go.RequestLinkSupport).toHaveBeenCalled());
-        const sw = betaSwitch();
-        expect(sw.disabled).toBe(true);
-        expect(sw.closest('label')?.getAttribute('aria-disabled')).toBe('true');
-
-        await user.click(line);
-        await user.click(screen.getByText('Request links'));
-        expect(sw.checked).toBe(false);
-        expect(wails.go.SetRequestLinks).not.toHaveBeenCalled();
-    });
-
-    it('turns on against a server that lists request-1, and a refused save reverts it', async () => {
-        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: true}));
-        const user = userEvent.setup();
-        mount();
-        await settled();
-        await user.click(screen.getByRole('button', {name: 'Settings'}));
-
-        await screen.findByText('Let someone send files to this PC through a link you make. Works while Floe is open.');
-        await waitFor(() => expect(betaSwitch().disabled).toBe(false));
-
-        // The stub setter refuses to turn on, so the switch must not stay on.
-        await user.click(betaSwitch());
-        expect(wails.go.SetRequestLinks).toHaveBeenCalledWith(true);
-        await waitFor(() => expect(betaSwitch().checked).toBe(false));
-
-        // A setter that saves keeps it on.
-        wails.go.SetRequestLinks.mockImplementation(async () => {});
-        await user.click(betaSwitch());
-        await waitFor(() => expect(betaSwitch().checked).toBe(true));
-    });
-
-    it('reset all settings turns request links off', async () => {
+/**
+ * Settings > Notifications (H7 S-11, D-162): Show notifications, Play sound
+ * (dimmed while the first is off) and, on Windows, a row that opens Windows'
+ * own notification settings. Each switch is Go-owned: set optimistically, call
+ * the setter, put it back if the setter throws.
+ */
+describe('Settings > Notifications (S-11)', () => {
+    const NS3 = 'For requests and transfers, while Floe is in the background.';
+    const NS4 = 'Requests still flash Floe on the taskbar.';
+    const showSwitch = () => screen.getByRole('checkbox', {name: /^Show notifications/}) as HTMLInputElement;
+    const soundSwitch = () => screen.getByRole('checkbox', {name: 'Play sound'}) as HTMLInputElement;
+    const withToasts = (noToasts: boolean, silentToasts: boolean) => {
         wails.go.GetSettings.mockImplementation(async () => ({
-            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false,
-            requestLinks: true, migrated: true,
+            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false, noToasts, silentToasts, migrated: true,
         }));
-        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: true}));
-        wails.go.SetRequestLinks.mockImplementation(async () => {});
+    };
+    async function openSettings() {
         const user = userEvent.setup();
         mount();
         await settled();
         await user.click(screen.getByRole('button', {name: 'Settings'}));
-        await waitFor(() => expect(betaSwitch().checked).toBe(true));
+        return user;
+    }
+
+    it('Notifications sits after Transfers', async () => {
+        await openSettings();
+        const headings = screen.getAllByRole('heading', {level: 3}).map((h) => h.textContent);
+        expect(headings).toEqual(['Transfers', 'Notifications', 'Privacy', 'Windows', 'Advanced', 'About']);
+        expect(showSwitch().checked).toBe(true);
+        expect(soundSwitch().checked).toBe(true);
+        expect(screen.getByText(NS3)).toBeTruthy();
+        expect(screen.queryByText(NS4)).toBeNull();
+    });
+
+    it('Show notifications off calls SetToasts(false), swaps the description and dims Play sound', async () => {
+        const user = await openSettings();
+        await user.click(showSwitch());
+
+        await waitFor(() => expect(wails.go.SetToasts).toHaveBeenCalledWith(false));
+        expect(showSwitch().checked).toBe(false);
+        expect(screen.getByText(NS4)).toBeTruthy();
+        expect(screen.queryByText(NS3)).toBeNull();
+        // Dimmed, not hidden, and the sound keeps the value it had.
+        expect(soundSwitch().disabled).toBe(true);
+        expect(soundSwitch().checked).toBe(true);
+        expect(soundSwitch().closest('label')?.getAttribute('aria-disabled')).toBe('true');
+        // Nothing else was written: the whole-record save is not this switch's.
+        expect(wails.go.SetSettings).not.toHaveBeenCalled();
+        expect(wails.go.SetToastSound).not.toHaveBeenCalled();
+    });
+
+    it('a disabled Play sound ignores clicks', async () => {
+        const user = await openSettings();
+        await user.click(showSwitch());
+        await waitFor(() => expect(showSwitch().checked).toBe(false));
+        await user.click(soundSwitch());
+        expect(wails.go.SetToastSound).not.toHaveBeenCalled();
+        expect(soundSwitch().checked).toBe(true);
+    });
+
+    it('a refused SetToasts reverts the switch', async () => {
+        wails.go.SetToasts.mockRejectedValueOnce(new Error('disk full'));
+        const user = await openSettings();
+        await user.click(showSwitch());
+
+        await waitFor(() => expect(wails.go.SetToasts).toHaveBeenCalledWith(false));
+        await waitFor(() => expect(showSwitch().checked).toBe(true));
+        expect(soundSwitch().disabled).toBe(false);
+        expect(screen.getByText(NS3)).toBeTruthy();
+    });
+
+    it('Play sound calls SetToastSound(false), and a refusal reverts it', async () => {
+        const user = await openSettings();
+        await user.click(soundSwitch());
+        await waitFor(() => expect(wails.go.SetToastSound).toHaveBeenCalledWith(false));
+        expect(soundSwitch().checked).toBe(false);
+        expect(wails.go.SetToasts).not.toHaveBeenCalled();
+
+        wails.go.SetToastSound.mockRejectedValueOnce(new Error('disk full'));
+        await user.click(soundSwitch());
+        await waitFor(() => expect(wails.go.SetToastSound).toHaveBeenCalledWith(true));
+        await waitFor(() => expect(soundSwitch().checked).toBe(false));
+    });
+
+    it('Open passes ms-settings:notifications to BrowserOpenURL', async () => {
+        const user = await openSettings();
+        expect(screen.getByText('Windows notification settings')).toBeTruthy();
+        expect(screen.getByText('Banners, Notification Center and lock screen.')).toBeTruthy();
+        const open = (window as unknown as {runtime: {BrowserOpenURL: ReturnType<typeof vi.fn>}}).runtime.BrowserOpenURL;
+        const button = screen.getByRole('button', {name: 'Open Windows notification settings'});
+        expect(button.textContent).toBe('Open');
+        await user.click(button);
+        expect(open).toHaveBeenCalledTimes(1);
+        expect(open).toHaveBeenCalledWith('ms-settings:notifications');
+    });
+
+    it('noToasts and silentToasts load into the switches', async () => {
+        withToasts(true, true);
+        await openSettings();
+        await waitFor(() => expect(showSwitch().checked).toBe(false));
+        expect(soundSwitch().checked).toBe(false);
+        expect(soundSwitch().disabled).toBe(true);
+        expect(screen.getByText(NS4)).toBeTruthy();
+    });
+
+    it('a silent-only config loads as notifications on and sound off', async () => {
+        withToasts(false, true);
+        await openSettings();
+        await waitFor(() => expect(soundSwitch().checked).toBe(false));
+        expect(showSwitch().checked).toBe(true);
+        expect(soundSwitch().disabled).toBe(false);
+    });
+
+    it('Reset turns notifications and sound back on and the dialog names notifications', async () => {
+        withToasts(true, true);
+        const user = await openSettings();
+        await waitFor(() => expect(showSwitch().checked).toBe(false));
 
         await user.click(screen.getByRole('button', {name: 'Reset'}));
         const dialog = await screen.findByRole('dialog');
+        expect(within(dialog).getByText('Your save folder, notifications, the privacy switches and the server addresses go back to the way Floe shipped.')).toBeTruthy();
         await user.click(within(dialog).getByRole('button', {name: 'Reset all settings'}));
 
-        expect(wails.go.SetRequestLinks).toHaveBeenCalledWith(false);
-        await waitFor(() => expect(betaSwitch().checked).toBe(false));
+        await waitFor(() => expect(wails.go.SetToasts).toHaveBeenCalledWith(true));
+        expect(wails.go.SetToastSound).toHaveBeenCalledWith(true);
+        await waitFor(() => expect(showSwitch().checked).toBe(true));
+        expect(soundSwitch().checked).toBe(true);
+        expect(soundSwitch().disabled).toBe(false);
     });
 
-    it('a Settings save sends only the fields SetSettings owns', async () => {
-        // The Go side carries RequestLinks over (settingsFromArgs); the
-        // frontend's half is never to route the switch through SetSettings,
-        // whose four arguments have no place for it.
-        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: true}));
-        wails.go.SetRequestLinks.mockImplementation(async () => {});
-        const user = userEvent.setup();
-        mount();
-        await settled();
-        await user.click(screen.getByRole('button', {name: 'Settings'}));
-        await waitFor(() => expect(betaSwitch().disabled).toBe(false));
-        await user.click(betaSwitch());
-        await user.click(screen.getByRole('checkbox', {name: /^Hide my IP address/}));
+    it('a reset that fails part way re-pulls the notification switches', async () => {
+        withToasts(true, true);
+        const user = await openSettings();
+        await waitFor(() => expect(showSwitch().checked).toBe(false));
 
-        expect(wails.go.SetRequestLinks).toHaveBeenCalledTimes(1);
-        for (const call of wails.go.SetSettings.mock.calls) expect(call).toHaveLength(4);
+        // SetToasts(true) lands and SetToastSound(true) is refused: the screen
+        // must show what is on disk (notifications on, sound still off).
+        wails.go.SetToastSound.mockRejectedValueOnce(new Error('disk full'));
+        withToasts(false, true);
+        await user.click(screen.getByRole('button', {name: 'Reset'}));
+        await user.click(within(await screen.findByRole('dialog')).getByRole('button', {name: 'Reset all settings'}));
+
+        await waitFor(() => expect(wails.go.SetToastSound).toHaveBeenCalledWith(true));
+        await user.click(within(screen.getByRole('dialog')).getByRole('button', {name: 'Cancel'}));
+        await waitFor(() => expect(showSwitch().checked).toBe(true));
+        expect(soundSwitch().checked).toBe(false);
     });
 });
 
@@ -619,10 +738,6 @@ describe('a request link pasted into CODE', () => {
     }
 
     it('request link pasted into CODE shows the sentence and never calls ReceiveByCode', async () => {
-        wails.go.GetSettings.mockImplementation(async () => ({
-            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false,
-            requestLinks: true, migrated: true,
-        }));
         await paste(link);
         expect(await screen.findByText(cp2)).toBeTruthy();
         expect(screen.getByRole('button', {name: 'Open in browser'})).toBeTruthy();
@@ -631,7 +746,7 @@ describe('a request link pasted into CODE', () => {
         expect(screen.queryByRole('button', {name: 'Cancel'})).toBeNull();
     });
 
-    it('request link pasted into CODE with the Beta switch off shows the same sentence', async () => {
+    it('a floe.one request link and a drop link show the same sentence, and editing clears it', async () => {
         await paste(`https://floe.one/r/Xk3p9Q0aB1c#${room}`);
         expect(await screen.findByText(cp2)).toBeTruthy();
         expect(wails.go.ReceiveByCode).not.toHaveBeenCalled();
@@ -682,21 +797,18 @@ describe('the request link in the app', () => {
     const lane = (state: string, over: Record<string, unknown> = {}) => ({...base, state, ...over});
     const prompt = {files: 12, totalBytes: 38 * GB, folder: 'Floe requests\\Acme footage 2026-09-14 1405', freeBytes: 500 * GB, warnings: [], answerBy: Date.now() + 9 * 60000};
 
-    function switchOn(feature = true, hideIP = false) {
+    function withHideIP(hideIP: boolean) {
         wails.go.GetSettings.mockImplementation(async () => ({
-            server: '', web: '', hideIP, reportStats: true, noUpdateCheck: false, requestLinks: true, migrated: true,
+            server: '', web: '', hideIP, reportStats: true, noUpdateCheck: false, migrated: true,
         }));
-        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: feature}));
     }
-    const allOn = () => waitFor(() => expect(wails.listeners.size).toBe(15));
     const push = (s: Record<string, unknown>) => act(() => { wails.emit('request:state', s); });
     const receiveTab = () => screen.getAllByRole('button', {name: 'Receive'})[0];
     const requestButton = () => screen.getByRole('button', {name: 'Request link, beta'});
 
     it('registers every Go listener and tears down every one, the request events included', async () => {
-        switchOn();
         const {unmount} = mount();
-        await allOn();
+        await settled();
         expect([...wails.listeners.keys()].sort()).toEqual([
             'close:blocked', 'files:open', 'recv:file-done', 'recv:incoming', 'recv:progress', 'recv:route',
             'request:progress', 'request:state',
@@ -710,9 +822,8 @@ describe('the request link in the app', () => {
     });
 
     it('the mount effect keeps its 11 listeners', async () => {
-        switchOn();
         mount();
-        await allOn();
+        await settled();
         // Effects run in declaration order, so the first eleven registrations
         // are the mount effect's, and they are exactly the original eleven;
         // the verification pair and the request pair come after, each from
@@ -727,52 +838,30 @@ describe('the request link in the app', () => {
         expect(wails.go.GetRequestLink).toHaveBeenCalled();
     });
 
-    it('row hidden when the switch is off or the feature is missing', async () => {
-        // Off (the default): no row, and REQUEST LINK cannot be reached.
-        const first = mount();
+    it('the tab stays while a drop runs and after its result is put away', async () => {
+        mount();
         await settled();
-        await userEvent.click(receiveTab());
-        expect(screen.queryByRole('button', {name: 'Request link, beta'})).toBeNull();
-        first.unmount();
-
-        // On, but the server lacks request-1.
-        switchOn(false);
-        mount();
-        await allOn();
-        await userEvent.click(receiveTab());
-        await waitFor(() => expect(wails.go.RequestLinkSupport).toHaveBeenCalled());
-        expect(screen.queryByRole('button', {name: 'Request link, beta'})).toBeNull();
-        expect(screen.getByPlaceholderText('amber-otter-cloud')).toBeTruthy();
-    });
-
-    it('row stays while a drop runs after request-1 disappears', async () => {
-        switchOn(true);
-        mount();
-        await allOn();
         await userEvent.click(receiveTab());
         await waitFor(() => expect(requestButton()).toBeTruthy());
         push(lane('receiving', {gen: 2, route: 'direct'}));
 
-        // The kill switch flips on the server: the next probe says no.
-        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: false}));
-        const probes = wails.go.RequestLinkSupport.mock.calls.length;
         await userEvent.click(screen.getByRole('button', {name: 'Send'}));
         await userEvent.click(receiveTab());
-        await waitFor(() => expect(wails.go.RequestLinkSupport.mock.calls.length).toBeGreaterThan(probes));
-        await act(async () => { await Promise.resolve(); });
         expect(requestButton()).toBeTruthy();
         expect(screen.getByText(/RECEIVING/)).toBeTruthy();
 
-        // Once the drop is over and put away, the row goes.
+        // Once the drop is over and put away the tab is still there: nothing
+        // decides it but Make link (H7 S-1), and no probe ran.
         push(lane('done', {gen: 2, result: {files: 1, saved: 1, bytes: 1, verified: 1, renamed: 0, folder: 'D:\\x', names: ['a']}}));
         await userEvent.click(screen.getByRole('button', {name: 'Dismiss'}));
-        await waitFor(() => expect(screen.queryByRole('button', {name: 'Request link, beta'})).toBeNull());
+        expect(await screen.findByRole('button', {name: 'Make link'})).toBeTruthy();
+        expect(requestButton()).toBeTruthy();
+        expect(wails.go.RequestLinkSupport).not.toHaveBeenCalled();
     });
 
     it('CODE and REQUEST LINK use aria-pressed', async () => {
-        switchOn();
         mount();
-        await allOn();
+        await settled();
         await userEvent.click(receiveTab());
         const code = await screen.findByRole('button', {name: 'Code'});
         expect(code.getAttribute('aria-pressed')).toBe('true');
@@ -787,9 +876,8 @@ describe('the request link in the app', () => {
     });
 
     it('the Beta chip sits right beside REQUEST LINK, apart from CODE', async () => {
-        switchOn();
         mount();
-        await allOn();
+        await settled();
         await userEvent.click(receiveTab());
         const chip = await screen.findByText('Beta', {selector: 'span'});
         // The owner's 2026-09-23 look: the chip belongs to its label, on the
@@ -802,9 +890,8 @@ describe('the request link in the app', () => {
     });
 
     it('the Ready view has no helper line above the form (R4, cut by the owner)', async () => {
-        switchOn();
         mount();
-        await allOn();
+        await settled();
         await userEvent.click(receiveTab());
         await userEvent.click(requestButton());
         expect(screen.getByRole('button', {name: 'Make link'})).toBeTruthy();
@@ -812,9 +899,8 @@ describe('the request link in the app', () => {
     });
 
     it('inactive choice labels use zinc-400', async () => {
-        switchOn();
         mount();
-        await allOn();
+        await settled();
         await userEvent.click(receiveTab());
         const code = await screen.findByRole('button', {name: 'Code'});
         expect(requestButton().className).toContain('text-zinc-400');
@@ -827,9 +913,8 @@ describe('the request link in the app', () => {
     });
 
     it('drop state stays out of busy', async () => {
-        switchOn();
         mount();
-        await allOn();
+        await settled();
         push(lane('receiving', {gen: 2, route: 'direct'}));
         await userEvent.click(receiveTab());
         await userEvent.click(await screen.findByRole('button', {name: 'Code'}));
@@ -844,10 +929,9 @@ describe('the request link in the app', () => {
     });
 
     it('Ctrl+Enter does nothing on REQUEST LINK', async () => {
-        switchOn();
         const user = userEvent.setup();
         mount();
-        await allOn();
+        await settled();
         await user.click(receiveTab());
         // A code typed on CODE stays in its field behind REQUEST LINK; the
         // shortcut must not reach it from there.
@@ -866,10 +950,9 @@ describe('the request link in the app', () => {
     });
 
     it('close guard with an open link shows Keep Floe open and Close Floe', async () => {
-        switchOn();
         const user = userEvent.setup();
         mount();
-        await allOn();
+        await settled();
         push(lane('waiting'));
         act(() => { wails.emit('close:blocked'); });
         const dialog = await screen.findByRole('dialog');
@@ -882,9 +965,8 @@ describe('the request link in the app', () => {
     });
 
     it('close guard with a drop receiving shows the receiving sentence', async () => {
-        switchOn();
         mount();
-        await allOn();
+        await settled();
         push(lane('receiving', {gen: 2, route: 'relay'}));
         act(() => { wails.emit('close:blocked'); });
         const dialog = await screen.findByRole('dialog');
@@ -894,10 +976,9 @@ describe('the request link in the app', () => {
     });
 
     it('close guard with a send and a link adds the link sentence', async () => {
-        switchOn();
         const user = userEvent.setup();
         mount();
-        await allOn();
+        await settled();
         push(lane('waiting'));
         await user.click(screen.getByRole('button', {name: 'Text'}));
         await user.type(screen.getByPlaceholderText('Type or paste text to send'), 'hello');
@@ -911,10 +992,9 @@ describe('the request link in the app', () => {
     });
 
     it('the Start over dialog says the link stays open', async () => {
-        switchOn();
         const user = userEvent.setup();
         mount();
-        await allOn();
+        await settled();
         push(lane('waiting'));
         await user.click(screen.getByRole('button', {name: 'Text'}));
         await user.type(screen.getByPlaceholderText('Type or paste text to send'), 'an unsent note');
@@ -932,10 +1012,9 @@ describe('the request link in the app', () => {
         // with no link and with a waiting one. H2 moves to the Receive tab's
         // description, only while a link is open and no drop moves (the chip
         // says that), and never on another tab.
-        switchOn();
         const user = userEvent.setup();
         mount();
-        await allOn();
+        await settled();
         const send = () => screen.getAllByRole('button', {name: 'Send'})[0];
         expect(receiveTab().getAttribute('aria-describedby')).toBeNull();
         push(lane('waiting'));
@@ -976,9 +1055,9 @@ describe('the request link in the app', () => {
 
     it('the chip word keeps an element of its own, with Hide my IP off and on', async () => {
         for (const hideIP of [false, true]) {
-            switchOn(true, hideIP);
+            withHideIP(hideIP);
             const {unmount} = mount();
-            await allOn();
+            await settled();
             const word = await screen.findByText('Ready');
             await waitFor(() => expect(!!word.nextElementSibling).toBe(hideIP));
             expect(pillReads(), `hideIP ${hideIP}`).toEqual(['Ready']);
@@ -999,9 +1078,9 @@ describe('the request link in the app', () => {
 
     it('the amber READY explains itself on hover; with Hide my IP off READY shows nothing', async () => {
         const user = userEvent.setup();
-        switchOn(true, true);
+        withHideIP(true);
         const amber = mount();
-        await allOn();
+        await settled();
         const word = await screen.findByText('Ready');
         await waitFor(() => expect(word.nextElementSibling).toBeTruthy());
         await user.hover(word);
@@ -1009,9 +1088,9 @@ describe('the request link in the app', () => {
         await user.unhover(word);
         amber.unmount();
 
-        switchOn(true, false);
+        withHideIP(false);
         mount();
-        await allOn();
+        await settled();
         await pause(400);
         await user.hover(screen.getByText('Ready'));
         await pause(600);
@@ -1020,10 +1099,10 @@ describe('the request link in the app', () => {
 
     it('hovering DIRECT or RELAY shows nothing, and the moving chip has no twin', async () => {
         // D-135 D2: "Direct peer connection" and the relay lines are gone.
-        switchOn(true, true);
+        withHideIP(true);
         const user = userEvent.setup();
         mount();
-        await allOn();
+        await settled();
         await waitFor(() => expect(screen.getByText('Ready').nextElementSibling).toBeTruthy());
         for (const [route, name, seq] of [['direct', 'Direct', 1], ['relay', 'Relay', 2]] as const) {
             push(lane('receiving', {gen: 2, seq, route}));
@@ -1039,10 +1118,9 @@ describe('the request link in the app', () => {
     });
 
     it('a prompt raises the notice elsewhere, announces once, and Review opens it', async () => {
-        switchOn();
         const user = userEvent.setup();
         mount();
-        await allOn();
+        await settled();
         push(lane('deciding', {gen: 2, promptGen: 1, prompt}));
         const notice = await screen.findByRole('group', {name: 'Someone wants to send you files.'});
         const spans = [...document.querySelectorAll('span.sr-only[role="status"]')].map((s) => s.textContent);
@@ -1061,10 +1139,9 @@ describe('the request link in the app', () => {
         proto.scrollIntoView = function (this: HTMLElement, arg?: unknown) { scrolled.push({id: this.id, arg}); };
         const focus = vi.spyOn(HTMLElement.prototype, 'focus');
         try {
-            switchOn();
             const user = userEvent.setup();
             mount();
-            await allOn();
+            await settled();
             push(lane('deciding', {gen: 2, promptGen: 1, prompt}));
             const notice = await screen.findByRole('group', {name: 'Someone wants to send you files.'});
             await user.click(within(notice).getByRole('button', {name: 'Review'}));
@@ -1088,10 +1165,9 @@ describe('the request link in the app', () => {
         vi.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(function (this: Element) {
             return this.tagName === 'MAIN' ? mainHeight : 0;
         });
-        switchOn();
         const user = userEvent.setup();
         mount();
-        await allOn();
+        await settled();
         const card = () => document.querySelector<HTMLElement>('main .m-auto')!;
         card().parentElement!.style.padding = '32px';
 
@@ -1147,19 +1223,17 @@ describe('the request link in the app', () => {
         // above, is untouched. jsdom has no layout, so the class is what is
         // checked here; the pixels are cell-08's nothing-moved and
         // card-centered checks (--scrollbars).
-        switchOn();
         mount();
-        await allOn();
+        await settled();
         const main = document.querySelectorAll('main');
         expect(main).toHaveLength(1);
         expect(main[0].className.split(' ')).toContain('[scrollbar-gutter:stable_both-edges]');
     });
 
     it('the link stopped when Floe closed line shows once after relaunch', async () => {
-        switchOn();
         localStorage.setItem('floe:requestLinkOpenUntil', String(Date.now() + 3600_000));
         const first = mount();
-        await allOn();
+        await settled();
         await userEvent.click(receiveTab());
         expect(await screen.findByText('Link stopped when Floe closed.')).toBeTruthy();
         expect(localStorage.getItem('floe:requestLinkOpenUntil')).toBeNull();
@@ -1167,7 +1241,7 @@ describe('the request link in the app', () => {
 
         // The next launch has nothing to say.
         mount();
-        await allOn();
+        await settled();
         await userEvent.click(receiveTab());
         await waitFor(() => expect(requestButton()).toBeTruthy());
         await userEvent.click(requestButton());
@@ -1176,9 +1250,8 @@ describe('the request link in the app', () => {
     });
 
     it('keeps only the end time, never the link, and clears it when the link ends', async () => {
-        switchOn();
         mount();
-        await allOn();
+        await settled();
         push(lane('waiting'));
         await waitFor(() => expect(localStorage.getItem('floe:requestLinkOpenUntil')).toBe(String(base.expiresAt)));
         for (let i = 0; i < localStorage.length; i++) {
@@ -1191,11 +1264,10 @@ describe('the request link in the app', () => {
     });
 
     it('Make link passes the remembered folder and shows the stub refusal as fixed copy', async () => {
-        switchOn();
         localStorage.setItem('floe:requestSaveDir', 'D:\\Footage\\Floe requests');
         const user = userEvent.setup();
         mount();
-        await allOn();
+        await settled();
         await user.click(receiveTab());
         await user.click(requestButton());
         await user.type(screen.getByLabelText('Label'), 'Acme footage');
@@ -1211,13 +1283,9 @@ describe('visitor names in the app', () => {
     const HOSTILE = ['<img src=x onerror=alert(1)>', '$(calc)', ']]><', '\u202Eevil.exe'];
 
     it('a hostile name is never passed to any Wails call', async () => {
-        wails.go.GetSettings.mockImplementation(async () => ({
-            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false, requestLinks: true, migrated: true,
-        }));
-        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: true}));
         const user = userEvent.setup();
         mount();
-        await waitFor(() => expect(wails.listeners.size).toBe(15));
+        await settled();
         await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
         await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
         const base = {code: '', gen: 2, promptGen: 1, link: 'http://localhost:3000/r/Xk3p9Q0aB1c#x', label: 'Acme footage', saveDir: 'D:\\x', expiresAt: Date.now() + 3600_000, route: 'direct', suggestClose: false};
@@ -1253,13 +1321,9 @@ describe('visitor names in the app', () => {
 
 describe('request progress per drop (F2-03)', () => {
     it('the next drop never shows the previous drop\'s name, count or percent', async () => {
-        wails.go.GetSettings.mockImplementation(async () => ({
-            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false, requestLinks: true, migrated: true,
-        }));
-        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: true}));
         const user = userEvent.setup();
         mount();
-        await waitFor(() => expect(wails.listeners.size).toBe(15));
+        await settled();
         await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
         await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
         const base = {code: '', promptGen: 1, link: 'http://localhost:3000/r/Xk3p9Q0aB1c#x', label: 'Acme', saveDir: 'D:\\x', expiresAt: Date.now() + 3600_000, route: 'direct', suggestClose: false};
@@ -1294,13 +1358,9 @@ describe('request progress per drop (F2-03)', () => {
 
 describe('request drops in History', () => {
     it('a terminal request snapshot appends exactly one history row', async () => {
-        wails.go.GetSettings.mockImplementation(async () => ({
-            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false, requestLinks: true, migrated: true,
-        }));
-        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: true}));
         const user = userEvent.setup();
         mount();
-        await waitFor(() => expect(wails.listeners.size).toBe(15));
+        await settled();
         const base = {
             code: '', gen: 3, promptGen: 1, link: 'http://localhost:3000/r/Xk3p9Q0aB1c#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f',
             label: 'Acme footage', saveDir: 'D:\\x', expiresAt: Date.now() + 3600_000, route: 'direct', suggestClose: false,
@@ -1340,72 +1400,57 @@ describe('request drops in History', () => {
     });
 });
 
-describe('reset all settings with a link open', () => {
-    it('reset all settings leaves request links on while a link is open', async () => {
-        wails.go.GetSettings.mockImplementation(async () => ({
-            server: 'http://localhost:3001', web: '', hideIP: true, reportStats: false, noUpdateCheck: false, requestLinks: true, migrated: true,
-        }));
-        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: true}));
-        wails.go.SetRequestLinks.mockImplementation(async () => {});
+describe('reset leaves request links alone (S-17)', () => {
+    // There is no request-links setting any more, so Reset has nothing of it to
+    // put back: the only writes are the two Settings setters, and a live link
+    // is neither closed nor stranded.
+    it('reset leaves request links alone, with or without a live link', async () => {
         const user = userEvent.setup();
-        mount();
-        await waitFor(() => expect(wails.listeners.size).toBe(15));
-        act(() => {
-            wails.emit('request:state', {
-                state: 'waiting', code: '', gen: 2, promptGen: 0, link: 'http://localhost:3000/r/Xk3p9Q0aB1c#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f',
-                label: 'Acme footage', saveDir: 'D:\\x', expiresAt: Date.now() + 3600_000, route: '', suggestClose: false,
-            });
-        });
+        for (const live of [false, true]) {
+            for (const fn of Object.values(wails.go)) fn.mockClear();
+            const {unmount} = mount();
+            await settled();
+            if (live) {
+                act(() => {
+                    wails.emit('request:state', {
+                        state: 'waiting', code: '', gen: 2, promptGen: 0, link: 'http://localhost:3000/r/Xk3p9Q0aB1c#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f',
+                        label: 'Acme footage', saveDir: 'D:\\x', expiresAt: Date.now() + 3600_000, route: '', suggestClose: false,
+                    });
+                });
+            }
 
-        await user.click(screen.getByRole('button', {name: 'Settings'}));
-        const sw = () => screen.getByRole('checkbox', {name: /^Request links/}) as HTMLInputElement;
-        await waitFor(() => expect(sw().checked).toBe(true));
-        expect(screen.getByText('Close your request link first.')).toBeTruthy();
+            await user.click(screen.getByRole('button', {name: 'Settings'}));
+            await user.click(screen.getByRole('button', {name: 'Reset'}));
+            await user.click(within(await screen.findByRole('dialog')).getByRole('button', {name: 'Reset all settings'}));
 
-        await user.click(screen.getByRole('button', {name: 'Reset'}));
-        await user.click(within(await screen.findByRole('dialog')).getByRole('button', {name: 'Reset all settings'}));
-
-        // Everything else went back to the defaults...
-        await waitFor(() => expect(wails.go.SetSettings).toHaveBeenCalledWith('', '', false, true));
-        // ...but the switch a live link depends on was left alone (S5).
-        expect(wails.go.SetRequestLinks).not.toHaveBeenCalledWith(false);
-        expect(sw().checked).toBe(true);
-        expect(wails.listeners.has('request:state')).toBe(true);
-
-        // And the link is still reachable to close: Back lands on Send, and
-        // entering Receive opens REQUEST LINK while the link is live.
-        await user.click(screen.getByRole('button', {name: 'Back'}));
-        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
-        expect(await screen.findByRole('button', {name: 'Close link'})).toBeTruthy();
-    });
-
-    it('reset all settings still turns request links off with nothing open', async () => {
-        wails.go.GetSettings.mockImplementation(async () => ({
-            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false, requestLinks: true, migrated: true,
-        }));
-        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: true}));
-        wails.go.SetRequestLinks.mockImplementation(async () => {});
-        const user = userEvent.setup();
-        mount();
-        await waitFor(() => expect(wails.listeners.size).toBe(15));
-        await user.click(screen.getByRole('button', {name: 'Settings'}));
-        await user.click(screen.getByRole('button', {name: 'Reset'}));
-        await user.click(within(await screen.findByRole('dialog')).getByRole('button', {name: 'Reset all settings'}));
-        expect(wails.go.SetRequestLinks).toHaveBeenCalledWith(false);
+            await waitFor(() => expect(wails.go.SetSettings).toHaveBeenCalledWith('', '', false, true), {timeout: 2000});
+            expect(wails.go.SetCheckUpdates).toHaveBeenCalledWith(true);
+            expect(wails.go.SetToasts).toHaveBeenCalledWith(true);
+            expect(wails.go.SetToastSound).toHaveBeenCalledWith(true);
+            const settingsSetters = ['SetSettings', 'SetCheckUpdates', 'SetToasts', 'SetToastSound'];
+            for (const [name, fn] of Object.entries(wails.go)) {
+                if (name.startsWith('Set') && !settingsSetters.includes(name)) expect(fn, `live ${live}: ${name}`).not.toHaveBeenCalled();
+            }
+            expect(wails.go.CloseRequestLink).not.toHaveBeenCalled();
+            expect(wails.listeners.has('request:state')).toBe(true);
+            if (live) {
+                // Still reachable to close: entering Receive opens REQUEST LINK.
+                await user.click(screen.getByRole('button', {name: 'Back'}));
+                await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
+                expect(await screen.findByRole('button', {name: 'Close link'})).toBeTruthy();
+            }
+            unmount();
+        }
     });
 });
 
 describe('snapshot order (D-115)', () => {
     it('a deciding reply that arrives after a receiving event never brings the prompt back', async () => {
-        wails.go.GetSettings.mockImplementation(async () => ({
-            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false, requestLinks: true, migrated: true,
-        }));
-        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: true}));
         let reply!: (s: unknown) => void;
         wails.go.AnswerRequest.mockImplementation(() => new Promise((r) => { reply = r; }));
         const user = userEvent.setup();
         mount();
-        await waitFor(() => expect(wails.listeners.size).toBe(15));
+        await settled();
         const base = {
             code: '', gen: 2, promptGen: 1, link: 'http://localhost:3000/r/Xk3p9Q0aB1c#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f',
             label: 'Acme footage', saveDir: 'D:\\x', expiresAt: Date.now() + 3600_000, route: '', suggestClose: false,
@@ -1430,29 +1475,6 @@ describe('snapshot order (D-115)', () => {
     });
 });
 
-describe('turning the Beta off', () => {
-    it('the switch turns off even when the server no longer lists request-1', async () => {
-        wails.go.GetSettings.mockImplementation(async () => ({
-            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false, requestLinks: true, migrated: true,
-        }));
-        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: false}));
-        wails.go.SetRequestLinks.mockImplementation(async () => {});
-        const user = userEvent.setup();
-        mount();
-        await waitFor(() => expect(wails.listeners.size).toBe(15));
-        await user.click(screen.getByRole('button', {name: 'Settings'}));
-        await screen.findByText('Not available on this server right now.');
-        const sw = () => screen.getByRole('checkbox', {name: /^Request links/}) as HTMLInputElement;
-        await waitFor(() => expect(sw().checked).toBe(true));
-        expect(sw().disabled).toBe(false);
-        await user.click(sw());
-        expect(wails.go.SetRequestLinks).toHaveBeenCalledWith(false);
-        await waitFor(() => expect(sw().checked).toBe(false));
-        // Off now, and the server still lacks request-1: it cannot go back on.
-        await waitFor(() => expect(sw().disabled).toBe(true));
-    });
-});
-
 describe('a webview reload', () => {
     it('does not add a finished drop to History a second time', async () => {
         // The page reloaded while the lane still holds a done drop: its row is
@@ -1466,13 +1488,9 @@ describe('a webview reload', () => {
             expiresAt: Date.now() + 3600_000, route: 'direct', suggestClose: false,
             result: {files: 2, saved: 2, bytes: 2048, verified: 2, renamed: 0, folder, names: ['a', 'b']},
         };
-        wails.go.GetSettings.mockImplementation(async () => ({
-            server: '', web: '', hideIP: false, reportStats: true, noUpdateCheck: false, requestLinks: true, migrated: true,
-        }));
-        wails.go.RequestLinkSupport.mockImplementation(async () => ({reachable: true, requestLinks: true}));
         wails.go.GetRequestLink.mockImplementation(async () => done);
         mount();
-        await waitFor(() => expect(wails.listeners.size).toBe(15));
+        await settled();
         await waitFor(() => expect(wails.go.GetRequestLink).toHaveBeenCalled());
         act(() => { wails.emit('request:state', done); });
         await act(async () => { await new Promise((r) => setTimeout(r, 50)); });

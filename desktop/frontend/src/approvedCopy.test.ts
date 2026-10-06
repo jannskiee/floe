@@ -6,7 +6,7 @@
  * The table's path comes from FLOE_APPROVED_COPY and from nowhere else. Unset
  * (CI, a contributor's machine) the whole block is skipped under a title that
  * says how to run it; the build lane and QA set it on every run so the check
- * never skips silently there. The literal expectations in settings.test.ts and
+ * never skips silently there. The literal expectations in
  * requestCopy.test.ts keep pinning the same strings everywhere; this file is
  * what ties those literals to the approved source.
  *
@@ -20,13 +20,7 @@
  * string can come out of requestCopy.ts.
  */
 import {describe, expect, it} from 'vitest';
-import {
-    BETA_HEADING,
-    REQUEST_LINKS_LABEL,
-    REQUEST_LINKS_LINK_OPEN_LINE,
-    REQUEST_LINKS_NO_SERVER_LINE,
-    REQUEST_LINKS_ON_LINE,
-} from './settings';
+import * as settings from './settings';
 import * as c from './requestCopy';
 import {friendlyError} from './errors';
 import {fmtBytes} from './incoming';
@@ -47,6 +41,7 @@ interface Row {
     state: string;
     string: string;
     status: string;
+    note: string;
 }
 
 /** The copy rows: every table line whose first cell is a copy ID. Cells are
@@ -58,7 +53,7 @@ function parseRows(md: string): Map<string, Row> {
         if (!m) continue;
         const cells = m[2].split(' | ');
         if (cells.length !== 5) throw new Error(`unexpected row shape: ${line}`);
-        rows.set(m[1], {id: m[1], state: cells[1], string: cells[2], status: cells[3]});
+        rows.set(m[1], {id: m[1], state: cells[1], string: cells[2], status: cells[3], note: cells[4]});
     }
     return rows;
 }
@@ -121,15 +116,8 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         // One row per ID; a parse that finds a handful means the table format
         // moved and every check below would be vacuous.
         expect(rows.size).toBeGreaterThan(120);
-        expect(approved('S1')).toBe('Beta');
-    });
-
-    it('Settings rows S1 to S5 match byte for byte', () => {
-        expect(BETA_HEADING).toBe(approved('S1'));
-        expect(REQUEST_LINKS_LABEL).toBe(approved('S2'));
-        expect(REQUEST_LINKS_ON_LINE).toBe(approved('S3'));
-        expect(REQUEST_LINKS_NO_SERVER_LINE).toBe(approved('S4'));
-        expect(REQUEST_LINKS_LINK_OPEN_LINE).toBe(approved('S5'));
+        // The word the cut S1 had lives on as the R2 chip (D-160).
+        expect(bare('R2')).toBe('Beta');
     });
 
     it('Receive row and Ready rows match byte for byte', () => {
@@ -148,6 +136,19 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.READY_IP_LINE).toBe(approved('R15'));
         expect(c.MAKING_LINK).toBe(approved('R16'));
         expect(c.READY_HIDE_IP_LINE).toBe(approved('R17'));
+    });
+
+    it('Notification settings rows NS1 to NS8 match byte for byte', () => {
+        expect(settings.NOTIFICATIONS_HEADING).toBe(approved('NS1'));
+        expect(settings.SHOW_NOTIFICATIONS).toBe(approved('NS2'));
+        expect(settings.SHOW_NOTIFICATIONS_ON).toBe(approved('NS3'));
+        expect(settings.SHOW_NOTIFICATIONS_OFF).toBe(approved('NS4'));
+        expect(settings.PLAY_SOUND).toBe(approved('NS5'));
+        expect(settings.WINDOWS_NOTIFICATIONS).toBe(approved('NS6'));
+        expect(settings.WINDOWS_NOTIFICATIONS_DESCRIPTION).toBe(approved('NS7'));
+        expect(settings.OPEN_NOTIFICATION_SETTINGS).toBe(approved('NS8'));
+        // The button's accessible name is in the row's note, not a row of its own.
+        expect(rows.get('NS8')?.note).toContain(`aria-label "${settings.OPEN_NOTIFICATION_SETTINGS_LABEL}"`);
     });
 
     it('Error rows match byte for byte', () => {
@@ -317,16 +318,25 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
     it('no cut row can come out of requestCopy.ts', () => {
         const cut = [...rows.values()].filter((r) => r.status.startsWith('CUT'));
         expect(cut.map((r) => r.id).sort()).toEqual([
-            'C3', 'DN10', 'E3', 'E8', 'H1', 'H3', 'P7', 'Q1', 'R18', 'R19', 'R4', 'R5', 'ST15', 'ST2', 'V7', 'V8', 'W6', 'W7', 'W9', 'X4',
+            'C3', 'DN10', 'E3', 'E8', 'H1', 'H3', 'P7', 'Q1', 'R18', 'R19', 'R4', 'R5', 'S1', 'S2', 'S3', 'S4', 'S5', 'ST15', 'ST2', 'V7', 'V8', 'W6', 'W7', 'W9', 'X4',
         ]);
         const out: string[] = [];
         for (const v of Object.values(c) as unknown[]) if (typeof v === 'string') out.push(v);
+        // The Settings copy too: the Beta section is gone, and its words must
+        // not come back through settings.ts.
+        for (const v of Object.values(settings) as unknown[]) if (typeof v === 'string') out.push(v);
+        // A cut row whose words a live row also owns is exempt: nothing can
+        // tell the two apart (the cut S1 "Beta" is the live R2 chip).
+        const live = new Set(
+            [...rows.values()].filter((r) => !r.status.startsWith('CUT')).map((r) => r.string.replace(/ \([^()]*\)$/, '')),
+        );
         for (const code of ['denied', 'too-slow', 'network', 'server-restart', 'battery-standby', 'pending-rename', 'web-address']) {
             out.push(c.errorLine(code), c.endedLine(code, END), c.stoppedCard(code, 4, 12), c.stoppedFull(code, 4, 12),
                 c.warningLine(code, {freeBytes: 1, totalBytes: 1}, SAVE));
         }
         for (const r of cut) {
             const s = r.string.replace(/ \([^()]*\)$/, '');
+            if (live.has(s)) continue;
             // A fragment under three words is compared by equality: H1's "link
             // open" sat inside the old D2 ("Keep this link open for ..."), and a
             // two-word cut must not forbid every sentence that happens to hold it.

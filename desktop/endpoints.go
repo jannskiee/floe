@@ -4,8 +4,6 @@ package main
 // it. endpoints_test.go already tested this seam before the file existed.
 
 import (
-	"errors"
-
 	"github.com/jannskiee/floe/cli/engine/serverurl"
 )
 
@@ -83,10 +81,11 @@ func (a *App) SetSettings(server, web string, hideIP, reportStats bool) error {
 }
 
 // settingsFromArgs builds the record SetSettings persists. Fields owned by
-// other setters (NoUpdateCheck via SetCheckUpdates, RequestLinks via
-// SetRequestLinks) are carried over from the current record: SetSettings used
-// to construct a fresh appConfig from only its arguments, which silently
-// zeroed any field the Settings screen did not know about on every save.
+// other setters (NoUpdateCheck via SetCheckUpdates, the two toast fields via
+// SetToasts and SetToastSound) are carried over from the current record:
+// SetSettings used to construct a fresh appConfig from only its arguments,
+// which silently zeroed any field the Settings screen did not know about on
+// every save.
 func settingsFromArgs(cur appConfig, server, web string, hideIP, reportStats bool) appConfig {
 	return normalizeConfig(appConfig{
 		Server:        server,
@@ -94,7 +93,8 @@ func settingsFromArgs(cur appConfig, server, web string, hideIP, reportStats boo
 		HideIP:        hideIP,
 		ReportStats:   reportStats,
 		NoUpdateCheck: cur.NoUpdateCheck,
-		RequestLinks:  cur.RequestLinks,
+		NoToasts:      cur.NoToasts,
+		SilentToasts:  cur.SilentToasts,
 		Migrated:      true,
 	})
 }
@@ -115,55 +115,41 @@ func (a *App) SetCheckUpdates(enabled bool) error {
 	return nil
 }
 
-// withRequestLinks is the record SetRequestLinks persists: the current one with
-// only the Beta switch changed. A pure helper so tests never call the bound
-// setter, which writes the real desktop.json (F-04).
-func withRequestLinks(cfg appConfig, enabled bool) appConfig {
-	cfg.RequestLinks = enabled
+// withToasts and withToastSound are the pure halves of SetToasts and
+// SetToastSound, so a test can check that each flips its own field and
+// nothing else without touching desktop.json. enabled=true is the shipped
+// default (the inverted field false).
+func withToasts(cfg appConfig, enabled bool) appConfig {
+	cfg.NoToasts = !enabled
 	return cfg
 }
 
-// The two refusals of the Beta switch (D-115). Not user-facing copy: the
-// Settings switch reverts on any error, the toggleCheckUpdates pattern.
-var (
-	errRequestLinksLive        = errors.New("a request link is open; close it before turning request links off")
-	errRequestLinksUnsupported = errors.New("this server does not offer request links")
-)
+func withToastSound(cfg appConfig, enabled bool) appConfig {
+	cfg.SilentToasts = !enabled
+	return cfg
+}
 
-// requestLinksChange is the D-115 rule for flipping the switch: turning it
-// off is refused while a link is live (made, open, deciding or receiving), so
-// the Beta can never strand a link, and otherwise always allowed, even when
-// the server no longer lists request-1; turning it on needs request-1 right
-// now. support is called only for turning it on.
-func requestLinksChange(enabled, live bool, support func() FeatureResult) error {
-	if !enabled {
-		if live {
-			return errRequestLinksLive
-		}
-		return nil
+// SetToasts persists Show notifications alone. Holds the lock across the whole
+// read-modify-write, like SetCheckUpdates: the setters race on quick toggle
+// flips, and a snapshot taken before another writer's write-back would
+// resurrect the stale record.
+func (a *App) SetToasts(enabled bool) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	cfg := withToasts(a.cfg, enabled)
+	if err := saveConfig(cfg); err != nil {
+		return err
 	}
-	if !support().RequestLinks {
-		return errRequestLinksUnsupported
-	}
+	a.cfg = cfg
 	return nil
 }
 
-// SetRequestLinks persists the Settings > Beta > Request links switch alone,
-// leaving every other setting untouched. Holds the lock across the whole
-// read-modify-write for the same reason SetCheckUpdates does: the setters race
-// on quick toggle flips, and a stale snapshot would resurrect an old record.
-// The request-1 probe for turning it on runs first, outside the lock (it is
-// network I/O); the lane is read through its atomic, never its mutex.
-func (a *App) SetRequestLinks(enabled bool) error {
-	if err := requestLinksChange(enabled, a.lane().liveNow(), func() FeatureResult {
-		server, _ := a.endpoints()
-		return requestLinkSupport(server)
-	}); err != nil {
-		return err
-	}
+// SetToastSound persists Play sound alone, the same way. The sound is kept when
+// notifications are off: the switch is dimmed in Settings, not cleared.
+func (a *App) SetToastSound(enabled bool) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	cfg := withRequestLinks(a.cfg, enabled)
+	cfg := withToastSound(a.cfg, enabled)
 	if err := saveConfig(cfg); err != nil {
 		return err
 	}

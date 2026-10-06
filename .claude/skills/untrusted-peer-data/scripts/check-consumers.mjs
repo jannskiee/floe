@@ -106,6 +106,10 @@ export const FIELDS = {
 // ("Floe - send failed", "Floe"), so nothing peer-chosen reaches an OS
 // notification. That is worth keeping as a row rather than deleting.
 //
+// desktop/toast_windows.go and desktop/toast_other.go are the second kind:
+// their rows record that pushToast and toastFor carry only the constant strings
+// notify was handed.
+//
 // desktop/frontend/src/components/Toasts.tsx is the second kind too: its one
 // row records that the Request link notice (RequestNotice) shows only the
 // constant N1 and N2 strings, never a label, count, size or name.
@@ -118,6 +122,8 @@ export const TOKEN_FREE = new Set([
     'cli/engine/peer/setuperror.go',
     'cli/engine/transfer/relay.go',
     'desktop/app.go',
+    'desktop/toast_windows.go',
+    'desktop/toast_other.go',
 ]);
 const tokenRegex = (f) =>
     new RegExp(`\\b(${f.word.join('|')})\\b|\\.(${f.member.join('|')})\\b`);

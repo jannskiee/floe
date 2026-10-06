@@ -54,7 +54,8 @@ func TestRequestLinkSnapshotJSONShape(t *testing.T) {
 	}
 }
 
-// TestFeatureResultJSONShape pins the probe result the Settings switch reads.
+// TestFeatureResultJSONShape pins the probe result RequestLinkSupport returns
+// over the Wails bridge.
 func TestFeatureResultJSONShape(t *testing.T) {
 	raw, err := json.Marshal(FeatureResult{Reachable: true, RequestLinks: true})
 	if err != nil {

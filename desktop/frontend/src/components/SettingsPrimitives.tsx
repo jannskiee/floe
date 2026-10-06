@@ -17,7 +17,7 @@ export function Switch({checked, onChange, disabled}: {checked: boolean; onChang
                 checked={checked}
                 // Native disabled, not aria-disabled: a disabled checkbox cannot
                 // be toggled by a click on its label, by Space, or by a screen
-                // reader, which is the whole guarantee the Beta switch needs.
+                // reader, which is the whole guarantee a dimmed setting needs.
                 disabled={disabled}
                 onChange={(e) => onChange(e.target.checked)}
                 className="peer sr-only"
@@ -43,10 +43,11 @@ export function Switch({checked, onChange, disabled}: {checked: boolean; onChang
  *  a trailing switch. The hover fill is the row's interactivity signal (the card
  *  clips it to the rounded corners); the whole row stays one click target.
  *
- *  disabled keeps the row's words and dims the whole row (the approved Beta
- *  look, DS-03 and DS-04): no hover fill, a not-allowed cursor, aria-disabled on
- *  the label and native disabled on the checkbox. The description is where a
- *  disabled row says why, so callers swap it rather than hide it. */
+ *  disabled keeps the row's words and dims the whole row (the look DS-03 and
+ *  DS-04 approved for a locked row): no hover fill, a not-allowed cursor,
+ *  aria-disabled on the label and native disabled on the checkbox. The
+ *  description is where a disabled row says why, so callers swap it rather than
+ *  hide it. */
 export function SettingRow({checked, onChange, label, description, disabled}: {
     checked: boolean;
     onChange: (v: boolean) => void;
@@ -68,6 +69,26 @@ export function SettingRow({checked, onChange, label, description, disabled}: {
             </span>
             <Switch checked={checked} onChange={onChange} disabled={disabled}/>
         </label>
+    );
+}
+
+/** SettingAction is a settings entry whose control is a button, not a switch:
+ *  the same padding and label treatment as SettingRow, with the button trailing.
+ *  No hover fill and no click target of its own: the button is the control, and
+ *  a fill over the whole row would promise a click that does nothing. */
+export function SettingAction({label, description, action}: {
+    label: string;
+    description?: string;
+    action: ReactNode;
+}) {
+    return (
+        <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
+            <span className="min-w-0">
+                <span className={rowLabelClass}>{label}</span>
+                {description && <span className={rowDescClass}>{description}</span>}
+            </span>
+            {action}
+        </div>
     );
 }
 

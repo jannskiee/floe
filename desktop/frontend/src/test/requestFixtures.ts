@@ -20,8 +20,9 @@ export const offSnapshot = {
     suggestClose: false,
 };
 
-/** Every Request link binding (the eight of E-11). The switch-off test asserts
- *  none of these runs at mount, so a new binding belongs here too. */
+/** Every Request link binding (the seven of E-11, now the switch's setter is
+ *  gone). The launch test (FT-03b) asserts none of these but GetRequestLink
+ *  runs at mount, so a new binding belongs here too. */
 export const REQUEST_BINDINGS = [
     'AnswerRequest',
     'CancelRequestDrop',
@@ -30,5 +31,4 @@ export const REQUEST_BINDINGS = [
     'MakeRequestLink',
     'RequestLinkSupport',
     'RetryRequestLink',
-    'SetRequestLinks',
 ] as const;

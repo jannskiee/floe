@@ -17,8 +17,9 @@ package main
 // frame the engine writes. None of them is logged, persisted or put in an
 // error. Every snapshot code is a key the frontend maps to fixed copy.
 //
-// SetRequestLinks lives in endpoints.go and RequestLinkSupport in
-// serverprobe.go, with their concerns (S1-DSK-02).
+// RequestLinkSupport lives in serverprobe.go, with its concern (S1-DSK-02).
+// No Settings switch stands before the lane (H7 S-1): Make link is the
+// authority about the server.
 
 import (
 	"math/rand/v2"
@@ -307,9 +308,9 @@ func liveState(state string) bool {
 }
 
 // liveNow reports whether a link is being made, is open, or a drop runs. It
-// reads the atomic only and never takes the lane mutex, so a caller holding
-// a.mu (SetRequestLinks) or running on the Windows message-pump thread (the
-// close guard) can never wait on the lane. Nil-safe.
+// reads the atomic only and never takes the lane mutex, so the close guard,
+// which runs on the Windows message-pump thread, can never wait on the lane.
+// Nil-safe.
 func (l *requestLane) liveNow() bool {
 	return l != nil && l.live.Load()
 }
@@ -596,12 +597,12 @@ func reconnectDelay(n int, base, cap time.Duration, r func(int64) int64) time.Du
 }
 
 // MakeRequestLink makes one request link (spec 06 4.3) and returns at once
-// with the current snapshot; the frontend follows request:state. The switch
-// and the one-link rule are checked here; the probe, the relay check and the
-// host join run on the lane goroutine.
+// with the current snapshot; the frontend follows request:state. The one-link
+// rule is checked here; the server probe (no request-1 gives disabled, an
+// unreachable server unknown), the relay check and the host join run on the
+// lane goroutine.
 func (a *App) MakeRequestLink(label string, saveDir string, lifetime string) RequestLinkSnapshot {
 	a.mu.Lock()
-	on := a.cfg.RequestLinks
 	hideIP := a.cfg.HideIP
 	a.mu.Unlock()
 
@@ -650,13 +651,6 @@ func (a *App) MakeRequestLink(label string, saveDir string, lifetime string) Req
 			defer l.wg.Done()
 			requestTeardown(leftover, leftConn, leftWait, leftClose)
 		}()
-	}
-	if !on {
-		l.setStateLocked("error", "off")
-		snap := l.snapshotLocked()
-		l.mu.Unlock()
-		a.emitState(rg)
-		return snap
 	}
 	l.setStateLocked("making", "")
 	l.stop = make(chan struct{})

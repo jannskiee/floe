@@ -59,6 +59,8 @@ function installWails() {
             hideIP: false,
             reportStats: true,
             noUpdateCheck: false,
+            noToasts: false,
+            silentToasts: false,
             migrated: true,
         })),
         GetVersion: vi.fn(async () => 'dev'),
@@ -72,6 +74,8 @@ function installWails() {
         SelectFolder: vi.fn(async () => ''),
         SetCheckUpdates: vi.fn(async () => {}),
         SetSettings: vi.fn(async () => {}),
+        SetToasts: vi.fn(async () => {}),
+        SetToastSound: vi.fn(async () => {}),
         StartSend: vi.fn(async () => {}),
         StartSendText: vi.fn(async () => {}),
         TestServer: vi.fn(async () => ({ok: true, message: 'Connected.', relayAvailable: true})),
@@ -86,9 +90,6 @@ function installWails() {
         MakeRequestLink: vi.fn(async () => ({...offSnapshot, state: 'error', code: 'disabled'})),
         RequestLinkSupport: vi.fn(async () => ({reachable: false, requestLinks: false})),
         RetryRequestLink: vi.fn(async () => {}),
-        SetRequestLinks: vi.fn(async (enabled: boolean) => {
-            if (enabled) throw new Error('request links are not available in this build');
-        }),
     };
 
     const probe: WailsProbe = {

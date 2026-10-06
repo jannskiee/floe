@@ -57,38 +57,19 @@ export function webPlaceholder(server: string): string {
     return s;
 }
 
-// Settings > Beta > Request links copy, verbatim from the approved desktop copy
-// table (Checkpoint C, rows S1 to S5). approvedCopy.test.ts byte-matches them.
-export const BETA_HEADING = 'Beta'; // S1
-export const REQUEST_LINKS_LABEL = 'Request links'; // S2
-export const REQUEST_LINKS_ON_LINE = 'Let someone send files to this PC through a link you make. Works while Floe is open.'; // S3
-export const REQUEST_LINKS_NO_SERVER_LINE = 'Not available on this server right now.'; // S4
-export const REQUEST_LINKS_LINK_OPEN_LINE = 'Close your request link first.'; // S5
-
-/** The Go-side /health probe result (FeatureResult in serverprobe.go). */
-export interface RequestFeature {
-    reachable: boolean;
-    requestLinks: boolean;
-}
-
-/** requestLinksSwitch decides the Beta switch's state and the one line under
- *  it (spec 06 4.19).
- *
- *  An open link wins over everything: turning the Beta off must never strand a
- *  live link or a running drop, so the switch locks with S5 whatever the server
- *  says. Otherwise a switch that is on can always be turned off (D-115: a Beta
- *  feature is never stuck on); only turning it on needs a server that listed
- *  request-1 on the last probe. An unreachable server and one without the
- *  feature read the same (S4), because the app cannot tell a policy flip from
- *  an older self-hosted server. Before the first probe answers (null) the line
- *  stays the plain S3 rather than claiming the server said no. */
-export function requestLinksSwitch(
-    feature: RequestFeature | null,
-    linkOpen: boolean,
-    on = false,
-): {disabled: boolean; description: string} {
-    if (linkOpen) return {disabled: true, description: REQUEST_LINKS_LINK_OPEN_LINE};
-    const available = feature !== null && feature.reachable && feature.requestLinks;
-    const description = feature === null || available ? REQUEST_LINKS_ON_LINE : REQUEST_LINKS_NO_SERVER_LINE;
-    return {disabled: !on && !available, description};
-}
+// Settings > Notifications (D-162). The words are the approved NS1 to NS8 rows,
+// byte for byte (approvedCopy.test.ts), and the Windows-only row is the one
+// place Floe sends people to Windows' own per-app settings for banners, the
+// Notification Center and the lock screen: Windows alone decides where a banner
+// appears, so there is no position or duration control here.
+export const NOTIFICATIONS_HEADING = 'Notifications';
+export const SHOW_NOTIFICATIONS = 'Show notifications';
+export const SHOW_NOTIFICATIONS_ON = 'For requests and transfers, while Floe is in the background.';
+export const SHOW_NOTIFICATIONS_OFF = 'Requests still flash Floe on the taskbar.';
+export const PLAY_SOUND = 'Play sound';
+export const WINDOWS_NOTIFICATIONS = 'Windows notification settings';
+export const WINDOWS_NOTIFICATIONS_DESCRIPTION = 'Banners, Notification Center and lock screen.';
+export const OPEN_NOTIFICATION_SETTINGS = 'Open';
+/** The Open button's accessible name: its visible word first (WCAG 2.5.3). */
+export const OPEN_NOTIFICATION_SETTINGS_LABEL = 'Open Windows notification settings';
+export const NOTIFICATION_SETTINGS_URI = 'ms-settings:notifications';

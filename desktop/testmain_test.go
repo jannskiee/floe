@@ -17,11 +17,11 @@ var testConfigHome string
 // no test can read or write the real %APPDATA%\floe (desktop.json, the update
 // check cache, the pinned WebView2 profile) or the real Downloads folder.
 //
-// Found at CP-QA (2026-09-25): under a mutation of requestLinksChange,
-// TestSetRequestLinksOnNeedsRequest1's SetRequestLinks(true) reached
-// saveConfig(configPath()) and wrote its fake server's settings over the
-// owner's real desktop.json. A green run never saves there, which is why no
-// earlier run noticed; this makes the whole package safe regardless.
+// Found at CP-QA (2026-09-25): under a mutation of a settings setter's guard,
+// a test's call to that setter reached saveConfig(configPath()) and wrote its
+// fake server's settings over the owner's real desktop.json. A green run never
+// saves there, which is why no earlier run noticed; this makes the whole
+// package safe regardless.
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "floe-desktop-test-home-")
 	if err != nil {
@@ -44,6 +44,10 @@ func TestMain(m *testing.M) {
 	for _, k := range []string{"TMP", "TEMP", "TMPDIR"} {
 		os.Setenv(k, tmp)
 	}
+	// Whether Floe is the foreground window is a fact about the machine the
+	// tests run on, and it would silently swallow every toast a test expects.
+	// TestNotifySkippedWhileFloeInFront sets it itself.
+	floeInFrontFn = func() bool { return false }
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)

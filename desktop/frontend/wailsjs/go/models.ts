@@ -154,7 +154,8 @@ export namespace main {
 	    hideIP: boolean;
 	    reportStats: boolean;
 	    noUpdateCheck: boolean;
-	    requestLinks: boolean;
+	    noToasts: boolean;
+	    silentToasts: boolean;
 	    migrated: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -168,7 +169,8 @@ export namespace main {
 	        this.hideIP = source["hideIP"];
 	        this.reportStats = source["reportStats"];
 	        this.noUpdateCheck = source["noUpdateCheck"];
-	        this.requestLinks = source["requestLinks"];
+	        this.noToasts = source["noToasts"];
+	        this.silentToasts = source["silentToasts"];
 	        this.migrated = source["migrated"];
 	    }
 	}

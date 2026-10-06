@@ -41,7 +41,7 @@ export function parsePastedLink(input: string): {kind: 'request' | 'drop'; href:
 // The Request link lane as the frontend sees it (spec 06 4.4 and 6.3). Go is
 // authoritative: the frontend adopts request:state snapshots and keeps only
 // what Go never sees (a Make link click in flight, a result put away, the
-// feature probe and the Settings switch).
+// next-launch line).
 
 /** RequestLinkSnapshot mirrors main.RequestLinkSnapshot in wailsjs/go/models.ts
  *  (desktop/requestlink.go). Codes are keys into requestCopy.ts, never text. */
@@ -104,17 +104,10 @@ const PHASES = new Set<string>([
     'deciding', 'declined', 'receiving', 'done', 'stopped', 'ended',
 ]);
 
-// The lane holds something: a link being made or open, a drop or its result.
-// E-38: the kill switch never hides the row over any of these.
-const HOLDS = new Set(['making', 'waiting', 'reconnecting', 'connecting', 'deciding', 'declined', 'receiving', 'done', 'stopped']);
 // A link exists and still works: the header marker and the close guard.
 const OPEN = new Set(['waiting', 'reconnecting', 'connecting', 'deciding', 'declined', 'receiving']);
 // Results a person can put away with Dismiss, Make another link, or an edit.
 const TERMINAL = new Set(['error', 'done', 'stopped', 'ended']);
-
-export function laneHoldsSomething(state: string): boolean {
-    return HOLDS.has(state);
-}
 
 /** linkOpen: a link exists and works, Waiting to Receiving. */
 export function linkOpen(state: string): boolean {
@@ -124,8 +117,6 @@ export function linkOpen(state: string): boolean {
 /** The frontend's own lane state. */
 export interface RequestUI {
     snap: RequestLinkSnapshot;
-    switchOn: boolean;
-    featurePresent: boolean;
     /** Make link was clicked and its call has not come back yet. */
     making: boolean;
     /** gen:state:code of a result the owner put away (Dismiss, Make another
@@ -145,7 +136,7 @@ export interface RequestUI {
 }
 
 export const initialRequestUI: RequestUI = {
-    snap: OFF_SNAPSHOT, switchOn: false, featurePresent: false, making: false, hiddenKey: '', localError: '', relaunch: false,
+    snap: OFF_SNAPSHOT, making: false, hiddenKey: '', localError: '', relaunch: false,
     accepted: null,
 };
 
@@ -164,7 +155,6 @@ export function acceptedPrompt(ui: RequestUI): {files: number; folder: string} |
 }
 
 export type RequestEvent =
-    | {type: 'FEATURE'; switchOn?: boolean; requestLinks?: boolean}
     | {type: 'SNAPSHOT'; snap: RequestLinkSnapshot}
     | {type: 'MAKE'}
     | {type: 'MAKE_DONE'}
@@ -252,12 +242,6 @@ export function normalizeSnapshot(raw: unknown): RequestLinkSnapshot {
 /** reduce is the frontend lane state machine (spec 06 6.3). */
 export function reduce(ui: RequestUI, ev: RequestEvent): RequestUI {
     switch (ev.type) {
-        case 'FEATURE':
-            return {
-                ...ui,
-                switchOn: ev.switchOn ?? ui.switchOn,
-                featurePresent: ev.requestLinks ?? ui.featurePresent,
-            };
         case 'SNAPSHOT': {
             if (!acceptStale(ui.snap, ev.snap)) return ui; // T27
             const newer = ev.snap.gen > ui.snap.gen;
@@ -302,16 +286,17 @@ export function reduce(ui: RequestUI, ev: RequestEvent): RequestUI {
     }
 }
 
-/** phase is what the REQUEST LINK view shows for this state. */
+/** phase is what the REQUEST LINK view shows for this state. An idle lane is
+ *  ready: nothing is probed ahead of Make link, which is the authority about
+ *  the server and answers E1 or E4 under the button (H7 S-1). */
 export function phase(ui: RequestUI): Phase {
     const s = ui.snap.state;
-    if (!ui.switchOn && !HOLDS.has(s)) return 'off';
     if (ui.localError) return 'error';
     if (ui.making) return 'making';
     if (ui.relaunch && (s === 'off' || s === 'ready')) return 'ended';
-    if (TERMINAL.has(s) && ui.hiddenKey === keyOf(ui.snap)) return ui.featurePresent ? 'ready' : 'off';
-    if (s === 'off' || s === 'ready') return ui.featurePresent ? 'ready' : 'off';
-    return (PHASES.has(s) ? s : 'off') as Phase;
+    if (TERMINAL.has(s) && ui.hiddenKey === keyOf(ui.snap)) return 'ready';
+    if (s === 'off' || s === 'ready') return 'ready';
+    return (PHASES.has(s) ? s : 'ready') as Phase;
 }
 
 /** RELAUNCHED is what the view shows for X5: an ended link with no label
@@ -322,27 +307,13 @@ const RELAUNCHED: RequestLinkSnapshot = {...OFF_SNAPSHOT, state: 'ended', code: 
  *  local X5 ended link after a relaunch. */
 export function viewSnapshot(ui: RequestUI): RequestLinkSnapshot {
     const s = ui.snap.state;
-    if (ui.switchOn && !ui.making && !ui.localError && ui.relaunch && (s === 'off' || s === 'ready')) return RELAUNCHED;
+    if (!ui.making && !ui.localError && ui.relaunch && (s === 'off' || s === 'ready')) return RELAUNCHED;
     return ui.snap;
 }
 
 /** errorCode is the code the Error phase shows. */
 export function errorCode(ui: RequestUI): string {
     return ui.localError || ui.snap.code;
-}
-
-/** showRow decides whether Receive shows the CODE | REQUEST LINK row (E-38):
- *  the switch must be on, and then the server must list request-1 or the lane
- *  must hold a link, a drop or its result. The kill switch never hides the row
- *  under a running drop. */
-export function showRow(switchOn: boolean, featurePresent: boolean, laneState: string): boolean {
-    return switchOn && (featurePresent || laneHoldsSomething(laneState));
-}
-
-/** settingsLocked: the Settings switch locks with S5 from making a link until
- *  its result is put away, so turning the Beta off never strands a link. */
-export function settingsLocked(p: Phase): boolean {
-    return HOLDS.has(p);
 }
 
 /** noticeVisible: the request notice shows on every screen while a prompt is
