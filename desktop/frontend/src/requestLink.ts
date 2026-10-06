@@ -102,7 +102,7 @@ export interface RequestResult {
 /** What the REQUEST LINK view shows: the Go states, where a Make link click in
  *  flight shows as making and a result put away as ready. */
 export type Phase =
-    | 'off' | 'ready' | 'making' | 'error' | 'waiting' | 'reconnecting' | 'connecting'
+    | 'ready' | 'making' | 'error' | 'waiting' | 'reconnecting' | 'connecting'
     | 'deciding' | 'declined' | 'receiving' | 'done' | 'stopped' | 'ended';
 
 export const OFF_SNAPSHOT: RequestLinkSnapshot = {

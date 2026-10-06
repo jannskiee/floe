@@ -47,7 +47,7 @@ function has(table: Record<string, unknown>, key: string): boolean {
 }
 
 /** errorLine maps a refusal code to its fixed sentence. Every other code,
- *  including `off`, a non-host role, `denied` (no such code in Stage 1, E-25)
+ *  including a non-host role, `denied` (no such code in Stage 1, E-25)
  *  and anything a later server invents, is E4. */
 export function errorLine(code: string): string {
     return has(ERROR_LINES, code) ? ERROR_LINES[code] : ERROR_LINES.unknown;

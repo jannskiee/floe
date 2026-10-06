@@ -34,7 +34,7 @@ const progress = (fileName: string): Prog => ({
     fileName, fileIndex: 4, fileCount: 12, fileBytes: 10, fileSize: 100, totalBytes: 1.2 * GB, grandTotal: 2.5 * GB, savedName: fileName,
 });
 
-const BY_PHASE: Record<Exclude<Phase, 'off'>, RequestLinkSnapshot> = {
+const BY_PHASE: Record<Phase, RequestLinkSnapshot> = {
     ready: snap({state: 'ready', link: ''}),
     making: snap({state: 'making', link: ''}),
     error: snap({state: 'error', code: 'limited', link: ''}),
@@ -74,7 +74,7 @@ function props(over: Partial<RequestLinkViewProps> = {}): RequestLinkViewProps {
     };
 }
 
-const at = (phase: Exclude<Phase, 'off'>, over: Partial<RequestLinkViewProps> = {}) => props({phase, snap: BY_PHASE[phase], ...over});
+const at = (phase: Phase, over: Partial<RequestLinkViewProps> = {}) => props({phase, snap: BY_PHASE[phase], ...over});
 
 // A pointer click the way a mouse makes one: down on the button, then click.
 function mouseClick(el: HTMLElement) {
@@ -423,12 +423,12 @@ describe('the layout (D-136)', () => {
     const before = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
     it('one white button per view', () => {
-        const want: Record<Exclude<Phase, 'off'>, string[]> = {
+        const want: Record<Phase, string[]> = {
             ready: ['Make link'], making: ['Making the link...'], error: ['Make link'], waiting: ['Copy link'],
             reconnecting: [], connecting: [], deciding: ['Accept'], declined: [], receiving: [], done: [], stopped: [],
             ended: ['Make another link'],
         };
-        for (const phase of Object.keys(want) as Exclude<Phase, 'off'>[]) {
+        for (const phase of Object.keys(want) as Phase[]) {
             const {unmount} = render(<RequestLinkView {...at(phase, {progress: progress('a.mov')})}/>);
             expect(whites(), phase).toEqual(want[phase]);
             unmount();
@@ -564,7 +564,7 @@ describe('the layout (D-136)', () => {
     });
 
     it('every mono caps label sits on the +2 px edge', () => {
-        const heads: Array<[Exclude<Phase, 'off'>, string | RegExp]> = [
+        const heads: Array<[Phase, string | RegExp]> = [
             ['waiting', 'ACME FOOTAGE'], ['deciding', 'ACME FOOTAGE WANTS TO SEND YOU FILES'], ['receiving', /^RECEIVING /],
             ['done', /^RECEIVED /], ['stopped', 'DROP STOPPED'], ['ended', 'ACME FOOTAGE'],
         ];
@@ -673,7 +673,7 @@ describe('the layout (D-136)', () => {
         const unspaced = 'AcmeFootageForTheAutumnLaunchReviewFromTheLisbonStudioAndArchive';
         expect(unspaced).toHaveLength(64);
         const LABEL = unspaced.toUpperCase();
-        const heads: Array<[Exclude<Phase, 'off'>, string]> = [
+        const heads: Array<[Phase, string]> = [
             ['waiting', LABEL],
             ['deciding', `${LABEL} WANTS TO SEND YOU FILES`],
             ['receiving', `RECEIVING 4 OF 12 FROM ${LABEL}`],
@@ -861,7 +861,7 @@ describe('the Receiving laptop line (P11, E-94)', () => {
 });
 
 describe('every state', () => {
-    const phases = Object.keys(BY_PHASE) as Exclude<Phase, 'off'>[];
+    const phases = Object.keys(BY_PHASE) as Phase[];
 
     it('no Open button in any state', () => {
         for (const phase of phases) {
