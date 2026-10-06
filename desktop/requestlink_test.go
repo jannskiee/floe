@@ -1279,29 +1279,29 @@ func TestTransferReleaseDoesNotReleaseRequestHold(t *testing.T) {
 	}
 }
 
-// TestPromptCarriesLaptopPowerWarning (E-27): every prompt carries the
-// generic laptop line exactly once, as a code.
-func TestPromptCarriesLaptopPowerWarning(t *testing.T) {
-	a := &App{notifyFn: func(string, string) {}}
-	a.lane().emitFn = func(string, any) {}
-	forceGen(a, 1)
-	pg := a.openPrompt(1, RequestPrompt{Files: 2, Warnings: []string{"low-space"}})
-	s := a.GetRequestLink()
-	if s.State != "deciding" || s.PromptGen != pg || s.Prompt == nil {
-		t.Fatalf("prompt snapshot %+v", s)
+// TestPromptCarriesNoLaptopWarning (P11, E-94): the laptop line left the
+// prompt for the Receiving view, so the prompt's warnings are only the ones
+// that describe this drop, whatever the battery answer is.
+func TestPromptCarriesNoLaptopWarning(t *testing.T) {
+	for _, battery := range []bool{true, false} {
+		setVar(t, &hasBatteryFn, func() bool { return battery })
+		a := &App{notifyFn: func(string, string) {}}
+		a.lane().emitFn = func(string, any) {}
+		forceGen(a, 1)
+		pg := a.openPrompt(1, RequestPrompt{Files: 2, Warnings: []string{"low-space"}})
+		s := a.GetRequestLink()
+		if s.State != "deciding" || s.PromptGen != pg || s.Prompt == nil {
+			t.Fatalf("battery %v: prompt snapshot %+v", battery, s)
+		}
+		if got := strings.Join(s.Prompt.Warnings, ","); got != "low-space" {
+			t.Fatalf("battery %v: warnings %q, want low-space alone", battery, got)
+		}
+		a.openPrompt(1, RequestPrompt{})
+		if got := a.GetRequestLink().Prompt.Warnings; len(got) != 0 {
+			t.Fatalf("battery %v: warnings %q on a prompt with none of its own", battery, got)
+		}
+		forceState(a, "off", 0)
 	}
-	if got := strings.Join(s.Prompt.Warnings, ","); got != "low-space,laptop-power" {
-		t.Fatalf("warnings %q", got)
-	}
-	a.openPrompt(1, RequestPrompt{Warnings: []string{"laptop-power", "relay-over-cap"}})
-	if got := strings.Join(a.GetRequestLink().Prompt.Warnings, ","); got != "relay-over-cap,laptop-power" {
-		t.Fatalf("warnings %q, want laptop-power once and last", got)
-	}
-	a.openPrompt(1, RequestPrompt{})
-	if got := strings.Join(a.GetRequestLink().Prompt.Warnings, ","); got != "laptop-power" {
-		t.Fatalf("warnings %q on a prompt with none of its own", got)
-	}
-	forceState(a, "off", 0)
 }
 
 // attentionRec records what the lane did to get the owner's attention.

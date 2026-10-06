@@ -14,6 +14,7 @@ import {
     phase,
     reduce,
     requestLinkKind,
+    showLaptopLine,
     type RequestEvent,
     type RequestLinkSnapshot,
     type RequestUI,
@@ -344,6 +345,21 @@ describe('the request lane selectors', () => {
         ]);
     });
 
+    it('showLaptopLine needs a battery, a receiving drop, 60 s of data and more than 5 min left (P11)', () => {
+        const on = {...receiving.snap, battery: true};
+        const off = {...receiving.snap, battery: false};
+        expect(showLaptopLine(on, 5 * 60 + 1, 60)).toBe(true);
+        expect(showLaptopLine(on, 5 * 60, 60)).toBe(false);
+        expect(showLaptopLine(on, 3 * 86400, 600)).toBe(true);
+        // The same noise guard as etaLines: nothing in the first minute.
+        expect(showLaptopLine(on, 3600, 59)).toBe(false);
+        expect(showLaptopLine(on, Infinity, 120)).toBe(false);
+        expect(showLaptopLine(on, NaN, 120)).toBe(false);
+        // A PC with no battery never sees it, and only a receiving drop has a time left.
+        expect(showLaptopLine(off, 3600, 120)).toBe(false);
+        expect(showLaptopLine({...waiting.snap, battery: true}, 3600, 120)).toBe(false);
+    });
+
     it('a link is open from Waiting to Receiving only (the close guard and the Receive tab description)', () => {
         for (const s of ['waiting', 'reconnecting', 'connecting', 'deciding', 'declined', 'receiving']) {
             expect(linkOpen(s), s).toBe(true);
@@ -364,6 +380,25 @@ describe('the request lane selectors', () => {
         expect(canMake('ready')).toBe(true);
         expect(canMake('error')).toBe(true);
         for (const p of ['making', 'waiting', 'deciding', 'receiving', 'done'] as const) expect(canMake(p)).toBe(false);
+    });
+
+    it('normalizeSnapshot reads the battery fact as a boolean and nothing else as true', () => {
+        expect(OFF_SNAPSHOT.battery).toBe(false);
+        expect(normalizeSnapshot({state: 'receiving', battery: true}).battery).toBe(true);
+        for (const junk of [undefined, null, 0, 1, 'true', 'yes', {}, []]) {
+            expect(normalizeSnapshot({state: 'receiving', battery: junk}).battery, String(junk)).toBe(false);
+        }
+    });
+
+    it('normalizeSnapshot hides the not-scanned line only for an explicit false: absent or junk shows it (S-7, RC-2)', () => {
+        const result = (v: unknown) => normalizeSnapshot({state: 'done', result: {files: 1, saved: 1, noNamedStreams: v}}).result;
+        expect(result(false)?.noNamedStreams).toBe(false);
+        expect(result(true)?.noNamedStreams).toBe(true);
+        for (const junk of [undefined, null, 0, 1, 'true', 'false', {}, []]) {
+            expect(result(junk)?.noNamedStreams, String(junk)).toBe(true);
+        }
+        // The key missing altogether reads the same way as junk.
+        expect(normalizeSnapshot({state: 'done', result: {files: 1, saved: 1}}).result?.noNamedStreams).toBe(true);
     });
 
     it('normalizeSnapshot turns junk from the bridge into a renderable off snapshot', () => {

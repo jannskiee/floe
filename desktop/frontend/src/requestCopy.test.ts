@@ -122,7 +122,6 @@ describe('the prompt', () => {
         ['low-space', 'Only 31.0 GB free on D:. The drop will stop when the drive fills.'],
         ['file-too-large-for-drive', 'This drive cannot save files over 4 GB, so this drop will stop.'],
         ['relay-over-cap', 'Hide my IP is on, so this 38.0 GB drop will stop before any file.'],
-        ['laptop-power', 'On a laptop, plug in and keep the lid open.'],
     ])('maps %s to fixed copy', (code, want) => {
         expect(warningLine(code, {freeBytes: 31 * GB, totalBytes: 38 * GB}, 'D:\\Footage\\Floe requests')).toBe(want);
     });
@@ -130,6 +129,19 @@ describe('the prompt', () => {
     it('drops a warning code it does not know', () => {
         expect(warningLine('battery-standby', {freeBytes: 0, totalBytes: 0}, 'C:\\x')).toBe('');
         expect(warningLine('<img src=x onerror=alert(1)>', {freeBytes: 0, totalBytes: 0}, 'C:\\x')).toBe('');
+    });
+
+    it('the laptop line is a Receiving line, no longer a prompt warning (P11, E-94)', () => {
+        expect(copy.LAPTOP_LINE).toBe('Keep this laptop plugged in and open.');
+        // A stale Go that still sent the old code would draw nothing.
+        expect(warningLine('laptop-power', {freeBytes: 0, totalBytes: 0}, 'x')).toBe('');
+    });
+
+    it('the prompt has no caution sentence of its own (P10 is cut, D-161)', () => {
+        expect('PROMPT_CAUTION' in copy).toBe(false);
+        for (const v of Object.values(copy)) {
+            if (typeof v === 'string') expect(v).not.toMatch(/^Accept only if/);
+        }
     });
 
     it('counts the answer window in whole minutes, rounded down', () => {
@@ -159,7 +171,19 @@ describe('receiving and done', () => {
         expect(renamedLine(2)).toBe('2 files were renamed to end in .floe-blocked because Windows can open that kind of file by itself.');
     });
 
-    it('shows the SHA-256 line only when every file verified', () => {
+    it('the Ready form reads R7 as a placeholder and R15 in one short sentence (D-161)', () => {
+        expect(copy.LABEL_PLACEHOLDER).toBe('Optional. Only you see it.');
+        expect('LABEL_HINT' in copy).toBe(false);
+        expect(copy.READY_IP_LINE).toBe('Senders see your IP address, even if you decline.');
+        expect(copy.READY_IP_LINE).not.toMatch(/Hide my IP/);
+    });
+
+    it('keeps DN5 for the one case Windows cannot warn, and the check words for screen readers (DN3, DN5)', () => {
+        expect(copy.NOT_SCANNED_LINE).toBe('Floe does not scan files for malware.');
+        expect(copy.VERIFIED_LINE).toBe('SHA-256 matched');
+    });
+
+    it('shows the verified mark only when every file verified', () => {
         expect(copy.verifiedAll({files: 12, saved: 12, verified: 12})).toBe(true);
         expect(copy.verifiedAll({files: 12, saved: 12, verified: 11})).toBe(false);
         expect(copy.verifiedAll({files: 12, saved: 11, verified: 12})).toBe(false);

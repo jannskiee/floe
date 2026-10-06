@@ -61,6 +61,9 @@ export interface RequestLinkSnapshot {
     reconnectUntil?: number;
     missedAt?: number;
     suggestClose: boolean;
+    /** This PC may run on a battery: Go's own fact, asked at each prompt (P11,
+     *  E-94). The Receiving view's laptop line reads it. */
+    battery: boolean;
     prompt?: RequestPrompt;
     result?: RequestResult;
 }
@@ -84,6 +87,14 @@ export interface RequestResult {
     bytes: number;
     verified: number;
     renamed: number;
+    /** False only when the save volume positively answered that it can carry the
+     *  Windows downloaded-file mark. True where it cannot, and also true when the
+     *  volume could not be asked and off Windows: every doubt lands on true,
+     *  because true is what brings DN5 back (S-7). Go's own fact. Go always sends
+     *  it and normalizeSnapshot always sets it (absent or junk reads as true);
+     *  optional only so the fixtures that build a result by hand need not all
+     *  name it. */
+    noNamedStreams?: boolean;
     folder: string;
     names: string[];
 }
@@ -96,7 +107,7 @@ export type Phase =
 
 export const OFF_SNAPSHOT: RequestLinkSnapshot = {
     state: 'off', code: '', gen: 0, seq: 0, promptGen: 0, link: '', label: '', saveDir: '',
-    expiresAt: 0, route: '', suggestClose: false,
+    expiresAt: 0, route: '', suggestClose: false, battery: false,
 };
 
 const PHASES = new Set<string>([
@@ -210,6 +221,7 @@ export function normalizeSnapshot(raw: unknown): RequestLinkSnapshot {
         expiresAt: num(r.expiresAt),
         route: str(r.route),
         suggestClose: r.suggestClose === true,
+        battery: r.battery === true,
     };
     if (num(r.reconnectUntil)) out.reconnectUntil = num(r.reconnectUntil);
     if (num(r.missedAt)) out.missedAt = num(r.missedAt);
@@ -232,6 +244,7 @@ export function normalizeSnapshot(raw: unknown): RequestLinkSnapshot {
             bytes: num(res.bytes),
             verified: num(res.verified),
             renamed: num(res.renamed),
+            noNamedStreams: res.noNamedStreams !== false,
             folder: str(res.folder),
             names: Array.isArray(res.names) ? res.names.filter((n): n is string => typeof n === 'string') : [],
         };
@@ -335,6 +348,16 @@ export const GUARD_MS = 1000;
 export function guardActive(now: number, mountedAt: number, focusAt: number | null): boolean {
     if (now - mountedAt < GUARD_MS) return true;
     return focusAt !== null && now - focusAt < GUARD_MS;
+}
+
+/** showLaptopLine: P11 shows on a receiving drop only on a PC with a battery,
+ *  and only while the time left reads over 5 minutes, from the same average
+ *  and the same first-minute guard as etaLines: a short drop never needs the
+ *  advice, and an early estimate is noise. */
+export function showLaptopLine(snap: RequestLinkSnapshot, etaSeconds: number, elapsedSeconds: number): boolean {
+    if (snap.state !== 'receiving' || !snap.battery) return false;
+    if (!(elapsedSeconds >= 60) || !Number.isFinite(etaSeconds)) return false;
+    return etaSeconds > 5 * 60;
 }
 
 /** etaLines: the long-drop warning under a receiving drop's progress. Nothing

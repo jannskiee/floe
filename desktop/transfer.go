@@ -655,6 +655,14 @@ var (
 	// requestVolumeMaxFn is the save volume's largest file, for the prompt's
 	// drive-limit warning; a test stands in a FAT32 volume.
 	requestVolumeMaxFn = transfer.VolumeMaxFileSize
+	// requestVolumeStreamsFn is whether the save volume can carry the
+	// downloaded-file mark, for the result's NoNamedStreams; a test stands in
+	// either answer.
+	requestVolumeStreamsFn = transfer.VolumeNamedStreams
+	// requestVolumeStreamsBound is the longest endRequestDrop waits for that
+	// answer: a share that stops answering holds the handle open for the SMB
+	// timeout, and the Done view, the toast and the wake release come after.
+	requestVolumeStreamsBound = 2 * time.Second
 )
 
 // The request link's receive policy (layer 2, spec 06 4.6): at most 10,000
@@ -823,6 +831,7 @@ func (a *App) endRequestDrop(rg uint64, sc *signaling.Client, d *requestDrop, er
 			state, code = "stopped", d.stopCode(err)
 		}
 		res := d.tally.result(d.files, d.folder)
+		res.NoNamedStreams = volumeLacksMark(d.folder)
 		if state == "stopped" && res.Saved == 0 {
 			removeEmptyDirs(d.folder) // empty folders only; anything in them stays
 		}
@@ -868,6 +877,37 @@ func (a *App) endRequestDrop(rg uint64, sc *signaling.Client, d *requestDrop, er
 	res := d.tally.result(d.files, "")
 	a.endDrop(rg, "stopped", "unknown", &res)
 	return err
+}
+
+// volumeLacksMark reports whether files saved under dir cannot carry the
+// Windows downloaded-file mark, which is what makes Windows warn when a file
+// is opened (H7 S-7). Only a volume that positively says it keeps named
+// streams carries it: one that says no, and one that could not be asked, lack
+// it, so the Done view keeps its not-scanned line rather than hide it on a
+// guess. The question is a handle open on the volume, which a share that stops
+// answering holds for the SMB timeout, so it is asked on its own goroutine and
+// waited for only requestVolumeStreamsBound: a question that outlasts the bound
+// counts as unable. The answer channel has room for the late reply, so the
+// goroutine ends on its own and the reply is dropped; it touches no lane state.
+func volumeLacksMark(dir string) bool {
+	type answer struct {
+		carries bool
+		err     error
+	}
+	ask := requestVolumeStreamsFn // read here, so a later swap cannot race the goroutine
+	reply := make(chan answer, 1)
+	go func() {
+		carries, err := ask(dir)
+		reply <- answer{carries, err}
+	}()
+	bound := time.NewTimer(requestVolumeStreamsBound)
+	defer bound.Stop()
+	select {
+	case a := <-reply:
+		return a.err != nil || !a.carries
+	case <-bound.C:
+		return true
+	}
 }
 
 // stopCode is the fixed code for an accepted drop that ended in err: the

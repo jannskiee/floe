@@ -36,6 +36,21 @@ func diskFree(dir string) (int64, error) {
 // past the 2^53 - 1 every announced size is already held to, and anything
 // unrecognized is treated as unlimited rather than guessed at. Any error means
 // the volume could not say, which the receive counts as no known limit.
+func volumeMaxFileSize(dir string) (int64, error) {
+	fsName, _, err := volumeInfo(dir)
+	if err != nil {
+		return 0, err
+	}
+	switch fsName {
+	case "FAT32", "FAT":
+		return fat32MaxFileSize, nil
+	}
+	return 0, nil
+}
+
+// volumeInfo reports the name and the file system flags of the volume under
+// dir, the two answers GetVolumeInformationByHandle gives that the receive
+// asks about.
 //
 // The file system is asked through a handle to dir, which follows a junction,
 // a symbolic link, a mount point or a subst drive to the volume files written
@@ -48,16 +63,16 @@ func diskFree(dir string) (int64, error) {
 // dir may not be made yet (the receive makes it after Decide), so a missing
 // dir is asked through the nearest folder above it that exists, as the root
 // form answered for a missing folder too.
-func volumeMaxFileSize(dir string) (int64, error) {
+func volumeInfo(dir string) (string, uint32, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
-		return 0, err
+		return "", 0, err
 	}
 	var h windows.Handle
 	for {
 		p, err := windows.UTF16PtrFromString(abs)
 		if err != nil {
-			return 0, err
+			return "", 0, err
 		}
 		// FILE_FLAG_BACKUP_SEMANTICS opens a directory; without
 		// FILE_FLAG_OPEN_REPARSE_POINT the open follows a junction or link.
@@ -68,22 +83,39 @@ func volumeMaxFileSize(dir string) (int64, error) {
 			break
 		}
 		if !errors.Is(err, windows.ERROR_FILE_NOT_FOUND) && !errors.Is(err, windows.ERROR_PATH_NOT_FOUND) {
-			return 0, err
+			return "", 0, err
 		}
 		parent := filepath.Dir(abs)
 		if parent == abs {
-			return 0, err
+			return "", 0, err
 		}
 		abs = parent
 	}
 	defer windows.CloseHandle(h)
-	fsName := make([]uint16, windows.MAX_PATH+1)
-	if err := windows.GetVolumeInformationByHandle(h, nil, 0, nil, nil, nil, &fsName[0], uint32(len(fsName))); err != nil {
-		return 0, err
+	var flags uint32
+	name := make([]uint16, windows.MAX_PATH+1)
+	if err := windows.GetVolumeInformationByHandle(h, nil, 0, nil, nil, &flags, &name[0], uint32(len(name))); err != nil {
+		return "", 0, err
 	}
-	switch windows.UTF16ToString(fsName) {
-	case "FAT32", "FAT":
-		return fat32MaxFileSize, nil
-	}
-	return 0, nil
+	return windows.UTF16ToString(name), flags, nil
 }
+
+// volumeNamedStreams reports whether the volume under dir can carry named
+// (alternate) data streams, which is what the downloaded-file mark needs:
+// applyMOTW writes a Zone.Identifier stream. NTFS and ReFS can; FAT32, exFAT
+// and many network shares cannot, and there the write fails and Windows has
+// nothing to warn with when the file is opened. It asks the volume, as
+// volumeMaxFileSize does, so a junction or a subst drive answers for the
+// volume the files land on.
+func volumeNamedStreams(dir string) (bool, error) {
+	_, flags, err := volumeInfo(dir)
+	if err != nil {
+		return false, err
+	}
+	return hasNamedStreams(flags), nil
+}
+
+// hasNamedStreams reads FILE_NAMED_STREAMS, the one file system flag that
+// says the volume keeps alternate data streams, from the flags
+// GetVolumeInformationByHandle returned.
+func hasNamedStreams(flags uint32) bool { return flags&windows.FILE_NAMED_STREAMS != 0 }

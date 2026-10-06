@@ -12,3 +12,7 @@ package transfer
 func diskFree(dir string) (int64, error) { return -1, nil }
 
 func volumeMaxFileSize(dir string) (int64, error) { return 0, nil }
+
+// volumeNamedStreams off Windows answers no: applyMOTW is a no-op there, so
+// no volume carries a mark Floe wrote.
+func volumeNamedStreams(dir string) (bool, error) { return false, nil }

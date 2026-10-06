@@ -102,7 +102,7 @@ import TitleBar from './components/TitleBar';
 import {Tooltip} from './components/Tooltip';
 import {NoticeStack, RequestNotice, UNDO_ANCHOR_ID, UpdateNotice, UndoToast} from './components/Toasts';
 import {SettingAction, SettingRow, SettingField} from './components/SettingsPrimitives';
-import {ProgressRow, StatusLine, FooterNote, Dropzone, FileList, FileSummary} from './components/TransferBits';
+import {ProgressRow, StatusLine, FooterNote, Dropzone, FileList, FileSummary, VerifiedMark} from './components/TransferBits';
 import SharePanel from './components/SharePanel';
 import HistoryView from './components/HistoryView';
 import RequestLinkView, {LABEL_INPUT_ID, PROMPT_ACTIONS_ID, PROMPT_HEADING_ID} from './components/RequestLinkView';
@@ -2489,14 +2489,18 @@ function App() {
                                         {sendProg && <ProgressRow prog={sendProg}/>}
                                         {sendDone && !sending && (
                                             <div className="animate-floe-in flex items-center justify-center gap-2 text-sm text-zinc-300">
-                                                <Check className="size-4 shrink-0 text-green-500"/>
+                                                {/* One rule across the desktop (D-161): a green
+                                                    circle-check only when every file arrived
+                                                    intact, read as the D-101 words and never
+                                                    drawn as a digest value; a quiet check
+                                                    otherwise. The mark follows the text in the
+                                                    DOM so a screen reader reads the count first,
+                                                    and order-first keeps the glyph leading. */}
                                                 <span>Sent {sentCount} {sentCount === 1 ? 'item' : 'items'}</span>
+                                                {sendVerified
+                                                    ? <VerifiedMark className="order-first size-4"/>
+                                                    : <Check className="order-first size-4 shrink-0 text-zinc-500"/>}
                                             </div>
-                                        )}
-                                        {/* Its own line under the done row, never inside it. The
-                                            plain words only, never a digest value (D-101). */}
-                                        {sendDone && !sending && sendVerified && (
-                                            <p className="animate-floe-in text-center text-xs text-zinc-500">SHA-256 matched</p>
                                         )}
                                         <StatusLine text={sendStatus} busy={sending}/>
                                     </div>
@@ -2592,12 +2596,11 @@ function App() {
                                         {recvProg && <ProgressRow prog={recvProg}/>}
                                         {recvDone && !receiving && (
                                             <div className="animate-floe-in flex items-center gap-2 text-sm text-zinc-300">
-                                                <Check className="size-4 shrink-0 text-green-500"/>
                                                 <span className="truncate">Saved to {recvDir}</span>
+                                                {recvVerified
+                                                    ? <VerifiedMark className="order-first size-4"/>
+                                                    : <Check className="order-first size-4 shrink-0 text-zinc-500"/>}
                                             </div>
-                                        )}
-                                        {recvDone && !receiving && recvVerified && (
-                                            <p className="animate-floe-in text-xs text-zinc-500">SHA-256 matched</p>
                                         )}
                                         {recvDir && !receiving && (() => {
                                             // recvNamesRef is a ref, but recvDir is set (setRecvDir) only after

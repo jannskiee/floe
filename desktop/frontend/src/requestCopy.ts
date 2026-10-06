@@ -20,7 +20,7 @@ export const REQUEST_TAB = 'Request link'; // R1, rendered in uppercase
 export const BETA_CHIP = 'Beta'; // R2, rendered in uppercase
 export const REQUEST_TAB_NAME = 'Request link, beta'; // R3 (accessible name)
 export const LABEL_EYEBROW = 'Label'; // R6, rendered in uppercase
-export const LABEL_HINT = 'Optional. Only you see it.'; // R7
+export const LABEL_PLACEHOLDER = 'Optional. Only you see it.'; // R7, the label field's placeholder (D-161)
 export const SAVE_TO_EYEBROW = 'Save to'; // R8 and W7, rendered in uppercase
 export const SAVE_TO_PLACEHOLDER = 'Downloads\\Floe requests'; // R9
 export const BROWSE = 'Browse'; // R10
@@ -28,7 +28,7 @@ export const LINK_ENDS_EYEBROW = 'Link ends'; // R11, rendered in uppercase
 export const LIFETIME_24H = 'In 24 hours'; // R12
 export const LIFETIME_7D = 'In 7 days'; // R13
 export const MAKE_LINK = 'Make link'; // R14
-export const READY_IP_LINE = 'Whoever sends sees your IP address, even if you decline, unless Hide my IP is on.'; // R15, only while Hide my IP is off
+export const READY_IP_LINE = 'Senders see your IP address, even if you decline.'; // R15, only while Hide my IP is off
 export const MAKING_LINK = 'Making the link...'; // R16
 export const READY_HIDE_IP_LINE = 'Hide my IP is on, so drops are capped at 2 GB.'; // R17
 
@@ -145,8 +145,9 @@ export function driveOf(saveDir: string): string {
     return saveDir;
 }
 
-/** warningLine maps a prompt warning code to its line (P4, P5, P6, P11), or
- *  '' for a code this build does not know. */
+/** warningLine maps a prompt warning code to its line (P4, P5, P6), or '' for a
+ *  code this build does not know. The laptop-power code is no longer one: P11
+ *  is the Receiving view's LAPTOP_LINE (E-94). */
 export function warningLine(code: string, p: {freeBytes: number; totalBytes: number}, saveDir: string): string {
     switch (code) {
         case 'low-space':
@@ -155,8 +156,6 @@ export function warningLine(code: string, p: {freeBytes: number; totalBytes: num
             return 'This drive cannot save files over 4 GB, so this drop will stop.'; // P5
         case 'relay-over-cap':
             return `Hide my IP is on, so this ${fmtBytes(p.totalBytes)} drop will stop before any file.`; // P6
-        case 'laptop-power':
-            return 'On a laptop, plug in and keep the lid open.'; // P11
         default:
             return '';
     }
@@ -170,12 +169,14 @@ export function answerWithin(answerBy: number, now: number): string {
 }
 export const ACCEPT = 'Accept'; // P9
 export const DECLINE = 'Decline'; // P9
-export const PROMPT_CAUTION = 'Accept only if you expect files from the person you sent this link to.'; // P10
+// P10 is cut (D-161): the caution lives in the docs, request-links.mdx#accept-or-decline.
 export const DECLINED_LINE = 'You declined. Nothing was saved.'; // D1
 export const DECLINED_QUESTION = 'Keep waiting for the person you sent it to?'; // D2
 export const KEEP_WAITING = 'Keep waiting'; // D3
 
 // ---- Receiving -------------------------------------------------------------
+/** P11: advice for a PC with a battery, shown while a long drop receives. */
+export const LAPTOP_LINE = 'Keep this laptop plugged in and open.';
 /** V1: file N of M, from the owner's label when there is one. */
 export function receivingHeading(index: number, count: number, label: string): string {
     return `RECEIVING ${index} OF ${count}${label ? ` FROM ${label.toUpperCase()}` : ''}`;
@@ -202,13 +203,15 @@ export function doneHeading(files: number, bytes: number): string {
     return `RECEIVED ${filesCount(files).toUpperCase()}, ${fmtBytes(bytes).toUpperCase()}`;
 }
 export const DISMISS = 'Dismiss'; // DN2
-export const VERIFIED_LINE = 'SHA-256 matched'; // DN3, the D-101 words
+/** DN3, the D-101 words. Never drawn: a green check says it, and screen readers read these. */
+export const VERIFIED_LINE = 'SHA-256 matched';
 export function renamedLine(n: number): string {
     return n === 1
         ? '1 file was renamed to end in .floe-blocked because Windows can open it by itself.' // DN4
         : `${n} files were renamed to end in .floe-blocked because Windows can open that kind of file by itself.`; // DN4p
 }
-export const NOT_SCANNED_LINE = 'Floe does not scan files for malware.'; // DN5
+/** DN5, drawn only when the save volume cannot carry the downloaded-file mark (S-7). */
+export const NOT_SCANNED_LINE = 'Floe does not scan files for malware.';
 export const SHOW_IN_FOLDER = 'Show in folder'; // DN6, DN9
 // DN8, drawn as a title and a question (DO-03, DH-03).
 export const RENAMED_CONFIRM_TITLE = 'This drop contains renamed files.';
@@ -221,7 +224,7 @@ export function folderName(path: string): string {
     return parts.length ? parts[parts.length - 1] : path;
 }
 
-/** verifiedAll: the DN3 line shows only when every file's SHA-256 matched. */
+/** verifiedAll: the DN3 check shows only when every file's SHA-256 matched. */
 export function verifiedAll(r: {files: number; saved: number; verified: number}): boolean {
     return r.files > 0 && r.saved === r.files && r.verified === r.files;
 }

@@ -9,6 +9,7 @@ import userEvent from '@testing-library/user-event';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import RequestLinkView, {PROMPT_ACTIONS_ID, type RequestLinkViewProps} from './RequestLinkView';
 import {OFF_SNAPSHOT, type Phase, type RequestLinkSnapshot} from '../requestLink';
+import {VERIFIED_LINE} from '../requestCopy';
 import type {Prog} from '../progress';
 
 const HOSTILE = ['<img src=x onerror=alert(1)>', '$(calc)', ']]><', '\u202Eevil.exe'];
@@ -27,7 +28,7 @@ const snap = (over: Partial<RequestLinkSnapshot>): RequestLinkSnapshot => ({
 });
 
 const prompt = {files: 12, totalBytes: 38 * GB, folder: 'Floe requests\\Acme footage 2026-09-14 1405', freeBytes: 500 * GB, warnings: [], answerBy: T0 + 9 * 60000};
-const result = {files: 12, saved: 12, bytes: 38 * GB, verified: 12, renamed: 0, folder: 'D:\\Footage\\Floe requests\\Acme footage 2026-09-14 1405', names: ['a.mov']};
+const result = {files: 12, saved: 12, bytes: 38 * GB, verified: 12, renamed: 0, noNamedStreams: false, folder: 'D:\\Footage\\Floe requests\\Acme footage 2026-09-14 1405', names: ['a.mov']};
 
 const progress = (fileName: string): Prog => ({
     fileName, fileIndex: 4, fileCount: 12, fileBytes: 10, fileSize: 100, totalBytes: 1.2 * GB, grandTotal: 2.5 * GB, savedName: fileName,
@@ -326,9 +327,10 @@ describe('the result card', () => {
         }
     });
 
-    it('shows the SHA-256 line only when every file verified', () => {
+    it('marks a drop verified only when every file verified', () => {
         const {rerender} = render(<RequestLinkView {...at('done')}/>);
-        expect(screen.getByText('SHA-256 matched')).toBeTruthy();
+        // The words are for screen readers now; nothing visible says them.
+        expect(screen.getByText('SHA-256 matched').className).toContain('sr-only');
         rerender(<RequestLinkView {...at('done')} snap={snap({state: 'done', result: {...result, verified: 11}})}/>);
         expect(screen.queryByText(/SHA-256/)).toBeNull();
         // No hash value or digest-shaped text anywhere.
@@ -434,7 +436,7 @@ describe('the layout (D-136)', () => {
     });
 
     it('R15 sits above Make link while Hide my IP is off, and R17 alone while it is on', () => {
-        const R15 = 'Whoever sends sees your IP address, even if you decline, unless Hide my IP is on.';
+        const R15 = 'Senders see your IP address, even if you decline.';
         const R17 = 'Hide my IP is on, so drops are capped at 2 GB.';
         const {rerender} = render(<RequestLinkView {...at('ready')}/>);
         const line = screen.getByText(R15);
@@ -451,15 +453,61 @@ describe('the layout (D-136)', () => {
         expect(screen.getByRole('alert').textContent).toMatch(/^Hide my IP needs a TURN relay/);
     });
 
-    it('the prompt: P10 above Accept, every needed line at AA, the laptop line not amber', () => {
+    it('the label field carries R7 as its placeholder, and nothing sits right of LABEL (D-161)', () => {
+        const {container} = render(<RequestLinkView {...at('ready')}/>);
+        const field = screen.getByLabelText('Label') as HTMLInputElement;
+        expect(field.placeholder).toBe('Optional. Only you see it.');
+        // The placeholder carries a fact the owner needs, so it is zinc-400 (AA
+        // on the field), not the shared Input's zinc-500 (RC-5). It wins the
+        // cascade because the important modifier outranks the shared class,
+        // and only this field says it: the folder field keeps the default.
+        expect(field.className.split(' ')).toContain('placeholder:text-zinc-400!');
+        expect((screen.getByLabelText('Save to') as HTMLInputElement).className).not.toContain('text-zinc-400');
+        // The words are no longer text on the page: the eyebrow row is LABEL alone.
+        expect(screen.queryByText('Optional. Only you see it.')).toBeNull();
+        expect(container.textContent).not.toMatch(/Only you see it/);
+        // LABEL stands alone above its field, on the same edge as SAVE TO and
+        // LINK ENDS (one label edge): nothing sits beside it.
+        const eyebrow = screen.getByText('Label').parentElement!;
+        expect(eyebrow.className.split(' ')).toContain('px-0.5');
+        expect([...eyebrow.parentElement!.children].map((c) => c.tagName)).toEqual(['P', 'INPUT']);
+    });
+
+    it('the prompt has three text lines and the buttons: no caution line, no laptop line (S-3, D-161)', () => {
+        const {rerender} = render(<RequestLinkView {...at('deciding')}/>);
+        const group = screen.getByRole('heading', {level: 3}).parentElement!;
+        // The heading, the size row and the folder row: nothing else above the buttons.
+        expect(group.children).toHaveLength(3);
+        expect(group.textContent).not.toMatch(/Accept only if|laptop|plug/i);
+        // A warning of this drop still adds its own amber line; the old laptop
+        // code, if a stale host sent it, draws nothing.
         const warned = snap({state: 'deciding', prompt: {...prompt, freeBytes: 31 * GB, warnings: ['low-space', 'laptop-power']}});
+        rerender(<RequestLinkView {...at('deciding', {snap: warned})}/>);
+        expect(screen.getByRole('heading', {level: 3}).parentElement!.children).toHaveLength(4);
+        expect(document.body.textContent).not.toMatch(/laptop|plug|Accept only if/i);
+    });
+
+    it('the prompt: Answer within sits at the right end of the size row, at AA, outside live regions', () => {
+        render(<RequestLinkView {...at('deciding')}/>);
+        const size = screen.getByText('12 files, 38.0 GB');
+        const within = screen.getByText(/^Answer within \d+ min$/);
+        const row = size.parentElement!;
+        expect(within.parentElement).toBe(row);
+        expect(row.firstElementChild).toBe(size);
+        expect(row.lastElementChild).toBe(within);
+        expect(row.className.split(' ')).toEqual(expect.arrayContaining(['flex', 'items-baseline', 'justify-between', 'gap-3']));
+        expect(within.className.split(' ')).toEqual(expect.arrayContaining(['shrink-0', 'text-xs', 'tabular-nums', 'text-zinc-400']));
+        expect(within.closest('[aria-live], [role="status"], [role="alert"], [role="log"]')).toBeNull();
+    });
+
+    it('the prompt: the folder row keeps Into and no glyph, the warnings stay amber, the buttons carry the Review id', () => {
+        const warned = snap({state: 'deciding', prompt: {...prompt, freeBytes: 31 * GB, warnings: ['low-space']}});
         render(<RequestLinkView {...at('deciding', {snap: warned})}/>);
         const accept = screen.getByRole('button', {name: 'Accept'});
-        const p10 = screen.getByText('Accept only if you expect files from the person you sent this link to.');
-        expect(before(p10, accept)).toBe(true);
-        for (const el of [p10, screen.getByText(/^Answer within \d+ min$/), screen.getByText('On a laptop, plug in and keep the lid open.')]) {
-            expect(el.className, el.textContent!).toContain('text-zinc-400');
-        }
+        const folderRow = screen.getByText(prompt.folder).parentElement!;
+        expect(folderRow.textContent).toBe(`Into ${prompt.folder}`);
+        expect(folderRow.querySelector('svg')).toBeNull();
+        expect(folderRow.className).toContain('text-zinc-400');
         expect(screen.getByText(/^Only 31\.0 GB free on D:/).className).toContain('text-amber-300/80');
         // The folder wraps inside the card instead of overflowing it, at its
         // spaces first: break-all cut "from" into "f" and "rom" (QA-H6 L-1).
@@ -542,13 +590,72 @@ describe('the layout (D-136)', () => {
         expect(screen.getByText(prompt.folder)).toBeTruthy();
     });
 
-    it('Done: a plain SHA-256 line, DN5 at AA, and a folder name that keeps its end', () => {
+    it('Done: a circle-check glyph read as SHA-256 matched, only when every file verified (DN3, D-161)', () => {
+        const {container, rerender} = render(<RequestLinkView {...at('done')}/>);
+        const mark = () => container.querySelector('svg.lucide-circle-check');
+        const glyph = mark()!;
+        expect(glyph).not.toBeNull();
+        expect(glyph.getAttribute('aria-hidden')).toBe('true');
+        expect(glyph.getAttribute('class')!.split(' ')).toEqual(expect.arrayContaining(['size-3.5', 'shrink-0', 'text-green-500']));
+        // Read aloud and never drawn: the D-101 words, right after the glyph.
+        const sr = screen.getByText('SHA-256 matched');
+        expect(sr.className).toBe('sr-only');
+        expect(sr.textContent).toBe(VERIFIED_LINE);
+        expect(glyph.nextElementSibling).toBe(sr);
+        // No tooltip, and never a shield, lock, badge or seal (the never-claim list).
+        expect(container.querySelector('[title="SHA-256 matched"], [aria-label*="SHA-256"], svg title')).toBeNull();
+        expect(container.querySelector('svg.lucide-shield-check, svg.lucide-shield, svg.lucide-lock, svg.lucide-badge-check, svg.lucide-shield-alert')).toBeNull();
+        // One file short of verified: nothing is drawn and nothing is said (DN11).
+        rerender(<RequestLinkView {...at('done')} snap={snap({state: 'done', result: {...result, verified: 11}})}/>);
+        expect(mark()).toBeNull();
+        expect(screen.queryByText(/SHA-256/)).toBeNull();
+        // The Stopped card shares the component and is untouched: no mark, even when the counts match.
+        rerender(<RequestLinkView {...at('stopped')} snap={snap({state: 'stopped', code: 'disk-full', result})}/>);
+        expect(mark()).toBeNull();
+        expect(screen.queryByText(/SHA-256/)).toBeNull();
+    });
+
+    it('Done: the glyph follows the heading text, so the heading keeps its left edge', () => {
+        const {container} = render(<RequestLinkView {...at('done')}/>);
+        const heading = screen.getByText(/^RECEIVED /);
+        const glyph = container.querySelector('svg.lucide-circle-check')!;
+        expect(glyph).not.toBeNull();
+        expect(glyph.parentElement).toBe(heading.parentElement);
+        expect(heading.parentElement!.firstElementChild).toBe(heading);
+        expect(heading.compareDocumentPosition(glyph) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        // Dismiss still ends the row, on the right rail.
+        expect(screen.getByRole('button', {name: 'Dismiss'}).previousElementSibling).toBe(heading.parentElement);
+    });
+
+    it('Done: no malware line on a normal save, and no empty body group between the heading and the folder (DN5, S-7)', () => {
+        render(<RequestLinkView {...at('done')}/>);
+        expect(screen.queryByText(/scan files/)).toBeNull();
+        // Heading row, folder row, Make another link: nothing else.
+        expect(screen.getByText(/^RECEIVED /).closest('.space-y-4')!.children).toHaveLength(3);
+    });
+
+    it('Done: the malware line returns when the drive has no named streams, with the renamed line above it (DN5, S-7)', () => {
+        const noMark = {...result, noNamedStreams: true};
+        const {rerender} = render(<RequestLinkView {...at('done')} snap={snap({state: 'done', result: noMark})}/>);
+        const line = screen.getByText('Floe does not scan files for malware.');
+        expect(line.className).toContain('text-zinc-400');
+        // It is independent of the check: a verified drop on such a drive shows both.
+        expect(document.querySelector('svg.lucide-circle-check')).not.toBeNull();
+        rerender(<RequestLinkView {...at('done')} snap={snap({state: 'done', result: {...noMark, renamed: 2}})}/>);
+        const renamed = screen.getByText(/^2 files were renamed/);
+        expect(renamed.parentElement).toBe(screen.getByText('Floe does not scan files for malware.').parentElement);
+        expect(before(renamed, screen.getByText('Floe does not scan files for malware.'))).toBe(true);
+        // A renamed file alone does not bring it back on a normal drive.
+        rerender(<RequestLinkView {...at('done')} snap={snap({state: 'done', result: {...result, renamed: 2}})}/>);
+        expect(screen.queryByText(/scan files/)).toBeNull();
+        // The Stopped card never carried it.
+        rerender(<RequestLinkView {...at('stopped')} snap={snap({state: 'stopped', code: 'disk-full', result: noMark})}/>);
+        expect(screen.queryByText(/scan files/)).toBeNull();
+    });
+
+    it('Done: a folder name that keeps its end', () => {
         const long = `D:\\Footage\\Floe requests\\${'A'.repeat(64)} 2026-09-14 1405`;
         const {rerender} = render(<RequestLinkView {...at('done')} snap={snap({state: 'done', result: {...result, folder: long}})}/>);
-        const sha = screen.getByText('SHA-256 matched');
-        expect(sha.querySelector('svg')).toBeNull();
-        expect(sha.className).toContain('text-zinc-400');
-        expect(screen.getByText('Floe does not scan files for malware.').className).toContain('text-zinc-400');
         const name = screen.getByTitle(long);
         expect(name.textContent!.endsWith(' 2026-09-14 1405')).toBe(true);
         expect(name.textContent!.length).toBeLessThanOrEqual(34);
@@ -666,6 +773,90 @@ describe('the layout (D-136)', () => {
         const row = document.getElementById(PROMPT_ACTIONS_ID)!;
         expect(row.className.split(' ')).toContain('scroll-mb-4');
         for (const b of within(row).getAllByRole('button')) expect(b.className).not.toMatch(/scroll-m/);
+    });
+});
+
+describe('the Receiving laptop line (P11, E-94)', () => {
+    const LINE = 'Keep this laptop plugged in and open.';
+    const MB = 1024 ** 2;
+    beforeEach(() => {
+        vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date']});
+        vi.setSystemTime(T0);
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    // A drop of `total` bytes that has moved `done` of them in `secs` seconds,
+    // so Receiving averages done / secs since its first progress event and the
+    // time left is (total - done) / that speed.
+    function drop(battery: boolean, secs: number, done: number, total: number) {
+        const s = snap({state: 'receiving', route: 'direct', battery});
+        const first: Prog = {fileName: 'a.mov', fileIndex: 1, fileCount: 1, fileBytes: 0, fileSize: total, totalBytes: 0, grandTotal: total, savedName: 'a.mov'};
+        const view = render(<RequestLinkView {...props({phase: 'receiving', snap: s, progress: first})}/>);
+        act(() => { vi.advanceTimersByTime(secs * 1000); });
+        view.rerender(<RequestLinkView {...props({phase: 'receiving', snap: s, progress: {...first, totalBytes: done}})}/>);
+        return view;
+    }
+
+    it('shows above Cancel drop on a PC with a battery while more than 5 min remain', () => {
+        // 60 MB in 60 s is 1 MB/s, so 301 MB more is 301 s: just over 5 min.
+        drop(true, 60, 60 * MB, 361 * MB);
+        const line = screen.getByText(LINE);
+        expect(line.className.split(' ')).toContain('text-zinc-400');
+        expect(line.closest('[aria-live], [role="status"], [role="alert"]')).toBeNull();
+        const cancel = screen.getByRole('button', {name: /Cancel drop/});
+        expect(line.compareDocumentPosition(cancel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        // The progress numbers stay above it.
+        expect(screen.getByText(/left$/).compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('is gone at exactly 5 min left, on a PC with no battery, and in the first minute', () => {
+        drop(true, 60, 60 * MB, 360 * MB).unmount();
+        expect(screen.queryByText(LINE)).toBeNull();
+        drop(false, 60, 60 * MB, 361 * MB).unmount();
+        expect(screen.queryByText(LINE)).toBeNull();
+        // 59 s is too early for any estimate, however long the drop would take.
+        drop(true, 59, 59 * MB, 5000 * MB).unmount();
+        expect(screen.queryByText(LINE)).toBeNull();
+    });
+
+    it('stays once shown for the drop while the averaged time left wobbles under 5 min, and a new drop starts without it (RC-6)', () => {
+        const first = (total: number): Prog => ({fileName: 'a.mov', fileIndex: 1, fileCount: 1, fileBytes: 0, fileSize: total, totalBytes: 0, grandTotal: total, savedName: 'a.mov'});
+        const total = 361 * MB;
+        const s = snap({state: 'receiving', route: 'direct', battery: true});
+        const view = render(<RequestLinkView {...props({phase: 'receiving', snap: s, progress: first(total)})}/>);
+        act(() => { vi.advanceTimersByTime(60_000); });
+        view.rerender(<RequestLinkView {...props({phase: 'receiving', snap: s, progress: {...first(total), totalBytes: 60 * MB}})}/>);
+        expect(screen.getByText(LINE)).toBeTruthy();
+        // A second later 62 MB are in: the average speed is 1.016 MB/s and the
+        // time left reads 294 s, under 5 min. The line stays.
+        act(() => { vi.advanceTimersByTime(1000); });
+        view.rerender(<RequestLinkView {...props({phase: 'receiving', snap: s, progress: {...first(total), totalBytes: 62 * MB}})}/>);
+        expect(screen.getByText(LINE)).toBeTruthy();
+        // Back over 5 min, still there.
+        act(() => { vi.advanceTimersByTime(1000); });
+        view.rerender(<RequestLinkView {...props({phase: 'receiving', snap: s, progress: {...first(total), totalBytes: 62 * MB}})}/>);
+        expect(screen.getByText(LINE)).toBeTruthy();
+
+        // The next drop (a new lane generation) starts unlatched: 60 MB in
+        // 60 s of a 360 MB drop is exactly 5 min left, which shows nothing.
+        const next = {...s, gen: s.gen + 1};
+        view.rerender(<RequestLinkView {...props({phase: 'receiving', snap: next, progress: first(360 * MB)})}/>);
+        expect(screen.queryByText(LINE)).toBeNull();
+        act(() => { vi.advanceTimersByTime(60_000); });
+        view.rerender(<RequestLinkView {...props({phase: 'receiving', snap: next, progress: {...first(360 * MB), totalBytes: 60 * MB}})}/>);
+        expect(screen.queryByText(LINE)).toBeNull();
+    });
+
+    it('is never on the prompt, the form, Waiting or Done', () => {
+        for (const phase of ['ready', 'waiting', 'deciding', 'done'] as const) {
+            const withBattery = {...BY_PHASE[phase], battery: true};
+            const {unmount} = render(<RequestLinkView {...at(phase, {snap: withBattery})}/>);
+            expect(screen.queryByText(LINE), phase).toBeNull();
+            expect(document.body.textContent, phase).not.toMatch(/laptop/i);
+            unmount();
+        }
     });
 });
 

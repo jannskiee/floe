@@ -38,6 +38,7 @@ export namespace main {
 	    renamed: number;
 	    folder: string;
 	    names: string[];
+	    noNamedStreams: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new RequestResult(source);
@@ -52,6 +53,7 @@ export namespace main {
 	        this.renamed = source["renamed"];
 	        this.folder = source["folder"];
 	        this.names = source["names"];
+	        this.noNamedStreams = source["noNamedStreams"];
 	    }
 	}
 	export class RequestPrompt {
@@ -90,6 +92,7 @@ export namespace main {
 	    reconnectUntil?: number;
 	    missedAt?: number;
 	    suggestClose: boolean;
+	    battery: boolean;
 	    prompt?: RequestPrompt;
 	    result?: RequestResult;
 	
@@ -112,6 +115,7 @@ export namespace main {
 	        this.reconnectUntil = source["reconnectUntil"];
 	        this.missedAt = source["missedAt"];
 	        this.suggestClose = source["suggestClose"];
+	        this.battery = source["battery"];
 	        this.prompt = this.convertValues(source["prompt"], RequestPrompt);
 	        this.result = this.convertValues(source["result"], RequestResult);
 	    }

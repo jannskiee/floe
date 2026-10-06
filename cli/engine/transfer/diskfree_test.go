@@ -122,3 +122,63 @@ func TestVolumeMaxFileSizeThroughTheWaysToAFATFolder(t *testing.T) {
 		}
 	}
 }
+
+// TestVolumeNamedStreamsOfAFolderNotMadeYet: like the largest-file question,
+// the named-streams question is asked before the drop folder exists, so a
+// folder not made yet answers for the nearest folder above it that does.
+func TestVolumeNamedStreamsOfAFolderNotMadeYet(t *testing.T) {
+	base := t.TempDir()
+	want, err := volumeNamedStreams(base)
+	if err != nil {
+		t.Fatalf("volumeNamedStreams(%s): %v", base, err)
+	}
+	dir := filepath.Join(base, "not made yet", "deeper")
+	if got, err := volumeNamedStreams(dir); err != nil || got != want {
+		t.Fatalf("volumeNamedStreams(%s) = %v, %v; want %v and no error, the answer for %s", dir, got, err, want, base)
+	}
+	if got, err := VolumeNamedStreams(dir); err != nil || got != want {
+		t.Fatalf("VolumeNamedStreams(%s) = %v, %v; the exported question must be the same one", dir, got, err)
+	}
+}
+
+// TestVolumeNamedStreamsAgreesWithTheMarkWrite (S-7): the answer is what the
+// Windows downloaded-file mark needs, so on the volume this test runs on it
+// must agree with whether the Zone.Identifier stream can really be written.
+// Windows volumes differ (NTFS and ReFS carry named streams, FAT32, exFAT and
+// many network shares do not), which is why the flag is asked of the volume
+// and not assumed from the OS. Off Windows no mark is ever written, so the
+// answer is no there.
+func TestVolumeNamedStreamsAgreesWithTheMarkWrite(t *testing.T) {
+	dir := t.TempDir()
+	got, err := volumeNamedStreams(dir)
+	if err != nil {
+		t.Fatalf("volumeNamedStreams(%s): %v", dir, err)
+	}
+	if runtime.GOOS != "windows" {
+		if got {
+			t.Fatal("a platform that writes no mark reports a volume that carries one")
+		}
+		return
+	}
+	file := filepath.Join(dir, "probe.bin")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wrote := applyMOTW(file) == nil
+	if got != wrote {
+		t.Fatalf("volumeNamedStreams = %v but writing the Zone.Identifier stream here %v", got, map[bool]string{true: "worked", false: "failed"}[wrote])
+	}
+}
+
+// TestVolumeNamedStreamsOfAFATFolder (opt-in): with FLOE_TEST_FAT_DIR set to
+// an existing folder on a FAT or FAT32 volume, the answer is no and not an
+// error, which is the case the Done view's not-scanned line exists for.
+func TestVolumeNamedStreamsOfAFATFolder(t *testing.T) {
+	fat := os.Getenv("FLOE_TEST_FAT_DIR")
+	if runtime.GOOS != "windows" || fat == "" {
+		t.Skip("set FLOE_TEST_FAT_DIR to an existing folder on a FAT or FAT32 volume (Windows)")
+	}
+	if got, err := volumeNamedStreams(fat); err != nil || got {
+		t.Fatalf("volumeNamedStreams(%s) = %v, %v; want false and no error on a FAT volume", fat, got, err)
+	}
+}

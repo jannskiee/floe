@@ -12,9 +12,10 @@ import {useEffect, useRef, useState, type MouseEvent} from 'react';
 import {AlertCircle, ChevronDown, Folder, FolderOpen, Loader2, X} from 'lucide-react';
 import {Button, cn, Eyebrow, Input} from './ui';
 import * as copy from '../requestCopy';
-import {etaLines, guardActive, GUARD_MS, type Phase, type RequestLinkSnapshot} from '../requestLink';
+import {etaLines, guardActive, GUARD_MS, showLaptopLine, type Phase, type RequestLinkSnapshot} from '../requestLink';
 import {fmtEta, fmtSpeed, type Prog} from '../progress';
 import {shortPath} from '../paths';
+import {VerifiedMark} from './TransferBits';
 
 /** The link block and the activity slot below it: the phases in which a link
  *  exists on screen. Close link keeps one box across all of them (spec 06 5.5:
@@ -128,12 +129,11 @@ function ReadyForm({phase, errorCode, hideIP, saveDir, onSaveDirChange, onMake, 
     return (
         <div className="space-y-4">
             <div className="space-y-2">
-                <div className="flex items-baseline justify-between px-0.5">
-                    <Eyebrow><label htmlFor={LABEL_INPUT_ID}>{copy.LABEL_EYEBROW}</label></Eyebrow>
-                    <span className="text-[11px] text-zinc-500">{copy.LABEL_HINT}</span>
-                </div>
+                <Eyebrow className="px-0.5"><label htmlFor={LABEL_INPUT_ID}>{copy.LABEL_EYEBROW}</label></Eyebrow>
                 <Input
                     id={LABEL_INPUT_ID}
+                    placeholder={copy.LABEL_PLACEHOLDER}
+                    className="placeholder:text-zinc-400!"
                     value={label}
                     onChange={(e) => { setLabel(e.target.value); edited(); }}
                     disabled={making}
@@ -403,16 +403,18 @@ function Prompt({snap, onAnswer, onGuardLift, onPromptVisible}: RequestLinkViewP
         <div className="space-y-4">
             <div className="space-y-2">
                 <h3 id={PROMPT_HEADING_ID} tabIndex={-1} className={cn(headClass, 'outline-none')}>{copy.promptHeading(snap.label)}</h3>
-                <p className="text-sm font-medium text-zinc-100">{copy.promptSize(prompt.files, prompt.totalBytes)}</p>
+                {/* The answer window shares the size row, at the right end and
+                    outside every live region (P8, D-143): the prompt reads as
+                    three lines and the buttons. */}
+                <div className="flex items-baseline justify-between gap-3">
+                    <p className="text-sm font-medium text-zinc-100">{copy.promptSize(prompt.files, prompt.totalBytes)}</p>
+                    <p className="shrink-0 text-xs tabular-nums text-zinc-400">{copy.answerWithin(prompt.answerBy, now)}</p>
+                </div>
                 <p className={t2Class}>{copy.INTO} <span className={intoClass}>{prompt.folder}</span></p>
                 {prompt.warnings.map((w) => {
                     const line = copy.warningLine(w, prompt, snap.saveDir);
-                    // P11 is advice, not a fact about this drop, so it is not amber.
-                    return line ? <p key={w} className={w === 'laptop-power' ? t2Class : warnClass}>{line}</p> : null;
+                    return line ? <p key={w} className={warnClass}>{line}</p> : null;
                 })}
-                <p className={t2Class}>{copy.answerWithin(prompt.answerBy, now)}</p>
-                {/* P10 is read before the decision, above the buttons. */}
-                <p className={t2Class}>{copy.PROMPT_CAUTION}</p>
             </div>
             {/* scroll-mb-4: Review's scrollIntoView stops 16 px short of the
                 window's bottom edge, not flush with it (QA-H6 L-4). A scroll
@@ -436,6 +438,9 @@ function Receiving({snap, progress, accepted, onCancelDrop}: RequestLinkViewProp
     // Speed and time left, averaged since this drop's first progress event
     // (the track() rule in progress.ts), keyed on the lane generation.
     const start = useRef<{gen: number; t: number; bytes: number} | null>(null);
+    // P11 latches for the drop once shown (the same key): the averaged time left
+    // wobbles around 5 min, and a line that blinks is worse than one that stays.
+    const laptopGen = useRef<number | null>(null);
     const now = Date.now();
     const done = progress ? (progress.grandTotal > 0 ? progress.totalBytes : progress.fileBytes) : 0;
     const total = progress ? (progress.grandTotal > 0 ? progress.grandTotal : progress.fileSize) : 0;
@@ -452,6 +457,8 @@ function Receiving({snap, progress, accepted, onCancelDrop}: RequestLinkViewProp
     const folder = snap.prompt?.folder || accepted?.folder || '';
     const speedText = fmtSpeed(speed);
     const etaText = fmtEta(eta);
+    if (showLaptopLine(snap, eta, dt)) laptopGen.current = snap.gen;
+    const laptopLine = snap.battery && laptopGen.current === snap.gen;
     return (
         <div className="space-y-4">
             <div className="space-y-2">
@@ -478,6 +485,8 @@ function Receiving({snap, progress, accepted, onCancelDrop}: RequestLinkViewProp
                 )}
             </div>
             {etaLines(snap, eta, dt).map((l) => <p key={l} className={warnClass}>{l}</p>)}
+            {/* P11 is advice, not a fact about this drop, so it is not amber. */}
+            {laptopLine && <p className={t2Class}>{copy.LAPTOP_LINE}</p>}
             <div className="flex justify-end">
                 <Button variant="outline" onClick={onCancelDrop}><X/> {copy.CANCEL_DROP}</Button>
             </div>
@@ -497,16 +506,27 @@ function Result({phase, snap, onDismiss, onMakeAnother, onShowInFolder}: Request
     return (
         <div className="space-y-4">
             <div className="flex items-center justify-between gap-3">
-                <p className={cn(headClass, 'leading-7')}>{done ? copy.doneHeading(r.saved, r.bytes) : copy.STOPPED_HEADING}</p>
+                {/* The check trails the heading, so the heading keeps its left
+                    edge (D-136 L8 was a leading icon pushing text right). It
+                    is drawn only on Done: the Stopped card shares this
+                    component and says nothing of verification. */}
+                <div className="flex min-w-0 items-center gap-2">
+                    <p className={cn(headClass, 'leading-7')}>{done ? copy.doneHeading(r.saved, r.bytes) : copy.STOPPED_HEADING}</p>
+                    {done && copy.verifiedAll(r) && <VerifiedMark className="size-3.5"/>}
+                </div>
                 <button type="button" className={quietClass} onClick={onDismiss}>{copy.DISMISS}</button>
             </div>
             {done ? (
-                <div className="space-y-2">
-                    {/* The same plain line as the code receive: one left edge. */}
-                    {copy.verifiedAll(r) && <p className={t2Class}>{copy.VERIFIED_LINE}</p>}
-                    {r.renamed > 0 && <p className={warnClass}>{copy.renamedLine(r.renamed)}</p>}
-                    <p className={t2Class}>{copy.NOT_SCANNED_LINE}</p>
-                </div>
+                // Nothing here on a normal save: DN5 returns only where the
+                // save volume cannot carry the downloaded-file mark (S-7), and
+                // the renamed line only after renames, so an empty group is
+                // never drawn.
+                (r.renamed > 0 || r.noNamedStreams) && (
+                    <div className="space-y-2">
+                        {r.renamed > 0 && <p className={warnClass}>{copy.renamedLine(r.renamed)}</p>}
+                        {r.noNamedStreams && <p className={t2Class}>{copy.NOT_SCANNED_LINE}</p>}
+                    </div>
+                )
             ) : (
                 // The stop and, for save-blocked, the kept file are one
                 // statement: one group, 8 px apart.
