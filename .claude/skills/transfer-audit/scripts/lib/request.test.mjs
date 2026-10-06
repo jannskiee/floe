@@ -169,7 +169,11 @@ test('TA-10 H-DIR-W2D-req: Make link into the run folder, Accept after 1.2 s, th
     assert.equal(r.verdict, 'PASS', r.note);
     const a = r.attempts[0];
     // Make link went to the run's own folder, never Downloads\Floe requests.
-    assert.equal(w.dom.madeWith.requestLinks, true, 'the Beta switch was on for Make link');
+    // H7 has no Beta switch: the runner waited for the REQUEST LINK tab and
+    // never opened Settings.
+    assert.equal(w.dom.madeWith.requestLinks, undefined, 'no Beta switch exists to be on');
+    assert.equal(clicksOf(w, 'Settings').length, 0, 'Settings was never opened');
+    assert.equal(a.request.tab.via, 'playwright');
     assert.equal(path.dirname(path.dirname(r.integrity.files[0].where)), a.outDir);
     // Accept no earlier than the guard allows.
     const acceptClick = clicksOf(w, 'Accept');
@@ -196,10 +200,9 @@ test('TA-10 H-DIR-W2D-req: Make link into the run folder, Accept after 1.2 s, th
     assert.equal(ctx.safety.statsReportAttempts, 0);
     assert.equal(a.request.link, 'http://localhost:3000/r/Xk3p9Q0aB1c#<room>');
     assertNoRoom(ctx, r, 'H-DIR-W2D-req');
-    // Left as found: the result put away, the Beta switch off again, both
-    // visitor contexts closed, the host page closed.
+    // Left as found: the result put away, both visitor contexts closed, the
+    // host page closed.
     assert.equal(a.request.released, 'ready');
-    assert.equal(w.dom.settings.requestLinks, false);
     assert.ok(w.visitors.every((v) => v.closed));
     assert.equal(w.visitors.length, 2, 'the sender and the used-link checker');
     assert.equal(w.dom.closed, true);
@@ -304,9 +307,8 @@ test('TA-16 H-DIR-C2D-req: the CLI visitor joins by itself, the host accepts, an
     assert.ok(sender.argv.includes('--to'));
     assert.ok(sender.argv.some((x) => /\/r\/Xk3p9Q0aB1c#<room>$/.test(x)), 'the link in argv is redacted');
     assert.deepEqual(sender.statsProof, { kind: 'sender-env', floeNoStats: '1' });
-    // Left as found: the result put away, the Beta switch off, the CLI stopped.
+    // Left as found: the result put away, the CLI stopped.
     assert.equal(a.request.released, 'ready');
-    assert.equal(w.dom.settings.requestLinks, false);
     assert.equal(w.cliVisitors[0].stopped, 'done');
     assert.equal(w.dom.closed, true);
 });
@@ -460,7 +462,6 @@ test('TA-17 H-DIR-W2C-reqopen: the quick cell passes with a link open, the same 
     assert.equal(a.request.after, 'waiting');
     assert.equal(a.request.link, 'http://localhost:3000/r/Xk3p9Q0aB1c#<room>');
     assert.equal(w.dom.state, 'closed', 'Close link at teardown');
-    assert.equal(w.dom.settings.requestLinks, false);
     assert.equal(w.visitors.length, 0, 'no visitor ever opened the link');
     assertNoRoom(ctx, r, 'H-DIR-W2C-reqopen');
 
@@ -567,7 +568,6 @@ test('TA-17 whose host page is moved to Send by another page mid-cell: the relea
     assert.equal(w.dom.broadcasts.length, 1, 'the host page did receive the broadcast');
     assert.equal(a.request.released, 'ended');
     assert.equal(w.dom.state, 'closed', 'Close link at teardown');
-    assert.equal(w.dom.settings.requestLinks, false, 'and the Beta switch is off again');
 });
 
 // ------------------------------------------------------- failure words
@@ -586,7 +586,6 @@ const failures = [
     ['H-DIR-W2D-req', ['not-used-up'], 'FAIL', 'request-flow', /the link is not used up after the drop/],
     ['H-DIR-W2D-req', ['visitor-stats'], 'FAIL', 'stats-attempt', /stats-attempt: the visitor-1 tried to report 1 time\(s\) \(all aborted\)/],
     ['H-DIR-W2D-req', ['visitor-seed'], 'FAIL', 'stats-attempt', /floe:report-stats reads "true", not "false"/],
-    ['H-DIR-W2D-req', ['beta-stuck'], 'FAIL', 'request-flow', /the Beta switch did not turn on/],
     ['H-DIR-W2D-req', ['make-error'], 'FAIL', 'request-flow', /Make link ended in error \(disabled\)/],
     ['H-REL-W2D-req', ['init-script'], 'ERROR', 'init-script-not-applied', /init-script-not-applied/],
     ['H-DIR-W2D-reqdecline', ['decline-copy'], 'FAIL', 'request-flow', /the visitor-1 read "They did not answer in time\. Nothing was sent\." instead of "They declined\. Nothing was sent\."/],
@@ -670,16 +669,20 @@ test('an exe host without --user-away SKIPs request-host-away-only before anythi
     assert.equal(away.verdict, null, 'with --user-away the exe host runs');
 });
 
-test('TA-10 on an exe host (UIA, away-only): the Beta switch rides desktop.json, Accept waits out the guard, the prompt size is read as the view renders it, and the drop verifies from the done view', async () => {
-    const w = fakeRequestWorld({ lane: 'uia', host: { settings: { requestLinks: false } } });
+test('TA-10 on an exe host (UIA, away-only): no Beta switch is seeded or toggled, Accept waits out the guard, the prompt size is read as the view renders it, and the drop verifies from the done view', async () => {
+    const w = fakeRequestWorld({ lane: 'uia' });
     const ctx = ctxFor(w, { buildFor: EXE_BUILD, userAway: true });
     const r = await runCell(small('H-DIR-W2D-req'), ctx);
     assert.equal(r.verdict, 'PASS', r.note);
     const a = r.attempts[0];
-    assert.equal(w.launchEdits[0].requestLinks, true, 'the host launched with the Beta switch on');
-    assert.equal(w.dom.madeWith.requestLinks, true);
-    assert.equal(a.request.beta.via, 'uia-toggle');
-    assert.equal(a.request.beta.changed, false, 'the switch already read on: no Toggle');
+    assert.equal('requestLinks' in w.launchEdits[0], false, 'desktop.json carries no Beta key');
+    assert.equal(w.dom.madeWith.requestLinks, undefined);
+    assert.equal(a.request.tab.via, 'uia');
+    assert.equal(
+        w.uiaClient.calls.filter(([c]) => c === 'toggle').length,
+        0,
+        'no switch was toggled'
+    );
     // The prompt's size as P2 renders it, compared in that form.
     assert.deepEqual(a.request.prompts, [
         { files: 1, totalBytes: null, sizeText: '4.0 KB', warnings: [] },
@@ -702,6 +705,68 @@ test('TA-10 on an exe host (UIA, away-only): the Beta switch rides desktop.json,
     assert.ok(calls.filter((c) => c === 'foreground-check').length >= patterns);
     assert.equal(a.request.released, 'ready');
     assertNoRoom(ctx, r, 'H-DIR-W2D-req');
+});
+
+// H7 (D-160): the REQUEST LINK tab is always there. The runner waits for it
+// and never opens Settings; the server's request-1 answer is the only gate,
+// and Make link is where a server without it says so (E1).
+test('a legacy requestLinks:false in the host config is ignored: Settings is never opened, the key is never written, and the cell passes on the tab alone', async () => {
+    const w = fakeRequestWorld({ host: { settings: { requestLinks: false } } });
+    const r = await runCell(small('H-DIR-W2D-req'), ctxFor(w));
+    assert.equal(r.verdict, 'PASS', r.note);
+    assert.equal(clicksOf(w, 'Settings').length, 0, 'Settings was never opened');
+    assert.equal(w.dom.settingsOpen, false);
+    assert.equal(w.dom.settings.requestLinks, false, 'the legacy key was not written');
+});
+
+test('a server without request-1 (the kill switch): the REQUEST LINK tab is still there to click and Make link ends in E1, named as such', async () => {
+    const w = fakeRequestWorld({ host: { featureOn: false } });
+    const r = await runCell(small('H-DIR-W2D-req'), ctxFor(w));
+    assert.equal(r.verdict, 'FAIL', r.note);
+    assert.equal(r.reason, 'request-flow');
+    assert.match(r.note, /Make link ended in error \(disabled\)/);
+    assert.ok(clicksOf(w, 'Request link, beta').length >= 1, 'the tab was there');
+    assert.equal(clicksOf(w, 'Settings').length, 0, 'no Settings visit to turn anything on');
+    assert.equal(r.attempts.length, 1, 'a request-flow finding is never retried');
+});
+
+test('a build that does not show the REQUEST LINK tab is a keyed request-flow FAIL at host.start after 10 s, never a wait on a missing button', async () => {
+    const w = fakeRequestWorld({ host: { hideTab: true } });
+    const t0 = w.host.now();
+    const r = await runCell(small('H-DIR-W2D-req'), ctxFor(w));
+    assert.equal(r.verdict, 'FAIL', r.note);
+    assert.equal(r.reason, 'request-flow');
+    assert.equal(r.attempts[0].failedPhase, 'host.start');
+    assert.match(r.note, /the REQUEST LINK tab did not show within 10000 ms/);
+    assert.ok(w.host.now() - t0 < 30_000, `${w.host.now() - t0} ms of fake time`);
+    assert.equal(clicksOf(w, 'Make link').length, 0, 'no link was made');
+    assert.equal(clicksOf(w, 'Settings').length, 0);
+});
+
+// Critic M8 (H7 round): on the UIA lane the done view is the host's whole
+// account, so the check mark's screen-reader text ("SHA-256 matched") is the
+// only proof of verification the cell can read. The old compare was a flag
+// against itself, so its own words could never name the host's view; a done
+// view without the text must fail as the HOST's, whatever the visitor shows.
+test('TA-10 on an exe host whose done view carries no SHA-256 matched text: FAIL request-flow naming the host view, not the visitor', async () => {
+    const w = fakeRequestWorld({ lane: 'uia', faults: ['heading-lie'] });
+    const ctx = ctxFor(w, { buildFor: EXE_BUILD, userAway: true });
+    const r = await runCell(small('H-DIR-W2D-req'), ctx);
+    assert.equal(r.verdict, 'FAIL', r.note);
+    assert.equal(r.reason, 'request-flow');
+    assert.match(r.note, /the host's done view carries no SHA-256 matched text/);
+    assert.equal(r.attempts[0].request.hostView.verifiedLine, false);
+    assert.equal(r.attempts.length, 1, 'a request-flow finding is never retried');
+});
+
+test('TA-10 on an exe host with a short verify: the same host-view finding, whether or not the visitor claims a SHA line', async () => {
+    for (const faults of [['verified-short'], ['verified-short', 'sha-line-lie']]) {
+        const w = fakeRequestWorld({ lane: 'uia', faults });
+        const ctx = ctxFor(w, { buildFor: EXE_BUILD, userAway: true });
+        const r = await runCell(small('H-DIR-W2D-req'), ctx);
+        assert.equal(r.verdict, 'FAIL', `${faults}: ${r.note}`);
+        assert.match(r.note, /the host's done view carries no SHA-256 matched text/, `${faults}`);
+    }
 });
 
 test('TA-10 on an exe host whose window lost the foreground: the first Accept is swallowed by the re-armed guard and the second lands (G2-F1)', async () => {
@@ -754,7 +819,7 @@ test('TA-13 on an exe host: the blip proxy address rides desktop.json at launch,
 });
 
 test('a wailsdev host that may report stats is an ERROR wailsdev-config, never driven', async () => {
-    const w = fakeRequestWorld({ host: { settings: { requestLinks: false, reportStats: true } } });
+    const w = fakeRequestWorld({ host: { settings: { reportStats: true } } });
     const r = await runCell(small('H-DIR-W2D-req'), ctxFor(w));
     assert.equal(r.verdict, 'ERROR');
     assert.equal(r.reason, 'wailsdev-config');
@@ -787,7 +852,7 @@ test('an error that quotes the link loses its room in the note, the attempt file
 });
 
 test('a link the cell did not make is never closed: the owner\'s open link is left exactly as it was', async () => {
-    const w = fakeRequestWorld({ host: { settings: { requestLinks: true } } });
+    const w = fakeRequestWorld();
     // The dev app already holds a waiting link of its own.
     Object.assign(w.dom, {
         state: 'waiting',
@@ -816,12 +881,29 @@ test('a link the cell did not make is never closed: the owner\'s open link is le
 // fails on it: Make link was tried, and the lane's gen is the owner's.
 test('a Make link that fails on an owner link gone live after the leftover check leaves that link open: the release closes only a generation this cell made', async () => {
     const w = fakeRequestWorld();
-    // The owner makes a link in the dev app the moment the Beta switch the
-    // cell turned on takes: after clearLeftover, before the cell's Make link.
+    // The owner makes a link in the dev app the moment the cell has read the
+    // REQUEST LINK tab: after clearLeftover, before the cell's Make link.
+    let tabRead = false;
+    const create = w.adapters.desktop.createLeg;
+    w.adapters.desktop.createLeg = (o) => {
+        const leg = create(o);
+        const open = leg.openDriver;
+        leg.openDriver = async (...args) => {
+            const d = await open(...args);
+            const wait = d.awaitRequestTab.bind(d);
+            d.awaitRequestTab = async (...a) => {
+                const r = await wait(...a);
+                tabRead = true;
+                return r;
+            };
+            return d;
+        };
+        return leg;
+    };
     const worldTick = w.dom.onTick;
     let ownerMade = false;
     w.dom.onTick = (t) => {
-        if (!ownerMade && w.dom.settings.requestLinks === true && w.dom.state === 'ready') {
+        if (!ownerMade && tabRead && w.dom.state === 'ready') {
             ownerMade = true;
             Object.assign(w.dom, {
                 state: 'waiting',
@@ -850,7 +932,7 @@ test('a Make link that fails on an owner link gone live after the leftover check
 });
 
 test('a live link this run left behind (its folder inside the run) is closed first, noted, and the cell runs', async () => {
-    const w = fakeRequestWorld({ host: { settings: { requestLinks: true } } });
+    const w = fakeRequestWorld();
     const ctx = ctxFor(w);
     // The previous cell's link, still waiting: made into its own host-drops
     // folder under this run's evidence root, as TA-17 makes them.
@@ -879,8 +961,8 @@ test('a live link this run left behind (its folder inside the run) is closed fir
 // ------------------------------------------------------- the release
 
 // The first live run's D2C-reqopen (2026-09-24) PASSed while its release
-// failed: Close link timed out, the link and the Beta switch stayed on, and
-// the next cell inherited them. A release that does not leave the host as
+// failed: Close link timed out, the link stayed open, and the next cell
+// inherited it. A release that does not leave the host as
 // found is now a keyed harness ERROR on a cell that otherwise passed.
 test('TA-17 whose Close link does not take: ERROR host-release in teardown, never a PASS with a note', async () => {
     const w = fakeRequestWorld({ host: { closeStuck: true } });
@@ -893,18 +975,16 @@ test('TA-17 whose Close link does not take: ERROR host-release in teardown, neve
     assert.equal(a.request.after, 'waiting', 'the quick cell itself held');
     assert.match(r.note, /host-release: the host was not left as found/);
     assert.match(r.note, /"Make another link" did not appear/);
-    assert.match(r.note, /Beta switch restore/);
     assert.equal(attemptJson(a).signatureKey, 'host-release', 'attempt.json says so too');
 });
 
-test('TA-10 whose result cannot be put away: ERROR host-release (the Beta switch stays locked on)', async () => {
+test('TA-10 whose result cannot be put away: ERROR host-release (the result stays on screen)', async () => {
     const w = fakeRequestWorld({ host: { dismissStuck: true } });
     const r = await runCell(small('H-DIR-W2D-req'), ctxFor(w));
     assert.equal(r.verdict, 'ERROR', r.note);
     assert.equal(r.reason, 'host-release', r.note);
     assert.match(r.note, /"Dismiss" was still showing/);
-    assert.match(r.note, /Beta switch restore/);
-    assert.equal(w.dom.settings.requestLinks, true, 'the switch really is still on');
+    assert.equal(w.dom.state, 'done', 'the result really is still showing');
     assert.equal(attemptJson(r.attempts[0]).signatureKey, 'host-release');
 });
 

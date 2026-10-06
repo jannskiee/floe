@@ -10,9 +10,11 @@
 //
 // Faults (world option `faults`) are the failure shapes the runner must
 // name: hash-bad, extra-file, stray-file, part-left, verified-short,
-// sha-line-lie, heading-lie, stopped, no-prompt, not-used-up, decline-copy,
+// sha-line-lie, heading-lie (the done view's SHA-256 matched text disagrees
+// with the counts: missing with every file verified, shown when one was not),
+// stopped, no-prompt, not-used-up, decline-copy,
 // blip-no-absent, no-reclaim, visitor-stats, visitor-seed, bytes-reported,
-// init-script, beta-stuck, make-error, prompt-lie, goto-error, click-error,
+// init-script, make-error, prompt-lie, goto-error, click-error,
 // and for TA-16's CLI visitor cli-exit (exits 1 on a fixed line after the
 // drop), cli-no-arrived (exits 0 without TL-03's line) and cli-stats-env
 // (started without FLOE_NO_STATS=1). A wrong route is the world's `route`
@@ -21,7 +23,8 @@
 // `lane: 'uia'` (FU-26) makes the host an exe leg instead: the real
 // DesktopLeg and UiaDriver over tests/fake-request-uia.mjs, the same view
 // read through UIA snapshots. Its launch applies what the leg's desktop.json
-// would carry (edit(): the Beta switch, the server address), and `uia` passes
+// would carry (edit(): the server address and Hide my IP; no Beta switch since
+// H7), and `uia` passes
 // the fake client's options (activates, idle).
 //
 // TA-16's visitor is fakeCliVisitor, the CLI adapter's leg in its
@@ -418,9 +421,7 @@ export function fakeRequestWorld({
 } = {}) {
     const set = new Set(faults);
     const h = fakeRequestDom({
-        betaStuck: set.has('beta-stuck'),
         makeError: set.has('make-error') ? 'disabled' : null,
-        settings: { requestLinks: false },
         ...host,
     });
     const dom = h.dom;
@@ -587,7 +588,6 @@ export function fakeRequestWorld({
             dom.requestView = false;
             const e = leg.edit();
             world.launchEdits.push(e);
-            if (e.requestLinks !== undefined) dom.settings.requestLinks = e.requestLinks;
             if (e.server) dom.settings.server = e.server;
             if (e.web !== undefined) dom.settings.web = e.web;
             dom.settings.hideIP = Boolean(e.hideIP);

@@ -129,7 +129,7 @@ export const STRINGS = Object.freeze({
     textPlaceholder: 'Type or paste text to send', // send-text textarea
     tabSend: 'Send', // modeBtn('send', 'Send')
     tabReceive: 'Receive', // modeBtn('receive', 'Receive')
-    codeChoice: 'Code', // Receive > CODE | REQUEST LINK (R1), only while the Request links beta is on
+    codeChoice: 'Code', // Receive > CODE | REQUEST LINK (R1), always shown since H7 (no Settings switch)
     receiveButton: 'Receive', // primary button on the receive view
     cancel: 'Cancel',
     settings: 'Settings', // TitleBar.tsx aria-label
@@ -173,8 +173,6 @@ export const RE = Object.freeze({
     // wraps it, which carries the row description too, so this matches a
     // part of that name rather than all of it.
     hideIpRow: /Hide my IP address/i,
-    // Settings > Beta > Request links (S2), named the same way.
-    requestLinksRow: /^Request links/i,
     // A request drop's done heading (DN1): RECEIVED 12 FILES, 38.0 GB.
     requestDone: /^RECEIVED (\d+) FILES?, .+$/i,
 });
@@ -184,8 +182,9 @@ export const RE = Object.freeze({
  * (work/16-design/cp-3/approved-copy-desktop.md, the row id beside each;
  * desktop/frontend/src/requestCopy.ts and settings.ts carry the same bytes,
  * approvedCopy.test.ts checks them). Every action is a button in
- * RequestLinkView.tsx, the Beta row is a SettingRow switch and the save
- * folder is an input found by its placeholder.
+ * RequestLinkView.tsx and the save folder is an input found by its
+ * placeholder. Settings has no Request links row since H7 (D-160, S1 to S5
+ * cut): the REQUEST LINK choice is always on Receive.
  */
 export const REQUEST_STRINGS = Object.freeze({
     choice: 'Request link, beta', // R3, the row choice's accessible name
@@ -198,11 +197,14 @@ export const REQUEST_STRINGS = Object.freeze({
     decline: 'Decline', // P9
     keepWaiting: 'Keep waiting', // D3
     makeAnother: 'Make another link', // X3, after Close link
-    betaSwitch: 'Request links', // S2, Settings > Beta
     saveToPlaceholder: 'Downloads\\Floe requests', // R9, the Save to field
     dismiss: 'Dismiss', // DN2, puts a result away
     cancelDrop: 'Cancel drop', // V4
-    verifiedLine: 'SHA-256 matched', // DN3, the words the rest of Floe uses (D-136)
+    // DN3 since H7 (D-161): not a visible line any more but the sr-only text
+    // beside the green check after the done heading, so it is still one Text
+    // node of its own for UIA and a span of its own for the dev page. Both
+    // readers key on these exact words.
+    verifiedLine: 'SHA-256 matched',
 });
 
 /**
@@ -317,12 +319,17 @@ export const REQUEST_COPY = Object.freeze({
     nothingSaved: /Nothing was saved\.$/i, // ST16
     renamedOne: /^1 file was renamed to end in \.floe-blocked/i, // DN4
     renamedMany: /^(\d+) files were renamed to end in \.floe-blocked/i, // DN4p
-    // P4, P5, P6, P11: warningLine(code), mapped back to the code.
+    // P4, P5, P6, P11: warningLine(code), mapped back to the code. P11 (the
+    // laptop line) left the prompt in H7 (D-161) for the Receiving view, where
+    // it reads "Keep this laptop plugged in and open." and shows only on a PC
+    // with a battery, so its absence on a prompt is never a finding. Either
+    // wording is still read here, so a prompt that draws the line (the HP
+    // build, or a regression) shows laptop-power in the attempt's evidence.
     warnings: Object.freeze([
         ['low-space', /^Only .+ free on .+\. The drop will stop when the drive fills\.$/i],
         ['file-too-large-for-drive', /^This drive cannot save files over 4 GB, so this drop will stop\.$/i],
         ['relay-over-cap', /^Hide my IP is on, so this .+ drop will stop before any file\.$/i],
-        ['laptop-power', /^On a laptop, plug in and keep the lid open\.$/i],
+        ['laptop-power', /^(?:On a laptop, plug in and keep the lid open|Keep this laptop plugged in and open)\.$/i],
     ]),
 });
 
@@ -349,9 +356,11 @@ const isAbsWin = (p) =>
  * count is not on screen, so totalBytes is null and sizeText carries the
  * rendering), its host-computed folder (P3, an absolute path under the made
  * save folder) and warnings, and a result's counts (DN1 carries the saved
- * count; DN3 shows only when every file matched, so it alone vouches for
- * files and verified, which read null without it). `gen` and `saveDir` are
- * the UIA driver's own record of the links it made: the view shows neither.
+ * count; DN3, the check mark's sr-only text, shows only when every file
+ * matched, so it alone vouches for files and verified, which read null
+ * without it; verifyRequest in request.mjs fails a done view without it).
+ * `gen` and `saveDir` are the UIA driver's own record of the links it made:
+ * the view shows neither.
  * `state` is `unknown` when the view is not showing (another tab, Settings).
  */
 export function requestStateFromItems(items, { gen = 0, saveDir = '' } = {}) {
@@ -616,15 +625,14 @@ export function defaultConfigPath(env = process.env) {
  * The edited desktop.json: the user's record with the audit's five keys on
  * top. reportStats:false only counts when migrated:true (App.tsx GetSettings
  * effect re-imports localStorage otherwise); noUpdateCheck:true keeps the
- * GitHub check off; server/web point the app at the infra under test. A
- * request link host (FU-26) also sets requestLinks (desktop/config.go
- * RequestLinks, the Settings > Beta switch): an exe has no bound
- * SetRequestLinks, so the switch rides the file it launches with; the key
- * is untouched unless the edit names it.
+ * GitHub check off; server/web point the app at the infra under test. There
+ * is no requestLinks key any more (D-160 removed the Settings > Beta switch
+ * and the field): a legacy one in the record is kept as it is and the app
+ * ignores it.
  */
 export function editDesktopJson(
     original,
-    { server = '', web = '', hideIP = false, requestLinks } = {}
+    { server = '', web = '', hideIP = false } = {}
 ) {
     const text = original == null ? '' : String(original).trim();
     const cfg = text ? JSON.parse(text) : {};
@@ -637,7 +645,6 @@ export function editDesktopJson(
             reportStats: false,
             noUpdateCheck: true,
             migrated: true,
-            ...(requestLinks === undefined ? {} : { requestLinks: Boolean(requestLinks) }),
         }) + '\n'
     );
 }
@@ -1494,6 +1501,24 @@ export class UiaDriver {
             );
         return at;
     }
+    /**
+     * Since H7 (D-160) the REQUEST LINK choice is always on Receive; there is
+     * no Settings switch to turn on first. Waits for it, clicking RECEIVE once
+     * when the window is not on that tab, and reports whether it showed
+     * instead of throwing, so the runner words its own finding.
+     */
+    async awaitRequestTab({ timeoutMs = 10_000, now = Date.now, nap = sleep } = {}) {
+        const start = now();
+        if (!(await this._visible(REQUEST_STRINGS.choice)))
+            await this.click(STRINGS.tabReceive, { index: 0, controlType: 'Button' });
+        for (;;) {
+            if (await this._visible(REQUEST_STRINGS.choice))
+                return { shown: true, via: 'uia', waitedMs: now() - start };
+            if (now() - start >= timeoutMs)
+                return { shown: false, via: 'uia', waitedMs: now() - start };
+            await nap(this.pollMs);
+        }
+    }
     /** Back to Receive > REQUEST LINK unless one of its state buttons shows. */
     async _toRequestView() {
         const items = await this._items();
@@ -1548,11 +1573,10 @@ export class UiaDriver {
         return s;
     }
     /**
-     * SetRequestLinks and Hide my IP: the switch named by `name` (a RegExp
-     * over its whole label) set through TogglePattern, only when the snapshot
-     * shows it differs, and read back. A disabled switch (Request links waits
-     * for the app's own /health probe) is left alone and reads unchanged, as
-     * a click on it does on the dev page.
+     * A Settings switch (Hide my IP, the relay forcer): the one named by
+     * `name` (a RegExp over its whole label) set through TogglePattern, only
+     * when the snapshot shows it differs, and read back. A disabled switch is
+     * left alone and reads unchanged, as a click on it does on the dev page.
      */
     async setToggle(name, value) {
         const want = Boolean(value);
@@ -2086,14 +2110,14 @@ export class PlaywrightDriver {
      * the REQUEST LINK choice, the same two clicks Make link starts with.
      */
     /**
-     * With the Request links beta on, the receive view is two sub-views
-     * behind a Code | Request link choice, and it keeps the last one: after
-     * a request cell it reopens on Request link, where neither the code
-     * field nor the receive Save to field exists (the head default run of
-     * 2026-09-25 lost every *2D cell to `locator.inputValue: Timeout
-     * 30000ms` that way). Presses Code when it shows and is not already
-     * pressed; with the beta off there is no choice row and nothing is
-     * pressed. Resolves whether it pressed.
+     * The receive view is two sub-views behind a Code | Request link choice
+     * (always, since H7), and it keeps the last one: after a request cell it
+     * reopens on Request link, where neither the code field nor the receive
+     * Save to field exists (the head default run of 2026-09-25 lost every
+     * *2D cell to `locator.inputValue: Timeout 30000ms` that way). Presses
+     * Code when it shows and is not already pressed; off the Receive tab
+     * there is no choice row and nothing is pressed. Resolves whether it
+     * pressed.
      */
     async toCodeView() {
         if (!(await this._visible(STRINGS.codeChoice))) return false;
@@ -2101,6 +2125,24 @@ export class PlaywrightDriver {
         if ((await code.getAttribute('aria-pressed')) === 'true') return false;
         await code.click();
         return true;
+    }
+    /**
+     * Since H7 (D-160) the REQUEST LINK choice is always on Receive; there is
+     * no Settings switch to turn on first. Waits for it, clicking RECEIVE once
+     * when the page is not on that tab, and reports whether it showed instead
+     * of throwing, so the runner words its own finding.
+     */
+    async awaitRequestTab({ timeoutMs = 10_000, now = Date.now, nap = sleep } = {}) {
+        const start = now();
+        if (!(await this._visible(REQUEST_STRINGS.choice)))
+            await this._button(STRINGS.tabReceive).first().click();
+        for (;;) {
+            if (await this._visible(REQUEST_STRINGS.choice))
+                return { shown: true, via: 'playwright', waitedMs: now() - start };
+            if (now() - start >= timeoutMs)
+                return { shown: false, via: 'playwright', waitedMs: now() - start };
+            await nap(REQUEST_POLL_MS);
+        }
     }
     async _toRequestView() {
         for (const name of REQUEST_VIEW_MARKS)
@@ -2315,11 +2357,7 @@ export class PlaywrightDriver {
         return { closed: true, endedAt };
     }
 
-    /**
-     * Put a done or stopped result away (DN2 Dismiss). The Beta switch stays
-     * locked while the lane holds a result (settingsLocked in
-     * requestLink.ts), so this comes before any switch restore.
-     */
+    /** Put a done or stopped result away (DN2 Dismiss). */
     async dismissRequestResult({ now = Date.now, nap = sleep } = {}) {
         await this._toRequestView();
         await this._button(REQUEST_STRINGS.dismiss).first().click();
@@ -2594,8 +2632,6 @@ export class DesktopLeg extends Leg {
             web: infra.web ?? '',
             hideIP: Boolean(this.opts.relayOnly),
         };
-        // A request host launches with the Beta switch on (FU-26).
-        if (this.opts.requestHost) e.requestLinks = true;
         return e;
     }
 

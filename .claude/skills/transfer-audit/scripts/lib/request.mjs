@@ -34,7 +34,7 @@ import {
     runAttempt,
     statsProofCheck,
 } from './cell.mjs';
-import { RE, desktopFmtBytes, safeCode, samePath } from './desktop.mjs';
+import { REQUEST_STRINGS, desktopFmtBytes, safeCode, samePath } from './desktop.mjs';
 import { compareOutputs, ensureFixture, walkOutputs } from './fixtures.mjs';
 import { REQUEST_CADDY_RECONNECT_MS, isLoopbackUrl } from './matrix.mjs';
 import { redactRequestLinks } from './report.mjs';
@@ -58,8 +58,8 @@ export const RECLAIM_MS = 60_000;
 export const AWAY_ONLY = 'request-host-away-only';
 
 // The lane states in which a link exists and can be closed (Close link),
-// and the results that hold the Beta switch until Dismiss (requestLink.ts
-// LINK_PHASES and HOLDS).
+// and the results that stay until Dismiss (requestLink.ts LINK_PHASES and
+// HOLDS).
 const LINK_OPEN = new Set([
     'waiting',
     'reconnecting',
@@ -234,58 +234,27 @@ export async function awaitHostState(
 }
 
 /**
- * Settings > Beta > Request links, read back through GetSettings. The
- * switch stays disabled until the app's own /health probe answers
- * (requestLinksSwitch in settings.ts: off and not yet available), and
- * opening Settings is what starts that probe, so the click is retried for
- * BETA_WAIT_MS before the switch counts as stuck.
+ * Since H7 (D-160) there is no Settings > Beta switch: the REQUEST LINK
+ * choice on Receive is always there, and the server's request-1 answer is the
+ * only gate (a server without it ends Make link in E1, which the cell names).
+ * The runner waits for the tab instead of toggling anything. A build that
+ * never shows it, an older one with the switch off, is a finding at
+ * host.start rather than a 30 s wait on a missing button.
  */
-export const BETA_WAIT_MS = 10_000;
-export async function setRequestLinks(host, on, { now = Date.now, nap = defaultSleep } = {}) {
-    const settings = await host.driver.settings();
-    if (settings === null && host.mode !== 'wailsdev') {
-        // An exe has no GetSettings: the switch's own TogglePattern state is
-        // the read-back (UiaDriver.setToggle). A request host launches with
-        // requestLinks:true in its desktop.json, so this normally reads it
-        // on and changes nothing.
-        let r = null;
-        await host.withSettings(async () => {
-            const start = now();
-            for (;;) {
-                r = await host.driver.setToggle(RE.requestLinksRow, on);
-                if (r.after === on || now() - start >= BETA_WAIT_MS) return;
-                await nap(HOST_POLL_MS);
-            }
-        });
-        if (!r || r.after !== on)
-            throw flow(
-                'host.start',
-                `the Beta switch did not turn ${on ? 'on' : 'off'} (the switch reads ${r ? (r.after ? 'on' : 'off') : 'nothing'}); the app may not see request-1 on its server`
-            );
-        return { before: r.before, after: r.after, changed: r.changed, via: 'uia-toggle' };
-    }
-    const before = settings?.requestLinks === true;
-    if (before === on) return { before, after: before, changed: false };
-    await host.withSettings(async () => {
-        const start = now();
-        for (;;) {
-            const r = await host.driver.setToggle(RE.requestLinksRow, on);
-            if (r.after === on || now() - start >= BETA_WAIT_MS) return r;
-            await nap(HOST_POLL_MS);
-        }
-    });
-    const after = (await host.driver.settings())?.requestLinks === true;
-    if (after !== on)
+export const TAB_WAIT_MS = 10_000;
+export async function awaitRequestTab(host, { now = Date.now, nap = defaultSleep } = {}) {
+    const r = await host.driver.awaitRequestTab({ timeoutMs: TAB_WAIT_MS, now, nap });
+    if (!r.shown)
         throw flow(
             'host.start',
-            `the Beta switch did not turn ${on ? 'on' : 'off'} (GetSettings requestLinks=${after}); the app may not see request-1 on its server`
+            `the REQUEST LINK tab did not show within ${TAB_WAIT_MS} ms (Receive > Request link, beta); a build under test since H7 shows it without a Settings switch`
         );
-    return { before, after, changed: true };
+    return { via: r.via, waitedMs: r.waitedMs };
 }
 
 /**
- * Launch the host, force its relay when the cell asks (TA-12), turn the
- * Beta switch on, point it at the blip proxy (TA-13), make a link into
+ * Launch the host, force its relay when the cell asks (TA-12), wait for the
+ * REQUEST LINK tab, point it at the blip proxy (TA-13), make a link into
  * `outDir` and read it. Returns the full link; the record keeps its shown
  * form only.
  */
@@ -320,8 +289,6 @@ async function startHost(
         shared: ctx.shared || {},
         clientDir: ctx.shared?.clientDir ?? null,
         log: ctx.log,
-        // The Beta switch rides the desktop.json an exe host launches with.
-        requestHost: true,
     });
     const exe = host.mode !== 'wailsdev';
     if (exe) {
@@ -339,15 +306,14 @@ async function startHost(
     }
     st.host = host;
     // Whatever happens next, the leg's stop (the cell's teardown or the
-    // audit's interrupt shutdown) closes the link and puts the switches back.
+    // audit's interrupt shutdown) closes the link and puts the address back.
     host.beforeClose = () => releaseHost(st, rec);
     await host.launch([]);
     // Every UIA pattern call from here on re-reads the input idle time first.
     if (exe && host.driver) host.driver.awayOnly = true;
     await clearLeftover(host, ctx, rec, st);
     await host.applyRelayForcer();
-    st.beta = await setRequestLinks(host, true, st.clock);
-    rec.request.beta = { ...st.beta };
+    rec.request.tab = await awaitRequestTab(host, st.clock);
     if (blipUrl && exe) {
         rec.request.addresses = { swapped: true, restored: null, via: 'desktop.json at launch' };
     } else if (blipUrl) {
@@ -385,9 +351,8 @@ async function startHost(
 
 /**
  * Leave the host as the cell found it: stop a running drop, close an open
- * link, put a result away (the Beta switch is locked while one shows),
- * restore the addresses the blip swapped, and turn the Beta switch back off
- * if the cell turned it on. Runs from the host leg's stop, once. Each step
+ * link, put a result away and restore the addresses the blip swapped. Runs
+ * from the host leg's stop, once. Each step
  * that fails is a note and a release failure (st.releaseFailures), which
  * markHostRelease turns into the attempt's verdict.
  */
@@ -437,13 +402,6 @@ async function releaseHost(st, rec) {
         } catch (e) {
             rec.request.addresses = { swapped: true, restored: false };
             fail(`host addresses: ${e.message}`);
-        }
-    }
-    if (st.beta?.changed) {
-        try {
-            await setRequestLinks(host, false, st.clock);
-        } catch (e) {
-            fail(`Beta switch restore: ${e.message}`);
         }
     }
     st.releaseDone = true;
@@ -1049,7 +1007,20 @@ async function verifyRequest(cell, ctx, rec, st, fixture, T) {
     };
     if (view.files !== N)
         throw flow('verify', `the done heading reads ${JSON.stringify(view.heading)}, not ${N} file(s)`);
-    const allVerified = uia ? view.verifiedLine === true : r.verified === N;
+    // Critic M8 (H7 round). Since D-161 the verified words are the check
+    // mark's screen-reader text, and on the UIA lane the done view is the
+    // host's whole account: there is no GetRequestLink count to cross-check
+    // it with. A view without the text, because a window does not expose the
+    // span or its words changed, proves nothing, and the finding must name
+    // the host's view, never the visitor's line. A modern visitor always
+    // sends digests (P0-27, P0-22), so a clean drop always shows it. The old
+    // compare here was the flag against itself and could never fail.
+    if (uia && view.verifiedLine !== true)
+        throw flow(
+            'verify',
+            `the host's done view carries no ${REQUEST_STRINGS.verifiedLine} text (the check mark's screen-reader span), so the drop is not proven verified`
+        );
+    const allVerified = r.verified === N;
     if (view.verifiedLine !== allVerified)
         throw flow(
             'verify',
@@ -1131,7 +1102,7 @@ function newRequestRecord(cell) {
     return {
         flow: cell.request.flow,
         link: null,
-        beta: null,
+        tab: null,
         addresses: null,
         made: null,
         prompts: [],
