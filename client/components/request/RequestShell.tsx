@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { RequestVisitor } from '@/components/RequestVisitor';
+import { RequestBackdrop } from '@/components/request/RequestBackdrop';
 
 /**
  * The /r visitor page shell: the chrome around the visitor.
@@ -33,11 +34,21 @@ export function RequestShell() {
         // the card at the Button's 50%, where the dark token gave 1.88:1). It
         // sets --ring on the shell's children because .dark sets it on the
         // shell itself from an unlayered rule, which beats any utility there.
-        <div className="dark scheme-dark *:[--ring:var(--color-ice)] flex min-h-dvh flex-col items-center bg-zinc-950 font-sans text-zinc-100 px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-[max(1.5rem,env(safe-area-inset-left),env(safe-area-inset-right))] sm:pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        //
+        // isolate makes the shell a stacking context, so the backdrop's -z-10
+        // paints over this background and under everything else.
+        <div className="dark scheme-dark *:[--ring:var(--color-ice)] isolate flex min-h-dvh flex-col items-center bg-zinc-950 font-sans text-zinc-100 px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-[max(1.5rem,env(safe-area-inset-left),env(safe-area-inset-right))] sm:pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+            <RequestBackdrop />
+
             {/* A wordmark, not a link. It tells the visitor where they are,
                 which is half of why the links live on floe.one at all, and it
-                goes nowhere: one task on this page. */}
-            <p className="pt-8 text-sm font-extrabold tracking-tighter text-white sm:pt-10">
+                goes nowhere: one task on this page. Since D-166 it is the big
+                wordmark of the floe.one hero, sized by the viewport height
+                (and width, on a phone) so the card still leads on a short
+                window. Its own bottom padding keeps it off the card once the
+                page is taller than the window, where <main> has no free space
+                left to center in (a 10 px gap at 1280 x 720 without it). */}
+            <p className="pt-[clamp(1.5rem,4.5svh,2.5rem)] pb-[clamp(1rem,3.5svh,2rem)] text-[length:clamp(3.25rem,min(11svh,14vw),7.5rem)] leading-none font-extrabold tracking-tighter text-white drop-shadow-2xl">
                 Floe
             </p>
 

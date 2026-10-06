@@ -6,7 +6,7 @@ import { Marker } from '@/components/request/RequestStatus';
  *  cards' ending ring (WV-09, WV-10). */
 export function NoticeCard({ title, body }: { title: string; body: string }) {
     return (
-        <section className="w-full rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 sm:p-7">
+        <section className="w-full rounded-2xl border border-white/[0.08] bg-zinc-950/85 p-6 shadow-[0_40px_90px_-30px_rgb(0_0_0/0.9)] sm:p-7">
             <div className="flex items-start gap-2.5">
                 <Marker kind="ended" />
                 <h1 className="text-base font-semibold leading-[1.3] tracking-tight text-white">{title}</h1>

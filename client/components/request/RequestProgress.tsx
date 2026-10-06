@@ -36,7 +36,7 @@ export function RequestProgress(props: RequestProgressProps) {
     const headerId = useId();
     const step = Math.min(100, Math.max(0, Math.floor(props.percent / 10) * 10));
     return (
-        <section className="w-full rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 sm:p-7">
+        <section className="w-full rounded-2xl border border-white/[0.08] bg-zinc-950/85 p-6 shadow-[0_40px_90px_-30px_rgb(0_0_0/0.9)] sm:p-7">
             <div className="flex items-center justify-between gap-4">
                 <h1 id={headerId} className="font-mono text-[11px] tracking-[0.2em] text-zinc-400">
                     {props.header}
