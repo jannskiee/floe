@@ -42,26 +42,30 @@ export default function NotFound() {
             <Navbar />
 
             <main className="flex w-full max-w-3xl flex-1 flex-col items-center justify-center pt-24 text-center sm:pt-28">
-                <p className="pl-[0.2em] font-mono text-[11px] leading-none uppercase tracking-[0.2em] text-ice">
+                {/* The numeral is the page's hero, set like the homepage wordmark
+                    (extrabold, tight tracking, no shadow): the owner's pick A on
+                    the 404 design canvas (2026-10-08). The heading still names
+                    the page; the numeral is the first thing anyone reads. */}
+                <p className="text-[clamp(7rem,18vw,14rem)] leading-[0.82] font-extrabold tracking-[-0.065em] text-zinc-100">
                     404
                 </p>
-                <h1 className="mt-3 text-4xl font-semibold tracking-tight text-zinc-100 sm:text-5xl">
+                <h1 className="mt-9 text-2xl font-semibold tracking-tight text-zinc-200 sm:text-[2rem]">
                     Page not found
                 </h1>
-                <p className="mt-6 max-w-md text-base leading-relaxed text-balance text-zinc-400">
+                <p className="mt-4 max-w-md text-base leading-relaxed text-balance text-zinc-400">
                     That link points at nothing here. If you were sent a share link, check that
                     you copied the whole thing.
                 </p>
-                <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+                <div className="mt-9 flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
                     <Link
                         href="/"
-                        className="inline-flex min-h-10 items-center rounded-full bg-white px-4 py-2 text-sm font-bold text-black transition hover:bg-zinc-200 focus-visible:outline-2 focus-visible:outline-ice"
+                        className="inline-flex min-h-11 items-center rounded-full bg-white px-5 py-2 text-sm font-bold text-black transition hover:bg-zinc-200 focus-visible:outline-2 focus-visible:outline-ice"
                     >
                         Send a file
                     </Link>
                     <Link
                         href="/how-it-works"
-                        className="inline-flex min-h-10 items-center text-sm font-medium text-zinc-300 transition hover:text-ice focus-visible:outline-2 focus-visible:outline-ice"
+                        className="inline-flex min-h-11 items-center text-sm font-medium text-zinc-300 transition hover:text-ice focus-visible:outline-2 focus-visible:outline-ice"
                     >
                         How Floe works
                     </Link>
