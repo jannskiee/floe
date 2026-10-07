@@ -116,7 +116,7 @@ func TestProbeServerRejectsNonFloeEndpoints(t *testing.T) {
 		_, _ = w.Write([]byte("<html>hello</html>"))
 	}))
 	defer notFloe.Close()
-	if got := probeServer(notFloe.URL, okWS); got.OK || !strings.Contains(got.Message, "not a Floe") {
+	if got := probeServer(notFloe.URL, okWS); got.OK || !strings.Contains(got.Message, "isn't a Floe server") {
 		t.Errorf("non-Floe 200: got %+v, want a not-a-Floe-server message", got)
 	}
 
@@ -132,8 +132,8 @@ func TestProbeServerRejectsNonFloeEndpoints(t *testing.T) {
 // its own message so the user knows whether to fix the address or the server.
 func TestProbeServerRejectsUnreachableHosts(t *testing.T) {
 	for _, tc := range []struct{ name, addr, want string }{
-		{"unresolvable host", "https://floe-probe-test.invalid", "could not be found"},
-		{"connection refused", "http://127.0.0.1:59999", "Could not connect"},
+		{"unresolvable host", "https://floe-probe-test.invalid", "Host not found"},
+		{"connection refused", "http://127.0.0.1:59999", "Couldn't connect"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := probeServer(tc.addr, okWS)
@@ -154,8 +154,8 @@ func TestProbeServerRejectsMalformedInput(t *testing.T) {
 	for _, tc := range []struct{ name, addr, want string }{
 		{"empty", "", "Enter a server address"},
 		{"only slashes", "///", "Enter a server address"},
-		{"no scheme", "floe.example.com", "does not look like an address"},
-		{"wrong scheme", "ftp://floe.example.com", "must start with"},
+		{"no scheme", "floe.example.com", "Include https:// and the host name"},
+		{"wrong scheme", "ftp://floe.example.com", "Start the address with"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := probeServer(tc.addr, failWS)
@@ -203,7 +203,7 @@ func TestProbeServerReportsAnAvailableRelay(t *testing.T) {
 	if !got.OK || !got.RelayAvailable {
 		t.Fatalf("probeServer = %+v, want OK with a relay", got)
 	}
-	if got.Message != "Connected." {
+	if got.Message != "Connected" {
 		t.Errorf("Message = %q, want the unchanged pass message", got.Message)
 	}
 }
@@ -230,7 +230,7 @@ func TestProbeServerReportsAMissingRelay(t *testing.T) {
 	if !strings.Contains(got.Message, "Hide my IP") {
 		t.Errorf("Message = %q, want it to name the setting that cannot work", got.Message)
 	}
-	if !strings.HasPrefix(got.Message, "Connected.") {
+	if !strings.HasPrefix(got.Message, "Connected, but") {
 		t.Errorf("Message = %q, want it to still read as a pass", got.Message)
 	}
 }

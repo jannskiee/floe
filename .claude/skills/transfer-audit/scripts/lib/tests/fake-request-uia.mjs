@@ -57,7 +57,7 @@ export function fakeRequestUiaClient(h, { activates = true, idle = 600 } = {}) {
                 const linkField = views.saveToShowing() ? false : true;
                 const item = linkField
                     ? { type: 'Edit', name: 'REQUEST LINK' }
-                    : { type: 'Edit', name: 'SAVE TO', help: 'Downloads\\Floe requests' };
+                    : { type: 'Edit', name: 'SAVE TO', help: 'Downloads\\Floe' };
                 if (values) {
                     item.value = String(input.value ?? '');
                     item.readOnly = linkField;
@@ -100,7 +100,7 @@ export function fakeRequestUiaClient(h, { activates = true, idle = 600 } = {}) {
                     return { via: 'invoke', type: 'Button', index: 0, count: 1 };
                 }
                 case 'set-value': {
-                    if (params.placeholder !== 'Downloads\\Floe requests' || !views.saveToShowing())
+                    if (params.placeholder !== 'Downloads\\Floe' || !views.saveToShowing())
                         throw err('not-found', `no Edit named '${params.placeholder}'`);
                     const before = dom.saveDir;
                     views.setSaveDir(params.value);

@@ -100,7 +100,7 @@ type RequestPrompt struct {
 	Files      int   `json:"files"`      // the visitor's claimed count (a number)
 	TotalBytes int64 `json:"totalBytes"` // the visitor's claimed total (a number)
 	// Folder is the host-computed destination, for example
-	// Floe requests\Acme footage 2026-09-14 1405.
+	// Floe\Acme footage 2026-09-14 1405.
 	Folder    string `json:"folder"`
 	FreeBytes int64  `json:"freeBytes"` // free space on the save volume
 	// Warnings are codes, never text: low-space, file-too-large-for-drive,
@@ -151,9 +151,10 @@ const (
 )
 
 // requestDefaultDirFn is the default save folder for a link made without
-// one, Downloads\Floe requests; a package var so a test can stall it.
+// one, Downloads\Floe (D-167; it was Downloads\Floe requests); a package var
+// so a test can stall it.
 var requestDefaultDirFn = func() string {
-	return filepath.Join(defaultReceiveDir(), "Floe requests")
+	return filepath.Join(defaultReceiveDir(), "Floe")
 }
 
 // joinWithTokenFn is the host join, a package var so tests can return any
@@ -1356,11 +1357,11 @@ const (
 func requestToastText(t requestToast) (title, body string, ok bool) {
 	switch t {
 	case toastRequestArrived:
-		return "Floe", "Someone wants to send you files. Open Floe to answer.", true
+		return "Floe", "Someone wants to send you files", true
 	case toastDropDone:
-		return "Floe", "Files received.", true
+		return "Floe", "Files received", true
 	case toastDropFailed:
-		return "Floe - receive failed", "The transfer did not complete. Open Floe to see what happened.", true
+		return "Floe - receive failed", "The transfer didn't finish", true
 	}
 	return "", "", false
 }

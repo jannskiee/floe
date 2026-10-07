@@ -21,9 +21,11 @@ export function NoticeStack({children}: {children: ReactNode}) {
 }
 
 // The notices' shared glass: blurred zinc, an inset hairline, the layered
-// shadow and the ice rim (floe-notice-edge).
+// shadow and the ice rim (floe-notice-edge). The right padding is each
+// notice's own: cn has no tailwind-merge, so a second pr-* added to this one
+// could not reliably win.
 const noticeClass = cn(
-    'floe-notice-edge isolate flex h-12 items-center gap-3 rounded-xl pl-4 pr-1.5',
+    'floe-notice-edge isolate flex h-12 items-center gap-3 rounded-xl pl-4',
     'bg-zinc-900/80 ring-1 ring-inset ring-white/10 backdrop-blur-xl backdrop-saturate-150',
     'shadow-[0_1px_1px_rgba(0,0,0,0.06),0_4px_8px_-4px_rgba(0,0,0,0.28),0_16px_32px_-12px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.07)]',
     'animate-floe-notice-in motion-reduce:animate-none',
@@ -33,13 +35,18 @@ const noticeClass = cn(
  *  (N1, N2). A constant sentence: never the label, a count, a size or a name
  *  (the prompt shows those). No dismiss: the request answers itself when its
  *  window ends. Review is the only automatic focus move in the feature, and it
- *  happens only because the owner pressed it. */
+ *  happens only because the owner pressed it.
+ *
+ *  Wider than its words (D-167, the owner: "much more longer", Review given
+ *  room): a fixed 440 px with Review on the far right, and 10 px of right
+ *  padding so the button sits the same 10 px from the top, right and bottom
+ *  edges of the 48 px bar. */
 export function RequestNotice({onReview}: {onReview: () => void}) {
     return (
-        <div role="group" aria-label={NOTICE_TEXT} className={noticeClass}>
+        <div role="group" aria-label={NOTICE_TEXT} className={cn(noticeClass, 'w-[440px] max-w-[calc(100vw-2rem)] pr-2.5')}>
             <Inbox className="size-4 shrink-0 text-white" strokeWidth={2.5} aria-hidden/>
-            <h2 className="whitespace-nowrap text-[13px] font-semibold leading-none tracking-[-0.01em] text-zinc-50">{NOTICE_TEXT}</h2>
-            <Button className="h-7 text-xs" onClick={onReview}>{NOTICE_REVIEW}</Button>
+            <h2 className="min-w-0 truncate text-[13px] font-semibold leading-none tracking-[-0.01em] text-zinc-50">{NOTICE_TEXT}</h2>
+            <Button className="ml-auto h-7 shrink-0 text-xs" onClick={onReview}>{NOTICE_REVIEW}</Button>
         </div>
     );
 }
@@ -63,7 +70,7 @@ export function UpdateNotice({version, onDismiss}: {version: string; onDismiss: 
             aria-label="Update available"
             onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onDismiss(); } }}
             // Positioned by NoticeStack, which it shares with the request notice.
-            className={noticeClass}
+            className={cn(noticeClass, 'pr-1.5')}
         >
             {/* strokeWidth 3 on a 16px lucide renders a whole 2.0 device px, so
                 the glyph is true white and crisp; the default 2 draws 1.33px

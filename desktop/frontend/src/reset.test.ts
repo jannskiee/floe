@@ -9,7 +9,7 @@ describe('resetWarning', () => {
     });
 
     it('warns about a live transfer', () => {
-        expect(resetWarning({...base, transferring: true})).toContain('transfer is in progress');
+        expect(resetWarning({...base, transferring: true})).toContain('cancels the transfer');
     });
 
     // The bug this helper exists for. Ctrl+R and the titlebar lockup both call
@@ -17,7 +17,7 @@ describe('resetWarning', () => {
     // nowhere, so before this it vanished with no prompt and no undo.
     it('warns about an unsent text note', () => {
         const s = resetWarning({...base, text: 'half a paragraph'});
-        expect(s).toContain('has not been sent');
+        expect(s).toContain('unsent text');
     });
 
     it('treats whitespace-only text as nothing to lose', () => {
@@ -28,8 +28,8 @@ describe('resetWarning', () => {
     // is the more serious consequence and the one the user needs to read.
     it('lets a live transfer outrank an unsent note', () => {
         const s = resetWarning({...base, transferring: true, text: 'draft'});
-        expect(s).toContain('transfer is in progress');
-        expect(s).not.toContain('has not been sent');
+        expect(s).toContain('cancels the transfer');
+        expect(s).not.toContain('unsent text');
     });
 
     // The regression guard that matters most. Start over is the escape hatch for
@@ -54,7 +54,7 @@ describe('resetWarning', () => {
     // because the old justSent flag could not tell the two apart.
     it('warns once the box holds a different note from the one that went out', () => {
         const s = resetWarning({...base, text: 'note two', sentText: 'note one'});
-        expect(s).toContain('has not been sent');
+        expect(s).toContain('unsent text');
     });
 
     // The same loss through a different door, and the note is not even on screen
@@ -62,7 +62,7 @@ describe('resetWarning', () => {
     // text on the wire, so sentText is '' and the note is still unsent.
     it('warns about a note typed before a file send', () => {
         const s = resetWarning({...base, text: 'a note nobody has received', sentText: ''});
-        expect(s).toContain('has not been sent');
+        expect(s).toContain('unsent text');
     });
 
     // Compared trimmed on both sides, so pressing Enter at the end of the note
@@ -83,7 +83,7 @@ describe('resetWarning', () => {
     // hide the note warning underneath a sentence about cancelling.
     it('sees the unsent note under a transfer that has already failed', () => {
         const s = resetWarning({...base, text: 'the note the failed send was carrying'});
-        expect(s).toContain('has not been sent');
+        expect(s).toContain('unsent text');
     });
 
     // Staged files are deliberately not a reason to prompt: doReset clears them,
@@ -99,7 +99,7 @@ describe('resetWarning', () => {
     // abandoned to Ctrl+R vanished in silence inside the undo window.
     it('prompts for a note that Clear is holding', () => {
         const s = resetWarning({...base, text: '', clearedText: 'the note I just cleared'});
-        expect(s).toContain('brought back');
+        expect(s).toContain('can still undo');
     });
     it('says nothing about a cleared note that was already sent', () => {
         expect(resetWarning({...base, text: '', clearedText: 'sent note', sentText: 'sent note'})).toBe('');
@@ -113,7 +113,7 @@ describe('resetWarning', () => {
     // live, but if they ever were, the visible one is the one to name.
     it('names the note in the box before the cleared one', () => {
         const s = resetWarning({...base, text: 'typed', clearedText: 'cleared'});
-        expect(s).toContain('has not been sent');
+        expect(s).toContain('unsent text');
     });
 
     // House style, enforced rather than trusted: no em dashes anywhere in UI copy.

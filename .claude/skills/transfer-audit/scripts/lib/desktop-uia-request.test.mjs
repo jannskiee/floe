@@ -281,21 +281,21 @@ test('requestStateFromItems names every view from its buttons and fixed copy', (
     const T = (name) => ({ type: 'Text', name });
     const cases = [
         [[B('Make link')], { state: 'ready' }],
-        [[B('Make link'), T('Request links are turned off on this server right now.')], { state: 'error', code: 'disabled' }],
-        [[B('Make link'), T('You already have a request link open. Close it to make a new one.')], { state: 'error', code: 'already-open' }],
-        [[B('Making the link...', { enabled: false })], { state: 'making' }],
-        [[B('Copy link'), B('Close link'), T('Waiting for files.')], { state: 'waiting' }],
+        [[B('Make link'), T('Request links are off on this server')], { state: 'error', code: 'disabled' }],
+        [[B('Make link'), T('Close your open link to make a new one')], { state: 'error', code: 'already-open' }],
+        [[B('Making link...', { enabled: false })], { state: 'making' }],
+        [[B('Copy link'), B('Close link'), T('Waiting for files')], { state: 'waiting' }],
         [[B('Copied'), B('Close link')], { state: 'waiting' }],
-        [[B('Copy link'), B('Close link'), B('Retry now'), T('No connection to the Floe server.')], { state: 'reconnecting' }],
-        [[B('Copy link'), B('Close link'), T('Connecting to their computer.')], { state: 'connecting' }],
+        [[B('Copy link'), B('Close link'), B('Retry now'), T("Can't reach the Floe server")], { state: 'reconnecting' }],
+        [[B('Copy link'), B('Close link'), T('Connecting to the sender...')], { state: 'connecting' }],
         [[B('Copy link'), B('Close link'), B('Accept'), B('Decline')], { state: 'deciding' }],
         [[B('Copy link'), B('Close link'), B('Keep waiting')], { state: 'declined' }],
         [[B('Cancel drop'), T('RECEIVING 1 OF 3')], { state: 'receiving' }],
         [[B('Dismiss'), B('Make another link'), T('RECEIVED 3 FILES, 64.0 MB')], { state: 'done' }],
-        [[B('Dismiss'), B('Make another link'), T('DROP STOPPED'), T('A file did not match what was sent, so Floe deleted it. 2 of 3 files were saved.')], { state: 'stopped', code: 'hash-mismatch' }],
-        [[B('Dismiss'), B('Make another link'), T('DROP STOPPED'), T('You stopped this drop. Nothing was saved.')], { state: 'stopped', code: 'stopped' }],
-        [[B('Make another link'), T('Link closed.')], { state: 'ended', code: 'closed' }],
-        [[B('Make another link'), T('Link ended at 2:05 PM.')], { state: 'ended', code: 'expired' }],
+        [[B('Dismiss'), B('Make another link'), T('DROP STOPPED'), T("A file didn't match what was sent and was deleted · 2 of 3 files saved")], { state: 'stopped', code: 'hash-mismatch' }],
+        [[B('Dismiss'), B('Make another link'), T('DROP STOPPED'), T('You stopped this drop · Nothing saved')], { state: 'stopped', code: 'stopped' }],
+        [[B('Make another link'), T('Link closed')], { state: 'ended', code: 'closed' }],
+        [[B('Make another link'), T('Link ended at 2:05 PM')], { state: 'ended', code: 'expired' }],
         [[B('SEND'), B('RECEIVE'), B('Settings')], { state: 'unknown' }],
     ];
     for (const [items, want] of cases) {
@@ -314,7 +314,7 @@ test('requestStateFromItems names every view from its buttons and fixed copy', (
         T('Answer within 9 min'),
         T('Into '),
         T('C:\\audit\\out\\Request 2026-09-30 2140'),
-        T('Only 1.0 GB free on C:. The drop will stop when the drive fills.'),
+        T('Only 1.0 GB free on C:, not enough for this drop'),
     ], { saveDir: 'C:\\audit\\out' });
     assert.deepEqual(deciding.prompt, {
         files: 3,
@@ -325,16 +325,16 @@ test('requestStateFromItems names every view from its buttons and fixed copy', (
     });
     // The laptop line stays readable where a build still draws it on the
     // prompt (pre-H7), but its absence is never a finding. H7 words it
-    // "Keep this laptop plugged in and open." and draws it on Receiving only,
+    // "Keep this laptop plugged in and open" and draws it on Receiving only,
     // so on a prompt either wording is a line that should not be there: it
     // is read as laptop-power and lands in the attempt's evidence.
-    for (const line of ['On a laptop, plug in and keep the lid open.', 'Keep this laptop plugged in and open.']) {
+    for (const line of ['On a laptop, plug in and keep the lid open.', 'Keep this laptop plugged in and open']) {
         const withLine = requestStateFromItems([B('Accept'), B('Decline'), T('3 files, 64.0 MB'), T(line)]);
         assert.deepEqual(withLine.prompt.warnings, ['laptop-power'], line);
     }
-    const cap = requestStateFromItems([B('Accept'), B('Decline'), T('1 file, 3.0 GB'), T('Hide my IP is on, so this 3.0 GB drop will stop before any file.')]);
+    const cap = requestStateFromItems([B('Accept'), B('Decline'), T('1 file, 3.0 GB'), T('This 3.0 GB drop is over the 2 GB Hide my IP limit')]);
     assert.deepEqual(cap.prompt.warnings, ['relay-over-cap']);
-    const stopped = requestStateFromItems([B('Dismiss'), T('DROP STOPPED'), T('The sender stopped this drop. 1 of 2 files were saved.')]);
+    const stopped = requestStateFromItems([B('Dismiss'), T('DROP STOPPED'), T('The sender stopped this drop · 1 of 2 files saved')]);
     assert.deepEqual([stopped.code, stopped.result.saved, stopped.result.files], ['peer-abort', 1, 2]);
     assert.equal(desktopFmtBytes(64 * MiB), '64.0 MB');
     assert.equal(desktopFmtBytes(4 * MiB), '4.0 MB');

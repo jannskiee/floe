@@ -1,7 +1,8 @@
 /**
- * Byte-matches the Request link copy the app renders against the frozen,
- * owner-approved Checkpoint C desktop copy table (2026-09-18, D-091), which is
- * kept outside this repository.
+ * Byte-matches the Request link copy the app renders against the
+ * owner-approved desktop copy table (frozen at Checkpoint C 2026-09-18, D-091;
+ * the calm pass D-167 took the closing periods), which is kept outside this
+ * repository.
  *
  * The table's path comes from FLOE_APPROVED_COPY and from nowhere else. Unset
  * (CI, a contributor's machine) the whole block is skipped under a title that
@@ -188,7 +189,8 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(approved('P1')).toContain(`with no label: ${c.promptHeading('')}`);
         // P2 is drawn through fmtBytes: "(drawn 12 files, 38.0 GB through fmtBytes)".
         expect(note('P2')).toBe(`drawn ${c.promptSize(12, 38 * GB)} through fmtBytes`);
-        expect(`${c.INTO} Floe requests\\${SUB}`).toBe(approved('P3'));
+        // The default folder is Downloads\Floe since D-167 (it was Floe requests).
+        expect(`${c.INTO} Floe\\${SUB}`).toBe(approved('P3'));
         const p = {freeBytes: 31 * GB, totalBytes: 38 * GB};
         expect(c.warningLine('low-space', p, SAVE)).toBe(sized(approved('P4'), 31));
         expect(c.warningLine('file-too-large-for-drive', p, SAVE)).toBe(approved('P5'));
@@ -223,7 +225,8 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.NOT_SCANNED_LINE).toBe(approved('DN5'));
         expect(`${c.folderName(`${SAVE}\\${SUB}`)} [${c.SHOW_IN_FOLDER}]`).toBe(approved('DN6'));
         expect(c.MAKE_ANOTHER_LINK).toBe(approved('DN7'));
-        expect(`${c.RENAMED_CONFIRM_TITLE} ${c.RENAMED_CONFIRM_QUESTION}`).toBe(approved('DN8'));
+        // A title and a question, drawn on two lines (D-167: no period between them).
+        expect(`${c.RENAMED_CONFIRM_TITLE} / ${c.RENAMED_CONFIRM_QUESTION}`).toBe(approved('DN8'));
         expect(`${c.CANCEL} / ${c.SHOW_IN_FOLDER}`).toBe(approved('DN9'));
     });
 
@@ -243,15 +246,16 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
             if (n === '') card = full; // ST10: one sentence for both
             else if (n === 'card body without the prefix, plus ST16') {
                 const rest = full.replace(/^Drop stopped: /, '');
-                card = `${rest[0].toUpperCase()}${rest.slice(1)} ${st16}`;
+                card = `${rest[0].toUpperCase()}${rest.slice(1)} · ${st16}`;
             } else if (n.startsWith('card body: ') && n.endsWith(whenSaved)) {
                 // ST9: the count only when a file was saved, never "Nothing
-                // was saved." above the kept file (ST17).
+                // saved" above the kept file (ST17).
                 const body = n.slice('card body: '.length, -whenSaved.length);
-                card = `${body} ${st16}`;
+                card = `${body} · ${st16}`;
                 expect(c.stoppedCard(code, 0, 12), `${id} none saved`).toBe(body);
             } else if (n.startsWith('card body: ') && n.endsWith(' plus ST16')) {
-                card = `${n.slice('card body: '.length, -' plus ST16'.length)} ${st16}`;
+                // The count joins the sentence with a middle dot (D-167).
+                card = `${n.slice('card body: '.length, -' plus ST16'.length)} · ${st16}`;
             } else if (n.startsWith('card body: ')) {
                 card = n.slice('card body: '.length);
             } else throw new Error(`${id}: unreadable note ${n}`);

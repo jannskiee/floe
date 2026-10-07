@@ -70,7 +70,7 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
                 )}
             </div>
             {history.length === 0 ? (
-                <p className="py-8 text-center text-xs text-zinc-500">No transfers yet.</p>
+                <p className="py-8 text-center text-xs text-zinc-500">No transfers yet</p>
             ) : (
                 <ul className="custom-scrollbar max-h-80 divide-y divide-white/[0.04] overflow-y-auto rounded-lg border border-white/[0.06] bg-white/[0.02]">
                     {history.map((h, i) => {

@@ -67,7 +67,7 @@ describe('the notice stack', () => {
         const stack = container.firstElementChild as HTMLElement;
         expect(stack.className).toContain('fixed');
         expect(stack.className).toContain('flex-col');
-        const request = screen.getByRole('group', {name: 'Someone wants to send you files.'});
+        const request = screen.getByRole('group', {name: 'Someone wants to send you files'});
         const update = screen.getByRole('group', {name: 'Update available'});
         expect(request.parentElement).toBe(stack);
         expect(update.parentElement).toBe(stack);
@@ -89,6 +89,26 @@ describe('the notice stack', () => {
     it('the request notice is a constant: no label, count, size or name', () => {
         render(<RequestNotice onReview={() => {}}/>);
         const group = screen.getByRole('group');
-        expect(group.textContent).toBe('Someone wants to send you files.Review');
+        expect(group.textContent).toBe('Someone wants to send you filesReview');
+    });
+
+    it('the request notice is wider than its words, with Review on the far right (D-167)', () => {
+        render(
+            <NoticeStack>
+                <RequestNotice onReview={() => {}}/>
+                <UpdateNotice version="desktop-v0.3.0" onDismiss={() => {}}/>
+            </NoticeStack>
+        );
+        const request = screen.getByRole('group', {name: 'Someone wants to send you files'});
+        const classes = request.className.split(' ');
+        expect(classes).toContain('w-[440px]');
+        // One right padding per notice: cn has no tailwind-merge, so a second
+        // pr-* on the same element would be a coin toss in the cascade.
+        expect(classes.filter((c) => c.startsWith('pr-'))).toEqual(['pr-2.5']);
+        expect(within(request).getByRole('button', {name: 'Review'}).className.split(' ')).toContain('ml-auto');
+        // The update notice keeps the shape approved in 0.2.4.
+        const update = screen.getByRole('group', {name: 'Update available'}).className.split(' ');
+        expect(update.filter((c) => c.startsWith('pr-'))).toEqual(['pr-1.5']);
+        expect(update.some((c) => c.startsWith('w-['))).toBe(false);
     });
 });

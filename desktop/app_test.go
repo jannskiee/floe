@@ -40,7 +40,7 @@ func TestFailureToastsOnce(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("notified %d times, want 1: %v", len(got), got)
 	}
-	want := "Floe - receive failed|The transfer did not complete. Open Floe to see what happened."
+	want := "Floe - receive failed|The transfer didn't finish"
 	if got[0] != want {
 		t.Fatalf("notification = %q, want %q", got[0], want)
 	}

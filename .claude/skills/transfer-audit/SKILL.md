@@ -554,7 +554,7 @@ to it, so none ever runs as a plain cell.
   tab awaited (10 s; no Settings switch since H7, and a server without
   request-1 answers at Make link with E1, a `request-flow` FAIL naming
   `disabled`), Make link with the Save to field set to the
-  attempt's own `out` folder (never the owner's DownloadsFloe requests;
+  attempt's own `out` folder (never the owner's `Downloads\Floe`;
   a field that does not take is SKIP `desktop-savedir`), then Read link.
 - The visitor is a fresh Chromium context on `/r`: the files go into the
   hidden "Choose files" input, Send is clicked by its label, and the

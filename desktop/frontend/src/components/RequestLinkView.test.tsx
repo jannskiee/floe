@@ -10,6 +10,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import RequestLinkView, {PROMPT_ACTIONS_ID, type RequestLinkViewProps} from './RequestLinkView';
 import {OFF_SNAPSHOT, type Phase, type RequestLinkSnapshot} from '../requestLink';
 import {VERIFIED_LINE} from '../requestCopy';
+import {closingPeriods} from '../test/punctuation';
 import type {Prog} from '../progress';
 
 const HOSTILE = ['<img src=x onerror=alert(1)>', '$(calc)', ']]><', '\u202Eevil.exe'];
@@ -311,7 +312,7 @@ describe('the result card', () => {
             const r = render(<RequestLinkView {...p}/>);
             await user.click(screen.getByRole('button', {name: 'Show in folder'}));
             const dialog = screen.getByRole('dialog');
-            expect(within(dialog).getByText('This drop contains renamed files.')).toBeTruthy();
+            expect(within(dialog).getByText('This drop has renamed files')).toBeTruthy();
             expect(within(dialog).getByText('Open the folder anyway?')).toBeTruthy();
             // The safe choice has focus.
             expect(document.activeElement).toBe(within(dialog).getByRole('button', {name: 'Cancel'}));
@@ -339,30 +340,30 @@ describe('the result card', () => {
 
     it('a stop with nothing saved shows no folder (DT-05) and no follow-up line (ST15 is cut)', () => {
         render(<RequestLinkView {...at('stopped')} snap={snap({state: 'stopped', code: 'relay-cap', result: {...result, saved: 0}})}/>);
-        expect(screen.getByText('Over the 2 GB relay limit. Nothing was saved.')).toBeTruthy();
+        expect(screen.getByText('Over the 2 GB relay limit · Nothing saved')).toBeTruthy();
         expect(screen.queryByRole('button', {name: 'Show in folder'})).toBeNull();
         expect(document.body.textContent).not.toMatch(/send the rest/);
     });
 
     it('a stop reads its count in the web grammar (ST16, D-136)', () => {
         const {rerender} = render(<RequestLinkView {...at('stopped')}/>);
-        expect(screen.getByText('The drive ran out of space. 4 of 12 files were saved.')).toBeTruthy();
+        expect(screen.getByText('The drive ran out of space · 4 of 12 files saved')).toBeTruthy();
         rerender(<RequestLinkView {...at('stopped')} snap={snap({state: 'stopped', code: 'disk-full', result: {...result, files: 1, saved: 1}})}/>);
-        expect(screen.getByText('The drive ran out of space. 1 of 1 file was saved.')).toBeTruthy();
+        expect(screen.getByText('The drive ran out of space · 1 of 1 file saved')).toBeTruthy();
         rerender(<RequestLinkView {...at('stopped')} snap={snap({state: 'stopped', code: 'path-too-long', result: {...result, saved: 0}})}/>);
-        expect(screen.getByText('A folder path was too long for Windows. Nothing was saved.')).toBeTruthy();
+        expect(screen.getByText('A folder path was too long for Windows · Nothing saved')).toBeTruthy();
         expect(document.body.textContent).not.toMatch(/send the rest/);
     });
 
     it('a save-blocked stop points at the kept file, even with nothing saved (D-128)', async () => {
         const user = userEvent.setup();
-        const kept = 'The complete file was kept in the folder with a .part ending.';
+        const kept = 'The complete file was kept with a .part ending';
         for (const saved of [0, 4]) {
             const p = props({phase: 'stopped', snap: snap({state: 'stopped', code: 'save-blocked', result: {...result, saved, verified: saved, names: saved ? ['a.mov'] : []}})});
             const {unmount} = render(<RequestLinkView {...p}/>);
             // ST9 carries a count only when a file was saved, so the card never
-            // says "Nothing was saved." above the kept file (ST17).
-            const card = saved ? `Windows would not let Floe finish saving a file. ${saved} of 12 files were saved.` : 'Windows would not let Floe finish saving a file.';
+            // says "Nothing saved" above the kept file (ST17).
+            const card = saved ? `Windows blocked Floe from saving a file · ${saved} of 12 files saved` : 'Windows blocked Floe from saving a file';
             expect(screen.getByText(card)).toBeTruthy();
             expect(screen.getByText(kept)).toBeTruthy();
             expect(document.body.textContent).not.toMatch(/Nothing was saved/);
@@ -382,8 +383,8 @@ describe('the result card', () => {
         // ST9 and ST17 are one group (space-y-2), not two blocks of the card's
         // 16 px rhythm (D-136 L6).
         render(<RequestLinkView {...at('stopped')} snap={snap({state: 'stopped', code: 'save-blocked', result: {...result, saved: 0}})}/>);
-        const stop = screen.getByText('Windows would not let Floe finish saving a file.');
-        const kept = screen.getByText('The complete file was kept in the folder with a .part ending.');
+        const stop = screen.getByText('Windows blocked Floe from saving a file');
+        const kept = screen.getByText('The complete file was kept with a .part ending');
         expect(stop.nextElementSibling).toBe(kept);
         expect(stop.parentElement!.className.split(' ')).toContain('space-y-2');
     });
@@ -400,16 +401,16 @@ describe('the link phases (D-136)', () => {
         }
     });
 
-    it('Waiting says Waiting for files. and nothing else in the slot', () => {
+    it('Waiting says Waiting for files and nothing else in the slot', () => {
         const {container} = render(<RequestLinkView {...at('waiting')}/>);
-        expect(screen.getByText('Waiting for files.')).toBeTruthy();
+        expect(screen.getByText('Waiting for files')).toBeTruthy();
         expect(container.textContent).not.toMatch(/open the link|still open/);
     });
 
     it('Reconnecting says C1 on two lines, the news first and the reassurance quieter', () => {
         render(<RequestLinkView {...at('reconnecting')}/>);
-        const news = screen.getByText('No connection to the Floe server.');
-        const note = screen.getByText('Floe keeps trying.');
+        const news = screen.getByText("Can't reach the Floe server");
+        const note = screen.getByText('Reconnecting...');
         expect(news.nextElementSibling).toBe(note);
         expect(news.className).toContain('text-zinc-200');
         expect(note.className).toContain('text-zinc-500');
@@ -424,7 +425,7 @@ describe('the layout (D-136)', () => {
 
     it('one white button per view', () => {
         const want: Record<Phase, string[]> = {
-            ready: ['Make link'], making: ['Making the link...'], error: ['Make link'], waiting: ['Copy link'],
+            ready: ['Make link'], making: ['Making link...'], error: ['Make link'], waiting: ['Copy link'],
             reconnecting: [], connecting: [], deciding: ['Accept'], declined: [], receiving: [], done: [], stopped: [],
             ended: ['Make another link'],
         };
@@ -436,8 +437,8 @@ describe('the layout (D-136)', () => {
     });
 
     it('R15 sits above Make link while Hide my IP is off, and R17 alone while it is on', () => {
-        const R15 = 'Senders see your IP address, even if you decline.';
-        const R17 = 'Hide my IP is on, so drops are capped at 2 GB.';
+        const R15 = 'Senders see your IP, even if you decline';
+        const R17 = 'Hide my IP limits drops to 2 GB';
         const {rerender} = render(<RequestLinkView {...at('ready')}/>);
         const line = screen.getByText(R15);
         expect(line.className).toContain('text-zinc-400');
@@ -450,21 +451,23 @@ describe('the layout (D-136)', () => {
         // The error line still shows under Make link with Hide my IP on (E5).
         rerender(<RequestLinkView {...at('error', {hideIP: true, errorCode: 'no-relay'})}/>);
         expect(before(screen.getByRole('button', {name: 'Make link'}), screen.getByRole('alert'))).toBe(true);
-        expect(screen.getByRole('alert').textContent).toMatch(/^Hide my IP needs a TURN relay/);
+        expect(screen.getByRole('alert').textContent).toMatch(/^Hide my IP needs a relay/);
     });
 
     it('the label field carries R7 as its placeholder, and nothing sits right of LABEL (D-161)', () => {
         const {container} = render(<RequestLinkView {...at('ready')}/>);
         const field = screen.getByLabelText('Label') as HTMLInputElement;
-        expect(field.placeholder).toBe('Optional. Only you see it.');
+        expect(field.placeholder).toBe('Optional');
         // The placeholder carries a fact the owner needs, so it is zinc-400 (AA
         // on the field), not the shared Input's zinc-500 (RC-5). It wins the
         // cascade because the important modifier outranks the shared class,
-        // and only this field says it: the folder field keeps the default.
+        // and the folder field draws its grayed path the same way (D-167).
         expect(field.className.split(' ')).toContain('placeholder:text-zinc-400!');
-        expect((screen.getByLabelText('Save to') as HTMLInputElement).className).not.toContain('text-zinc-400');
+        const save = screen.getByLabelText('Save to') as HTMLInputElement;
+        expect(save.placeholder).toBe('Downloads\\Floe');
+        expect(save.className.split(' ')).toContain('placeholder:text-zinc-400!');
         // The words are no longer text on the page: the eyebrow row is LABEL alone.
-        expect(screen.queryByText('Optional. Only you see it.')).toBeNull();
+        expect(screen.queryByText('Optional')).toBeNull();
         expect(container.textContent).not.toMatch(/Only you see it/);
         // LABEL stands alone above its field, on the same edge as SAVE TO and
         // LINK ENDS (one label edge): nothing sits beside it.
@@ -550,7 +553,7 @@ describe('the layout (D-136)', () => {
     it('the link block: no SAVE TO row, W5 at AA, and with no label the heading is for screen readers only', () => {
         const {rerender} = render(<RequestLinkView {...at('waiting')}/>);
         expect(screen.queryByText(/save to/i)).toBeNull();
-        expect(screen.getByText(/^For one person\. Ends /).className).toContain('text-zinc-400');
+        expect(screen.getByText(/^For one person · Ends /).className).toContain('text-zinc-400');
         expect(screen.getByText('ACME FOOTAGE').className).not.toContain('sr-only');
         rerender(<RequestLinkView {...at('waiting')} snap={snap({state: 'waiting', label: ''})}/>);
         expect(screen.getByText('REQUEST LINK').className).toBe('sr-only');
@@ -558,7 +561,7 @@ describe('the layout (D-136)', () => {
         expect(screen.getByRole('textbox', {name: 'REQUEST LINK'})).toBeTruthy();
         rerender(<RequestLinkView {...at('ended')} snap={snap({state: 'ended', code: 'closed', label: ''})}/>);
         expect(screen.getByText('REQUEST LINK').className).toBe('sr-only');
-        expect(screen.getByText('Link closed.')).toBeTruthy();
+        expect(screen.getByText('Link closed')).toBeTruthy();
         rerender(<RequestLinkView {...at('ended')}/>);
         expect(screen.getByText('ACME FOOTAGE').className).not.toContain('sr-only');
     });
@@ -637,14 +640,14 @@ describe('the layout (D-136)', () => {
     it('Done: the malware line returns when the drive has no named streams, with the renamed line above it (DN5, S-7)', () => {
         const noMark = {...result, noNamedStreams: true};
         const {rerender} = render(<RequestLinkView {...at('done')} snap={snap({state: 'done', result: noMark})}/>);
-        const line = screen.getByText('Floe does not scan files for malware.');
+        const line = screen.getByText("Floe doesn't scan files for malware");
         expect(line.className).toContain('text-zinc-400');
         // It is independent of the check: a verified drop on such a drive shows both.
         expect(document.querySelector('svg.lucide-circle-check')).not.toBeNull();
         rerender(<RequestLinkView {...at('done')} snap={snap({state: 'done', result: {...noMark, renamed: 2}})}/>);
-        const renamed = screen.getByText(/^2 files were renamed/);
-        expect(renamed.parentElement).toBe(screen.getByText('Floe does not scan files for malware.').parentElement);
-        expect(before(renamed, screen.getByText('Floe does not scan files for malware.'))).toBe(true);
+        const renamed = screen.getByText(/^2 files now end in \.floe-blocked/);
+        expect(renamed.parentElement).toBe(screen.getByText("Floe doesn't scan files for malware").parentElement);
+        expect(before(renamed, screen.getByText("Floe doesn't scan files for malware"))).toBe(true);
         // A renamed file alone does not bring it back on a normal drive.
         rerender(<RequestLinkView {...at('done')} snap={snap({state: 'done', result: {...result, renamed: 2}})}/>);
         expect(screen.queryByText(/scan files/)).toBeNull();
@@ -777,7 +780,7 @@ describe('the layout (D-136)', () => {
 });
 
 describe('the Receiving laptop line (P11, E-94)', () => {
-    const LINE = 'Keep this laptop plugged in and open.';
+    const LINE = 'Keep this laptop plugged in and open';
     const MB = 1024 ** 2;
     beforeEach(() => {
         vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date']});
@@ -900,7 +903,7 @@ describe('every state', () => {
 
     it('never renders engine or error text, only the fixed line for the code', () => {
         render(<RequestLinkView {...at('error', {errorCode: 'Error: dial tcp 10.0.0.1: refused $(calc)'})}/>);
-        expect(screen.getByRole('alert').textContent).toBe('Floe could not make a link. Try again later.');
+        expect(screen.getByRole('alert').textContent).toBe("Couldn't make a link");
         expect(document.body.textContent).not.toContain('dial tcp');
     });
 
@@ -912,5 +915,12 @@ describe('every state', () => {
         await user.selectOptions(screen.getByLabelText('Link ends'), '7d');
         await user.click(screen.getByRole('button', {name: 'Make link'}));
         expect(p.onMake).toHaveBeenCalledWith('Acme footage', '7d');
+    });
+});
+
+describe('the calm copy (D-167)', () => {
+    it.each(Object.keys(BY_PHASE) as Phase[])('the %s view draws no line that ends in a period', (phase) => {
+        const {container} = render(<RequestLinkView {...at(phase, {errorCode: 'limited', hideIP: phase === 'ready'})}/>);
+        expect(closingPeriods(container)).toEqual([]);
     });
 });

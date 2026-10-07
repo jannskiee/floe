@@ -46,7 +46,7 @@ const rowButton = (title: RegExp) => screen.getByRole('button', {name: title});
 describe('the empty state', () => {
     it('says so and offers nothing to clear', () => {
         mount([]);
-        expect(screen.getByText('No transfers yet.')).toBeTruthy();
+        expect(screen.getByText('No transfers yet')).toBeTruthy();
         expect(screen.queryByRole('button', {name: 'Clear'})).toBeNull();
         expect(screen.queryByRole('list')).toBeNull();
     });
@@ -55,7 +55,7 @@ describe('the empty state', () => {
 describe('the list', () => {
     it('shows one collapsed row per entry with its direction', () => {
         mount([received, receivedMany, sent]);
-        expect(screen.queryByText('No transfers yet.')).toBeNull();
+        expect(screen.queryByText('No transfers yet')).toBeNull();
         expect(screen.getAllByRole('listitem')).toHaveLength(3);
 
         // Single-file rows are titled by the name, multi-file rows by the count.
@@ -138,7 +138,7 @@ describe('Clear', () => {
 
         await user.click(screen.getByRole('button', {name: 'Clear'}));
         await user.click(screen.getByRole('button', {name: 'Yes'}));
-        expect(screen.getByText('No transfers yet.')).toBeTruthy();
+        expect(screen.getByText('No transfers yet')).toBeTruthy();
         expect(screen.queryByText('Clear all?')).toBeNull();
         expect(screen.queryByRole('button', {name: 'Clear'})).toBeNull();
     });
@@ -205,10 +205,10 @@ describe('request rows', () => {
     it('request row Show in folder asks first when files were renamed', async () => {
         mount([request({renamed: 2, names: ['a.url.floe-blocked', 'b.lnk.floe-blocked']})]);
         await openRow();
-        expect(screen.getByText('2 files were renamed to end in .floe-blocked because Windows can open that kind of file by itself.')).toBeTruthy();
+        expect(screen.getByText("2 files now end in .floe-blocked so Windows won't open them on their own")).toBeTruthy();
         await userEvent.click(screen.getByRole('button', {name: 'Show in folder'}));
         const dialog = screen.getByRole('dialog');
-        expect(within(dialog).getByText('This drop contains renamed files.')).toBeTruthy();
+        expect(within(dialog).getByText('This drop has renamed files')).toBeTruthy();
         expect(document.activeElement).toBe(within(dialog).getByRole('button', {name: 'Cancel'}));
         expect(wails.go.OpenFolder).not.toHaveBeenCalled();
         await userEvent.click(within(dialog).getByRole('button', {name: 'Cancel'}));
@@ -244,15 +244,15 @@ describe('request rows', () => {
     it('shows the History form of a stop and no SHA-256 line with it', async () => {
         mount([request({label: 'Acme footage', stopped: 'disk-full', count: 4, offered: 12, verified: 4})]);
         await openRow();
-        expect(screen.getByText('Drop stopped: the drive ran out of space. 4 of 12 files were saved.')).toBeTruthy();
+        expect(screen.getByText('Drop stopped: the drive ran out of space · 4 of 12 files saved')).toBeTruthy();
         expect(screen.queryByText(/SHA-256/)).toBeNull();
     });
 
     it('a save-blocked row with nothing saved points at the kept file (D-128)', async () => {
         mount([request({stopped: 'save-blocked', names: [], count: 0, offered: 1, verified: 0, bytes: undefined})]);
         await openRow();
-        expect(screen.getByText('Drop stopped: Windows would not let Floe save a file.')).toBeTruthy();
-        expect(screen.getByText('The complete file was kept in the folder with a .part ending.')).toBeTruthy();
+        expect(screen.getByText('Drop stopped: Windows blocked a save')).toBeTruthy();
+        expect(screen.getByText('The complete file was kept with a .part ending')).toBeTruthy();
         expect(screen.queryByText(/SHA-256/)).toBeNull();
         await userEvent.click(screen.getByRole('button', {name: 'Show in folder'}));
         expect(wails.go.OpenFolder).toHaveBeenCalledWith(FOLDER);

@@ -14,11 +14,11 @@ import path from 'node:path';
 
 export const FAKE_ROOM = '6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f';
 export const FAKE_LINK = `http://localhost:3000/r/Xk3p9Q0aB1c#${FAKE_ROOM}`;
-export const SAVE_TO = 'Downloads\\Floe requests';
+export const SAVE_TO = 'Downloads\\Floe';
 export const VERIFIED_LINE = 'SHA-256 matched';
 // The amber READY's one sentence (App.tsx statusNote), which also rides a
 // screen-reader twin beside the chip's word while nothing moves.
-export const HIDE_IP_NOTE = 'Hide my IP is on. Transfers go through the relay (capped at 2 GB).';
+export const HIDE_IP_NOTE = 'Hide my IP limits transfers to 2 GB';
 
 // The lane states that show the link block (RequestLinkView.tsx LINK_PHASES).
 const LINK_STATES = new Set([
@@ -45,7 +45,7 @@ const VIEW_BUTTONS = {
 const SWITCHES = [
     {
         key: 'hideIP',
-        name: 'Hide my IP address Route every transfer through the relay.',
+        name: 'Hide my IP address Hides your IP with a relay, slower and capped at 2 GB',
     },
 ];
 
@@ -370,11 +370,11 @@ export function fakeRequestDom({
         if (!onRequestView()) return head;
         switch (dom.state) {
             case 'waiting':
-                out.push('Waiting for files.');
+                out.push('Waiting for files');
                 break;
             case 'reconnecting':
                 // C1 on two lines (D-136): the news, then the reassurance.
-                out.push('No connection to the Floe server.', 'Floe keeps trying.');
+                out.push("Can't reach the Floe server", 'Reconnecting...');
                 break;
             case 'deciding':
                 out.push('SOMEONE WANTS TO SEND YOU FILES');
@@ -393,7 +393,7 @@ export function fakeRequestDom({
                     );
                 break;
             case 'declined':
-                out.push('You declined. Nothing was saved.');
+                out.push('Request declined');
                 break;
             case 'receiving':
                 out.push('RECEIVING 1 OF 1');
@@ -422,15 +422,15 @@ export function fakeRequestDom({
                 out.push('DROP STOPPED');
                 break;
             case 'closed':
-                out.push('Link closed.');
+                out.push('Link closed');
                 break;
             case 'error':
                 // E1 and E4 (requestCopy.ts errorLine), the role=alert line
                 // under Make link that the UIA lane reads the code from.
                 out.push(
                     dom.code === 'disabled'
-                        ? 'Request links are turned off on this server right now.'
-                        : 'Floe could not make a link. Try again later.'
+                        ? 'Request links are off on this server'
+                        : "Couldn't make a link"
                 );
                 break;
             default:

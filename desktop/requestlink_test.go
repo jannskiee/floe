@@ -1364,9 +1364,9 @@ func attentionApp(t *testing.T, clock *time.Time) (*App, *attentionRec) {
 // The three table entries, spelled out here so the test is independent of
 // the table it checks.
 var (
-	to1 = [2]string{"Floe", "Someone wants to send you files. Open Floe to answer."}
-	to2 = [2]string{"Floe", "Files received."}
-	to3 = [2]string{"Floe - receive failed", "The transfer did not complete. Open Floe to see what happened."}
+	to1 = [2]string{"Floe", "Someone wants to send you files"}
+	to2 = [2]string{"Floe", "Files received"}
+	to3 = [2]string{"Floe - receive failed", "The transfer didn't finish"}
 )
 
 // TestRequestToastsAreConstant (VR3-G08): whatever the visitor's names and
@@ -1385,7 +1385,7 @@ func TestRequestToastsAreConstant(t *testing.T) {
 		if s.Label == "" {
 			t.Fatal("the label did not reach the snapshot")
 		}
-		a.openPrompt(s.Gen, RequestPrompt{Files: len(hostile), TotalBytes: 42, Folder: `Floe requests\` + sanitizeRequestLabel(label)})
+		a.openPrompt(s.Gen, RequestPrompt{Files: len(hostile), TotalBytes: 42, Folder: `Floe\` + sanitizeRequestLabel(label)})
 		a.acceptDrop(s.Gen)
 		end(s.Gen)
 	}
