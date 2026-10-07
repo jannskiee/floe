@@ -38,17 +38,17 @@ describe('the Tooltip', () => {
         await user.unhover(screen.getByText('i'));
     });
 
-    it('a warning label is amber, after a caution icon, and the plain label is not (D-174)', async () => {
+    it('a warning label is amber with no icon, and the plain label is not amber (D-174)', async () => {
         const user = userEvent.setup();
         const {rerender} = render(<Tooltip label="Careful" detail="Why" warn><button type="button">i</button></Tooltip>);
         await user.hover(screen.getByText('i'));
         await settle();
-        const warn = screen.getByText('Careful').parentElement!;
+        const warn = screen.getByText('Careful');
         expect(warn.className).toContain('text-amber-300/95');
-        expect(warn.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+        expect(screen.getByRole('tooltip').querySelector('svg')).toBeNull();
         expect(screen.getByRole('tooltip').textContent).toBe('CarefulWhy');
         rerender(<Tooltip label="Careful" detail="Why"><button type="button">i</button></Tooltip>);
-        expect(screen.getByRole('tooltip').querySelector('svg')).toBeNull();
+        expect(screen.getByText('Careful').className).not.toContain('text-amber-300/95');
         await user.unhover(screen.getByText('i'));
     });
 

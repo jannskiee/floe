@@ -1192,10 +1192,10 @@ describe('Auto-accept (D-173, D-174)', () => {
         await user.hover(info);
         const tip = await screen.findByRole('tooltip');
         expect(tip.textContent).toBe('Only turn this on if you trust everyone with the linkFiles save without asking, except in a few cases, like low space or a USB drive');
-        // The first line is the warning: amber, after a caution icon.
-        const warn = screen.getByText('Only turn this on if you trust everyone with the link').parentElement!;
+        // The first line is the warning: amber, with no icon (the owner, D-174).
+        const warn = screen.getByText('Only turn this on if you trust everyone with the link');
         expect(warn.className).toContain('text-amber-300/95');
-        expect(warn.querySelector('svg')).not.toBeNull();
+        expect(tip.querySelector('svg')).toBeNull();
         expect(screen.getAllByText('Files save without asking, except in a few cases, like low space or a USB drive').some((e) => e.className.includes('text-zinc-400'))).toBe(true);
         expect(info.parentElement!.getAttribute('aria-describedby')).toBe(tip.id);
         await user.unhover(info);

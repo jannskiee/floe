@@ -1,7 +1,6 @@
 import {useCallback, useEffect, useId, useLayoutEffect, useRef, useState} from 'react';
 import type {ReactNode} from 'react';
 import {createPortal} from 'react-dom';
-import {TriangleAlert} from 'lucide-react';
 import {cn} from './ui';
 
 const GAP = 8;        // distance from the trigger
@@ -32,7 +31,8 @@ export function Tooltip({label, detail, warn, toggletip, keys, align = 'center',
     /** A second, quieter line under the label (zinc-400): the info tooltip of
      *  Auto-accept (D-174) warns first, then says what it does. */
     detail?: string;
-    /** The label is a caution: amber, after a caution icon (D-174). */
+    /** The label is a caution: amber, with no icon (D-174; the owner had the
+     *  caution icon removed). */
     warn?: boolean;
     /** An explanation people read rather than a label (the Auto-accept info
      *  icon, D-174): a click pins it open and a second click closes it, and a
@@ -207,12 +207,7 @@ export function Tooltip({label, detail, warn, toggletip, keys, align = 'center',
                     )}
                 >
                     <span>
-                        {warn ? (
-                            <span className="flex items-start gap-1.5 text-amber-300/95">
-                                <TriangleAlert aria-hidden className="mt-0.5 size-3 shrink-0"/>
-                                <span>{label}</span>
-                            </span>
-                        ) : label}
+                        {warn ? <span className="block text-amber-300/95">{label}</span> : label}
                         {detail && <span className="mt-0.5 block text-zinc-400">{detail}</span>}
                     </span>
                     {keys && (
