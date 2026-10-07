@@ -337,11 +337,11 @@ describe('the request lane selectors', () => {
         const r = receiving.snap;
         expect(etaLines(r, 2 * 3600, 60)).toEqual([]);
         expect(etaLines(r, 2 * 3600 + 1, 60)).toEqual([
-            'If the connection drops, the file that was moving starts over.',
+            'If the connection drops, the current file starts over',
         ]);
         expect(etaLines(r, 24 * 3600, 60)).toHaveLength(1);
         expect(etaLines(r, 3 * 86400, 60)).toEqual([
-            'This drop would take about 3 days on this connection and will stop at 24 hours.',
+            'About 3 days at this speed, past the 24-hour limit',
         ]);
     });
 

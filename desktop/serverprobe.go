@@ -72,21 +72,21 @@ func dialSignaling(base string) error {
 func probeServer(raw string, dialWS func(string) error) ProbeResult {
 	base := serverurl.Normalize(raw)
 	if base == "" {
-		return ProbeResult{Message: "Enter a server address."}
+		return ProbeResult{Message: "Enter a server address"}
 	}
 	u, err := url.Parse(base)
 	if err != nil || u.Host == "" {
-		return ProbeResult{Message: "That does not look like an address. Include https:// and the host name."}
+		return ProbeResult{Message: "Include https:// and the host name"}
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return ProbeResult{Message: "The address must start with https:// or http://."}
+		return ProbeResult{Message: "Start the address with https:// or http://"}
 	}
 
 	if r, _ := probeHealth(base); !r.OK {
 		return r
 	}
 	if err := dialWS(base); err != nil {
-		return ProbeResult{Message: "The server answered, but the realtime connection was refused. If it is behind a reverse proxy, check that /ws is being forwarded."}
+		return ProbeResult{Message: "The server refused the realtime connection (check that your proxy forwards /ws)"}
 	}
 	return probeAPI(base)
 }
@@ -105,7 +105,7 @@ func probeHealth(base string) (ProbeResult, []string) {
 
 	if resp.StatusCode != http.StatusOK {
 		return ProbeResult{Message: fmt.Sprintf(
-			"The address answered with HTTP %d. This may be the web app rather than the signaling server.", resp.StatusCode)}, nil
+			"That address answered HTTP %d (likely the web app, not the server)", resp.StatusCode)}, nil
 	}
 	var body struct {
 		Status   string          `json:"status"`
@@ -114,7 +114,7 @@ func probeHealth(base string) (ProbeResult, []string) {
 	// Bounded: the feature list is the only open-ended field, and nothing a
 	// Floe server sends here comes near 64 KiB.
 	if json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&body) != nil || body.Status != "healthy" {
-		return ProbeResult{Message: "Something answered at that address, but it is not a Floe signaling server."}, nil
+		return ProbeResult{Message: "That address isn't a Floe server"}, nil
 	}
 	var features []string
 	if json.Unmarshal(body.Features, &features) != nil {
@@ -177,7 +177,7 @@ func probeAPI(base string) ProbeResult {
 
 	if resp.StatusCode != http.StatusOK {
 		return ProbeResult{Message: fmt.Sprintf(
-			"The server is running, but its API answered with HTTP %d. If it is behind a reverse proxy, check that /api/ is being forwarded.", resp.StatusCode)}
+			"The API answered HTTP %d (check that your proxy forwards /api/)", resp.StatusCode)}
 	}
 	// Decoded by the engine rather than by hand. "urls" is a plain string for
 	// coturn and the STUN-only fallback but an array for Cloudflare, and one
@@ -186,7 +186,7 @@ func probeAPI(base string) ProbeResult {
 	// because the old check only asked whether the JSON array was non-empty.
 	servers, err := ice.ParseServers(resp.Body)
 	if err != nil || len(servers) == 0 {
-		return ProbeResult{Message: "The server is running, but it did not return usable connection details."}
+		return ProbeResult{Message: "The server didn't return usable connection details"}
 	}
 	if !ice.HasRelay(servers) {
 		// A pass, not a failure, and the OK matters: this is a working Floe
@@ -195,9 +195,9 @@ func probeAPI(base string) ProbeResult {
 		// for a broken reverse proxy that does not exist. Saying so here is
 		// what replaces a thirty-second timeout later that reads like a
 		// network fault on a network that is fine.
-		return ProbeResult{OK: true, Message: "Connected. This server has no TURN relay, so Hide my IP will not work."}
+		return ProbeResult{OK: true, Message: "Connected, but there's no relay for Hide my IP"}
 	}
-	return ProbeResult{OK: true, RelayAvailable: true, Message: "Connected."}
+	return ProbeResult{OK: true, RelayAvailable: true, Message: "Connected"}
 }
 
 // probeClient refuses redirects rather than following them, so a captive portal
@@ -217,13 +217,13 @@ func probeClient() *http.Client {
 func describeDialError(err error) string {
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
-		return "That host could not be found. Check the address for typos."
+		return "Host not found"
 	}
 	if os.IsTimeout(err) {
-		return "Timed out reaching that address."
+		return "Timed out reaching that address"
 	}
 	if s := err.Error(); strings.Contains(s, "certificate") || strings.Contains(s, "tls:") || strings.Contains(s, "x509") {
-		return "The server's security certificate could not be verified."
+		return "Couldn't verify the server's certificate"
 	}
-	return "Could not connect. Check that the server is running and reachable from this machine."
+	return "Couldn't connect to that server"
 }

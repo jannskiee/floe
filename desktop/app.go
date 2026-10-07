@@ -14,7 +14,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const desktopUpdateHint = "Update Floe from the Microsoft Store or floe.one/download."
+const desktopUpdateHint = "Update Floe from the Microsoft Store or floe.one/download"
 
 // filterFileArgs keeps only arguments that point at an existing file or
 // directory, dropping flags, empty strings, and stale paths.
@@ -294,7 +294,7 @@ func (a *App) notifyTransferFailed(g uint64, title string) {
 	if !a.transferActive(g) {
 		return
 	}
-	a.notify(title, "The transfer did not complete. Open Floe to see what happened.")
+	a.notify(title, "The transfer didn't finish")
 }
 
 // EngineProtocolVersion returns the wire protocol version of the embedded engine.

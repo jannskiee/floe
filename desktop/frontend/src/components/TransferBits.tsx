@@ -68,7 +68,7 @@ export function StatusLine({text, busy, live}: {text: string; busy: boolean; liv
 export function FooterNote({busy}: {busy: boolean}) {
     return (
         <p className={cn('text-center text-[10px] uppercase leading-relaxed tracking-wide', busy ? 'text-amber-300/80' : 'text-zinc-500')}>
-            {busy ? 'Keep this window open. Closing it cancels the transfer.' : 'End-to-end encrypted. Files are never stored on a server.'}
+            {busy ? "Keep this window open until it's done" : 'End-to-end encrypted, never stored on a server'}
         </p>
     );
 }

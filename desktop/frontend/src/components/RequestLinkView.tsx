@@ -163,6 +163,8 @@ function ReadyForm({phase, errorCode, hideIP, saveDir, onSaveDirChange, onMake, 
                         <Input
                             id="floe-request-save"
                             placeholder={copy.SAVE_TO_PLACEHOLDER}
+                            // The same gray as the Label placeholder (D-167, D1 P-2).
+                            className="placeholder:text-zinc-400!"
                             value={saveDir}
                             title={saveCut ? saveDir : undefined}
                             style={{color: saveCut ? 'transparent' : undefined, transitionProperty: 'box-shadow'}}

@@ -10,7 +10,7 @@
  * None of them is a coverage exercise.
  */
 import {StrictMode, act} from 'react';
-import {render, screen, waitFor, within} from '@testing-library/react';
+import {cleanup, render, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {describe, expect, it, vi} from 'vitest';
 import App from '../App';
@@ -19,6 +19,7 @@ import App from '../App';
 import appDts from '../../wailsjs/go/main/App.d.ts?raw';
 import {AnswerRequest, GetRequestLink, MakeRequestLink, RequestLinkSupport} from '../../wailsjs/go/main/App';
 import {REQUEST_BINDINGS, offSnapshot} from './requestFixtures';
+import {closingPeriods} from './punctuation';
 
 // main.tsx wraps App in StrictMode, so the tests do too. Not ceremony:
 // StrictMode double-invokes effects, which is what turns the balance assertion
@@ -118,7 +119,7 @@ describe('the mount effect', () => {
         await user.click(make);
 
         const alert = await screen.findByRole('alert');
-        expect(alert.textContent).toBe('Request links are turned off on this server right now.');
+        expect(alert.textContent).toBe('Request links are off on this server');
         expect(make.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         expect(screen.getByRole('button', {name: 'Request link, beta'}).getAttribute('aria-pressed')).toBe('true');
         expect(screen.getByRole('button', {name: 'Make link'})).toBeTruthy();
@@ -135,7 +136,7 @@ describe('the mount effect', () => {
         await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
         await user.click(screen.getByRole('button', {name: 'Make link'}));
 
-        expect((await screen.findByRole('alert')).textContent).toBe('Floe could not make a link. Try again later.');
+        expect((await screen.findByRole('alert')).textContent).toBe("Couldn't make a link");
         expect(screen.getByRole('button', {name: 'Request link, beta'})).toBeTruthy();
     });
 
@@ -254,7 +255,7 @@ describe('the once-registered handlers', () => {
         // dependency array loses the sentence with no crash and no type error,
         // and this is the only thing that would notice.
         expect(
-            await screen.findByText(/uses localhost:3001\. Both people must be on the same server\./)
+            await screen.findByText(/ · Both people must use localhost:3001$/)
         ).toBeTruthy();
     });
 
@@ -263,14 +264,14 @@ describe('the once-registered handlers', () => {
         await settled();
 
         act(() => {
-            wails.emit('send:status', 'Peer connected. Sending...');
+            wails.emit('send:status', 'Sending...');
         });
 
         // The handler is registered once, at mount. It reads sendCancel.current
         // and calls only stable setters, which is the discipline that makes the
         // whole mount effect correct; a decomposition that reads state here
         // under an empty dependency array sees a value frozen at first render.
-        expect(await screen.findByText('Peer connected. Sending...')).toBeTruthy();
+        expect(await screen.findByText('Sending...')).toBeTruthy();
     });
 });
 
@@ -517,7 +518,7 @@ describe('the views no other test mounts', () => {
         // A seeded row must actually reach the list. Asserting only the empty
         // state would pass against a view that renders nothing at all.
         expect(await screen.findByText('report.pdf')).toBeTruthy();
-        expect(screen.queryByText('No transfers yet.')).toBeNull();
+        expect(screen.queryByText('No transfers yet')).toBeNull();
     });
 
     it('shows the empty state when there is no history', async () => {
@@ -526,7 +527,7 @@ describe('the views no other test mounts', () => {
 
         await userEvent.click(screen.getByRole('button', {name: 'History'}));
 
-        expect(await screen.findByText('No transfers yet.')).toBeTruthy();
+        expect(await screen.findByText('No transfers yet')).toBeTruthy();
     });
 });
 
@@ -630,8 +631,8 @@ describe('Settings has no Beta section (S-1)', () => {
  * the setter, put it back if the setter throws.
  */
 describe('Settings > Notifications (S-11)', () => {
-    const NS3 = 'For requests and transfers, while Floe is in the background.';
-    const NS4 = 'Requests still flash Floe on the taskbar.';
+    const NS3 = 'For requests and transfers while Floe is in the background';
+    const NS4 = 'Requests still flash Floe on the taskbar';
     const showSwitch = () => screen.getByRole('checkbox', {name: /^Show notifications/}) as HTMLInputElement;
     const soundSwitch = () => screen.getByRole('checkbox', {name: 'Play sound'}) as HTMLInputElement;
     const withToasts = (noToasts: boolean, silentToasts: boolean) => {
@@ -710,7 +711,7 @@ describe('Settings > Notifications (S-11)', () => {
     it('Open passes ms-settings:notifications to BrowserOpenURL', async () => {
         const user = await openSettings();
         expect(screen.getByText('Windows notification settings')).toBeTruthy();
-        expect(screen.getByText('Banners, Notification Center and lock screen.')).toBeTruthy();
+        expect(screen.getByText('Banners, Notification Center and lock screen')).toBeTruthy();
         const open = (window as unknown as {runtime: {BrowserOpenURL: ReturnType<typeof vi.fn>}}).runtime.BrowserOpenURL;
         const button = screen.getByRole('button', {name: 'Open Windows notification settings'});
         expect(button.textContent).toBe('Open');
@@ -743,7 +744,7 @@ describe('Settings > Notifications (S-11)', () => {
 
         await user.click(screen.getByRole('button', {name: 'Reset'}));
         const dialog = await screen.findByRole('dialog');
-        expect(within(dialog).getByText('Your save folder, notifications, the privacy switches and the server addresses go back to the way Floe shipped.')).toBeTruthy();
+        expect(within(dialog).getByText('Save folder, notifications, privacy and server settings go back to defaults')).toBeTruthy();
         await user.click(within(dialog).getByRole('button', {name: 'Reset all settings'}));
 
         await waitFor(() => expect(wails.go.SetToasts).toHaveBeenCalledWith(true));
@@ -780,7 +781,7 @@ describe('Settings > Notifications (S-11)', () => {
 describe('a request link pasted into CODE', () => {
     const room = '6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f';
     const link = `http://localhost:3000/r/Xk3p9Q0aB1c#${room}`;
-    const cp2 = 'That is a request link for sending files to someone. Open it in a web browser.';
+    const cp2 = 'Request links open in a web browser';
     const receiveTab = () => screen.getAllByRole('button', {name: 'Receive'})[0];
     const receiveAction = () => screen.getAllByRole('button', {name: 'Receive'}).find((b) => b.className.includes('w-full'))!;
 
@@ -982,7 +983,7 @@ describe('the request link in the app', () => {
         expect(screen.getByRole('button', {name: 'Text'})).toBeTruthy(); // the idle Send view
         // The header reads the drop's route, and the footer the busy line.
         expect(screen.getByText('Direct')).toBeTruthy();
-        expect(screen.getByText('Keep this window open. Closing it cancels the transfer.')).toBeTruthy();
+        expect(screen.getByText("Keep this window open until it's done")).toBeTruthy();
     });
 
     it('Ctrl+Enter does nothing on REQUEST LINK', async () => {
@@ -1014,7 +1015,7 @@ describe('the request link in the app', () => {
         act(() => { wails.emit('close:blocked'); });
         const dialog = await screen.findByRole('dialog');
         expect(within(dialog).getByText('Close Floe?')).toBeTruthy();
-        expect(within(dialog).getByText('Your request link stops working.')).toBeTruthy();
+        expect(within(dialog).getByText('Your request link stops working')).toBeTruthy();
         const keep = within(dialog).getByRole('button', {name: 'Keep Floe open'});
         expect(document.activeElement).toBe(keep);
         await user.click(within(dialog).getByRole('button', {name: 'Close Floe'}));
@@ -1027,7 +1028,7 @@ describe('the request link in the app', () => {
         push(lane('receiving', {gen: 2, route: 'relay'}));
         act(() => { wails.emit('close:blocked'); });
         const dialog = await screen.findByRole('dialog');
-        expect(within(dialog).getByText("You're still receiving. If you close now, the transfer stops before the files finish.")).toBeTruthy();
+        expect(within(dialog).getByText("Closing now stops the transfer before the files finish")).toBeTruthy();
         expect(within(dialog).getByRole('button', {name: 'Keep going'})).toBeTruthy();
         expect(within(dialog).getByRole('button', {name: 'Close anyway'})).toBeTruthy();
     });
@@ -1042,9 +1043,9 @@ describe('the request link in the app', () => {
         await user.click(screen.getByRole('button', {name: /Send text/}));
         act(() => { wails.emit('close:blocked'); });
         const dialog = await screen.findByRole('dialog');
-        expect(dialog.textContent).toContain(
-            "You're still sending. If you close now, the transfer stops and the other side gets nothing. Your request link also stops working.",
-        );
+        // Two lines, never one run-on paragraph (D-167: no periods to part them).
+        expect(within(dialog).getByText('Closing now stops the transfer and they get nothing')).toBeTruthy();
+        expect(within(dialog).getByText('Your request link also stops working').tagName).toBe('P');
         expect(within(dialog).getByRole('button', {name: 'Keep going'})).toBeTruthy();
     });
 
@@ -1058,7 +1059,7 @@ describe('the request link in the app', () => {
         act(() => { (document.activeElement as HTMLElement | null)?.blur(); });
         await user.keyboard('{Control>}r{/Control}');
         const dialog = await screen.findByRole('dialog');
-        expect(within(dialog).getByText('Your request link stays open.')).toBeTruthy();
+        expect(within(dialog).getByText('Your request link stays open')).toBeTruthy();
         // Start over never touches the lane.
         await user.click(within(dialog).getByRole('button', {name: 'Start over'}));
         expect(wails.go.CloseRequestLink).not.toHaveBeenCalled();
@@ -1107,7 +1108,7 @@ describe('the request link in the app', () => {
         const hit = [...document.querySelectorAll('p, span, code, h2, div')].filter((e) => PILL.test((e.textContent || '').trim()));
         return hit.filter((e) => !hit.some((o) => o !== e && e.contains(o))).map((e) => (e.textContent || '').trim());
     }
-    const TIP2 = 'Hide my IP is on. Transfers go through the relay (capped at 2 GB).';
+    const TIP2 = 'Hide my IP limits transfers to 2 GB';
     const pause = (ms: number) => act(async () => { await new Promise((r) => setTimeout(r, ms)); });
 
     it('the chip word keeps an element of its own, with Hide my IP off and on', async () => {
@@ -1179,7 +1180,7 @@ describe('the request link in the app', () => {
         mount();
         await settled();
         push(lane('deciding', {gen: 2, promptGen: 1, prompt}));
-        const notice = await screen.findByRole('group', {name: 'Someone wants to send you files.'});
+        const notice = await screen.findByRole('group', {name: 'Someone wants to send you files'});
         const spans = [...document.querySelectorAll('span.sr-only[role="status"]')].map((s) => s.textContent);
         expect(spans).toContain('Request link: someone wants to send you files.');
         expect(wails.go.AnswerRequest).not.toHaveBeenCalled();
@@ -1200,7 +1201,7 @@ describe('the request link in the app', () => {
             mount();
             await settled();
             push(lane('deciding', {gen: 2, promptGen: 1, prompt}));
-            const notice = await screen.findByRole('group', {name: 'Someone wants to send you files.'});
+            const notice = await screen.findByRole('group', {name: 'Someone wants to send you files'});
             await user.click(within(notice).getByRole('button', {name: 'Review'}));
             await waitFor(() => expect(document.activeElement?.id).toBe('floe-request-prompt-heading'));
             expect(scrolled).toEqual([{id: 'floe-request-prompt-actions', arg: {block: 'nearest'}}]);
@@ -1292,7 +1293,7 @@ describe('the request link in the app', () => {
         const first = mount();
         await settled();
         await userEvent.click(receiveTab());
-        expect(await screen.findByText('Link stopped when Floe closed.')).toBeTruthy();
+        expect(await screen.findByText('Link ended when Floe closed')).toBeTruthy();
         expect(localStorage.getItem('floe:requestLinkOpenUntil')).toBeNull();
         first.unmount();
 
@@ -1302,7 +1303,7 @@ describe('the request link in the app', () => {
         await userEvent.click(receiveTab());
         await waitFor(() => expect(requestButton()).toBeTruthy());
         await userEvent.click(requestButton());
-        expect(screen.queryByText('Link stopped when Floe closed.')).toBeNull();
+        expect(screen.queryByText('Link ended when Floe closed')).toBeNull();
         expect(screen.getByRole('button', {name: 'Make link'})).toBeTruthy();
     });
 
@@ -1331,7 +1332,7 @@ describe('the request link in the app', () => {
         await user.click(screen.getByRole('button', {name: 'Make link'}));
         expect(wails.go.MakeRequestLink).toHaveBeenCalledWith('Acme footage', 'D:\\Footage\\Floe requests', '24h');
         // The stub refuses (FT-03): the disabled sentence, never a link.
-        expect(await screen.findByText('Request links are turned off on this server right now.')).toBeTruthy();
+        expect(await screen.findByText('Request links are off on this server')).toBeTruthy();
         expect(screen.queryByRole('button', {name: 'Copy link'})).toBeNull();
     });
 });
@@ -1528,7 +1529,7 @@ describe('snapshot order (D-115)', () => {
 
         expect(screen.queryByRole('button', {name: 'Accept'})).toBeNull();
         expect(screen.getByRole('button', {name: 'Cancel drop'})).toBeTruthy();
-        expect(screen.queryByRole('group', {name: 'Someone wants to send you files.'})).toBeNull();
+        expect(screen.queryByRole('group', {name: 'Someone wants to send you files'})).toBeNull();
     });
 });
 
@@ -1557,5 +1558,25 @@ describe('a webview reload', () => {
         // A different drop still gets its own row.
         act(() => { wails.emit('request:state', {...done, gen: 4, seq: 10, result: {...done.result, folder: folder + ' (2)'}}); });
         await waitFor(() => expect(JSON.parse(localStorage.getItem('floe:history') || '[]')).toHaveLength(2));
+    });
+});
+
+describe('the calm copy (D-167)', () => {
+    it('Send, Receive, Settings and History draw no line that ends in a period', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        expect(closingPeriods(document.body)).toEqual([]);
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
+        expect(closingPeriods(document.body)).toEqual([]);
+        await user.click(screen.getByRole('button', {name: 'History'}));
+        expect(await screen.findByText('No transfers yet')).toBeTruthy();
+        expect(closingPeriods(document.body)).toEqual([]);
+        cleanup();
+        mount();
+        await settled();
+        await user.click(screen.getByRole('button', {name: 'Settings'}));
+        await screen.findByLabelText('Server address');
+        expect(closingPeriods(document.body)).toEqual([]);
     });
 });

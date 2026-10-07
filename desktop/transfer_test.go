@@ -104,9 +104,9 @@ func TestRequireRelay(t *testing.T) {
 			if !strings.Contains(err.Error(), "Hide my IP") {
 				t.Errorf("error %q does not name the setting to turn off", err)
 			}
-			// errors.ts matches on this clause to pass the sentence through
-			// verbatim; see its PASSTHROUGH list.
-			if !strings.Contains(err.Error(), "needs a TURN relay") {
+			// errors.ts matches on these words to pass the sentence through
+			// verbatim; see its PASSTHROUGH list (D-167).
+			if !strings.Contains(err.Error(), "Hide my IP needs a relay") && !strings.Contains(err.Error(), "relay details for Hide my IP") {
 				t.Errorf("error %q lost the clause errors.ts anchors on", err)
 			}
 		})

@@ -41,16 +41,16 @@ func relayOpts(hideIP bool) []peer.Option {
 // connection", which errors.ts maps to advice about both devices being online.
 // They are online.
 //
-// Both open with the same clause, which is what errors.ts PASSTHROUGH anchors
-// on to print them verbatim.
+// errors.ts PASSTHROUGH anchors on each one's wording ("Hide my IP needs a
+// relay", "relay details for Hide my IP") to print them verbatim.
 var (
-	errNoRelay = errors.New("Hide my IP needs a TURN relay and this server has none. Turn off Hide my IP, or add a relay to the server.")
+	errNoRelay = errors.New("Hide my IP needs a relay this server doesn't have")
 	// The server answered with nothing usable, or did not answer at all, so
 	// this side fell back to public STUN and cannot say what the server offers.
 	// Blaming its configuration would be a confident guess: the common causes
 	// are a wrong address, a reverse proxy not forwarding /api/, and the TURN
 	// endpoint's own rate limiter.
-	errRelayUnknown = errors.New("Hide my IP needs a TURN relay, and this server's connection details could not be read. Check the server address, or turn off Hide my IP.")
+	errRelayUnknown = errors.New("Couldn't read this server's relay details for Hide my IP")
 )
 
 // requireRelay is the transfer-time half of the Settings probe's relay check.
@@ -234,7 +234,7 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 		fail(fmt.Errorf("server error: %s", errMsg))
 		return
 	}
-	emit("send:status", "Peer connected. Sending...")
+	emit("send:status", "Sending...")
 
 	// A peer is connected: keep the machine awake through WebRTC setup and the
 	// data transfer. Placed here, not at the top, so the unbounded wait for a
@@ -303,9 +303,9 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 		fail(fmt.Errorf("transfer failed: %w", err))
 		return
 	}
-	emit("send:done", "Files sent successfully.")
+	emit("send:done", "Files sent")
 	if a.transferActive(g) {
-		a.notify("Floe", "Files sent successfully.")
+		a.notify("Floe", "Files sent")
 	}
 }
 
@@ -482,7 +482,7 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 	}
 
 	if a.transferActive(g) {
-		a.notify("Floe", "Files received.")
+		a.notify("Floe", "Files received")
 	}
 	return absOutput, nil
 }

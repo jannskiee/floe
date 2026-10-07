@@ -112,8 +112,8 @@ type Mode = 'send' | 'receive' | 'history';
 
 // Initial status lines, shared by the useState initializers and Start-over so
 // a reset lands on the exact same copy a fresh launch shows.
-const INITIAL_SEND_STATUS = 'Select or drag files, then click Send.';
-const INITIAL_RECV_STATUS = 'Enter a code or link, then click Receive.';
+const INITIAL_SEND_STATUS = 'Select or drag files, then click Send';
+const INITIAL_RECV_STATUS = 'Enter a code or link, then click Receive';
 
 // The hidden H2 line the Receive tab points its aria-describedby at.
 const RECEIVE_DESCRIPTION_ID = 'floe-receive-link-open';
@@ -463,7 +463,7 @@ function App() {
         try {
             await saveSettings();
             const r = await TestServer(serverAddrRef.current.trim());
-            setTestStatus(r.ok ? (r.message || 'Connected.') : 'Error: ' + r.message);
+            setTestStatus(r.ok ? (r.message || 'Connected') : 'Error: ' + r.message);
         } catch (e) {
             setTestStatus('Error: ' + e);
         } finally {
@@ -481,7 +481,7 @@ function App() {
     // is registered once and cannot see current state.
     function serverNote(): string {
         const s = serverAddrRef.current.trim();
-        return s ? ` This app uses ${hostOf(s)}. Both people must be on the same server.` : '';
+        return s ? ` · Both people must use ${hostOf(s)}` : '';
     }
 
     // Copies the About rows for pasting into a bug report. Mirrors SharePanel's
@@ -573,7 +573,7 @@ function App() {
         serverAddrRef.current = '';
         webAddrRef.current = '';
         setConfirmDefaults(false);
-        setResetDone('Settings are back to their defaults.');
+        setResetDone('Settings reset to defaults');
         focusResetTrigger();
     }
 
@@ -606,13 +606,14 @@ function App() {
             if (sendCancel.current) return;
             setSendCode(data.code);
             setSendLink(data.link);
-            setSendStatus('Waiting for the receiver...');
+            setSendStatus('Waiting for the receiver');
         });
         EventsOn('send:status', (msg: string) => {
             if (sendCancel.current) return;
             setSendStatus(msg);
-            // The only send:status today is "Peer connected. Sending..." — it marks
-            // the moment the room is consumed and the share panel can collapse.
+            // The only send:status today is "Sending..." (D-167; it was "Peer
+            // connected. Sending..."), and it marks the moment the room is
+            // consumed and the share panel can collapse.
             setPeerConnected(true);
         });
         EventsOn('send:progress', (p: Prog) => {
@@ -1292,7 +1293,7 @@ function App() {
         setSendDone(false);
         // Blanked for the same reason every staging path blanks it: whatever it
         // said was about a payload that no longer exists. Without this, a
-        // "Canceled." from an earlier send would reappear when the offer went.
+        // "Canceled" from an earlier send would reappear when the offer went.
         setSendStatus('');
         setCleared(snap);
         setOfferUp(true);
@@ -1343,11 +1344,11 @@ function App() {
     async function send() {
         if (sendKind === 'text') {
             if (!sendText.trim()) {
-                setSendStatus('Type some text first.');
+                setSendStatus('Type some text to send');
                 return;
             }
         } else if (!files.length) {
-            setSendStatus('Select at least one file first.');
+            setSendStatus('Add a file to send');
             return;
         }
         // Nothing is discarded here, and the reason is worth stating because the
@@ -1393,7 +1394,7 @@ function App() {
 
     async function receive() {
         if (!code.trim()) {
-            setRecvStatus('Please enter a code or link.');
+            setRecvStatus('Enter a code or link');
             return;
         }
         // A request or drop link is for a web browser: say so and offer to
@@ -1420,7 +1421,7 @@ function App() {
         recvStart.current = null;
         recvNamesRef.current = new Map();
         recvBytesRef.current = 0;
-        setRecvStatus('Connecting... keep this window open.');
+        setRecvStatus('Connecting...');
         try {
             const dir = await ReceiveByCode(code.trim(), output.trim(), hideIP, reportStats);
             if (recvAttempt.current !== attempt) return;
@@ -1431,7 +1432,7 @@ function App() {
             setHistory((prev) => [{kind: 'recv' as const, names, count: names.length, dir, bytes: recvBytesRef.current || undefined, at: Date.now()}, ...prev].slice(0, HISTORY_CAP));
         } catch (e: any) {
             if (recvAttempt.current !== attempt) return;
-            setRecvStatus(recvCancel.current ? 'Canceled.' : friendlyError(e) + serverNote());
+            setRecvStatus(recvCancel.current ? 'Canceled' : friendlyError(e) + serverNote());
         } finally {
             if (recvAttempt.current !== attempt) return;
             setReceiving(false);
@@ -1468,7 +1469,7 @@ function App() {
             setSendLink('');
             setPeerConnected(false);
             setFilesOpen(false);
-            setSendStatus('Canceled.');
+            setSendStatus('Canceled');
         }
         setRoute('');
         if (receiving) {
@@ -1477,7 +1478,7 @@ function App() {
             setRecvProg(null);
             setRecvDone(false);
             setIncoming('');
-            setRecvStatus('Canceled.');
+            setRecvStatus('Canceled');
         }
         CancelTransfer().catch(() => {});
     }
@@ -1655,7 +1656,7 @@ function App() {
     // other state shows nothing on hover, because the word says it all. The
     // same sentence rides a screen-reader twin beside the word, and the Ready
     // form and Settings say it in visible text (WCAG 1.4.1).
-    const statusNote = !moving && hideIP ? 'Hide my IP is on. Transfers go through the relay (capped at 2 GB).' : '';
+    const statusNote = !moving && hideIP ? 'Hide my IP limits transfers to 2 GB' : '';
     // The Receive tab's description while a link waits (H2): the header no
     // longer carries a marker for it, so a screen reader hears it on the tab
     // that leads to the link. Not while a drop moves: the chip says that.
@@ -1925,7 +1926,7 @@ function App() {
                                         <SettingField
                                             htmlFor="floe-save-folder"
                                             label="Save received files to"
-                                            description="Everything you receive is saved here. Leave it blank to use your Downloads folder."
+                                            description="Received files go here, or to Downloads if blank"
                                             className="px-3.5 py-3"
                                         >
                                             {(ids) => (
@@ -1999,13 +2000,13 @@ function App() {
                                             checked={hideIP}
                                             onChange={(v) => { setHideIP(v); void saveSettings({hideIP: v}); }}
                                             label="Hide my IP address"
-                                            description="The other person never sees your IP. Transfers go through a relay, so they are slower and capped at 2 GB."
+                                            description="Hides your IP with a relay, slower and capped at 2 GB"
                                         />
                                         <SettingRow
                                             checked={reportStats}
                                             onChange={(v) => { setReportStats(v); void saveSettings({reportStats: v}); }}
                                             label="Contribute to global stats"
-                                            description="Each transfer you receive adds its size to a public total. Floe never sends file names or contents."
+                                            description="Adds the size of what you receive to a public total, never names or contents"
                                         />
                                         {/* Hidden for Store installs: the Store updates the app
                                             itself and the Go side never checks there, so the
@@ -2015,7 +2016,7 @@ function App() {
                                                 checked={checkUpdates}
                                                 onChange={(v) => void toggleCheckUpdates(v)}
                                                 label="Check for updates"
-                                                description="Shows a notice when a new version is out. Asks GitHub once a day; off means no request at all."
+                                                description="Checks GitHub once a day for a new version"
                                             />
                                         )}
                                     </div>
@@ -2036,7 +2037,7 @@ function App() {
                                                 checked={ctxMenu}
                                                 onChange={toggleCtxMenu}
                                                 label="Show in right-click menu"
-                                                description="Right-click any file in File Explorer and pick Send with Floe. On Windows 11 it sits under Show more options."
+                                                description="Adds Send with Floe to the File Explorer right-click menu (under Show more options on Windows 11)"
                                             />
                                         </div>
                                     </section>
@@ -2091,7 +2092,7 @@ function App() {
                                                     <SettingField
                                                         htmlFor="floe-server-address"
                                                         label="Server address"
-                                                        description="This server introduces the two devices and never touches your files. Both people need to be on the same one."
+                                                        description="Both people must use the same server, which never sees your files"
                                                         className="px-3.5 py-3"
                                                     >
                                                         {(ids) => (
@@ -2120,7 +2121,7 @@ function App() {
                                                     <SettingField
                                                         htmlFor="floe-share-link-address"
                                                         label="Share link address"
-                                                        description="Set this only if your web app has its own address. Leave it blank and Floe uses the server address."
+                                                        description="Only needed if your web app has its own address"
                                                         className="px-3.5 py-3"
                                                     >
                                                         {(ids) => (
@@ -2138,7 +2139,7 @@ function App() {
                                                     </SettingField>
                                                     {usingCustomServer && (
                                                         <div className="flex items-center justify-between gap-4 px-3.5 py-2.5 animate-floe-in motion-reduce:animate-none">
-                                                            <span className="text-xs leading-4 text-zinc-500">This removes both addresses and returns the app to api.floe.one.</span>
+                                                            <span className="text-xs leading-4 text-zinc-500">Removes both addresses and goes back to api.floe.one</span>
                                                             <Button variant="outline" className="h-7 shrink-0 text-xs" onClick={useFloeServer}>
                                                                 Use default server
                                                             </Button>
@@ -2189,7 +2190,7 @@ function App() {
                                                 invites the hover. */}
                                             {/* Not "must match": CheckCompat is a range-overlap test,
                                                 not equality, so compatible versions can differ. */}
-                                            <Tooltip label="Both devices need compatible versions. Update the older app if a transfer will not start.">
+                                            <Tooltip label="If a transfer won't start, update the older app">
                                                 <span className={cn(aboutLabelClass, 'cursor-default underline decoration-dotted decoration-zinc-600 underline-offset-4')}>Transfer protocol</span>
                                             </Tooltip>
                                             <span className={aboutValueClass}>{proto == null ? '...' : `Version ${proto}`}</span>
@@ -2215,7 +2216,7 @@ function App() {
                                             </div>
                                         )}
                                         <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
-                                            <span className="text-xs leading-4 text-zinc-500">These are the details to include in a bug report.</span>
+                                            <span className="text-xs leading-4 text-zinc-500">Include these in a bug report</span>
                                             <Button variant="outline" className="h-7 shrink-0 text-xs" onClick={copyAbout}>
                                                 {aboutCopied ? 'Copied' : 'Copy'}
                                             </Button>
@@ -2253,23 +2254,23 @@ function App() {
                     <div className="relative flex flex-1 flex-col justify-center px-9 py-8">
                         <Eyebrow tone="ice">Peer to peer</Eyebrow>
                         <h1 className="mt-4 text-[28px] font-semibold leading-[1.1] tracking-tight text-white">
-                            Send anything,<br/>peer to peer.
+                            Send anything,<br/>peer to peer
                         </h1>
                         <p className="mt-3.5 text-sm leading-relaxed text-zinc-400">
                             {/* "no uploads", not "no middleman": a relayed
                                 transfer does pass through a TURN relay (bullet
                                 01 admits as much), while nothing is uploaded
                                 on any path. Matches docs/introduction.mdx. */}
-                            End-to-end encrypted. No accounts,<br/>no storage, no uploads.
+                            End-to-end encrypted,<br/>no accounts, no storage, no uploads
                         </p>
 
                         <div className="mt-10 space-y-6">
                             {[
-                                {n: '01', title: 'Direct & unlimited', note: 'Direct transfers stream device to device with no size cap. Relay fallback is capped at 2 GB.'},
+                                {n: '01', title: 'Direct & unlimited', note: 'Device to device with no size cap, 2 GB through a relay'},
                                 // DTLS alone: data channels are SCTP over DTLS. SRTP carries
                                 // media, which Floe never sends.
-                                {n: '02', title: 'End-to-end encrypted', note: 'DTLS, the same as a video call.'},
-                                {n: '03', title: 'Nothing is stored', note: 'The server only brokers the handshake.'},
+                                {n: '02', title: 'End-to-end encrypted', note: 'DTLS, the same as a video call'},
+                                {n: '03', title: 'Nothing is stored', note: 'The server only brokers the handshake'},
                             ].map(({n, title, note}) => (
                                 <div key={n} className="border-l border-white/10 pl-5">
                                     <span className="font-mono text-xs text-zinc-600">{n}</span>
@@ -2661,26 +2662,26 @@ function App() {
                     >
                         <h2 id="floe-reset-title" className="text-sm font-semibold text-white">Reset all settings?</h2>
                         <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">
-                            Your save folder, notifications, the privacy switches and the server addresses go back to the way Floe shipped.
+                            Save folder, notifications, privacy and server settings go back to defaults
                         </p>
-                        {/* Names what the user will actually notice. The path is the
-                            thing they cannot retype from memory, so it is shown in
-                            full rather than summarised. */}
-                        {(output.trim() !== '' || !reportStats) && (
+                        {/* Names what the user will actually notice, one line
+                            each (D-167). The path is the thing they cannot retype
+                            from memory, so it is shown in full rather than
+                            summarised. */}
+                        {output.trim() !== '' && (
                             <p className="mt-2 text-xs leading-relaxed text-zinc-400">
-                                {output.trim() !== '' && (
-                                    <>Floe will forget <span className="break-all font-mono text-zinc-300">{output.trim()}</span> and save to your Downloads folder again.</>
-                                )}
-                                {output.trim() !== '' && !reportStats && ' '}
-                                {!reportStats && (
-                                    <>Floe will {output.trim() !== '' ? 'also ' : ''}start adding the size of transfers you receive to the public total again.</>
-                                )}
+                                Received files go to Downloads again, not <span className="break-all font-mono text-zinc-300">{output.trim()}</span>
                             </p>
                         )}
+                        {!reportStats && (
+                            <p className="mt-2 text-xs leading-relaxed text-zinc-400">Contribute to global stats turns back on</p>
+                        )}
                         {/* The exclusions, stated rather than left to be discovered.
-                            An unstated exclusion is what makes a reset feel dishonest. */}
+                            An unstated exclusion is what makes a reset feel dishonest.
+                            The right-click menu lives in Windows rather than in
+                            Floe, so a reset leaves it too. */}
                         <p className="mt-2 text-xs leading-relaxed text-zinc-500">
-                            Your transfer history and the files you have already received are left alone{isWindows ? ', and so is your right-click menu, because that entry lives in Windows rather than in Floe' : ''}.
+                            {isWindows ? 'History, received files and the right-click menu stay as they are' : 'History and received files stay as they are'}
                         </p>
                         <StatusLine text={resetErr} busy={false}/>
                         <div className="mt-4 flex justify-end gap-2">
@@ -2740,18 +2741,19 @@ function App() {
                         <h2 id="floe-close-title" className="text-sm font-semibold text-white">Close Floe?</h2>
                         <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">
                             {sending
-                                ? "You're still sending. If you close now, the transfer stops and the other side gets nothing."
+                                ? 'Closing now stops the transfer and they get nothing'
                                 : receiving
-                                    ? "You're still receiving. If you close now, the transfer stops before the files finish."
+                                    ? 'Closing now stops the transfer before the files finish'
                                     : dropMoving
                                         ? CLOSE_DROP_RECEIVING_LINE
                                         : laneLive
                                             ? CLOSE_LINK_OPEN_LINE
-                                            : 'A transfer is still running. Closing Floe will stop it.'}
-                            {/* A Send or code Receive plus an open link: the
-                                transfer sentence and its buttons, then CL5. */}
-                            {busy && laneLive && ` ${CLOSE_LINK_ALSO_LINE}`}
+                                            : 'Closing Floe stops the transfer'}
                         </p>
+                        {/* A Send or code Receive plus an open link: the
+                            transfer sentence, then CL5 on its own line (D-167:
+                            with no periods, one paragraph would run them together). */}
+                        {busy && laneLive && <p className="mt-2 text-xs leading-relaxed text-zinc-400">{CLOSE_LINK_ALSO_LINE}</p>}
                         <div className="mt-4 flex justify-end gap-2">
                             <Button variant="outline" autoFocus onClick={() => { setCloseGuard(false); focusLockup(); }}>
                                 {!busy && !dropMoving && laneLive ? KEEP_FLOE_OPEN : 'Keep going'}
