@@ -230,6 +230,9 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         // A title and a question, drawn on two lines (D-167: no period between them).
         expect(`${c.RENAMED_CONFIRM_TITLE} / ${c.RENAMED_CONFIRM_QUESTION}`).toBe(approved('DN8'));
         expect(`${c.CANCEL} / ${c.SHOW_IN_FOLDER}`).toBe(approved('DN9'));
+        // The saved files list (D-171): the line past five rows, and the list's name.
+        expect(c.moreFiles(3)).toBe(approved('DN12'));
+        expect(c.RECEIVED_FILES_LABEL).toBe(approved('DN13'));
     });
 
     it('Stopped rows match byte for byte, card body and History form', () => {

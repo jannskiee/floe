@@ -38,6 +38,7 @@ export namespace main {
 	    renamed: number;
 	    folder: string;
 	    names: string[];
+	    sizes: number[];
 	    noNamedStreams: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -53,6 +54,7 @@ export namespace main {
 	        this.renamed = source["renamed"];
 	        this.folder = source["folder"];
 	        this.names = source["names"];
+	        this.sizes = source["sizes"];
 	        this.noNamedStreams = source["noNamedStreams"];
 	    }
 	}

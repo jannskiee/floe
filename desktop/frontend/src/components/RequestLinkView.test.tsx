@@ -938,3 +938,72 @@ describe('the calm copy (D-167)', () => {
         expect(closingPeriods(container)).toEqual([]);
     });
 });
+
+describe('the saved files on Done and Stopped (D-171)', () => {
+    const KB = 1024;
+    const MB = 1024 ** 2;
+    const seven = {
+        ...result, files: 7, saved: 7,
+        names: ['report.pdf', 'photos/beach-01.jpg', 'a.txt', 'b.txt', 'c.txt', 'd.txt', 'e.txt'],
+        sizes: [10.2 * MB, 2.1 * MB, KB, 0, 2, 3, 4],
+    };
+
+    it('lists each saved file with its size, at most five, then + N more, in a box whose footer is the folder', () => {
+        render(<RequestLinkView {...at('done', {snap: snap({state: 'done', result: seven})})}/>);
+        const list = screen.getByRole('list', {name: 'Received files'});
+        const items = within(list).getAllByRole('listitem');
+        expect(items.map((li) => li.textContent)).toEqual(['report.pdf10.2 MB', 'photos\\beach-01.jpg2.1 MB', 'a.txt1.0 KB', 'b.txt0 B', 'c.txt2 B']);
+        expect(screen.getByText('+ 2 more')).toBeTruthy();
+        const box = list.parentElement!;
+        expect(box.className.split(' ')).toEqual(expect.arrayContaining(['rounded-md', 'border', 'border-white/10']));
+        // The folder row is the box's footer, with Show in folder in it.
+        const footer = box.lastElementChild!;
+        expect(within(footer as HTMLElement).getByRole('button', {name: 'Show in folder'})).toBeTruthy();
+        expect(footer.className.split(' ')).toContain('border-t');
+        // A stranger's files: no Open, only Show in folder.
+        expect(screen.queryByRole('button', {name: /^Open$/})).toBeNull();
+        // Heading, then the box, then Make another link.
+        const heading = screen.getByText(/^RECEIVED 7 FILES, /);
+        const another = screen.getByRole('button', {name: 'Make another link'});
+        expect(heading.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(box.compareDocumentPosition(another) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('cuts a long name in the middle so its real ending shows, with the whole name as the title', () => {
+        const long = `invoice-${'x'.repeat(60)}.pdf.exe`;
+        render(<RequestLinkView {...at('done', {snap: snap({state: 'done', result: {...result, files: 1, saved: 1, names: [long], sizes: [5]}})})}/>);
+        const row = within(screen.getByRole('list', {name: 'Received files'})).getByRole('listitem');
+        const name = row.firstElementChild as HTMLElement;
+        expect(name.textContent!.endsWith('.pdf.exe')).toBe(true);
+        expect(name.textContent!.length).toBeLessThan(long.length);
+        expect(name.getAttribute('title')).toBe(long);
+    });
+
+    it('shows a visitor name as text only, and a row without a size shows none', () => {
+        const names = [...HOSTILE];
+        const {container} = render(<RequestLinkView {...at('done', {snap: snap({state: 'done', result: {...result, files: 4, saved: 4, names}})})}/>);
+        const items = within(screen.getByRole('list', {name: 'Received files'})).getAllByRole('listitem');
+        expect(items.map((li) => li.textContent)).toEqual(names);
+        expect(container.querySelector('img')).toBeNull();
+    });
+
+    it('Stopped lists the files that were saved, under the stop sentence', () => {
+        const stopped = snap({state: 'stopped', code: 'disk-full', result: {...result, files: 12, saved: 2, names: ['a.mov', 'b.mov'], sizes: [MB, 2 * MB]}});
+        render(<RequestLinkView {...at('stopped', {snap: stopped})}/>);
+        const line = screen.getByText('The drive ran out of space · 2 of 12 files saved');
+        const list = screen.getByRole('list', {name: 'Received files'});
+        expect(within(list).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['a.mov1.0 MB', 'b.mov2.0 MB']);
+        expect(line.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        // + N more counts saved files past the list, not the ones never sent.
+        expect(screen.queryByText(/more$/)).toBeNull();
+    });
+
+    it('a save-blocked stop with nothing saved keeps the folder row alone in the box', () => {
+        const blocked = snap({state: 'stopped', code: 'save-blocked', result: {...result, files: 1, saved: 0, names: [], sizes: []}});
+        render(<RequestLinkView {...at('stopped', {snap: blocked})}/>);
+        expect(screen.queryByRole('list', {name: 'Received files'})).toBeNull();
+        const btn = screen.getByRole('button', {name: 'Show in folder'});
+        expect(btn.parentElement!.parentElement!.className.split(' ')).toContain('rounded-md');
+        expect(btn.parentElement!.className.split(' ')).not.toContain('border-t');
+    });
+});

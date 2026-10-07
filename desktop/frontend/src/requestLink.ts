@@ -97,6 +97,10 @@ export interface RequestResult {
     noNamedStreams?: boolean;
     folder: string;
     names: string[];
+    /** One per name, in the same order: the bytes committed for that file
+     *  (D-171), or -1 where Go sent none (that row shows no size). Optional
+     *  so the fixtures that build a result by hand need not all name it. */
+    sizes?: number[];
 }
 
 /** What the REQUEST LINK view shows: the Go states, where a Make link click in
@@ -241,10 +245,27 @@ export function normalizeSnapshot(raw: unknown): RequestLinkSnapshot {
             renamed: num(res.renamed),
             noNamedStreams: res.noNamedStreams !== false,
             folder: str(res.folder),
-            names: Array.isArray(res.names) ? res.names.filter((n): n is string => typeof n === 'string') : [],
+            ...namesAndSizes(res.names, res.sizes),
         };
     }
     return out;
+}
+
+/** namesAndSizes keeps the saved names that are strings and, beside each, its
+ *  size from the same index: a finite number of zero or more, else -1. A junk
+ *  name drops with its size, so the two never fall out of step (D-171). */
+function namesAndSizes(rawNames: unknown, rawSizes: unknown): {names: string[]; sizes: number[]} {
+    const names: string[] = [];
+    const sizes: number[] = [];
+    const ns = Array.isArray(rawNames) ? rawNames : [];
+    const ss = Array.isArray(rawSizes) ? rawSizes : [];
+    ns.forEach((n, i) => {
+        if (typeof n !== 'string') return;
+        const s = ss[i];
+        names.push(n);
+        sizes.push(typeof s === 'number' && Number.isFinite(s) && s >= 0 ? s : -1);
+    });
+    return {names, sizes};
 }
 
 /** reduce is the frontend lane state machine (spec 06 6.3). */

@@ -111,6 +111,8 @@ type RequestPrompt struct {
 
 // RequestResult is the outcome of an accepted drop. Names are the engine's
 // display-safe saved names, at most 200 of them; Files keeps the real count.
+// Sizes runs beside Names, one committed size per name (D-171: the Done card
+// lists each file with its size).
 type RequestResult struct {
 	Files    int      `json:"files"`    // files the visitor offered
 	Saved    int      `json:"saved"`    // files committed to disk
@@ -119,6 +121,7 @@ type RequestResult struct {
 	Renamed  int      `json:"renamed"`  // files renamed to .floe-blocked
 	Folder   string   `json:"folder"`   // the absolute exclusive subfolder
 	Names    []string `json:"names"`
+	Sizes    []int64  `json:"sizes"` // bytes committed for each name, in the same order
 
 	// NoNamedStreams is false only when the save volume positively answered
 	// that it can carry the Windows downloaded-file mark (a Zone.Identifier
@@ -412,6 +415,7 @@ func (l *requestLane) snapshotLocked() RequestLinkSnapshot {
 	if l.result != nil {
 		r := *l.result
 		r.Names = append([]string{}, l.result.Names...)
+		r.Sizes = append([]int64{}, l.result.Sizes...)
 		s.Result = &r
 	}
 	return s

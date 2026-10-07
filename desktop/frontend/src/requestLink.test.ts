@@ -395,3 +395,14 @@ describe('the request lane selectors', () => {
         });
     });
 });
+
+describe('the saved files beside their sizes (D-171)', () => {
+    it('normalizeSnapshot keeps sizes beside names, and a junk name drops with its size', () => {
+        const s = normalizeSnapshot({state: 'done', result: {saved: 3, names: ['a', 7, 'b', 'c'], sizes: [1, 2, 'x', -5]}});
+        expect(s.result!.names).toEqual(['a', 'b', 'c']);
+        expect(s.result!.sizes).toEqual([1, -1, -1]);
+        // A result without sizes (an older build) reads -1 for every name.
+        expect(normalizeSnapshot({state: 'done', result: {names: ['a', 'b']}}).result!.sizes).toEqual([-1, -1]);
+        expect(normalizeSnapshot({state: 'done', result: {names: 'a', sizes: 3}}).result!).toMatchObject({names: [], sizes: []});
+    });
+});

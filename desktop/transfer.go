@@ -1122,6 +1122,7 @@ type dropTally struct {
 	verified int
 	renamed  int
 	names    []string
+	sizes    []int64
 }
 
 // add records one committed file. SavedName is the engine's on-disk name,
@@ -1139,6 +1140,9 @@ func (t *dropTally) add(d transfer.FileDone) {
 	}
 	if len(t.names) < requestResultNames {
 		t.names = append(t.names, d.SavedName)
+		// The committed, verified bytes: this side's own fact, never the
+		// visitor's claim.
+		t.sizes = append(t.sizes, d.Bytes)
 	}
 }
 
@@ -1155,7 +1159,7 @@ func (t *dropTally) result(files int, folder string) RequestResult {
 	defer t.mu.Unlock()
 	return RequestResult{
 		Files: files, Saved: t.saved, Bytes: t.bytes, Verified: t.verified, Renamed: t.renamed,
-		Folder: folder, Names: append([]string{}, t.names...),
+		Folder: folder, Names: append([]string{}, t.names...), Sizes: append([]int64{}, t.sizes...),
 	}
 }
 

@@ -1503,6 +1503,39 @@ func TestRequestResultNamesCapped(t *testing.T) {
 	}
 }
 
+// TestRequestResultSizesBesideNames (D-171): every kept name has its committed
+// size at the same index, under the same cap, and the JSON carries them.
+func TestRequestResultSizesBesideNames(t *testing.T) {
+	var tally dropTally
+	for i := 0; i < 203; i++ {
+		tally.add(transfer.FileDone{SavedName: fmt.Sprintf("f%03d.txt", i), Bytes: int64(i * 3), Verified: true})
+	}
+	r := tally.result(203, "D:\\x")
+	if len(r.Sizes) != len(r.Names) || len(r.Sizes) != 200 {
+		t.Fatalf("sizes %d names %d, want 200 each", len(r.Sizes), len(r.Names))
+	}
+	for i, n := range r.Sizes {
+		if n != int64(i*3) {
+			t.Fatalf("size %d = %d, want %d (the file's own committed bytes)", i, n, i*3)
+		}
+	}
+	b, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"sizes":[0,3,6,`) {
+		t.Fatalf("JSON carries no sizes: %s", b[:120])
+	}
+	// A snapshot copy does not share the slice with the lane.
+	l := &requestLane{state: "done", result: &r}
+	l.result.Sizes[0] = 0
+	s := l.snapshotLocked()
+	s.Result.Sizes[0] = 99
+	if l.result.Sizes[0] != 0 {
+		t.Fatal("the snapshot's sizes alias the lane's")
+	}
+}
+
 // TestVolumeLacksMarkFailsSafe (S-7): the Done view's not-scanned line stays
 // unless the volume positively says it carries named streams. A volume that
 // says no, and one that could not be asked at all (an error beside a yes is

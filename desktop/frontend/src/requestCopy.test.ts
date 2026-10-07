@@ -342,3 +342,21 @@ describe('the whole table', () => {
         expect(all.match(/\.part\b/g) ?? []).toHaveLength(all.split(copy.SAVE_BLOCKED_KEPT_LINE).length - 1);
     });
 });
+
+describe('the saved files list (D-171)', () => {
+    it('fileRows keeps five rows at most, writes Windows separators, sizes each row and counts the rest', () => {
+        const r = {saved: 8, names: ['a/b/c.txt', 'd.txt', 'e.txt', 'f.txt', 'g.txt', 'h.txt'], sizes: [2048, -1, 0, 1, 2, 3]};
+        const {rows, more} = copy.fileRows(r);
+        expect(rows.map((x) => x.name)).toEqual(['a\\b\\c.txt', 'd.txt', 'e.txt', 'f.txt', 'g.txt']);
+        expect(rows.map((x) => x.size)).toEqual(['2.0 KB', '', '0 B', '1 B', '2 B']);
+        expect(rows[0].full).toBe('a\\b\\c.txt');
+        // Names past the 200 Go keeps still count: the rest is saved minus shown.
+        expect(more).toBe(3);
+        expect(copy.moreFiles(more)).toBe('+ 3 more');
+    });
+
+    it('fileRows: no sizes at all, and an empty list', () => {
+        expect(copy.fileRows({saved: 1, names: ['a.txt']}).rows).toEqual([{name: 'a.txt', full: 'a.txt', size: ''}]);
+        expect(copy.fileRows({saved: 0, names: []})).toEqual({rows: [], more: 0});
+    });
+});

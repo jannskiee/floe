@@ -48,7 +48,6 @@ const DONE_FOLDER_MAX = 34;
 // beside Browse; QA-H6 capture 11 fit 40 characters of a typical path in
 // 14 px Geist (6.75 px each), so 36 leaves room for wider letters.
 const SAVE_TO_MAX = 36;
-// The quiet right-rail text action (Dismiss), the History row's Remove look.
 
 export interface RequestLinkViewProps {
     phase: Phase;
@@ -501,6 +500,7 @@ function Result({phase, snap, onMakeAnother, onShowInFolder}: RequestLinkViewPro
     // Show in folder asks first after renames (DN8): Explorer parses some file
     // types by itself, and the renamed count is the warning that survives.
     const show = () => { if (r.renamed > 0) setConfirming(true); else onShowInFolder(r.folder); };
+    const files = copy.fileRows(r);
     return (
         <div className="space-y-4">
             {/* The check trails the heading, so the heading keeps its left
@@ -512,18 +512,7 @@ function Result({phase, snap, onMakeAnother, onShowInFolder}: RequestLinkViewPro
                 <p className={cn(headClass, 'leading-7')}>{done ? copy.doneHeading(r.saved, r.bytes) : copy.STOPPED_HEADING}</p>
                 {done && copy.verifiedAll(r) && <VerifiedMark className="size-3.5"/>}
             </div>
-            {done ? (
-                // Nothing here on a normal save: DN5 returns only where the
-                // save volume cannot carry the downloaded-file mark (S-7), and
-                // the renamed line only after renames, so an empty group is
-                // never drawn.
-                (r.renamed > 0 || r.noNamedStreams) && (
-                    <div className="space-y-2">
-                        {r.renamed > 0 && <p className={warnClass}>{copy.renamedLine(r.renamed)}</p>}
-                        {r.noNamedStreams && <p className={t2Class}>{copy.NOT_SCANNED_LINE}</p>}
-                    </div>
-                )
-            ) : (
+            {!done && (
                 // The stop and, for save-blocked, the kept file are one
                 // statement: one group, 8 px apart.
                 <div className="space-y-2">
@@ -532,15 +521,47 @@ function Result({phase, snap, onMakeAnother, onShowInFolder}: RequestLinkViewPro
                     {copy.keptPartLine(snap.code) && <p className={t1Class}>{copy.keptPartLine(snap.code)}</p>}
                 </div>
             )}
-            {showFolder && (
-                <div className="flex min-w-0 items-center justify-between gap-3">
-                    {/* The drop's own folder name, cut in the middle so its
-                        timestamp stays; the full path is shown nowhere else, so
-                        it is always the title. */}
-                    <span className="truncate font-mono text-xs text-zinc-300" title={r.folder}>{shortPath(copy.folderName(r.folder), DONE_FOLDER_MAX)}</span>
-                    <Button variant="outline" className="h-[30px] shrink-0 text-xs" onClick={show}>
-                        <FolderOpen/> {copy.SHOW_IN_FOLDER}
-                    </Button>
+            {/* What arrived and where it went, as one unit (D-171, layout A):
+                the saved files with their sizes, then the drop's folder as
+                the box's footer. No per-row icon and no Open: these are a
+                stranger's files, and Show in folder is the one way in. */}
+            {(files.rows.length > 0 || showFolder) && (
+                <div className="overflow-hidden rounded-md border border-white/10">
+                    {files.rows.length > 0 && (
+                        <ul aria-label={copy.RECEIVED_FILES_LABEL} className="divide-y divide-white/[0.04]">
+                            {files.rows.map((f, i) => (
+                                <li key={i} className="flex items-baseline justify-between gap-3 px-3 py-2">
+                                    {/* A visitor's file name, as text only. */}
+                                    <span className="min-w-0 truncate text-sm text-zinc-200" title={f.full}>{f.name}</span>
+                                    {f.size && <span className="shrink-0 text-xs tabular-nums text-zinc-500">{f.size}</span>}
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                    {files.more > 0 && (
+                        <p className="border-t border-white/[0.04] px-3 py-2 text-xs text-zinc-500">{copy.moreFiles(files.more)}</p>
+                    )}
+                    {showFolder && (
+                        <div className={cn('flex min-w-0 items-center justify-between gap-3 px-3 py-2', files.rows.length > 0 && 'border-t border-white/10')}>
+                            {/* The drop's own folder name, cut in the middle so its
+                                timestamp stays; the full path is shown nowhere else, so
+                                it is always the title. */}
+                            <span className="truncate font-mono text-xs text-zinc-300" title={r.folder}>{shortPath(copy.folderName(r.folder), DONE_FOLDER_MAX)}</span>
+                            <Button variant="outline" className="h-[30px] shrink-0 text-xs" onClick={show}>
+                                <FolderOpen/> {copy.SHOW_IN_FOLDER}
+                            </Button>
+                        </div>
+                    )}
+                </div>
+            )}
+            {done && (r.renamed > 0 || r.noNamedStreams) && (
+                // Under the list they qualify: DN5 returns only where the save
+                // volume cannot carry the downloaded-file mark (S-7), and the
+                // renamed line only after renames, so an empty group is never
+                // drawn.
+                <div className="space-y-2">
+                    {r.renamed > 0 && <p className={warnClass}>{copy.renamedLine(r.renamed)}</p>}
+                    {r.noNamedStreams && <p className={t2Class}>{copy.NOT_SCANNED_LINE}</p>}
                 </div>
             )}
             {/* The one way out of a result (D-169). Outline, not white: the
