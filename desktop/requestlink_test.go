@@ -451,7 +451,7 @@ func waitState(t *testing.T, a *App, d time.Duration, state string) RequestLinkS
 // makeWaiting makes a link against f and waits until it is waiting.
 func makeWaiting(t *testing.T, a *App) RequestLinkSnapshot {
 	t.Helper()
-	a.MakeRequestLink("Acme footage", t.TempDir(), "24h")
+	a.MakeRequestLink("Acme footage", t.TempDir(), "24h", false)
 	return waitState(t, a, 10*time.Second, "waiting")
 }
 
@@ -582,7 +582,7 @@ func TestRequestLaneLeavesTransferSlotAlone(t *testing.T) {
 	a.RetryRequestLink()
 	a.CancelRequestDrop()
 	a.CloseRequestLink()
-	a.MakeRequestLink("again", t.TempDir(), "7d")
+	a.MakeRequestLink("again", t.TempDir(), "7d", false)
 	waitState(t, a, 10*time.Second, "waiting")
 	a.CloseRequestLink()
 
@@ -601,7 +601,7 @@ func TestMakeRequestLinkNeedsNoSwitch(t *testing.T) {
 	f := newFakeSignalServer(t)
 	a, _ := laneApp(t, f)
 	a.cfg = appConfig{Server: f.url()}
-	s := a.MakeRequestLink("x", "", "24h")
+	s := a.MakeRequestLink("x", "", "24h", false)
 	if s.State != "making" {
 		t.Fatalf("no switch: %+v, want making", s)
 	}
@@ -614,7 +614,7 @@ func TestMakeRequestLinkRefusesWithoutRequest1(t *testing.T) {
 	f := newFakeSignalServer(t)
 	f.set(func(f *fakeSignalServer) { f.features = false })
 	a, _ := laneApp(t, f)
-	a.MakeRequestLink("x", "", "24h")
+	a.MakeRequestLink("x", "", "24h", false)
 	s := waitState(t, a, 10*time.Second, "error")
 	if s.Code != "disabled" {
 		t.Fatalf("no request-1: code %q, want disabled", s.Code)
@@ -628,7 +628,7 @@ func TestMakeRequestLinkAbortsOnNonHostRole(t *testing.T) {
 	f := newFakeSignalServer(t)
 	f.set(func(f *fakeSignalServer) { f.role = "sender" }) // today's server seats by join order
 	a, _ := laneApp(t, f)
-	a.MakeRequestLink("x", "", "24h")
+	a.MakeRequestLink("x", "", "24h", false)
 	s := waitState(t, a, 10*time.Second, "error")
 	if s.Code != "unknown" || s.Link != "" {
 		t.Fatalf("non-host role: %+v, want error unknown with no link", s)
@@ -650,7 +650,7 @@ func TestMakeRequestLinkJoinTimeoutMapsToUnknown(t *testing.T) {
 	})
 	a, _ := laneApp(t, f)
 	start := time.Now()
-	a.MakeRequestLink("x", "", "24h")
+	a.MakeRequestLink("x", "", "24h", false)
 	s := waitState(t, a, 5*time.Second, "error")
 	if s.Code != "unknown" {
 		t.Fatalf("timeout: code %q, want unknown", s.Code)
@@ -664,7 +664,7 @@ func TestMakeRequestLinkRefusesSecondLink(t *testing.T) {
 	f := newFakeSignalServer(t)
 	a, _ := laneApp(t, f)
 	first := makeWaiting(t, a)
-	s := a.MakeRequestLink("second", "", "24h")
+	s := a.MakeRequestLink("second", "", "24h", false)
 	if s.State != "error" || s.Code != "already-open" || s.Link != "" || s.Gen != 0 {
 		t.Fatalf("second link: %+v, want error already-open at gen 0", s)
 	}
@@ -696,7 +696,7 @@ func TestMakeRequestLinkAllowsOneDomainSelfHost(t *testing.T) {
 			a, _ := laneApp(t, f)
 			a.cfg.Server = origin
 			a.cfg.Web = c.web
-			a.MakeRequestLink("x", t.TempDir(), "24h")
+			a.MakeRequestLink("x", t.TempDir(), "24h", false)
 			waitFor(t, 10*time.Second, "the link to be made or refused", func() bool {
 				st := stateOf(a).State
 				return st == "waiting" || st == "error"
@@ -722,7 +722,7 @@ func TestMakeRequestLinkHideIPWithoutRelay(t *testing.T) {
 			f.set(func(f *fakeSignalServer) { f.turnBody = c.body })
 			a, _ := laneApp(t, f)
 			a.cfg.HideIP = true
-			a.MakeRequestLink("x", "", "24h")
+			a.MakeRequestLink("x", "", "24h", false)
 			if s := waitState(t, a, 10*time.Second, "error"); s.Code != c.want {
 				t.Fatalf("code %q, want %q", s.Code, c.want)
 			}
@@ -745,7 +745,7 @@ func TestRequestJoinRefusalCodesMapToSnapshot(t *testing.T) {
 			f := newFakeSignalServer(t)
 			f.set(func(f *fakeSignalServer) { f.refuse = c.refuse })
 			a, _ := laneApp(t, f)
-			a.MakeRequestLink("x", "", "24h")
+			a.MakeRequestLink("x", "", "24h", false)
 			if s := waitState(t, a, 10*time.Second, "error"); s.Code != c.want {
 				t.Fatalf("refused %q: code %q, want %q", c.refuse, s.Code, c.want)
 			}
@@ -760,7 +760,7 @@ func TestRequestJoinRefusalCodesMapToSnapshot(t *testing.T) {
 			f := newFakeSignalServer(t)
 			setJoin(t, func(*signaling.Client, string, string) (signaling.HostJoinResult, error) { return res, nil })
 			a, _ := laneApp(t, f)
-			a.MakeRequestLink("x", "", "24h")
+			a.MakeRequestLink("x", "", "24h", false)
 			if s := waitState(t, a, 10*time.Second, "error"); s.Code != "unknown" {
 				t.Fatalf("%s: code %q, want unknown", res, s.Code)
 			}
@@ -818,6 +818,171 @@ func TestReconnectRetriesUntilLinkEnd(t *testing.T) {
 	f.mu.Unlock()
 	if attempts < 4 {
 		t.Fatalf("%d connection attempts, want retries until the end time", attempts)
+	}
+}
+
+// TestRequestLifetimeKeys (D-173): the six Link ends keys, and "" for the
+// default, map to their durations through a fixed switch. Every other key is
+// refused, near misses and time.ParseDuration's own spellings included, and
+// nothing is above 7 days: the server keeps a reservation for at most 7 days
+// plus its grace (server.js REQUEST_MAX_AGE_MS).
+func TestRequestLifetimeKeys(t *testing.T) {
+	want := map[string]time.Duration{
+		"30m": 30 * time.Minute,
+		"1h":  time.Hour,
+		"8h":  8 * time.Hour,
+		"":    24 * time.Hour,
+		"24h": 24 * time.Hour,
+		"3d":  72 * time.Hour,
+		"7d":  168 * time.Hour,
+	}
+	for key, d := range want {
+		got, ok := requestLifetime(key)
+		if !ok || got != d {
+			t.Errorf("requestLifetime(%q) = %v, %v; want %v, true", key, got, ok, d)
+		}
+	}
+	for _, key := range []string{"15m", "1d", "24H", " 24h", "24h ", "720h", "-1h", "8d", "12h", "30M", "1h0m0s", "0", "unknown"} {
+		if got, ok := requestLifetime(key); ok || got != 0 {
+			t.Errorf("requestLifetime(%q) = %v, %v; want refused", key, got, ok)
+		}
+	}
+}
+
+// TestMakeRequestLinkRefusesUnknownLifetime: a key the switch does not know
+// ends the link in E4 before any join, never folded into a default.
+func TestMakeRequestLinkRefusesUnknownLifetime(t *testing.T) {
+	f := newFakeSignalServer(t)
+	a, _ := laneApp(t, f)
+	a.MakeRequestLink("x", t.TempDir(), "15m", false)
+	if s := waitState(t, a, 10*time.Second, "error"); s.Code != "unknown" {
+		t.Fatalf("code %q, want unknown", s.Code)
+	}
+	if n := len(f.tokenJoins()); n != 0 {
+		t.Fatalf("%d token joins for a refused lifetime", n)
+	}
+}
+
+// TestShortLinkEndsOnItsOwnClock: a 30m link's end time is 30 minutes from
+// Make link.
+func TestShortLinkEndsOnItsOwnClock(t *testing.T) {
+	f := newFakeSignalServer(t)
+	a, _ := laneApp(t, f)
+	before := time.Now()
+	a.MakeRequestLink("Acme footage", t.TempDir(), "30m", false)
+	s := waitState(t, a, 10*time.Second, "waiting")
+	after := time.Now()
+	lo, hi := before.Add(30*time.Minute).UnixMilli(), after.Add(30*time.Minute).UnixMilli()
+	if s.ExpiresAt < lo || s.ExpiresAt > hi {
+		t.Fatalf("expiresAt %d, want between %d and %d", s.ExpiresAt, lo, hi)
+	}
+}
+
+// TestNoNewVisitorAfterLinkEnd (D-173: nobody new after the end): a
+// user-connected the waiting loop takes at or after the link's end time ends
+// the link as expired, and pairFn never runs. The expiry timer is ready as
+// well, and select picks at random between them, so 50 runs see both orders.
+// The loop is driven directly on a socket that holds the queued visitor, the
+// way a pairing that outlived the end leaves it.
+func TestNoNewVisitorAfterLinkEnd(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		t.Run(fmt.Sprint(i), func(t *testing.T) {
+			f := newFakeSignalServer(t)
+			a, _ := laneApp(t, f)
+			var calls atomic.Int32
+			l := a.lane()
+			l.pairFn = func(uint64, *signaling.Client) { calls.Add(1) }
+			l.mu.Lock()
+			l.gen++
+			rg := l.gen
+			l.cancelled = false
+			l.setStateLocked("waiting", "")
+			l.stop = make(chan struct{})
+			stop := l.stop
+			l.mu.Unlock()
+			tok, err := signaling.NewHostToken()
+			if err != nil {
+				t.Fatal(err)
+			}
+			sc, res := a.hostJoin(rg, f.url(), signaling.RoomIDFromToken(tok), tok)
+			if res != signaling.HostJoined {
+				t.Fatalf("host join: %v", res)
+			}
+			f.userConnected()
+			waitFor(t, 5*time.Second, "the queued visitor", func() bool { return len(sc.PeerConnected) == 1 })
+			if got := a.waitRequest(rg, stop, sc, time.Now().Add(-time.Second)); got != waitEnded {
+				t.Fatalf("waitRequest = %v, want waitEnded", got)
+			}
+			if n := calls.Load(); n != 0 {
+				t.Fatalf("a visitor after the link's end reached pairFn (%d)", n)
+			}
+			if s := stateOf(a); s.State != "ended" || s.Code != "expired" {
+				t.Fatalf("after the end: %q %q, want ended expired", s.State, s.Code)
+			}
+			waitFor(t, 5*time.Second, "request-close", func() bool { return f.count("request-close") == 1 })
+		})
+	}
+}
+
+// holdFetch makes *fn wait for release before it asks the real fetch, and
+// says on entered when a call arrived. Generic so the test never names the
+// ICE list's pion type (see requireRelay: that would make pion a direct
+// requirement of desktop/go.mod).
+func holdFetch[F ~func(string) (L, bool, error), L any](t *testing.T, fn *F, entered chan<- struct{}, release <-chan struct{}) {
+	t.Helper()
+	real := *fn
+	*fn = func(server string) (L, bool, error) {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		<-release
+		return real(server)
+	}
+	t.Cleanup(func() { *fn = real })
+}
+
+// TestNoNewSeatAfterLinkEndDuringFetch (D-173, review R2 F1): a pairing that
+// began before the end is in its ICE fetch when the end passes; its visitor
+// goes and a new seat is taken after the end. The reload branch in
+// runRequestDrop must not offer to that seat (with Auto-accept on, its drop
+// would save without asking): the link ends expired and never reaches
+// connecting. Before the fix the lane went to connecting about 6 ms after the
+// fetch returned (the reviewer's probe).
+func TestNoNewSeatAfterLinkEndDuringFetch(t *testing.T) {
+	f := newFakeSignalServer(t)
+	a, rec := laneApp(t, f)
+	l := a.lane()
+	l.lifetimeFn = func(string) (time.Duration, bool) { return 1500 * time.Millisecond, true }
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	holdFetch(t, &iceFetchFn, entered, release)
+	s := makeWaiting(t, a)
+	end := time.UnixMilli(s.ExpiresAt)
+	f.userConnected() // before the end
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the pairing never reached the ICE fetch")
+	}
+	if !time.Now().Before(end) {
+		t.Skip("setup too slow: the end passed before the first visitor paired")
+	}
+	time.Sleep(time.Until(end) + 300*time.Millisecond)
+	f.peerDisconnected() // after the end: the first visitor goes,
+	f.userConnected()    // and someone takes the seat again
+	l.mu.Lock()
+	sc := l.sc
+	l.mu.Unlock()
+	waitFor(t, 5*time.Second, "the leave and the new seat queued", func() bool {
+		return len(sc.PeerLeft) == 1 && len(sc.PeerConnected) == 1
+	})
+	close(release)
+	waitSnap(t, a, 5*time.Second, "ended", "expired")
+	for _, s := range rec.all() {
+		if s.State == "connecting" {
+			t.Fatal("a seat taken after the link's end reached connecting")
+		}
 	}
 }
 
@@ -1140,9 +1305,9 @@ func TestGetRequestLinkDoesNotWaitOnAppMutex(t *testing.T) {
 func TestRequestSnapshotSeqOrdersEverySnapshot(t *testing.T) {
 	f := newFakeSignalServer(t)
 	a, rec := laneApp(t, f)
-	made := a.MakeRequestLink("x", t.TempDir(), "24h")
+	made := a.MakeRequestLink("x", t.TempDir(), "24h", false)
 	waitState(t, a, 10*time.Second, "waiting")
-	refused := a.MakeRequestLink("y", "", "24h")
+	refused := a.MakeRequestLink("y", "", "24h", false)
 	got := a.GetRequestLink()
 	a.CloseRequestLink()
 	after := a.GetRequestLink()
@@ -1227,7 +1392,7 @@ func TestRequestWakeAcquiredOnAcceptReleasedOnEnd(t *testing.T) {
 			if requestHeld(w) || *blocks != 0 {
 				t.Fatal("a prompt holds the PC awake before Accept")
 			}
-			if !a.acceptDrop(7) {
+			if !a.acceptDrop(7, RequestResult{}) {
 				t.Fatal("Accept refused the live generation")
 			}
 			if !requestHeld(w) || *blocks != 1 {
@@ -1266,7 +1431,7 @@ func TestTransferReleaseDoesNotReleaseRequestHold(t *testing.T) {
 	a.lane().emitFn = func(string, any) {}
 	forceGen(a, 3)
 	a.openPrompt(3, RequestPrompt{})
-	a.acceptDrop(3)
+	a.acceptDrop(3, RequestResult{})
 	a.wake.release(laneTransfer, 3)
 	a.wake.acquire(laneTransfer, 1)
 	a.wake.release(laneTransfer, 1)
@@ -1361,8 +1526,9 @@ func attentionApp(t *testing.T, clock *time.Time) (*App, *attentionRec) {
 	return a, r
 }
 
-// The three table entries, spelled out here so the test is independent of
-// the table it checks.
+// The first three table entries, spelled out here so the test is independent
+// of the table it checks; TO4 is to4, beside the automatic path's tests
+// (requestauto_test.go).
 var (
 	to1 = [2]string{"Floe", "Someone wants to send you files"}
 	to2 = [2]string{"Floe", "Files received"}
@@ -1371,7 +1537,8 @@ var (
 
 // TestRequestToastsAreConstant (VR3-G08): whatever the visitor's names and
 // the owner's label hold, every notification the lane sends is one of the
-// three table pairs, and none of the hostile text reaches one.
+// four table pairs, and none of the hostile text reaches one. The last drop
+// is taken by a link made with Auto-accept on (TO4, D-173).
 func TestRequestToastsAreConstant(t *testing.T) {
 	hostile := []string{"$(calc)]]><x", "]]><![CDATA[", "`whoami`.txt", "photo\u202egnp.exe"}
 	label := "$(calc) ]]><x `id` \u202e"
@@ -1380,13 +1547,13 @@ func TestRequestToastsAreConstant(t *testing.T) {
 	r := watchAttention(a, nil)
 
 	drop := func(end func(rg uint64)) {
-		a.MakeRequestLink(label, t.TempDir(), "24h")
+		a.MakeRequestLink(label, t.TempDir(), "24h", false)
 		s := waitState(t, a, 10*time.Second, "waiting")
 		if s.Label == "" {
 			t.Fatal("the label did not reach the snapshot")
 		}
 		a.openPrompt(s.Gen, RequestPrompt{Files: len(hostile), TotalBytes: 42, Folder: `Floe\` + sanitizeRequestLabel(label)})
-		a.acceptDrop(s.Gen)
+		a.acceptDrop(s.Gen, RequestResult{})
 		end(s.Gen)
 	}
 	drop(func(rg uint64) { a.endDrop(rg, "done", "", &RequestResult{Files: 4, Saved: 4, Names: hostile}) })
@@ -1400,13 +1567,29 @@ func TestRequestToastsAreConstant(t *testing.T) {
 		l.mu.Unlock()
 		a.CancelRequestDrop()
 	})
+	// An automatic drop, through Decide itself, with the hostile first name
+	// the engine would pass: TO4 at its start, TO2 at its end.
+	roomyVolume().install(t)
+	a.MakeRequestLink(label, t.TempDir(), "24h", true)
+	s := waitState(t, a, 10*time.Second, "waiting")
+	p, ok := a.requestPairingFor(s.Gen)
+	if !ok || !p.autoAccept {
+		t.Fatal("the automatic link's pairing does not carry its choice")
+	}
+	d := &requestDrop{closed: make(chan struct{}), route: "direct", abort: func(transfer.RefusalCode) {}}
+	in := transfer.IncomingInfo{Files: len(hostile), TotalBytes: 42, FirstName: hostile[2], FirstSize: 1}
+	if dec := a.requestDecide(s.Gen, p, d, in); dec.Kind != transfer.DecisionAccept {
+		t.Fatalf("the automatic drop was not accepted: %+v", dec)
+	}
+	d.cap.Stop()
+	a.endDrop(s.Gen, "done", "", &RequestResult{Files: 4, Saved: 4, Names: hostile, AutoAccepted: true})
 
 	_, _, toasts := r.snapshot()
-	if len(toasts) != 5 {
-		t.Fatalf("%d notifications, want 5 (three TO1, one TO2, one TO3): %q", len(toasts), toasts)
+	if len(toasts) != 7 {
+		t.Fatalf("%d notifications, want 7 (three TO1, two TO2, one TO3, one TO4): %q", len(toasts), toasts)
 	}
 	for _, p := range toasts {
-		if p != to1 && p != to2 && p != to3 {
+		if p != to1 && p != to2 && p != to3 && p != to4 {
 			t.Errorf("notification %q is not in the table", p)
 		}
 		for _, h := range append(hostile, label, "calc", "CDATA", "whoami", "\u202e") {
@@ -1415,7 +1598,7 @@ func TestRequestToastsAreConstant(t *testing.T) {
 			}
 		}
 	}
-	if r.count(to1[0], to1[1]) != 3 || r.count(to2[0], to2[1]) != 1 || r.count(to3[0], to3[1]) != 1 {
+	if r.count(to1[0], to1[1]) != 3 || r.count(to2[0], to2[1]) != 2 || r.count(to3[0], to3[1]) != 1 || r.count(to4[0], to4[1]) != 1 {
 		t.Fatalf("toast counts wrong: %q", toasts)
 	}
 }
@@ -1480,7 +1663,7 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 		"pushToast": true, "pushFn": true, "toastFor": true,
 	}
 	watched := func(name string) bool { return named[name] || strings.Contains(name, "Notification") }
-	keys := map[string]bool{"toastRequestArrived": true, "toastDropDone": true, "toastDropFailed": true}
+	keys := map[string]bool{"toastRequestArrived": true, "toastDropDone": true, "toastDropFailed": true, "toastDropAutoAccepted": true}
 	const laneOwner = "requestlink.go:(*App).notifyRequest"
 	const notifyOwner = "app.go:(*App).notify"
 	const toastImport = `"git.sr.ht/~jackmordaunt/go-toast/v2"`
@@ -2053,7 +2236,7 @@ func TestPromptSpamSuppressesToastKeepsFlashAndTitle(t *testing.T) {
 	a.endPrompt(1)
 }
 
-// TestPromptSpamResetsAfterAccept (E-40): an Accept clears the count.
+// TestPromptSpamResetsAfterAccept (E-40): the owner's Accept clears the count.
 func TestPromptSpamResetsAfterAccept(t *testing.T) {
 	clock := time.Unix(1_800_000_000, 0)
 	a, _ := attentionApp(t, &clock)
@@ -2065,7 +2248,7 @@ func TestPromptSpamResetsAfterAccept(t *testing.T) {
 	if !a.GetRequestLink().SuggestClose {
 		t.Fatal("suggestClose is not set after two unanswered ends")
 	}
-	a.acceptDrop(1)
+	a.acceptDrop(1, RequestResult{})
 	if a.GetRequestLink().SuggestClose {
 		t.Fatal("Accept did not clear suggestClose")
 	}
@@ -2083,7 +2266,7 @@ func TestPromptSpamResetsAfterAccept(t *testing.T) {
 // "Floe" again after every way a prompt ends.
 func TestRequestTitleSetAndRestored(t *testing.T) {
 	ends := map[string]func(a *App){
-		"accept":       func(a *App) { a.acceptDrop(1) },
+		"accept":       func(a *App) { a.acceptDrop(1, RequestResult{}) },
 		"decline":      func(a *App) { a.endPrompt(1) },
 		"timeout":      func(a *App) { a.endPrompt(1) },
 		"visitor-left": func(a *App) { a.endPrompt(1) },
@@ -2163,7 +2346,7 @@ func TestRequestFlashStartsOnPromptStopsOnAnswer(t *testing.T) {
 	if _, flashes, _ := r.snapshot(); len(flashes) != 1 || !flashes[0] {
 		t.Fatalf("flashes after the prompt %v", flashes)
 	}
-	a.acceptDrop(1)
+	a.acceptDrop(1, RequestResult{})
 	if _, flashes, _ := r.snapshot(); len(flashes) != 2 || flashes[1] {
 		t.Fatalf("flashes after Accept %v", flashes)
 	}
@@ -2178,7 +2361,7 @@ func TestRequestFlashStartsOnPromptStopsOnAnswer(t *testing.T) {
 func TestOwnerCancelSendsNoFailureToast(t *testing.T) {
 	a, r := attentionApp(t, nil)
 	a.openPrompt(1, RequestPrompt{})
-	a.acceptDrop(1)
+	a.acceptDrop(1, RequestResult{})
 	l := a.lane()
 	l.mu.Lock()
 	l.dropCancel = func() { a.endDrop(1, "stopped", "stopped", nil) }
@@ -2189,7 +2372,7 @@ func TestOwnerCancelSendsNoFailureToast(t *testing.T) {
 	}
 	forceGen(a, 2)
 	a.openPrompt(2, RequestPrompt{})
-	a.acceptDrop(2)
+	a.acceptDrop(2, RequestResult{})
 	a.endDrop(2, "stopped", "peer-abort", nil)
 	if r.count(to3[0], to3[1]) != 1 {
 		t.Fatal("a stop the owner did not cause sent no failure toast")
@@ -2205,7 +2388,7 @@ func TestEndedLinkLetsGoOfItsSocket(t *testing.T) {
 	a, _ := laneApp(t, f)
 	s := makeWaiting(t, a)
 	a.openPrompt(s.Gen, RequestPrompt{})
-	a.acceptDrop(s.Gen)
+	a.acceptDrop(s.Gen, RequestResult{})
 	a.endDrop(s.Gen, "done", "", nil)
 	done := make(chan struct{})
 	go func() { a.lane().wg.Wait(); close(done) }()
@@ -2339,7 +2522,7 @@ func TestCloseDuringHostJoinSendsNoRoomlessClose(t *testing.T) {
 		return sc.JoinRoomWithToken(room, tok)
 	})
 	a, _ := laneApp(t, f)
-	a.MakeRequestLink("x", t.TempDir(), "24h")
+	a.MakeRequestLink("x", t.TempDir(), "24h", false)
 	select {
 	case <-entered:
 	case <-time.After(10 * time.Second):
@@ -2402,7 +2585,7 @@ func TestMakeLinkDefaultFolderOutsideLaneLock(t *testing.T) {
 	t.Cleanup(func() { requestDefaultDirFn = old })
 	t.Cleanup(unblock)
 	made := make(chan RequestLinkSnapshot, 1)
-	go func() { made <- a.MakeRequestLink("x", "", "24h") }()
+	go func() { made <- a.MakeRequestLink("x", "", "24h", false) }()
 	select {
 	case <-entered:
 	case <-time.After(5 * time.Second):
@@ -2611,7 +2794,7 @@ func TestReopenAfterAcceptClearsOwnerStop(t *testing.T) {
 	a, r := attentionApp(t, nil)
 	forceState(a, "waiting", 0)
 	a.openPrompt(1, RequestPrompt{})
-	a.acceptDrop(1)
+	a.acceptDrop(1, RequestResult{})
 	l := a.lane()
 	l.mu.Lock()
 	l.dropCancel = func() {}
@@ -2622,7 +2805,7 @@ func TestReopenAfterAcceptClearsOwnerStop(t *testing.T) {
 		t.Fatalf("after the reopen: %q", st.State)
 	}
 	a.openPrompt(1, RequestPrompt{})
-	a.acceptDrop(1)
+	a.acceptDrop(1, RequestResult{})
 	a.endDrop(1, "stopped", "peer-abort", nil)
 	if n := r.count(to3[0], to3[1]); n != 1 {
 		t.Fatalf("the next drop's failure sent %d failure toasts, want 1", n)

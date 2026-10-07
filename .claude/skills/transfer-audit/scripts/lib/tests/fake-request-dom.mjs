@@ -42,6 +42,20 @@ const VIEW_BUTTONS = {
     closed: ['Make another link'],
 };
 
+// The Link ends select's options (RequestLinkView.tsx draws requestLink.ts
+// LIFETIMES, D-173): each key beside its label, in list order.
+const LIFETIMES = [
+    ['30m', 'In 30 minutes'],
+    ['1h', 'In 1 hour'],
+    ['8h', 'In 8 hours'],
+    ['24h', 'In 24 hours'],
+    ['3d', 'In 3 days'],
+    ['7d', 'In 7 days'],
+];
+export const LIFETIME_OPTIONS = LIFETIMES.map(([, label]) => label);
+// The Make link form's Auto-accept switch, by its accessible name (R29).
+const AUTO_SWITCH = 'Save files without asking';
+
 const SWITCHES = [
     {
         key: 'hideIP',
@@ -80,6 +94,9 @@ export function fakeRequestDom({
     // with its Settings switch off).
     hideTab = false,
     saveDirStuck = false,
+    // A page that draws Link ends as something other than a <select>, so
+    // the driver's select branch finds nothing and clicks the label.
+    lifetimeSelect = true,
     // A Settings switch that is disabled and ignores clicks (Hide my IP
     // reads disabled while a transfer is busy).
     switchStuck = false,
@@ -96,6 +113,14 @@ export function fakeRequestDom({
     dismissStuck = false,
     closeHangs = false,
     laneStaysOpen = false,
+    // Auto-accept (D-173): a build made before H10 has no switch on the
+    // Make link form, autoSwitchStuck one whose switch ignores clicks,
+    // autoAsks a host that prompts on an automatic link anyway, and autoChip
+    // false one whose chip still reads READY.
+    autoSwitch = true,
+    autoSwitchStuck = false,
+    autoAsks = false,
+    autoChip = true,
 } = {}) {
     const clock = { t: 0, waiters: [] };
     const dom = {
@@ -107,6 +132,10 @@ export function fakeRequestDom({
         ignored: [],
         reopens: 0,
         picked: [],
+        // The Link ends value the form holds, and the one the last link was
+        // made with.
+        lifetime: '24h',
+        madeLifetime: null,
         settingsOpen: false,
         // App.tsx `mode`: the REQUEST LINK view shows only on Receive, and
         // requestView is its `receiveKind === 'request'`.
@@ -128,6 +157,11 @@ export function fakeRequestDom({
         result: null,
         blip: null,
         madeWith: null,
+        // The form's Auto-accept switch (off on every mount), every label
+        // click that flipped it, and the link's own record of the choice.
+        autoOn: false,
+        switched: [],
+        autoAccept: false,
         closed: false,
         screenshots: [],
         setSettingsCalls: [],
@@ -166,18 +200,26 @@ export function fakeRequestDom({
             clock.t >= dom.requestAt
         ) {
             const p = dom.pendingPrompt || { files: 1, totalBytes: 1 };
-            dom.state = 'deciding';
-            dom.promptMountedAt = dom.requestAt;
-            dom.promptGen += 1;
-            dom.prompt = {
-                files: p.files,
-                totalBytes: p.totalBytes,
-                folder: path.join(dom.linkSaveDir || 'C:\\', 'Floe request 1'),
-                freeBytes: 1e12,
-                warnings: p.warnings || [],
-                answerBy: dom.requestAt + 300_000,
-            };
-            dom.requestAt = null;
+            if (dom.autoAccept && !autoAsks && !(p.warnings || []).length) {
+                // An automatic link takes a drop with nothing unusual about
+                // it at once: no prompt, straight to receiving (requestDecide).
+                dom.state = 'receiving';
+                dom.requestAt = null;
+                if (dom.onAnswer) dom.onAnswer('auto-accept');
+            } else {
+                dom.state = 'deciding';
+                dom.promptMountedAt = dom.requestAt;
+                dom.promptGen += 1;
+                dom.prompt = {
+                    files: p.files,
+                    totalBytes: p.totalBytes,
+                    folder: path.join(dom.linkSaveDir || 'C:\\', 'Floe request 1'),
+                    freeBytes: 1e12,
+                    warnings: p.warnings || [],
+                    answerBy: dom.requestAt + 300_000,
+                };
+                dom.requestAt = null;
+            }
         }
         if (dom.blip) {
             const back = dom.blip.until + dom.blip.reclaimMs;
@@ -231,6 +273,11 @@ export function fakeRequestDom({
         dom.route = '';
         dom.result = null;
         dom.linkSaveDir = dom.saveDir.trim();
+        dom.madeLifetime = dom.lifetime;
+        // The link keeps the form's choice; the form it came from unmounts,
+        // so the next one starts off (D-173: never remembered).
+        dom.autoAccept = dom.autoOn;
+        dom.autoOn = false;
         dom.madeWith = { ...dom.settings };
         if (ignoreServer) dom.madeWith.server = 'http://localhost:3001';
         const web =
@@ -295,7 +342,22 @@ export function fakeRequestDom({
             dom.state = 'ready';
             dom.result = null;
             dom.code = '';
+            // A fresh form: Link ends is back on its default.
+            dom.lifetime = '24h';
+            dom.autoOn = false; // the form mounts anew, off (D-173)
         }
+    };
+    // The Make link form (ready or error) is on screen: Save to and Link ends.
+    const formShowing = () =>
+        onRequestView() && ['ready', 'error'].includes(dom.state);
+    // A pick of the Link ends option labeled `label`, exactly.
+    const pickLifetime = (label) => {
+        const hit = LIFETIMES.find(([, l]) => l === label);
+        if (!formShowing())
+            throw new Error('fake dom: the Link ends select is not showing');
+        if (!hit) throw new Error(`fake dom: no Link ends option labeled "${label}"`);
+        dom.picked.push(label);
+        dom.lifetime = hit[0];
     };
     const locator = (name) => {
         const self = {
@@ -334,6 +396,7 @@ export function fakeRequestDom({
             label: '',
             saveDir: dom.state === 'ready' ? '' : dom.linkSaveDir,
             expiresAt: 0,
+            autoAccept: dom.autoAccept,
             route: dom.route,
             suggestClose: false,
             ...(dom.state === 'deciding' && dom.prompt ? { prompt: { ...dom.prompt } } : {}),
@@ -353,7 +416,9 @@ export function fakeRequestDom({
                     : dom.route === 'direct'
                       ? 'Direct'
                       : 'Active'
-                : 'Ready';
+                : autoChip && dom.autoAccept && LINK_STATES.has(dom.state)
+                  ? 'Auto-accept'
+                  : 'Ready';
         // The chip as App.tsx draws it: the word in an element of its own,
         // and with Hide my IP on while nothing moves, the screen-reader twin
         // as its sibling, both inside the chip's span. The reader keeps the
@@ -452,7 +517,34 @@ export function fakeRequestDom({
             return [{ value: dom.saveDir, textContent: '', contains: () => false }];
         return [];
     };
+    // The Make link form's Auto-accept switch (RequestLinkView.tsx): a
+    // checkbox named by its box's label, on the form only (ready or error),
+    // and absent on a build made before H10.
+    const autoBox = () => {
+        const shown = () => autoSwitch && onRequestView() && ['ready', 'error'].includes(dom.state);
+        const self = {
+            first: () => self,
+            async count() {
+                return shown() ? 1 : 0;
+            },
+            async isChecked() {
+                return shown() && dom.autoOn;
+            },
+            locator() {
+                return {
+                    async click() {
+                        if (!shown()) throw new Error('fake dom: the Auto-accept switch is not showing');
+                        if (autoSwitchStuck) return;
+                        dom.autoOn = !dom.autoOn;
+                        dom.switched.push(AUTO_SWITCH);
+                    },
+                };
+            },
+        };
+        return self;
+    };
     const checkbox = (name) => {
+        if (name === AUTO_SWITCH) return autoBox();
         const sw = SWITCHES.find((s) =>
             name instanceof RegExp ? name.test(s.name) : s.name === name
         );
@@ -500,22 +592,38 @@ export function fakeRequestDom({
         getByText(text) {
             return {
                 async click() {
-                    dom.picked.push(text);
+                    if (LIFETIME_OPTIONS.includes(text) && formShowing()) pickLifetime(text);
+                    else dom.picked.push(text);
                 },
             };
         },
-        locator(sel) {
-            // The lifetime is drawn as options, not a native <select>, so
-            // the driver's select branch finds nothing and clicks the text.
-            if (sel !== 'select' && sel !== 'option')
+        locator(sel, opts = {}) {
+            // The Link ends <select>, restyled but still a real select
+            // (D-173): found by an option's text the way Playwright's hasText
+            // matches (a substring, any case), then picked by
+            // selectOption({label}), which takes a label exactly.
+            if (sel === 'option') return { hasText: String(opts.hasText ?? '') };
+            if (sel !== 'select')
                 throw new Error(`fake dom: locator ${sel} not modeled`);
-            const none = {
-                filter: () => none,
-                async count() {
-                    return 0;
-                },
+            const showing = () => lifetimeSelect && formShowing();
+            const holds = (has) =>
+                !has ||
+                LIFETIME_OPTIONS.some((l) => l.toLowerCase().includes(has.hasText.toLowerCase()));
+            const select = (has) => {
+                const self = {
+                    filter: ({ has: inner } = {}) => select(inner ?? has),
+                    first: () => self,
+                    async count() {
+                        return showing() && holds(has) ? 1 : 0;
+                    },
+                    async selectOption({ label } = {}) {
+                        if (!showing()) throw new Error('fake dom: no select showing');
+                        pickLifetime(label);
+                    },
+                };
+                return self;
             };
-            return none;
+            return select(null);
         },
         async evaluate(fn, arg) {
             const saved = {
@@ -644,8 +752,11 @@ export function fakeRequestDom({
             inputs: () => inputNodes(),
             click: (name) => click(name),
             onRequestView: () => onRequestView(),
-            saveToShowing: () =>
-                onRequestView() && ['ready', 'error'].includes(dom.state),
+            saveToShowing: () => formShowing(),
+            // The Link ends options while the form shows, which the helper
+            // reaches as ListItems by name, and one pick by label.
+            lifetimeOptions: () => (formShowing() ? [...LIFETIME_OPTIONS] : []),
+            pickLifetime: (label) => pickLifetime(label),
             setSaveDir: (v) => {
                 if (!saveDirStuck) dom.saveDir = String(v);
             },

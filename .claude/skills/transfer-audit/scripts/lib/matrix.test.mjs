@@ -20,10 +20,12 @@ import {
     SKIP_REASONS,
     cellPlan,
     countsForExit,
+    fixtureSpec,
     isLoopbackUrl,
     matchCells,
     parseCellId,
     phaseTimeouts,
+    requestFlowOf,
 } from './matrix.mjs';
 import { ACCEPT_WAIT_MS } from './desktop.mjs';
 import { UsageError } from './args.mjs';
@@ -742,7 +744,7 @@ test('request cells on an exe host SKIP request-host-away-only without --user-aw
             server: LOCAL,
             desktopMode,
             caddy: true,
-        }).filter((c) => REQUEST_IDS.includes(c.id) && c.reason !== 'head-only');
+        }).filter((c) => REQUEST_IDS.includes(c.id) && c.reason !== 'head-only' && c.request.flow !== 'auto');
         assert.ok(present.length > 0);
         for (const c of present)
             assert.equal(c.reason, 'request-host-away-only', `${c.id} on ${desktopMode}`);
@@ -754,7 +756,7 @@ test('request cells on an exe host SKIP request-host-away-only without --user-aw
             desktopMode,
             userAway: true,
             caddy: true,
-        }).filter((c) => REQUEST_IDS.includes(c.id) && c.reason !== 'head-only');
+        }).filter((c) => REQUEST_IDS.includes(c.id) && c.reason !== 'head-only' && c.request.flow !== 'auto');
         for (const c of away) {
             if (c.request.flow === 'open-link-precondition' && deskSide(c)) {
                 assert.equal(c.verdict, 'NA', `${c.id} on ${desktopMode}`);
@@ -788,9 +790,60 @@ test('request cells on an exe host SKIP request-host-away-only without --user-aw
 test('every request flow checks the prompt, and TA-12 carries no oracle a web visitor cannot reach', () => {
     for (const c of requestPlan('head').concat(requestPlan('shipped'))) {
         if (c.request.flow === 'open-link-precondition') continue;
+        // TA-10a's link accepts automatically: its oracle is that no prompt
+        // ever shows (and the chip reads AUTO-ACCEPT), never the prompt's.
+        if (c.request.flow === 'auto') {
+            assert.ok(c.request.oracles.includes('no-prompt-chip-auto-accept'), c.id);
+            assert.ok(!c.request.oracles.includes('prompt-counts-match-no-relay-warning'), c.id);
+            continue;
+        }
         assert.ok(c.request.oracles.includes('prompt-counts-match-no-relay-warning'), c.id);
         assert.ok(!c.request.oracles.includes('prompt-text-only-over-2gb'), c.id);
     }
+});
+
+test('TA-10a: H-DIR-W2D-reqauto is head only, makes its link with Auto-accept on, and every other cell leaves it off (D-173)', () => {
+    assert.equal(requestFlowOf('reqauto'), 'auto');
+    assert.ok(REQUEST_VARIANTS.includes('reqauto'));
+    assert.ok(REQUEST_IDS.includes('H-DIR-W2D-reqauto'));
+    assert.ok(!REQUEST_IDS.includes('S-DIR-W2D-reqauto'), 'no shipped build has the Auto-accept switch yet');
+    const [head] = requestPlan('head').filter((c) => c.id === 'H-DIR-W2D-reqauto');
+    assert.ok(head, 'planned in a head run');
+    assert.equal(head.verdict, null, 'it runs on the wailsdev lane');
+    assert.equal(head.request.autoAccept, true);
+    assert.ok(head.request.oracles.includes('result-marked-auto-accepted'));
+    assert.deepEqual(head.fixture, fixtureSpec(parseCellId('H-DIR-W2D-req')), 'the drop TA-10 moves');
+    for (const c of requestPlan('head').concat(requestPlan('shipped'))) {
+        if (c.request.flow === 'open-link-precondition' || c.id === 'H-DIR-W2D-reqauto') continue;
+        assert.equal(c.request.autoAccept, false, c.id);
+    }
+    assert.match(SKIP_REASONS['request-no-auto-switch'], /Auto-accept switch/);
+});
+
+test('TA-10a off the wailsdev lane SKIPs request-auto-wailsdev-only, with or without --user-away: only the dev page reads the host\'s own record', () => {
+    assert.match(SKIP_REASONS['request-auto-wailsdev-only'], /GetRequestLink/);
+    for (const desktopMode of ['auto', 'store', 'portable'])
+        for (const userAway of [false, true]) {
+            const [c] = cellPlan({
+                profile: 'head',
+                cells: ['H-DIR-W2D-reqauto'],
+                probe: WITH_FEATURE,
+                server: LOCAL,
+                desktopMode,
+                userAway,
+            }).filter((x) => x.id === 'H-DIR-W2D-reqauto');
+            assert.equal(c.verdict, 'SKIP', `${desktopMode} away ${userAway}`);
+            assert.equal(c.reason, 'request-auto-wailsdev-only', `${desktopMode} away ${userAway}`);
+        }
+    // The feature gate still comes first.
+    const [noFeature] = cellPlan({
+        profile: 'head',
+        cells: ['H-DIR-W2D-reqauto'],
+        probe: { desktop: { available: true } },
+        server: LOCAL,
+        desktopMode: 'wailsdev',
+    }).filter((x) => x.id === 'H-DIR-W2D-reqauto');
+    assert.equal(noFeature.reason, 'server-no-request-1');
 });
 
 test('TA-16 H-DIR-C2D-req: the CLI visitor on a desktop link, head only, 64 MiB, judged by the CLI oracles', () => {

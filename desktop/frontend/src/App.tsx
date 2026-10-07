@@ -66,6 +66,7 @@ import {resetWarning} from './reset';
 import {friendlyError} from './errors';
 import {
     acceptedPrompt,
+    autoAcceptShown,
     errorCode as requestErrorCode,
     initialRequestUI,
     linkOpen,
@@ -74,10 +75,12 @@ import {
     parsePastedLink,
     phase as requestPhase,
     reduce as reduceRequest,
+    type Lifetime,
 } from './requestLink';
 import {
     ANNOUNCE_GUARD_LIFTED,
     ANNOUNCE_REQUEST,
+    AUTO_ACCEPT_CHIP,
     BETA_CHIP,
     CLOSE_DROP_RECEIVING_LINE,
     CLOSE_FLOE,
@@ -1650,9 +1653,13 @@ function App() {
     // Hide my IP on (the route is known).
     const relayTone = dropRelay || (route ? route === 'relay' : dropDirect ? false : hideIP);
     // Status word precedence (spec 06 5.3), display only: relay wins if either
-    // lane relays, then direct, then Active while anything moves.
+    // lane relays, then direct, then Active while anything moves. Idle, a link
+    // made with Auto-accept on reads AUTO-ACCEPT while it waits (H4, D-173):
+    // it says what the app will do by itself, which READY cannot. A drop that
+    // did not qualify asks under READY (autoAcceptShown). The tone is READY's.
     const moving = busy || dropMoving;
-    const statusWord = !moving ? 'Ready'
+    const autoLinkWaiting = autoAcceptShown(reqUI.snap);
+    const statusWord = !moving ? (autoLinkWaiting ? AUTO_ACCEPT_CHIP : 'Ready')
         : (busy && route === 'relay') || dropRelay ? 'Relay'
         : (busy && route === 'direct') || dropDirect ? 'Direct'
         : 'Active';
@@ -1723,9 +1730,10 @@ function App() {
 
     // The REQUEST LINK view's actions. Each binding call answers with a
     // snapshot or is followed by request:state; nothing here decides a state.
-    function makeRequestLink(label: string, lifetime: '24h' | '7d') {
+    function makeRequestLink(label: string, lifetime: Lifetime, autoAccept: boolean) {
         dispatchReq({type: 'MAKE'});
-        MakeRequestLink(label, requestSaveDir.trim(), lifetime)
+        // Automatic only when the form's switch says so (D-173, G1).
+        MakeRequestLink(label, requestSaveDir.trim(), lifetime, autoAccept === true)
             .then((s) => dispatchReq({type: 'SNAPSHOT', snap: normalizeSnapshot(s)}))
             .catch(() => dispatchReq({type: 'MAKE_FAILED'}))
             .finally(() => dispatchReq({type: 'MAKE_DONE'}));

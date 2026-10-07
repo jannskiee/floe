@@ -21,7 +21,7 @@ import {
     safeCode,
     samePath,
 } from './desktop.mjs';
-import { FAKE_LINK, HIDE_IP_NOTE, SAVE_TO, VERIFIED_LINE, fakeRequestDom } from './tests/fake-request-dom.mjs';
+import { FAKE_LINK, HIDE_IP_NOTE, LIFETIME_OPTIONS, SAVE_TO, VERIFIED_LINE, fakeRequestDom } from './tests/fake-request-dom.mjs';
 
 const ROOM = FAKE_LINK.slice(FAKE_LINK.indexOf('#') + 1);
 const DIR = path.join(tmpdir(), 'lta-request-out');
@@ -38,6 +38,15 @@ test('the request strings are the frozen copy, and the wait exceeds the guard', 
         choice: 'Request link, beta',
         lifetime24h: 'In 24 hours',
         lifetime7d: 'In 7 days',
+        // D-173: the six Link ends keys (requestLifetime in Go), in list order.
+        lifetimes: {
+            '30m': 'In 30 minutes',
+            '1h': 'In 1 hour',
+            '8h': 'In 8 hours',
+            '24h': 'In 24 hours',
+            '3d': 'In 3 days',
+            '7d': 'In 7 days',
+        },
         makeLink: 'Make link',
         copyLink: 'Copy link',
         closeLink: 'Close link',
@@ -48,11 +57,17 @@ test('the request strings are the frozen copy, and the wait exceeds the guard', 
         saveToPlaceholder: 'Downloads\\Floe',
         cancelDrop: 'Cancel drop',
         verifiedLine: 'SHA-256 matched',
+        autoAcceptSwitch: 'Save files without asking',
+        autoAcceptPill: 'Auto-accept',
     });
     // The fake page draws the same bytes, so a fake-driven test proves the
     // real strings, not the fake against itself.
     assert.equal(SAVE_TO, REQUEST_STRINGS.saveToPlaceholder);
     assert.equal(VERIFIED_LINE, REQUEST_STRINGS.verifiedLine);
+    assert.deepEqual(LIFETIME_OPTIONS, Object.values(REQUEST_STRINGS.lifetimes));
+    assert.equal(REQUEST_STRINGS.lifetimes['24h'], REQUEST_STRINGS.lifetime24h);
+    assert.equal(REQUEST_STRINGS.lifetimes['7d'], REQUEST_STRINGS.lifetime7d);
+    assert.ok(Object.isFrozen(REQUEST_STRINGS.lifetimes));
     assert.equal(HIDE_IP_NOTE, 'Hide my IP limits transfers to 2 GB');
     assert.equal(ACCEPT_GUARD_MS, 1000);
     assert.ok(ACCEPT_WAIT_MS >= 1200);
@@ -138,16 +153,35 @@ test('wailsdev Decline then Keep waiting: the order holds, and Keep waiting refu
     assert.equal(f.dom.state, 'receiving');
 });
 
-test('wailsdev MakeLink 7d picks the option, and MakeLink refuses any other lifetime', async () => {
+test('wailsdev MakeLink picks a non-default lifetime by its label on the select, leaves 24h alone, and refuses any other key', async () => {
     const f = fakeRequestDom();
     const d = driverOn(f);
-    await make(d, f, { lifetime: '7d' });
-    assert.deepEqual(f.dom.picked, ['In 7 days']);
+    await make(d, f, { lifetime: '1h' });
+    assert.deepEqual(f.dom.picked, ['In 1 hour']);
+    assert.equal(f.dom.madeLifetime, '1h');
     assert.equal(f.dom.state, 'waiting');
-    await assert.rejects(
-        driverOn(fakeRequestDom()).makeRequestLink({ lifetime: '1h', saveDir: DIR }),
-        /MakeLink takes 24h or 7d/
-    );
+    // Every key the host takes, each by its own label; the default is the
+    // select's own value, so 24h picks nothing (every cell makes 24h).
+    for (const [key, label] of Object.entries(REQUEST_STRINGS.lifetimes)) {
+        const g = fakeRequestDom();
+        const r = await make(driverOn(g), g, { lifetime: key });
+        assert.equal(r.lifetime, key);
+        assert.deepEqual(g.dom.picked, key === '24h' ? [] : [label], key);
+        assert.equal(g.dom.madeLifetime, key, key);
+    }
+    // A page that draws no select gets the label clicked instead.
+    const plain = fakeRequestDom({ lifetimeSelect: false });
+    await make(driverOn(plain), plain, { lifetime: '7d' });
+    assert.deepEqual(plain.dom.picked, ['In 7 days']);
+    for (const lifetime of ['15m', '1d', '24H', ' 24h', '', 'In 1 hour', 24]) {
+        const g = fakeRequestDom();
+        await assert.rejects(
+            driverOn(g).makeRequestLink({ lifetime, saveDir: DIR }),
+            /MakeLink takes 30m, 1h, 8h, 24h, 3d or 7d/,
+            String(lifetime)
+        );
+        assert.deepEqual(g.dom.clicks, [], 'nothing was clicked');
+    }
 });
 
 test('wailsdev MakeLink types the run folder into Save to, and the host holds the link with it', async () => {
@@ -360,4 +394,79 @@ test('wailsdev setAddresses points the host at another server and web, and keeps
     ]);
     const bare = fakeRequestDom({ withBinding: false });
     assert.equal(await driverOn(bare).setAddresses('a', 'b'), null);
+});
+
+// TA-10a (D-173): the Make link form's Auto-accept switch, found by its
+// label. Only TA-10a turns it on; every other cell leaves the form's own off
+// alone, and the host must hold the link with the choice the cell asked for.
+test('wailsdev MakeLink autoAccept turns the switch on by its label, and the host holds an automatic link', async () => {
+    const f = fakeRequestDom();
+    const d = driverOn(f);
+    const r = await make(d, f, { autoAccept: true });
+    assert.equal(r.autoAccept, true);
+    assert.deepEqual(f.dom.switched, ['Save files without asking']);
+    assert.equal((await d.requestSnapshot()).autoAccept, true);
+    // The chip reads AUTO-ACCEPT while the link waits: RE.pillAuto keeps it,
+    // RE.pill (every other cell's reader) never matches it.
+    assert.deepEqual(await d.readText(RE.pillAuto), ['Auto-accept']);
+    assert.deepEqual(await d.readText(RE.pill), []);
+    assert.equal(RE.pillAuto.test('AUTO-ACCEPT'), true, 'UIA reports the rendered case');
+    assert.equal(RE.pill.test('AUTO-ACCEPT'), false);
+    // An automatic link takes the visitor's drop with no prompt at all.
+    f.requestAt(f.clock.t + 10);
+    await f.nap(20);
+    f.tick();
+    assert.equal(f.dom.state, 'receiving');
+    assert.equal(f.dom.promptGen, 0, 'no prompt was ever mounted');
+    assert.deepEqual(await d.readText(RE.pillAuto), ['Active'], 'a moving word wins');
+});
+
+test('wailsdev MakeLink leaves the switch off for every other cell, and the next form starts off again', async () => {
+    const f = fakeRequestDom();
+    const d = driverOn(f);
+    const r = await make(d, f);
+    assert.equal(r.autoAccept, false);
+    assert.deepEqual(f.dom.switched, [], 'the switch was never touched');
+    assert.equal((await d.requestSnapshot()).autoAccept, false);
+    assert.deepEqual(await d.readText(RE.pill), ['Ready']);
+    // After an automatic link, the next form is off (D-173: never remembered).
+    const g = fakeRequestDom();
+    const e = driverOn(g);
+    await make(e, g, { autoAccept: true });
+    await e.closeRequestLink({ now: g.now, nap: g.nap });
+    await make(e, g);
+    assert.equal((await e.requestSnapshot()).autoAccept, false);
+});
+
+test('wailsdev MakeLink autoAccept on a build without the switch is SKIP request-no-auto-switch, and no link is made', async () => {
+    const f = fakeRequestDom({ autoSwitch: false });
+    await assert.rejects(
+        make(driverOn(f), f, { autoAccept: true }),
+        (e) => e.verdict === 'SKIP' && e.reason === 'request-no-auto-switch' && /has no "Save files without asking" switch/.test(e.message)
+    );
+    assert.ok(!f.dom.clicks.some((c) => c.name === 'Make link'), 'no link was made');
+    // The same build still makes a link with the switch off for every other cell.
+    await make(driverOn(f), f);
+    assert.equal(f.dom.state, 'waiting');
+});
+
+test('wailsdev MakeLink refuses an autoAccept that is not a boolean, a switch that will not turn on, and a host that holds the other choice', async () => {
+    await assert.rejects(
+        driverOn(fakeRequestDom()).makeRequestLink({ autoAccept: 'yes', saveDir: DIR }),
+        /MakeLink takes autoAccept true or false, not yes/
+    );
+    const stuck = fakeRequestDom({ autoSwitchStuck: true });
+    await assert.rejects(
+        make(driverOn(stuck), stuck, { autoAccept: true }),
+        /the Auto-accept switch did not turn on; no link is made/
+    );
+    assert.ok(!stuck.dom.clicks.some((c) => c.name === 'Make link'), 'no link was made');
+    // A host whose form came up with the switch on: a cell that asks would
+    // never see its prompt, so it fails at Make link, by name.
+    const f = fakeRequestDom();
+    f.dom.autoOn = true;
+    await assert.rejects(
+        make(driverOn(f), f),
+        (e) => e.signatureKey === 'request-flow' && /made the link with autoAccept true, not the false this cell chose/.test(e.message)
+    );
 });

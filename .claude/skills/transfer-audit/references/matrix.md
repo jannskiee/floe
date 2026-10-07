@@ -19,7 +19,7 @@ surface  W = web browser (Playwright chromium)   C = CLI (Windows)
          D = desktop (Store build or portable)    L = CLI inside WSL2 Ubuntu-22.04 (deep only)
 variant  link | bnd8 | fold | zip | cap3g | thr500 | killsnd | killrcv
          hashbad | hashmal (head profile only, see Forced mismatches)
-         req | reqhideip | reqblip | reqdecline | reqopen (see Request-link cells)
+         req | reqhideip | reqblip | reqdecline | reqopen | reqauto (see Request-link cells)
 ```
 
 Examples: `S-DIR-W2C`, `S-REL-C2D`, `H-DIR-C2C-bnd8`, `S-DIR-L2W`, `H-DIR-C2C-hashbad`.
@@ -150,6 +150,7 @@ writes `req-hideip`).
 | H-DIR-W2D-reqblip      | TA-13     | W   | D   | DIR  | none           | request-link | 64 MiB      | the host's `/ws` cut 5 s through the blip proxy while the link waits: a visitor in the gap gets the not-connected copy; the desktop shows Reconnecting then Waiting; after the reclaim the visitor's Try again delivers and hashes match; head only, loopback only |
 | H-DIR-W2D-reqcaddy     | TA-14     | W   | D   | DIR  | none           | request-link | 64 MiB      | `--caddy` only: a local Docker Caddy fronts the local server with the host behind it; a reload while the link waits: the desktop reads Reconnecting then Waiting (the reclaim) and a visitor then delivers; a second reload while the drop receives: the drop completes on the data channel, the visitor ignores `peer-disconnected`, hashes match; head only, loopback only; SKIP `docker-absent` without Docker |
 | H-DIR-W2D-reqdecline   | TA-15     | W   | D   | DIR  | none           | request-link | 1 MiB       | Decline: the visitor reads the declined copy; Keep waiting sends `request-reopen`; a second visitor context delivers and hashes match |
+| H-DIR-W2D-reqauto      | TA-10a    | W   | D   | DIR  | none           | request-link | 64 MiB      | Make link with the Auto-accept switch on (D-173, clicked by its label Save files without asking): the header chip reads AUTO-ACCEPT while the link waits; the drop starts with no prompt at any point and nothing clicked on the host; the host's link and result are marked automatic (GetRequestLink); then every TA-10 oracle but the prompt's. Head only, wailsdev host only (SKIP `request-auto-wailsdev-only` elsewhere); SKIP `request-no-auto-switch` on a build without the switch |
 | S-DIR-W2W-reqopen      | TA-17     | W   | W   | DIR  | none           | link         | 12 MiB      | the S-DIR-W2W oracles with a link open on the desktop; the link still waits afterwards |
 | S-DIR-C2W-reqopen      | TA-17     | C   | W   | DIR  | none           | link         | 12 MiB      | as S-DIR-C2W, link open |
 | S-DIR-W2C-reqopen      | TA-17     | W   | C   | DIR  | none           | link         | 12 MiB      | as S-DIR-W2C, link open |
@@ -173,7 +174,7 @@ The host verbs on the wailsdev lane (`scripts/lib/desktop.mjs`
 | Verb              | Clicks                                                  | Reads back                               |
 | ----------------- | ------------------------------------------------------- | ---------------------------------------- |
 | awaitRequestTab   | `Receive` once, only when the REQUEST LINK choice is not showing | `Request link, beta` shows within 10 s (H7: always there, no Settings switch) |
-| makeRequestLink   | `Receive`, `Request link, beta`, `Make another link` (from the ended view), the Save to field (the run's own folder, required), `In 7 days` (7d only), `Make link` | the field's value, `Copy link` shows (waiting) or the lane's error code, the link's folder in `GetRequestLink` |
+| makeRequestLink   | `Receive`, `Request link, beta`, `Make another link` (from the ended view), the Save to field (the run's own folder, required), the Link ends option by its label for any key but the default 24h (`In 30 minutes`, `In 1 hour`, `In 8 hours`, `In 3 days`, `In 7 days`; every cell makes 24h), `Make link` | the field's value, `Copy link` shows (waiting) or the lane's error code, the link's folder in `GetRequestLink` |
 | readRequestLink   | nothing                                                 | `GetRequestLink` link, matched to the link block's input |
 | acceptRequest     | `Accept`, at least 1200 ms after the prompt was seen    | `Accept` gone (the prompt left)          |
 | declineRequest    | `Decline`, at least 1200 ms after the prompt was seen   | `Keep waiting` shows (declined)          |

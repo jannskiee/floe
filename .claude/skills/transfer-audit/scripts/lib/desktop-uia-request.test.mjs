@@ -61,6 +61,37 @@ test('UIA MakeLink sets the Save to field, makes the link and waits for the wait
     }
 });
 
+test('UIA MakeLink picks a non-default lifetime by its option name, leaves 24h alone, and refuses any other key before a click', async () => {
+    const dir = tmp();
+    try {
+        const { h, client, driver, clock } = hostWith();
+        const made = await driver.makeRequestLink({ saveDir: dir, lifetime: '3d', ...clock });
+        assert.equal(made.lifetime, '3d');
+        assert.equal(clicksOf(client, REQUEST_STRINGS.lifetimes['3d']).length, 1);
+        assert.deepEqual(h.dom.picked, ['In 3 days']);
+        assert.equal(h.dom.madeLifetime, '3d');
+        assert.equal(h.dom.state, 'waiting');
+
+        // The default is the select's own value: no option is clicked.
+        const def = hostWith();
+        await def.driver.makeRequestLink({ saveDir: dir, ...def.clock });
+        for (const label of Object.values(REQUEST_STRINGS.lifetimes))
+            assert.equal(clicksOf(def.client, label).length, 0, label);
+        assert.equal(def.h.dom.madeLifetime, '24h');
+
+        for (const lifetime of ['15m', '7D', '']) {
+            const bad = hostWith();
+            await assert.rejects(
+                bad.driver.makeRequestLink({ saveDir: dir, lifetime, ...bad.clock }),
+                /MakeLink takes 30m, 1h, 8h, 24h, 3d or 7d/
+            );
+            assert.equal(bad.client.calls.length, 0, `${lifetime}: nothing was asked of the helper`);
+        }
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
 test('UIA MakeLink refuses a relative folder, a Save to field that will not take (SKIP desktop-savedir, no link) and names an error view by its code', async () => {
     const dir = tmp();
     try {
@@ -339,4 +370,23 @@ test('requestStateFromItems names every view from its buttons and fixed copy', (
     assert.equal(desktopFmtBytes(64 * MiB), '64.0 MB');
     assert.equal(desktopFmtBytes(4 * MiB), '4.0 MB');
     assert.equal(desktopFmtBytes(512), '512 B');
+});
+
+test('UIA MakeLink with autoAccept is SKIP request-auto-wailsdev-only and makes no link: TA-10a reads the host\'s own record, which only the dev page has (D-173)', async () => {
+    const dir = tmp();
+    try {
+        const { h, client, driver, clock } = hostWith();
+        await assert.rejects(
+            driver.makeRequestLink({ saveDir: dir, autoAccept: true, ...clock }),
+            (e) => e.verdict === 'SKIP' && e.reason === 'request-auto-wailsdev-only'
+        );
+        assert.equal(clicksOf(client, REQUEST_STRINGS.makeLink).length, 0, 'no link was made');
+        assert.equal(h.dom.state, 'ready');
+        // Off, the UIA lane makes its link as before.
+        const made = await driver.makeRequestLink({ saveDir: dir, autoAccept: false, ...clock });
+        assert.equal(made.autoAccept, false);
+        assert.equal(h.dom.autoAccept, false);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
 });

@@ -14,6 +14,9 @@
 //     an Edit whose placeholder is its HelpText (INFERRED: a labeled input
 //     takes its Name from the label);
 //   - the Settings switches CheckBoxes named by their whole label;
+//   - the Link ends options ListItems named by their labels, which a click
+//     selects (SelectionItem, INFERRED; the H10 look fixture measured all six
+//     options in Chromium's accessibility tree while the select is closed);
 //   - G2-F1 (session 166e0836): an Invoke on an exe window that is not the
 //     foreground one activates it, and the frontend re-arms the prompt's
 //     guard on that focus, so the click that brought the window forward is
@@ -80,6 +83,14 @@ export function fakeRequestUiaClient(h, { activates = true, idle = 600 } = {}) {
                     return { count: all.length, truncated: false, items: all };
                 }
                 case 'click': {
+                    const option = views
+                        .lifetimeOptions()
+                        .find((o) => o.toLowerCase() === String(params.name).toLowerCase());
+                    if (option) {
+                        state.focused = true;
+                        views.pickLifetime(option);
+                        return { via: 'select', type: 'ListItem', index: 0, count: 1 };
+                    }
                     const name = canon(params.name);
                     if (!name) throw err('not-found', `name='${params.name}'`);
                     if (views.guarded(name)) {

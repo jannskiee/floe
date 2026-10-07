@@ -591,6 +591,9 @@ const failures = [
     ['H-DIR-W2D-reqdecline', ['decline-copy'], 'FAIL', 'request-flow', /the visitor-1 read "They did not answer in time\. Nothing was sent\." instead of "They declined\. Nothing was sent\."/],
     ['H-DIR-W2D-reqblip', ['blip-no-absent'], 'FAIL', 'request-flow', /did not read "Their computer is not connected right now" within \d+ ms/],
     ['H-DIR-W2D-reqblip', ['no-reclaim'], 'FAIL', 'request-flow', /not Waiting again after the cut \(the reclaim\)/],
+    ['H-DIR-W2D-reqauto', ['auto-asks'], 'FAIL', 'request-flow', /the host went deciding while waiting for the drop to start by itself/],
+    ['H-DIR-W2D-reqauto', ['auto-unmarked'], 'FAIL', 'request-flow', /the host's result is not marked as accepted automatically/],
+    ['H-DIR-W2D-reqauto', ['auto-chip-ready'], 'FAIL', 'request-flow', /the header chip reads "Ready" while the automatic link waits, not AUTO-ACCEPT/],
 ];
 
 for (const [id, faults, verdict, reason, words] of failures) {
@@ -622,6 +625,53 @@ test('a floe:bytes-reported event on a visitor is a safety breach, never a cell 
     const w = fakeRequestWorld({ faults: ['bytes-reported'] });
     await assert.rejects(runCell(small('H-DIR-W2D-req'), ctxFor(w)), SafetyError);
     assert.equal(w.dom.closed, true, 'the host was still released');
+});
+
+test('TA-10a H-DIR-W2D-reqauto: Make link with Auto-accept on, AUTO-ACCEPT while it waits, the drop starts with no prompt and no click, and the result is marked (D-173)', async () => {
+    const w = fakeRequestWorld();
+    const ctx = ctxFor(w);
+    const r = await runCell(small('H-DIR-W2D-reqauto'), ctx);
+    assert.equal(r.verdict, 'PASS', r.note);
+    const a = r.attempts[0];
+    assert.deepEqual(a.request.made, { lifetime: '24h', autoAccept: true, onScreen: true });
+    assert.deepEqual(w.dom.switched, ['Save files without asking']);
+    assert.equal(a.request.auto.pill, 'Auto-accept');
+    assert.ok(['receiving', 'done'].includes(a.request.auto.started), a.request.auto.started);
+    // No prompt at any point, and nothing clicked on the host to start it.
+    assert.equal(w.dom.promptGen, 0);
+    assert.deepEqual(a.request.prompts, []);
+    assert.deepEqual(a.request.answers, []);
+    assert.equal(clicksOf(w, 'Accept').length, 0);
+    assert.deepEqual(a.request.result, { files: 1, saved: 1, verified: 1, renamed: 0, autoAccepted: true });
+    // Every TA-10 oracle still holds, and the host is left as found.
+    assert.equal(r.integrity.ok, true);
+    assert.equal(r.route.observed, 'direct');
+    assert.equal(a.request.usedUp, 'This link has already been used');
+    assert.equal(a.request.released, 'ready');
+    assert.equal(w.dom.closed, true);
+    assertNoRoom(ctx, r, 'H-DIR-W2D-reqauto');
+});
+
+test('TA-10a on a build without the Auto-accept switch SKIPs request-no-auto-switch and makes no link', async () => {
+    const w = fakeRequestWorld({ faults: ['no-auto-switch'] });
+    const r = await runCell(small('H-DIR-W2D-reqauto'), ctxFor(w));
+    assert.equal(r.verdict, 'SKIP', r.note);
+    assert.equal(r.reason, 'request-no-auto-switch');
+    assert.equal(clicksOf(w, 'Make link').length, 0);
+    assert.equal(w.visitors.length, 0);
+});
+
+test('TA-10 on a host that marks a prompted drop as automatic FAILs by name', async () => {
+    const w = fakeRequestWorld();
+    const base = w.dom.onTick;
+    w.dom.onTick = (t) => {
+        base(t);
+        if (w.dom.result) w.dom.result.autoAccepted = true;
+    };
+    const r = await runCell(small('H-DIR-W2D-req'), ctxFor(w));
+    assert.equal(r.verdict, 'FAIL', r.note);
+    assert.match(r.note, /the host marked a drop it prompted for as accepted automatically/);
+    assert.deepEqual(r.attempts[0].request.made, { lifetime: '24h', autoAccept: false, onScreen: true });
 });
 
 test('a Save to field that does not take SKIPs desktop-savedir and makes no link', async () => {

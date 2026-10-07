@@ -2,7 +2,16 @@
 // it can be tested without a DOM or the Wails runtime bindings (the same
 // arrangement as settings.ts and history.ts).
 
-import {etaLongLine, ETA_OVER_2H_LINE} from './requestCopy';
+import {
+    etaLongLine,
+    ETA_OVER_2H_LINE,
+    LIFETIME_1H,
+    LIFETIME_24H,
+    LIFETIME_30M,
+    LIFETIME_3D,
+    LIFETIME_7D,
+    LIFETIME_8H,
+} from './requestCopy';
 
 // The link shapes the web app serves in a browser only: a request link
 // (/r/<11-character id>) and the Stage 2 drop link (/d/<id>, legacy /drop/<id>).
@@ -57,6 +66,9 @@ export interface RequestLinkSnapshot {
     label: string;
     saveDir: string;
     expiresAt: number;
+    /** The link's own Auto-accept switch (D-173): true when a drop that needs
+     *  no asking is accepted at once. Per link, never remembered. */
+    autoAccept: boolean;
     route: string;
     reconnectUntil?: number;
     missedAt?: number;
@@ -101,6 +113,32 @@ export interface RequestResult {
      *  (D-171), or -1 where Go sent none (that row shows no size). Optional
      *  so the fixtures that build a result by hand need not all name it. */
     sizes?: number[];
+    /** The link took this drop by its own choice, with no prompt (HA1,
+     *  D-173). Absent reads as not automatic. */
+    autoAccepted?: boolean;
+}
+
+/** A Link ends key: the fixed set Go's requestLifetime takes (D-173). Nothing
+ *  is above 7 days, the server's reservation cap, and nothing is below 30
+ *  minutes, so the 9:45 answer window fits inside the shortest link. */
+export type Lifetime = '30m' | '1h' | '8h' | '24h' | '3d' | '7d';
+
+/** The Link ends choices in their list order, each key beside its label. */
+export const LIFETIMES: readonly {readonly key: Lifetime; readonly label: string}[] = Object.freeze([
+    Object.freeze({key: '30m', label: LIFETIME_30M}),
+    Object.freeze({key: '1h', label: LIFETIME_1H}),
+    Object.freeze({key: '8h', label: LIFETIME_8H}),
+    Object.freeze({key: '24h', label: LIFETIME_24H}),
+    Object.freeze({key: '3d', label: LIFETIME_3D}),
+    Object.freeze({key: '7d', label: LIFETIME_7D}),
+]);
+
+export const DEFAULT_LIFETIME: Lifetime = '24h';
+
+/** isLifetime says whether v is one of the six keys. Anything else is left for
+ *  the caller to refuse, never folded into the default. */
+export function isLifetime(v: unknown): v is Lifetime {
+    return typeof v === 'string' && LIFETIMES.some((l) => l.key === v);
 }
 
 /** What the REQUEST LINK view shows: the Go states, where a Make link click in
@@ -111,7 +149,7 @@ export type Phase =
 
 export const OFF_SNAPSHOT: RequestLinkSnapshot = {
     state: 'off', code: '', gen: 0, seq: 0, promptGen: 0, link: '', label: '', saveDir: '',
-    expiresAt: 0, route: '', suggestClose: false, battery: false,
+    expiresAt: 0, autoAccept: false, route: '', suggestClose: false, battery: false,
 };
 
 const PHASES = new Set<string>([
@@ -127,6 +165,17 @@ const TERMINAL = new Set(['error', 'done', 'stopped', 'ended']);
 /** linkOpen: a link exists and works, Waiting to Receiving. */
 export function linkOpen(state: string): boolean {
     return OPEN.has(state);
+}
+
+// The states in which a link made with Auto-accept says so (the H4 chip and
+// W5a): while it waits for a sender and pairs one. Not while a drop that did
+// not qualify asks, or after it was declined: "Accepts automatically" over
+// an Accept prompt would contradict the prompt (D-173, review R2 F2).
+const AUTO_SHOWN = new Set(['waiting', 'reconnecting', 'connecting']);
+
+/** autoAcceptShown: the link says, right now, that it accepts by itself. */
+export function autoAcceptShown(snap: {autoAccept: boolean; state: string}): boolean {
+    return snap.autoAccept === true && AUTO_SHOWN.has(snap.state);
 }
 
 /** The frontend's own lane state. */
@@ -218,6 +267,8 @@ export function normalizeSnapshot(raw: unknown): RequestLinkSnapshot {
         label: str(r.label),
         saveDir: str(r.saveDir),
         expiresAt: num(r.expiresAt),
+        // Automatic only when the bridge says exactly true (G1: fail closed).
+        autoAccept: r.autoAccept === true,
         route: str(r.route),
         suggestClose: r.suggestClose === true,
         battery: r.battery === true,
@@ -246,6 +297,7 @@ export function normalizeSnapshot(raw: unknown): RequestLinkSnapshot {
             noNamedStreams: res.noNamedStreams !== false,
             folder: str(res.folder),
             ...namesAndSizes(res.names, res.sizes),
+            autoAccepted: res.autoAccepted === true,
         };
     }
     return out;

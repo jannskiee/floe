@@ -23,6 +23,7 @@ export interface HistEntry {
     renamed?: number; // files renamed to .floe-blocked; keeps the Show in folder question alive
     stopped?: string; // the stop code, when the drop ended early with files saved
     offered?: number; // files the visitor offered, for the stop sentence's "4 of 12"
+    auto?: true; // the link took the drop by its own choice, with no prompt (HA1, D-173)
 }
 
 export const HISTORY_CAP = 50;
@@ -106,5 +107,8 @@ export function requestHistoryEntry(snap: RequestLinkSnapshot, now: number = Dat
     if (r.bytes > 0) entry.bytes = r.bytes;
     if (snap.label) entry.label = snap.label;
     if (snap.state === 'stopped') entry.stopped = snap.code || 'unknown';
+    // The drop's own mark, never the link's switch: a drop on an automatic
+    // link that asked, and that the owner accepted, is the owner's decision.
+    if (r.autoAccepted === true) entry.auto = true;
     return entry;
 }

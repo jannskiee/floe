@@ -926,9 +926,88 @@ describe('every state', () => {
         const p = at('ready');
         render(<RequestLinkView {...p}/>);
         await user.type(screen.getByLabelText('Label'), '  Acme footage ');
-        await user.selectOptions(screen.getByLabelText('Link ends'), '7d');
+        // Picked by its label, the way the owner and the harness pick it.
+        await user.selectOptions(screen.getByLabelText('Link ends'), 'In 7 days');
         await user.click(screen.getByRole('button', {name: 'Make link'}));
-        expect(p.onMake).toHaveBeenCalledWith('Acme footage', '7d');
+        expect(p.onMake).toHaveBeenCalledWith('Acme footage', '7d', false);
+    });
+});
+
+describe('Link ends (D-173)', () => {
+    const lifetimeSelect = () => screen.getByLabelText('Link ends') as HTMLSelectElement;
+
+    it('offers the six choices in order, each with its approved label, and 24h is chosen', () => {
+        render(<RequestLinkView {...at('ready')}/>);
+        const select = lifetimeSelect();
+        expect(select.tagName).toBe('SELECT');
+        expect([...select.options].map((o) => [o.value, o.textContent])).toEqual([
+            ['30m', 'In 30 minutes'],
+            ['1h', 'In 1 hour'],
+            ['8h', 'In 8 hours'],
+            ['24h', 'In 24 hours'],
+            ['3d', 'In 3 days'],
+            ['7d', 'In 7 days'],
+        ]);
+        expect(select.value).toBe('24h');
+        expect((screen.getByRole('option', {name: 'In 24 hours'}) as HTMLOptionElement).selected).toBe(true);
+    });
+
+    it('Make link with no choice sends 24h', async () => {
+        const user = userEvent.setup();
+        const p = at('ready');
+        render(<RequestLinkView {...p}/>);
+        await user.click(screen.getByRole('button', {name: 'Make link'}));
+        expect(p.onMake).toHaveBeenCalledWith('', '24h', false);
+    });
+
+    it.each(['30m', '1h', '8h', '24h', '3d', '7d'])('choosing %s sends that key to Make link', async (key) => {
+        const user = userEvent.setup();
+        const p = at('ready');
+        render(<RequestLinkView {...p}/>);
+        await user.selectOptions(lifetimeSelect(), key);
+        expect(lifetimeSelect().value).toBe(key);
+        await user.click(screen.getByRole('button', {name: 'Make link'}));
+        expect(p.onMake).toHaveBeenCalledTimes(1);
+        expect(p.onMake).toHaveBeenCalledWith('', key, false);
+    });
+
+    it('a value that is not one of the six changes nothing: it is never folded into 24h', async () => {
+        const user = userEvent.setup();
+        const p = at('ready');
+        render(<RequestLinkView {...p}/>);
+        await user.selectOptions(lifetimeSelect(), '3d');
+        fireEvent.change(lifetimeSelect(), {target: {value: '15m'}});
+        expect(lifetimeSelect().value).toBe('3d');
+        await user.click(screen.getByRole('button', {name: 'Make link'}));
+        expect(p.onMake).toHaveBeenCalledWith('', '3d', false);
+    });
+
+    it('is disabled while the link is being made', () => {
+        const {unmount} = render(<RequestLinkView {...at('making')}/>);
+        expect(lifetimeSelect().disabled).toBe(true);
+        unmount();
+        render(<RequestLinkView {...at('ready')}/>);
+        expect(lifetimeSelect().disabled).toBe(false);
+    });
+
+    it('a change while an error shows counts as an edit of the form (T5)', async () => {
+        const user = userEvent.setup();
+        const p = at('error', {errorCode: 'limited'});
+        render(<RequestLinkView {...p}/>);
+        await user.selectOptions(lifetimeSelect(), '1h');
+        expect(p.onEdit).toHaveBeenCalled();
+    });
+
+    it('is the restyled real select, the trigger in Input\'s box, with the chevron drawn over it', () => {
+        render(<RequestLinkView {...at('ready')}/>);
+        const select = lifetimeSelect();
+        // globals.css .floe-select draws the picker (customizable select).
+        expect(select.className.split(' ')).toEqual(expect.arrayContaining(['floe-select', 'h-[38px]', 'border-white/10', 'bg-white/[0.03]', 'text-zinc-100']));
+        const chevron = select.parentElement!.querySelector('svg')!;
+        expect(chevron.getAttribute('aria-hidden')).toBe('true');
+        expect(chevron.getAttribute('class')).toContain('floe-select-chevron');
+        // No option carries a class of its own: the picker rules style them all.
+        for (const o of select.options) expect(o.className, o.value).toBe('');
     });
 });
 
@@ -1023,5 +1102,163 @@ describe('the saved files on Done and Stopped (D-171)', () => {
         const btn = screen.getByRole('button', {name: 'Show in folder'});
         expect(btn.parentElement!.parentElement!.className.split(' ')).toContain('rounded-md');
         expect(btn.parentElement!.className.split(' ')).not.toContain('border-t');
+    });
+});
+
+// Auto-accept (D-173): the AUTO-ACCEPT eyebrow under LINK ENDS over one
+// Input-sized box that is a single label, R29 on the left and the Settings
+// switch on the right; off on every mount and never stored; R30 in amber
+// only while it is on, above the IP line; W5a on the link line; and the
+// lane's own count and folder while an automatic drop arrives.
+describe('Auto-accept (D-173)', () => {
+    const R29 = 'Save files without asking';
+    const R30 = 'Anyone with the link can save files here';
+    const R15 = 'Senders see your IP, even if you decline';
+    const before = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const toggle = () => screen.getByRole('checkbox', {name: R29}) as HTMLInputElement;
+
+    it('starts off, is named by its words, describes nothing, and Make link sends false', async () => {
+        const user = userEvent.setup();
+        const p = at('ready');
+        render(<RequestLinkView {...p}/>);
+        expect(toggle().checked).toBe(false);
+        expect(toggle().hasAttribute('aria-describedby')).toBe(false);
+        expect(screen.queryByText(R30)).toBeNull();
+        await user.click(screen.getByRole('button', {name: 'Make link'}));
+        expect(p.onMake).toHaveBeenCalledWith('', '24h', false);
+    });
+
+    it('on: R30 in amber under the box and above the IP line, the switch described by it, and Make link sends true', async () => {
+        const user = userEvent.setup();
+        const p = at('ready');
+        const {rerender} = render(<RequestLinkView {...p}/>);
+        await user.click(toggle());
+        expect(toggle().checked).toBe(true);
+        const line = screen.getByText(R30);
+        expect(line.className).toContain('text-amber-300/80');
+        expect(line.id).not.toBe('');
+        expect(toggle().getAttribute('aria-describedby')).toBe(line.id);
+        expect(before(toggle().closest('label')!, line)).toBe(true);
+        expect(before(line, screen.getByText(R15))).toBe(true);
+        await user.click(screen.getByRole('button', {name: 'Make link'}));
+        expect(p.onMake).toHaveBeenLastCalledWith('', '24h', true);
+        // With Hide my IP on, R30 sits above R17 the same way.
+        rerender(<RequestLinkView {...p} hideIP/>);
+        expect(before(screen.getByText(R30), screen.getByText('Hide my IP limits drops to 2 GB'))).toBe(true);
+        await user.click(toggle());
+        expect(screen.queryByText(R30)).toBeNull();
+        expect(toggle().hasAttribute('aria-describedby')).toBe(false);
+    });
+
+    it('the box is one label the height and look of the fields: a click on its words turns it on', async () => {
+        const user = userEvent.setup();
+        render(<RequestLinkView {...at('ready')}/>);
+        const box = toggle().closest('label')!;
+        expect(box.textContent).toBe(R29);
+        expect(box.className.split(' ')).toEqual(expect.arrayContaining([
+            'h-[38px]', 'rounded-md', 'border', 'border-white/10', 'bg-white/[0.03]', 'px-3', 'text-sm', 'text-zinc-100', 'cursor-pointer',
+        ]));
+        expect(box.className).toMatch(/hover:bg-white\//);
+        await user.click(screen.getByText(R29));
+        expect(toggle().checked).toBe(true);
+        // The Settings switch: a checkbox, its track white while on.
+        expect(toggle().type).toBe('checkbox');
+        expect(box.querySelector('.bg-white')).not.toBeNull();
+    });
+
+    it('the AUTO-ACCEPT eyebrow sits under LINK ENDS, over the box, on the +2 px edge', () => {
+        render(<RequestLinkView {...at('ready')}/>);
+        const eyebrow = screen.getByText('Auto-accept');
+        expect(eyebrow.className.split(' ')).toEqual(expect.arrayContaining(['px-0.5', 'uppercase']));
+        expect(before(screen.getByLabelText('Link ends'), eyebrow)).toBe(true);
+        expect(before(eyebrow, toggle())).toBe(true);
+        expect(before(toggle(), screen.getByRole('button', {name: 'Make link'}))).toBe(true);
+    });
+
+    it('goes back to off on every mount, including after Make another link', async () => {
+        const user = userEvent.setup();
+        const first = render(<RequestLinkView {...at('ready')}/>);
+        await user.click(toggle());
+        first.unmount();
+        const {rerender} = render(<RequestLinkView {...at('ready')}/>);
+        expect(toggle().checked).toBe(false);
+        await user.click(toggle());
+        // A made link, its drop, then Make another link: the form mounts anew.
+        rerender(<RequestLinkView {...at('waiting')}/>);
+        rerender(<RequestLinkView {...at('done')}/>);
+        rerender(<RequestLinkView {...at('ready')}/>);
+        expect(toggle().checked).toBe(false);
+        expect(screen.queryByText(R30)).toBeNull();
+    });
+
+    it('never remembers the choice anywhere', async () => {
+        const user = userEvent.setup();
+        const set = vi.spyOn(Storage.prototype, 'setItem');
+        try {
+            render(<RequestLinkView {...at('ready')}/>);
+            await user.click(toggle());
+            await user.click(screen.getByRole('button', {name: 'Make link'}));
+            expect(set).not.toHaveBeenCalled();
+        } finally {
+            set.mockRestore();
+        }
+    });
+
+    it('is disabled, and dimmed, while the link is being made; an edit while an error shows puts the error away', async () => {
+        const user = userEvent.setup();
+        const {rerender} = render(<RequestLinkView {...at('ready')}/>);
+        await user.click(toggle());
+        rerender(<RequestLinkView {...at('making')}/>);
+        // The same form, so the choice the owner made is the one being made.
+        expect(toggle().checked).toBe(true);
+        expect(toggle().disabled).toBe(true);
+        const box = toggle().closest('label')!;
+        expect(box.className.split(' ')).toEqual(expect.arrayContaining(['opacity-50', 'cursor-not-allowed']));
+        expect(box.className).not.toMatch(/hover:/);
+        expect(box.getAttribute('aria-disabled')).toBe('true');
+        const p = at('error', {errorCode: 'limited'});
+        rerender(<RequestLinkView {...p}/>);
+        expect(toggle().disabled).toBe(false);
+        await user.click(toggle());
+        expect(p.onEdit).toHaveBeenCalled();
+    });
+
+    it('the link line says Accepts automatically only on an automatic link (W5a), at AA', () => {
+        const {rerender} = render(<RequestLinkView {...at('waiting')} snap={snap({state: 'waiting', autoAccept: true})}/>);
+        const line = screen.getByText(/^Ends .* · Accepts automatically$/);
+        expect(line.className).toContain('text-zinc-400');
+        rerender(<RequestLinkView {...at('waiting')}/>);
+        expect(screen.getByText(/^Ends /).textContent).not.toContain('automatically');
+    });
+
+    it('an automatic link that asks, or was declined, does not say Accepts automatically over the prompt (review R2 F2)', () => {
+        for (const ph of ['deciding', 'declined'] as const) {
+            const {unmount} = render(<RequestLinkView {...at(ph)} snap={{...at(ph).snap, autoAccept: true}}/>);
+            expect(screen.getByText(/^Ends /).textContent, ph).not.toContain('automatically');
+            unmount();
+        }
+        for (const ph of ['waiting', 'reconnecting', 'connecting'] as const) {
+            const {unmount} = render(<RequestLinkView {...at(ph)} snap={{...at(ph).snap, autoAccept: true}}/>);
+            expect(screen.getByText(/^Ends .* · Accepts automatically$/), ph).toBeTruthy();
+            unmount();
+        }
+    });
+
+    it('Receiving on the automatic path names the lane\'s count and folder, and shows no prompt', () => {
+        const auto = snap({state: 'receiving', route: 'direct', autoAccept: true, result: {...result, saved: 0, bytes: 0, verified: 0, names: [], autoAccepted: true}});
+        const {container} = render(<RequestLinkView {...at('receiving')} snap={auto}/>);
+        expect(screen.getByText('RECEIVING 1 OF 12 FROM ACME FOOTAGE')).toBeTruthy();
+        const into = screen.getByText(prompt.folder);
+        expect(into.parentElement!.textContent).toBe(`Into ${prompt.folder}`);
+        expect(screen.queryByRole('button', {name: 'Accept'})).toBeNull();
+        expect(container.textContent).not.toMatch(/wants to send you files/i);
+        expect(screen.getByRole('button', {name: /Cancel drop/})).toBeTruthy();
+    });
+
+    it('the form with the switch on draws no line that ends in a period (D-167)', async () => {
+        const user = userEvent.setup();
+        const {container} = render(<RequestLinkView {...at('ready')}/>);
+        await user.click(toggle());
+        expect(closingPeriods(container)).toEqual([]);
     });
 });

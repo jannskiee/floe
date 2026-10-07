@@ -254,6 +254,30 @@ describe('request rows', () => {
         expect(screen.queryByText(/SHA-256/)).toBeNull();
     });
 
+    it("says Accepted automatically, in the row's gray, only on a drop the link took by itself (HA1, D-173)", async () => {
+        const {container, unmount} = mount([request({auto: true})]);
+        await openRow();
+        const line = screen.getByText('Accepted automatically');
+        // A record, not a warning (D-172): the stop line's gray, under the folder.
+        expect(line.className.split(' ')).toEqual(expect.arrayContaining(['pl-7', 'text-xs', 'text-zinc-500']));
+        expect(line.className).not.toMatch(/amber/);
+        const folder = screen.getByTitle(FOLDER);
+        expect(folder.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(container.querySelector('svg.lucide-circle-check')).not.toBeNull();
+        unmount();
+        // A stopped automatic drop keeps the mark beside its stop sentence.
+        const stopped = mount([request({auto: true, stopped: 'stopped', count: 1, offered: 2, verified: 1})]);
+        await openRow();
+        expect(screen.getByText('Accepted automatically')).toBeTruthy();
+        stopped.unmount();
+        // Not on a prompted request row, and not on a plain receive.
+        mount([request(), {...received, at: 1_700_000_005_000}]);
+        await openRow();
+        expect(screen.queryByText('Accepted automatically')).toBeNull();
+        await userEvent.click(rowButton(/report\.pdf/));
+        expect(screen.queryByText('Accepted automatically')).toBeNull();
+    });
+
     it('a save-blocked row with nothing saved points at the kept file (D-128)', async () => {
         mount([request({stopped: 'save-blocked', names: [], count: 0, offered: 1, verified: 0, bytes: undefined})]);
         await openRow();
