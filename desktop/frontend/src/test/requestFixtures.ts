@@ -16,6 +16,7 @@ export const offSnapshot = {
     label: '',
     saveDir: '',
     expiresAt: 0,
+    autoAccept: false,
     route: '',
     suggestClose: false,
 };

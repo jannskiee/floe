@@ -406,3 +406,21 @@ describe('the saved files beside their sizes (D-171)', () => {
         expect(normalizeSnapshot({state: 'done', result: {names: 'a', sizes: 3}}).result!).toMatchObject({names: [], sizes: []});
     });
 });
+
+describe('Auto-accept on the bridge (D-173)', () => {
+    it('normalizeSnapshot reads the link\'s switch as true only when the bridge says true (G1)', () => {
+        expect(OFF_SNAPSHOT.autoAccept).toBe(false);
+        expect(normalizeSnapshot({state: 'waiting', autoAccept: true}).autoAccept).toBe(true);
+        for (const junk of [false, 'true', 1, null, undefined, {}, []]) {
+            expect(normalizeSnapshot({state: 'waiting', autoAccept: junk}).autoAccept, String(junk)).toBe(false);
+        }
+        expect(normalizeSnapshot({state: 'waiting'}).autoAccept).toBe(false);
+    });
+
+    it('normalizeSnapshot reads the drop\'s own mark just as strictly (HA1)', () => {
+        expect(normalizeSnapshot({state: 'done', result: {autoAccepted: true}}).result?.autoAccepted).toBe(true);
+        for (const junk of [false, 'true', 1, null, undefined, {}, []]) {
+            expect(normalizeSnapshot({state: 'done', result: {autoAccepted: junk}}).result?.autoAccepted, String(junk)).toBe(false);
+        }
+    });
+});

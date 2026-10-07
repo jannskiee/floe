@@ -179,6 +179,10 @@ export const RE = Object.freeze({
     savedTo: /^Saved to (.+)$/i,
     incoming: /^Incoming: /i,
     pill: /^(Ready|Active|Direct|Relay)$/i,
+    // TA-10a only: a link made with Auto-accept on reads AUTO-ACCEPT in the
+    // chip while it waits and nothing moves (H4, D-173). An idle word like
+    // READY: never a route verdict (pillVerdict reads it as unknown).
+    pillAuto: /^(Ready|Active|Direct|Relay|Auto-accept)$/i,
     status: /^(Connecting\.\.\.(?: keep this window open\.)?|(?:Please e|E)nter a code or link\.?|Canceled\.?|Error: .*)$/i,
     error: /^Error: /i,
     progress: /^(\[\d+\/\d+\] )?.+ - \d+%  \(/i,
@@ -221,6 +225,11 @@ export const REQUEST_STRINGS = Object.freeze({
     // node of its own for UIA and a span of its own for the dev page. Both
     // readers key on these exact words.
     verifiedLine: 'SHA-256 matched',
+    // Auto-accept (D-173): the Make link form's switch, a checkbox whose
+    // accessible name is its label, and the chip word while such a link
+    // waits. Only TA-10a turns it on; every other cell leaves it off.
+    autoAcceptSwitch: 'Save files without asking', // R29
+    autoAcceptPill: 'Auto-accept', // H4, CSS-uppercased as AUTO-ACCEPT
 });
 
 /**
@@ -1621,9 +1630,15 @@ export class UiaDriver {
      * never the owner's Downloads\Floe), the lifetime (7 days is an
      * option of the native select: SelectionItem, INFERRED; every cell makes
      * 24 hours, the default), Make link, then the waiting view.
+     *
+     * autoAccept true is TA-10a's, whose oracles read the host's own record
+     * of the switch and the drop's mark (GetRequestLink), which this lane
+     * does not have: SKIP request-auto-wailsdev-only before anything is
+     * clicked (the matrix gate SKIPs the cell first; this is the second lock).
      */
     async makeRequestLink({
         lifetime = '24h',
+        autoAccept = false,
         saveDir = null,
         timeoutMs = 30_000,
         now = Date.now,
@@ -1633,6 +1648,12 @@ export class UiaDriver {
             throw new PhaseError(
                 'request',
                 `desktop uia: MakeLink takes 24h or 7d, not ${lifetime}`
+            );
+        if (autoAccept !== false)
+            throw new PhaseError(
+                'request',
+                'desktop uia: MakeLink with Auto-accept on is a wailsdev verb (TA-10a reads GetRequestLink); no link is made',
+                { verdict: 'SKIP', reason: 'request-auto-wailsdev-only' }
             );
         if (typeof saveDir !== 'string' || !path.isAbsolute(saveDir))
             throw new PhaseError(
@@ -1690,7 +1711,7 @@ export class UiaDriver {
         this._gen += 1;
         this._saveDir = saveDir;
         this._promptFolder = null;
-        return { made: true, lifetime, saveDir, waitingAt };
+        return { made: true, lifetime, autoAccept, saveDir, waitingAt };
     }
     /** ReadLink: the full link is the read-only link field's value (LinkBlock). */
     async readRequestLink() {
@@ -2185,9 +2206,18 @@ export class PlaywrightDriver {
      * lands there, the same rule as the Receive view's desktop-savedir SKIP.
      * The folder the host reports for the link is checked too, since Go
      * trims and owns the value.
+     *
+     * autoAccept is the form's Auto-accept switch (D-173): false, the form's
+     * own default on every mount, which every cell but TA-10a keeps and
+     * which is never clicked; or true, which turns the switch on through
+     * its label, found by its accessible name. A build without the switch
+     * (made before H10) cannot run true: SKIP request-no-auto-switch, no
+     * link made. Either way the host must hold the link with the choice
+     * asked for (the snapshot's autoAccept; absent reads off).
      */
     async makeRequestLink({
         lifetime = '24h',
+        autoAccept = false,
         saveDir = null,
         timeoutMs = 30_000,
         now = Date.now,
@@ -2197,6 +2227,11 @@ export class PlaywrightDriver {
             throw new PhaseError(
                 'request',
                 `desktop wailsdev: MakeLink takes 24h or 7d, not ${lifetime}`
+            );
+        if (autoAccept !== true && autoAccept !== false)
+            throw new PhaseError(
+                'request',
+                `desktop wailsdev: MakeLink takes autoAccept true or false, not ${autoAccept}`
             );
         if (typeof saveDir !== 'string' || !path.isAbsolute(saveDir))
             throw new PhaseError(
@@ -2231,6 +2266,28 @@ export class PlaywrightDriver {
                 await select.first().selectOption({ label: text });
             else await this.page.getByText(text, { exact: true }).click();
         }
+        if (autoAccept) {
+            const box = this.page.getByRole('checkbox', {
+                name: REQUEST_STRINGS.autoAcceptSwitch,
+                exact: true,
+            });
+            if ((await box.count()) === 0)
+                throw new PhaseError(
+                    'request',
+                    `desktop wailsdev: this build has no "${REQUEST_STRINGS.autoAcceptSwitch}" switch (made before Auto-accept); no link is made`,
+                    { verdict: 'SKIP', reason: 'request-no-auto-switch' }
+                );
+            // The switch is an sr-only checkbox inside its box's label, as
+            // Settings' are (setToggle): the label is what takes the click.
+            const sw = box.first();
+            if (!(await sw.isChecked()))
+                await sw.locator('xpath=ancestor::label[1]').click();
+            if (!(await sw.isChecked()))
+                throw new PhaseError(
+                    'request',
+                    'desktop wailsdev: the Auto-accept switch did not turn on; no link is made'
+                );
+        }
         await this._button(REQUEST_STRINGS.makeLink).first().click();
         // The waiting view, or the error the lane answered with (E1 to E8:
         // request-1 gone, the network limit, no relay for Hide my IP...),
@@ -2263,7 +2320,16 @@ export class PlaywrightDriver {
                 'desktop wailsdev: the host holds the link with a save folder that is not the run\'s',
                 { verdict: 'SKIP', reason: 'desktop-savedir' }
             );
-        return { made: true, lifetime, saveDir, waitingAt };
+        // A cell that asks would never see its prompt on an automatic link,
+        // and TA-10a on a link that asks would prove nothing: the host's own
+        // record of the choice decides, never the click.
+        if (snap && (snap.autoAccept === true) !== autoAccept)
+            throw new PhaseError(
+                'request',
+                `request-flow: the host made the link with autoAccept ${snap.autoAccept === true}, not the ${autoAccept} this cell chose`,
+                { signatureKey: 'request-flow' }
+            );
+        return { made: true, lifetime, autoAccept, saveDir, waitingAt };
     }
 
     /**
@@ -3322,7 +3388,10 @@ export class DesktopLeg extends Leg {
 
     /** One pill read into samples; the first decisive one is the route mark. */
     async sampleOnce() {
-        const pill = await this.driver.readText(RE.pill, {
+        // pillRe is RE.pill, or RE.pillAuto for TA-10a's host (request.mjs
+        // startHost), so AUTO-ACCEPT is kept as an idle word for that cell
+        // only; it is never a route verdict either way.
+        const pill = await this.driver.readText(this.pillRe || RE.pill, {
             controlType: 'Text',
         });
         const text = pill[0] ?? null;

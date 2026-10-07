@@ -205,13 +205,20 @@ func pairingFake(t *testing.T) *fakeSignalServer {
 // a switch or a seam there without racing the lane.
 func dropApp(t *testing.T, before func(a *App)) (a *App, rec *snapRecorder, f *fakeSignalServer, room, base string) {
 	t.Helper()
+	return dropAppWith(t, false, before)
+}
+
+// dropAppWith is dropApp for a link made with the given Auto-accept switch
+// (D-173): false, what every older caller makes, asks for every drop.
+func dropAppWith(t *testing.T, autoAccept bool, before func(a *App)) (a *App, rec *snapRecorder, f *fakeSignalServer, room, base string) {
+	t.Helper()
 	f = pairingFake(t)
 	a, rec = laneApp(t, f)
 	if before != nil {
 		before(a)
 	}
 	base = filepath.Join(t.TempDir(), "Floe requests")
-	a.MakeRequestLink("Acme footage", base, "24h")
+	a.MakeRequestLink("Acme footage", base, "24h", autoAccept)
 	s := waitState(t, a, 10*time.Second, "waiting")
 	i := strings.Index(s.Link, "#")
 	if i < 0 {
@@ -1837,4 +1844,141 @@ func TestRequestDecideWindowStartsAtThePrompt(t *testing.T) {
 	if elapsed >= window+toast-50*time.Millisecond {
 		t.Fatalf("expired came %v after the prompt, want about %v: the toast's time came out of the window's margin", elapsed, window)
 	}
+}
+
+// TestRunRequestDropAutoAcceptEndToEnd (D-173, G4 to G7): over real pion, a
+// link made with Auto-accept on takes a drop that needs no asking with no
+// prompt at all. The visitor's files arrive intact and verified, no snapshot
+// is a prompt, TO4 and TO2 are the only notifications, no flash or title is
+// set, the result marks the drop as accepted automatically, and no lane event
+// carries the host token.
+func TestRunRequestDropAutoAcceptEndToEnd(t *testing.T) {
+	var att *attentionRec
+	a, rec, f, room, _ := dropAppWith(t, true, func(a *App) {
+		roomyVolume().install(t)
+		att = watchAttention(a, nil)
+	})
+	files := map[string][]byte{"a.txt": randomBytes(t, 10<<10), "b.bin": randomBytes(t, 300<<10)}
+	paths := writeFiles(t, t.TempDir(), files)
+	v := joinVisitor(t, f, room)
+	v.connect(t)
+	sent := make(chan error, 1)
+	go func() { sent <- v.sendFiles(paths, transfer.SendOptions{AckTimeout: time.Minute}) }()
+	deadline := time.After(30 * time.Second)
+	for done := false; !done; {
+		select {
+		case err := <-sent:
+			if err != nil {
+				t.Fatalf("the visitor's send: %v", err)
+			}
+			done = true
+		case <-deadline:
+			t.Fatal("the send did not finish")
+		case <-time.After(20 * time.Millisecond):
+			if s := stateOf(a); s.State == "deciding" {
+				t.Fatalf("the automatic link asked: %+v (route %q)", s.Prompt, s.Route)
+			}
+		}
+	}
+	v.leave()
+	s := waitState(t, a, 15*time.Second, "done")
+	r := s.Result
+	if r == nil || r.Files != 2 || r.Saved != 2 || r.Verified != 2 || !r.AutoAccepted {
+		t.Fatalf("result %+v, want 2 files saved and verified, marked automatic", r)
+	}
+	for name, want := range files {
+		got, err := os.ReadFile(filepath.Join(r.Folder, name))
+		if err != nil || !bytes.Equal(got, want) {
+			t.Fatalf("%s did not arrive intact: %v", name, err)
+		}
+	}
+	for _, snap := range rec.all() {
+		if snap.State == "deciding" || snap.Prompt != nil || snap.PromptGen != 0 {
+			t.Fatalf("an automatic drop emitted a prompt: %+v", snap)
+		}
+	}
+	titles, flashes, toasts := att.snapshot()
+	if len(titles) != 0 || len(flashes) != 0 {
+		t.Fatalf("title %q, flash %v on a drop that asked nothing", titles, flashes)
+	}
+	if len(toasts) != 2 || toasts[0] != to4 || toasts[1] != to2 {
+		t.Fatalf("notifications %q, want TO4 then TO2", toasts)
+	}
+	token := f.tokenJoins()[0].token
+	for _, js := range rec.allRaw() {
+		for i := 0; i+8 <= len(token); i++ {
+			if strings.Contains(js, token[i:i+8]) {
+				t.Fatal("a lane event carries part of the host token")
+			}
+		}
+	}
+}
+
+// TestRunRequestDropAutoAcceptRefusesHostileMetadataFirst (layer 1 before
+// Decide): on a link made with Auto-accept on, a first metadata the limits
+// refuse is refused before Decide ever runs, exactly as on a link made with
+// it off: nothing is made under the save base and TO4 never fires.
+func TestRunRequestDropAutoAcceptRefusesHostileMetadataFirst(t *testing.T) {
+	var att *attentionRec
+	a, _, f, room, base := dropAppWith(t, true, func(a *App) {
+		roomyVolume().install(t)
+		att = watchAttention(a, nil)
+	})
+	v := joinVisitor(t, f, room)
+	v.connect(t)
+	v.sendText(metaFrame(1, 1, strings.Repeat("d/", 40)+"f.txt", 4, 4))
+	waitSnap(t, a, 10*time.Second, "stopped", "path-too-long")
+	if got := treeUnder(t, base); len(got) != 0 {
+		t.Fatalf("a refused first metadata left %q", got)
+	}
+	if n := att.count(to4[0], to4[1]); n != 0 {
+		t.Fatalf("TO4 fired %d times for a drop the limits refused", n)
+	}
+}
+
+// TestRunRequestDropAutoAcceptAbandonedQuietsTO4 (review 1 R2 a): over real
+// pion, a visitor that closes its channel while its automatic Accept is being
+// announced leaves no drop, and the link waits again. After two such pairings
+// within 10 minutes the third automatic Accept sends no TO4; that third drop
+// goes on, so the owner still sees it (the chip, Receiving, History).
+func TestRunRequestDropAutoAcceptAbandonedQuietsTO4(t *testing.T) {
+	var att *attentionRec
+	var leaving atomic.Pointer[testVisitor]
+	a, _, f, room, _ := dropAppWith(t, true, func(a *App) {
+		roomyVolume().install(t)
+		att = watchAttention(a, nil)
+		a.notifyFn = func(title, body string) {
+			att.toast(title, body)
+			// The visitor goes while TO4 runs, before the engine's own check.
+			if [2]string{title, body} == to4 {
+				if v := leaving.Swap(nil); v != nil {
+					v.leave()
+					time.Sleep(300 * time.Millisecond)
+				}
+			}
+		}
+	})
+	for i := 1; i <= 2; i++ {
+		v := joinVisitor(t, f, room)
+		v.connect(t)
+		leaving.Store(v)
+		v.sendText(metaFrame(1, 1, "a.bin", 4, 4))
+		waitSnap(t, a, 15*time.Second, "waiting", "visitor-left")
+		waitFor(t, 5*time.Second, "the room to reopen", f.roomOpen)
+		if n := att.count(to4[0], to4[1]); n != i {
+			t.Fatalf("pairing %d: %d TO4, want %d", i, n, i)
+		}
+		if s := stateOf(a); s.Result != nil {
+			t.Fatalf("pairing %d: the link waits again with the abandoned drop's result %+v", i, s.Result)
+		}
+	}
+	v := joinVisitor(t, f, room)
+	v.connect(t)
+	v.sendText(metaFrame(1, 1, "a.bin", 4, 4))
+	waitState(t, a, 15*time.Second, "receiving")
+	if n := att.count(to4[0], to4[1]); n != 2 {
+		t.Fatalf("after two abandoned automatic Accepts in 10 minutes, the third sent TO4 again (%d in all)", n)
+	}
+	v.leave()
+	waitState(t, a, 15*time.Second, "stopped")
 }

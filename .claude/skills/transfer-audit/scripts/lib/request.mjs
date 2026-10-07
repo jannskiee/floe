@@ -5,8 +5,8 @@
 // on /r (lib/visitor.mjs). Every attempt makes its own link into its own
 // folder, so a retry never reuses either.
 //
-// runRequestAttempt runs TA-10, TA-11 and TA-12 (flow accept), TA-13
-// (blip-then-accept) and TA-15 (decline-then-accept) and returns the same
+// runRequestAttempt runs TA-10, TA-11 and TA-12 (flow accept), TA-10a (auto),
+// TA-13 (blip-then-accept) and TA-15 (decline-then-accept) and returns the same
 // attempt record runAttempt does, so runCell's verdicts, retry and report
 // rows apply unchanged. TA-16 (flow accept, request.visitor 'cli') runs the
 // same attempt with the CLI as the visitor: `floe send <files> --to <link>`
@@ -34,7 +34,7 @@ import {
     runAttempt,
     statsProofCheck,
 } from './cell.mjs';
-import { REQUEST_STRINGS, desktopFmtBytes, safeCode, samePath } from './desktop.mjs';
+import { RE, REQUEST_STRINGS, desktopFmtBytes, safeCode, samePath } from './desktop.mjs';
 import { compareOutputs, ensureFixture, walkOutputs } from './fixtures.mjs';
 import { REQUEST_CADDY_RECONNECT_MS, isLoopbackUrl } from './matrix.mjs';
 import { redactRequestLinks } from './report.mjs';
@@ -334,8 +334,10 @@ async function startHost(
     // open stays exactly as it was.
     st.genBefore = Number((await snapshotOf(host)).gen) || 0;
     st.makeTried = true;
+    const autoAccept = cell.request.autoAccept === true;
     const made = await host.driver.makeRequestLink({
         lifetime: '24h',
+        autoAccept,
         saveDir: outDir,
         now,
         nap,
@@ -343,7 +345,10 @@ async function startHost(
     const read = await host.driver.readRequestLink();
     st.link = read.link;
     rec.request.link = read.shown;
-    rec.request.made = { lifetime: made.lifetime, onScreen: read.onScreen };
+    rec.request.made = { lifetime: made.lifetime, autoAccept, onScreen: read.onScreen };
+    // TA-10a's chip reads AUTO-ACCEPT while the link waits: an idle word
+    // for this host's sampler, like READY (never a route verdict).
+    if (autoAccept) host.pillRe = RE.pillAuto;
     host.startSampler();
     if (ctx.log) ctx.log(`${cell.id}: host made ${read.shown}`);
     return host;
@@ -633,6 +638,36 @@ async function runFlow(cell, ctx, rec, st, fixture, T) {
         await v.send(st.clock);
         await awaitPrompt(host, rec, st, fixture, T);
         await accept(host, rec, st, T);
+        return v;
+    }
+    if (req.flow === 'auto') {
+        // TA-10a (D-173): while the automatic link waits, the chip reads
+        // AUTO-ACCEPT (H4); then the drop starts by itself, with no prompt
+        // at any point, and nothing is clicked on the host.
+        const pill = await host.driver.readText(RE.pillAuto);
+        rec.request.auto = { pill: pill[0] ?? null, started: null };
+        if (!pill.some((w) => w.toLowerCase() === REQUEST_STRINGS.autoAcceptPill.toLowerCase()))
+            throw flow(
+                'request',
+                `the header chip reads ${JSON.stringify(pill[0] ?? null)} while the automatic link waits, not AUTO-ACCEPT`
+            );
+        const v = await open('visitor-1');
+        await v.send(st.clock);
+        // A small drop can finish between two polls, so done counts too; a
+        // prompt at any point is the finding.
+        const s = await awaitHostState(
+            host,
+            (x) => ['receiving', 'done', 'stopped'].includes(x.state),
+            T.accept,
+            {
+                ...st.clock,
+                fail: ['deciding', 'declined', 'ended', 'error'],
+                what: 'the drop to start by itself (Auto-accept)',
+                live: st.live,
+            }
+        );
+        rec.request.auto.started = s.state;
+        st.acceptedAt = st.clock.now();
         return v;
     }
     if (req.flow === 'decline-then-accept') {
@@ -999,6 +1034,17 @@ async function verifyRequest(cell, ctx, rec, st, fixture, T) {
                 ? `the host's done view reads ${r.saved} file(s) saved; the visitor sent ${N}`
                 : `the host saved ${r.saved} of ${r.files} file(s); the visitor sent ${N}`
         );
+    // TA-10a: the host's own record says the link took the drop by itself
+    // (History's HA1 line reads this mark); a prompted drop is never marked.
+    if (cell.request.flow === 'auto') {
+        rec.request.result.autoAccepted = r.autoAccepted ?? null;
+        if (snap.autoAccept !== true || r.autoAccepted !== true)
+            throw flow(
+                'verify',
+                `the host's result is not marked as accepted automatically (link autoAccept ${snap.autoAccept === true}, result autoAccepted ${r.autoAccepted === true})`
+            );
+    } else if (r.autoAccepted === true)
+        throw flow('verify', 'the host marked a drop it prompted for as accepted automatically');
     const view = await host.driver.readRequestResult();
     rec.request.hostView = view;
     rec.completion.receiver = {
@@ -1109,6 +1155,9 @@ function newRequestRecord(cell) {
         answers: [],
         declined: null,
         reopened: false,
+        // TA-10a: the chip word while the automatic link waited, and the
+        // state the drop was first seen in once it started by itself.
+        auto: null,
         blip: null,
         result: null,
         hostView: null,

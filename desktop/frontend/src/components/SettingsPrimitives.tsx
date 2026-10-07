@@ -8,13 +8,22 @@ import {cn, rowDescClass, rowLabelClass} from './ui';
  *  32x18 with a 14px thumb (travel 32 - 14 - 2*2 = 14px = translate-x-3.5),
  *  desktop proportions rather than the chunkier mobile 36x20. Deliberately no
  *  group-hover coupling: the primitive stays context-free, and the row's own
- *  hover fill already signals interactivity. */
-export function Switch({checked, onChange, disabled}: {checked: boolean; onChange: (v: boolean) => void; disabled?: boolean}) {
+ *  hover fill already signals interactivity.
+ *
+ *  describedBy goes on the checkbox itself as aria-describedby, the one place
+ *  it associates (see SettingField); absent, the attribute is left off. */
+export function Switch({checked, onChange, disabled, describedBy}: {
+    checked: boolean;
+    onChange: (v: boolean) => void;
+    disabled?: boolean;
+    describedBy?: string;
+}) {
     return (
         <span className="relative inline-flex shrink-0">
             <input
                 type="checkbox"
                 checked={checked}
+                aria-describedby={describedBy}
                 // Native disabled, not aria-disabled: a disabled checkbox cannot
                 // be toggled by a click on its label, by Space, or by a screen
                 // reader, which is the whole guarantee a dimmed setting needs.

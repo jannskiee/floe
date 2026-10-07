@@ -32,7 +32,7 @@ export function GetVersion():Promise<string>;
 
 export function IsPackaged():Promise<boolean>;
 
-export function MakeRequestLink(arg1:string,arg2:string,arg3:string):Promise<main.RequestLinkSnapshot>;
+export function MakeRequestLink(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<main.RequestLinkSnapshot>;
 
 export function OpenFile(arg1:string,arg2:string):Promise<void>;
 

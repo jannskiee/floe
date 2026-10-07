@@ -655,9 +655,13 @@ var (
 	// requestVolumeMaxFn is the save volume's largest file, for the prompt's
 	// drive-limit warning; a test stands in a FAT32 volume.
 	requestVolumeMaxFn = transfer.VolumeMaxFileSize
+	// requestDiskFreeFn is the save volume's free space, for the prompt's
+	// low-space warning and the automatic Accept's floor (G5, G13); a test
+	// stands in any volume, so the runner's own free space never decides one.
+	requestDiskFreeFn = transfer.DiskFree
 	// requestVolumeStreamsFn is whether the save volume can carry the
-	// downloaded-file mark, for the result's NoNamedStreams; a test stands in
-	// either answer.
+	// downloaded-file mark, for the result's NoNamedStreams and the automatic
+	// Accept's G6 (requestauto.go); a test stands in either answer.
 	requestVolumeStreamsFn = transfer.VolumeNamedStreams
 	// requestVolumeStreamsBound is the longest endRequestDrop waits for that
 	// answer: a share that stops answering holds the handle open for the SMB
@@ -695,6 +699,7 @@ type requestDrop struct {
 	files   int    // the visitor's announced count, for the result
 	folder  string // the drop's own folder, "" until Accept
 	outcome string // how a prompt ended without a drop: declined, expired, left
+	auto    bool   // accepted by the link's own choice, with no prompt (HA1, D-173)
 
 	statsURL string // the global stats endpoint read at pairing, "" with the switch off (E-32)
 
@@ -738,7 +743,30 @@ func (a *App) requestDecide(rg uint64, p requestPairing, d *requestDrop, in tran
 	// visitor's own ack timer (review 2a N3). The wall clock, not the lane's
 	// clock seam, times it.
 	opened := time.Now()
-	pg := a.openPrompt(rg, requestPromptFor(p, in, d.route, at))
+	pr := requestPromptFor(p, in, d.route, at)
+	// Auto-accept (D-173, D-137 D11): only on a link made with the switch on,
+	// and only for a drop whose prompt would carry no warning, on a known
+	// route, on a volume whose free space, size and downloaded-file mark are
+	// known, with the floor left free after it (requestauto.go). Anything
+	// else asks below, exactly as on a link made with the switch off. The
+	// branch returns through Accept's own half: no new decision kind, no
+	// engine change (G11).
+	if p.autoAccept && autoEligible(pr, d.route, requestSpaceFor(p.saveDir)) {
+		// Close link may have ended this link already. A prompt would hear
+		// that in its select; this branch has none, so it asks first, and
+		// nothing is made for a link that is gone (C2-10).
+		select {
+		case <-p.stop:
+			return refuse(transfer.CodeStopped)
+		default:
+		}
+		dec := a.acceptRequestDrop(rg, p, d, at, false)
+		if dec.Kind == transfer.DecisionAccept {
+			a.onAutoAccept(rg)
+		}
+		return dec
+	}
+	pg := a.openPrompt(rg, pr)
 	if pg == 0 {
 		return refuse(transfer.CodeStopped)
 	}
@@ -751,7 +779,7 @@ func (a *App) requestDecide(rg uint64, p requestPairing, d *requestDrop, in tran
 				continue
 			}
 			if ans.answer == "accept" {
-				return a.acceptRequestDrop(rg, p, d, at)
+				return a.acceptRequestDrop(rg, p, d, at, true)
 			}
 			d.outcome = "declined"
 			a.endPrompt(rg)
@@ -777,16 +805,21 @@ func (a *App) requestDecide(rg uint64, p requestPairing, d *requestDrop, in tran
 	}
 }
 
-// acceptRequestDrop is Accept's half of requestDecide: the channel must still
+// acceptRequestDrop is Accept's half of requestDecide, for the owner's Accept
+// (prompted) and for a link made with Auto-accept on: the channel must still
 // be open, then the drop's own folder is made, the 24 h cap is armed, Cancel
 // drop is wired, and the lane goes to receiving with the wake hold. Nothing
 // exists on disk for an Accept that met a closed channel.
-func (a *App) acceptRequestDrop(rg uint64, p requestPairing, d *requestDrop, at time.Time) transfer.Decision {
+func (a *App) acceptRequestDrop(rg uint64, p requestPairing, d *requestDrop, at time.Time, prompted bool) transfer.Decision {
 	stopped := transfer.Decision{Kind: transfer.DecisionRefuse, Code: transfer.CodeStopped}
 	select {
 	case <-d.closed:
 		d.outcome = "left"
-		a.endPrompt(rg)
+		if prompted {
+			// A prompt ended without a drop, which E-40 counts. The
+			// automatic path showed none, so there is none to count.
+			a.endPrompt(rg)
+		}
 		return stopped
 	default:
 	}
@@ -795,11 +828,12 @@ func (a *App) acceptRequestDrop(rg uint64, p requestPairing, d *requestDrop, at 
 		a.attentionOff()
 		return transfer.Decision{Kind: transfer.DecisionRefuse, Code: transfer.CodeWriteFailed}
 	}
-	if !a.setDropCancel(rg, d.cancelFunc()) || !a.acceptDrop(rg) {
+	if !a.setDropCancel(rg, d.cancelFunc()) || !a.acceptDrop(rg, RequestResult{Files: d.files, Folder: folder, AutoAccepted: !prompted}) {
 		_ = os.Remove(folder)
 		return stopped
 	}
 	d.folder = folder
+	d.auto = !prompted
 	d.accepted.Store(true)
 	d.cap = time.AfterFunc(requestDropCap, func() {
 		d.capHit.Store(true)
@@ -815,15 +849,21 @@ func (a *App) acceptRequestDrop(rg uint64, p requestPairing, d *requestDrop, at 
 // drop reopens the room and waits again, stays declined, or stops on a
 // refusal this side sent.
 func (a *App) endRequestDrop(rg uint64, sc *signaling.Client, d *requestDrop, err error) error {
-	if d.accepted.Load() && errors.Is(err, transfer.ErrSenderLeft) {
+	if d.accepted.Load() && errors.Is(err, transfer.ErrSenderLeft) && !d.ownerCancel.Load() {
 		// The visitor left between Accept's own open check and the engine's:
 		// nothing was claimed or acked. The empty folder goes, the wake hold
 		// Accept took is released here (no endDrop: the link was not used),
-		// and the link waits again as for any leave before a drop.
+		// and the link waits again as for any leave before a drop. Not when
+		// the close was the owner's own Cancel drop, which can land in this
+		// window while TO4 is sent inside Decide: that stop ends the drop
+		// through endDrop below and uses the link up (review 1 R2).
 		_ = os.Remove(d.folder)
 		a.requestWakeRelease(rg)
 		d.accepted.Store(false)
 		d.outcome = "left"
+		if d.auto {
+			a.autoAbandoned(rg) // TO4 announced a drop that never started
+		}
 	}
 	if d.accepted.Load() {
 		state, code := "done", ""
@@ -832,6 +872,7 @@ func (a *App) endRequestDrop(rg uint64, sc *signaling.Client, d *requestDrop, er
 		}
 		res := d.tally.result(d.files, d.folder)
 		res.NoNamedStreams = volumeLacksMark(d.folder)
+		res.AutoAccepted = d.auto
 		if state == "stopped" && res.Saved == 0 {
 			removeEmptyDirs(d.folder) // empty folders only; anything in them stays
 		}
@@ -1025,7 +1066,7 @@ func requestPromptFor(p requestPairing, in transfer.IncomingInfo, route string, 
 	// The drop folder does not exist yet, so the volume is asked through the
 	// nearest folder that does.
 	if dir := nearestDir(p.saveDir); dir != "" {
-		if free, err := transfer.DiskFree(dir); err == nil && free >= 0 {
+		if free, err := requestDiskFreeFn(dir); err == nil && free >= 0 {
 			pr.FreeBytes = free
 			if free-in.TotalBytes < requestFreeReserve {
 				pr.Warnings = append(pr.Warnings, "low-space")

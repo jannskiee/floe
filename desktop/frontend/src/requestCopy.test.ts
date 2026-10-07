@@ -360,3 +360,35 @@ describe('the saved files list (D-171)', () => {
         expect(copy.fileRows({saved: 0, names: []})).toEqual({rows: [], more: 0});
     });
 });
+
+// Auto-accept (D-173): R28 to R30 on the Make link form, W5a on the link
+// line, H4 in the header chip, HA1 in History. TO4 is a Go constant
+// (requestlink.go requestToastText).
+describe('Auto-accept (D-173)', () => {
+    it('names the switch and says what it means (R28, R29, R30)', () => {
+        expect(copy.AUTO_ACCEPT_EYEBROW).toBe('Auto-accept');
+        expect(copy.AUTO_ACCEPT_EYEBROW.toUpperCase()).toBe('AUTO-ACCEPT');
+        expect(copy.AUTO_ACCEPT_LABEL).toBe('Save files without asking');
+        expect(copy.READY_AUTO_LINE).toBe('Anyone with the link can save files here');
+    });
+
+    it('adds Accepts automatically to the link line only for an automatic link (W5a)', () => {
+        expect(scopeLine(END, NOW, true)).toBe('Ends today, 2:05 PM · Accepts automatically');
+        expect(scopeLine(END, NOW, false)).toBe('Ends today, 2:05 PM');
+        expect(scopeLine(END, NOW)).toBe('Ends today, 2:05 PM');
+        expect(copy.ACCEPTS_AUTOMATICALLY).toBe('Accepts automatically');
+    });
+
+    it('has the chip word and the History line (H4, HA1)', () => {
+        expect(copy.AUTO_ACCEPT_CHIP).toBe('Auto-accept');
+        expect(copy.AUTO_ACCEPT_CHIP.toUpperCase()).toBe('AUTO-ACCEPT');
+        expect(copy.ACCEPTED_AUTOMATICALLY_LINE).toBe('Accepted automatically');
+    });
+
+    it('dropFolderShown writes an accepted drop folder in the prompt\'s P3 form', () => {
+        expect(copy.dropFolderShown('D:\\Footage\\Floe\\Acme footage 2026-09-14 1405 (2)')).toBe('Floe\\Acme footage 2026-09-14 1405 (2)');
+        expect(copy.dropFolderShown('D:\\Floe\\')).toBe('D:\\Floe');
+        expect(copy.dropFolderShown('Floe')).toBe('Floe');
+        expect(copy.dropFolderShown('')).toBe('');
+    });
+});

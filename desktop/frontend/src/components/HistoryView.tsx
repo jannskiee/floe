@@ -5,7 +5,7 @@ import {cn, Eyebrow} from './ui';
 import {fmtWhen, histKey, type HistEntry} from '../history';
 import {fmtBytes} from '../incoming';
 import {shortPath} from '../paths';
-import {keptPartLine, stoppedFull, verifiedAll} from '../requestCopy';
+import {ACCEPTED_AUTOMATICALLY_LINE, keptPartLine, stoppedFull, verifiedAll} from '../requestCopy';
 import {RenamedConfirm} from './RequestLinkView';
 import {VerifiedMark} from './TransferBits';
 
@@ -131,6 +131,12 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
                                                 )}
                                                 <p className="truncate pl-7 font-mono text-xs text-zinc-500" title={dir !== h.dir ? h.dir : undefined}>{dir}</p>
                                             </div>
+                                        )}
+                                        {/* HA1 (D-173): History answers "did I accept this?" for a
+                                            drop the link took by itself. A record, not a warning, so
+                                            it is the row's own gray (D-172). */}
+                                        {request && h.auto === true && (
+                                            <p className="pl-7 text-xs leading-relaxed text-zinc-500">{ACCEPTED_AUTOMATICALLY_LINE}</p>
                                         )}
                                         {/* No warning here (D-172): the renamed line belongs to the
                                             moment of receiving, on the finished card; the saved names

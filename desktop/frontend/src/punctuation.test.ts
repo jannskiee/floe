@@ -42,7 +42,7 @@ describe('no line ends in a period (D-167)', () => {
     it('every line the Request link builders make', () => {
         const lines = [
             ...['disabled', 'limited', 'unknown', 'no-relay', 'relay-unknown', 'already-open', 'denied'].map(copy.errorLine),
-            copy.scopeLine(END, NOW), copy.scopeLine(END + 3 * 86400000, NOW), copy.missedLine(END),
+            copy.scopeLine(END, NOW), copy.scopeLine(END + 3 * 86400000, NOW), copy.scopeLine(END, NOW, true), copy.missedLine(END),
             copy.reopenLine({code: 'setup-failed', suggestClose: false}),
             copy.reopenLine({code: '', missedAt: END, suggestClose: false}),
             copy.reopenLine({code: '', suggestClose: true}),

@@ -498,7 +498,7 @@ desktop cell SKIPs `desktop-unavailable`.
 
 ## 7a. Request-link cells (need request-1 on the server)
 
-TA-10 to TA-17 of spec 09 2.7.2, listed in
+TA-10 to TA-17 of spec 09 2.7.2, and TA-10a (Auto-accept, D-173), listed in
 `references/matrix.md` (Request-link cells) and `REQUEST_IDS` in
 `scripts/lib/matrix.mjs`. A run reaches them only through `--cells`, and
 each SKIPs `server-no-request-1` until probe P10 finds `request-1`.
@@ -609,6 +609,18 @@ to it, so none ever runs as a plain cell.
 - TA-15 declines the first visitor, reads its declined copy, checks
   nothing was saved, clicks Keep waiting (`request-reopen`) and lets a
   second visitor context deliver.
+- TA-10a (`H-DIR-W2D-reqauto`, head profile, wailsdev host only) makes
+  its link with the Make link form's Auto-accept switch on (D-173), turned
+  on through its label, Save files without asking. It requires the header
+  chip to read AUTO-ACCEPT while the link waits (its sampler keeps that
+  word as idle, never as a route), the drop to start with no prompt at any
+  point and nothing clicked on the host, and the host's link and result
+  marked automatic in `GetRequestLink`; every other TA-10 oracle applies.
+  A build without the switch SKIPs `request-no-auto-switch`, and an exe
+  host SKIPs `request-auto-wailsdev-only` (the UIA lane has no snapshot to
+  read the marks from). Every other cell leaves the switch off, Make link
+  fails `request-flow` when the host holds the other choice, and a
+  prompted drop marked automatic is a FAIL.
 - TA-17 (`-reqopen`) is the six quick cells with a link open on the
   desktop: the host makes a link into its own `host-drops` folder after
   setup, the quick cell runs as always, and verify requires the same link

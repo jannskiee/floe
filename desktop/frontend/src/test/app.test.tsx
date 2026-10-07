@@ -597,7 +597,7 @@ describe('the Wails mock', () => {
     // (requestlink.go) at the call sites App.tsx will use: nothing is
     // available and nothing reports a success.
     it('answers every request binding with a disabled or not-available result', async () => {
-        await expect(MakeRequestLink('Acme footage', '', '24h')).resolves.toMatchObject({state: 'error', code: 'disabled'});
+        await expect(MakeRequestLink('Acme footage', '', '24h', false)).resolves.toMatchObject({state: 'error', code: 'disabled'});
         await expect(GetRequestLink()).resolves.toMatchObject({state: 'off', link: ''});
         await expect(AnswerRequest(1, 'accept')).resolves.toMatchObject({state: 'off'});
         await expect(RequestLinkSupport()).resolves.toEqual({reachable: false, requestLinks: false});
@@ -1177,6 +1177,69 @@ describe('the request link in the app', () => {
         }
     });
 
+    // Auto-accept (D-173, H4): the header says what the app will do by itself
+    // while such a link is open and nothing moves; moving words win.
+    it('the chip reads AUTO-ACCEPT only while an automatic link is open and nothing moves', async () => {
+        mount();
+        await settled();
+        expect(await screen.findByText('Ready')).toBeTruthy();
+        push(lane('waiting', {gen: 2, seq: 1, autoAccept: true}));
+        const word = await screen.findByText('Auto-accept');
+        // One word in its own element, drawn in the chip's uppercase.
+        expect(word.children.length).toBe(0);
+        expect(word.parentElement!.className.split(' ')).toContain('uppercase');
+        expect(word.parentElement!.querySelector('.bg-green-500')).toBeTruthy();
+        push(lane('connecting', {gen: 2, seq: 2, autoAccept: true}));
+        expect(screen.getByText('Auto-accept')).toBeTruthy();
+        push(lane('receiving', {gen: 2, seq: 3, autoAccept: true, route: 'direct'}));
+        expect(await screen.findByText('Direct')).toBeTruthy();
+        expect(screen.queryByText('Auto-accept')).toBeNull();
+        push(lane('receiving', {gen: 2, seq: 4, autoAccept: true, route: 'relay'}));
+        expect(await screen.findByText('Relay')).toBeTruthy();
+        push(lane('done', {gen: 2, seq: 5, autoAccept: true, result: {files: 1, saved: 1, bytes: 1, verified: 1, renamed: 0, folder: 'D:\\x', names: ['a'], autoAccepted: true}}));
+        expect(await screen.findByText('Ready')).toBeTruthy();
+        expect(screen.queryByText('Auto-accept')).toBeNull();
+        // A link made with the switch off reads READY, as before.
+        push(lane('waiting', {gen: 3, seq: 1}));
+        await waitFor(() => expect(screen.getByText('Ready')).toBeTruthy());
+        expect(screen.queryByText('Auto-accept')).toBeNull();
+    });
+
+    it('the automatic chip is amber with Hide my IP on, like READY', async () => {
+        withHideIP(true);
+        mount();
+        await settled();
+        await waitFor(() => expect(screen.getByText('Ready').nextElementSibling).toBeTruthy());
+        push(lane('waiting', {gen: 2, seq: 1, autoAccept: true}));
+        const word = await screen.findByText('Auto-accept');
+        expect(word.parentElement!.querySelector('.bg-amber-500')).toBeTruthy();
+    });
+
+    it('an automatic drop raises no notice and no announcement: it goes from connecting to receiving', async () => {
+        mount();
+        await settled();
+        push(lane('waiting', {gen: 2, seq: 1, autoAccept: true}));
+        push(lane('connecting', {gen: 2, seq: 2, autoAccept: true}));
+        push(lane('receiving', {gen: 2, seq: 3, autoAccept: true, route: 'direct', result: {files: 12, saved: 0, bytes: 0, verified: 0, renamed: 0, folder: 'D:\\Footage\\Floe requests\\Acme footage 2026-09-14 1405', names: [], autoAccepted: true}}));
+        await screen.findByText('Direct');
+        expect(screen.queryByRole('group', {name: 'Someone wants to send you files'})).toBeNull();
+        const spans = [...document.querySelectorAll('span.sr-only[role="status"]')].map((s) => s.textContent);
+        expect(spans).not.toContain('Request link: someone wants to send you files.');
+        expect(wails.go.AnswerRequest).not.toHaveBeenCalled();
+    });
+
+    it('Make link passes true only while the Auto-accept switch is on', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(receiveTab());
+        await user.click(requestButton());
+        await user.click(screen.getByRole('checkbox', {name: 'Save files without asking'}));
+        expect(screen.getByText('Anyone with the link can save files here')).toBeTruthy();
+        await user.click(screen.getByRole('button', {name: 'Make link'}));
+        expect(wails.go.MakeRequestLink).toHaveBeenLastCalledWith('', '', '24h', true);
+    });
+
     it('a prompt raises the notice elsewhere, announces once, and Review opens it', async () => {
         const user = userEvent.setup();
         mount();
@@ -1332,7 +1395,7 @@ describe('the request link in the app', () => {
         await user.click(requestButton());
         await user.type(screen.getByLabelText('Label'), 'Acme footage');
         await user.click(screen.getByRole('button', {name: 'Make link'}));
-        expect(wails.go.MakeRequestLink).toHaveBeenCalledWith('Acme footage', 'D:\\Footage\\Floe requests', '24h');
+        expect(wails.go.MakeRequestLink).toHaveBeenCalledWith('Acme footage', 'D:\\Footage\\Floe requests', '24h', false);
         // The stub refuses (FT-03): the disabled sentence, never a link.
         expect(await screen.findByText('Request links are off on this server')).toBeTruthy();
         expect(screen.queryByRole('button', {name: 'Copy link'})).toBeNull();

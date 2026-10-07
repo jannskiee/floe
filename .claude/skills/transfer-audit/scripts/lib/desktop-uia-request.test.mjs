@@ -340,3 +340,22 @@ test('requestStateFromItems names every view from its buttons and fixed copy', (
     assert.equal(desktopFmtBytes(4 * MiB), '4.0 MB');
     assert.equal(desktopFmtBytes(512), '512 B');
 });
+
+test('UIA MakeLink with autoAccept is SKIP request-auto-wailsdev-only and makes no link: TA-10a reads the host\'s own record, which only the dev page has (D-173)', async () => {
+    const dir = tmp();
+    try {
+        const { h, client, driver, clock } = hostWith();
+        await assert.rejects(
+            driver.makeRequestLink({ saveDir: dir, autoAccept: true, ...clock }),
+            (e) => e.verdict === 'SKIP' && e.reason === 'request-auto-wailsdev-only'
+        );
+        assert.equal(clicksOf(client, REQUEST_STRINGS.makeLink).length, 0, 'no link was made');
+        assert.equal(h.dom.state, 'ready');
+        // Off, the UIA lane makes its link as before.
+        const made = await driver.makeRequestLink({ saveDir: dir, autoAccept: false, ...clock });
+        assert.equal(made.autoAccept, false);
+        assert.equal(h.dom.autoAccept, false);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});

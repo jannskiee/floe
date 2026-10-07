@@ -33,6 +33,10 @@ export const MAKE_LINK = 'Make link'; // R14
 export const READY_IP_LINE = 'Senders see your IP, even if you decline'; // R15, only while Hide my IP is off
 export const MAKING_LINK = 'Making link...'; // R16
 export const READY_HIDE_IP_LINE = 'Hide my IP limits drops to 2 GB'; // R17
+// Auto-accept (D-173): the switch under LINK ENDS, off on every new form.
+export const AUTO_ACCEPT_EYEBROW = 'Auto-accept'; // R28, rendered in uppercase
+export const AUTO_ACCEPT_LABEL = 'Save files without asking'; // R29, the switch's accessible name
+export const READY_AUTO_LINE = 'Anyone with the link can save files here'; // R30, amber, only while R29 is on
 
 // ---- Error, making a link (E3 is cut, E-25; E8 is cut, D-122) --------------
 const ERROR_LINES: Record<string, string> = {
@@ -82,8 +86,11 @@ export function linkHeading(label: string): string {
 export const COPY_LINK = 'Copy link'; // W2
 export const COPIED = 'Copied'; // W3
 export const CLOSE_LINK = 'Close link'; // W4
-export function scopeLine(expiresAt: number, now: number): string {
-    return `Ends ${fmtEnds(expiresAt, now)}`; // W5 (D-168: no "For one person")
+export const ACCEPTS_AUTOMATICALLY = 'Accepts automatically'; // W5a, after the end time
+/** W5, and W5a on a link made with Auto-accept on (D-173). */
+export function scopeLine(expiresAt: number, now: number, autoAccept = false): string {
+    const w5 = `Ends ${fmtEnds(expiresAt, now)}`; // W5 (D-168: no "For one person")
+    return autoAccept ? `${w5} · ${ACCEPTS_AUTOMATICALLY}` : w5; // W5a
 }
 export const WAITING_LINE = 'Waiting for files'; // W8 (W9 is cut: the IP line is said once, at Ready)
 export function missedLine(missedAt: number): string {
@@ -260,6 +267,17 @@ export function folderName(path: string): string {
     return parts.length ? parts[parts.length - 1] : path;
 }
 
+/** dropFolderShown is an accepted drop's absolute folder in the prompt's P3
+ *  form, the save folder's own name and then the drop's ("Floe\Acme footage
+ *  2026-09-14 1405"), or '' for none: Receiving's line for a drop that showed
+ *  no prompt (D-173), and for a prompted one whose name took a " (2)". */
+export function dropFolderShown(folder: string): string {
+    const parts = folder.split(/[\\/]+/).filter(Boolean);
+    return parts.length >= 2 ? `${parts[parts.length - 2]}\\${parts[parts.length - 1]}` : parts.join('');
+}
+
+export const ACCEPTED_AUTOMATICALLY_LINE = 'Accepted automatically'; // HA1 (D-173), History only, gray, from the drop's own mark
+
 /** verifiedAll: the DN3 check shows only when every file's SHA-256 matched. */
 export function verifiedAll(r: {files: number; saved: number; verified: number}): boolean {
     return r.files > 0 && r.saved === r.files && r.verified === r.files;
@@ -351,6 +369,9 @@ export const START_OVER_LINK_LINE = 'Your request link stays open'; // SO1
 // header has no marker for an open link (H1 is cut) and the status chip has no
 // relay tooltip for a drop (V8 and H3 are cut).
 export const LINK_OPEN_DESCRIPTION = 'Request link is open'; // H2
+// H4: the status chip's word while a link made with Auto-accept on is open
+// and nothing moves (D-173); moving words win, as always.
+export const AUTO_ACCEPT_CHIP = 'Auto-accept'; // H4, rendered in uppercase
 export const NOTICE_TEXT = 'Someone wants to send you files'; // N1
 export const NOTICE_REVIEW = 'Review'; // N2
 export const ANNOUNCE_REQUEST = 'Request link: someone wants to send you files.'; // A1, screen reader only: keeps its period (D-167)

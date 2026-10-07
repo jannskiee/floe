@@ -11,6 +11,7 @@
 import {useEffect, useRef, useState, type MouseEvent} from 'react';
 import {AlertCircle, ChevronDown, Folder, FolderOpen, Loader2, X} from 'lucide-react';
 import {Button, cn, Eyebrow, Input} from './ui';
+import {Switch} from './SettingsPrimitives';
 import * as copy from '../requestCopy';
 import {etaLines, guardActive, GUARD_MS, showLaptopLine, type Phase, type RequestLinkSnapshot} from '../requestLink';
 import {fmtEta, fmtSpeed, type Prog} from '../progress';
@@ -27,6 +28,8 @@ export const PROMPT_HEADING_ID = 'floe-request-prompt-heading';
  *  only while this whole row is on screen). */
 export const PROMPT_ACTIONS_ID = 'floe-request-prompt-actions';
 export const LABEL_INPUT_ID = 'floe-request-label';
+/** R30, the amber line the Auto-accept switch is described by while it is on. */
+const AUTO_LINE_ID = 'floe-request-auto-line';
 
 // Shared pieces of the canvas grammar. A heading breaks inside a word only when
 // the word cannot fit: the owner's label is up to 64 characters and may have no
@@ -60,7 +63,9 @@ export interface RequestLinkViewProps {
     /** The base folder for the next link (localStorage floe:requestSaveDir). */
     saveDir: string;
     onSaveDirChange: (v: string) => void;
-    onMake: (label: string, lifetime: '24h' | '7d') => void;
+    /** Make link, with the form's Auto-accept switch: true only while it is
+     *  on (D-173). */
+    onMake: (label: string, lifetime: '24h' | '7d', autoAccept: boolean) => void;
     onClose: () => void;
     onAnswer: (promptGen: number, answer: 'accept' | 'decline' | 'keep-waiting') => void;
     onCancelDrop: () => void;
@@ -110,9 +115,12 @@ export default function RequestLinkView(props: RequestLinkViewProps) {
 
 // ---- Ready, making and error (DY-01 to DY-03, DE-01 to DE-08) --------------
 function ReadyForm({phase, errorCode, hideIP, saveDir, onSaveDirChange, onMake, onBrowse, onEdit}: RequestLinkViewProps) {
-    // View-local only: what the owner is typing and choosing.
+    // View-local only: what the owner is typing and choosing. Auto-accept
+    // starts off on every mount, Make another link included, and is never
+    // stored anywhere (D-173, G2): the choice is this link's alone.
     const [label, setLabel] = useState('');
     const [lifetime, setLifetime] = useState<'24h' | '7d'>('24h');
+    const [autoAccept, setAutoAccept] = useState(false);
     const [saveFocused, setSaveFocused] = useState(false);
     const making = phase === 'making';
     const edited = () => { if (phase === 'error') onEdit(); };
@@ -199,6 +207,30 @@ function ReadyForm({phase, errorCode, hideIP, saveDir, onSaveDirChange, onMake, 
                     <ChevronDown aria-hidden className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-zinc-500"/>
                 </div>
             </div>
+            {/* Auto-accept (D-173): one box the height and look of the fields,
+                a single label, R29 on the left and the Settings switch on the
+                right. The look is swapped while making, never overridden (cn
+                has no tailwind-merge). R30 is the one line of consequence,
+                amber, only while it is on, and the switch is described by it. */}
+            <div className="space-y-2">
+                <Eyebrow className="px-0.5">{copy.AUTO_ACCEPT_EYEBROW}</Eyebrow>
+                <label
+                    aria-disabled={making || undefined}
+                    className={cn(
+                        'flex h-[38px] select-none items-center justify-between gap-3 rounded-md border border-white/10 bg-white/[0.03] px-3 text-sm text-zinc-100 transition-colors',
+                        making ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-white/[0.06]',
+                    )}
+                >
+                    <span className="min-w-0 truncate">{copy.AUTO_ACCEPT_LABEL}</span>
+                    <Switch
+                        checked={autoAccept}
+                        onChange={(v) => { setAutoAccept(v); edited(); }}
+                        disabled={making}
+                        describedBy={autoAccept ? AUTO_LINE_ID : undefined}
+                    />
+                </label>
+                {autoAccept && <p id={AUTO_LINE_ID} className={warnClass}>{copy.READY_AUTO_LINE}</p>}
+            </div>
             {/* The one IP line, read before the commit (R15, D-136). With Hide
                 my IP on it would warn of something that does not apply, so R17
                 says the state instead. */}
@@ -210,7 +242,7 @@ function ReadyForm({phase, errorCode, hideIP, saveDir, onSaveDirChange, onMake, 
                     <Loader2 className="animate-spin"/> {copy.MAKING_LINK}
                 </Button>
             ) : (
-                <Button className="w-full" onClick={() => onMake(label.trim(), lifetime)}>{copy.MAKE_LINK}</Button>
+                <Button className="w-full" onClick={() => onMake(label.trim(), lifetime, autoAccept)}>{copy.MAKE_LINK}</Button>
             )}
             {phase === 'error' && (
                 <p role="alert" className="flex min-h-5 items-center justify-center gap-2 text-center text-xs text-red-400">
@@ -258,7 +290,7 @@ function LinkBlock({phase, snap, onClose}: {phase: Phase; snap: RequestLinkSnaps
                     every link phase (the prompt mounts below the hairline). */}
                 <Button id="floe-close-link" variant="secondary" className="min-w-24" onClick={onClose}>{copy.CLOSE_LINK}</Button>
             </div>
-            <p className={t2Class}>{copy.scopeLine(snap.expiresAt, Date.now())}</p>
+            <p className={t2Class}>{copy.scopeLine(snap.expiresAt, Date.now(), snap.autoAccept)}</p>
         </div>
     );
 }
@@ -450,8 +482,10 @@ function Receiving({snap, progress, accepted, onCancelDrop}: RequestLinkViewProp
     // the heading never reads RECEIVING 0 OF 0.
     const count = progress?.fileCount || snap.result?.files || snap.prompt?.files || accepted?.files || 0;
     const index = progress?.fileIndex || (count ? 1 : 0);
-    // Where the files land, in P3's words, from Accept to Done.
-    const folder = snap.prompt?.folder || accepted?.folder || '';
+    // Where the files land, in P3's words and form, from Accept to Done: the
+    // lane's result on both paths (a drop the link took by itself showed no
+    // prompt, D-173), else the prompt this drop answered.
+    const folder = copy.dropFolderShown(snap.result?.folder ?? '') || snap.prompt?.folder || accepted?.folder || '';
     const speedText = fmtSpeed(speed);
     const etaText = fmtEta(eta);
     if (showLaptopLine(snap, eta, dt)) laptopGen.current = snap.gen;

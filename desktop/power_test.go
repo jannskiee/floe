@@ -32,7 +32,7 @@ func TestSnapshotCarriesTheBatteryFact(t *testing.T) {
 		if got := a.GetRequestLink(); got.State != "deciding" || got.Battery != battery {
 			t.Fatalf("battery %v: deciding snapshot says %v", battery, got.Battery)
 		}
-		if !a.acceptDrop(1) {
+		if !a.acceptDrop(1, RequestResult{}) {
 			t.Fatal("Accept found the lane gone")
 		}
 		if got := a.GetRequestLink(); got.State != "receiving" || got.Battery != battery {
