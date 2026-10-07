@@ -65,7 +65,6 @@ function props(over: Partial<RequestLinkViewProps> = {}): RequestLinkViewProps {
         onCancelDrop: vi.fn(),
         onRetry: vi.fn(),
         onShowInFolder: vi.fn(),
-        onDismiss: vi.fn(),
         onMakeAnother: vi.fn(),
         onBrowse: vi.fn(),
         onEdit: vi.fn(),
@@ -192,13 +191,13 @@ describe('the Accept guard', () => {
         expect(p.onAnswer).toHaveBeenCalledTimes(1);
     });
 
-    it('a click at the old Dismiss position during the mount frame sends no decision', () => {
-        // Done has Dismiss on the right rail; the next prompt mounts with
-        // Decline on the right. Whatever a click lands on in the frame the
-        // prompt appears, nothing is decided.
+    it('a click at the old Make another link position during the mount frame sends no decision', () => {
+        // Done ends in Make another link; the next prompt mounts with Accept
+        // and Decline in that place. Whatever a click lands on in the frame
+        // the prompt appears, nothing is decided.
         const p = at('done');
         const {rerender} = render(<RequestLinkView {...p}/>);
-        expect(screen.getByRole('button', {name: 'Dismiss'})).toBeTruthy();
+        expect(screen.getByRole('button', {name: 'Make another link'})).toBeTruthy();
         rerender(<RequestLinkView {...p} phase="deciding" snap={snap({state: 'deciding', gen: 5, promptGen: 1, prompt})}/>);
         for (const name of ['Accept', 'Decline', 'Close link', 'Copy link']) {
             mouseClick(screen.getByRole('button', {name}));
@@ -268,7 +267,7 @@ describe('visitor text', () => {
         for (const name of HOSTILE) {
             const p = at('receiving', {
                 progress: progress(name),
-                onCancelDrop: record(), onShowInFolder: record(), onDismiss: record(), onMakeAnother: record(),
+                onCancelDrop: record(), onShowInFolder: record(), onMakeAnother: record(),
                 onClose: record(), onAnswer: record(), onRetry: record(), onMake: record(), onBrowse: record(),
             });
             const {unmount, rerender} = render(<RequestLinkView {...p}/>);
@@ -420,7 +419,8 @@ describe('the link phases (D-136)', () => {
 
 describe('the layout (D-136)', () => {
     const PRIMARY = 'bg-white text-black';
-    const whites = () => screen.queryAllByRole('button').filter((b) => b.className.includes(PRIMARY)).map((b) => b.textContent?.trim());
+    // By accessible name: Accept draws its countdown beside its name (D-169).
+    const whites = () => screen.queryAllByRole('button').filter((b) => b.className.includes(PRIMARY)).map((b) => b.getAttribute('aria-label') ?? b.textContent?.trim());
     const before = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
     it('one white button per view', () => {
@@ -490,21 +490,31 @@ describe('the layout (D-136)', () => {
         expect(document.body.textContent).not.toMatch(/laptop|plug|Accept only if/i);
     });
 
-    it('the prompt: the answer window follows the size on the left, after a middle dot, at AA, outside live regions (D-168)', () => {
-        render(<RequestLinkView {...at('deciding')}/>);
-        const size = screen.getByText('12 files, 38.0 GB');
-        const within = screen.getByText(/^\d+ min to answer$/);
-        const row = size.parentElement!;
-        expect(within.parentElement).toBe(row);
-        expect(row.firstElementChild).toBe(size);
-        expect(row.lastElementChild).toBe(within);
-        // The dot between them is drawn only: a screen reader hears two lines.
-        expect(Array.from(row.children).map((c) => c.textContent)).toEqual(['12 files, 38.0 GB', '·', within.textContent]);
-        expect(row.children[1].getAttribute('aria-hidden')).toBe('true');
-        expect(row.className.split(' ')).toEqual(expect.arrayContaining(['flex', 'items-baseline', 'gap-2']));
-        expect(row.className.split(' ')).not.toContain('justify-between');
-        expect(within.className.split(' ')).toEqual(expect.arrayContaining(['text-xs', 'tabular-nums', 'text-zinc-400']));
-        expect(within.closest('[aria-live], [role="status"], [role="alert"], [role="log"]')).toBeNull();
+    it('the prompt: Accept counts down to the answer deadline, drawn only, and the size line stands alone (D-169)', () => {
+        vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date']});
+        vi.setSystemTime(T0);
+        try {
+            render(<RequestLinkView {...at('deciding')}/>);
+            // The size has its line to itself: no answer line beside it.
+            const size = screen.getByText('12 files, 38.0 GB');
+            expect(size.parentElement!.textContent).not.toMatch(/answer|min/);
+            expect(document.body.textContent).not.toMatch(/to answer|Answer within/);
+            const accept = screen.getByRole('button', {name: 'Accept'});
+            expect(accept.textContent).toBe('Accept (9:00)');
+            // The time is drawn only, in fixed-width digits, outside every live region.
+            const clock = accept.querySelector('span')!;
+            expect(clock.getAttribute('aria-hidden')).toBe('true');
+            expect(clock.className.split(' ')).toContain('tabular-nums');
+            expect(accept.closest('[aria-live], [role="status"], [role="alert"], [role="log"]')).toBeNull();
+            // It ticks every second and stops at 0:00.
+            act(() => { vi.advanceTimersByTime(1000); });
+            expect(accept.textContent).toBe('Accept (8:59)');
+            act(() => { vi.advanceTimersByTime(9 * 60000); });
+            expect(accept.textContent).toBe('Accept (0:00)');
+            expect(screen.getByRole('button', {name: 'Accept'})).toBe(accept);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('the prompt: the folder row keeps Into and no glyph, the warnings stay amber, the buttons carry the Review id', () => {
@@ -630,8 +640,8 @@ describe('the layout (D-136)', () => {
         expect(glyph.parentElement).toBe(heading.parentElement);
         expect(heading.parentElement!.firstElementChild).toBe(heading);
         expect(heading.compareDocumentPosition(glyph) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-        // Dismiss still ends the row, on the right rail.
-        expect(screen.getByRole('button', {name: 'Dismiss'}).previousElementSibling).toBe(heading.parentElement);
+        // No Dismiss on the right since D-169: Make another link puts it away.
+        expect(screen.queryByRole('button', {name: 'Dismiss'})).toBeNull();
     });
 
     it('Done: no malware line on a normal save, and no empty body group between the heading and the folder (DN5, S-7)', () => {

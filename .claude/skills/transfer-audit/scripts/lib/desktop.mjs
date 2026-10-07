@@ -211,7 +211,6 @@ export const REQUEST_STRINGS = Object.freeze({
     keepWaiting: 'Keep waiting', // D3
     makeAnother: 'Make another link', // X3, after Close link
     saveToPlaceholder: 'Downloads\\Floe', // R9, the Save to field (D-167)
-    dismiss: 'Dismiss', // DN2, puts a result away
     cancelDrop: 'Cancel drop', // V4
     // DN3 since H7 (D-161): not a visible line any more but the sr-only text
     // beside the green check after the done heading, so it is still one Text
@@ -223,13 +222,13 @@ export const REQUEST_STRINGS = Object.freeze({
 /**
  * One button the REQUEST LINK view shows in each lane state, so a page that
  * shows none of them is not on the view: Close link (waiting through
- * declined, W4), Cancel drop (receiving, V4), Dismiss (done or stopped,
- * DN2), Make another link (ended, X3), Make link (ready or error, R14).
+ * declined, W4), Cancel drop (receiving, V4), Make another link (done,
+ * stopped and ended, X3 and DN7; DN2 Dismiss is cut, D-169), Make link
+ * (ready or error, R14).
  */
 const REQUEST_VIEW_MARKS = Object.freeze([
     REQUEST_STRINGS.closeLink,
     REQUEST_STRINGS.cancelDrop,
-    REQUEST_STRINGS.dismiss,
     REQUEST_STRINGS.makeAnother,
     REQUEST_STRINGS.makeLink,
 ]);
@@ -407,12 +406,6 @@ export function requestStateFromItems(items, { gen = 0, saveDir = '' } = {}) {
     if (has(S.accept) && has(S.decline)) out.state = 'deciding';
     else if (has(S.keepWaiting)) out.state = 'declined';
     else if (has(S.cancelDrop)) out.state = 'receiving';
-    else if (has(S.dismiss))
-        out.state = hasText(C.stoppedHeading)
-            ? 'stopped'
-            : texts.some((t) => RE.requestDone.test(t))
-              ? 'done'
-              : 'unknown';
     else if (has(S.closeLink))
         out.state =
             has(C.retryNow) || hasText(C.reconnecting)
@@ -420,7 +413,14 @@ export function requestStateFromItems(items, { gen = 0, saveDir = '' } = {}) {
                 : hasText(C.connecting)
                   ? 'connecting'
                   : 'waiting';
-    else if (has(S.makeAnother)) out.state = 'ended';
+    // Done and Stopped end in Make another link too (D-169, no Dismiss):
+    // their headings tell them from Ended.
+    else if (has(S.makeAnother))
+        out.state = hasText(C.stoppedHeading)
+            ? 'stopped'
+            : texts.some((t) => RE.requestDone.test(t))
+              ? 'done'
+              : 'ended';
     else if (has(C.making)) out.state = 'making';
     else if (has(S.makeLink)) {
         const code = Object.entries(C.errors).find(([, line]) => hasText(line));
@@ -1785,11 +1785,11 @@ export class UiaDriver {
         const endedAt = await this._waitShown(REQUEST_STRINGS.makeAnother, 10_000, { now, nap });
         return { closed: true, endedAt };
     }
-    /** Put a done or stopped result away (DN2 Dismiss). */
+    /** Put a done or stopped result away (Make another link; DN2 Dismiss is cut, D-169). */
     async dismissRequestResult({ now = Date.now, nap = sleep } = {}) {
         await this._toRequestView();
-        await this.click(REQUEST_STRINGS.dismiss, { controlType: 'Button' });
-        const at = await this._waitGone(REQUEST_STRINGS.dismiss, 10_000, { now, nap });
+        await this.click(REQUEST_STRINGS.makeAnother, { controlType: 'Button' });
+        const at = await this._waitGone(REQUEST_STRINGS.makeAnother, 10_000, { now, nap });
         return { dismissed: true, at };
     }
     /** Stop a drop that is still receiving (V4 Cancel drop). */
@@ -2369,11 +2369,11 @@ export class PlaywrightDriver {
         return { closed: true, endedAt };
     }
 
-    /** Put a done or stopped result away (DN2 Dismiss). */
+    /** Put a done or stopped result away (Make another link; DN2 Dismiss is cut, D-169). */
     async dismissRequestResult({ now = Date.now, nap = sleep } = {}) {
         await this._toRequestView();
-        await this._button(REQUEST_STRINGS.dismiss).first().click();
-        const at = await this._waitGone(REQUEST_STRINGS.dismiss, 10_000, {
+        await this._button(REQUEST_STRINGS.makeAnother).first().click();
+        const at = await this._waitGone(REQUEST_STRINGS.makeAnother, 10_000, {
             now,
             nap,
         });

@@ -37,8 +37,8 @@ const VIEW_BUTTONS = {
     deciding: ['Copy link', 'Accept', 'Decline', 'Close link'],
     declined: ['Copy link', 'Keep waiting', 'Close link'],
     receiving: ['Cancel drop'],
-    done: ['Dismiss', 'Make another link'],
-    stopped: ['Dismiss', 'Make another link'],
+    done: ['Make another link'],
+    stopped: ['Make another link'],
     closed: ['Make another link'],
 };
 
@@ -88,7 +88,7 @@ export function fakeRequestDom({
     // host that makes its link on the old address whatever Settings reads.
     addressesStuck = false,
     ignoreServer = false,
-    // Release shapes: a Close link or Dismiss click the view ignores, a
+    // Release shapes: a Close link or Make another link click the view ignores, a
     // Close link click that never returns (the teardown budget runs out),
     // and a view that shows the ended link while the lane still reads
     // waiting.
@@ -289,9 +289,9 @@ export function fakeRequestDom({
         } else if (name === 'Cancel drop') {
             dom.state = 'stopped';
             dom.code = 'stopped';
-        } else if (name === 'Dismiss' && dismissStuck) {
+        } else if (name === 'Make another link' && dismissStuck && (dom.state === 'done' || dom.state === 'stopped')) {
             return;
-        } else if (name === 'Dismiss' || name === 'Make another link') {
+        } else if (name === 'Make another link') {
             dom.state = 'ready';
             dom.result = null;
             dom.code = '';

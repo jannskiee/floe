@@ -196,7 +196,9 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.warningLine('file-too-large-for-drive', p, SAVE)).toBe(approved('P5'));
         expect(c.warningLine('relay-over-cap', p, SAVE)).toBe(sized(bare('P6'), 38));
         expect(note('P6')).toBe(`drawn ${fmtBytes(38 * GB)}`);
-        expect(c.answerWithin(NOW + 9 * 60000, NOW)).toBe(approved('P8'));
+        // P8 is cut (D-169): the answer window is Accept's countdown, P12, at
+        // the host's 9 min 45 s window.
+        expect(`${c.ACCEPT} (${c.countdown(NOW + 9 * 60000 + 45000, NOW)})`).toBe(approved('P12'));
         expect(`${c.ACCEPT} / ${c.DECLINE}`).toBe(approved('P9'));
         // P10 is cut (D-161): the Receiving view's laptop line is P11 now.
         expect(c.LAPTOP_LINE).toBe(approved('P11'));
@@ -218,7 +220,6 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
     it('Done rows match byte for byte', () => {
         expect(c.doneHeading(12, 38 * GB)).toBe(sized(bare('DN1'), 38));
         expect(note('DN1')).toBe(`drawn ${fmtBytes(38 * GB)}`);
-        expect(c.DISMISS).toBe(approved('DN2'));
         expect(c.VERIFIED_LINE).toBe(approved('DN3'));
         expect(c.renamedLine(1)).toBe(approved('DN4'));
         expect(c.renamedLine(2)).toBe(approved('DN4p'));
@@ -322,7 +323,7 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
     it('no cut row can come out of requestCopy.ts', () => {
         const cut = [...rows.values()].filter((r) => r.status.startsWith('CUT'));
         expect(cut.map((r) => r.id).sort()).toEqual([
-            'C3', 'DN10', 'E3', 'E8', 'H1', 'H3', 'P10', 'P7', 'Q1', 'R18', 'R19', 'R4', 'R5', 'S1', 'S2', 'S3', 'S4', 'S5', 'ST15', 'ST2', 'V7', 'V8', 'W6', 'W7', 'W9', 'X4',
+            'C3', 'DN10', 'DN2', 'E3', 'E8', 'H1', 'H3', 'P10', 'P7', 'P8', 'Q1', 'R18', 'R19', 'R4', 'R5', 'S1', 'S2', 'S3', 'S4', 'S5', 'ST15', 'ST2', 'V7', 'V8', 'W6', 'W7', 'W9', 'X4',
         ]);
         const out: string[] = [];
         for (const v of Object.values(c) as unknown[]) if (typeof v === 'string') out.push(v);

@@ -49,7 +49,6 @@ const DONE_FOLDER_MAX = 34;
 // 14 px Geist (6.75 px each), so 36 leaves room for wider letters.
 const SAVE_TO_MAX = 36;
 // The quiet right-rail text action (Dismiss), the History row's Remove look.
-const quietClass = '-mr-2 rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice/60';
 
 export interface RequestLinkViewProps {
     phase: Phase;
@@ -68,7 +67,6 @@ export interface RequestLinkViewProps {
     onCancelDrop: () => void;
     onRetry: () => void;
     onShowInFolder: (folder: string) => void;
-    onDismiss: () => void;
     onMakeAnother: () => void;
     onBrowse: () => void;
     /** Any edit of the form while an error shows (T5). */
@@ -364,10 +362,10 @@ function Prompt({snap, onAnswer, onGuardLift, onPromptVisible}: RequestLinkViewP
         // Registered once per prompt: the parent keys this on promptGen.
     }, []);
 
-    // The answer window, in whole minutes, refreshed once a minute and kept
-    // out of every live region (spec 06 5.6).
+    // The answer window, as Accept's countdown: refreshed every second and kept
+    // out of every live region (spec 06 5.6, D-169).
     useEffect(() => {
-        const id = window.setInterval(() => setNow(Date.now()), 60_000);
+        const id = window.setInterval(() => setNow(Date.now()), 1000);
         return () => clearInterval(id);
     }, []);
 
@@ -405,14 +403,7 @@ function Prompt({snap, onAnswer, onGuardLift, onPromptVisible}: RequestLinkViewP
         <div className="space-y-4">
             <div className="space-y-2">
                 <h3 id={PROMPT_HEADING_ID} tabIndex={-1} className={cn(headClass, 'outline-none')}>{copy.promptHeading(snap.label)}</h3>
-                {/* The answer window shares the size row, on the left after a
-                    middle dot (D-168) and outside every live region (P8,
-                    D-143): the prompt reads as three lines and the buttons. */}
-                <div className="flex items-baseline gap-2">
-                    <p className="text-sm font-medium text-zinc-100">{copy.promptSize(prompt.files, prompt.totalBytes)}</p>
-                    <span aria-hidden className="text-xs text-zinc-600">·</span>
-                    <p className="text-xs tabular-nums text-zinc-400">{copy.answerWithin(prompt.answerBy, now)}</p>
-                </div>
+                <p className="text-sm font-medium text-zinc-100">{copy.promptSize(prompt.files, prompt.totalBytes)}</p>
                 <p className={t2Class}>{copy.INTO} <span className={intoClass}>{prompt.folder}</span></p>
                 {prompt.warnings.map((w) => {
                     const line = copy.warningLine(w, prompt, snap.saveDir);
@@ -425,8 +416,12 @@ function Prompt({snap, onAnswer, onGuardLift, onPromptVisible}: RequestLinkViewP
                 scroll ends. On the row, not the buttons, so a Tab onto Accept
                 or Decline scrolls as before. */}
             <div ref={block} id={PROMPT_ACTIONS_ID} className="flex scroll-mb-4 gap-3">
-                <Button className={cn('flex-1', guardClass)} aria-disabled={guarded} onPointerDown={onDown} onClick={answer('accept')}>
-                    {copy.ACCEPT}
+                {/* The answer window lives on Accept as a countdown (P12, D-169).
+                    Drawn only: the button's name stays Accept, so a screen
+                    reader is not handed a new name every second, and nothing
+                    here is a live region (spec 06 5.6). */}
+                <Button className={cn('flex-1', guardClass)} aria-label={copy.ACCEPT} aria-disabled={guarded} onPointerDown={onDown} onClick={answer('accept')}>
+                    {copy.ACCEPT} <span aria-hidden className="tabular-nums">({copy.countdown(prompt.answerBy, now)})</span>
                 </Button>
                 <Button variant="secondary" className={cn('min-w-24', guardClass)} aria-disabled={guarded} onPointerDown={onDown} onClick={answer('decline')}>
                     {copy.DECLINE}
@@ -498,7 +493,7 @@ function Receiving({snap, progress, accepted, onCancelDrop}: RequestLinkViewProp
 }
 
 // ---- Done and Stopped (DO-01 to DO-03, DT-01 to DT-13) ----------------------
-function Result({phase, snap, onDismiss, onMakeAnother, onShowInFolder}: RequestLinkViewProps) {
+function Result({phase, snap, onMakeAnother, onShowInFolder}: RequestLinkViewProps) {
     const r = snap.result ?? {files: 0, saved: 0, bytes: 0, verified: 0, renamed: 0, folder: '', names: []};
     const [confirming, setConfirming] = useState(false);
     const done = phase === 'done';
@@ -508,16 +503,14 @@ function Result({phase, snap, onDismiss, onMakeAnother, onShowInFolder}: Request
     const show = () => { if (r.renamed > 0) setConfirming(true); else onShowInFolder(r.folder); };
     return (
         <div className="space-y-4">
-            <div className="flex items-center justify-between gap-3">
-                {/* The check trails the heading, so the heading keeps its left
-                    edge (D-136 L8 was a leading icon pushing text right). It
-                    is drawn only on Done: the Stopped card shares this
-                    component and says nothing of verification. */}
-                <div className="flex min-w-0 items-center gap-2">
-                    <p className={cn(headClass, 'leading-7')}>{done ? copy.doneHeading(r.saved, r.bytes) : copy.STOPPED_HEADING}</p>
-                    {done && copy.verifiedAll(r) && <VerifiedMark className="size-3.5"/>}
-                </div>
-                <button type="button" className={quietClass} onClick={onDismiss}>{copy.DISMISS}</button>
+            {/* The check trails the heading, so the heading keeps its left
+                edge (D-136 L8 was a leading icon pushing text right). It is
+                drawn only on Done: the Stopped card shares this component and
+                says nothing of verification. No Dismiss on the right since
+                D-169: Make another link below puts the result away too. */}
+            <div className="flex min-w-0 items-center gap-2">
+                <p className={cn(headClass, 'leading-7')}>{done ? copy.doneHeading(r.saved, r.bytes) : copy.STOPPED_HEADING}</p>
+                {done && copy.verifiedAll(r) && <VerifiedMark className="size-3.5"/>}
             </div>
             {done ? (
                 // Nothing here on a normal save: DN5 returns only where the
@@ -550,7 +543,8 @@ function Result({phase, snap, onDismiss, onMakeAnother, onShowInFolder}: Request
                     </Button>
                 </div>
             )}
-            {/* Outline: Dismiss already puts the result away, so no white slab. */}
+            {/* The one way out of a result (D-169). Outline, not white: the
+                result and Show in folder lead, the next link follows. */}
             <Button variant="outline" className="w-full" onClick={onMakeAnother}>{copy.MAKE_ANOTHER_LINK}</Button>
             {confirming && (
                 <RenamedConfirm

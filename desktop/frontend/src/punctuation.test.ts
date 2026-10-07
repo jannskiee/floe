@@ -50,7 +50,7 @@ describe('no line ends in a period (D-167)', () => {
             copy.promptHeading(''), copy.promptHeading('Acme footage'), copy.promptSize(12, 38 * GB),
             ...['low-space', 'file-too-large-for-drive', 'relay-over-cap'].map((c) =>
                 copy.warningLine(c, {freeBytes: 31 * GB, totalBytes: 38 * GB}, 'D:\\Footage\\Floe')),
-            copy.answerWithin(NOW + 9 * 60000, NOW), copy.receivingHeading(4, 12, 'Acme footage'),
+            copy.countdown(NOW + 9 * 60000, NOW), copy.receivingHeading(4, 12, 'Acme footage'),
             copy.etaLongLine(86400), copy.etaLongLine(3 * 86400), copy.doneHeading(12, 38 * GB),
             copy.renamedLine(1), copy.renamedLine(3),
             ...[0, 1, 4].flatMap((saved) => STOP_CODES.flatMap((c) => [

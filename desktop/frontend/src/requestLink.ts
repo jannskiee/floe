@@ -171,7 +171,6 @@ export type RequestEvent =
     | {type: 'MAKE_DONE'}
     | {type: 'MAKE_FAILED'}
     | {type: 'ACK_ERROR'}
-    | {type: 'DISMISS'}
     | {type: 'MAKE_ANOTHER'}
     | {type: 'RELAUNCH'}
     // No state of their own: Go answers each with a snapshot. They exist so a
@@ -283,7 +282,6 @@ export function reduce(ui: RequestUI, ev: RequestEvent): RequestUI {
         case 'ACK_ERROR':
             if (phase(ui) !== 'error') return ui;
             return {...ui, localError: '', hiddenKey: ui.snap.state === 'error' ? keyOf(ui.snap) : ui.hiddenKey};
-        case 'DISMISS':
         case 'MAKE_ANOTHER': {
             const p = phase(ui);
             if (p !== 'done' && p !== 'stopped' && p !== 'ended' && p !== 'error') return ui;

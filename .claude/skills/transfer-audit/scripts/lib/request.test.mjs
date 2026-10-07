@@ -983,7 +983,7 @@ test('TA-10 whose result cannot be put away: ERROR host-release (the result stay
     const r = await runCell(small('H-DIR-W2D-req'), ctxFor(w));
     assert.equal(r.verdict, 'ERROR', r.note);
     assert.equal(r.reason, 'host-release', r.note);
-    assert.match(r.note, /"Dismiss" was still showing/);
+    assert.match(r.note, /"Make another link" was still showing/);
     assert.equal(w.dom.state, 'done', 'the result really is still showing');
     assert.equal(attemptJson(r.attempts[0]).signatureKey, 'host-release');
 });

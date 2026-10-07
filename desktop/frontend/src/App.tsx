@@ -2524,7 +2524,6 @@ function App() {
                                             onCancelDrop={() => { CancelRequestDrop().catch(() => {}); }}
                                             onRetry={() => { RetryRequestLink().catch(() => {}); }}
                                             onShowInFolder={(dir) => { OpenFolder(dir).catch(() => {}); }}
-                                            onDismiss={() => dispatchReq({type: 'DISMISS'})}
                                             onMakeAnother={makeAnotherLink}
                                             onBrowse={pickRequestFolder}
                                             onEdit={() => dispatchReq({type: 'ACK_ERROR'})}

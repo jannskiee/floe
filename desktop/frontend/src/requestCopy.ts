@@ -162,12 +162,14 @@ export function warningLine(code: string, p: {freeBytes: number; totalBytes: num
     }
 }
 
-/** P8, "9 min to answer" (D-168; it was "Answer within 9 min"): whole
- *  minutes, rounded down (D-143), so it never promises more time
- *  than is left: the host's 9 min 45 s window reads 9 min, as the visitor's
- *  page counts it. Never below 1, so the last minute still reads 1 min. */
-export function answerWithin(answerBy: number, now: number): string {
-    return `${Math.max(1, Math.floor((answerBy - now) / 60000))} min to answer`;
+/** P12, Accept's countdown (D-169; it replaced P8, the "9 min to answer"
+ *  line): minutes and seconds to the answer deadline, rounded down (D-143),
+ *  so it never promises more time
+ *  than is left: the host's 9 min 45 s window starts at 9:45 and the
+ *  countdown stops at 0:00, when the prompt answers itself. */
+export function countdown(answerBy: number, now: number): string {
+    const s = Math.max(0, Math.floor((answerBy - now) / 1000));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 export const ACCEPT = 'Accept'; // P9
 export const DECLINE = 'Decline'; // P9
@@ -204,7 +206,6 @@ export function etaLongLine(etaSeconds: number): string {
 export function doneHeading(files: number, bytes: number): string {
     return `RECEIVED ${filesCount(files).toUpperCase()}, ${fmtBytes(bytes).toUpperCase()}`;
 }
-export const DISMISS = 'Dismiss'; // DN2
 /** DN3, the D-101 words. Never drawn: a green check says it, and screen readers read these. */
 export const VERIFIED_LINE = 'SHA-256 matched';
 export function renamedLine(n: number): string {

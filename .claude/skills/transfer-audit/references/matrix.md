@@ -180,7 +180,7 @@ The host verbs on the wailsdev lane (`scripts/lib/desktop.mjs`
 | keepWaiting       | `Keep waiting` (only from the declined view)            | `Copy link` shows again (waiting)        |
 | closeRequestLink  | `Close link`                                            | `Make another link` shows (ended)        |
 | readRequestResult | nothing                                                 | the done heading `RECEIVED N FILES, ...` and whether the check mark's `SHA-256 matched` text shows |
-| dismissRequestResult | `Dismiss`                                          | `Dismiss` gone (the lane back to Ready) |
+| dismissRequestResult | `Make another link` (DN2 Dismiss is cut, D-169)    | `Make another link` gone (the lane back to Ready) |
 | cancelRequestDrop | `Cancel drop` (teardown of a drop still receiving)     | `Cancel drop` gone                       |
 | setAddresses      | nothing (the app's own `SetSettings`, TA-13 only)       | `GetSettings` server and web             |
 

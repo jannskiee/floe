@@ -1,6 +1,6 @@
 // The wailsdev request link verbs of lib/desktop.mjs (S1-REL-03a step 5):
 // Make link, Read link, Accept after the 1 s guard, Decline, Keep waiting,
-// Close link, and (WP-R2) the Save to folder, the done view, Dismiss, Cancel
+// Close link, and (WP-R2) the Save to folder, the done view, Make another link, Cancel
 // drop and the address switch the TA-13 blip needs, against a scripted host
 // view on a fake clock (tests/fake-request-dom.mjs). No browser, no app, no
 // sleep.
@@ -46,7 +46,6 @@ test('the request strings are the frozen copy, and the wait exceeds the guard', 
         keepWaiting: 'Keep waiting',
         makeAnother: 'Make another link',
         saveToPlaceholder: 'Downloads\\Floe',
-        dismiss: 'Dismiss',
         cancelDrop: 'Cancel drop',
         verifiedLine: 'SHA-256 matched',
     });
@@ -257,7 +256,7 @@ test('the pill reads one word with Hide my IP off and on: the screen-reader twin
     }
 });
 
-test('wailsdev done view: the heading counts the files, the SHA sentence shows only when every file verified, and Dismiss puts it away', async () => {
+test('wailsdev done view: the heading counts the files, the SHA sentence shows only when every file verified, and Make another link puts it away', async () => {
     const f = fakeRequestDom();
     const d = driverOn(f);
     await make(d, f);
@@ -322,7 +321,7 @@ test('wailsdev request verbs bring a page that moved to Send back to Receive > R
     await e.cancelRequestDrop({ now: g.now, nap: g.nap });
     assert.equal(g.dom.state, 'stopped');
 
-    // The done view: its heading, then Dismiss.
+    // The done view: its heading, then Make another link.
     const h = fakeRequestDom();
     const k = driverOn(h);
     await make(k, h);

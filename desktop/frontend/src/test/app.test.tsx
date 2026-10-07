@@ -911,7 +911,7 @@ describe('the request link in the app', () => {
         // Once the drop is over and put away the tab is still there: nothing
         // decides it but Make link (H7 S-1), and no probe ran.
         push(lane('done', {gen: 2, result: {files: 1, saved: 1, bytes: 1, verified: 1, renamed: 0, folder: 'D:\\x', names: ['a']}}));
-        await userEvent.click(screen.getByRole('button', {name: 'Dismiss'}));
+        await userEvent.click(screen.getByRole('button', {name: 'Make another link'}));
         expect(await screen.findByRole('button', {name: 'Make link'})).toBeTruthy();
         expect(requestButton()).toBeTruthy();
         expect(wails.go.RequestLinkSupport).not.toHaveBeenCalled();
@@ -1251,8 +1251,8 @@ describe('the request link in the app', () => {
             push(lane(state, over));
             expect(card().style.marginTop, state).toBe('35px');
         }
-        // The Ready form after Dismiss, too.
-        await user.click(screen.getByRole('button', {name: 'Dismiss'}));
+        // The Ready form after Make another link, too.
+        await user.click(screen.getByRole('button', {name: 'Make another link'}));
         expect(await screen.findByRole('button', {name: 'Make link'})).toBeTruthy();
         expect(card().style.marginTop).toBe('35px');
 
@@ -1362,7 +1362,7 @@ describe('visitor names in the app', () => {
             });
             await user.click(screen.getByRole('button', {name: 'Show in folder'}));
             await user.click(within(screen.getByRole('dialog')).getByRole('button', {name: 'Show in folder'}));
-            await user.click(screen.getByRole('button', {name: 'Dismiss'}));
+            await user.click(screen.getByRole('button', {name: 'Make another link'}));
         }
         // Every binding call and every runtime call the app made, arguments
         // included: none carries a visitor's file name.
@@ -1395,7 +1395,7 @@ describe('request progress per drop (F2-03)', () => {
         act(() => {
             wails.emit('request:state', {...base, gen: 3, seq: 2, state: 'done', result: {files: 12, saved: 12, bytes: 900, verified: 12, renamed: 0, folder: 'D:\\x\\Acme 2026-09-14 1405', names: []}});
         });
-        await user.click(screen.getByRole('button', {name: 'Dismiss'}));
+        await user.click(screen.getByRole('button', {name: 'Make another link'}));
         // The next link (generation 5), its drop accepted and receiving before
         // its own first progress event: a drop of empty files never sends one.
         act(() => {

@@ -153,7 +153,7 @@ test('UIA DeclineRequest then KeepWaiting: Keep waiting shows after the decline,
     }
 });
 
-test('UIA CloseLink ends the link, CancelDrop stops a drop and Dismiss puts the result away', async () => {
+test('UIA CloseLink ends the link, CancelDrop stops a drop and Make another link puts the result away', async () => {
     const dir = tmp();
     try {
         const a = hostWith();
@@ -291,9 +291,9 @@ test('requestStateFromItems names every view from its buttons and fixed copy', (
         [[B('Copy link'), B('Close link'), B('Accept'), B('Decline')], { state: 'deciding' }],
         [[B('Copy link'), B('Close link'), B('Keep waiting')], { state: 'declined' }],
         [[B('Cancel drop'), T('RECEIVING 1 OF 3')], { state: 'receiving' }],
-        [[B('Dismiss'), B('Make another link'), T('RECEIVED 3 FILES, 64.0 MB')], { state: 'done' }],
-        [[B('Dismiss'), B('Make another link'), T('DROP STOPPED'), T("A file didn't match what was sent and was deleted · 2 of 3 files saved")], { state: 'stopped', code: 'hash-mismatch' }],
-        [[B('Dismiss'), B('Make another link'), T('DROP STOPPED'), T('You stopped this drop · Nothing saved')], { state: 'stopped', code: 'stopped' }],
+        [[B('Make another link'), T('RECEIVED 3 FILES, 64.0 MB')], { state: 'done' }],
+        [[B('Make another link'), T('DROP STOPPED'), T("A file didn't match what was sent and was deleted · 2 of 3 files saved")], { state: 'stopped', code: 'hash-mismatch' }],
+        [[B('Make another link'), T('DROP STOPPED'), T('You stopped this drop · Nothing saved')], { state: 'stopped', code: 'stopped' }],
         [[B('Make another link'), T('Link closed')], { state: 'ended', code: 'closed' }],
         [[B('Make another link'), T('Link ended at 2:05 PM')], { state: 'ended', code: 'expired' }],
         [[B('SEND'), B('RECEIVE'), B('Settings')], { state: 'unknown' }],
@@ -334,7 +334,7 @@ test('requestStateFromItems names every view from its buttons and fixed copy', (
     }
     const cap = requestStateFromItems([B('Accept'), B('Decline'), T('1 file, 3.0 GB'), T('This 3.0 GB drop is over the 2 GB Hide my IP limit')]);
     assert.deepEqual(cap.prompt.warnings, ['relay-over-cap']);
-    const stopped = requestStateFromItems([B('Dismiss'), T('DROP STOPPED'), T('The sender stopped this drop · 1 of 2 files saved')]);
+    const stopped = requestStateFromItems([B('Make another link'), T('DROP STOPPED'), T('The sender stopped this drop · 1 of 2 files saved')]);
     assert.deepEqual([stopped.code, stopped.result.saved, stopped.result.files], ['peer-abort', 1, 2]);
     assert.equal(desktopFmtBytes(64 * MiB), '64.0 MB');
     assert.equal(desktopFmtBytes(4 * MiB), '4.0 MB');

@@ -58,7 +58,7 @@ export const RECLAIM_MS = 60_000;
 export const AWAY_ONLY = 'request-host-away-only';
 
 // The lane states in which a link exists and can be closed (Close link),
-// and the results that stay until Dismiss (requestLink.ts LINK_PHASES and
+// and the results that stay until Make another link (requestLink.ts LINK_PHASES and
 // HOLDS).
 const LINK_OPEN = new Set([
     'waiting',

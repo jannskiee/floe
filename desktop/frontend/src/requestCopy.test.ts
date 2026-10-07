@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest';
 import * as copy from './requestCopy';
 import {
-    answerWithin,
+    countdown,
     doneHeading,
     endedLine,
     errorLine,
@@ -147,11 +147,15 @@ describe('the prompt', () => {
     it('counts the answer window in whole minutes, rounded down', () => {
         // The window the host opens (transfer.HostDecisionWindow, 10 min less
         // 15 s) reads 9 min, as the visitor's page counts it (D-143).
-        expect(answerWithin(NOW + 9 * 60000 + 45000, NOW)).toBe('9 min to answer');
-        expect(answerWithin(NOW + 9 * 60000, NOW)).toBe('9 min to answer');
-        expect(answerWithin(NOW + 8 * 60000 + 1, NOW)).toBe('8 min to answer');
-        expect(answerWithin(NOW + 1000, NOW)).toBe('1 min to answer');
-        expect(answerWithin(NOW - 1000, NOW)).toBe('1 min to answer');
+        // Minutes and seconds, rounded down, never below 0:00 (D-169).
+        expect(countdown(NOW + 9 * 60000 + 45000, NOW)).toBe('9:45');
+        expect(countdown(NOW + 9 * 60000 + 45999, NOW)).toBe('9:45');
+        expect(countdown(NOW + 9 * 60000, NOW)).toBe('9:00');
+        expect(countdown(NOW + 60000, NOW)).toBe('1:00');
+        expect(countdown(NOW + 59999, NOW)).toBe('0:59');
+        expect(countdown(NOW + 5000, NOW)).toBe('0:05');
+        expect(countdown(NOW + 999, NOW)).toBe('0:00');
+        expect(countdown(NOW - 1000, NOW)).toBe('0:00');
     });
 });
 

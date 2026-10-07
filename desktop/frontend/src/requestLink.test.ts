@@ -82,10 +82,10 @@ describe('an idle lane (H7 S-1)', () => {
     it('a result put away returns to ready, not off', () => {
         const refused = run(initialRequestUI, {type: 'MAKE'}, {type: 'SNAPSHOT', snap: snap({state: 'error', code: 'disabled', gen: 1})}, {type: 'MAKE_DONE'});
         expect(phase(refused)).toBe('error');
-        expect(phase(reduce(refused, {type: 'DISMISS'}))).toBe('ready');
+        expect(phase(reduce(refused, {type: 'MAKE_ANOTHER'}))).toBe('ready');
         const done = run(initialRequestUI, {type: 'MAKE'}, {type: 'SNAPSHOT', snap: snap({state: 'done', gen: 1, result})}, {type: 'MAKE_DONE'});
         expect(phase(done)).toBe('done');
-        expect(phase(reduce(done, {type: 'DISMISS'}))).toBe('ready');
+        expect(phase(reduce(done, {type: 'MAKE_ANOTHER'}))).toBe('ready');
     });
 
     it('an unknown state from the bridge reads as an idle lane, never as a link', () => {
@@ -259,14 +259,14 @@ describe('the request lane reducer', () => {
         expect(acceptStale(snap({gen: 1, seq: 6}), snap({gen: 2, seq: 0}))).toBe(true);
     });
 
-    it('T28 dismiss returns to Ready', () => {
+    it('T28 Make another link puts the result away and returns to Ready (the only way since D-169)', () => {
         const done = at('done', {result})(receiving);
-        const dismissed = reduce(done, {type: 'DISMISS'});
+        const dismissed = reduce(done, {type: 'MAKE_ANOTHER'});
         expect(phase(dismissed)).toBe('ready');
         // Go re-emitting the same terminal snapshot does not bring it back.
         expect(phase(at('done', {result})(dismissed))).toBe('ready');
-        // Dismiss means nothing while a link is live.
-        expect(reduce(waiting, {type: 'DISMISS'})).toBe(waiting);
+        // It means nothing while a link is live.
+        expect(reduce(waiting, {type: 'MAKE_ANOTHER'})).toBe(waiting);
     });
 
     it('a new Make link hides the previous result at once', () => {
