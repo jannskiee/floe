@@ -136,9 +136,6 @@ export interface RequestUI {
     /** A Make link call the bridge rejected outright: shown as the unknown
      *  error until the next Make link or form edit. */
     localError: string;
-    /** Floe closed last time with a link open (X5, O7): shown as an ended
-     *  link until the owner moves on, and only while Go has nothing to say. */
-    relaunch: boolean;
     /** The last prompt this lane generation showed, as numbers and the
      *  host-computed folder: Receiving names the count and the folder from it
      *  before the first progress event, since a receiving snapshot need not
@@ -147,7 +144,7 @@ export interface RequestUI {
 }
 
 export const initialRequestUI: RequestUI = {
-    snap: OFF_SNAPSHOT, making: false, hiddenKey: '', localError: '', relaunch: false,
+    snap: OFF_SNAPSHOT, making: false, hiddenKey: '', localError: '',
     accepted: null,
 };
 
@@ -172,7 +169,6 @@ export type RequestEvent =
     | {type: 'MAKE_FAILED'}
     | {type: 'ACK_ERROR'}
     | {type: 'MAKE_ANOTHER'}
-    | {type: 'RELAUNCH'}
     // No state of their own: Go answers each with a snapshot. They exist so a
     // caller can dispatch them and the tests can show they change nothing
     // locally (T9, T14, T15, T17, T18, T20, T23).
@@ -262,7 +258,6 @@ export function reduce(ui: RequestUI, ev: RequestEvent): RequestUI {
                 snap: ev.snap,
                 making: newer ? false : ui.making,
                 localError: newer ? '' : ui.localError,
-                relaunch: newer ? false : ui.relaunch,
                 accepted: keepAccepted(ui.accepted, ev.snap),
             };
         }
@@ -271,7 +266,6 @@ export function reduce(ui: RequestUI, ev: RequestEvent): RequestUI {
                 ...ui,
                 making: true,
                 localError: '',
-                relaunch: false,
                 // The old result goes away the moment a new link is asked for.
                 hiddenKey: TERMINAL.has(ui.snap.state) ? keyOf(ui.snap) : ui.hiddenKey,
             };
@@ -285,13 +279,8 @@ export function reduce(ui: RequestUI, ev: RequestEvent): RequestUI {
         case 'MAKE_ANOTHER': {
             const p = phase(ui);
             if (p !== 'done' && p !== 'stopped' && p !== 'ended' && p !== 'error') return ui;
-            if (ui.relaunch) return {...ui, relaunch: false};
             return {...ui, localError: '', hiddenKey: keyOf(ui.snap)};
         }
-        case 'RELAUNCH':
-            // X5 on the next launch, and only over a lane with nothing to say.
-            if (ui.snap.gen !== 0 || (ui.snap.state !== 'off' && ui.snap.state !== 'ready')) return ui;
-            return {...ui, relaunch: true};
         default:
             return ui;
     }
@@ -304,22 +293,9 @@ export function phase(ui: RequestUI): Phase {
     const s = ui.snap.state;
     if (ui.localError) return 'error';
     if (ui.making) return 'making';
-    if (ui.relaunch && (s === 'off' || s === 'ready')) return 'ended';
     if (TERMINAL.has(s) && ui.hiddenKey === keyOf(ui.snap)) return 'ready';
     if (s === 'off' || s === 'ready') return 'ready';
     return (PHASES.has(s) ? s : 'ready') as Phase;
-}
-
-/** RELAUNCHED is what the view shows for X5: an ended link with no label
- *  (the label died with the link). */
-const RELAUNCHED: RequestLinkSnapshot = {...OFF_SNAPSHOT, state: 'ended', code: 'app-closed'};
-
-/** viewSnapshot is the snapshot the REQUEST LINK view renders: Go's, or the
- *  local X5 ended link after a relaunch. */
-export function viewSnapshot(ui: RequestUI): RequestLinkSnapshot {
-    const s = ui.snap.state;
-    if (!ui.making && !ui.localError && ui.relaunch && (s === 'off' || s === 'ready')) return RELAUNCHED;
-    return ui.snap;
 }
 
 /** errorCode is the code the Error phase shows. */

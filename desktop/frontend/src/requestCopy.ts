@@ -108,12 +108,11 @@ export function reopenLine(s: {code: string; missedAt?: number; suggestClose: bo
     return '';
 }
 
-/** endedLine: X1 at the link's own end time, X5 on the next launch after Floe
- *  closed with a link open, X2 otherwise (the network and server-restart ends
- *  were removed by E-34, so any other code is a close). */
+/** endedLine: X1 at the link's own end time, X2 otherwise (the network and
+ *  server-restart ends were removed by E-34, and X5, the line after a
+ *  relaunch, by D-170, so any other code is a close). */
 export function endedLine(code: string, expiresAt: number): string {
     if (code === 'expired') return `Link ended at ${fmtClock(expiresAt)}`; // X1
-    if (code === 'app-closed') return 'Link ended when Floe closed'; // X5
     return 'Link closed'; // X2
 }
 export const MAKE_ANOTHER_LINK = 'Make another link'; // X3, DN7
@@ -306,8 +305,11 @@ export function keptPartLine(code: string): string {
 
 // ---- Dialogs, header, notice, announcements --------------------------------
 export const CLOSE_LINK_OPEN_LINE = 'Your request link stops working'; // CL2
-export const KEEP_FLOE_OPEN = 'Keep Floe open'; // CL3
-export const CLOSE_FLOE = 'Close Floe'; // CL3
+// CL3, one pair for every Close Floe? case (D-170; it was Keep Floe open and
+// Close Floe with a link open, Keep going and Close anyway with a transfer).
+// Not "Cancel": beside a running transfer it reads as cancel the transfer.
+export const KEEP_FLOE_OPEN = 'Keep open';
+export const CLOSE_FLOE = 'Close';
 export const CLOSE_DROP_RECEIVING_LINE = 'Closing now stops the transfer before the files finish'; // CL4
 export const CLOSE_LINK_ALSO_LINE = 'Your request link also stops working'; // CL5, its own line under the transfer sentence
 export const START_OVER_LINK_LINE = 'Your request link stays open'; // SO1

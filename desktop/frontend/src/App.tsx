@@ -74,7 +74,6 @@ import {
     parsePastedLink,
     phase as requestPhase,
     reduce as reduceRequest,
-    viewSnapshot,
 } from './requestLink';
 import {
     ANNOUNCE_GUARD_LIFTED,
@@ -794,16 +793,19 @@ function App() {
         };
     }, []);
 
-    // X5: Floe closed last time with a link open (O7). The marker holds only
-    // the link's end time, never the link. Read once and cleared at once; a
-    // link that would have ended anyway by now needs no sentence.
+    // Floe closed last time with a link open (O7). The marker holds only the
+    // link's end time, never the link. Read once and cleared at once; a link
+    // that would have ended anyway by now leaves no trace. It only makes
+    // Receive open on REQUEST LINK, at its Make link form, until a new link
+    // exists (D-170: the X5 line "Link ended when Floe closed" is cut).
+    const openRequestAfterRelaunch = useRef(false);
     useEffect(() => {
         let until = 0;
         try {
             until = Number(localStorage.getItem('floe:requestLinkOpenUntil')) || 0;
             localStorage.removeItem('floe:requestLinkOpenUntil');
-        } catch { /* storage unavailable: no sentence */ }
-        if (until > Date.now()) dispatchReq({type: 'RELAUNCH'});
+        } catch { /* storage unavailable */ }
+        if (until > Date.now()) openRequestAfterRelaunch.current = true;
     }, []);
 
     // About data: fetched once; failures just leave the placeholders.
@@ -861,11 +863,12 @@ function App() {
     }, []);
 
     // Entering Receive shows REQUEST LINK while the lane has something to say
-    // (a link, a drop, a result, an error or the X5 line), CODE otherwise.
+    // (a link, a drop, a result or an error) or after a relaunch that closed
+    // a link, CODE otherwise.
     const reqPhaseRef = useRef('ready');
     useEffect(() => {
         if (mode !== 'receive') return;
-        setReceiveKind(reqPhaseRef.current === 'ready' ? 'code' : 'request');
+        setReceiveKind(reqPhaseRef.current === 'ready' && !openRequestAfterRelaunch.current ? 'code' : 'request');
     }, [mode]);
 
     // The next-launch marker: set to the link's end time while a link is
@@ -879,6 +882,8 @@ function App() {
                 localStorage.removeItem('floe:requestLinkOpenUntil');
             }
         } catch { /* storage unavailable */ }
+        // A link of this session ends the relaunch's pull toward REQUEST LINK.
+        if (reqUI.snap.gen > 0) openRequestAfterRelaunch.current = false;
     }, [reqUI.snap.state, reqUI.snap.expiresAt, reqUI.snap.gen]);
 
     // One History row per finished drop (S1-DSK-09): the first time a lane
@@ -2512,7 +2517,7 @@ function App() {
                                         {receiveRow}
                                         <RequestLinkView
                                             phase={reqPhase}
-                                            snap={viewSnapshot(reqUI)}
+                                            snap={reqUI.snap}
                                             errorCode={requestErrorCode(reqUI)}
                                             progress={reqProgress}
                                             hideIP={hideIP}
@@ -2755,13 +2760,13 @@ function App() {
                         {busy && laneLive && <p className="mt-2 text-xs leading-relaxed text-zinc-400">{CLOSE_LINK_ALSO_LINE}</p>}
                         <div className="mt-4 flex justify-end gap-2">
                             <Button variant="outline" autoFocus onClick={() => { setCloseGuard(false); focusLockup(); }}>
-                                {!busy && !dropMoving && laneLive ? KEEP_FLOE_OPEN : 'Keep going'}
+                                {KEEP_FLOE_OPEN}
                             </Button>
                             {/* No local dismiss on purpose: the app is about to
                                 exit, and clearing the dialog first would flash
                                 the live UI during teardown. */}
                             <Button onClick={() => { ConfirmClose().catch(() => {}); }}>
-                                {!busy && !dropMoving && laneLive ? CLOSE_FLOE : 'Close anyway'}
+                                {CLOSE_FLOE}
                             </Button>
                         </div>
                     </div>

@@ -136,8 +136,10 @@ export const STRINGS = Object.freeze({
     minimize: 'Minimize', // TitleBar.tsx aria-label
     startOver: 'Start over', // TitleBar.tsx aria-label
     closeTitle: 'Close Floe?',
-    keepGoing: 'Keep going',
-    closeAnyway: 'Close anyway',
+    // The Close Floe? dialog's pair in every case since D-170 (the released
+    // app says Keep going and Close anyway; STRINGS_RELEASED below).
+    keepGoing: 'Keep open',
+    closeAnyway: 'Close',
     checkForUpdates: 'Check for updates', // Settings row, hidden when packaged
     // The calm copy (D-167, desktop H9 on): no closing periods. A released
     // app before it says what STRINGS_RELEASED holds, and every reader below
@@ -161,6 +163,8 @@ export const STRINGS_RELEASED = Object.freeze({
     enterCode: 'Please enter a code or link.',
     canceled: 'Canceled.',
     busyFooter: 'Keep this window open. Closing it cancels the transfer.',
+    keepGoing: 'Keep going',
+    closeAnyway: 'Close anyway',
 });
 
 // UIA Names carry the rendered CSS case (measured 2026-08-29: tabs SEND and
@@ -321,7 +325,6 @@ export const REQUEST_COPY = Object.freeze({
     retryNow: 'Retry now', // C2
     stoppedHeading: 'DROP STOPPED', // ST0
     linkClosed: 'Link closed', // X2
-    appClosed: 'Link ended when Floe closed', // X5
     linkEndedAt: /^Link ended at /i, // X1
     promptSize: /^(\d+) files?, (.+)$/i, // P2 promptSize
     receiving: /^RECEIVING (\d+) OF (\d+)/i, // V1
@@ -433,11 +436,8 @@ export function requestStateFromItems(items, { gen = 0, saveDir = '' } = {}) {
     )
         out.link = String(link.value);
     if (out.state === 'ended')
-        out.code = hasText(C.appClosed)
-            ? 'app-closed'
-            : texts.some((t) => C.linkEndedAt.test(t))
-              ? 'expired'
-              : 'closed';
+        // X5 is cut (D-170): a relaunch shows the Make link form, not an end.
+        out.code = texts.some((t) => C.linkEndedAt.test(t)) ? 'expired' : 'closed';
     const underSave = (t) =>
         isAbsWin(t) && (!saveDir || samePath(path.dirname(t), saveDir));
     if (out.state === 'deciding') {

@@ -18,7 +18,6 @@ import {
     type RequestEvent,
     type RequestLinkSnapshot,
     type RequestUI,
-    viewSnapshot,
 } from './requestLink';
 
 // A request link or a drop link pasted into Receive > CODE (S1-DSK-07). String
@@ -274,21 +273,6 @@ describe('the request lane reducer', () => {
         const making = reduce(done, {type: 'MAKE'});
         expect(phase(making)).toBe('making');
         expect(phase(reduce(making, {type: 'MAKE_DONE'}))).toBe('ready');
-    });
-
-    it('the next launch after Floe closed with a link open shows the X5 end once', () => {
-        const x = reduce(ready, {type: 'RELAUNCH'});
-        expect(phase(x)).toBe('ended');
-        expect(viewSnapshot(x)).toMatchObject({state: 'ended', code: 'app-closed', label: ''});
-        // Go's first snapshot at launch has nothing to say and does not erase it.
-        const pulled = reduce(x, {type: 'SNAPSHOT', snap: snap({state: 'off', gen: 0})});
-        expect(phase(pulled)).toBe('ended');
-        expect(phase(reduce(pulled, {type: 'MAKE_ANOTHER'}))).toBe('ready');
-        expect(viewSnapshot(reduce(pulled, {type: 'MAKE_ANOTHER'})).state).toBe('off');
-        // A real link replaces it.
-        expect(phase(reduce(x, {type: 'SNAPSHOT', snap: snap({state: 'waiting', gen: 1})}))).toBe('waiting');
-        // Never over a lane that has something to say.
-        expect(reduce(waiting, {type: 'RELAUNCH'})).toBe(waiting);
     });
 
     it('keeps the accepted prompt count and folder for this generation only (D-136)', () => {

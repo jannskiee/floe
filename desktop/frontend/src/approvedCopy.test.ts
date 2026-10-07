@@ -181,7 +181,8 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.endedLine('expired', END)).toBe(approved('X1'));
         expect(c.endedLine('closed', END)).toBe(approved('X2'));
         expect(c.MAKE_ANOTHER_LINK).toBe(approved('X3'));
-        expect(c.endedLine('app-closed', END)).toBe(approved('X5'));
+        // X5 is cut (D-170): an app-closed code reads as a close.
+        expect(c.endedLine('app-closed', END)).toBe(approved('X2'));
     });
 
     it('Prompt and Declined rows match byte for byte', () => {
@@ -323,7 +324,7 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
     it('no cut row can come out of requestCopy.ts', () => {
         const cut = [...rows.values()].filter((r) => r.status.startsWith('CUT'));
         expect(cut.map((r) => r.id).sort()).toEqual([
-            'C3', 'DN10', 'DN2', 'E3', 'E8', 'H1', 'H3', 'P10', 'P7', 'P8', 'Q1', 'R18', 'R19', 'R4', 'R5', 'S1', 'S2', 'S3', 'S4', 'S5', 'ST15', 'ST2', 'V7', 'V8', 'W6', 'W7', 'W9', 'X4',
+            'C3', 'DN10', 'DN2', 'E3', 'E8', 'H1', 'H3', 'P10', 'P7', 'P8', 'Q1', 'R18', 'R19', 'R4', 'R5', 'S1', 'S2', 'S3', 'S4', 'S5', 'ST15', 'ST2', 'V7', 'V8', 'W6', 'W7', 'W9', 'X4', 'X5',
         ]);
         const out: string[] = [];
         for (const v of Object.values(c) as unknown[]) if (typeof v === 'string') out.push(v);

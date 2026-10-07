@@ -89,7 +89,8 @@ describe('waiting, reconnecting and ended lines', () => {
     });
 
     it('maps app-closed to fixed copy', () => {
-        expect(endedLine('app-closed', END)).toBe('Link ended when Floe closed');
+        // X5 is cut (D-170): after a relaunch the view opens at Make link.
+        expect(endedLine('app-closed', END)).toBe('Link closed');
     });
 
     it('has no network or server-restart ending (E-34)', () => {

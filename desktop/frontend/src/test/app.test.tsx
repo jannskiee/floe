@@ -211,7 +211,7 @@ describe('the close guard', () => {
         const dialog = await screen.findByRole('dialog');
         expect(within(dialog).getByText('Close Floe?')).toBeTruthy();
 
-        await user.click(within(dialog).getByRole('button', {name: 'Close anyway'}));
+        await user.click(within(dialog).getByRole('button', {name: 'Close'}));
         expect(wails.go.ConfirmClose).toHaveBeenCalledTimes(1);
 
         // The dialog stays up. Go owns the exit, and clearing it here would
@@ -224,8 +224,8 @@ describe('the close guard', () => {
         });
         expect(screen.getAllByRole('dialog')).toHaveLength(1);
 
-        // Keep going is the only local dismissal, and it hands focus off.
-        await user.click(within(dialog).getByRole('button', {name: 'Keep going'}));
+        // Keep open is the only local dismissal, and it hands focus off.
+        await user.click(within(dialog).getByRole('button', {name: 'Keep open'}));
         await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
         await waitFor(() =>
             expect(document.activeElement).toBe(document.getElementById('floe-lockup'))
@@ -1007,7 +1007,7 @@ describe('the request link in the app', () => {
         expect(wails.go.ReceiveByCode).not.toHaveBeenCalled();
     });
 
-    it('close guard with an open link shows Keep Floe open and Close Floe', async () => {
+    it('close guard with an open link shows Keep open and Close (D-170)', async () => {
         const user = userEvent.setup();
         mount();
         await settled();
@@ -1016,9 +1016,9 @@ describe('the request link in the app', () => {
         const dialog = await screen.findByRole('dialog');
         expect(within(dialog).getByText('Close Floe?')).toBeTruthy();
         expect(within(dialog).getByText('Your request link stops working')).toBeTruthy();
-        const keep = within(dialog).getByRole('button', {name: 'Keep Floe open'});
+        const keep = within(dialog).getByRole('button', {name: 'Keep open'});
         expect(document.activeElement).toBe(keep);
-        await user.click(within(dialog).getByRole('button', {name: 'Close Floe'}));
+        await user.click(within(dialog).getByRole('button', {name: 'Close'}));
         expect(wails.go.ConfirmClose).toHaveBeenCalledTimes(1);
     });
 
@@ -1029,8 +1029,10 @@ describe('the request link in the app', () => {
         act(() => { wails.emit('close:blocked'); });
         const dialog = await screen.findByRole('dialog');
         expect(within(dialog).getByText("Closing now stops the transfer before the files finish")).toBeTruthy();
-        expect(within(dialog).getByRole('button', {name: 'Keep going'})).toBeTruthy();
-        expect(within(dialog).getByRole('button', {name: 'Close anyway'})).toBeTruthy();
+        // The same pair in every case (D-170).
+        expect(within(dialog).getByRole('button', {name: 'Keep open'})).toBeTruthy();
+        expect(within(dialog).getByRole('button', {name: 'Close'})).toBeTruthy();
+        expect(within(dialog).queryByRole('button', {name: /Keep going|Close anyway/})).toBeNull();
     });
 
     it('close guard with a send and a link adds the link sentence', async () => {
@@ -1046,7 +1048,7 @@ describe('the request link in the app', () => {
         // Two lines, never one run-on paragraph (D-167: no periods to part them).
         expect(within(dialog).getByText('Closing now stops the transfer and they get nothing')).toBeTruthy();
         expect(within(dialog).getByText('Your request link also stops working').tagName).toBe('P');
-        expect(within(dialog).getByRole('button', {name: 'Keep going'})).toBeTruthy();
+        expect(within(dialog).getByRole('button', {name: 'Keep open'})).toBeTruthy();
     });
 
     it('the Start over dialog says the link stays open', async () => {
@@ -1288,23 +1290,23 @@ describe('the request link in the app', () => {
         expect(main[0].className.split(' ')).toContain('[scrollbar-gutter:stable_both-edges]');
     });
 
-    it('the link stopped when Floe closed line shows once after relaunch', async () => {
+    it('after Floe closed with a link open, Receive opens on REQUEST LINK at Make link, with no ended line (D-170)', async () => {
         localStorage.setItem('floe:requestLinkOpenUntil', String(Date.now() + 3600_000));
         const first = mount();
         await settled();
         await userEvent.click(receiveTab());
-        expect(await screen.findByText('Link ended when Floe closed')).toBeTruthy();
+        expect(await screen.findByRole('button', {name: 'Make link'})).toBeTruthy();
+        expect(screen.queryByText(/Link ended|Floe closed|Link closed/)).toBeNull();
+        expect(screen.queryByRole('button', {name: 'Make another link'})).toBeNull();
         expect(localStorage.getItem('floe:requestLinkOpenUntil')).toBeNull();
         first.unmount();
 
-        // The next launch has nothing to say.
+        // The next launch has nothing to say: Receive opens on CODE.
         mount();
         await settled();
         await userEvent.click(receiveTab());
-        await waitFor(() => expect(requestButton()).toBeTruthy());
-        await userEvent.click(requestButton());
-        expect(screen.queryByText('Link ended when Floe closed')).toBeNull();
-        expect(screen.getByRole('button', {name: 'Make link'})).toBeTruthy();
+        expect(await screen.findByPlaceholderText('amber-otter-cloud')).toBeTruthy();
+        expect(screen.queryByRole('button', {name: 'Make link'})).toBeNull();
     });
 
     it('keeps only the end time, never the link, and clears it when the link ends', async () => {
