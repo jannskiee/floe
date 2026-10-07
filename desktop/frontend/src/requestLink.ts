@@ -167,6 +167,17 @@ export function linkOpen(state: string): boolean {
     return OPEN.has(state);
 }
 
+// The states in which a link made with Auto-accept says so (the H4 chip and
+// W5a): while it waits for a sender and pairs one. Not while a drop that did
+// not qualify asks, or after it was declined: "Accepts automatically" over
+// an Accept prompt would contradict the prompt (D-173, review R2 F2).
+const AUTO_SHOWN = new Set(['waiting', 'reconnecting', 'connecting']);
+
+/** autoAcceptShown: the link says, right now, that it accepts by itself. */
+export function autoAcceptShown(snap: {autoAccept: boolean; state: string}): boolean {
+    return snap.autoAccept === true && AUTO_SHOWN.has(snap.state);
+}
+
 /** The frontend's own lane state. */
 export interface RequestUI {
     snap: RequestLinkSnapshot;

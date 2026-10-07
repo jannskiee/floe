@@ -14,6 +14,7 @@ import {Button, cn, Eyebrow, Input} from './ui';
 import {Switch} from './SettingsPrimitives';
 import * as copy from '../requestCopy';
 import {
+    autoAcceptShown,
     DEFAULT_LIFETIME,
     etaLines,
     guardActive,
@@ -305,7 +306,7 @@ function LinkBlock({phase, snap, onClose}: {phase: Phase; snap: RequestLinkSnaps
                     every link phase (the prompt mounts below the hairline). */}
                 <Button id="floe-close-link" variant="secondary" className="min-w-24" onClick={onClose}>{copy.CLOSE_LINK}</Button>
             </div>
-            <p className={t2Class}>{copy.scopeLine(snap.expiresAt, Date.now(), snap.autoAccept)}</p>
+            <p className={t2Class}>{copy.scopeLine(snap.expiresAt, Date.now(), autoAcceptShown({autoAccept: snap.autoAccept, state: phase}))}</p>
         </div>
     );
 }

@@ -56,18 +56,18 @@ type requestSpace struct {
 }
 
 // requestSpaceFor asks the save folder's volume, through the nearest folder
-// that exists (the drop folder is made only at Accept). A volume that cannot
-// answer is unknown in every field, so the drop asks. The two bounded
-// questions run side by side, so a volume that answers neither holds the
-// prompt back by one bound, not two.
-func requestSpaceFor(saveDir string) requestSpace {
-	var sp requestSpace
+// that exists (the drop folder is made only at Accept). Free space is the
+// answer requestPromptFor already got for pr, never asked twice (review R1
+// F1: the second, unbounded call came out of the owner's answer window on a
+// slow share). A volume that cannot answer is unknown in every field, so the
+// drop asks. The two bounded questions run side by side, so a volume that
+// answers neither holds the decision back by one bound, not two.
+func requestSpaceFor(saveDir string, pr RequestPrompt) requestSpace {
+	sp := requestSpace{free: pr.FreeBytes, freeKnown: pr.freeKnown}
 	dir := nearestDir(saveDir)
 	if dir == "" {
-		return sp
+		return requestSpace{}
 	}
-	free, err := requestDiskFreeFn(dir)
-	sp.free, sp.freeKnown = free, err == nil && free >= 0
 	size := make(chan int64, 1)
 	go func() { size <- volumeCapacity(dir) }()
 	sp.namedStreams = !volumeLacksMark(dir)
@@ -104,17 +104,26 @@ func volumeCapacity(dir string) int64 {
 	}
 }
 
+// autoPromptOK is G4, the half of autoEligible that needs no volume: a prompt
+// with no warning on a known route. requestDecide asks it first, so a drop
+// that will ask anyway never waits on a volume question (review R1, the old
+// R3 residual).
+func autoPromptOK(pr RequestPrompt, route string) bool {
+	if len(pr.Warnings) > 0 {
+		return false // the owner must see a prompt that warns
+	}
+	// relay-over-cap is computed only for a known relay
+	return route == "direct" || route == "relay"
+}
+
 // autoEligible reports whether a drop on a link made with Auto-accept on may
 // be accepted without asking: pr is the prompt it would have shown, built
 // from the visitor's validated numbers and this PC's values only, route the
 // pairing's route, sp the volume. Anything unknown answers false, so the drop
 // asks.
 func autoEligible(pr RequestPrompt, route string, sp requestSpace) bool {
-	if len(pr.Warnings) > 0 {
-		return false // G4: the owner must see a prompt that warns
-	}
-	if route != "direct" && route != "relay" {
-		return false // G4: relay-over-cap is computed only for a known relay
+	if !autoPromptOK(pr, route) {
+		return false
 	}
 	if !sp.freeKnown {
 		return false // G5

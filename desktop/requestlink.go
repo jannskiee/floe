@@ -111,6 +111,10 @@ type RequestPrompt struct {
 	// relay-over-cap.
 	Warnings []string `json:"warnings"`
 	AnswerBy int64    `json:"answerBy"`
+	// freeKnown says FreeBytes is DiskFree's answer, not its zero value; the
+	// automatic path reads it instead of asking the volume again (review R1
+	// F1). Unexported, so it never reaches the bridge.
+	freeKnown bool
 }
 
 // RequestResult is the outcome of an accepted drop. Names are the engine's

@@ -523,14 +523,21 @@ func (a *App) runRequestDrop(rg uint64, sc *signaling.Client, p requestPairing) 
 	// seat already queued is the old page going: this pairing offers to the
 	// new one, and no reopen evicts it. A leave with nobody new reopens now,
 	// before an offer goes to nobody. Candidates the old page trickled during
-	// the fetch never reach peer.New (E-39).
+	// the fetch never reach peer.New (E-39). A new seat taken at or after the
+	// link's end is nobody new after the end (D-173, review R2 F1): the fetch
+	// can cross the end while the waiting loop, blocked in this pairing,
+	// hears neither its timer nor its guard, so the link ends here as the
+	// timer would have ended it.
 	select {
 	case <-sc.PeerLeft:
-		select {
-		case <-sc.PeerConnected:
-		default:
+		if len(sc.PeerConnected) == 0 {
 			return a.reopenRequest(rg, sc, "visitor-left", nil)
 		}
+		if !time.Now().Before(p.expiresAt) {
+			a.expireRequest(rg, sc)
+			return nil
+		}
+		<-sc.PeerConnected
 	default:
 	}
 	dropSignals(sc)
@@ -754,7 +761,7 @@ func (a *App) requestDecide(rg uint64, p requestPairing, d *requestDrop, in tran
 	// else asks below, exactly as on a link made with the switch off. The
 	// branch returns through Accept's own half: no new decision kind, no
 	// engine change (G11).
-	if p.autoAccept && autoEligible(pr, d.route, requestSpaceFor(p.saveDir)) {
+	if p.autoAccept && autoPromptOK(pr, d.route) && autoEligible(pr, d.route, requestSpaceFor(p.saveDir, pr)) {
 		// Close link may have ended this link already. A prompt would hear
 		// that in its select; this branch has none, so it asks first, and
 		// nothing is made for a link that is gone (C2-10).
@@ -1070,7 +1077,7 @@ func requestPromptFor(p requestPairing, in transfer.IncomingInfo, route string, 
 	// nearest folder that does.
 	if dir := nearestDir(p.saveDir); dir != "" {
 		if free, err := requestDiskFreeFn(dir); err == nil && free >= 0 {
-			pr.FreeBytes = free
+			pr.FreeBytes, pr.freeKnown = free, true
 			if free-in.TotalBytes < requestFreeReserve {
 				pr.Warnings = append(pr.Warnings, "low-space")
 			}

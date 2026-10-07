@@ -1,5 +1,6 @@
 import {describe, expect, it} from 'vitest';
 import {
+    autoAcceptShown,
     OFF_SNAPSHOT,
     acceptedPrompt,
     acceptStale,
@@ -448,6 +449,18 @@ describe('Auto-accept on the bridge (D-173)', () => {
         expect(normalizeSnapshot({state: 'done', result: {autoAccepted: true}}).result?.autoAccepted).toBe(true);
         for (const junk of [false, 'true', 1, null, undefined, {}, []]) {
             expect(normalizeSnapshot({state: 'done', result: {autoAccepted: junk}}).result?.autoAccepted, String(junk)).toBe(false);
+        }
+    });
+});
+
+describe('autoAcceptShown (D-173, review R2 F2)', () => {
+    it('says it only for an automatic link that waits or pairs', () => {
+        for (const state of ['waiting', 'reconnecting', 'connecting']) {
+            expect(autoAcceptShown({autoAccept: true, state}), state).toBe(true);
+            expect(autoAcceptShown({autoAccept: false, state}), state).toBe(false);
+        }
+        for (const state of ['deciding', 'declined', 'receiving', 'done', 'stopped', 'ended', 'error', 'making', 'ready', '']) {
+            expect(autoAcceptShown({autoAccept: true, state}), state).toBe(false);
         }
     });
 });

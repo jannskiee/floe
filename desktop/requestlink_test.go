@@ -924,6 +924,68 @@ func TestNoNewVisitorAfterLinkEnd(t *testing.T) {
 	}
 }
 
+// holdFetch makes *fn wait for release before it asks the real fetch, and
+// says on entered when a call arrived. Generic so the test never names the
+// ICE list's pion type (see requireRelay: that would make pion a direct
+// requirement of desktop/go.mod).
+func holdFetch[F ~func(string) (L, bool, error), L any](t *testing.T, fn *F, entered chan<- struct{}, release <-chan struct{}) {
+	t.Helper()
+	real := *fn
+	*fn = func(server string) (L, bool, error) {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		<-release
+		return real(server)
+	}
+	t.Cleanup(func() { *fn = real })
+}
+
+// TestNoNewSeatAfterLinkEndDuringFetch (D-173, review R2 F1): a pairing that
+// began before the end is in its ICE fetch when the end passes; its visitor
+// goes and a new seat is taken after the end. The reload branch in
+// runRequestDrop must not offer to that seat (with Auto-accept on, its drop
+// would save without asking): the link ends expired and never reaches
+// connecting. Before the fix the lane went to connecting about 6 ms after the
+// fetch returned (the reviewer's probe).
+func TestNoNewSeatAfterLinkEndDuringFetch(t *testing.T) {
+	f := newFakeSignalServer(t)
+	a, rec := laneApp(t, f)
+	l := a.lane()
+	l.lifetimeFn = func(string) (time.Duration, bool) { return 1500 * time.Millisecond, true }
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	holdFetch(t, &iceFetchFn, entered, release)
+	s := makeWaiting(t, a)
+	end := time.UnixMilli(s.ExpiresAt)
+	f.userConnected() // before the end
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the pairing never reached the ICE fetch")
+	}
+	if !time.Now().Before(end) {
+		t.Skip("setup too slow: the end passed before the first visitor paired")
+	}
+	time.Sleep(time.Until(end) + 300*time.Millisecond)
+	f.peerDisconnected() // after the end: the first visitor goes,
+	f.userConnected()    // and someone takes the seat again
+	l.mu.Lock()
+	sc := l.sc
+	l.mu.Unlock()
+	waitFor(t, 5*time.Second, "the leave and the new seat queued", func() bool {
+		return len(sc.PeerLeft) == 1 && len(sc.PeerConnected) == 1
+	})
+	close(release)
+	waitSnap(t, a, 5*time.Second, "ended", "expired")
+	for _, s := range rec.all() {
+		if s.State == "connecting" {
+			t.Fatal("a seat taken after the link's end reached connecting")
+		}
+	}
+}
+
 func TestReconnectBackoffNeverBelowFloor(t *testing.T) {
 	lo := func(int64) int64 { return 0 }
 	hi := func(n int64) int64 { return n - 1 }

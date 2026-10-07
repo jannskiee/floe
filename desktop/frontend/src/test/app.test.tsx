@@ -1191,12 +1191,21 @@ describe('the request link in the app', () => {
         expect(word.parentElement!.querySelector('.bg-green-500')).toBeTruthy();
         push(lane('connecting', {gen: 2, seq: 2, autoAccept: true}));
         expect(screen.getByText('Auto-accept')).toBeTruthy();
-        push(lane('receiving', {gen: 2, seq: 3, autoAccept: true, route: 'direct'}));
+        // A drop that did not qualify asks under READY, not under AUTO-ACCEPT
+        // (review R2 F2), and the link reads AUTO-ACCEPT again once it waits.
+        push(lane('deciding', {gen: 2, seq: 3, autoAccept: true}));
+        expect(await screen.findByText('Ready')).toBeTruthy();
+        expect(screen.queryByText('Auto-accept')).toBeNull();
+        push(lane('declined', {gen: 2, seq: 4, autoAccept: true}));
+        expect(await screen.findByText('Ready')).toBeTruthy();
+        push(lane('waiting', {gen: 2, seq: 5, autoAccept: true}));
+        expect(await screen.findByText('Auto-accept')).toBeTruthy();
+        push(lane('receiving', {gen: 2, seq: 6, autoAccept: true, route: 'direct'}));
         expect(await screen.findByText('Direct')).toBeTruthy();
         expect(screen.queryByText('Auto-accept')).toBeNull();
-        push(lane('receiving', {gen: 2, seq: 4, autoAccept: true, route: 'relay'}));
+        push(lane('receiving', {gen: 2, seq: 7, autoAccept: true, route: 'relay'}));
         expect(await screen.findByText('Relay')).toBeTruthy();
-        push(lane('done', {gen: 2, seq: 5, autoAccept: true, result: {files: 1, saved: 1, bytes: 1, verified: 1, renamed: 0, folder: 'D:\\x', names: ['a'], autoAccepted: true}}));
+        push(lane('done', {gen: 2, seq: 8, autoAccept: true, result: {files: 1, saved: 1, bytes: 1, verified: 1, renamed: 0, folder: 'D:\\x', names: ['a'], autoAccepted: true}}));
         expect(await screen.findByText('Ready')).toBeTruthy();
         expect(screen.queryByText('Auto-accept')).toBeNull();
         // A link made with the switch off reads READY, as before.

@@ -66,6 +66,7 @@ import {resetWarning} from './reset';
 import {friendlyError} from './errors';
 import {
     acceptedPrompt,
+    autoAcceptShown,
     errorCode as requestErrorCode,
     initialRequestUI,
     linkOpen,
@@ -1653,12 +1654,12 @@ function App() {
     const relayTone = dropRelay || (route ? route === 'relay' : dropDirect ? false : hideIP);
     // Status word precedence (spec 06 5.3), display only: relay wins if either
     // lane relays, then direct, then Active while anything moves. Idle, a link
-    // made with Auto-accept on reads AUTO-ACCEPT while it is open (H4, D-173):
-    // it says what the app will do by itself, which READY cannot. The tone is
-    // READY's.
+    // made with Auto-accept on reads AUTO-ACCEPT while it waits (H4, D-173):
+    // it says what the app will do by itself, which READY cannot. A drop that
+    // did not qualify asks under READY (autoAcceptShown). The tone is READY's.
     const moving = busy || dropMoving;
-    const autoLinkOpen = reqUI.snap.autoAccept && linkOpen(reqUI.snap.state);
-    const statusWord = !moving ? (autoLinkOpen ? AUTO_ACCEPT_CHIP : 'Ready')
+    const autoLinkWaiting = autoAcceptShown(reqUI.snap);
+    const statusWord = !moving ? (autoLinkWaiting ? AUTO_ACCEPT_CHIP : 'Ready')
         : (busy && route === 'relay') || dropRelay ? 'Relay'
         : (busy && route === 'direct') || dropDirect ? 'Direct'
         : 'Active';

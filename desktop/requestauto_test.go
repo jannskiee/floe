@@ -13,7 +13,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -903,20 +906,80 @@ func TestAutoEligible(t *testing.T) {
 }
 
 // TestRequestSpaceForAsksTheNearestFolder: the drop folder does not exist
-// before Accept, and neither may the save base, so every volume question goes
-// to the nearest folder that exists.
+// before Accept, and neither may the save base, so both volume questions go
+// to the nearest folder that exists; free space comes from the prompt's own
+// answer and is never asked again (review R1 F1).
 func TestRequestSpaceForAsksTheNearestFolder(t *testing.T) {
 	root := t.TempDir()
+	var mu sync.Mutex
 	var asked []string
-	setVar(t, &requestDiskFreeFn, func(dir string) (int64, error) { asked = append(asked, "free "+dir); return 500 * gib, nil })
-	setVar(t, &requestVolumeSizeFn, func(string) (int64, error) { return 1024 * gib, nil })
-	setVar(t, &requestVolumeStreamsFn, func(string) (bool, error) { return true, nil })
-	sp := requestSpaceFor(filepath.Join(root, "Floe", "not yet"))
+	ask := func(q string) { mu.Lock(); asked = append(asked, q); mu.Unlock() }
+	setVar(t, &requestDiskFreeFn, func(dir string) (int64, error) { ask("free " + dir); return 1, nil })
+	setVar(t, &requestVolumeSizeFn, func(dir string) (int64, error) { ask("size " + dir); return 1024 * gib, nil })
+	setVar(t, &requestVolumeStreamsFn, func(dir string) (bool, error) { ask("streams " + dir); return true, nil })
+	sp := requestSpaceFor(filepath.Join(root, "Floe", "not yet"), RequestPrompt{FreeBytes: 500 * gib, freeKnown: true})
 	if want := (requestSpace{free: 500 * gib, freeKnown: true, capacity: 1024 * gib, namedStreams: true}); sp != want {
 		t.Fatalf("requestSpaceFor = %+v, want %+v", sp, want)
 	}
-	if len(asked) != 1 || asked[0] != "free "+root {
-		t.Fatalf("free space asked of %q, want the nearest existing folder %q", asked, root)
+	sort.Strings(asked)
+	if want := []string{"size " + root, "streams " + root}; strings.Join(asked, "|") != strings.Join(want, "|") {
+		t.Fatalf("asked %q, want only the size and the mark of the nearest existing folder %q", asked, root)
+	}
+	// A prompt whose free space was not read stays unknown here (G5 asks).
+	if sp := requestSpaceFor(root, RequestPrompt{}); sp.freeKnown {
+		t.Fatalf("requestSpaceFor with no free answer = %+v, want freeKnown false", sp)
+	}
+}
+
+// TestAutoPathAsksTheVolumeOnce (review R1 F1, the old R3): on a link made
+// with Auto-accept on, free space is asked once per drop (the prompt's own
+// question) and the size and the mark once more each; a drop that will ask
+// anyway (a warning, or a route that is not known) waits on no volume question
+// at all before its prompt opens.
+func TestAutoPathAsksTheVolumeOnce(t *testing.T) {
+	type counts struct{ free, size, streams atomic.Int32 }
+	count := func(t *testing.T, v autoVolume) *counts {
+		c := &counts{}
+		v.install(t)
+		setVar(t, &requestDiskFreeFn, func(string) (int64, error) { c.free.Add(1); return v.free, v.freeErr })
+		setVar(t, &requestVolumeSizeFn, func(string) (int64, error) { c.size.Add(1); return v.capacity, v.sizeErr })
+		setVar(t, &requestVolumeStreamsFn, func(string) (bool, error) { c.streams.Add(1); return v.streams, v.streamsErr })
+		return c
+	}
+	t.Run("a drop that qualifies", func(t *testing.T) {
+		c := count(t, roomyVolume())
+		x := newAutoDecide(t, true, "direct")
+		if dec := x.decide(autoIncoming); dec.Kind != transfer.DecisionAccept {
+			t.Fatalf("decision %+v, want Accept", dec)
+		}
+		if f, s, m := c.free.Load(), c.size.Load(), c.streams.Load(); f != 1 || s != 1 || m != 1 {
+			t.Fatalf("asked free %d, size %d, mark %d times; want 1 each", f, s, m)
+		}
+	})
+	for _, tc := range []struct {
+		name  string
+		route string
+		v     autoVolume
+	}{
+		{"a route that is not known", "", roomyVolume()},
+		{"a prompt that warns", "direct", autoVolume{free: 1 * gib, capacity: 1024 * gib, streams: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := count(t, tc.v)
+			x := newAutoDecide(t, true, tc.route)
+			got := make(chan transfer.Decision, 1)
+			go func() { got <- x.decide(autoIncoming) }()
+			waitFor(t, 5*time.Second, "the prompt", x.sawPrompt)
+			if f, s, m := c.free.Load(), c.size.Load(), c.streams.Load(); f != 1 || s != 0 || m != 0 {
+				t.Fatalf("before the prompt: asked free %d, size %d, mark %d times; want free once and nothing else", f, s, m)
+			}
+			close(x.closed) // the visitor leaves; the prompt ends
+			select {
+			case <-got:
+			case <-time.After(5 * time.Second):
+				t.Fatal("Decide did not return after the visitor left")
+			}
+		})
 	}
 }
 

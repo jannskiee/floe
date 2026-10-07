@@ -1231,6 +1231,19 @@ describe('Auto-accept (D-173)', () => {
         expect(screen.getByText(/^Ends /).textContent).not.toContain('automatically');
     });
 
+    it('an automatic link that asks, or was declined, does not say Accepts automatically over the prompt (review R2 F2)', () => {
+        for (const ph of ['deciding', 'declined'] as const) {
+            const {unmount} = render(<RequestLinkView {...at(ph)} snap={{...at(ph).snap, autoAccept: true}}/>);
+            expect(screen.getByText(/^Ends /).textContent, ph).not.toContain('automatically');
+            unmount();
+        }
+        for (const ph of ['waiting', 'reconnecting', 'connecting'] as const) {
+            const {unmount} = render(<RequestLinkView {...at(ph)} snap={{...at(ph).snap, autoAccept: true}}/>);
+            expect(screen.getByText(/^Ends .* · Accepts automatically$/), ph).toBeTruthy();
+            unmount();
+        }
+    });
+
     it('Receiving on the automatic path names the lane\'s count and folder, and shows no prompt', () => {
         const auto = snap({state: 'receiving', route: 'direct', autoAccept: true, result: {...result, saved: 0, bytes: 0, verified: 0, names: [], autoAccepted: true}});
         const {container} = render(<RequestLinkView {...at('receiving')} snap={auto}/>);
