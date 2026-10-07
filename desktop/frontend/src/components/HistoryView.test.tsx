@@ -205,7 +205,10 @@ describe('request rows', () => {
     it('request row Show in folder asks first when files were renamed', async () => {
         mount([request({renamed: 2, names: ['a.url.floe-blocked', 'b.lnk.floe-blocked']})]);
         await openRow();
-        expect(screen.getByText("2 files now end in .floe-blocked so Windows won't open them on their own")).toBeTruthy();
+        // No warning line in History (D-172): it belongs to the finished card.
+        // The names still end in .floe-blocked, and the folder still asks first.
+        expect(screen.queryByText(/now ends? in \.floe-blocked/)).toBeNull();
+        expect(screen.getByText('a.url.floe-blocked')).toBeTruthy();
         await userEvent.click(screen.getByRole('button', {name: 'Show in folder'}));
         const dialog = screen.getByRole('dialog');
         expect(within(dialog).getByText('This drop has renamed files')).toBeTruthy();
@@ -244,7 +247,10 @@ describe('request rows', () => {
     it('shows the History form of a stop and no SHA-256 line with it', async () => {
         mount([request({label: 'Acme footage', stopped: 'disk-full', count: 4, offered: 12, verified: 4})]);
         await openRow();
-        expect(screen.getByText('Drop stopped: the drive ran out of space · 4 of 12 files saved')).toBeTruthy();
+        const stop = screen.getByText('Drop stopped: the drive ran out of space · 4 of 12 files saved');
+        // A record of how it ended, in the row's gray, not a warning (D-172).
+        expect(stop.className.split(' ')).toContain('text-zinc-500');
+        expect(stop.className).not.toMatch(/amber/);
         expect(screen.queryByText(/SHA-256/)).toBeNull();
     });
 

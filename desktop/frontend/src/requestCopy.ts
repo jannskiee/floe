@@ -223,12 +223,10 @@ export const CANCEL = 'Cancel'; // DN9
 
 // ---- The saved files on Done and Stopped (D-171) -------------------------
 export const RECEIVED_FILES_LABEL = 'Received files'; // DN13, the list's name for screen readers
-/** The list shows at most this many files; DN12 counts the rest. */
-export const FILE_ROWS_MAX = 5;
 /** A file name in the list, in characters: the box is 422 px inside, less
  *  the size column, so about 50 of 14 px Geist; 44 leaves room for wide ones. */
 const FILE_NAME_MAX = 44;
-/** DN12: the files past the list, which Show in folder opens. */
+/** DN12: the files past the names Go lists (200), which Show in folder opens. */
 export function moreFiles(n: number): string {
     return `+ ${n} more`;
 }
@@ -243,12 +241,12 @@ export interface FileRow {
     size: string;
 }
 
-/** fileRows lists up to FILE_ROWS_MAX of the saved files, in the order they
- *  were saved, and how many more there are. The names are the engine's
+/** fileRows lists every saved file Go names (up to 200), in the order they
+ *  were saved, and how many more there are (D-172: the list scrolls). The names are the engine's
  *  display-safe saved names (controls and bidi marks already replaced), shown
  *  as text only; "/" between folders shows as "\". */
 export function fileRows(r: {names: string[]; sizes?: number[]; saved: number}): {rows: FileRow[]; more: number} {
-    const rows = r.names.slice(0, FILE_ROWS_MAX).map((n, i) => {
+    const rows = r.names.map((n, i) => {
         const full = n.replace(/\//g, '\\');
         const s = r.sizes?.[i] ?? -1;
         return {name: shortPath(full, FILE_NAME_MAX), full, size: s >= 0 ? fmtBytes(s) : ''};

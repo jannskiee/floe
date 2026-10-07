@@ -528,7 +528,10 @@ function Result({phase, snap, onMakeAnother, onShowInFolder}: RequestLinkViewPro
             {(files.rows.length > 0 || showFolder) && (
                 <div className="overflow-hidden rounded-md border border-white/10">
                     {files.rows.length > 0 && (
-                        <ul aria-label={copy.RECEIVED_FILES_LABEL} className="divide-y divide-white/[0.04]">
+                        // Every saved file is a row, and past about five the
+                        // list scrolls inside the box (D-172); the folder
+                        // footer stays put under it.
+                        <ul aria-label={copy.RECEIVED_FILES_LABEL} className="custom-scrollbar max-h-[185px] divide-y divide-white/[0.04] overflow-y-auto overscroll-contain">
                             {files.rows.map((f, i) => (
                                 <li key={i} className="flex items-baseline justify-between gap-3 px-3 py-2">
                                     {/* A visitor's file name, as text only. */}
@@ -582,7 +585,7 @@ function Result({phase, snap, onMakeAnother, onShowInFolder}: RequestLinkViewPro
  *  which asks the same question from a request row. */
 export function RenamedConfirm({onCancel, onConfirm}: {onCancel: () => void; onConfirm: () => void}) {
     return (
-        <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/60 backdrop-blur-sm">
+        <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/70">
             <div
                 role="dialog"
                 aria-modal="true"

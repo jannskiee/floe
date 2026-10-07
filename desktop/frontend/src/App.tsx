@@ -1775,8 +1775,11 @@ function App() {
             onClick={() => setMode(m)}
             aria-describedby={m === 'receive' && receiveDescribed ? RECEIVE_DESCRIPTION_ID : undefined}
             className={cn(
-                'border-b-2 px-3 pb-1 font-mono text-[11px] uppercase tracking-[0.2em] transition-colors',
-                mode === m ? 'border-white text-zinc-100' : 'border-transparent text-zinc-600 hover:text-zinc-400',
+                // The same 2 px edge and padding above and below the word, so it
+                // sits centered in the header whether selected or not; selected
+                // only colors the bottom edge (D-172).
+                'border-y-2 border-t-transparent px-3 py-1 font-mono text-[11px] uppercase tracking-[0.2em] transition-colors',
+                mode === m ? 'border-b-white text-zinc-100' : 'border-b-transparent text-zinc-600 hover:text-zinc-400',
             )}
         >
             {label}
@@ -2657,7 +2660,7 @@ function App() {
                 it must sit on top and be dismissed first, and a preferences dialog
                 must never occlude it. */}
             {confirmDefaults && (
-                <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/60 backdrop-blur-sm">
+                <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/70">
                     <div
                         role="dialog"
                         aria-modal="true"
@@ -2702,7 +2705,7 @@ function App() {
                 states earn a prompt and which deliberately do not. Sits below
                 the titlebar so the window controls remain reachable. */}
             {confirmReset && (
-                <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/60 backdrop-blur-sm">
+                <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/70">
                     <div
                         role="dialog"
                         aria-modal="true"
@@ -2735,7 +2738,7 @@ function App() {
                 </div>
             )}
             {closeGuard && (
-                <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/60 backdrop-blur-sm">
+                <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/70">
                     <div
                         role="dialog"
                         aria-modal="true"

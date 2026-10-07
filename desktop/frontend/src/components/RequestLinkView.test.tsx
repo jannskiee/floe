@@ -948,16 +948,20 @@ describe('the saved files on Done and Stopped (D-171)', () => {
         sizes: [10.2 * MB, 2.1 * MB, KB, 0, 2, 3, 4],
     };
 
-    it('lists each saved file with its size, at most five, then + N more, in a box whose footer is the folder', () => {
+    it('lists every saved file with its size in a list that scrolls, in a box whose footer is the folder (D-172)', () => {
         render(<RequestLinkView {...at('done', {snap: snap({state: 'done', result: seven})})}/>);
         const list = screen.getByRole('list', {name: 'Received files'});
         const items = within(list).getAllByRole('listitem');
-        expect(items.map((li) => li.textContent)).toEqual(['report.pdf10.2 MB', 'photos\\beach-01.jpg2.1 MB', 'a.txt1.0 KB', 'b.txt0 B', 'c.txt2 B']);
-        expect(screen.getByText('+ 2 more')).toBeTruthy();
+        expect(items.map((li) => li.textContent)).toEqual(['report.pdf10.2 MB', 'photos\\beach-01.jpg2.1 MB', 'a.txt1.0 KB', 'b.txt0 B', 'c.txt2 B', 'd.txt3 B', 'e.txt4 B']);
+        // Every row is there, so nothing is counted past them.
+        expect(screen.queryByText(/more$/)).toBeNull();
+        // The list scrolls inside the box past about five rows.
+        expect(list.className.split(' ')).toEqual(expect.arrayContaining(['max-h-[185px]', 'overflow-y-auto', 'custom-scrollbar']));
         const box = list.parentElement!;
         expect(box.className.split(' ')).toEqual(expect.arrayContaining(['rounded-md', 'border', 'border-white/10']));
-        // The folder row is the box's footer, with Show in folder in it.
+        // The folder row is the box's footer, outside the scroll, with Show in folder in it.
         const footer = box.lastElementChild!;
+        expect(list.contains(footer)).toBe(false);
         expect(within(footer as HTMLElement).getByRole('button', {name: 'Show in folder'})).toBeTruthy();
         expect(footer.className.split(' ')).toContain('border-t');
         // A stranger's files: no Open, only Show in folder.
@@ -967,6 +971,20 @@ describe('the saved files on Done and Stopped (D-171)', () => {
         const another = screen.getByRole('button', {name: 'Make another link'});
         expect(heading.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         expect(box.compareDocumentPosition(another) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('counts only the files past the names Go sent (over 200) under the list', () => {
+        render(<RequestLinkView {...at('done', {snap: snap({state: 'done', result: {...seven, files: 250, saved: 250}})})}/>);
+        const more = screen.getByText('+ 243 more');
+        expect(screen.getByRole('list', {name: 'Received files'}).contains(more)).toBe(false);
+    });
+
+    it('the renamed dialog dims what is behind it without blurring it (D-172)', async () => {
+        render(<RequestLinkView {...at('done', {snap: snap({state: 'done', result: {...seven, renamed: 1}})})}/>);
+        await userEvent.click(screen.getByRole('button', {name: 'Show in folder'}));
+        const overlay = screen.getByRole('dialog').parentElement!;
+        expect(overlay.className).not.toMatch(/backdrop-blur/);
+        expect(overlay.className.split(' ')).toContain('bg-black/70');
     });
 
     it('cuts a long name in the middle so its real ending shows, with the whole name as the title', () => {

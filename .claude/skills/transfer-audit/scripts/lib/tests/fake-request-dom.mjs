@@ -413,9 +413,9 @@ export function fakeRequestDom({
                     dom.forceVerifiedLine ??
                     (r.files > 0 && r.saved === r.files && r.verified === r.files);
                 if (shown) out.push(VERIFIED_LINE);
-                // The saved files list (D-171): up to five saved names, each
+                // The saved files list (D-171, D-172): every saved name, each
                 // its own text, above the folder row in the same box.
-                for (const n of (r.names || []).slice(0, 5)) out.push(n);
+                for (const n of r.names || []) out.push(n);
                 // DN6's folder row: the drop folder's own name (the full
                 // path rides only its title attribute).
                 if (r.folder && r.saved > 0) out.push(path.basename(r.folder));

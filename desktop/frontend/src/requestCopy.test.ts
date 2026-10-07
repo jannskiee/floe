@@ -344,15 +344,15 @@ describe('the whole table', () => {
 });
 
 describe('the saved files list (D-171)', () => {
-    it('fileRows keeps five rows at most, writes Windows separators, sizes each row and counts the rest', () => {
+    it('fileRows lists every name Go sent, writes Windows separators, sizes each row and counts only the rest (D-172)', () => {
         const r = {saved: 8, names: ['a/b/c.txt', 'd.txt', 'e.txt', 'f.txt', 'g.txt', 'h.txt'], sizes: [2048, -1, 0, 1, 2, 3]};
         const {rows, more} = copy.fileRows(r);
-        expect(rows.map((x) => x.name)).toEqual(['a\\b\\c.txt', 'd.txt', 'e.txt', 'f.txt', 'g.txt']);
-        expect(rows.map((x) => x.size)).toEqual(['2.0 KB', '', '0 B', '1 B', '2 B']);
+        expect(rows.map((x) => x.name)).toEqual(['a\\b\\c.txt', 'd.txt', 'e.txt', 'f.txt', 'g.txt', 'h.txt']);
+        expect(rows.map((x) => x.size)).toEqual(['2.0 KB', '', '0 B', '1 B', '2 B', '3 B']);
         expect(rows[0].full).toBe('a\\b\\c.txt');
-        // Names past the 200 Go keeps still count: the rest is saved minus shown.
-        expect(more).toBe(3);
-        expect(copy.moreFiles(more)).toBe('+ 3 more');
+        // Only files past the names Go keeps (200) are counted: saved minus listed.
+        expect(more).toBe(2);
+        expect(copy.moreFiles(more)).toBe('+ 2 more');
     });
 
     it('fileRows: no sizes at all, and an empty list', () => {

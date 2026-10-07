@@ -1582,3 +1582,23 @@ describe('the calm copy (D-167)', () => {
         expect(closingPeriods(document.body)).toEqual([]);
     });
 });
+
+describe('the SEND and RECEIVE tabs (D-172)', () => {
+    it('have the same edge and padding above and below the word in both states, so the word stays centered', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        const send = screen.getAllByRole('button', {name: 'Send'})[0];
+        const receive = screen.getAllByRole('button', {name: 'Receive'})[0];
+        const both = () => [send, receive].map((b) => b.className.split(' '));
+        for (const c of both()) {
+            expect(c).toEqual(expect.arrayContaining(['border-y-2', 'border-t-transparent', 'py-1']));
+            expect(c.some((x) => x === 'pb-1' || x === 'border-b-2')).toBe(false);
+        }
+        expect(send.className.split(' ')).toContain('border-b-white');
+        expect(receive.className.split(' ')).toContain('border-b-transparent');
+        await user.click(receive);
+        expect(receive.className.split(' ')).toContain('border-b-white');
+        expect(send.className.split(' ')).toContain('border-b-transparent');
+    });
+});

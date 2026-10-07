@@ -5,7 +5,7 @@ import {cn, Eyebrow} from './ui';
 import {fmtWhen, histKey, type HistEntry} from '../history';
 import {fmtBytes} from '../incoming';
 import {shortPath} from '../paths';
-import {keptPartLine, renamedLine, stoppedFull, verifiedAll} from '../requestCopy';
+import {keptPartLine, stoppedFull, verifiedAll} from '../requestCopy';
 import {RenamedConfirm} from './RequestLinkView';
 import {VerifiedMark} from './TransferBits';
 
@@ -132,11 +132,13 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
                                                 <p className="truncate pl-7 font-mono text-xs text-zinc-500" title={dir !== h.dir ? h.dir : undefined}>{dir}</p>
                                             </div>
                                         )}
-                                        {request && (h.renamed ?? 0) > 0 && (
-                                            <p className="pl-7 text-xs leading-relaxed text-amber-300/80">{renamedLine(h.renamed ?? 0)}</p>
-                                        )}
+                                        {/* No warning here (D-172): the renamed line belongs to the
+                                            moment of receiving, on the finished card; the saved names
+                                            still end in .floe-blocked and Show in folder still asks
+                                            first. How a stopped drop ended is a record, so it stays,
+                                            in the row's own gray rather than amber. */}
                                         {request && h.stopped && (
-                                            <p className="pl-7 text-xs leading-relaxed text-amber-300/80">{stoppedFull(h.stopped, h.count, offered)}</p>
+                                            <p className="pl-7 text-xs leading-relaxed text-zinc-500">{stoppedFull(h.stopped, h.count, offered)}</p>
                                         )}
                                         {request && h.stopped && keptPartLine(h.stopped) && (
                                             <p className="pl-7 text-xs leading-relaxed text-zinc-500">{keptPartLine(h.stopped)}</p>
