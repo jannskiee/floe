@@ -154,3 +154,23 @@ describe('request drops in History', () => {
         }
     });
 });
+
+describe('a drop the link accepted by itself (HA1, D-173)', () => {
+    const result = {files: 12, saved: 12, bytes: 38 * 1024 ** 3, verified: 12, renamed: 0, folder: 'D:\\Footage\\Floe\\Acme footage 2026-09-14 1405', names: ['a.mov']};
+    const snap = (over: Partial<RequestLinkSnapshot>): RequestLinkSnapshot => ({
+        ...OFF_SNAPSHOT, gen: 4, label: 'Acme footage', saveDir: 'D:\\Footage\\Floe', expiresAt: 9, ...over,
+    });
+    const AT = 1_758_000_000_000;
+
+    it('requestHistoryEntry marks it from the drop\'s own mark, and only that drop', () => {
+        expect(requestHistoryEntry(snap({state: 'done', autoAccept: true, result: {...result, autoAccepted: true}}), AT)!.auto).toBe(true);
+        // An automatic link whose drop asked and was accepted by hand: the
+        // owner's own decision, not marked. The link's switch never marks a row.
+        expect(requestHistoryEntry(snap({state: 'done', autoAccept: true, result: {...result, autoAccepted: false}}), AT)!.auto).toBeUndefined();
+        expect(requestHistoryEntry(snap({state: 'done', autoAccept: true, result}), AT)!.auto).toBeUndefined();
+        expect('auto' in requestHistoryEntry(snap({state: 'done', result}), AT)!).toBe(false);
+        // A stopped automatic drop that saved files keeps the mark.
+        const stopped = requestHistoryEntry(snap({state: 'stopped', code: 'stopped', result: {...result, saved: 3, autoAccepted: true}}), AT)!;
+        expect(stopped.auto).toBe(true);
+    });
+});

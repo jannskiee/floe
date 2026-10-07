@@ -40,6 +40,7 @@ export namespace main {
 	    names: string[];
 	    sizes: number[];
 	    noNamedStreams: boolean;
+	    autoAccepted: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new RequestResult(source);
@@ -56,6 +57,7 @@ export namespace main {
 	        this.names = source["names"];
 	        this.sizes = source["sizes"];
 	        this.noNamedStreams = source["noNamedStreams"];
+	        this.autoAccepted = source["autoAccepted"];
 	    }
 	}
 	export class RequestPrompt {
@@ -90,6 +92,7 @@ export namespace main {
 	    label: string;
 	    saveDir: string;
 	    expiresAt: number;
+	    autoAccept: boolean;
 	    route: string;
 	    reconnectUntil?: number;
 	    missedAt?: number;
@@ -113,6 +116,7 @@ export namespace main {
 	        this.label = source["label"];
 	        this.saveDir = source["saveDir"];
 	        this.expiresAt = source["expiresAt"];
+	        this.autoAccept = source["autoAccept"];
 	        this.route = source["route"];
 	        this.reconnectUntil = source["reconnectUntil"];
 	        this.missedAt = source["missedAt"];

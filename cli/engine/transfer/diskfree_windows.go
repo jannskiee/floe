@@ -54,11 +54,11 @@ func volumeMaxFileSize(dir string) (int64, error) {
 //
 // The file system is asked through a handle to dir, which follows a junction,
 // a symbolic link, a mount point or a subst drive to the volume files written
-// under dir land on, as the desktop's volumeSpace does (FU-36). Asking by the
-// path's root (GetVolumePathName) resolved a junction and a symbolic link as
-// well, but failed on a subst drive mapped to a folder (measured 2026-10-01),
-// so a FAT32 folder behind such a letter read as no known limit and a file
-// past 4 GiB failed mid-write instead of being refused up front.
+// under dir land on (FU-36). Asking by the path's root (GetVolumePathName)
+// resolved a junction and a symbolic link as well, but failed on a subst
+// drive mapped to a folder (measured 2026-10-01), so a FAT32 folder behind
+// such a letter read as no known limit and a file past 4 GiB failed
+// mid-write instead of being refused up front.
 //
 // dir may not be made yet (the receive makes it after Decide), so a missing
 // dir is asked through the nearest folder above it that exists, as the root

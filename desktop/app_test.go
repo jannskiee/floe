@@ -239,7 +239,7 @@ func TestNotifyOffKeepsFlashAndTitle(t *testing.T) {
 		t.Fatalf("titles after the prompt = %q, want the last to be (1) Floe", titles)
 	}
 
-	a.acceptDrop(1)
+	a.acceptDrop(1, RequestResult{})
 	titles, flashes, _ = rec.snapshot()
 	if len(flashes) != 2 || flashes[1] {
 		t.Fatalf("flashes after Accept = %v, want a stop", flashes)

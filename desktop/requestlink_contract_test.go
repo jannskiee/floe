@@ -16,8 +16,9 @@ func TestRequestLinkSnapshotJSONShape(t *testing.T) {
 		SaveDir: "d", ExpiresAt: 1, Route: "direct", ReconnectUntil: 2, MissedAt: 3,
 		SuggestClose: true,
 		Battery:      true,
+		AutoAccept:   true,
 		Prompt:       &RequestPrompt{Files: 1, TotalBytes: 2, Folder: "f", FreeBytes: 3, Warnings: []string{"low-space"}, AnswerBy: 4},
-		Result:       &RequestResult{Files: 1, Saved: 1, Bytes: 2, Verified: 1, Renamed: 0, NoNamedStreams: true, Folder: "f", Names: []string{"a"}},
+		Result:       &RequestResult{Files: 1, Saved: 1, Bytes: 2, Verified: 1, Renamed: 0, NoNamedStreams: true, AutoAccepted: true, Folder: "f", Names: []string{"a"}},
 	}
 	raw, err := json.Marshal(snap)
 	if err != nil {
@@ -27,10 +28,16 @@ func TestRequestLinkSnapshotJSONShape(t *testing.T) {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []string{"state", "code", "gen", "seq", "promptGen", "link", "label", "saveDir", "expiresAt", "route", "reconnectUntil", "missedAt", "suggestClose", "battery", "prompt", "result"} {
+	keys := []string{"state", "code", "gen", "seq", "promptGen", "link", "label", "saveDir", "expiresAt", "autoAccept", "route", "reconnectUntil", "missedAt", "suggestClose", "battery", "prompt", "result"}
+	for _, k := range keys {
 		if _, ok := m[k]; !ok {
 			t.Errorf("snapshot JSON lacks %q: %s", k, raw)
 		}
+	}
+	// Seventeen keys with every field set: a new key is a new contract with
+	// the frontend and the bindings, and it is added here on purpose.
+	if len(m) != len(keys) || len(keys) != 17 {
+		t.Errorf("snapshot JSON has %d keys, want the %d pinned: %s", len(m), len(keys), raw)
 	}
 	prompt := m["prompt"].(map[string]any)
 	for _, k := range []string{"files", "totalBytes", "folder", "freeBytes", "warnings", "answerBy"} {
@@ -39,7 +46,7 @@ func TestRequestLinkSnapshotJSONShape(t *testing.T) {
 		}
 	}
 	result := m["result"].(map[string]any)
-	for _, k := range []string{"files", "saved", "bytes", "verified", "renamed", "noNamedStreams", "folder", "names"} {
+	for _, k := range []string{"files", "saved", "bytes", "verified", "renamed", "noNamedStreams", "folder", "names", "autoAccepted"} {
 		if _, ok := result[k]; !ok {
 			t.Errorf("result JSON lacks %q", k)
 		}

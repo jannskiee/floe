@@ -15,7 +15,10 @@
 // stopped, no-prompt, not-used-up, decline-copy,
 // blip-no-absent, no-reclaim, visitor-stats, visitor-seed, bytes-reported,
 // init-script, make-error, prompt-lie, goto-error, click-error,
-// and for TA-16's CLI visitor cli-exit (exits 1 on a fixed line after the
+// for TA-10a auto-asks (the host prompts on an automatic link anyway),
+// auto-unmarked (the result lacks the automatic mark), auto-chip-ready (the
+// chip reads READY on an automatic link) and no-auto-switch (a build without
+// the Auto-accept switch), and for TA-16's CLI visitor cli-exit (exits 1 on a fixed line after the
 // drop), cli-no-arrived (exits 0 without TL-03's line) and cli-stats-env
 // (started without FLOE_NO_STATS=1). A wrong route is the world's `route`
 // option on a cell that expects the other one.
@@ -422,6 +425,9 @@ export function fakeRequestWorld({
     const set = new Set(faults);
     const h = fakeRequestDom({
         makeError: set.has('make-error') ? 'disabled' : null,
+        autoSwitch: !set.has('no-auto-switch'),
+        autoAsks: set.has('auto-asks'),
+        autoChip: !set.has('auto-chip-ready'),
         ...host,
     });
     const dom = h.dom;
@@ -435,6 +441,7 @@ export function fakeRequestWorld({
         cliVisitors: [],
         current: null,
         acceptedAt: null,
+        autoAccepted: false,
         linkUsed: false,
         blips: [],
         sends: [],
@@ -476,7 +483,8 @@ export function fakeRequestWorld({
     dom.onAnswer = (answer) => {
         const v = world.current;
         if (!v) return;
-        if (answer === 'accept') {
+        if (answer === 'accept' || answer === 'auto-accept') {
+            world.autoAccepted = answer === 'auto-accept';
             v.state = 'sending';
             v.route = world.route;
             dom.route = world.route;
@@ -513,7 +521,7 @@ export function fakeRequestWorld({
         if (world.has('stopped')) {
             dom.state = 'stopped';
             dom.code = 'hash-mismatch';
-            dom.result = { files: n, saved: n - 1, bytes, verified: n - 1, renamed: 0, folder: sub, names: [] };
+            dom.result = { files: n, saved: n - 1, bytes, verified: n - 1, renamed: 0, folder: sub, names: [], autoAccepted: world.autoAccepted };
             v.state = 'refused';
             return;
         }
@@ -527,6 +535,7 @@ export function fakeRequestWorld({
             renamed: 0,
             folder: sub,
             names: v.files.map((p) => path.basename(p)),
+            autoAccepted: world.autoAccepted && !world.has('auto-unmarked'),
         };
         if (world.has('heading-lie')) dom.forceVerifiedLine = verified !== n;
         v.verified = verified;

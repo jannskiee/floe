@@ -66,6 +66,9 @@ export interface RequestLinkSnapshot {
     label: string;
     saveDir: string;
     expiresAt: number;
+    /** The link's own Auto-accept switch (D-173): true when a drop that needs
+     *  no asking is accepted at once. Per link, never remembered. */
+    autoAccept: boolean;
     route: string;
     reconnectUntil?: number;
     missedAt?: number;
@@ -110,6 +113,9 @@ export interface RequestResult {
      *  (D-171), or -1 where Go sent none (that row shows no size). Optional
      *  so the fixtures that build a result by hand need not all name it. */
     sizes?: number[];
+    /** The link took this drop by its own choice, with no prompt (HA1,
+     *  D-173). Absent reads as not automatic. */
+    autoAccepted?: boolean;
 }
 
 /** A Link ends key: the fixed set Go's requestLifetime takes (D-173). Nothing
@@ -143,7 +149,7 @@ export type Phase =
 
 export const OFF_SNAPSHOT: RequestLinkSnapshot = {
     state: 'off', code: '', gen: 0, seq: 0, promptGen: 0, link: '', label: '', saveDir: '',
-    expiresAt: 0, route: '', suggestClose: false, battery: false,
+    expiresAt: 0, autoAccept: false, route: '', suggestClose: false, battery: false,
 };
 
 const PHASES = new Set<string>([
@@ -250,6 +256,8 @@ export function normalizeSnapshot(raw: unknown): RequestLinkSnapshot {
         label: str(r.label),
         saveDir: str(r.saveDir),
         expiresAt: num(r.expiresAt),
+        // Automatic only when the bridge says exactly true (G1: fail closed).
+        autoAccept: r.autoAccept === true,
         route: str(r.route),
         suggestClose: r.suggestClose === true,
         battery: r.battery === true,
@@ -278,6 +286,7 @@ export function normalizeSnapshot(raw: unknown): RequestLinkSnapshot {
             noNamedStreams: res.noNamedStreams !== false,
             folder: str(res.folder),
             ...namesAndSizes(res.names, res.sizes),
+            autoAccepted: res.autoAccepted === true,
         };
     }
     return out;

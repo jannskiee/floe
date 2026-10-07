@@ -62,8 +62,8 @@ export function IsPackaged() {
   return window['go']['main']['App']['IsPackaged']();
 }
 
-export function MakeRequestLink(arg1, arg2, arg3) {
-  return window['go']['main']['App']['MakeRequestLink'](arg1, arg2, arg3);
+export function MakeRequestLink(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['MakeRequestLink'](arg1, arg2, arg3, arg4);
 }
 
 export function OpenFile(arg1, arg2) {

@@ -69,6 +69,10 @@ type RequestLinkSnapshot struct {
 	SaveDir string `json:"saveDir"`
 	// ExpiresAt is when the link ends.
 	ExpiresAt int64 `json:"expiresAt"`
+	// AutoAccept is the link's own Auto-accept switch, set at Make link
+	// (D-173): true when a drop that needs no asking is accepted at once. It
+	// is per link, set by every Make link and never remembered (G1, G2).
+	AutoAccept bool `json:"autoAccept"`
 	// Route is "", "direct" or "relay".
 	Route string `json:"route"`
 	// ReconnectUntil is set while reconnecting: the lane retries until the
@@ -132,6 +136,12 @@ type RequestResult struct {
 	// that the Done view keeps its not-scanned line (H7 S-7), so every doubt
 	// lands on true. Go's own fact, never peer data.
 	NoNamedStreams bool `json:"noNamedStreams"`
+
+	// AutoAccepted marks a drop the link accepted by its own choice, with no
+	// prompt (D-173): History's gray "Accepted automatically" line (HA1). A
+	// drop on such a link that asked, and that the owner accepted, is not
+	// marked. Go's own fact, never peer data.
+	AutoAccepted bool `json:"autoAccepted"`
 }
 
 // The lane's timings. Liveness is the engine's own ping and read deadline
@@ -205,6 +215,11 @@ type requestLane struct {
 	web       string
 	hideIP    bool
 
+	// autoAccept is this link's Auto-accept switch: set by every Make link
+	// from its own argument, never read from a setting or a previous link,
+	// and copied into each pairing (G1, G2, D-173).
+	autoAccept bool
+
 	sc   *signaling.Client // the host /ws socket while a link is open
 	conn closer            // the peer connection while connecting..receiving
 
@@ -227,6 +242,11 @@ type requestLane struct {
 	attention    bool
 	attentionSeq uint64
 	promptEnds   []time.Time
+
+	// autoEnds are when this link's automatic Accepts met a visitor already
+	// gone (review 1 R2 a): two within requestSpamWindow quiet TO4, as E-40
+	// quiets TO1. Apart from promptEnds, which the owner's Accept clears.
+	autoEnds []time.Time
 
 	stop  chan struct{} // closed when this link's generation ends
 	retry chan struct{} // buffered 1; Retry now
@@ -407,6 +427,7 @@ func (l *requestLane) snapshotLocked() RequestLinkSnapshot {
 		Link:         l.link,
 		Label:        l.label,
 		SaveDir:      l.saveDir,
+		AutoAccept:   l.autoAccept,
 		Route:        l.route,
 		SuggestClose: l.suggestClose,
 		Battery:      l.battery,
@@ -637,8 +658,9 @@ func reconnectDelay(n int, base, cap time.Duration, r func(int64) int64) time.Du
 // with the current snapshot; the frontend follows request:state. The one-link
 // rule is checked here; the server probe (no request-1 gives disabled, an
 // unreachable server unknown), the relay check and the host join run on the
-// lane goroutine.
-func (a *App) MakeRequestLink(label string, saveDir string, lifetime string) RequestLinkSnapshot {
+// lane goroutine. autoAccept is the form's Auto-accept switch for this link
+// only (D-173); false, the default, asks.
+func (a *App) MakeRequestLink(label string, saveDir string, lifetime string, autoAccept bool) RequestLinkSnapshot {
 	a.mu.Lock()
 	hideIP := a.cfg.HideIP
 	a.mu.Unlock()
@@ -680,8 +702,10 @@ func (a *App) MakeRequestLink(label string, saveDir string, lifetime string) Req
 	l.expiresAt = time.Time{}
 	l.route, l.result, l.missedAt, l.suggestClose, l.battery = "", nil, time.Time{}, false, false
 	l.promptEnds, l.ownerStop = nil, false
+	l.autoEnds = nil
 	l.label = displayLabel(label)
 	l.saveDir = saveDir
+	l.autoAccept = autoAccept
 	if leftover != nil || leftConn != nil {
 		l.wg.Add(1)
 		go func() {
@@ -1054,13 +1078,15 @@ func (a *App) reconnect(rg uint64, stop <-chan struct{}, server, roomID, hostTok
 // requestPairing is what one pairing reads when its visitor arrives: the
 // link's own server, the Hide my IP and global stats switches as they are
 // right now (read under a.mu, then released), and the link's label, base
-// folder, end time and stop channel (read under the lane lock).
+// folder, Auto-accept choice, end time and stop channel (read under the lane
+// lock).
 type requestPairing struct {
 	server      string
 	hideIP      bool
 	reportStats bool
 	label       string
 	saveDir     string
+	autoAccept  bool
 	expiresAt   time.Time
 	stop        <-chan struct{}
 }
@@ -1068,21 +1094,30 @@ type requestPairing struct {
 // pairRequest is the default pairFn: it reads the pairing, then runs the drop
 // (runRequestDrop, transfer.go).
 func (a *App) pairRequest(rg uint64, sc *signaling.Client) {
+	p, ok := a.requestPairingFor(rg)
+	if !ok {
+		return
+	}
+	_ = a.runRequestDrop(rg, sc, p)
+}
+
+// requestPairingFor reads generation rg's pairing: the switches under a.mu,
+// released, then the link's own values under the lane lock. False when rg no
+// longer owns the lane.
+func (a *App) requestPairingFor(rg uint64) (requestPairing, bool) {
 	a.mu.Lock()
 	hideIP, reportStats := a.cfg.HideIP, a.cfg.ReportStats
 	a.mu.Unlock()
 	l := a.lane()
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	if rg != l.gen || l.cancelled {
-		l.mu.Unlock()
-		return
+		return requestPairing{}, false
 	}
-	p := requestPairing{
+	return requestPairing{
 		server: l.server, hideIP: hideIP, reportStats: reportStats,
-		label: l.label, saveDir: l.saveDir, expiresAt: l.expiresAt, stop: l.stop,
-	}
-	l.mu.Unlock()
-	_ = a.runRequestDrop(rg, sc, p)
+		label: l.label, saveDir: l.saveDir, autoAccept: l.autoAccept, expiresAt: l.expiresAt, stop: l.stop,
+	}, true
 }
 
 // setRequestConn registers a pairing's peer connection with generation rg, so
@@ -1144,6 +1179,9 @@ func (a *App) reopenRequest(rg uint64, sc *signaling.Client, code string, cause 
 func (a *App) waitAgain(rg uint64, code string) {
 	a.reqUpdate(rg, func(l *requestLane) {
 		l.prompt = nil
+		// Accept set a result for a drop the engine then found abandoned: a
+		// link that waits again carries no count or folder of it (C2-10).
+		l.result = nil
 		l.route = ""
 		l.dropCancel = nil
 		l.ownerStop = false
@@ -1304,14 +1342,31 @@ func (a *App) endPrompt(rg uint64) {
 }
 
 // acceptDrop is Accept's lane half, run by the Decide callback once the
-// exclusive subfolder exists: receiving, and the wake hold for
+// exclusive subfolder exists: receiving with res, the announced count and the
+// folder (so Receiving names both before the first progress event, on the
+// prompted and the automatic path alike: L9, L14), and the wake hold for
 // ("request", rg). False when rg no longer owns the lane (nothing held). An
-// Accept ends the prompt's attention and resets the E-40 count.
-func (a *App) acceptDrop(rg uint64) bool {
+// Accept ends the prompt's attention. Only the owner's Accept resets the E-40
+// count and the close hint: an automatic one answers no prompt, and its
+// visitor can abandon it, so letting it reset them would let a link holder
+// keep TO1 from ever going quiet (review 2 F1).
+func (a *App) acceptDrop(rg uint64, res RequestResult) bool {
+	// The automatic path opened no prompt, where the battery is asked
+	// otherwise (P11); asked before the lane lock, like every question to the
+	// OS, or the Receiving view's laptop line could never show.
+	var battery bool
+	if res.AutoAccepted {
+		battery = hasBatteryFn()
+	}
 	if !a.reqUpdate(rg, func(l *requestLane) {
 		l.prompt = nil
-		l.promptEnds = nil
-		l.suggestClose = false
+		if res.AutoAccepted {
+			l.battery = battery
+		} else {
+			l.promptEnds = nil
+			l.suggestClose = false
+		}
+		l.result = &res
 		l.setStateLocked("receiving", "")
 	}) {
 		return false
@@ -1366,7 +1421,7 @@ func (l *requestLane) pruneEndsLocked() bool {
 	return len(kept) >= 2
 }
 
-// requestToast names one of the three fixed notifications the lane may send.
+// requestToast names one of the four fixed notifications the lane may send.
 // Nothing else can reach a Windows toast from this lane: go-toast falls back
 // to a PowerShell script on any COM error, where a visitor string could run
 // a command (spec 05 section 10, L14), so the text is a closed set of
@@ -1374,12 +1429,13 @@ func (l *requestLane) pruneEndsLocked() bool {
 type requestToast int
 
 const (
-	toastRequestArrived requestToast = iota + 1 // TO1
-	toastDropDone                               // TO2
-	toastDropFailed                             // TO3
+	toastRequestArrived   requestToast = iota + 1 // TO1
+	toastDropDone                                 // TO2
+	toastDropFailed                               // TO3
+	toastDropAutoAccepted                         // TO4
 )
 
-// requestToastText is the constant table (approved copy TO1 to TO3). An
+// requestToastText is the constant table (approved copy TO1 to TO4). An
 // unknown key has no text and sends nothing.
 func requestToastText(t requestToast) (title, body string, ok bool) {
 	switch t {
@@ -1389,6 +1445,8 @@ func requestToastText(t requestToast) (title, body string, ok bool) {
 		return "Floe", "Files received", true
 	case toastDropFailed:
 		return "Floe - receive failed", "The transfer didn't finish", true
+	case toastDropAutoAccepted:
+		return "Floe", "Receiving files through your request link", true
 	}
 	return "", "", false
 }
@@ -1460,6 +1518,44 @@ func (a *App) onPrompt(rg uint64, quiet bool) {
 	if !quiet {
 		a.notifyRequest(rg, toastRequestArrived)
 	}
+}
+
+// onAutoAccept tells the owner that a drop started by itself on a link made
+// with Auto-accept on: TO4, a constant, and nothing else. No flash and no
+// "(1) Floe": those mean an answer is needed, and none is (D-137 D10, D-173).
+// After two automatic Accepts on this link met a visitor already gone within
+// requestSpamWindow, it stays quiet (review 1 R2 a): a link holder could
+// otherwise have the owner read that files are arriving, over and over, for
+// drops that never start. The chip, Receiving and History still show a drop.
+func (a *App) onAutoAccept(rg uint64) {
+	l := a.lane()
+	l.mu.Lock()
+	cut := l.now().Add(-requestSpamWindow)
+	kept := l.autoEnds[:0]
+	for _, t := range l.autoEnds {
+		if t.After(cut) {
+			kept = append(kept, t)
+		}
+	}
+	l.autoEnds = kept
+	quiet := len(kept) >= 2
+	l.mu.Unlock()
+	if quiet {
+		return
+	}
+	a.notifyRequest(rg, toastDropAutoAccepted)
+}
+
+// autoAbandoned records that an automatic Accept on generation rg met a
+// visitor already gone before the engine claimed anything, for onAutoAccept's
+// quieting. A generation that no longer owns the lane counts nothing.
+func (a *App) autoAbandoned(rg uint64) {
+	l := a.lane()
+	l.mu.Lock()
+	if rg == l.gen {
+		l.autoEnds = append(l.autoEnds, l.now())
+	}
+	l.mu.Unlock()
 }
 
 // attentionOff stops the flash and restores the title, once, whatever ended

@@ -110,6 +110,7 @@ const NOT_RENDERED_HERE: Record<string, string> = {
     TO1: 'a toast, a Go constant (S1-DSK-05)',
     TO2: 'a toast, a Go constant (S1-DSK-05)',
     TO3: 'a toast, a Go constant (S1-DSK-05)',
+    TO4: 'a toast, a Go constant (D-173; TestAutoAcceptToastIsConstant spells it out)',
 };
 
 describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved desktop copy (skipped: set FLOE_APPROVED_COPY to the frozen copy table to run)', () => {
@@ -142,6 +143,10 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.READY_IP_LINE).toBe(approved('R15'));
         expect(c.MAKING_LINK).toBe(approved('R16'));
         expect(c.READY_HIDE_IP_LINE).toBe(approved('R17'));
+        // Auto-accept (D-173).
+        expect(c.AUTO_ACCEPT_EYEBROW.toUpperCase()).toBe(approved('R28'));
+        expect(c.AUTO_ACCEPT_LABEL).toBe(approved('R29'));
+        expect(c.READY_AUTO_LINE).toBe(approved('R30'));
     });
 
     it('Notification settings rows NS1 to NS8 match byte for byte', () => {
@@ -175,6 +180,7 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.COPIED).toBe(approved('W3'));
         expect(c.CLOSE_LINK).toBe(approved('W4'));
         expect(c.scopeLine(END, NOW)).toBe(approved('W5'));
+        expect(c.scopeLine(END, NOW, true)).toBe(approved('W5a'));
         expect(c.WAITING_LINE).toBe(approved('W8'));
         expect(c.missedLine(MISSED)).toBe(approved('W10'));
         expect(c.SETUP_FAILED_LINE).toBe(approved('W11'));
@@ -238,6 +244,8 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         // The saved files list (D-171): the line past five rows, and the list's name.
         expect(c.moreFiles(3)).toBe(approved('DN12'));
         expect(c.RECEIVED_FILES_LABEL).toBe(approved('DN13'));
+        // History's gray line for a drop the link took by itself (D-173).
+        expect(c.ACCEPTED_AUTOMATICALLY_LINE).toBe(approved('HA1'));
     });
 
     it('Stopped rows match byte for byte, card body and History form', () => {
@@ -295,6 +303,7 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.CLOSE_LINK_ALSO_LINE).toBe(approved('CL5'));
         expect(c.START_OVER_LINK_LINE).toBe(approved('SO1'));
         expect(c.LINK_OPEN_DESCRIPTION).toBe(approved('H2'));
+        expect(c.AUTO_ACCEPT_CHIP.toUpperCase()).toBe(approved('H4'));
         expect(c.NOTICE_TEXT).toBe(approved('N1'));
         expect(c.NOTICE_REVIEW).toBe(approved('N2'));
         expect(c.ANNOUNCE_REQUEST).toBe(approved('A1'));

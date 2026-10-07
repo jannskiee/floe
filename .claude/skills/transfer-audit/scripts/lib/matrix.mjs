@@ -73,6 +73,7 @@ export const REQUEST_VARIANTS = Object.freeze([
     'reqcaddy', // TA-14: a local Caddy reloaded while the link waits and while the drop receives (head only, --caddy)
     'reqdecline', // TA-15: Decline, Keep waiting, a second visitor delivers
     'reqopen', // TA-17: a quick cell run with a link open on the desktop
+    'reqauto', // TA-10a: a link made with Auto-accept on takes the drop with no prompt (head only)
 ]);
 export const REQUEST_OPEN_IDS = Object.freeze(
     QUICK_IDS.map((id) => `${id}-reqopen`)
@@ -84,6 +85,7 @@ export const REQUEST_IDS = Object.freeze([
     'H-DIR-W2D-reqblip', // TA-13
     'H-DIR-W2D-reqcaddy', // TA-14 (--caddy)
     'H-DIR-W2D-reqdecline', // TA-15
+    'H-DIR-W2D-reqauto', // TA-10a (head only, wailsdev host: no shipped build has the Auto-accept switch yet, D-173)
     ...REQUEST_OPEN_IDS, // TA-17
     'H-DIR-W2D-req', // head twin of TA-10
     'H-REL-W2D-req', // head twin of TA-11
@@ -115,6 +117,8 @@ export function requestFlowOf(variant) {
             return 'decline-then-accept';
         case 'reqopen':
             return 'open-link-precondition';
+        case 'reqauto':
+            return 'auto';
         default:
             return null;
     }
@@ -195,6 +199,10 @@ export const SKIP_REASONS = Object.freeze({
     'docker-absent': 'Docker is not answering, so the local Caddy of TA-14 cannot start',
     'request-host-away-only':
         'an exe request host (store, portable or a head wails build) is driven through UIA pattern calls, which activate its window (G2-F1): it runs only with --user-away',
+    'request-no-auto-switch':
+        'the desktop build under test has no Auto-accept switch on the Make link form (made before H10, D-173)',
+    'request-auto-wailsdev-only':
+        "TA-10a reads the host's own record of the Auto-accept switch and the drop's automatic mark (GetRequestLink), which only the wailsdev dev page has; an exe host is read through UIA",
     filtered: 'excluded by --cells',
 });
 
@@ -274,7 +282,8 @@ export function fixtureSpec(parsed) {
         case 'req':
         case 'reqhideip':
         case 'reqblip':
-        case 'reqcaddy': {
+        case 'reqcaddy':
+        case 'reqauto': {
             const bytes = parsed.path === 'REL' ? REL_BYTES : DESKTOP_DIR_BYTES;
             return { kind: 'single', bytes, totalBytes: bytes };
         }
@@ -577,13 +586,18 @@ function requestSpec(variant, flow, snd) {
             host: 'desktop',
             visitor: 'cli',
             visitors: 1,
+            autoAccept: false,
             acceptWaitMs: REQUEST_ACCEPT_WAIT_MS,
             blipMs: null,
             loopbackOnly: false,
             oracles: [...CLI_VISITOR_ORACLES],
         };
+    // TA-10a (D-173): the link is made with Auto-accept on, the chip reads
+    // AUTO-ACCEPT while it waits, and the drop starts with no prompt at all;
+    // the host marks the result as accepted automatically. Every other
+    // oracle is TA-10's.
     const oracles = [
-        'prompt-counts-match-no-relay-warning',
+        flow === 'auto' ? 'no-prompt-chip-auto-accept' : 'prompt-counts-match-no-relay-warning',
         'sha256-in-drop-subfolder',
         'visitor-arrived-line',
         'visitor-sha-line-only-when-verified-equals-n',
@@ -603,6 +617,7 @@ function requestSpec(variant, flow, snd) {
             'drop-survives-a-reload-while-receiving',
             'visitor-ignores-peer-disconnected'
         );
+    if (flow === 'auto') oracles.push('result-marked-auto-accepted');
     // TA-12's over 2 GB prompt line (P6) is not reached from a web visitor:
     // RequestVisitor.tsx probes the route 2 s after its channel opens and
     // blocks a relayed drop over the cap before it sends any metadata, so
@@ -614,6 +629,9 @@ function requestSpec(variant, flow, snd) {
         host: 'desktop',
         visitor: 'web',
         visitors: flow === 'decline-then-accept' ? 2 : 1,
+        // The Make link form's Auto-accept switch: off for every cell but
+        // TA-10a, which is the form's own default and is never clicked.
+        autoAccept: flow === 'auto',
         acceptWaitMs: REQUEST_ACCEPT_WAIT_MS,
         blipMs: flow === 'blip-then-accept' ? REQUEST_BLIP_MS : null,
         // TA-13 cuts sockets through a driver-owned proxy in front of the
@@ -668,6 +686,9 @@ export function gateCell(
         // driven through the UIA request verbs (FU-26), whose pattern calls
         // activate its window (G2-F1): away-only.
         if (cell.request && desktopMode !== 'wailsdev') {
+            // TA-10a's oracles read GetRequestLink (the link's autoAccept and
+            // the result's autoAccepted), which the UIA lane does not have.
+            if (cell.request.flow === 'auto') return skip(cell, 'request-auto-wailsdev-only');
             if (!userAway) return skip(cell, 'request-host-away-only');
             // TA-17 with a desktop side: the host already holds the one app
             // instance, so the quick cell's own desktop leg cannot launch
