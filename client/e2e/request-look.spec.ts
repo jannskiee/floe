@@ -210,4 +210,98 @@ test.describe('request look', () => {
         // draws the unchecked box white on this page.
         expect(await box.evaluate((el) => getComputedStyle(el).colorScheme)).toContain('dark');
     });
+
+    test('the Privacy and Terms footer reads at AA on the page', async ({ page }) => {
+        // zinc-500 measured 4.05 to 4.15:1 on the backdrop (2026-10-08 QA);
+        // the owner chose zinc-400.
+        await page.goto(LINK);
+        await expectReadableText(page.getByRole('link', { name: 'Privacy', exact: true }), 'Privacy');
+        await expectReadableText(page.getByRole('link', { name: 'Terms', exact: true }), 'Terms');
+    });
+
+    test('Add more files draws a focus ring when the keyboard reaches it', async ({ page }) => {
+        await page.goto(LINK);
+        await page
+            .locator('input[type=file]:not([webkitdirectory])')
+            .first()
+            .setInputFiles({ name: 'ring.txt', mimeType: 'text/plain', buffer: Buffer.from('ring') });
+        const input = page.getByLabel(visitorCopy.addMoreFiles);
+        await expect(input).toBeAttached();
+        await page.getByRole('link', { name: visitorCopy.whatIsRequestLink }).focus();
+        await page.keyboard.press('Tab');
+        expect(await input.evaluate((el) => el === document.activeElement && el.matches(':focus-visible'))).toBe(true);
+        // The input is invisible, so the strip around it draws the ring: the
+        // Button's own, 3:1 or better against the card (WCAG 1.4.11). It was
+        // 0 px of change on Tab before.
+        const strip = input.locator('..');
+        await expect
+            .poll(
+                async () => {
+                    const { ring, surround } = await seen(strip);
+                    return ring ? contrast(ring, surround) : 0;
+                },
+                { message: 'Add more files ring against the card', timeout: 5_000 }
+            )
+            .toBeGreaterThanOrEqual(3);
+    });
+
+    test('focus stays in the card when the pick swaps its controls', async ({ page }) => {
+        await page.goto(LINK);
+        const choose = page.getByRole('button', { name: visitorCopy.chooseFiles, exact: true });
+        await choose.focus();
+        const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.keyboard.press('Enter')]);
+        await chooser.setFiles({ name: 'keep.txt', mimeType: 'text/plain', buffer: Buffer.from('keep') });
+        // Choose files is gone; focus moved to what replaced it, not to <body>.
+        await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute('aria-label'))).toBe(visitorCopy.addMoreFiles);
+        await page.getByRole('button', { name: visitorCopy.clear, exact: true }).focus();
+        await page.keyboard.press('Enter');
+        await expect.poll(() => page.evaluate(() => document.activeElement?.textContent)).toBe(visitorCopy.chooseFiles);
+    });
+
+    test('a drop leaves focus where it was: no ring on Add more files for a pointer user', async ({ page }) => {
+        await page.goto(LINK);
+        await expect(page.getByRole('heading', { name: visitorCopy.readyEyebrow })).toBeVisible();
+        await page.evaluate(() => {
+            const zone = document.querySelector('main [aria-busy]');
+            const dt = new DataTransfer();
+            dt.items.add(new File(['drop'], 'drop.txt'));
+            zone?.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+        });
+        await expect(page.getByRole('button', { name: sendLabel(1), exact: true })).toBeVisible();
+        await page.waitForTimeout(300);
+        expect(await page.evaluate(() => document.activeElement === document.body), 'focus stayed on the page').toBe(true);
+        const strip = page.getByLabel(visitorCopy.addMoreFiles).locator('..');
+        const { ring } = await seen(strip);
+        expect(ring, 'no focus ring on the strip after a drop').toBeNull();
+    });
+
+    test('the page is dark before any script runs', async ({ browser }) => {
+        // The guard renders nothing until hydration, and the root body is
+        // white: every visit opened on a white frame (0.2 to 0.9 s on next
+        // dev) until the page's own canvas style, which is server-rendered.
+        const context = await browser.newContext({ javaScriptEnabled: false });
+        const page = await context.newPage();
+        await page.goto(LINK);
+        const [html, body, scheme] = await page.evaluate(() => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const read = (css: string) => {
+                if (!ctx) return [255, 255, 255];
+                ctx.clearRect(0, 0, 1, 1);
+                ctx.fillStyle = css;
+                ctx.fillRect(0, 0, 1, 1);
+                return Array.from(ctx.getImageData(0, 0, 1, 1).data.slice(0, 3));
+            };
+            return [
+                read(getComputedStyle(document.documentElement).backgroundColor),
+                read(getComputedStyle(document.body).backgroundColor),
+                getComputedStyle(document.documentElement).colorScheme,
+            ];
+        });
+        for (const [what, rgb] of [['html', html], ['body', body]] as const) {
+            expect(Math.max(...(rgb as number[])), `${what} background ${rgb}`).toBeLessThan(24);
+        }
+        expect(scheme).toBe('dark');
+        await context.close();
+    });
 });

@@ -556,10 +556,13 @@ function waiting(model: VisitorModel, event: VisitorEvent): Step {
 function sending(model: VisitorModel, event: VisitorEvent): Step {
     switch (event.type) {
         case 'ACK': {
-            // Only the next file, in order, moves the count.
+            // Only the next file, in order, moves the count. The time left
+            // was the previous file's (near zero by then), and the sender
+            // reports a file's own only after its first second, so it goes
+            // until then; the speed stays, since it is the link's.
             const next = model.ackIndex + 1;
             if (event.index !== next || next > model.total) return stay(model);
-            return to(model, 'V10', { ackIndex: next, percent: 0 });
+            return to(model, 'V10', { ackIndex: next, percent: 0, etaSeconds: null });
         }
         case 'PROGRESS':
             return to(model, 'V10', {

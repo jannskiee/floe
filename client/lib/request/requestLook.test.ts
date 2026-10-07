@@ -65,15 +65,19 @@ describe('the /r look', () => {
         // The page heading too: since C-02 lost "This is a Floe request
         // link.", the heading is one of the lines that say what the page is.
         expect(classesBefore(read('ReadyHeader.tsx'), '{visitorCopy.readyEyebrow}')).toContain('text-zinc-400');
-        // What stays dim on purpose: the Privacy and Terms footer, and the
-        // dropzone's plus icon, which is not text.
+        // What stays dim on purpose: the dropzone's plus icon, which is not
+        // text. The Privacy and Terms footer was dim too until the 2026-10-08
+        // QA measured it at 4.05 to 4.15:1 on the backdrop, under AA's 4.5:1
+        // for 12 px text; the owner chose zinc-400 ("Fix both").
         const dim: string[] = [];
         for (const name of readdirSync(DIR).filter((f) => f.endsWith('.tsx')).sort()) {
             for (const line of read(name).split(/\r?\n/)) {
                 if (line.includes('text-zinc-500')) dim.push(`${name} ${line.trim().split(' ')[0]}`);
             }
         }
-        expect(dim).toEqual(['RequestDropzone.tsx <Plus', 'RequestShell.tsx <footer']);
+        expect(dim).toEqual(['RequestDropzone.tsx <Plus']);
+        expect(classesBefore(read('RequestShell.tsx'), '\n                Privacy')).toContain('touch-text');
+        expect(read('RequestShell.tsx')).toMatch(/<footer className="[^"]*\btext-zinc-400\b/);
     });
 
     it('every card is the same opaque surface over the backdrop, with plain edges', () => {
@@ -98,5 +102,119 @@ describe('the /r look', () => {
         // hairline border and a neutral depth shadow.
         expect(cards[0], cards[0]).not.toMatch(/ice|191|before:|after:|inset|ring-|border-t-|via-|from-|bg-linear|bg-gradient|backdrop-blur/);
         for (const name of files) expect(read(name), name).not.toMatch(/-top-px|top-\[-1px\]/);
+    });
+});
+
+// The 2026-10-08 QA (work/46-r-qa): the measured defects each fix answers are
+// named in the component comments. Read as text, like everything above; the
+// rendered result is measured by e2e/responsive.spec.ts and request-look.spec.ts.
+describe('the /r layout at every size', () => {
+    it('rows that hold two things wrap rather than spill', () => {
+        const ready = read('RequestReady.tsx');
+        // Send and Clear: at 280 px a 100+ file count made Send wider than the row.
+        expect(ready).toMatch(/<div className="mt-4 flex flex-wrap gap-2">/);
+        // The IP notice and Report this link: at 200% text the link left the
+        // card; the notice keeps 10.5rem and the link moves to its own line.
+        const notice = classesBefore(ready, '{visitorCopy.ipNotice}');
+        expect(notice).toContain('flex-[1_1_10.5rem]');
+        expect(ready).toMatch(/<div className="mt-4 flex flex-wrap items-end justify-between gap-x-4 gap-y-2">/);
+        expect(classesBefore(read('ReportLink.tsx'), '{visitorCopy.reportLink}')).toContain('ml-auto');
+        // Keep sending and Stop: 195 px in 164 at 280.
+        expect(read('RequestProgress.tsx')).toMatch(/<div className="mt-4 flex flex-wrap gap-2">/);
+        // The Sending header and its route badge: 91 px of page scroll at 280
+        // with 200% text.
+        expect(read('RequestProgress.tsx')).toContain('<div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">');
+        // The eyebrow and the Beta chip.
+        expect(read('ReadyHeader.tsx')).toContain('<div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">');
+        expect(classesBefore(read('ReadyHeader.tsx'), '{visitorCopy.readyEyebrow}')).toContain('flex-[1_1_9.5rem]');
+    });
+
+    it('a status line breaks a long path instead of widening the page', () => {
+        expect(classesBefore(read('RequestStatus.tsx'), '{copy.learnMore && i ===')).toContain('break-words');
+    });
+
+    it('the eyebrow never leaves one word on a line', () => {
+        expect(classesBefore(read('ReadyHeader.tsx'), '{visitorCopy.readyEyebrow}')).toContain('text-balance');
+    });
+
+    it('a path row keeps its end: no row truncates the whole path from the right', () => {
+        const rows = read('ArrivedList.tsx');
+        expect(rows).toContain('displayPath(path.replace(');
+        expect(rows).toContain('splitTail(shown)');
+        expect(rows).not.toMatch(/\btruncate\b/);
+        // Read once and whole by assistive tech; drawn as two aria-hidden
+        // halves; right-to-left names laid out right to left; the tail gives
+        // way from its start.
+        expect(rows).toContain('<span className="sr-only">{shown}</span>');
+        expect(rows.split('aria-hidden="true"').length - 1).toBe(2);
+        expect(rows).toContain("dir={rtl ? 'rtl' : 'ltr'}");
+        expect(rows).toContain("dir={rtl ? 'ltr' : 'rtl'}");
+        expect(rows).toContain('<bdi');
+        expect(read('RequestProgress.tsx')).toContain('<PathText path={props.currentPath} />');
+        expect(read('RequestProgress.tsx')).not.toMatch(/\btruncate\b/);
+        // Four rows instead of six on a window under 800 px tall, so Send
+        // stays in view on a 1366 x 768 laptop.
+        expect(rows).toContain('max-h-60');
+        expect(rows).toContain('[@media(max-height:50rem)]:max-h-40');
+    });
+
+    it('Add more files draws the Button focus ring when its hidden input has focus', () => {
+        const zone = read('RequestDropzone.tsx');
+        for (const c of ['has-[input:focus-visible]:border-ring', 'has-[input:focus-visible]:ring-[3px]', 'has-[input:focus-visible]:ring-ring/50']) {
+            expect(zone).toContain(c);
+        }
+    });
+
+    it('a card title beside its dot can shrink and break a long word', () => {
+        expect(read('NoticeCard.tsx')).toMatch(/<h1[^>]*className="min-w-0 break-words /);
+        const status = read('RequestStatus.tsx');
+        expect(status.split("'min-w-0 break-words ").length - 1).toBe(3);
+    });
+
+    it('a button keeps its drawn height at 100% text and wraps its label at 200%', () => {
+        // h-auto lets a label wrap; the padding then sets the height, so an
+        // outline button (1 px border) takes 1 px less of it: 32 and 36 px.
+        for (const name of ['RequestReady.tsx', 'RequestStatus.tsx', 'RequestProgress.tsx', 'RequestDropzone.tsx']) {
+            const src = read(name);
+            for (const m of src.matchAll(/<Button\b[\s\S]*?className="([^"]*)"/g)) {
+                const c = m[1].split(/\s+/);
+                expect(c, `${name}: ${m[1]}`).toContain('whitespace-normal');
+                expect(c, `${name}: ${m[1]}`).toContain('h-auto');
+                const outline = /variant="outline"/.test(m[0]);
+                const sm = /size="sm"/.test(m[0]);
+                if (outline) expect(c, `${name}: ${m[1]}`).toContain(sm ? 'py-[5px]' : 'py-[7px]');
+                expect(c, `${name}: ${m[1]}`).toContain(sm ? 'min-h-8' : 'min-h-9');
+            }
+        }
+    });
+
+    it('every card has a heading that can take focus back', () => {
+        for (const name of ['ReadyHeader.tsx', 'RequestStatus.tsx', 'RequestProgress.tsx', 'NoticeCard.tsx']) {
+            const src = read(name);
+            expect(src, name).toContain('tabIndex={-1}');
+            expect(src, name).toContain('data-card-heading=""');
+            expect(src, name).toMatch(/<h1[\s\S]*?outline-none/);
+        }
+    });
+
+    it('every control gets the invisible touch area', () => {
+        for (const name of readdirSync(DIR).filter((f) => f.endsWith('.tsx')).sort()) {
+            const src = read(name);
+            const buttons = src.split('<Button').length - 1;
+            expect(src.split('touch-button').length - 1, name).toBe(buttons);
+            const anchors = (src.match(/<a\b/g) ?? []).length;
+            expect(src.split('touch-text').length - 1, name).toBeGreaterThanOrEqual(anchors);
+        }
+        const css = readFileSync(fileURLToPath(new URL('../../app/globals.css', import.meta.url)), 'utf8');
+        for (const name of ['touch-button', 'touch-text']) {
+            const from = css.indexOf(`@utility ${name} {`);
+            expect(from, name).toBeGreaterThan(-1);
+            // This utility alone: up to the next one or the next top-level rule.
+            const rest = css.slice(from + 1);
+            const next = rest.search(/\n(@utility|@layer|@media|@keyframes|\/\*|\.)/);
+            const block = next === -1 ? rest : rest.slice(0, next);
+            expect(block.indexOf('@media (pointer: coarse)'), name).toBeGreaterThan(-1);
+            expect(block.slice(0, block.indexOf('}\n}')), name).toContain('&::after');
+        }
     });
 });

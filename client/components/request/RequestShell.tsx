@@ -47,10 +47,14 @@ export function RequestShell() {
                 (and width, on a phone) so the card still leads on a short
                 window. Its own bottom padding keeps it off the card once the
                 page is taller than the window, where <main> has no free space
-                left to center in (a 10 px gap at 1280 x 720 without it). */}
-            <p className="pt-[clamp(1.5rem,4.5svh,2.5rem)] pb-[clamp(1rem,3.5svh,2rem)] text-[length:clamp(3.25rem,min(11svh,14vw),7.5rem)] leading-none font-extrabold tracking-tighter text-white drop-shadow-2xl">
-                Floe
-            </p>
+                left to center in (a 10 px gap at 1280 x 720 without it). The
+                <header> draws nothing; it only puts the wordmark in a
+                landmark, so no content sits outside one (axe "region"). */}
+            <header>
+                <p className="pt-[clamp(1.5rem,4.5svh,2.5rem)] pb-[clamp(1rem,3.5svh,2rem)] text-[length:clamp(3.25rem,min(11svh,14vw),7.5rem)] leading-none font-extrabold tracking-tighter text-white drop-shadow-2xl">
+                    Floe
+                </p>
+            </header>
 
             <main className="flex w-full max-w-xl flex-1 flex-col items-center justify-center">
                 <RequestVisitor />
@@ -81,18 +85,18 @@ export function RequestShell() {
  *  depend on one mechanism for it. */
 function RequestFooter() {
     return (
-        <footer className="flex items-center justify-center gap-6 pb-8 pt-10 text-xs text-zinc-500 sm:pb-10">
+        <footer className="flex items-center justify-center gap-6 pb-8 pt-10 text-xs text-zinc-400 sm:pb-10">
             <a
                 href="/privacy"
                 rel="noreferrer"
-                className="transition hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-ice"
+                className="transition hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-ice touch-text"
             >
                 Privacy
             </a>
             <a
                 href="/terms"
                 rel="noreferrer"
-                className="transition hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-ice"
+                className="transition hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-ice touch-text"
             >
                 Terms
             </a>

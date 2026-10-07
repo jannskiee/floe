@@ -10,7 +10,7 @@ export function ReportLink({ href }: { href: string | null }) {
         <a
             href={href}
             rel="noreferrer"
-            className="shrink-0 text-xs text-zinc-400 underline underline-offset-2 transition hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-ice"
+            className="touch-text ml-auto shrink-0 text-xs text-zinc-400 underline underline-offset-2 transition hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-ice"
         >
             {visitorCopy.reportLink}
         </a>

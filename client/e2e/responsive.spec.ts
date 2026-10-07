@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from 'crypto';
 import { writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { visitorCopy } from '../lib/request/visitorCopy';
 
 // ---------------------------------------------------------------------------
 // Multi-viewport layout guard: every route must render without horizontal
@@ -274,4 +275,96 @@ test('sender flow stays inside the viewport at 320 and 390 wide', async ({ page 
             await assertNoHorizontalOverflow(page, `${label} (FAQ open)`);
         }
     }
+});
+
+// ---------------------------------------------------------------------------
+// Request link visitor page (/r). Ready opens no socket until Send, so a
+// made-up link draws it with no host. Past the page-level check, nothing inside
+// the card may cross the card's content edge: the card does not scroll, so a
+// row that would not wrap or a path with no break point spilled into the
+// padding, or past the card, while the document could stay exactly as wide as
+// the window (the 2026-10-08 QA). 280 is the Galaxy Fold's cover screen.
+// ---------------------------------------------------------------------------
+
+const REQUEST_LINK = '/r/AAAAAAAAAAA#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f';
+const REQUEST_VIEWPORTS = [{ width: 280, height: 653 }, ...VIEWPORTS];
+
+async function assertInsideCard(page: Page, label: string) {
+    const outside = await page.evaluate(() => {
+        const card = document.querySelector('main section');
+        if (!card) return ['no card'];
+        const box = card.getBoundingClientRect();
+        const style = getComputedStyle(card);
+        const left = box.left + parseFloat(style.paddingLeft) - 1;
+        const right = box.right - parseFloat(style.paddingRight) + 1;
+        const out: string[] = [];
+        for (const el of card.querySelectorAll('*')) {
+            const r = el.getBoundingClientRect();
+            if (r.width === 0) continue;
+            if (r.left < left || r.right > right) {
+                out.push(`<${el.tagName.toLowerCase()}> "${(el.textContent ?? '').slice(0, 30)}" ${Math.round(r.left)}..${Math.round(r.right)} in ${Math.round(left)}..${Math.round(right)}`);
+            }
+        }
+        return out.slice(0, 5);
+    });
+    expect(outside, `${label}: drawn outside the card's content box`).toEqual([]);
+}
+
+async function sweepRequest(page: Page, label: string, extra?: (vp: { width: number; height: number }) => Promise<void>) {
+    for (const vp of REQUEST_VIEWPORTS) {
+        await page.setViewportSize(vp);
+        await page.waitForTimeout(150);
+        const at = `${label} @ ${vp.width}x${vp.height}`;
+        await assertNoHorizontalOverflow(page, at);
+        await assertInsideCard(page, at);
+        if (extra) await extra(vp);
+    }
+}
+
+test('request link: Ready fits the window and the card at any viewport, empty and with long names', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto(REQUEST_LINK);
+    await expect(page.getByRole('heading', { name: visitorCopy.readyEyebrow })).toBeVisible();
+    await sweepRequest(page, '/r Ready');
+
+    // Twelve camera-style names longer than any row: every row must keep its
+    // file name and extension in view (the tail span is never cut) from 320 up.
+    mkdirSync(FIXTURE_DIR, { recursive: true });
+    const files: string[] = [];
+    for (let i = 1; i <= 12; i++) {
+        const name = `Quarterly_Board_Pack_FINAL_v${i} reviewed by legal and finance team_DSC_40${i}.NEF`;
+        const p = join(FIXTURE_DIR, name);
+        writeFileSync(p, randomBytes(64 * i));
+        files.push(p);
+    }
+    const [chooser] = await Promise.all([
+        page.waitForEvent('filechooser'),
+        page.getByRole('button', { name: visitorCopy.chooseFiles, exact: true }).click(),
+    ]);
+    await chooser.setFiles(files);
+    await expect(page.getByRole('button', { name: 'Send 12 files' })).toBeVisible();
+    await sweepRequest(page, '/r Ready with 12 long names', async (vp) => {
+        if (vp.width < 320) return;
+        const tails = await page.evaluate(() =>
+            [...document.querySelectorAll('main li')].map((li) => {
+                const tail = li.querySelector(':scope > span:first-child > span:last-child');
+                return {
+                    text: tail?.textContent ?? '',
+                    cut: tail ? tail.scrollWidth > tail.clientWidth + 1 : true,
+                };
+            })
+        );
+        expect(tails.length, '/r rows rendered').toBe(12);
+        for (const t of tails) {
+            expect(t.text, `/r rows @ ${vp.width}x${vp.height}: the drawn tail`).toMatch(/\.NEF$/);
+            expect(t.cut, `/r rows @ ${vp.width}x${vp.height}: "${t.text}" lost its end`).toBe(false);
+        }
+    });
+});
+
+test("request link: an incomplete link's notice fits at any viewport", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/r/AAAAAAAAAAA#room=6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f');
+    await expect(page.getByRole('heading', { name: visitorCopy.incompleteTitle })).toBeVisible();
+    await sweepRequest(page, '/r V1');
 });

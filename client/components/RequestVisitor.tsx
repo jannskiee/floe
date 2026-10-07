@@ -11,7 +11,7 @@ if (typeof window !== 'undefined') {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SimplePeer, { type Instance as PeerInstance } from 'simple-peer';
 import type { Socket } from 'socket.io-client';
 import * as Sentry from '@sentry/nextjs';
@@ -661,7 +661,7 @@ export function RequestVisitor() {
         return () => clearInterval(t);
     }, [model.state]);
 
-    const sizes = attemptFiles.map((f) => f.file.size);
+    const sizes = useMemo(() => attemptFiles.map((f) => f.file.size), [attemptFiles]);
     useVisitorGuards({
         state: model.state,
         progress: {
@@ -681,7 +681,12 @@ export function RequestVisitor() {
     };
     const status = statusCopy(model, ctx);
     // Arrived, from the sender's own index (row R5), never a host count.
-    const arrivedRows = rowsOf(attemptFiles.slice(0, arrivedCount(model)));
+    // Memoized with the picked rows: Sending re-renders on every 500 ms
+    // progress tick, and a new array each time redrew every row of a list
+    // that can hold 10,000 (146 to 311 ms a render on next dev).
+    const arrived = arrivedCount(model);
+    const arrivedRows = useMemo(() => rowsOf(attemptFiles.slice(0, arrived)), [attemptFiles, arrived]);
+    const pickedRows = useMemo(() => rowsOf(picks.files), [picks.files]);
     const route = connectionType ?? model.route;
     const block = sendBlock({
         count: picks.files.length,
@@ -689,6 +694,41 @@ export function RequestVisitor() {
         hideIp,
         reading: picks.reading,
     });
+
+    // Every Ready variant is one view: its controls stay mounted between them.
+    const ready = model.state === 'V3' || model.state === 'V3c' || model.state === 'V6b' || model.state === 'V6d';
+    const view = ready ? 'ready' : model.state;
+
+    // A new card unmounts the button that was pressed (Send, Try again,
+    // Cancel, Stop, Back to files) and focus fell to <body>: a keyboard user
+    // restarted from the top and a screen reader lost its place. Focus goes to
+    // the new card's heading, but only when it was lost, so a pointer user or
+    // a control that survived the change (Cancel from Connecting to Waiting)
+    // is left alone, and never on the first card after the page loads.
+    const lastView = useRef<string | null>(null);
+    useEffect(() => {
+        const previous = lastView.current;
+        lastView.current = view;
+        if (previous === null || previous === 'load' || previous === view) return;
+        const active = document.activeElement;
+        if (active && active !== document.body) return;
+        document.querySelector<HTMLElement>('[data-card-heading]')?.focus();
+    }, [view]);
+
+    // Ready has no announcement of its own, but three of its lines answer
+    // something the visitor just did: a refused pick, the 2 GB relay cap, and
+    // Hide my IP with no relay to use. They were drawn and never read out.
+    // They go through the page's one status span like every other sentence
+    // (4.18): a live region created with the line would not be read, which is
+    // exactly the V6b case, where Ready mounts again after Connecting.
+    const readyLine =
+        model.state === 'V6b' && hideIp
+            ? visitorCopy.hideIpNeedsRelay
+            : model.state === 'V3c' && picks.notice
+              ? picks.notice
+              : ready && block === 'relay-cap'
+                ? visitorCopy.relayCapReady
+                : '';
 
     const onStatusAction = () => {
         if (!status) return;
@@ -714,7 +754,7 @@ export function RequestVisitor() {
         case 'V6d':
             body = (
                 <RequestReady
-                    rows={rowsOf(picks.files)}
+                    rows={pickedRows}
                     size={picks.totalBytes}
                     notice={picks.notice}
                     emptyFolders={picks.emptyFolders}
@@ -787,7 +827,7 @@ export function RequestVisitor() {
             {/* One persistent status span from first paint, so assistive tech
                 is already listening when the first sentence arrives (4.18). */}
             <span role="status" className="sr-only">
-                {announcement(model, ctx)}
+                {announcement(model, ctx) || readyLine}
             </span>
         </>
     );

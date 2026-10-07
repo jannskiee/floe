@@ -54,12 +54,14 @@ export function RequestStatus({
                         message is one sentence; a 16 px semibold heading
                         for the rest. */}
                     <h1
+                        tabIndex={-1}
+                        data-card-heading=""
                         className={
                             done
-                                ? 'font-mono text-[12px] font-semibold uppercase leading-[1.3] tracking-[0.2em] text-white'
+                                ? 'min-w-0 break-words font-mono text-[0.75rem] font-semibold uppercase leading-[1.3] tracking-[0.2em] text-white outline-none'
                                 : copy.one
-                                  ? 'text-[15px] font-medium leading-[1.3] tracking-tight text-white'
-                                  : 'text-base font-semibold leading-[1.3] tracking-tight text-white'
+                                  ? 'min-w-0 break-words text-[0.9375rem] font-medium leading-[1.3] tracking-tight text-white outline-none'
+                                  : 'min-w-0 break-words text-base font-semibold leading-[1.3] tracking-tight text-white outline-none'
                         }
                     >
                         {copy.title}
@@ -71,7 +73,10 @@ export function RequestStatus({
                 // The waiting countdown is one of these lines; it changes once
                 // a minute and is deliberately outside any live region. The
                 // announcements live in the page's one status span.
-                <p key={line} className="mt-3 text-sm leading-relaxed text-zinc-400">
+                // break-words: C-130 quotes the visitor's raw path, and an
+                // ordinary 43-character camera path ran past the card and
+                // scrolled the page sideways at 280 to 360 px.
+                <p key={line} className="mt-3 break-words text-sm leading-relaxed text-zinc-400">
                     {line}
                     {copy.learnMore && i === copy.lines.length - 1 && (
                         <>
@@ -84,7 +89,7 @@ export function RequestStatus({
                                 href={SIZE_LIMIT_HREF}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-zinc-300 underline underline-offset-2 transition hover:text-white focus-visible:outline-2 focus-visible:outline-ice"
+                                className="touch-text text-zinc-300 underline underline-offset-2 transition hover:text-white focus-visible:outline-2 focus-visible:outline-ice"
                             >
                                 {visitorCopy.learnMore}
                             </a>
@@ -94,13 +99,13 @@ export function RequestStatus({
             ))}
             {copy.showArrived && <ArrivedList rows={arrived} />}
             {copy.action === 'cancel' && (
-                <Button type="button" variant="outline" className="mt-5 w-full" onClick={onAction}>
+                <Button type="button" variant="outline" className="touch-button mt-5 w-full h-auto min-h-9 max-w-full whitespace-normal py-[7px] text-center" onClick={onAction}>
                     {visitorCopy.cancel}
                 </Button>
             )}
             {(copy.action === 'try-again' || copy.action === 'back-to-files') && (
                 <div className="mt-5 flex justify-end">
-                    <Button type="button" variant="outline" onClick={onAction}>
+                    <Button type="button" variant="outline" className="touch-button h-auto min-h-9 max-w-full whitespace-normal py-[7px] text-center" onClick={onAction}>
                         {copy.action === 'try-again' ? visitorCopy.tryAgain : visitorCopy.backToFiles}
                     </Button>
                 </div>

@@ -75,17 +75,29 @@ export function RequestReady(props: RequestReadyProps) {
                 <p className="mt-4 text-sm leading-relaxed text-zinc-300">{visitorCopy.coarsePointer}</p>
             )}
             {hasFiles && (
-                <div className="mt-4 flex gap-2">
-                    <Button type="button" className="flex-1 font-semibold" disabled={props.block !== null} onClick={props.onSend}>
+                // flex-wrap: at 280 px a 100+ file count makes Send wider than
+                // the row, and Clear drops under it instead of into the padding.
+                <div className="mt-4 flex flex-wrap gap-2">
+                    <Button
+                        type="button"
+                        className="touch-button flex-1 font-semibold h-auto min-h-9 max-w-full whitespace-normal text-center"
+                        disabled={props.block !== null}
+                        onClick={props.onSend}
+                    >
                         {sendLabel(props.rows.length)}
                     </Button>
-                    <Button type="button" variant="outline" onClick={props.onClear}>
+                    <Button type="button" variant="outline" className="touch-button h-auto min-h-9 max-w-full whitespace-normal py-[7px] text-center" onClick={props.onClear}>
                         {visitorCopy.clear}
                     </Button>
                 </div>
             )}
-            <div className="mt-4 flex items-end justify-between gap-4">
-                <p className="text-xs leading-relaxed text-zinc-400">{visitorCopy.ipNotice}</p>
+            {/* Wraps: with a fixed row, Report this link (shrink-0) pushed past
+                the card at 200% text and squeezed the notice into a 98 px
+                column at 280 px. The notice keeps at least 10.5rem, so from
+                360 px at 100% the row draws exactly as before; narrower, the
+                link takes its own line at the right (ml-auto in ReportLink). */}
+            <div className="mt-4 flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+                <p className="flex-[1_1_10.5rem] text-xs leading-relaxed text-zinc-400">{visitorCopy.ipNotice}</p>
                 {props.footerEnd}
             </div>
         </section>

@@ -60,6 +60,25 @@ export const metadata: Metadata = {
     },
 };
 
+/**
+ * The page canvas, server-rendered OUTSIDE the guard. The guard renders nothing
+ * until its mount effect has run, so without this the first frames of every
+ * visit were the root layout's white body (measured 0.2 s at 1x CPU and 0.9 s
+ * at 4x on next dev), the scrollbar drew in the light scheme, and elastic
+ * overscroll showed white bands past the dark shell. Unlayered, so it beats the
+ * base layer's `body { bg-background }`. zinc-950 is the shell's own color.
+ *
+ * It never reaches another page: /r is only ever entered or left by a document
+ * load (plain anchors only, see RequestShell's footer), so no client-side
+ * navigation carries this <style> along.
+ *
+ * Not here, on purpose: scrollbar-gutter. It would stop the card's 7.5 px
+ * sideways step when a classic scrollbar comes or goes (a 1366 x 768 Ready is
+ * taller than the window, Connecting is not), but the reserved gutter sits
+ * outside the fixed backdrop and drew a plain band down the window's edges.
+ */
+const PAGE_CANVAS = 'html,body{background-color:oklch(14.1% 0.005 285.823);color-scheme:dark}';
+
 export default function RequestLinkPage() {
     // The guard wraps the whole shell, not part of it. In-app browsers are where
     // file picking and WebRTC are least reliable, and the guard withholds its
@@ -68,8 +87,11 @@ export default function RequestLinkPage() {
     // copy of location.href includes the fragment; that is correct here, because
     // the fragment is the visitor's own link.
     return (
-        <InAppBrowserGuard>
-            <RequestShell />
-        </InAppBrowserGuard>
+        <>
+            <style>{PAGE_CANVAS}</style>
+            <InAppBrowserGuard>
+                <RequestShell />
+            </InAppBrowserGuard>
+        </>
     );
 }

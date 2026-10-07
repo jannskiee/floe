@@ -511,6 +511,18 @@ describe('visitor state: Sending rows', () => {
         expect(r.model.percent).toBe(48);
         expect(r.model.bytesPerSec).toBe(1000);
     });
+    it("a new file's ack drops the last file's time left and keeps the link's speed", () => {
+        // The sender reports a file's own ETA only after its first second, so
+        // until then the line showed the previous file's near-zero time left
+        // beside "0 Bytes of" the new one (2026-10-08 QA, D16).
+        let m = step(modelIn('V10'), { type: 'PROGRESS', percent: 100, bytesPerSec: 1000, etaSeconds: 1 }).model;
+        m = step(m, { type: 'ACK', index: m.ackIndex + 1, now: 1 }).model;
+        expect(m.percent).toBe(0);
+        expect(m.etaSeconds).toBeNull();
+        expect(m.bytesPerSec).toBe(1000);
+        m = step(m, { type: 'PROGRESS', percent: 10, etaSeconds: 40 }).model;
+        expect(m.etaSeconds).toBe(40);
+    });
     it('V10 + E22 goes to V13', () => {
         const r = step(modelIn('V10'), { type: 'RECEIVED', now: 99_000 });
         expect(r.model.state).toBe('V13');

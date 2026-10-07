@@ -175,6 +175,47 @@ test.describe('request-link', () => {
         expect(await stats()).toBe(0);
     });
 
+    test('request-link: keyboard focus follows the card, and the Stop question takes it and gives it back', async ({ page, context }) => {
+        test.setTimeout(120_000);
+        const stats = await guard(context);
+        const sent = makeFiles({ 'a.bin': 256 * 1024, 'b.bin': 256 * 1024 });
+        // Host absent first (the room is claimed on join()), then a hold after
+        // file 1, so the page sits in Sending with Cancel to press.
+        const h = host({ decide: 'accept', joinOnStdin: true, holdAfterFile: 15_000 });
+        await page.goto(await requestLink(h));
+        await pickFiles(page, ['a.bin', 'b.bin']);
+        const heading = () =>
+            page.evaluate(() => (document.activeElement?.matches('h1[data-card-heading]') ? document.activeElement.textContent : null));
+        const focused = () => page.evaluate(() => document.activeElement?.textContent ?? null);
+
+        // The pressed Send is gone with its card: focus is on the new card's
+        // heading, not <body>.
+        await page.getByRole('button', { name: /^Send / }).focus();
+        await page.keyboard.press('Enter');
+        await expect(page.getByRole('heading', { name: visitorCopy.hostAbsentTitle })).toBeVisible();
+        await expect.poll(heading).toBe(visitorCopy.hostAbsentTitle);
+
+        h.join();
+        await waitForHostEvent(h, 'joined', 30_000);
+        await page.getByRole('button', { name: visitorCopy.tryAgain }).focus();
+        await page.keyboard.press('Enter');
+        await waitForHostEvent(h, 'holding', 60_000);
+        await expect(page.getByRole('heading', { name: sendingHeader(1, 2) })).toBeVisible();
+
+        // Cancel opens the question and hands focus to Keep sending; Keep
+        // sending closes it and hands focus back to Cancel.
+        await page.getByRole('button', { name: visitorCopy.cancel, exact: true }).focus();
+        await page.keyboard.press('Enter');
+        await expect(page.getByRole('group', { name: visitorCopy.stopTitle })).toBeVisible();
+        await expect.poll(focused).toBe(visitorCopy.keepSending);
+        await page.keyboard.press('Enter');
+        await expect.poll(focused).toBe(visitorCopy.cancel);
+
+        await expectDelivered(page, h, sent);
+        await expect.poll(heading).not.toBeNull();
+        expect(await stats()).toBe(0);
+    });
+
     test('request-link: used link answers room-full while sealed and after close', async ({ page, context, browser }) => {
         const stats = await guard(context);
         const sent = makeFiles({ 'a.bin': 64 * 1024 });
@@ -590,7 +631,8 @@ test.describe('request-link', () => {
         await pickFiles(page, ['a.bin']);
         await page.getByLabel(visitorCopy.hideIp).check();
         await send(page);
-        await expect(page.getByText(visitorCopy.hideIpNeedsRelay)).toBeVisible();
+        await expect(page.locator('main section').getByText(visitorCopy.hideIpNeedsRelay)).toBeVisible();
+        await expect(page.getByRole('status')).toHaveText(visitorCopy.hideIpNeedsRelay);
         // A socket started beside the ICE fetch would show within this window
         // (the privacy spec's settle).
         await page.waitForTimeout(1_000);
@@ -612,7 +654,8 @@ test.describe('request-link', () => {
             .locator('input[type=file]:not([webkitdirectory])')
             .first()
             .setInputFiles({ name, mimeType: 'application/octet-stream', buffer: Buffer.from('a') });
-        await expect(page.getByText(visitorCopy.pathTooLong)).toBeVisible();
+        await expect(page.locator('main section').getByText(visitorCopy.pathTooLong)).toBeVisible();
+        await expect(page.getByRole('status')).toHaveText(visitorCopy.pathTooLong);
         await expect(page.getByRole('button', { name: SEND })).toHaveCount(0);
         expect(await stats()).toBe(0);
     });

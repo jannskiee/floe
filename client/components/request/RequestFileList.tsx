@@ -16,7 +16,7 @@ export function RequestFileList({
 }) {
     return (
         <div className="mt-5">
-            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-zinc-400">
+            <p className="font-mono text-[0.6875rem] uppercase tracking-[0.2em] text-zinc-400">
                 {countLine(rows.length, size)}
             </p>
             {emptyFolders > 0 && (
