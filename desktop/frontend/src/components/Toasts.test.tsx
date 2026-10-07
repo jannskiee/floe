@@ -92,7 +92,7 @@ describe('the notice stack', () => {
         expect(group.textContent).toBe('Someone wants to send you filesReview');
     });
 
-    it('the request notice is wider than its words, with Review on the far right (D-167)', () => {
+    it('the request notice fits its words, with Review 8 px further out than the gap (D-168)', () => {
         render(
             <NoticeStack>
                 <RequestNotice onReview={() => {}}/>
@@ -101,11 +101,12 @@ describe('the notice stack', () => {
         );
         const request = screen.getByRole('group', {name: 'Someone wants to send you files'});
         const classes = request.className.split(' ');
-        expect(classes).toContain('w-[440px]');
+        // No fixed width: 440 px left too much space before Review (D-168).
+        expect(classes.some((c) => c.startsWith('w-['))).toBe(false);
         // One right padding per notice: cn has no tailwind-merge, so a second
         // pr-* on the same element would be a coin toss in the cascade.
         expect(classes.filter((c) => c.startsWith('pr-'))).toEqual(['pr-2.5']);
-        expect(within(request).getByRole('button', {name: 'Review'}).className.split(' ')).toContain('ml-auto');
+        expect(within(request).getByRole('button', {name: 'Review'}).className.split(' ')).toContain('ml-2');
         // The update notice keeps the shape approved in 0.2.4.
         const update = screen.getByRole('group', {name: 'Update available'}).className.split(' ');
         expect(update.filter((c) => c.startsWith('pr-'))).toEqual(['pr-1.5']);

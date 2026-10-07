@@ -311,7 +311,7 @@ test('requestStateFromItems names every view from its buttons and fixed copy', (
         B('Decline'),
         T('SOMEONE WANTS TO SEND YOU FILES'),
         T('3 files, 64.0 MB'),
-        T('Answer within 9 min'),
+        T('9 min to answer'),
         T('Into '),
         T('C:\\audit\\out\\Request 2026-09-30 2140'),
         T('Only 1.0 GB free on C:, not enough for this drop'),

@@ -82,7 +82,7 @@ export const COPY_LINK = 'Copy link'; // W2
 export const COPIED = 'Copied'; // W3
 export const CLOSE_LINK = 'Close link'; // W4
 export function scopeLine(expiresAt: number, now: number): string {
-    return `For one person · Ends ${fmtEnds(expiresAt, now)}`; // W5
+    return `Ends ${fmtEnds(expiresAt, now)}`; // W5 (D-168: no "For one person")
 }
 export const WAITING_LINE = 'Waiting for files'; // W8 (W9 is cut: the IP line is said once, at Ready)
 export function missedLine(missedAt: number): string {
@@ -162,11 +162,12 @@ export function warningLine(code: string, p: {freeBytes: number; totalBytes: num
     }
 }
 
-/** P8: whole minutes, rounded down (D-143), so it never promises more time
+/** P8, "9 min to answer" (D-168; it was "Answer within 9 min"): whole
+ *  minutes, rounded down (D-143), so it never promises more time
  *  than is left: the host's 9 min 45 s window reads 9 min, as the visitor's
  *  page counts it. Never below 1, so the last minute still reads 1 min. */
 export function answerWithin(answerBy: number, now: number): string {
-    return `Answer within ${Math.max(1, Math.floor((answerBy - now) / 60000))} min`;
+    return `${Math.max(1, Math.floor((answerBy - now) / 60000))} min to answer`;
 }
 export const ACCEPT = 'Accept'; // P9
 export const DECLINE = 'Decline'; // P9

@@ -387,7 +387,7 @@ export function fakeRequestDom({
                 if (dom.prompt)
                     out.push(
                         `${dom.prompt.files} ${dom.prompt.files === 1 ? 'file' : 'files'}, ${fmtBytes(dom.prompt.totalBytes)}`,
-                        `Answer within ${Math.max(1, Math.ceil((dom.prompt.answerBy - clock.t) / 60_000))} min`,
+                        `${Math.max(1, Math.ceil((dom.prompt.answerBy - clock.t) / 60_000))} min to answer`,
                         'Into ',
                         dom.prompt.folder
                     );

@@ -490,16 +490,20 @@ describe('the layout (D-136)', () => {
         expect(document.body.textContent).not.toMatch(/laptop|plug|Accept only if/i);
     });
 
-    it('the prompt: Answer within sits at the right end of the size row, at AA, outside live regions', () => {
+    it('the prompt: the answer window follows the size on the left, after a middle dot, at AA, outside live regions (D-168)', () => {
         render(<RequestLinkView {...at('deciding')}/>);
         const size = screen.getByText('12 files, 38.0 GB');
-        const within = screen.getByText(/^Answer within \d+ min$/);
+        const within = screen.getByText(/^\d+ min to answer$/);
         const row = size.parentElement!;
         expect(within.parentElement).toBe(row);
         expect(row.firstElementChild).toBe(size);
         expect(row.lastElementChild).toBe(within);
-        expect(row.className.split(' ')).toEqual(expect.arrayContaining(['flex', 'items-baseline', 'justify-between', 'gap-3']));
-        expect(within.className.split(' ')).toEqual(expect.arrayContaining(['shrink-0', 'text-xs', 'tabular-nums', 'text-zinc-400']));
+        // The dot between them is drawn only: a screen reader hears two lines.
+        expect(Array.from(row.children).map((c) => c.textContent)).toEqual(['12 files, 38.0 GB', '·', within.textContent]);
+        expect(row.children[1].getAttribute('aria-hidden')).toBe('true');
+        expect(row.className.split(' ')).toEqual(expect.arrayContaining(['flex', 'items-baseline', 'gap-2']));
+        expect(row.className.split(' ')).not.toContain('justify-between');
+        expect(within.className.split(' ')).toEqual(expect.arrayContaining(['text-xs', 'tabular-nums', 'text-zinc-400']));
         expect(within.closest('[aria-live], [role="status"], [role="alert"], [role="log"]')).toBeNull();
     });
 
@@ -553,7 +557,7 @@ describe('the layout (D-136)', () => {
     it('the link block: no SAVE TO row, W5 at AA, and with no label the heading is for screen readers only', () => {
         const {rerender} = render(<RequestLinkView {...at('waiting')}/>);
         expect(screen.queryByText(/save to/i)).toBeNull();
-        expect(screen.getByText(/^For one person · Ends /).className).toContain('text-zinc-400');
+        expect(screen.getByText(/^Ends /).className).toContain('text-zinc-400');
         expect(screen.getByText('ACME FOOTAGE').className).not.toContain('sr-only');
         rerender(<RequestLinkView {...at('waiting')} snap={snap({state: 'waiting', label: ''})}/>);
         expect(screen.getByText('REQUEST LINK').className).toBe('sr-only');

@@ -37,16 +37,16 @@ const noticeClass = cn(
  *  window ends. Review is the only automatic focus move in the feature, and it
  *  happens only because the owner pressed it.
  *
- *  Wider than its words (D-167, the owner: "much more longer", Review given
- *  room): a fixed 440 px with Review on the far right, and 10 px of right
- *  padding so the button sits the same 10 px from the top, right and bottom
- *  edges of the 48 px bar. */
+ *  It fits its words (D-168: a fixed 440 px left too much space before
+ *  Review): Review sits 20 px from the text, the 12 px gap plus 8 px, and
+ *  10 px of right padding keeps it the same 10 px from the top, right and
+ *  bottom edges of the 48 px bar. */
 export function RequestNotice({onReview}: {onReview: () => void}) {
     return (
-        <div role="group" aria-label={NOTICE_TEXT} className={cn(noticeClass, 'w-[440px] max-w-[calc(100vw-2rem)] pr-2.5')}>
+        <div role="group" aria-label={NOTICE_TEXT} className={cn(noticeClass, 'pr-2.5')}>
             <Inbox className="size-4 shrink-0 text-white" strokeWidth={2.5} aria-hidden/>
-            <h2 className="min-w-0 truncate text-[13px] font-semibold leading-none tracking-[-0.01em] text-zinc-50">{NOTICE_TEXT}</h2>
-            <Button className="ml-auto h-7 shrink-0 text-xs" onClick={onReview}>{NOTICE_REVIEW}</Button>
+            <h2 className="whitespace-nowrap text-[13px] font-semibold leading-none tracking-[-0.01em] text-zinc-50">{NOTICE_TEXT}</h2>
+            <Button className="ml-2 h-7 text-xs" onClick={onReview}>{NOTICE_REVIEW}</Button>
         </div>
     );
 }

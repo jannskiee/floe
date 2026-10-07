@@ -405,12 +405,13 @@ function Prompt({snap, onAnswer, onGuardLift, onPromptVisible}: RequestLinkViewP
         <div className="space-y-4">
             <div className="space-y-2">
                 <h3 id={PROMPT_HEADING_ID} tabIndex={-1} className={cn(headClass, 'outline-none')}>{copy.promptHeading(snap.label)}</h3>
-                {/* The answer window shares the size row, at the right end and
-                    outside every live region (P8, D-143): the prompt reads as
-                    three lines and the buttons. */}
-                <div className="flex items-baseline justify-between gap-3">
+                {/* The answer window shares the size row, on the left after a
+                    middle dot (D-168) and outside every live region (P8,
+                    D-143): the prompt reads as three lines and the buttons. */}
+                <div className="flex items-baseline gap-2">
                     <p className="text-sm font-medium text-zinc-100">{copy.promptSize(prompt.files, prompt.totalBytes)}</p>
-                    <p className="shrink-0 text-xs tabular-nums text-zinc-400">{copy.answerWithin(prompt.answerBy, now)}</p>
+                    <span aria-hidden className="text-xs text-zinc-600">·</span>
+                    <p className="text-xs tabular-nums text-zinc-400">{copy.answerWithin(prompt.answerBy, now)}</p>
                 </div>
                 <p className={t2Class}>{copy.INTO} <span className={intoClass}>{prompt.folder}</span></p>
                 {prompt.warnings.map((w) => {

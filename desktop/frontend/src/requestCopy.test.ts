@@ -98,7 +98,7 @@ describe('waiting, reconnecting and ended lines', () => {
     });
 
     it('writes the scope line with the link end, today or on a later date', () => {
-        expect(scopeLine(END, NOW)).toBe('For one person · Ends today, 2:05 PM');
+        expect(scopeLine(END, NOW)).toBe('Ends today, 2:05 PM');
         expect(fmtEnds(new Date(2026, 8, 21, 9, 0).getTime(), NOW)).toBe('Sep 21, 9:00 AM');
         expect(fmtClock(new Date(2026, 8, 14, 0, 7).getTime())).toBe('12:07 AM');
         expect(fmtClock(new Date(2026, 8, 14, 12, 0).getTime())).toBe('12:00 PM');
@@ -147,11 +147,11 @@ describe('the prompt', () => {
     it('counts the answer window in whole minutes, rounded down', () => {
         // The window the host opens (transfer.HostDecisionWindow, 10 min less
         // 15 s) reads 9 min, as the visitor's page counts it (D-143).
-        expect(answerWithin(NOW + 9 * 60000 + 45000, NOW)).toBe('Answer within 9 min');
-        expect(answerWithin(NOW + 9 * 60000, NOW)).toBe('Answer within 9 min');
-        expect(answerWithin(NOW + 8 * 60000 + 1, NOW)).toBe('Answer within 8 min');
-        expect(answerWithin(NOW + 1000, NOW)).toBe('Answer within 1 min');
-        expect(answerWithin(NOW - 1000, NOW)).toBe('Answer within 1 min');
+        expect(answerWithin(NOW + 9 * 60000 + 45000, NOW)).toBe('9 min to answer');
+        expect(answerWithin(NOW + 9 * 60000, NOW)).toBe('9 min to answer');
+        expect(answerWithin(NOW + 8 * 60000 + 1, NOW)).toBe('8 min to answer');
+        expect(answerWithin(NOW + 1000, NOW)).toBe('1 min to answer');
+        expect(answerWithin(NOW - 1000, NOW)).toBe('1 min to answer');
     });
 });
 
