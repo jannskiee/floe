@@ -1243,8 +1243,8 @@ describe('the request link in the app', () => {
         await settled();
         await user.click(receiveTab());
         await user.click(requestButton());
-        await user.click(screen.getByRole('checkbox', {name: 'Save files without asking'}));
-        expect(screen.getByText('Anyone with the link can save files here')).toBeTruthy();
+        await user.click(screen.getByRole('checkbox', {name: 'Auto-accept'}));
+        expect(screen.getByText('Anyone with this link can send you files without asking')).toBeTruthy();
         await user.click(screen.getByRole('button', {name: 'Make link'}));
         expect(wails.go.MakeRequestLink).toHaveBeenLastCalledWith('', '', '24h', true);
     });

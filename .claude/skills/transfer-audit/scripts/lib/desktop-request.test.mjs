@@ -57,7 +57,7 @@ test('the request strings are the frozen copy, and the wait exceeds the guard', 
         saveToPlaceholder: 'Downloads\\Floe',
         cancelDrop: 'Cancel drop',
         verifiedLine: 'SHA-256 matched',
-        autoAcceptSwitch: 'Save files without asking',
+        autoAcceptSwitch: 'Auto-accept',
         autoAcceptPill: 'Auto-accept',
     });
     // The fake page draws the same bytes, so a fake-driven test proves the
@@ -404,7 +404,7 @@ test('wailsdev MakeLink autoAccept turns the switch on by its label, and the hos
     const d = driverOn(f);
     const r = await make(d, f, { autoAccept: true });
     assert.equal(r.autoAccept, true);
-    assert.deepEqual(f.dom.switched, ['Save files without asking']);
+    assert.deepEqual(f.dom.switched, ['Auto-accept']);
     assert.equal((await d.requestSnapshot()).autoAccept, true);
     // The chip reads AUTO-ACCEPT while the link waits: RE.pillAuto keeps it,
     // RE.pill (every other cell's reader) never matches it.
@@ -442,7 +442,7 @@ test('wailsdev MakeLink autoAccept on a build without the switch is SKIP request
     const f = fakeRequestDom({ autoSwitch: false });
     await assert.rejects(
         make(driverOn(f), f, { autoAccept: true }),
-        (e) => e.verdict === 'SKIP' && e.reason === 'request-no-auto-switch' && /has no "Save files without asking" switch/.test(e.message)
+        (e) => e.verdict === 'SKIP' && e.reason === 'request-no-auto-switch' && /has no "Auto-accept" switch/.test(e.message)
     );
     assert.ok(!f.dom.clicks.some((c) => c.name === 'Make link'), 'no link was made');
     // The same build still makes a link with the switch off for every other cell.

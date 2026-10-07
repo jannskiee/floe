@@ -634,7 +634,7 @@ test('TA-10a H-DIR-W2D-reqauto: Make link with Auto-accept on, AUTO-ACCEPT while
     assert.equal(r.verdict, 'PASS', r.note);
     const a = r.attempts[0];
     assert.deepEqual(a.request.made, { lifetime: '24h', autoAccept: true, onScreen: true });
-    assert.deepEqual(w.dom.switched, ['Save files without asking']);
+    assert.deepEqual(w.dom.switched, ['Auto-accept']);
     assert.equal(a.request.auto.pill, 'Auto-accept');
     assert.ok(['receiving', 'done'].includes(a.request.auto.started), a.request.auto.started);
     // No prompt at any point, and nothing clicked on the host to start it.

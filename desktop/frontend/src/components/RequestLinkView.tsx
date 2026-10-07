@@ -9,9 +9,9 @@
 // as a React text node; the prompt shows numbers and host-computed values only.
 
 import {useEffect, useRef, useState, type MouseEvent} from 'react';
-import {AlertCircle, ChevronDown, Folder, FolderOpen, Loader2, X} from 'lucide-react';
+import {AlertCircle, Check, ChevronDown, Folder, FolderOpen, Info, Loader2, X} from 'lucide-react';
 import {Button, cn, Eyebrow, Input} from './ui';
-import {Switch} from './SettingsPrimitives';
+import {Tooltip} from './Tooltip';
 import * as copy from '../requestCopy';
 import {
     autoAcceptShown,
@@ -40,8 +40,12 @@ export const PROMPT_HEADING_ID = 'floe-request-prompt-heading';
  *  only while this whole row is on screen). */
 export const PROMPT_ACTIONS_ID = 'floe-request-prompt-actions';
 export const LABEL_INPUT_ID = 'floe-request-label';
-/** R30, the amber line the Auto-accept switch is described by while it is on. */
+/** R30, the amber line the Auto-accept check is described by while it is on. */
 const AUTO_LINE_ID = 'floe-request-auto-line';
+/** R31 and R31a for screen readers (R3 M1): the tooltip's words describe the
+ *  check and the info icon at all times, since a tooltip's own description
+ *  sits on its wrapper and reaches no screen reader. */
+const AUTO_ABOUT_ID = 'floe-request-auto-about';
 
 // Shared pieces of the canvas grammar. A heading breaks inside a word only when
 // the word cannot fit: the owner's label is up to 64 characters and may have no
@@ -75,7 +79,7 @@ export interface RequestLinkViewProps {
     /** The base folder for the next link (localStorage floe:requestSaveDir). */
     saveDir: string;
     onSaveDirChange: (v: string) => void;
-    /** Make link, with the form's Auto-accept switch: true only while it is
+    /** Make link, with the form's Auto-accept check: true only while it is
      *  on (D-173). */
     onMake: (label: string, lifetime: Lifetime, autoAccept: boolean) => void;
     onClose: () => void;
@@ -222,30 +226,59 @@ function ReadyForm({phase, errorCode, hideIP, saveDir, onSaveDirChange, onMake, 
                     </select>
                     <ChevronDown aria-hidden className="floe-select-chevron pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-zinc-500"/>
                 </div>
-            </div>
-            {/* Auto-accept (D-173): one box the height and look of the fields,
-                a single label, R29 on the left and the Settings switch on the
-                right. The look is swapped while making, never overridden (cn
-                has no tailwind-merge). R30 is the one line of consequence,
-                amber, only while it is on, and the switch is described by it. */}
-            <div className="space-y-2">
-                <Eyebrow className="px-0.5">{copy.AUTO_ACCEPT_EYEBROW}</Eyebrow>
-                <label
-                    aria-disabled={making || undefined}
-                    className={cn(
-                        'flex h-[38px] select-none items-center justify-between gap-3 rounded-md border border-white/10 bg-white/[0.03] px-3 text-sm text-zinc-100 transition-colors',
-                        making ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-white/[0.06]',
-                    )}
-                >
-                    <span className="min-w-0 truncate">{copy.AUTO_ACCEPT_LABEL}</span>
-                    <Switch
-                        checked={autoAccept}
-                        onChange={(v) => { setAutoAccept(v); edited(); }}
-                        disabled={making}
-                        describedBy={autoAccept ? AUTO_LINE_ID : undefined}
-                    />
-                </label>
-                {autoAccept && <p id={AUTO_LINE_ID} className={warnClass}>{copy.READY_AUTO_LINE}</p>}
+                {/* Auto-accept (D-173, D-174): an inline check under the select,
+                    in the LINK ENDS group, with an info icon whose tooltip warns
+                    when to turn it on, then says what it does. The checkbox is native and
+                    sr-only inside its label, as the Settings switches are, so the
+                    keyboard, the UIA Toggle and screen readers need nothing extra;
+                    the box is drawn from the state as two whole class sets (cn has
+                    no tailwind-merge). R30 is the one line of consequence, amber,
+                    only while it is on, and the checkbox is described by it. */}
+                <div className="flex items-center gap-0.5 px-0.5 pt-0.5">
+                    <label
+                        aria-disabled={making || undefined}
+                        className={cn('group inline-flex min-h-6 select-none items-center gap-2.5', making ? 'cursor-not-allowed opacity-50' : 'cursor-pointer')}
+                    >
+                        <input
+                            type="checkbox"
+                            checked={autoAccept}
+                            onChange={(e) => { setAutoAccept(e.target.checked); edited(); }}
+                            disabled={making}
+                            aria-describedby={autoAccept ? `${AUTO_ABOUT_ID} ${AUTO_LINE_ID}` : AUTO_ABOUT_ID}
+                            className="peer sr-only"
+                        />
+                        <span
+                            aria-hidden
+                            className={cn(
+                                // Only the fill and the edge fade: transition-colors would fade
+                                // the focus ring in from currentColor (R3 L3). The off edge is
+                                // white/40, 3:1 or better on the card (WCAG 1.4.11, R3 M2), and
+                                // it brightens on hover only while the check can be used (L2).
+                                'grid size-4 shrink-0 place-items-center rounded-[5px] border transition-[background-color,border-color] peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ice/60',
+                                autoAccept ? 'border-white bg-white' : cn('border-white/40 bg-white/[0.02]', !making && 'group-hover:border-white/60'),
+                            )}
+                        >
+                            {autoAccept && <Check className="size-3 text-zinc-950" strokeWidth={3}/>}
+                        </span>
+                        <span className={cn('text-sm transition-colors', autoAccept ? 'text-zinc-100' : 'text-zinc-300')}>{copy.AUTO_ACCEPT_LABEL}</span>
+                    </label>
+                    <Tooltip label={copy.AUTO_ACCEPT_TIP} detail={copy.AUTO_ACCEPT_TIP_DETAIL} warn toggletip align="start">
+                        {/* outline-hidden, not outline-none: in a contrast theme the
+                            ring's box-shadow is dropped, and the transparent outline
+                            it keeps there is what the system color shows (R3 L2). */}
+                        <button
+                            type="button"
+                            aria-label={copy.AUTO_ACCEPT_ABOUT}
+                            aria-describedby={AUTO_ABOUT_ID}
+                            className="grid size-6 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-300 focus-visible:text-zinc-300 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ice/60"
+                        >
+                            <Info className="size-3.5"/>
+                        </button>
+                    </Tooltip>
+                </div>
+                {/* Screen-reader text keeps its periods (D-167): there they make the pause. */}
+                <span id={AUTO_ABOUT_ID} hidden className="sr-only">{`${copy.AUTO_ACCEPT_TIP}. ${copy.AUTO_ACCEPT_TIP_DETAIL}.`}</span>
+                {autoAccept && <p id={AUTO_LINE_ID} className={cn(warnClass, 'px-0.5')}>{copy.READY_AUTO_LINE}</p>}
             </div>
             {/* The one IP line, read before the commit (R15, D-136). With Hide
                 my IP on it would warn of something that does not apply, so R17

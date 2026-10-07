@@ -1,12 +1,14 @@
 import {useCallback, useEffect, useId, useLayoutEffect, useRef, useState} from 'react';
 import type {ReactNode} from 'react';
 import {createPortal} from 'react-dom';
+import {TriangleAlert} from 'lucide-react';
 import {cn} from './ui';
 
 const GAP = 8;        // distance from the trigger
 const MARGIN = 8;     // keep this far from the viewport edge
 const DELAY = 250;    // hover dwell before showing
 const SKIP = 300;     // after a tooltip closes, the next one opens instantly
+const LINGER = 150;   // a toggletip waits this long after the pointer leaves, so it can reach the bubble
 
 // Shared across every instance so sweeping along a row of icon buttons shows the
 // next tooltip immediately instead of re-waiting the dwell (Radix skipDelayDuration).
@@ -25,8 +27,18 @@ interface Coords {
  *
  *  `className` lands on the wrapper span, not the trigger. Pass layout classes the
  *  trigger relies on from its parent flex row (e.g. `shrink-0`) so nothing reflows. */
-export function Tooltip({label, keys, align = 'center', className, children}: {
+export function Tooltip({label, detail, warn, toggletip, keys, align = 'center', className, children}: {
     label: string;
+    /** A second, quieter line under the label (zinc-400): the info tooltip of
+     *  Auto-accept (D-174) warns first, then says what it does. */
+    detail?: string;
+    /** The label is a caution: amber, after a caution icon (D-174). */
+    warn?: boolean;
+    /** An explanation people read rather than a label (the Auto-accept info
+     *  icon, D-174): a click pins it open and a second click closes it, and a
+     *  bubble that hover opened lets the pointer move onto it (WCAG 1.4.13, the
+     *  APG toggletip). Escape, blur, scroll and resize still close it. */
+    toggletip?: boolean;
     keys?: string;
     /** Edge-align the bubble with the trigger instead of centring it. Use 'start' on
      *  the first control in a row and 'end' on the last: a centred bubble on an
@@ -40,6 +52,11 @@ export function Tooltip({label, keys, align = 'center', className, children}: {
     const ref = useRef<HTMLSpanElement>(null);
     const bubbleRef = useRef<HTMLDivElement>(null);
     const timer = useRef<number | undefined>(undefined);
+    const linger = useRef<number | undefined>(undefined);
+    // A toggletip a click opened stays until a second click (or Escape, blur,
+    // scroll, resize), whatever the pointer does. A ref, read in the same event
+    // that sets it: jsdom, unlike Chromium, also opens on a mouse focus.
+    const pinned = useRef(false);
     // anchor = the trigger's rect, captured when the tooltip opens. coords = the
     // bubble's final position, which can only be computed once the bubble has been
     // laid out and its own size is known.
@@ -47,7 +64,9 @@ export function Tooltip({label, keys, align = 'center', className, children}: {
     const [coords, setCoords] = useState<Coords | null>(null);
 
     const hide = useCallback(() => {
+        pinned.current = false;
         window.clearTimeout(timer.current);
+        window.clearTimeout(linger.current);
         setAnchor((prev) => {
             if (prev) lastClosed = Date.now();
             return null;
@@ -108,7 +127,17 @@ export function Tooltip({label, keys, align = 'center', className, children}: {
 
     // Timers must be cleared on unmount: main.tsx renders under StrictMode, whose
     // double-invoked effects would otherwise leave a tooltip stuck open in dev.
-    useEffect(() => () => window.clearTimeout(timer.current), []);
+    useEffect(() => () => { window.clearTimeout(timer.current); window.clearTimeout(linger.current); }, []);
+
+    // A toggletip closes LINGER ms after the pointer leaves the trigger or the
+    // bubble, and stays while it is over either; a plain tooltip closes at once.
+    const leave = useCallback(() => {
+        if (!toggletip) { hide(); return; }
+        if (pinned.current) return;
+        window.clearTimeout(linger.current);
+        linger.current = window.setTimeout(hide, LINGER);
+    }, [toggletip, hide]);
+    const stay = useCallback(() => window.clearTimeout(linger.current), []);
 
     // While open, anything that moves the trigger or signals "done" dismisses it.
     useEffect(() => {
@@ -134,15 +163,20 @@ export function Tooltip({label, keys, align = 'center', className, children}: {
             ref={ref}
             className={cn('inline-flex', className)}
             aria-describedby={open ? id : undefined}
-            onMouseEnter={() => show(false)}
-            onMouseLeave={hide}
+            onMouseEnter={() => { stay(); show(false); }}
+            onMouseLeave={leave}
             onFocusCapture={(e) => {
                 // Keyboard focus only. A mouse click focuses too, and re-opening the
                 // bubble the instant a button is clicked reads as a glitch.
                 if ((e.target as HTMLElement).matches?.(':focus-visible')) show(true);
             }}
             onBlurCapture={hide}
-            onPointerDown={hide}
+            onPointerDown={toggletip ? undefined : hide}
+            onClick={toggletip ? () => {
+                if (pinned.current) { hide(); return; }
+                show(true);
+                pinned.current = true;
+            } : undefined}
         >
             {children}
             {open && createPortal(
@@ -150,6 +184,14 @@ export function Tooltip({label, keys, align = 'center', className, children}: {
                     ref={bubbleRef}
                     id={id}
                     role="tooltip"
+                    // The bubble is portaled, but React still bubbles its events to
+                    // the wrapper: a click on its text must not toggle it shut, and
+                    // a press must not take focus from the trigger (that blur would
+                    // close it).
+                    onMouseEnter={toggletip ? stay : undefined}
+                    onMouseLeave={toggletip ? leave : undefined}
+                    onMouseDown={toggletip ? (e) => e.preventDefault() : undefined}
+                    onClick={toggletip ? (e) => e.stopPropagation() : undefined}
                     style={{
                         left: coords?.left ?? 0,
                         top: coords?.top ?? 0,
@@ -158,12 +200,21 @@ export function Tooltip({label, keys, align = 'center', className, children}: {
                         visibility: coords ? 'visible' : 'hidden',
                     }}
                     className={cn(
-                        'animate-floe-in pointer-events-none fixed z-40 flex max-w-[240px] items-center gap-2',
+                        'animate-floe-in fixed z-40 flex max-w-[240px] items-center gap-2',
+                        toggletip ? 'pointer-events-auto' : 'pointer-events-none',
                         'rounded-lg border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 shadow-2xl',
                         'text-xs leading-snug text-zinc-100 motion-reduce:animate-none',
                     )}
                 >
-                    <span>{label}</span>
+                    <span>
+                        {warn ? (
+                            <span className="flex items-start gap-1.5 text-amber-300/95">
+                                <TriangleAlert aria-hidden className="mt-0.5 size-3 shrink-0"/>
+                                <span>{label}</span>
+                            </span>
+                        ) : label}
+                        {detail && <span className="mt-0.5 block text-zinc-400">{detail}</span>}
+                    </span>
                     {keys && (
                         <kbd className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 font-mono text-[10px] leading-none text-zinc-400">
                             {keys}

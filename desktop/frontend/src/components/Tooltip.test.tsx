@@ -6,7 +6,7 @@
  * nothing to explain passes an empty label, and an empty label must show
  * nothing at all (D-135: only the amber READY keeps a hover).
  */
-import {act, render, screen} from '@testing-library/react';
+import {act, fireEvent, render, screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {describe, expect, it} from 'vitest';
 import {Tooltip} from './Tooltip';
@@ -24,6 +24,82 @@ describe('the Tooltip', () => {
         expect(screen.queryByRole('tooltip')).toBeNull();
         expect(word.parentElement!.getAttribute('aria-describedby')).toBeNull();
         await user.unhover(word);
+    });
+
+    it('a detail shows as a second, quieter line in the same bubble (D-174)', async () => {
+        const user = userEvent.setup();
+        render(<Tooltip label="What it does" detail="What still asks"><button type="button">i</button></Tooltip>);
+        await user.hover(screen.getByText('i'));
+        await settle();
+        const tip = screen.getByRole('tooltip');
+        expect(tip.textContent).toBe('What it doesWhat still asks');
+        const detail = screen.getByText('What still asks');
+        expect(detail.className.split(' ')).toEqual(expect.arrayContaining(['block', 'text-zinc-400']));
+        await user.unhover(screen.getByText('i'));
+    });
+
+    it('a warning label is amber, after a caution icon, and the plain label is not (D-174)', async () => {
+        const user = userEvent.setup();
+        const {rerender} = render(<Tooltip label="Careful" detail="Why" warn><button type="button">i</button></Tooltip>);
+        await user.hover(screen.getByText('i'));
+        await settle();
+        const warn = screen.getByText('Careful').parentElement!;
+        expect(warn.className).toContain('text-amber-300/95');
+        expect(warn.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+        expect(screen.getByRole('tooltip').textContent).toBe('CarefulWhy');
+        rerender(<Tooltip label="Careful" detail="Why"><button type="button">i</button></Tooltip>);
+        expect(screen.getByRole('tooltip').querySelector('svg')).toBeNull();
+        await user.unhover(screen.getByText('i'));
+    });
+
+    it('a toggletip a click opened stays open after the pointer leaves, ignores clicks on its own text, and closes on the second click (D-174)', async () => {
+        const user = userEvent.setup();
+        render(<div><Tooltip label="Explain" toggletip><button type="button">i</button></Tooltip><p>elsewhere</p></div>);
+        const trigger = screen.getByText('i');
+        await user.click(trigger);
+        const tip = screen.getByRole('tooltip');
+        expect(tip.className).toContain('pointer-events-auto');
+        await user.hover(screen.getByText('elsewhere'));
+        await settle();
+        expect(screen.getByRole('tooltip')).toBe(tip);
+        await user.click(screen.getByText('Explain'));
+        expect(screen.queryByRole('tooltip')).not.toBeNull();
+        await user.click(trigger);
+        expect(screen.queryByRole('tooltip')).toBeNull();
+        // Escape closes a pinned one too.
+        await user.click(trigger);
+        expect(screen.getByRole('tooltip')).toBeTruthy();
+        await user.keyboard('{Escape}');
+        expect(screen.queryByRole('tooltip')).toBeNull();
+    });
+
+    it('a toggletip that hover opened lets the pointer reach the bubble, and closes once it has left both', async () => {
+        const user = userEvent.setup();
+        render(<div><Tooltip label="Explain" toggletip><button type="button">i</button></Tooltip><p>elsewhere</p></div>);
+        const trigger = screen.getByText('i');
+        await user.hover(trigger);
+        await settle();
+        const tip = screen.getByRole('tooltip');
+        // Leave the trigger, reach the bubble inside the linger: it stays.
+        await user.unhover(trigger);
+        await user.hover(tip);
+        await settle();
+        expect(screen.getByRole('tooltip')).toBe(tip);
+        await user.hover(screen.getByText('elsewhere'));
+        await settle();
+        expect(screen.queryByRole('tooltip')).toBeNull();
+    });
+
+    it('a plain tooltip still hides on press and takes no pointer events', async () => {
+        const user = userEvent.setup();
+        render(<Tooltip label="Plain"><button type="button">p</button></Tooltip>);
+        await user.hover(screen.getByText('p'));
+        await settle();
+        expect(screen.getByRole('tooltip').className).toContain('pointer-events-none');
+        // A bare press (jsdom also opens on the focus a full click gives, which
+        // Chromium does not for a mouse focus).
+        fireEvent.pointerDown(screen.getByText('p'));
+        expect(screen.queryByRole('tooltip')).toBeNull();
     });
 
     it('a label shows its bubble on hover', async () => {

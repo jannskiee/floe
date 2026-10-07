@@ -53,8 +53,8 @@ const LIFETIMES = [
     ['7d', 'In 7 days'],
 ];
 export const LIFETIME_OPTIONS = LIFETIMES.map(([, label]) => label);
-// The Make link form's Auto-accept switch, by its accessible name (R29).
-const AUTO_SWITCH = 'Save files without asking';
+// The Make link form's Auto-accept check, by its accessible name (R29, D-174).
+const AUTO_SWITCH = 'Auto-accept';
 
 const SWITCHES = [
     {

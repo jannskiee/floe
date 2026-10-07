@@ -4,7 +4,7 @@
  * the fixed Close link box, and the rule that a visitor's words reach the
  * screen only as text and never reach a binding.
  */
-import {act, fireEvent, render, screen, within} from '@testing-library/react';
+import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import RequestLinkView, {PROMPT_ACTIONS_ID, type RequestLinkViewProps} from './RequestLinkView';
@@ -1105,30 +1105,35 @@ describe('the saved files on Done and Stopped (D-171)', () => {
     });
 });
 
-// Auto-accept (D-173): the AUTO-ACCEPT eyebrow under LINK ENDS over one
-// Input-sized box that is a single label, R29 on the left and the Settings
-// switch on the right; off on every mount and never stored; R30 in amber
-// only while it is on, above the IP line; W5a on the link line; and the
-// lane's own count and folder while an automatic drop arrives.
-describe('Auto-accept (D-173)', () => {
-    const R29 = 'Save files without asking';
-    const R30 = 'Anyone with the link can save files here';
+// Auto-accept (D-173, D-174): an inline check right under the LINK ENDS
+// select, in its group, with an info icon whose tooltip warns when to turn
+// it on (R31) and says what it does (R31a); off on every mount and never stored; R30
+// in amber only while it is on, above the IP line; W5a on the link line; and
+// the lane's own count and folder while an automatic drop arrives.
+describe('Auto-accept (D-173, D-174)', () => {
+    const R29 = 'Auto-accept';
+    const R30 = 'Anyone with this link can send you files without asking';
     const R15 = 'Senders see your IP, even if you decline';
     const before = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     const toggle = () => screen.getByRole('checkbox', {name: R29}) as HTMLInputElement;
 
-    it('starts off, is named by its words, describes nothing, and Make link sends false', async () => {
+    it('starts off, is named by its words, is described by the tooltip words, and Make link sends false', async () => {
         const user = userEvent.setup();
         const p = at('ready');
         render(<RequestLinkView {...p}/>);
         expect(toggle().checked).toBe(false);
-        expect(toggle().hasAttribute('aria-describedby')).toBe(false);
+        // R3 M1: the warning reaches a screen reader on the check itself.
+        expect(toggle().getAttribute('aria-describedby')).toBe('floe-request-auto-about');
+        const about = document.getElementById('floe-request-auto-about')!;
+        expect(about.textContent).toBe('Only turn this on if you trust everyone with the link. Files save without asking, except in a few cases, like low space or a USB drive.');
+        expect(about.hidden).toBe(true);
+        expect(screen.getByRole('button', {name: 'About Auto-accept'}).getAttribute('aria-describedby')).toBe('floe-request-auto-about');
         expect(screen.queryByText(R30)).toBeNull();
         await user.click(screen.getByRole('button', {name: 'Make link'}));
         expect(p.onMake).toHaveBeenCalledWith('', '24h', false);
     });
 
-    it('on: R30 in amber under the box and above the IP line, the switch described by it, and Make link sends true', async () => {
+    it('on: R30 in amber under the check and above the IP line, the check described by it, and Make link sends true', async () => {
         const user = userEvent.setup();
         const p = at('ready');
         const {rerender} = render(<RequestLinkView {...p}/>);
@@ -1137,7 +1142,7 @@ describe('Auto-accept (D-173)', () => {
         const line = screen.getByText(R30);
         expect(line.className).toContain('text-amber-300/80');
         expect(line.id).not.toBe('');
-        expect(toggle().getAttribute('aria-describedby')).toBe(line.id);
+        expect(toggle().getAttribute('aria-describedby')).toBe(`floe-request-auto-about ${line.id}`);
         expect(before(toggle().closest('label')!, line)).toBe(true);
         expect(before(line, screen.getByText(R15))).toBe(true);
         await user.click(screen.getByRole('button', {name: 'Make link'}));
@@ -1147,32 +1152,73 @@ describe('Auto-accept (D-173)', () => {
         expect(before(screen.getByText(R30), screen.getByText('Hide my IP limits drops to 2 GB'))).toBe(true);
         await user.click(toggle());
         expect(screen.queryByText(R30)).toBeNull();
-        expect(toggle().hasAttribute('aria-describedby')).toBe(false);
+        expect(toggle().getAttribute('aria-describedby')).toBe('floe-request-auto-about');
     });
 
-    it('the box is one label the height and look of the fields: a click on its words turns it on', async () => {
+    it('the check is one label: a click on its word turns it on, and its box fills white with a check', async () => {
         const user = userEvent.setup();
         render(<RequestLinkView {...at('ready')}/>);
-        const box = toggle().closest('label')!;
-        expect(box.textContent).toBe(R29);
-        expect(box.className.split(' ')).toEqual(expect.arrayContaining([
-            'h-[38px]', 'rounded-md', 'border', 'border-white/10', 'bg-white/[0.03]', 'px-3', 'text-sm', 'text-zinc-100', 'cursor-pointer',
-        ]));
-        expect(box.className).toMatch(/hover:bg-white\//);
+        const label = toggle().closest('label')!;
+        expect(label.textContent).toBe(R29);
+        expect(label.className.split(' ')).toEqual(expect.arrayContaining(['inline-flex', 'min-h-6', 'cursor-pointer']));
+        const box = () => label.querySelector('span[aria-hidden]')!;
+        expect(box().className.split(' ')).toEqual(expect.arrayContaining(['size-4', 'rounded-[5px]', 'border-white/40', 'group-hover:border-white/60']));
+        expect(box().querySelector('svg')).toBeNull();
         await user.click(screen.getByText(R29));
         expect(toggle().checked).toBe(true);
-        // The Settings switch: a checkbox, its track white while on.
         expect(toggle().type).toBe('checkbox');
-        expect(box.querySelector('.bg-white')).not.toBeNull();
+        expect(box().className.split(' ')).toEqual(expect.arrayContaining(['bg-white', 'border-white']));
+        expect(box().querySelector('svg')).not.toBeNull();
+        // The keyboard ring is drawn on the box, from the sr-only checkbox.
+        expect(box().className).toContain('peer-focus-visible:outline-ice/60');
     });
 
-    it('the AUTO-ACCEPT eyebrow sits under LINK ENDS, over the box, on the +2 px edge', () => {
+    it('sits in the LINK ENDS group right under the select, with no eyebrow of its own (D-174, R28 cut)', () => {
         render(<RequestLinkView {...at('ready')}/>);
-        const eyebrow = screen.getByText('Auto-accept');
-        expect(eyebrow.className.split(' ')).toEqual(expect.arrayContaining(['px-0.5', 'uppercase']));
-        expect(before(screen.getByLabelText('Link ends'), eyebrow)).toBe(true);
-        expect(before(eyebrow, toggle())).toBe(true);
+        const select = screen.getByLabelText('Link ends');
+        expect(select.closest('.space-y-2')).toBe(toggle().closest('.space-y-2'));
+        expect(before(select, toggle())).toBe(true);
         expect(before(toggle(), screen.getByRole('button', {name: 'Make link'}))).toBe(true);
+        // The word is drawn once, as the check's label, never as an eyebrow.
+        expect(screen.getAllByText(/^auto-accept$/i)).toHaveLength(1);
+        expect(document.body.textContent).not.toContain('AUTO-ACCEPT');
+    });
+
+    it('the info icon is a named button whose tooltip warns, then says what it does (R31, R31a, R32)', async () => {
+        const user = userEvent.setup();
+        render(<RequestLinkView {...at('ready')}/>);
+        const info = screen.getByRole('button', {name: 'About Auto-accept'});
+        expect(before(toggle(), info)).toBe(true);
+        await user.hover(info);
+        const tip = await screen.findByRole('tooltip');
+        expect(tip.textContent).toBe('Only turn this on if you trust everyone with the linkFiles save without asking, except in a few cases, like low space or a USB drive');
+        // The first line is the warning: amber, after a caution icon.
+        const warn = screen.getByText('Only turn this on if you trust everyone with the link').parentElement!;
+        expect(warn.className).toContain('text-amber-300/95');
+        expect(warn.querySelector('svg')).not.toBeNull();
+        expect(screen.getAllByText('Files save without asking, except in a few cases, like low space or a USB drive').some((e) => e.className.includes('text-zinc-400'))).toBe(true);
+        expect(info.parentElement!.getAttribute('aria-describedby')).toBe(tip.id);
+        await user.unhover(info);
+        await waitFor(() => expect(screen.queryByRole('tooltip')).toBeNull());
+        // A click opens the explanation at once and a second click closes it
+        // (a toggletip, R3 L1); neither touches the check.
+        await user.click(info);
+        expect(screen.getByRole('tooltip').textContent).toContain('Only turn this on if you trust everyone with the link');
+        await user.click(info);
+        expect(screen.queryByRole('tooltip')).toBeNull();
+        expect(toggle().checked).toBe(false);
+    });
+
+    it('keyboard focus on the info icon opens the same words, and Escape closes them (R3 L5)', async () => {
+        const user = userEvent.setup();
+        render(<RequestLinkView {...at('ready')}/>);
+        toggle().focus();
+        await user.tab();
+        expect(document.activeElement).toBe(screen.getByRole('button', {name: 'About Auto-accept'}));
+        const tip = await screen.findByRole('tooltip');
+        expect(tip.textContent).toBe('Only turn this on if you trust everyone with the linkFiles save without asking, except in a few cases, like low space or a USB drive');
+        await user.keyboard('{Escape}');
+        expect(screen.queryByRole('tooltip')).toBeNull();
     });
 
     it('goes back to off on every mount, including after Make another link', async () => {
@@ -1206,16 +1252,20 @@ describe('Auto-accept (D-173)', () => {
 
     it('is disabled, and dimmed, while the link is being made; an edit while an error shows puts the error away', async () => {
         const user = userEvent.setup();
+        // Off while making: no hover brightening on a check that cannot be used (R3 L2).
+        const off = render(<RequestLinkView {...at('making')}/>);
+        expect(toggle().closest('label')!.querySelector('span[aria-hidden]')!.className).not.toContain('hover:');
+        off.unmount();
         const {rerender} = render(<RequestLinkView {...at('ready')}/>);
         await user.click(toggle());
         rerender(<RequestLinkView {...at('making')}/>);
         // The same form, so the choice the owner made is the one being made.
         expect(toggle().checked).toBe(true);
         expect(toggle().disabled).toBe(true);
-        const box = toggle().closest('label')!;
-        expect(box.className.split(' ')).toEqual(expect.arrayContaining(['opacity-50', 'cursor-not-allowed']));
-        expect(box.className).not.toMatch(/hover:/);
-        expect(box.getAttribute('aria-disabled')).toBe('true');
+        const label = toggle().closest('label')!;
+        expect(label.className.split(' ')).toEqual(expect.arrayContaining(['opacity-50', 'cursor-not-allowed']));
+        expect(label.className).not.toContain('cursor-pointer');
+        expect(label.getAttribute('aria-disabled')).toBe('true');
         const p = at('error', {errorCode: 'limited'});
         rerender(<RequestLinkView {...p}/>);
         expect(toggle().disabled).toBe(false);

@@ -144,9 +144,11 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.MAKING_LINK).toBe(approved('R16'));
         expect(c.READY_HIDE_IP_LINE).toBe(approved('R17'));
         // Auto-accept (D-173).
-        expect(c.AUTO_ACCEPT_EYEBROW.toUpperCase()).toBe(approved('R28'));
         expect(c.AUTO_ACCEPT_LABEL).toBe(approved('R29'));
         expect(c.READY_AUTO_LINE).toBe(approved('R30'));
+        expect(c.AUTO_ACCEPT_TIP).toBe(approved('R31'));
+        expect(c.AUTO_ACCEPT_TIP_DETAIL).toBe(approved('R31a'));
+        expect(c.AUTO_ACCEPT_ABOUT).toBe(approved('R32'));
     });
 
     it('Notification settings rows NS1 to NS8 match byte for byte', () => {
@@ -341,7 +343,7 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
     it('no cut row can come out of requestCopy.ts', () => {
         const cut = [...rows.values()].filter((r) => r.status.startsWith('CUT'));
         expect(cut.map((r) => r.id).sort()).toEqual([
-            'C3', 'DN10', 'DN2', 'E3', 'E8', 'H1', 'H3', 'P10', 'P7', 'P8', 'Q1', 'R18', 'R19', 'R4', 'R5', 'S1', 'S2', 'S3', 'S4', 'S5', 'ST15', 'ST2', 'V7', 'V8', 'W6', 'W7', 'W9', 'X4', 'X5',
+            'C3', 'DN10', 'DN2', 'E3', 'E8', 'H1', 'H3', 'P10', 'P7', 'P8', 'Q1', 'R18', 'R19', 'R28', 'R4', 'R5', 'S1', 'S2', 'S3', 'S4', 'S5', 'ST15', 'ST2', 'V7', 'V8', 'W6', 'W7', 'W9', 'X4', 'X5',
         ]);
         const out: string[] = [];
         for (const v of Object.values(c) as unknown[]) if (typeof v === 'string') out.push(v);

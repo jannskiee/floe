@@ -365,11 +365,22 @@ describe('the saved files list (D-171)', () => {
 // line, H4 in the header chip, HA1 in History. TO4 is a Go constant
 // (requestlink.go requestToastText).
 describe('Auto-accept (D-173)', () => {
-    it('names the switch and says what it means (R28, R29, R30)', () => {
-        expect(copy.AUTO_ACCEPT_EYEBROW).toBe('Auto-accept');
-        expect(copy.AUTO_ACCEPT_EYEBROW.toUpperCase()).toBe('AUTO-ACCEPT');
-        expect(copy.AUTO_ACCEPT_LABEL).toBe('Save files without asking');
-        expect(copy.READY_AUTO_LINE).toBe('Anyone with the link can save files here');
+    it('names the check, says what it means, and explains it on the info icon (R29 to R32, D-174)', () => {
+        expect('AUTO_ACCEPT_EYEBROW' in copy).toBe(false); // R28 is cut
+        expect(copy.AUTO_ACCEPT_LABEL).toBe('Auto-accept');
+        expect(copy.READY_AUTO_LINE).toBe('Anyone with this link can send you files without asking');
+        expect(copy.AUTO_ACCEPT_TIP).toBe('Only turn this on if you trust everyone with the link');
+        expect(copy.AUTO_ACCEPT_TIP_DETAIL).toBe('Files save without asking, except in a few cases, like low space or a USB drive');
+        expect(copy.AUTO_ACCEPT_ABOUT).toBe('About Auto-accept');
+    });
+
+    it('no copy string carries an emoji or a pictographic symbol: the warning icon is a drawn lucide icon (the owner, D-174)', () => {
+        const strings = (Object.values(copy) as unknown[]).filter((v): v is string => typeof v === 'string');
+        expect(strings.length).toBeGreaterThan(50);
+        for (const s of strings) expect(s, s).not.toMatch(/[\p{Extended_Pictographic}\u{FE0F}]/u);
+        // The rule itself: an emoji and the bare warning sign fail; the middle dot of W5a passes.
+        expect('Careful ⚠').toMatch(/[\p{Extended_Pictographic}\u{FE0F}]/u);
+        expect('Ends today · Accepts automatically').not.toMatch(/[\p{Extended_Pictographic}\u{FE0F}]/u);
     });
 
     it('adds Accepts automatically to the link line only for an automatic link (W5a)', () => {

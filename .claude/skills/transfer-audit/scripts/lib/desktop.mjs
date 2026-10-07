@@ -239,7 +239,7 @@ export const REQUEST_STRINGS = Object.freeze({
     // Auto-accept (D-173): the Make link form's switch, a checkbox whose
     // accessible name is its label, and the chip word while such a link
     // waits. Only TA-10a turns it on; every other cell leaves it off.
-    autoAcceptSwitch: 'Save files without asking', // R29
+    autoAcceptSwitch: 'Auto-accept', // R29 (D-174: the inline check under LINK ENDS)
     autoAcceptPill: 'Auto-accept', // H4, CSS-uppercased as AUTO-ACCEPT
 });
 

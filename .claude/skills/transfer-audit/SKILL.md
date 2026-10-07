@@ -610,8 +610,8 @@ to it, so none ever runs as a plain cell.
   nothing was saved, clicks Keep waiting (`request-reopen`) and lets a
   second visitor context deliver.
 - TA-10a (`H-DIR-W2D-reqauto`, head profile, wailsdev host only) makes
-  its link with the Make link form's Auto-accept switch on (D-173), turned
-  on through its label, Save files without asking. It requires the header
+  its link with the Make link form's Auto-accept check on (D-173, D-174),
+  turned on through its label, Auto-accept. It requires the header
   chip to read AUTO-ACCEPT while the link waits (its sampler keeps that
   word as idle, never as a route), the drop to start with no prompt at any
   point and nothing clicked on the host, and the host's link and result
