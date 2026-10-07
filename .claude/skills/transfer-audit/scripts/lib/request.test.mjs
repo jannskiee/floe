@@ -168,7 +168,7 @@ test('TA-10 H-DIR-W2D-req: Make link into the run folder, Accept after 1.2 s, th
     const r = await runCell(small('H-DIR-W2D-req'), ctx);
     assert.equal(r.verdict, 'PASS', r.note);
     const a = r.attempts[0];
-    // Make link went to the run's own folder, never Downloads\Floe requests.
+    // Make link went to the run's own folder, never Downloads\Floe.
     // H7 has no Beta switch: the runner waited for the REQUEST LINK tab and
     // never opened Settings.
     assert.equal(w.dom.madeWith.requestLinks, undefined, 'no Beta switch exists to be on');

@@ -139,15 +139,28 @@ export const STRINGS = Object.freeze({
     keepGoing: 'Keep going',
     closeAnyway: 'Close anyway',
     checkForUpdates: 'Check for updates', // Settings row, hidden when packaged
+    // The calm copy (D-167, desktop H9 on): no closing periods. A released
+    // app before it says what STRINGS_RELEASED holds, and every reader below
+    // accepts both, so one audit drives the Store app and HEAD alike.
+    waitingForReceiver: 'Waiting for the receiver',
+    peerConnected: 'Sending...', // desktop/transfer.go runSend
+    connecting: 'Connecting...',
+    enterCode: 'Enter a code or link',
+    canceled: 'Canceled',
+    busyFooter: "Keep this window open until it's done",
+    relayCap: 'relay connections are capped', // errors.ts PASSTHROUGH
+    settingUp: 'Setting up...',
+    hideIpRow: 'Hide my IP address', // Settings > Privacy SettingRow label
+});
+
+/** The same lines as a desktop release before the calm copy (D-167) draws them. */
+export const STRINGS_RELEASED = Object.freeze({
     waitingForReceiver: 'Waiting for the receiver...',
-    peerConnected: 'Peer connected. Sending...', // desktop/transfer.go runSend
+    peerConnected: 'Peer connected. Sending...',
     connecting: 'Connecting... keep this window open.',
     enterCode: 'Please enter a code or link.',
     canceled: 'Canceled.',
     busyFooter: 'Keep this window open. Closing it cancels the transfer.',
-    relayCap: 'relay connections are capped', // errors.ts PASSTHROUGH
-    settingUp: 'Setting up...',
-    hideIpRow: 'Hide my IP address', // Settings > Privacy SettingRow label
 });
 
 // UIA Names carry the rendered CSS case (measured 2026-08-29: tabs SEND and
@@ -162,11 +175,11 @@ export const RE = Object.freeze({
     savedTo: /^Saved to (.+)$/i,
     incoming: /^Incoming: /i,
     pill: /^(Ready|Active|Direct|Relay)$/i,
-    status: /^(Connecting\.\.\. keep this window open\.|Please enter a code or link\.|Canceled\.|Error: .*)$/i,
+    status: /^(Connecting\.\.\.(?: keep this window open\.)?|(?:Please e|E)nter a code or link\.?|Canceled\.?|Error: .*)$/i,
     error: /^Error: /i,
     progress: /^(\[\d+\/\d+\] )?.+ - \d+%  \(/i,
-    busyFooter: /^Keep this window open\. Closing it cancels the transfer\.$/i,
-    peerConnected: /^Peer connected\. Sending\.\.\.$/i,
+    busyFooter: /^(?:Keep this window open\. Closing it cancels the transfer\.|Keep this window open until it's done)$/i,
+    peerConnected: /^(?:Peer connected\. )?Sending\.\.\.$/i,
     checkForUpdates: /^Check for updates$/i,
     protocolRow: /^Version (\d+)$/i,
     // The Settings switch takes its accessible name from the label that
@@ -197,7 +210,7 @@ export const REQUEST_STRINGS = Object.freeze({
     decline: 'Decline', // P9
     keepWaiting: 'Keep waiting', // D3
     makeAnother: 'Make another link', // X3, after Close link
-    saveToPlaceholder: 'Downloads\\Floe requests', // R9, the Save to field
+    saveToPlaceholder: 'Downloads\\Floe', // R9, the Save to field (D-167)
     dismiss: 'Dismiss', // DN2, puts a result away
     cancelDrop: 'Cancel drop', // V4
     // DN3 since H7 (D-161): not a visible line any more but the sr-only text
@@ -282,54 +295,52 @@ export const sameText = (a, b) =>
 export const REQUEST_COPY = Object.freeze({
     // E1, E2, E4 to E7: errorLine(code).
     errors: Object.freeze({
-        disabled: 'Request links are turned off on this server right now.',
-        limited: 'This network made too many request links today. Try again tomorrow.',
-        unknown: 'Floe could not make a link. Try again later.',
-        'no-relay':
-            'Hide my IP needs a TURN relay and this server has none. Turn off Hide my IP, or add a relay to the server.',
-        'relay-unknown':
-            "Hide my IP needs a TURN relay, and this server's connection details could not be read. Check the server address, or turn off Hide my IP.",
-        'already-open': 'You already have a request link open. Close it to make a new one.',
+        disabled: 'Request links are off on this server',
+        limited: "This network reached today's link limit",
+        unknown: "Couldn't make a link",
+        'no-relay': "Hide my IP needs a relay this server doesn't have",
+        'relay-unknown': "Couldn't read this server's relay details for Hide my IP",
+        'already-open': 'Close your open link to make a new one',
     }),
     // ST1 to ST12: the card sentence each stop code starts with.
     stops: Object.freeze({
-        'disk-full': 'The drive ran out of space.',
-        'hash-mismatch': 'A file did not match what was sent, so Floe deleted it.',
-        'path-too-long': 'A folder path was too long for Windows.',
-        'over-approved': 'More data arrived than you accepted.',
-        'relay-cap': 'Over the 2 GB relay limit. Nothing was saved.',
-        'file-too-large-for-folder': 'A file is too large for this drive.',
-        'write-failed': 'Windows could not write to the folder.',
-        'save-blocked': 'Windows would not let Floe finish saving a file.',
-        stopped: 'You stopped this drop.',
-        'peer-abort': 'The sender stopped this drop.',
-        'time-limit': 'The drop reached the 24-hour limit.',
+        'disk-full': 'The drive ran out of space',
+        'hash-mismatch': "A file didn't match what was sent and was deleted",
+        'path-too-long': 'A folder path was too long for Windows',
+        'over-approved': 'More data arrived than you accepted',
+        'relay-cap': 'Over the 2 GB relay limit · Nothing saved',
+        'file-too-large-for-folder': 'A file is too large for this drive',
+        'write-failed': "Windows couldn't write to the folder",
+        'save-blocked': 'Windows blocked Floe from saving a file',
+        stopped: 'You stopped this drop',
+        'peer-abort': 'The sender stopped this drop',
+        'time-limit': 'The drop reached the 24-hour limit',
     }),
-    making: 'Making the link...', // R16
-    reconnecting: 'No connection to the Floe server.', // C1
-    connecting: 'Connecting to their computer.', // W12
+    making: 'Making link...', // R16
+    reconnecting: "Can't reach the Floe server", // C1
+    connecting: 'Connecting to the sender...', // W12
     retryNow: 'Retry now', // C2
     stoppedHeading: 'DROP STOPPED', // ST0
-    linkClosed: 'Link closed.', // X2
-    appClosed: 'Link stopped when Floe closed.', // X5
+    linkClosed: 'Link closed', // X2
+    appClosed: 'Link ended when Floe closed', // X5
     linkEndedAt: /^Link ended at /i, // X1
     promptSize: /^(\d+) files?, (.+)$/i, // P2 promptSize
     receiving: /^RECEIVING (\d+) OF (\d+)/i, // V1
-    savedOf: /(?:^|\. )(\d+) of (\d+) files? (?:was|were) saved\.$/i, // ST16
-    nothingSaved: /Nothing was saved\.$/i, // ST16
-    renamedOne: /^1 file was renamed to end in \.floe-blocked/i, // DN4
-    renamedMany: /^(\d+) files were renamed to end in \.floe-blocked/i, // DN4p
+    savedOf: /(?:^| · )(\d+) of (\d+) files? saved$/i, // ST16, after a middle dot (D-167)
+    nothingSaved: /Nothing saved$/i, // ST16
+    renamedOne: /^1 file now ends in \.floe-blocked/i, // DN4
+    renamedMany: /^(\d+) files now end in \.floe-blocked/i, // DN4p
     // P4, P5, P6, P11: warningLine(code), mapped back to the code. P11 (the
     // laptop line) left the prompt in H7 (D-161) for the Receiving view, where
-    // it reads "Keep this laptop plugged in and open." and shows only on a PC
+    // it reads "Keep this laptop plugged in and open" and shows only on a PC
     // with a battery, so its absence on a prompt is never a finding. Either
     // wording is still read here, so a prompt that draws the line (the HP
     // build, or a regression) shows laptop-power in the attempt's evidence.
     warnings: Object.freeze([
-        ['low-space', /^Only .+ free on .+\. The drop will stop when the drive fills\.$/i],
-        ['file-too-large-for-drive', /^This drive cannot save files over 4 GB, so this drop will stop\.$/i],
-        ['relay-over-cap', /^Hide my IP is on, so this .+ drop will stop before any file\.$/i],
-        ['laptop-power', /^(?:On a laptop, plug in and keep the lid open|Keep this laptop plugged in and open)\.$/i],
+        ['low-space', /^Only .+ free on .+, not enough for this drop$/i],
+        ['file-too-large-for-drive', /^This drive can't save files over 4 GB$/i],
+        ['relay-over-cap', /^This .+ drop is over the 2 GB Hide my IP limit$/i],
+        ['laptop-power', /^(?:On a laptop, plug in and keep the lid open|Keep this laptop plugged in and open)\.?$/i],
     ]),
 });
 
@@ -867,9 +878,10 @@ export function pillVerdict(text) {
  */
 export function classifyStatus(text) {
     const t = String(text || '');
-    if (sameText(t, STRINGS.connecting)) return { kind: 'connecting', text: t };
-    if (sameText(t, STRINGS.enterCode)) return { kind: 'enter-code', text: t };
-    if (sameText(t, STRINGS.canceled)) return { kind: 'canceled', text: t };
+    const is = (key) => sameText(t, STRINGS[key]) || sameText(t, STRINGS_RELEASED[key]);
+    if (is('connecting')) return { kind: 'connecting', text: t };
+    if (is('enterCode')) return { kind: 'enter-code', text: t };
+    if (is('canceled')) return { kind: 'canceled', text: t };
     if (RE.error.test(t)) {
         return {
             kind: t.toLowerCase().includes(STRINGS.relayCap)
@@ -1606,7 +1618,7 @@ export class UiaDriver {
      * MakeLink: Receive, the REQUEST LINK choice, Make another link after an
      * ended link, the Save to field set to the run's own folder and read back
      * (a field that is not there or will not take is SKIP desktop-savedir,
-     * never the owner's Downloads\Floe requests), the lifetime (7 days is an
+     * never the owner's Downloads\Floe), the lifetime (7 days is an
      * option of the native select: SelectionItem, INFERRED; every cell makes
      * 24 hours, the default), Make link, then the waiting view.
      */
@@ -1625,7 +1637,7 @@ export class UiaDriver {
         if (typeof saveDir !== 'string' || !path.isAbsolute(saveDir))
             throw new PhaseError(
                 'request',
-                'desktop uia: MakeLink needs the run\'s own save folder (an absolute path); an empty Save to field means the owner\'s Downloads\\Floe requests',
+                'desktop uia: MakeLink needs the run\'s own save folder (an absolute path); an empty Save to field means the owner\'s Downloads\\Floe',
                 { harness: true, reason: 'request-savedir' }
             );
         await this.click(STRINGS.tabReceive, { index: 0, controlType: 'Button' });
@@ -2169,7 +2181,7 @@ export class PlaywrightDriver {
      * put text on screen.
      *
      * saveDir is required and must read back: an empty Save to field means
-     * the owner's own Downloads\Floe requests (R9), and an audit drop never
+     * the owner's own Downloads\Floe (R9), and an audit drop never
      * lands there, the same rule as the Receive view's desktop-savedir SKIP.
      * The folder the host reports for the link is checked too, since Go
      * trims and owns the value.
@@ -2189,7 +2201,7 @@ export class PlaywrightDriver {
         if (typeof saveDir !== 'string' || !path.isAbsolute(saveDir))
             throw new PhaseError(
                 'request',
-                'desktop wailsdev: MakeLink needs the run\'s own save folder (an absolute path); an empty Save to field means the owner\'s Downloads\\Floe requests',
+                'desktop wailsdev: MakeLink needs the run\'s own save folder (an absolute path); an empty Save to field means the owner\'s Downloads\\Floe',
                 { harness: true, reason: 'request-savedir' }
             );
         await this._button(STRINGS.tabReceive).first().click();

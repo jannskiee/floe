@@ -45,7 +45,7 @@ test('the request strings are the frozen copy, and the wait exceeds the guard', 
         decline: 'Decline',
         keepWaiting: 'Keep waiting',
         makeAnother: 'Make another link',
-        saveToPlaceholder: 'Downloads\\Floe requests',
+        saveToPlaceholder: 'Downloads\\Floe',
         dismiss: 'Dismiss',
         cancelDrop: 'Cancel drop',
         verifiedLine: 'SHA-256 matched',
@@ -54,7 +54,7 @@ test('the request strings are the frozen copy, and the wait exceeds the guard', 
     // real strings, not the fake against itself.
     assert.equal(SAVE_TO, REQUEST_STRINGS.saveToPlaceholder);
     assert.equal(VERIFIED_LINE, REQUEST_STRINGS.verifiedLine);
-    assert.equal(HIDE_IP_NOTE, 'Hide my IP is on. Transfers go through the relay (capped at 2 GB).');
+    assert.equal(HIDE_IP_NOTE, 'Hide my IP limits transfers to 2 GB');
     assert.equal(ACCEPT_GUARD_MS, 1000);
     assert.ok(ACCEPT_WAIT_MS >= 1200);
     // H7 (D-160): no Settings > Beta > Request links row to key on.
@@ -163,7 +163,7 @@ test('wailsdev MakeLink types the run folder into Save to, and the host holds th
 
 test('wailsdev MakeLink refuses without the run folder, and a Save to field that does not take is SKIP desktop-savedir', async () => {
     // No folder at all: the verb refuses before any click, because an empty
-    // Save to field is the owner's own Downloads\Floe requests.
+    // Save to field is the owner's own Downloads\Floe.
     for (const saveDir of [undefined, '', 'relative\\dir']) {
         const f = fakeRequestDom();
         await assert.rejects(
@@ -249,11 +249,11 @@ test('the pill reads one word with Hide my IP off and on: the screen-reader twin
         await make(d, f);
         assert.deepEqual(await d.readText(RE.pill), ['Ready'], `hideIP ${hideIP}, a link waits`);
         // The twin's sentence is never read as a status word.
-        assert.deepEqual(await d.readText(/Hide my IP is on/), hideIP ? [`, ${HIDE_IP_NOTE}`] : []);
+        assert.deepEqual(await d.readText(/Hide my IP limits/), hideIP ? [`, ${HIDE_IP_NOTE}`] : []);
         f.dom.state = 'receiving';
         f.dom.route = 'relay';
         assert.deepEqual(await d.readText(RE.pill), ['Relay'], `hideIP ${hideIP}, a drop moves`);
-        assert.deepEqual(await d.readText(/Hide my IP is on/), [], 'no twin while a drop moves');
+        assert.deepEqual(await d.readText(/Hide my IP limits/), [], 'no twin while a drop moves');
     }
 });
 
