@@ -4,10 +4,13 @@ import {
     acceptedPrompt,
     acceptStale,
     canMake,
+    DEFAULT_LIFETIME,
     errorCode,
     etaLines,
     guardActive,
     initialRequestUI,
+    isLifetime,
+    LIFETIMES,
     linkOpen,
     noticeVisible,
     normalizeSnapshot,
@@ -19,6 +22,7 @@ import {
     type RequestLinkSnapshot,
     type RequestUI,
 } from './requestLink';
+import {LIFETIME_1H, LIFETIME_24H, LIFETIME_30M, LIFETIME_3D, LIFETIME_7D, LIFETIME_8H} from './requestCopy';
 
 // A request link or a drop link pasted into Receive > CODE (S1-DSK-07). String
 // inputs only: nothing here opens or fetches anything, and the floe.one form
@@ -404,5 +408,28 @@ describe('the saved files beside their sizes (D-171)', () => {
         // A result without sizes (an older build) reads -1 for every name.
         expect(normalizeSnapshot({state: 'done', result: {names: ['a', 'b']}}).result!.sizes).toEqual([-1, -1]);
         expect(normalizeSnapshot({state: 'done', result: {names: 'a', sizes: 3}}).result!).toMatchObject({names: [], sizes: []});
+    });
+});
+
+describe('the Link ends choices (D-173)', () => {
+    it('LIFETIMES lists the six keys in the approved order, each with its own label', () => {
+        // R24, R25, R26, R12, R27, R13: the keys Go's requestLifetime takes.
+        expect(LIFETIMES.map((l) => l.key)).toEqual(['30m', '1h', '8h', '24h', '3d', '7d']);
+        expect(LIFETIMES.map((l) => l.label)).toEqual([LIFETIME_30M, LIFETIME_1H, LIFETIME_8H, LIFETIME_24H, LIFETIME_3D, LIFETIME_7D]);
+        expect(LIFETIMES.map((l) => l.label)).toEqual(['In 30 minutes', 'In 1 hour', 'In 8 hours', 'In 24 hours', 'In 3 days', 'In 7 days']);
+        expect(Object.isFrozen(LIFETIMES)).toBe(true);
+    });
+
+    it('the default is 24h, one of the six', () => {
+        expect(DEFAULT_LIFETIME).toBe('24h');
+        expect(isLifetime(DEFAULT_LIFETIME)).toBe(true);
+    });
+
+    it('isLifetime takes the six keys and nothing else', () => {
+        for (const {key} of LIFETIMES) expect(isLifetime(key), key).toBe(true);
+        // "" means 24h to Go, but the frontend always sends a key of its own.
+        for (const junk of ['', '15m', '1d', '24H', ' 24h', '720h', '-1h', '8d', '12h', 'In 24 hours', 24, null, undefined, {}, ['24h']]) {
+            expect(isLifetime(junk), String(junk)).toBe(false);
+        }
     });
 });

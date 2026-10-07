@@ -12,7 +12,18 @@ import {useEffect, useRef, useState, type MouseEvent} from 'react';
 import {AlertCircle, ChevronDown, Folder, FolderOpen, Loader2, X} from 'lucide-react';
 import {Button, cn, Eyebrow, Input} from './ui';
 import * as copy from '../requestCopy';
-import {etaLines, guardActive, GUARD_MS, showLaptopLine, type Phase, type RequestLinkSnapshot} from '../requestLink';
+import {
+    DEFAULT_LIFETIME,
+    etaLines,
+    guardActive,
+    GUARD_MS,
+    isLifetime,
+    LIFETIMES,
+    showLaptopLine,
+    type Lifetime,
+    type Phase,
+    type RequestLinkSnapshot,
+} from '../requestLink';
 import {fmtEta, fmtSpeed, type Prog} from '../progress';
 import {shortPath} from '../paths';
 import {VerifiedMark} from './TransferBits';
@@ -60,7 +71,7 @@ export interface RequestLinkViewProps {
     /** The base folder for the next link (localStorage floe:requestSaveDir). */
     saveDir: string;
     onSaveDirChange: (v: string) => void;
-    onMake: (label: string, lifetime: '24h' | '7d') => void;
+    onMake: (label: string, lifetime: Lifetime) => void;
     onClose: () => void;
     onAnswer: (promptGen: number, answer: 'accept' | 'decline' | 'keep-waiting') => void;
     onCancelDrop: () => void;
@@ -112,7 +123,7 @@ export default function RequestLinkView(props: RequestLinkViewProps) {
 function ReadyForm({phase, errorCode, hideIP, saveDir, onSaveDirChange, onMake, onBrowse, onEdit}: RequestLinkViewProps) {
     // View-local only: what the owner is typing and choosing.
     const [label, setLabel] = useState('');
-    const [lifetime, setLifetime] = useState<'24h' | '7d'>('24h');
+    const [lifetime, setLifetime] = useState<Lifetime>(DEFAULT_LIFETIME);
     const [saveFocused, setSaveFocused] = useState(false);
     const making = phase === 'making';
     const edited = () => { if (phase === 'error') onEdit(); };
@@ -185,18 +196,22 @@ function ReadyForm({phase, errorCode, hideIP, saveDir, onSaveDirChange, onMake, 
             </div>
             <div className="space-y-2">
                 <Eyebrow className="px-0.5"><label htmlFor="floe-request-lifetime">{copy.LINK_ENDS_EYEBROW}</label></Eyebrow>
+                {/* The real select, restyled as a customizable select by
+                    globals.css .floe-select (D-173): native keyboard, type-ahead,
+                    screen reader and UIA behavior stay, and a WebView2 older
+                    than 135 draws today's native list. A value that is not one
+                    of the six changes nothing, never folded into 24h. */}
                 <div className="relative">
                     <select
                         id="floe-request-lifetime"
                         value={lifetime}
-                        onChange={(e) => { setLifetime(e.target.value === '7d' ? '7d' : '24h'); edited(); }}
+                        onChange={(e) => { if (isLifetime(e.target.value)) setLifetime(e.target.value); edited(); }}
                         disabled={making}
-                        className="h-[38px] w-full appearance-none rounded-md border border-white/10 bg-white/[0.03] px-3 pr-9 text-sm text-zinc-100 outline-none transition-[color,box-shadow] focus-visible:border-ice/50 focus-visible:ring-[3px] focus-visible:ring-ice/25 disabled:opacity-50"
+                        className="floe-select h-[38px] w-full rounded-md border border-white/10 bg-white/[0.03] px-3 pr-9 text-sm text-zinc-100 outline-none transition-[color,box-shadow] focus-visible:border-ice/50 focus-visible:ring-[3px] focus-visible:ring-ice/25 disabled:opacity-50"
                     >
-                        <option value="24h" className="bg-zinc-900">{copy.LIFETIME_24H}</option>
-                        <option value="7d" className="bg-zinc-900">{copy.LIFETIME_7D}</option>
+                        {LIFETIMES.map((l) => <option key={l.key} value={l.key}>{l.label}</option>)}
                     </select>
-                    <ChevronDown aria-hidden className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-zinc-500"/>
+                    <ChevronDown aria-hidden className="floe-select-chevron pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-zinc-500"/>
                 </div>
             </div>
             {/* The one IP line, read before the commit (R15, D-136). With Hide

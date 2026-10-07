@@ -146,6 +146,184 @@
   }
 }
 
+/* The Link ends select (D-173): the real <select>, restyled as a customizable
+   select (appearance: base-select, Chromium 135 and later; this PC's WebView2
+   is 154) instead of a hand-built combobox, so native keyboard, type-ahead,
+   the screen reader, UIA and every select-based test stay as they are. The
+   picker opens in the top layer, so the card's backdrop-blur and the scrolling
+   <main> can neither trap nor clip it. An older runtime skips the @supports
+   half and draws today's native list, whose rows the option fill above it
+   keeps dark.
+
+   `appearance` lives here, not in the markup: a utility appearance-none sits
+   in the later utilities layer and would beat base-select. The trigger keeps
+   Input's look from the markup's utilities, and nothing here sets a property
+   they set. Measured in the H10 look fixture (headless Chromium 151, 1000x640):
+   closed, the trigger draws pixel for pixel as the 67c754a build did, base-select
+   and the older-runtime fallback alike.
+
+   The picker is opaque zinc-900 with no blur and no glow (the owner rejected
+   both, D-172), exactly the trigger's width, 6 px off it. The gap is
+   margin-block-start alone: flip-block mirrors margins along with the block
+   position, so the gap and the open slide (that margin, 2 px to 6 px) stay on
+   the trigger's side when the picker opens above.
+
+   One highlight state: hover and keyboard focus share the faint fill, and a
+   row the keyboard reached keeps it over a row the mouse merely rests on, so
+   two rows are never lit and Enter picks the lit one. The checked row has no
+   fill of its own, only its brighter text and the check at the right edge.
+   Forced colors keep the system's rendering (nothing sets forced-color-adjust):
+   the highlight becomes a Highlight outline, because a Highlight fill puts
+   HighlightText on the white backplate Chromium draws behind text (measured:
+   the label vanished), and the check falls back to a text glyph, which the
+   system recolors where it would paint a masked background away. */
+@layer components {
+  .floe-select {
+    appearance: none;
+  }
+
+  .floe-select option {
+    background-color: var(--color-zinc-900);
+  }
+
+  @supports (appearance: base-select) {
+    .floe-select,
+    .floe-select::picker(select) {
+      appearance: base-select;
+    }
+
+    /* base-select lays the trigger out as inline-flex with its text at the
+       top, which also drops the box 2 px on its baseline; centered, it sits
+       where the menulist did. */
+    .floe-select {
+      align-items: center;
+    }
+
+    .floe-select::picker-icon {
+      display: none;
+    }
+
+    /* The UA gives the picker max-block-size: stretch and position-try-order:
+       most-block-size, so it would open on whichever side has more room (above,
+       at the 1000x640 minimum) and, short of room, shrink and scroll instead of
+       flipping. Instead it opens below whenever its 202 px and the gap fit (the
+       look fixture measured 214 px free below the trigger at the minimum) and
+       above otherwise; at 640 px one side always fits. */
+    .floe-select::picker(select) {
+      box-sizing: border-box;
+      inline-size: anchor-size(self-inline);
+      min-inline-size: 0;
+      margin: 0;
+      margin-block-start: 6px;
+      max-block-size: none;
+      position-area: block-end span-inline-end;
+      position-try-order: normal;
+      position-try-fallbacks: flip-block;
+      padding: 4px;
+      border: 1px solid rgb(255 255 255 / 0.1);
+      border-radius: 10px;
+      background-color: var(--color-zinc-900);
+      color: var(--color-zinc-300);
+      box-shadow:
+        0 1px 2px rgb(0 0 0 / 0.3),
+        0 4px 8px -2px rgb(0 0 0 / 0.3),
+        0 16px 32px -8px rgb(0 0 0 / 0.5);
+    }
+
+    /* Open only: closing is instant, so a pick never waits on a fade. */
+    .floe-select:open::picker(select) {
+      opacity: 1;
+      transition:
+        opacity 140ms ease-out,
+        margin-block-start 140ms ease-out,
+        margin-block-end 140ms ease-out;
+    }
+
+    @starting-style {
+      .floe-select:open::picker(select) {
+        opacity: 0;
+        margin-block-start: 2px;
+      }
+    }
+
+    .floe-select option {
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-block-size: 32px;
+      block-size: 32px;
+      padding-inline: 10px;
+      padding-block: 0;
+      border-radius: 6px;
+      font: inherit;
+      font-size: 14px;
+      line-height: 20px;
+      font-weight: 400;
+      color: var(--color-zinc-300);
+      background-color: transparent;
+      outline: none;
+      cursor: default;
+    }
+
+    .floe-select option:hover,
+    .floe-select option:focus-visible {
+      background-color: rgb(255 255 255 / 0.06);
+      color: var(--color-zinc-100);
+    }
+
+    .floe-select:has(option:focus-visible) option:hover:not(:focus-visible) {
+      background-color: transparent;
+    }
+
+    .floe-select:has(option:focus-visible) option:hover:not(:focus-visible, :checked) {
+      color: var(--color-zinc-300);
+    }
+
+    .floe-select option:checked {
+      color: var(--color-zinc-100);
+    }
+
+    .floe-select option::checkmark {
+      order: 1;
+      margin-inline-start: auto;
+      content: "" / "";
+      inline-size: 16px;
+      block-size: 16px;
+      background-color: var(--color-zinc-100);
+      mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / 16px 16px no-repeat;
+    }
+
+    @media (forced-colors: active) {
+      .floe-select option:hover,
+      .floe-select option:focus-visible {
+        outline: 2px solid Highlight;
+        outline-offset: -2px;
+      }
+
+      .floe-select:has(option:focus-visible) option:hover:not(:focus-visible) {
+        outline: none;
+      }
+
+      .floe-select option::checkmark {
+        content: "\2713" / "";
+        inline-size: auto;
+        block-size: auto;
+        background-color: transparent;
+        mask: none;
+      }
+    }
+  }
+
+  .floe-select-chevron {
+    transition: rotate 140ms ease-out;
+  }
+
+  .floe-select:open + .floe-select-chevron {
+    rotate: 180deg;
+  }
+}
+
 /* Reduced motion, and deliberately OUTSIDE @layer utilities.
    `motion-reduce:animate-none` in the markup does not work on the animations
    above, and the reason is pure cascade: Tailwind emits that utility inside the
@@ -161,12 +339,28 @@
    solid core it sits behind never moves. `animate-spin` is deliberately absent:
    it is the busy indicator, and a spinner frozen mid-transfer would say the app
    had hung. That is the "essential" exception WCAG 2.2.2 names, and it is the
-   one animation here that carries information rather than polish. */
+   one animation here that carries information rather than polish. The Link
+   ends picker and its chevron are transitions, not animations, and are listed
+   for the same reason: the picker shows at once and the chevron stays put. */
 @media (prefers-reduced-motion: reduce) {
   .animate-floe-in,
   .animate-floe-notice-in,
   .animate-floe-toast-in,
   .animate-pulse {
     animation: none;
+  }
+
+  /* Separate rules: a runtime that cannot parse :open or ::picker() drops a
+     whole selector list, and the chevron's rule must not go with it. */
+  .floe-select-chevron {
+    transition: none;
+  }
+
+  .floe-select:open::picker(select) {
+    transition: none;
+  }
+
+  .floe-select:open + .floe-select-chevron {
+    rotate: none;
   }
 }

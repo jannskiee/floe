@@ -307,12 +307,25 @@ func fetchRelay(server string) (hasRelay, degraded bool, err error) {
 	return ice.HasRelay(list), degraded, err
 }
 
-// requestLifetime maps the lifetime key to a duration: "24h" (the default,
-// also for "") or "7d" (OD-08). Anything else is refused.
+// requestLifetime maps the Link ends key to a duration through a fixed switch,
+// never time.ParseDuration: "30m", "1h", "8h", "24h" (the default, also for
+// ""), "3d" or "7d" (D-173, which replaces OD-08's two choices). Anything else
+// is refused (E4). Nothing is above 7 days: the server keeps a reservation for
+// at most 7 days plus its grace (server.js REQUEST_MAX_AGE_MS) and then drops
+// it with no frame, and nothing is below 30 minutes, so the 9:45 answer window
+// fits well inside the shortest link.
 func requestLifetime(lifetime string) (time.Duration, bool) {
 	switch lifetime {
+	case "30m":
+		return 30 * time.Minute, true
+	case "1h":
+		return time.Hour, true
+	case "8h":
+		return 8 * time.Hour, true
 	case "", "24h":
 		return 24 * time.Hour, true
+	case "3d":
+		return 3 * 24 * time.Hour, true
 	case "7d":
 		return 7 * 24 * time.Hour, true
 	}
@@ -865,6 +878,16 @@ func (a *App) waitRequest(rg uint64, stop <-chan struct{}, sc *signaling.Client,
 			a.expireRequest(rg, sc)
 			return waitEnded
 		case <-sc.PeerConnected:
+			// Nobody new after the end (D-173). select picks at random when the
+			// expiry timer is ready too, as it is after a pairing that outlived
+			// the end, so a visitor taken at or after the end time, on the
+			// timer's own clock, ends the link instead of reaching pairFn. A
+			// prompt or drop that began before the end keeps its own window:
+			// pairFn never reads expiresAt.
+			if !time.Now().Before(expiresAt) {
+				a.expireRequest(rg, sc)
+				return waitEnded
+			}
 			l.pairFn(rg, sc)
 			if !a.requestActive(rg) || !a.requestWaiting(rg) {
 				return waitEnded

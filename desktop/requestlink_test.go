@@ -821,6 +821,109 @@ func TestReconnectRetriesUntilLinkEnd(t *testing.T) {
 	}
 }
 
+// TestRequestLifetimeKeys (D-173): the six Link ends keys, and "" for the
+// default, map to their durations through a fixed switch. Every other key is
+// refused, near misses and time.ParseDuration's own spellings included, and
+// nothing is above 7 days: the server keeps a reservation for at most 7 days
+// plus its grace (server.js REQUEST_MAX_AGE_MS).
+func TestRequestLifetimeKeys(t *testing.T) {
+	want := map[string]time.Duration{
+		"30m": 30 * time.Minute,
+		"1h":  time.Hour,
+		"8h":  8 * time.Hour,
+		"":    24 * time.Hour,
+		"24h": 24 * time.Hour,
+		"3d":  72 * time.Hour,
+		"7d":  168 * time.Hour,
+	}
+	for key, d := range want {
+		got, ok := requestLifetime(key)
+		if !ok || got != d {
+			t.Errorf("requestLifetime(%q) = %v, %v; want %v, true", key, got, ok, d)
+		}
+	}
+	for _, key := range []string{"15m", "1d", "24H", " 24h", "24h ", "720h", "-1h", "8d", "12h", "30M", "1h0m0s", "0", "unknown"} {
+		if got, ok := requestLifetime(key); ok || got != 0 {
+			t.Errorf("requestLifetime(%q) = %v, %v; want refused", key, got, ok)
+		}
+	}
+}
+
+// TestMakeRequestLinkRefusesUnknownLifetime: a key the switch does not know
+// ends the link in E4 before any join, never folded into a default.
+func TestMakeRequestLinkRefusesUnknownLifetime(t *testing.T) {
+	f := newFakeSignalServer(t)
+	a, _ := laneApp(t, f)
+	a.MakeRequestLink("x", t.TempDir(), "15m")
+	if s := waitState(t, a, 10*time.Second, "error"); s.Code != "unknown" {
+		t.Fatalf("code %q, want unknown", s.Code)
+	}
+	if n := len(f.tokenJoins()); n != 0 {
+		t.Fatalf("%d token joins for a refused lifetime", n)
+	}
+}
+
+// TestShortLinkEndsOnItsOwnClock: a 30m link's end time is 30 minutes from
+// Make link.
+func TestShortLinkEndsOnItsOwnClock(t *testing.T) {
+	f := newFakeSignalServer(t)
+	a, _ := laneApp(t, f)
+	before := time.Now()
+	a.MakeRequestLink("Acme footage", t.TempDir(), "30m")
+	s := waitState(t, a, 10*time.Second, "waiting")
+	after := time.Now()
+	lo, hi := before.Add(30*time.Minute).UnixMilli(), after.Add(30*time.Minute).UnixMilli()
+	if s.ExpiresAt < lo || s.ExpiresAt > hi {
+		t.Fatalf("expiresAt %d, want between %d and %d", s.ExpiresAt, lo, hi)
+	}
+}
+
+// TestNoNewVisitorAfterLinkEnd (D-173: nobody new after the end): a
+// user-connected the waiting loop takes at or after the link's end time ends
+// the link as expired, and pairFn never runs. The expiry timer is ready as
+// well, and select picks at random between them, so 50 runs see both orders.
+// The loop is driven directly on a socket that holds the queued visitor, the
+// way a pairing that outlived the end leaves it.
+func TestNoNewVisitorAfterLinkEnd(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		t.Run(fmt.Sprint(i), func(t *testing.T) {
+			f := newFakeSignalServer(t)
+			a, _ := laneApp(t, f)
+			var calls atomic.Int32
+			l := a.lane()
+			l.pairFn = func(uint64, *signaling.Client) { calls.Add(1) }
+			l.mu.Lock()
+			l.gen++
+			rg := l.gen
+			l.cancelled = false
+			l.setStateLocked("waiting", "")
+			l.stop = make(chan struct{})
+			stop := l.stop
+			l.mu.Unlock()
+			tok, err := signaling.NewHostToken()
+			if err != nil {
+				t.Fatal(err)
+			}
+			sc, res := a.hostJoin(rg, f.url(), signaling.RoomIDFromToken(tok), tok)
+			if res != signaling.HostJoined {
+				t.Fatalf("host join: %v", res)
+			}
+			f.userConnected()
+			waitFor(t, 5*time.Second, "the queued visitor", func() bool { return len(sc.PeerConnected) == 1 })
+			if got := a.waitRequest(rg, stop, sc, time.Now().Add(-time.Second)); got != waitEnded {
+				t.Fatalf("waitRequest = %v, want waitEnded", got)
+			}
+			if n := calls.Load(); n != 0 {
+				t.Fatalf("a visitor after the link's end reached pairFn (%d)", n)
+			}
+			if s := stateOf(a); s.State != "ended" || s.Code != "expired" {
+				t.Fatalf("after the end: %q %q, want ended expired", s.State, s.Code)
+			}
+			waitFor(t, 5*time.Second, "request-close", func() bool { return f.count("request-close") == 1 })
+		})
+	}
+}
+
 func TestReconnectBackoffNeverBelowFloor(t *testing.T) {
 	lo := func(int64) int64 { return 0 }
 	hi := func(n int64) int64 { return n - 1 }

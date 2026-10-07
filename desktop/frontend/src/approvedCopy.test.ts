@@ -131,7 +131,12 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.SAVE_TO_PLACEHOLDER).toBe(approved('R9'));
         expect(c.BROWSE).toBe(approved('R10'));
         expect(c.LINK_ENDS_EYEBROW.toUpperCase()).toBe(approved('R11'));
+        // The six Link ends choices in their list order (D-173).
+        expect(c.LIFETIME_30M).toBe(approved('R24'));
+        expect(c.LIFETIME_1H).toBe(approved('R25'));
+        expect(c.LIFETIME_8H).toBe(approved('R26'));
         expect(c.LIFETIME_24H).toBe(approved('R12'));
+        expect(c.LIFETIME_3D).toBe(approved('R27'));
         expect(c.LIFETIME_7D).toBe(approved('R13'));
         expect(c.MAKE_LINK).toBe(approved('R14'));
         expect(c.READY_IP_LINE).toBe(approved('R15'));

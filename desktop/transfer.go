@@ -719,7 +719,10 @@ func (d *requestDrop) cancelFunc() func() {
 
 // requestDecide is the drop's Decide (step 3): the prompt from numbers and
 // host values only, then the owner's answer, the window, the visitor leaving,
-// or the link ending, whichever comes first. The engine consults it before any
+// or p.stop (Close link, a quit or a new Make link), whichever comes first.
+// The link's end time is not among them: a prompt that opened before the end
+// keeps its whole answer window, and only a visitor who arrives after the end
+// is turned away, by waitRequest (D-173). The engine consults it before any
 // folder, staging file or ack exists, and it never returns Accept for a
 // channel that already closed (implication 8).
 func (a *App) requestDecide(rg uint64, p requestPairing, d *requestDrop, in transfer.IncomingInfo) transfer.Decision {

@@ -61,6 +61,37 @@ test('UIA MakeLink sets the Save to field, makes the link and waits for the wait
     }
 });
 
+test('UIA MakeLink picks a non-default lifetime by its option name, leaves 24h alone, and refuses any other key before a click', async () => {
+    const dir = tmp();
+    try {
+        const { h, client, driver, clock } = hostWith();
+        const made = await driver.makeRequestLink({ saveDir: dir, lifetime: '3d', ...clock });
+        assert.equal(made.lifetime, '3d');
+        assert.equal(clicksOf(client, REQUEST_STRINGS.lifetimes['3d']).length, 1);
+        assert.deepEqual(h.dom.picked, ['In 3 days']);
+        assert.equal(h.dom.madeLifetime, '3d');
+        assert.equal(h.dom.state, 'waiting');
+
+        // The default is the select's own value: no option is clicked.
+        const def = hostWith();
+        await def.driver.makeRequestLink({ saveDir: dir, ...def.clock });
+        for (const label of Object.values(REQUEST_STRINGS.lifetimes))
+            assert.equal(clicksOf(def.client, label).length, 0, label);
+        assert.equal(def.h.dom.madeLifetime, '24h');
+
+        for (const lifetime of ['15m', '7D', '']) {
+            const bad = hostWith();
+            await assert.rejects(
+                bad.driver.makeRequestLink({ saveDir: dir, lifetime, ...bad.clock }),
+                /MakeLink takes 30m, 1h, 8h, 24h, 3d or 7d/
+            );
+            assert.equal(bad.client.calls.length, 0, `${lifetime}: nothing was asked of the helper`);
+        }
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
 test('UIA MakeLink refuses a relative folder, a Save to field that will not take (SKIP desktop-savedir, no link) and names an error view by its code', async () => {
     const dir = tmp();
     try {

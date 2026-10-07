@@ -926,9 +926,88 @@ describe('every state', () => {
         const p = at('ready');
         render(<RequestLinkView {...p}/>);
         await user.type(screen.getByLabelText('Label'), '  Acme footage ');
-        await user.selectOptions(screen.getByLabelText('Link ends'), '7d');
+        // Picked by its label, the way the owner and the harness pick it.
+        await user.selectOptions(screen.getByLabelText('Link ends'), 'In 7 days');
         await user.click(screen.getByRole('button', {name: 'Make link'}));
         expect(p.onMake).toHaveBeenCalledWith('Acme footage', '7d');
+    });
+});
+
+describe('Link ends (D-173)', () => {
+    const lifetimeSelect = () => screen.getByLabelText('Link ends') as HTMLSelectElement;
+
+    it('offers the six choices in order, each with its approved label, and 24h is chosen', () => {
+        render(<RequestLinkView {...at('ready')}/>);
+        const select = lifetimeSelect();
+        expect(select.tagName).toBe('SELECT');
+        expect([...select.options].map((o) => [o.value, o.textContent])).toEqual([
+            ['30m', 'In 30 minutes'],
+            ['1h', 'In 1 hour'],
+            ['8h', 'In 8 hours'],
+            ['24h', 'In 24 hours'],
+            ['3d', 'In 3 days'],
+            ['7d', 'In 7 days'],
+        ]);
+        expect(select.value).toBe('24h');
+        expect((screen.getByRole('option', {name: 'In 24 hours'}) as HTMLOptionElement).selected).toBe(true);
+    });
+
+    it('Make link with no choice sends 24h', async () => {
+        const user = userEvent.setup();
+        const p = at('ready');
+        render(<RequestLinkView {...p}/>);
+        await user.click(screen.getByRole('button', {name: 'Make link'}));
+        expect(p.onMake).toHaveBeenCalledWith('', '24h');
+    });
+
+    it.each(['30m', '1h', '8h', '24h', '3d', '7d'])('choosing %s sends that key to Make link', async (key) => {
+        const user = userEvent.setup();
+        const p = at('ready');
+        render(<RequestLinkView {...p}/>);
+        await user.selectOptions(lifetimeSelect(), key);
+        expect(lifetimeSelect().value).toBe(key);
+        await user.click(screen.getByRole('button', {name: 'Make link'}));
+        expect(p.onMake).toHaveBeenCalledTimes(1);
+        expect(p.onMake).toHaveBeenCalledWith('', key);
+    });
+
+    it('a value that is not one of the six changes nothing: it is never folded into 24h', async () => {
+        const user = userEvent.setup();
+        const p = at('ready');
+        render(<RequestLinkView {...p}/>);
+        await user.selectOptions(lifetimeSelect(), '3d');
+        fireEvent.change(lifetimeSelect(), {target: {value: '15m'}});
+        expect(lifetimeSelect().value).toBe('3d');
+        await user.click(screen.getByRole('button', {name: 'Make link'}));
+        expect(p.onMake).toHaveBeenCalledWith('', '3d');
+    });
+
+    it('is disabled while the link is being made', () => {
+        const {unmount} = render(<RequestLinkView {...at('making')}/>);
+        expect(lifetimeSelect().disabled).toBe(true);
+        unmount();
+        render(<RequestLinkView {...at('ready')}/>);
+        expect(lifetimeSelect().disabled).toBe(false);
+    });
+
+    it('a change while an error shows counts as an edit of the form (T5)', async () => {
+        const user = userEvent.setup();
+        const p = at('error', {errorCode: 'limited'});
+        render(<RequestLinkView {...p}/>);
+        await user.selectOptions(lifetimeSelect(), '1h');
+        expect(p.onEdit).toHaveBeenCalled();
+    });
+
+    it('is the restyled real select, the trigger in Input\'s box, with the chevron drawn over it', () => {
+        render(<RequestLinkView {...at('ready')}/>);
+        const select = lifetimeSelect();
+        // globals.css .floe-select draws the picker (customizable select).
+        expect(select.className.split(' ')).toEqual(expect.arrayContaining(['floe-select', 'h-[38px]', 'border-white/10', 'bg-white/[0.03]', 'text-zinc-100']));
+        const chevron = select.parentElement!.querySelector('svg')!;
+        expect(chevron.getAttribute('aria-hidden')).toBe('true');
+        expect(chevron.getAttribute('class')).toContain('floe-select-chevron');
+        // No option carries a class of its own: the picker rules style them all.
+        for (const o of select.options) expect(o.className, o.value).toBe('');
     });
 });
 

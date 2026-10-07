@@ -173,7 +173,7 @@ The host verbs on the wailsdev lane (`scripts/lib/desktop.mjs`
 | Verb              | Clicks                                                  | Reads back                               |
 | ----------------- | ------------------------------------------------------- | ---------------------------------------- |
 | awaitRequestTab   | `Receive` once, only when the REQUEST LINK choice is not showing | `Request link, beta` shows within 10 s (H7: always there, no Settings switch) |
-| makeRequestLink   | `Receive`, `Request link, beta`, `Make another link` (from the ended view), the Save to field (the run's own folder, required), `In 7 days` (7d only), `Make link` | the field's value, `Copy link` shows (waiting) or the lane's error code, the link's folder in `GetRequestLink` |
+| makeRequestLink   | `Receive`, `Request link, beta`, `Make another link` (from the ended view), the Save to field (the run's own folder, required), the Link ends option by its label for any key but the default 24h (`In 30 minutes`, `In 1 hour`, `In 8 hours`, `In 3 days`, `In 7 days`; every cell makes 24h), `Make link` | the field's value, `Copy link` shows (waiting) or the lane's error code, the link's folder in `GetRequestLink` |
 | readRequestLink   | nothing                                                 | `GetRequestLink` link, matched to the link block's input |
 | acceptRequest     | `Accept`, at least 1200 ms after the prompt was seen    | `Accept` gone (the prompt left)          |
 | declineRequest    | `Decline`, at least 1200 ms after the prompt was seen   | `Keep waiting` shows (declined)          |

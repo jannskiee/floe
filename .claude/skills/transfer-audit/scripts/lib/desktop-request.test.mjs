@@ -21,7 +21,7 @@ import {
     safeCode,
     samePath,
 } from './desktop.mjs';
-import { FAKE_LINK, HIDE_IP_NOTE, SAVE_TO, VERIFIED_LINE, fakeRequestDom } from './tests/fake-request-dom.mjs';
+import { FAKE_LINK, HIDE_IP_NOTE, LIFETIME_OPTIONS, SAVE_TO, VERIFIED_LINE, fakeRequestDom } from './tests/fake-request-dom.mjs';
 
 const ROOM = FAKE_LINK.slice(FAKE_LINK.indexOf('#') + 1);
 const DIR = path.join(tmpdir(), 'lta-request-out');
@@ -38,6 +38,15 @@ test('the request strings are the frozen copy, and the wait exceeds the guard', 
         choice: 'Request link, beta',
         lifetime24h: 'In 24 hours',
         lifetime7d: 'In 7 days',
+        // D-173: the six Link ends keys (requestLifetime in Go), in list order.
+        lifetimes: {
+            '30m': 'In 30 minutes',
+            '1h': 'In 1 hour',
+            '8h': 'In 8 hours',
+            '24h': 'In 24 hours',
+            '3d': 'In 3 days',
+            '7d': 'In 7 days',
+        },
         makeLink: 'Make link',
         copyLink: 'Copy link',
         closeLink: 'Close link',
@@ -53,6 +62,10 @@ test('the request strings are the frozen copy, and the wait exceeds the guard', 
     // real strings, not the fake against itself.
     assert.equal(SAVE_TO, REQUEST_STRINGS.saveToPlaceholder);
     assert.equal(VERIFIED_LINE, REQUEST_STRINGS.verifiedLine);
+    assert.deepEqual(LIFETIME_OPTIONS, Object.values(REQUEST_STRINGS.lifetimes));
+    assert.equal(REQUEST_STRINGS.lifetimes['24h'], REQUEST_STRINGS.lifetime24h);
+    assert.equal(REQUEST_STRINGS.lifetimes['7d'], REQUEST_STRINGS.lifetime7d);
+    assert.ok(Object.isFrozen(REQUEST_STRINGS.lifetimes));
     assert.equal(HIDE_IP_NOTE, 'Hide my IP limits transfers to 2 GB');
     assert.equal(ACCEPT_GUARD_MS, 1000);
     assert.ok(ACCEPT_WAIT_MS >= 1200);
@@ -138,16 +151,35 @@ test('wailsdev Decline then Keep waiting: the order holds, and Keep waiting refu
     assert.equal(f.dom.state, 'receiving');
 });
 
-test('wailsdev MakeLink 7d picks the option, and MakeLink refuses any other lifetime', async () => {
+test('wailsdev MakeLink picks a non-default lifetime by its label on the select, leaves 24h alone, and refuses any other key', async () => {
     const f = fakeRequestDom();
     const d = driverOn(f);
-    await make(d, f, { lifetime: '7d' });
-    assert.deepEqual(f.dom.picked, ['In 7 days']);
+    await make(d, f, { lifetime: '1h' });
+    assert.deepEqual(f.dom.picked, ['In 1 hour']);
+    assert.equal(f.dom.madeLifetime, '1h');
     assert.equal(f.dom.state, 'waiting');
-    await assert.rejects(
-        driverOn(fakeRequestDom()).makeRequestLink({ lifetime: '1h', saveDir: DIR }),
-        /MakeLink takes 24h or 7d/
-    );
+    // Every key the host takes, each by its own label; the default is the
+    // select's own value, so 24h picks nothing (every cell makes 24h).
+    for (const [key, label] of Object.entries(REQUEST_STRINGS.lifetimes)) {
+        const g = fakeRequestDom();
+        const r = await make(driverOn(g), g, { lifetime: key });
+        assert.equal(r.lifetime, key);
+        assert.deepEqual(g.dom.picked, key === '24h' ? [] : [label], key);
+        assert.equal(g.dom.madeLifetime, key, key);
+    }
+    // A page that draws no select gets the label clicked instead.
+    const plain = fakeRequestDom({ lifetimeSelect: false });
+    await make(driverOn(plain), plain, { lifetime: '7d' });
+    assert.deepEqual(plain.dom.picked, ['In 7 days']);
+    for (const lifetime of ['15m', '1d', '24H', ' 24h', '', 'In 1 hour', 24]) {
+        const g = fakeRequestDom();
+        await assert.rejects(
+            driverOn(g).makeRequestLink({ lifetime, saveDir: DIR }),
+            /MakeLink takes 30m, 1h, 8h, 24h, 3d or 7d/,
+            String(lifetime)
+        );
+        assert.deepEqual(g.dom.clicks, [], 'nothing was clicked');
+    }
 });
 
 test('wailsdev MakeLink types the run folder into Save to, and the host holds the link with it', async () => {

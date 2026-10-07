@@ -27,7 +27,14 @@ export const SAVE_TO_EYEBROW = 'Save to'; // R8 and W7, rendered in uppercase
 export const SAVE_TO_PLACEHOLDER = 'Downloads\\Floe'; // R9, the real default folder (D-167)
 export const BROWSE = 'Browse'; // R10
 export const LINK_ENDS_EYEBROW = 'Link ends'; // R11, rendered in uppercase
+// The six Link ends choices (D-173), listed R24, R25, R26, R12, R27, R13 by
+// requestLink.ts LIFETIMES. Each stays a top-level export so the copy and
+// punctuation scans see it.
+export const LIFETIME_30M = 'In 30 minutes'; // R24
+export const LIFETIME_1H = 'In 1 hour'; // R25
+export const LIFETIME_8H = 'In 8 hours'; // R26
 export const LIFETIME_24H = 'In 24 hours'; // R12
+export const LIFETIME_3D = 'In 3 days'; // R27
 export const LIFETIME_7D = 'In 7 days'; // R13
 export const MAKE_LINK = 'Make link'; // R14
 export const READY_IP_LINE = 'Senders see your IP, even if you decline'; // R15, only while Hide my IP is off

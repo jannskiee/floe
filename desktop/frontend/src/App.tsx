@@ -74,6 +74,7 @@ import {
     parsePastedLink,
     phase as requestPhase,
     reduce as reduceRequest,
+    type Lifetime,
 } from './requestLink';
 import {
     ANNOUNCE_GUARD_LIFTED,
@@ -1723,7 +1724,7 @@ function App() {
 
     // The REQUEST LINK view's actions. Each binding call answers with a
     // snapshot or is followed by request:state; nothing here decides a state.
-    function makeRequestLink(label: string, lifetime: '24h' | '7d') {
+    function makeRequestLink(label: string, lifetime: Lifetime) {
         dispatchReq({type: 'MAKE'});
         MakeRequestLink(label, requestSaveDir.trim(), lifetime)
             .then((s) => dispatchReq({type: 'SNAPSHOT', snap: normalizeSnapshot(s)}))

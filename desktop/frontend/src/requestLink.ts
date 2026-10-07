@@ -2,7 +2,16 @@
 // it can be tested without a DOM or the Wails runtime bindings (the same
 // arrangement as settings.ts and history.ts).
 
-import {etaLongLine, ETA_OVER_2H_LINE} from './requestCopy';
+import {
+    etaLongLine,
+    ETA_OVER_2H_LINE,
+    LIFETIME_1H,
+    LIFETIME_24H,
+    LIFETIME_30M,
+    LIFETIME_3D,
+    LIFETIME_7D,
+    LIFETIME_8H,
+} from './requestCopy';
 
 // The link shapes the web app serves in a browser only: a request link
 // (/r/<11-character id>) and the Stage 2 drop link (/d/<id>, legacy /drop/<id>).
@@ -101,6 +110,29 @@ export interface RequestResult {
      *  (D-171), or -1 where Go sent none (that row shows no size). Optional
      *  so the fixtures that build a result by hand need not all name it. */
     sizes?: number[];
+}
+
+/** A Link ends key: the fixed set Go's requestLifetime takes (D-173). Nothing
+ *  is above 7 days, the server's reservation cap, and nothing is below 30
+ *  minutes, so the 9:45 answer window fits inside the shortest link. */
+export type Lifetime = '30m' | '1h' | '8h' | '24h' | '3d' | '7d';
+
+/** The Link ends choices in their list order, each key beside its label. */
+export const LIFETIMES: readonly {readonly key: Lifetime; readonly label: string}[] = Object.freeze([
+    Object.freeze({key: '30m', label: LIFETIME_30M}),
+    Object.freeze({key: '1h', label: LIFETIME_1H}),
+    Object.freeze({key: '8h', label: LIFETIME_8H}),
+    Object.freeze({key: '24h', label: LIFETIME_24H}),
+    Object.freeze({key: '3d', label: LIFETIME_3D}),
+    Object.freeze({key: '7d', label: LIFETIME_7D}),
+]);
+
+export const DEFAULT_LIFETIME: Lifetime = '24h';
+
+/** isLifetime says whether v is one of the six keys. Anything else is left for
+ *  the caller to refuse, never folded into the default. */
+export function isLifetime(v: unknown): v is Lifetime {
+    return typeof v === 'string' && LIFETIMES.some((l) => l.key === v);
 }
 
 /** What the REQUEST LINK view shows: the Go states, where a Make link click in

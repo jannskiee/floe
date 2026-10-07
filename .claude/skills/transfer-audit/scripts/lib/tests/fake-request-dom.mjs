@@ -42,6 +42,18 @@ const VIEW_BUTTONS = {
     closed: ['Make another link'],
 };
 
+// The Link ends select's options (RequestLinkView.tsx draws requestLink.ts
+// LIFETIMES, D-173): each key beside its label, in list order.
+const LIFETIMES = [
+    ['30m', 'In 30 minutes'],
+    ['1h', 'In 1 hour'],
+    ['8h', 'In 8 hours'],
+    ['24h', 'In 24 hours'],
+    ['3d', 'In 3 days'],
+    ['7d', 'In 7 days'],
+];
+export const LIFETIME_OPTIONS = LIFETIMES.map(([, label]) => label);
+
 const SWITCHES = [
     {
         key: 'hideIP',
@@ -80,6 +92,9 @@ export function fakeRequestDom({
     // with its Settings switch off).
     hideTab = false,
     saveDirStuck = false,
+    // A page that draws Link ends as something other than a <select>, so
+    // the driver's select branch finds nothing and clicks the label.
+    lifetimeSelect = true,
     // A Settings switch that is disabled and ignores clicks (Hide my IP
     // reads disabled while a transfer is busy).
     switchStuck = false,
@@ -107,6 +122,10 @@ export function fakeRequestDom({
         ignored: [],
         reopens: 0,
         picked: [],
+        // The Link ends value the form holds, and the one the last link was
+        // made with.
+        lifetime: '24h',
+        madeLifetime: null,
         settingsOpen: false,
         // App.tsx `mode`: the REQUEST LINK view shows only on Receive, and
         // requestView is its `receiveKind === 'request'`.
@@ -231,6 +250,7 @@ export function fakeRequestDom({
         dom.route = '';
         dom.result = null;
         dom.linkSaveDir = dom.saveDir.trim();
+        dom.madeLifetime = dom.lifetime;
         dom.madeWith = { ...dom.settings };
         if (ignoreServer) dom.madeWith.server = 'http://localhost:3001';
         const web =
@@ -295,7 +315,21 @@ export function fakeRequestDom({
             dom.state = 'ready';
             dom.result = null;
             dom.code = '';
+            // A fresh form: Link ends is back on its default.
+            dom.lifetime = '24h';
         }
+    };
+    // The Make link form (ready or error) is on screen: Save to and Link ends.
+    const formShowing = () =>
+        onRequestView() && ['ready', 'error'].includes(dom.state);
+    // A pick of the Link ends option labeled `label`, exactly.
+    const pickLifetime = (label) => {
+        const hit = LIFETIMES.find(([, l]) => l === label);
+        if (!formShowing())
+            throw new Error('fake dom: the Link ends select is not showing');
+        if (!hit) throw new Error(`fake dom: no Link ends option labeled "${label}"`);
+        dom.picked.push(label);
+        dom.lifetime = hit[0];
     };
     const locator = (name) => {
         const self = {
@@ -500,22 +534,38 @@ export function fakeRequestDom({
         getByText(text) {
             return {
                 async click() {
-                    dom.picked.push(text);
+                    if (LIFETIME_OPTIONS.includes(text) && formShowing()) pickLifetime(text);
+                    else dom.picked.push(text);
                 },
             };
         },
-        locator(sel) {
-            // The lifetime is drawn as options, not a native <select>, so
-            // the driver's select branch finds nothing and clicks the text.
-            if (sel !== 'select' && sel !== 'option')
+        locator(sel, opts = {}) {
+            // The Link ends <select>, restyled but still a real select
+            // (D-173): found by an option's text the way Playwright's hasText
+            // matches (a substring, any case), then picked by
+            // selectOption({label}), which takes a label exactly.
+            if (sel === 'option') return { hasText: String(opts.hasText ?? '') };
+            if (sel !== 'select')
                 throw new Error(`fake dom: locator ${sel} not modeled`);
-            const none = {
-                filter: () => none,
-                async count() {
-                    return 0;
-                },
+            const showing = () => lifetimeSelect && formShowing();
+            const holds = (has) =>
+                !has ||
+                LIFETIME_OPTIONS.some((l) => l.toLowerCase().includes(has.hasText.toLowerCase()));
+            const select = (has) => {
+                const self = {
+                    filter: ({ has: inner } = {}) => select(inner ?? has),
+                    first: () => self,
+                    async count() {
+                        return showing() && holds(has) ? 1 : 0;
+                    },
+                    async selectOption({ label } = {}) {
+                        if (!showing()) throw new Error('fake dom: no select showing');
+                        pickLifetime(label);
+                    },
+                };
+                return self;
             };
-            return none;
+            return select(null);
         },
         async evaluate(fn, arg) {
             const saved = {
@@ -644,8 +694,11 @@ export function fakeRequestDom({
             inputs: () => inputNodes(),
             click: (name) => click(name),
             onRequestView: () => onRequestView(),
-            saveToShowing: () =>
-                onRequestView() && ['ready', 'error'].includes(dom.state),
+            saveToShowing: () => formShowing(),
+            // The Link ends options while the form shows, which the helper
+            // reaches as ListItems by name, and one pick by label.
+            lifetimeOptions: () => (formShowing() ? [...LIFETIME_OPTIONS] : []),
+            pickLifetime: (label) => pickLifetime(label),
             setSaveDir: (v) => {
                 if (!saveDirStuck) dom.saveDir = String(v);
             },
