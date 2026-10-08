@@ -20,6 +20,7 @@ import {
     ACK_TIMEOUT_MS,
     SEND_FILE_HASHES,
     hashBoundMs,
+    END_DIGEST_WAIT_MS,
     type Ack,
     type Incompatible,
     type Received,
@@ -607,8 +608,11 @@ async function sendSingleFile(
         // life of the page, so no end frame ever went out (CP0-F2). The bound
         // resolves null, which is what an absent digest already means: the key
         // is left off the frame and the receiver keeps its byte-count check.
+        // END_DIGEST_WAIT_MS caps it under a Go receiver's 60 s stall, which
+        // otherwise deletes a file whose every byte already arrived.
+        const boundMs = Math.min((deps.hashBoundMs ?? hashBoundMs)(entry.file.size), END_DIGEST_WAIT_MS);
         const bound = new Promise<null>((resolve) => {
-            boundTimer = setTimeout(() => resolve(null), (deps.hashBoundMs ?? hashBoundMs)(entry.file.size));
+            boundTimer = setTimeout(() => resolve(null), boundMs);
         });
         let outcome: string | null | typeof STOPPED;
         try {

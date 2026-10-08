@@ -10,7 +10,7 @@ import {
     type ReceivedFile,
     type ReceiverDeps,
 } from './receiver';
-import { metadataMessage, endMessage, incompatibleMessage, CONTROL_MSG_MAX, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION } from './protocol';
+import { metadataMessage, endMessage, incompatibleMessage, CONTROL_MSG_MAX, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, ACK_TIMEOUT_MS, POST_END_HASH_WAIT_MS } from './protocol';
 
 describe('receiver: per-file SHA-256', () => {
     const nodeHash = async (blob: Blob) => createHash('sha256').update(new Uint8Array(await blob.arrayBuffer())).digest('hex');
@@ -319,6 +319,53 @@ describe('receiver: per-file SHA-256', () => {
         await h.rx.settled();
         expect(h.errors).toEqual([]);
         expect(h.completed[0].verified).toBe(false);
+    });
+
+    // Both senders wait ACK_TIMEOUT_MS for the next file's ack, and the next
+    // metadata (so its ack) queues behind this hash. With more files to come
+    // the wait stops under that clock and the file is kept unverified, instead
+    // of the sender timing out and the batch failing on a slow hasher.
+    it('caps the post-end hash wait under the next ack when more files follow', async () => {
+        vi.useFakeTimers();
+        try {
+            const h = harness({
+                hashBlob: (_blob, signal) => new Promise((resolve) => signal?.addEventListener('abort', () => resolve(null))),
+                // What hashBoundMs gives a 5 GB file.
+                hashBoundMs: () => 530_000,
+            });
+            const a = payload(10);
+            feed(h, 'a', a, 1, 2, endMessage(digestOf(a)));
+            await vi.advanceTimersByTimeAsync(POST_END_HASH_WAIT_MS - 1);
+            expect(h.completed).toHaveLength(0);
+            await vi.advanceTimersByTimeAsync(1);
+            await h.rx.settled();
+            expect(h.errors).toEqual([]);
+            expect(h.completed).toHaveLength(1);
+            expect(h.completed[0].verified).toBe(false);
+            expect(POST_END_HASH_WAIT_MS).toBeLessThan(ACK_TIMEOUT_MS);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('keeps the whole bound for the last file, which no sender waits on', async () => {
+        vi.useFakeTimers();
+        try {
+            const h = harness({
+                hashBlob: (_blob, signal) => new Promise((resolve) => signal?.addEventListener('abort', () => resolve(null))),
+                hashBoundMs: () => 530_000,
+            });
+            const a = payload(10);
+            feed(h, 'a', a, 1, 1, endMessage(digestOf(a)));
+            await vi.advanceTimersByTimeAsync(POST_END_HASH_WAIT_MS + 1_000);
+            expect(h.completed).toHaveLength(0);
+            await vi.advanceTimersByTimeAsync(530_000);
+            await h.rx.settled();
+            expect(h.completed).toHaveLength(1);
+            expect(h.completed[0].verified).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     // CP0-F2. The bound used to be AbortSignal.timeout, which Safari before 16

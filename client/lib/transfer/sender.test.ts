@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { sendFiles, sendAbortReason, CONTROL_FLUSH_MS, type SenderDeps } from './sender';
-import { ackMessage, incompatibleMessage, ACK_TIMEOUT_MS, CONTROL_MSG_MAX, READ_SLAB, DEFAULT_CHUNK } from './protocol';
+import { ackMessage, incompatibleMessage, ACK_TIMEOUT_MS, CONTROL_MSG_MAX, READ_SLAB, DEFAULT_CHUNK, END_DIGEST_WAIT_MS } from './protocol';
 
 const enc = new TextEncoder();
 
@@ -650,6 +650,30 @@ describe('sender: per-file SHA-256 on end', () => {
         // back to their byte-count check.
         expect(h.ends()).toEqual([{ type: 'end' }]);
         expect(h.strings.filter((s) => s.includes('"end"'))).toEqual(['{"type":"end"}']);
+    });
+
+    // A Go receiver (the CLI and Floe Desktop, released builds included) ends a
+    // receive after 60 s with no frame and deletes the file, so a hasher slower
+    // than the link must never hold end that long, whatever the size bound says.
+    it('sends end without a digest within END_DIGEST_WAIT_MS of the last chunk', async () => {
+        vi.useFakeTimers();
+        try {
+            const h = hashDeps({
+                hashBlob: () => new Promise<string | null>(() => {}),
+                // What hashBoundMs gives a 1 GB file: far past a Go receiver's stall.
+                hashBoundMs: () => 130_000,
+            });
+            const sending = sendFiles(h.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], {}, { sendHashes: true });
+            await vi.advanceTimersByTimeAsync(END_DIGEST_WAIT_MS - 1);
+            expect(h.ends()).toEqual([]);
+            await vi.advanceTimersByTimeAsync(1);
+            expect(h.ends()).toEqual([{ type: 'end' }]);
+            await vi.advanceTimersByTimeAsync(CONTROL_FLUSH_MS);
+            await sending;
+            expect(END_DIGEST_WAIT_MS).toBeLessThan(60_000);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('omits sha256 when hashing is off', async () => {

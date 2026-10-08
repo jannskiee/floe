@@ -49,6 +49,27 @@ export function hashBoundMs(bytes: number): number {
     return Math.ceil((bytes / 10_000_000) * 1000) + 30_000;
 }
 
+/**
+ * The longest a sender holds a file's end frame for its digest after the last
+ * chunk, whatever hashBoundMs allows. Every Go receiver (the floe CLI and Floe
+ * Desktop, released builds included) ends a receive after 60 s with no frame
+ * and deletes the file it was writing (receiveStallTimeout in
+ * cli/engine/transfer/receiver.go), so a hasher slower than the link must
+ * never keep end back that long. Past this wait end goes out with no digest
+ * key, the byte-count check every receiver already knows.
+ */
+export const END_DIGEST_WAIT_MS = 45_000;
+
+/**
+ * The longest a receiver hashes a file after its end frame while more files
+ * follow. The next metadata, and so its ack, queues behind the hash, and both
+ * senders wait ACK_TIMEOUT_MS for that ack (defaultAckTimeout in
+ * cli/engine/transfer/deadlines.go), so past this wait the file is kept
+ * unverified rather than the batch timing out. The last file of a batch keeps
+ * hashBoundMs: no sender waits on it.
+ */
+export const POST_END_HASH_WAIT_MS = 100_000;
+
 // ProtocolVersion is the highest wire protocol version this build speaks.
 // MinProtocolVersion is the lowest it still supports.
 //
