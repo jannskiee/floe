@@ -389,12 +389,56 @@ func execute(args []string) error {
 	return err
 }
 
+// firstWord is the index of the first argument that is neither a root flag nor
+// a root flag's value, the word cobra reads as the command, or -1. A flag
+// that takes a value (--server, --web, --iface) consumes the next argument
+// unless it is written as --name=value.
+func firstWord(args []string) int {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			if i+1 < len(args) {
+				return i + 1
+			}
+			return -1
+		}
+		if a == "" || a == "-" {
+			// cobra drops both before it looks for the command, so the word
+			// after them is the one it runs (W3 R5-08).
+			continue
+		}
+		if !strings.HasPrefix(a, "-") {
+			return i
+		}
+		name := strings.TrimLeft(a, "-")
+		if strings.Contains(name, "=") {
+			continue
+		}
+		if f := rootCmd.PersistentFlags().Lookup(name); f != nil && f.Value.Type() != "bool" {
+			i++
+		}
+	}
+	return -1
+}
+
 // linkTypedAsCommand reports whether cobra, run on args, would end on an
 // unknown command whose name, the first argument that is not a root flag or
 // a flag's value, is a request link (looksLikeRequestLink). It asks cobra's
 // own Find, which parses no flag and makes no network call; a run Find does
 // not refuse, or refuses for another name, goes to cobra unchanged.
+//
+// `floe help <link>` is the same slip one word later: cobra adds its help
+// command inside ExecuteC, and help answers an unknown topic with "Unknown
+// help topic" and the link quoted, room id and all (deep QA A3-07). Find
+// cannot see help yet, so the first word is read here.
 func linkTypedAsCommand(args []string) bool {
+	if i := firstWord(args); i >= 0 && args[i] == "help" {
+		for _, a := range args[i+1:] {
+			if looksLikeRequestLink(a) {
+				return true
+			}
+		}
+	}
 	cmd, _, err := rootCmd.Find(args)
 	if err == nil || cmd != rootCmd {
 		return false

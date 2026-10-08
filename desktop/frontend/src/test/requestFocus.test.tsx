@@ -55,6 +55,7 @@ describe('A5-02 red: focus and announcements after owner actions', () => {
         await guard();
         expect(await act1(user, 'Decline', () => snap(1, 'declined', {promptGen: 1}), 'Keep waiting'), 'after Decline').not.toBe(document.body);
         expect(statusText()).toContain('Request declined');
+        await guard(); // Keep waiting has the prompt's guard (A5-12)
         expect(await act1(user, 'Keep waiting', () => snap(1, 'waiting'), 'Copy link'), 'after Keep waiting').not.toBe(document.body);
 
         push(snap(1, 'deciding', {promptGen: 2, prompt: prompt()}));
@@ -62,7 +63,7 @@ describe('A5-02 red: focus and announcements after owner actions', () => {
         expect(await act1(user, 'Accept', () => snap(1, 'receiving', {result: result(0)}), /Cancel drop/), 'after Accept').not.toBe(document.body);
         expect(await act1(user, /Cancel drop/, () => snap(1, 'stopped', {code: 'stopped', result: result(1)}), 'Make another link'), 'after Cancel drop').not.toBe(document.body);
         expect(statusText()).toContain('You stopped this drop');
-    });
+    }, 15_000); // three 1 s guards (Accept, Decline, Keep waiting) and five round trips
 
     it('Close link', async () => {
         const user = userEvent.setup();

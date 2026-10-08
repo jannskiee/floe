@@ -12,6 +12,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -46,6 +47,8 @@ func (fc *fakeConn) send(v any) {
 // comparisons only.
 type fakeJoin struct {
 	roomID, token string
+	endsIn        float64 // the join's endsIn, when it named one
+	hasEndsIn     bool
 }
 
 // fakeControl is one request-seal, request-reopen or request-close frame, with
@@ -211,7 +214,8 @@ func (f *fakeSignalServer) read(fc *fakeConn) {
 				continue
 			}
 			f.mu.Lock()
-			f.joins = append(f.joins, fakeJoin{roomID: room, token: tok})
+			ends, hasEnds := m["endsIn"].(float64)
+			f.joins = append(f.joins, fakeJoin{roomID: room, token: tok, endsIn: ends, hasEndsIn: hasEnds})
 			if !silent && refuse == "" && role == "host" {
 				f.host = fc
 			}
@@ -456,7 +460,7 @@ func makeWaiting(t *testing.T, a *App) RequestLinkSnapshot {
 }
 
 // setJoin swaps joinWithTokenFn for the test.
-func setJoin(t *testing.T, fn func(*signaling.Client, string, string) (signaling.HostJoinResult, error)) {
+func setJoin(t *testing.T, fn func(*signaling.Client, string, string, time.Duration) (signaling.HostJoinResult, error)) {
 	t.Helper()
 	old := joinWithTokenFn
 	joinWithTokenFn = fn
@@ -643,9 +647,28 @@ func TestMakeRequestLinkAbortsOnNonHostRole(t *testing.T) {
 	}
 }
 
+// W3 R1-02: the host join names the link's remaining life, so the server can
+// answer link-ended to a visitor who comes after the link's end even when this
+// PC is asleep, offline or off then.
+func TestMakeRequestLinkJoinNamesTheLinksEnd(t *testing.T) {
+	f := newFakeSignalServer(t)
+	a, _ := laneApp(t, f)
+	a.MakeRequestLink("x", t.TempDir(), "24h", false)
+	waitState(t, a, 10*time.Second, "waiting")
+	joins := f.tokenJoins()
+	if len(joins) != 1 {
+		t.Fatalf("%d host joins, want 1", len(joins))
+	}
+	day := float64(24 * time.Hour / time.Millisecond)
+	if j := joins[0]; !j.hasEndsIn || j.endsIn > day || j.endsIn < day-60_000 {
+		t.Fatalf("the host join named endsIn %v (named: %v), want the link's 24 h in milliseconds", j.endsIn, j.hasEndsIn)
+	}
+	a.CloseRequestLink()
+}
+
 func TestMakeRequestLinkJoinTimeoutMapsToUnknown(t *testing.T) {
 	f := newFakeSignalServer(t)
-	setJoin(t, func(*signaling.Client, string, string) (signaling.HostJoinResult, error) {
+	setJoin(t, func(*signaling.Client, string, string, time.Duration) (signaling.HostJoinResult, error) {
 		return signaling.HostTimeout, nil
 	})
 	a, _ := laneApp(t, f)
@@ -758,7 +781,9 @@ func TestRequestJoinRefusalCodesMapToSnapshot(t *testing.T) {
 	} {
 		t.Run("result "+res.String(), func(t *testing.T) {
 			f := newFakeSignalServer(t)
-			setJoin(t, func(*signaling.Client, string, string) (signaling.HostJoinResult, error) { return res, nil })
+			setJoin(t, func(*signaling.Client, string, string, time.Duration) (signaling.HostJoinResult, error) {
+				return res, nil
+			})
 			a, _ := laneApp(t, f)
 			a.MakeRequestLink("x", "", "24h", false)
 			if s := waitState(t, a, 10*time.Second, "error"); s.Code != "unknown" {
@@ -904,7 +929,7 @@ func TestNoNewVisitorAfterLinkEnd(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			sc, res := a.hostJoin(rg, f.url(), signaling.RoomIDFromToken(tok), tok)
+			sc, res := a.hostJoin(rg, f.url(), signaling.RoomIDFromToken(tok), tok, time.Now().Add(time.Hour))
 			if res != signaling.HostJoined {
 				t.Fatalf("host join: %v", res)
 			}
@@ -1654,6 +1679,22 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 		{"notifyTransferFailed", "transfer.go:(*App).ReceiveByCode"}:   false,
 		{"notify", "transfer.go:(*App).receiveByCode"}:                 false,
 		{"notify", "requestlink.go:(*App).notifyRequest"}:              false,
+		// The Windows delivery line (deep QA A2-02, W3 R2-03): its
+		// declarations, the one line built from comToast, and pushToast's one
+		// send. Naming any of them anywhere else is a toast that skips notify.
+		{"comToast", "toast_windows.go:comToast"}:           false,
+		{"comToast", "toast_windows.go:toasts"}:             false,
+		{"toasts", "toast_windows.go:toasts"}:               false,
+		{"toastLine", "toast_windows.go:toasts"}:            false,
+		{"toastJob", "toast_windows.go:toasts"}:             false,
+		{"toastLine", "toast_windows.go:toastLine"}:         false,
+		{"toastJob", "toast_windows.go:toastLine"}:          false,
+		{"toastJob", "toast_windows.go:toastJob"}:           false,
+		{"toastLine", "toast_windows.go:(*toastLine).send"}: false,
+		{"toastJob", "toast_windows.go:(*toastLine).send"}:  false,
+		{"toastLine", "toast_windows.go:(*toastLine).run"}:  false,
+		{"toasts", "toast_windows.go:pushToast"}:            false,
+		{"toastJob", "toast_windows.go:pushToast"}:          false,
 	}
 	// The app's own names, and every identifier naming a Wails notification
 	// symbol: SendNotificationWithActions and RegisterNotificationCategory
@@ -1661,6 +1702,7 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 	named := map[string]bool{
 		"notify": true, "notifyFn": true, "notifyTransferFailed": true,
 		"pushToast": true, "pushFn": true, "toastXML": true,
+		"comToast": true, "toasts": true, "toastLine": true, "toastJob": true,
 	}
 	watched := func(name string) bool { return named[name] || strings.Contains(name, "Notification") }
 	keys := map[string]bool{"toastRequestArrived": true, "toastDropDone": true, "toastDropFailed": true, "toastDropAutoAccepted": true}
@@ -1671,6 +1713,37 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The glob reads this package only; a helper package in the module that
+	// imported go-toast (whose root package always passes the PowerShell
+	// fallback) would never be read. Every Go file in the module, then, may
+	// import go-toast only as toast_windows.go does (W3 R2-03).
+	walkErr := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if path != "." && (d.Name() == "frontend" || d.Name() == "build" || strings.HasPrefix(d.Name(), ".")) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+		for _, imp := range f.Imports {
+			if strings.Contains(strings.ToLower(imp.Path.Value), "toast") && (path != "toast_windows.go" || imp.Path.Value != toastImport) {
+				t.Errorf("%s imports %s: only toast_windows.go may import go-toast, and only its wintoast", path, imp.Path.Value)
+			}
+		}
+		return nil
+	})
+	if walkErr != nil {
+		t.Fatal(walkErr)
 	}
 	fset := token.NewFileSet()
 	parsed, laneNotify, pushCalls, comPushes := 0, 0, 0, 0
@@ -2217,6 +2290,25 @@ func isStringLit(e ast.Expr) bool {
 	return ok && lit.Kind == token.STRING
 }
 
+// TestCloseHintOnTheSecondEnd (deep QA A5-05): the second prompt that ends
+// without Accept sets the close hint at once, so the reopened link shows W13;
+// it used to wait for the next prompt, which then hid it.
+func TestCloseHintOnTheSecondEnd(t *testing.T) {
+	clock := time.Unix(1_800_000_000, 0)
+	a, _ := attentionApp(t, &clock)
+	a.openPrompt(1, RequestPrompt{})
+	a.endPrompt(1)
+	if a.GetRequestLink().SuggestClose {
+		t.Fatal("one unanswered end suggests closing")
+	}
+	clock = clock.Add(time.Minute)
+	a.openPrompt(1, RequestPrompt{})
+	a.endPrompt(1)
+	if !a.GetRequestLink().SuggestClose {
+		t.Fatal("the second unanswered end did not suggest closing as the link reopens")
+	}
+}
+
 // TestPromptSpamSuppressesToastKeepsFlashAndTitle (E-40): after two prompts
 // end without Accept within 10 minutes, the next prompt sends no toast but
 // still flashes and sets the title, and suggests closing the link; once those
@@ -2532,10 +2624,10 @@ func TestCloseDuringHostJoinSendsNoRoomlessClose(t *testing.T) {
 	var once, releaseOnce sync.Once
 	unblock := func() { releaseOnce.Do(func() { close(release) }) }
 	t.Cleanup(unblock)
-	setJoin(t, func(sc *signaling.Client, room, tok string) (signaling.HostJoinResult, error) {
+	setJoin(t, func(sc *signaling.Client, room, tok string, endsIn time.Duration) (signaling.HostJoinResult, error) {
 		once.Do(func() { close(entered) })
 		<-release
-		return sc.JoinRoomWithToken(room, tok)
+		return sc.JoinRoomWithTokenUntil(room, tok, endsIn)
 	})
 	a, _ := laneApp(t, f)
 	a.MakeRequestLink("x", t.TempDir(), "24h", false)

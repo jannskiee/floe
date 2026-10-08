@@ -234,6 +234,31 @@ func TestCloseBlockedWithDropReceiving(t *testing.T) {
 	}
 }
 
+// TestCloseNotBlockedWhileMaking (deep QA A5-03): a link still being made
+// shares nothing yet, so Close quits without the question, whose only line for
+// it was "Closing Floe stops the transfer" with no transfer. The one-link rule
+// still counts it.
+func TestCloseNotBlockedWhileMaking(t *testing.T) {
+	a := &App{}
+	forceState(a, "making", 0)
+	if a.closeBlocked() {
+		t.Fatal("a link being made blocks close")
+	}
+	if !a.lane().liveNow() {
+		t.Fatal("a link being made no longer counts for the one-link rule")
+	}
+	for _, s := range []string{"waiting", "reconnecting", "connecting", "deciding", "declined", "receiving"} {
+		forceState(a, s, 1)
+		if !a.closeBlocked() {
+			t.Fatalf("a link in %s does not block close", s)
+		}
+	}
+	forceState(a, "ended", 1)
+	if a.closeBlocked() || a.lane().closeGuardNow() {
+		t.Fatal("an ended link still blocks close")
+	}
+}
+
 // TestCloseBlockedFalseWhenLinkEnded: with nothing live on any lane the
 // window always closes, so it can never become unclosable.
 func TestCloseBlockedFalseWhenLinkEnded(t *testing.T) {

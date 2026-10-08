@@ -60,8 +60,11 @@ const t1Class = 'text-sm leading-normal text-zinc-200';
 const t2Class = 'text-xs leading-relaxed text-zinc-400';
 const t3Class = 'text-xs leading-relaxed text-zinc-500';
 const warnClass = 'text-xs leading-relaxed text-amber-300/80';
-// The Done folder name, in characters (12 px mono beside Show in folder).
-const DONE_FOLDER_MAX = 34;
+// The Done folder name, in characters (12 px mono beside Show in folder). The
+// walkthrough measured 7.2 px a character in a 238.63 px room, room for 33, so
+// 34 let CSS cut the very timestamp the middle cut keeps (deep QA L12
+// cell-08); 32 leaves a character of slack.
+const DONE_FOLDER_MAX = 32;
 // The SAVE TO field's text at rest, in characters. The card is 448 px at every
 // window size (max-w-lg less px-8), which leaves the field 270 px of text
 // beside Browse; QA-H6 capture 11 fit 40 characters of a typical path in
@@ -354,15 +357,8 @@ function ActivitySlot(props: RequestLinkViewProps) {
     // Two gaps only: 8 px inside a group of lines, 16 px between a group and
     // the control under it.
     if (phase === 'declined') {
-        return (
-            <div className="space-y-4">
-                <div className="space-y-2">
-                    <p className={t1Class}>{copy.DECLINED_LINE}</p>
-                    <p className={t2Class}>{copy.DECLINED_QUESTION}</p>
-                </div>
-                <Button id="floe-keep-waiting" variant="outline" className="w-full" onClick={() => props.onAnswer(snap.promptGen, 'keep-waiting')}>{copy.KEEP_WAITING}</Button>
-            </div>
-        );
+        // Keyed on the prompt, like Prompt, so each decline gets its own guard.
+        return <Declined key={snap.promptGen} {...props}/>;
     }
     if (phase === 'reconnecting') {
         return (
@@ -393,6 +389,33 @@ function ActivitySlot(props: RequestLinkViewProps) {
         </div>
     ) : (
         <p className={t1Class}>{copy.WAITING_LINE}</p>
+    );
+}
+
+// Declined, with Keep waiting under the prompt's 1 s guard from the moment it
+// renders. Keep waiting reopens the link and sits where the Decline that just
+// rendered it was, so the second click of a double click on Decline pressed it
+// (deep QA A5-12), and since focus moves to it after Decline (A5-02) a held
+// Enter would too. Every activation inside the guard is ignored.
+function Declined({snap, onAnswer}: RequestLinkViewProps) {
+    const mountedAt = useRef(Date.now());
+    const [guarded, setGuarded] = useState(true);
+    useEffect(() => {
+        const id = window.setTimeout(() => setGuarded(false), GUARD_MS);
+        return () => clearTimeout(id);
+    }, []);
+    const keepWaiting = () => {
+        if (guardActive(Date.now(), mountedAt.current, null)) return;
+        onAnswer(snap.promptGen, 'keep-waiting');
+    };
+    return (
+        <div className="space-y-4">
+            <div className="space-y-2">
+                <p className={t1Class}>{copy.DECLINED_LINE}</p>
+                <p className={t2Class}>{copy.DECLINED_QUESTION}</p>
+            </div>
+            <Button id="floe-keep-waiting" variant="outline" className={cn('w-full', guarded && 'cursor-not-allowed opacity-50')} aria-disabled={guarded} onClick={keepWaiting}>{copy.KEEP_WAITING}</Button>
+        </div>
     );
 }
 

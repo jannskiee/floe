@@ -178,7 +178,7 @@ The host verbs on the wailsdev lane (`scripts/lib/desktop.mjs`
 | readRequestLink   | nothing                                                 | `GetRequestLink` link, matched to the link block's input |
 | acceptRequest     | `Accept`, at least 1200 ms after the prompt was seen    | `Accept` gone (the prompt left)          |
 | declineRequest    | `Decline`, at least 1200 ms after the prompt was seen   | `Keep waiting` shows (declined)          |
-| keepWaiting       | `Keep waiting` (only from the declined view)            | `Copy link` shows again (waiting)        |
+| keepWaiting       | `Keep waiting` (only from the declined view), at least 1200 ms after it was seen | `Copy link` shows again (waiting)        |
 | closeRequestLink  | `Close link`                                            | `Make another link` shows (ended)        |
 | readRequestResult | nothing                                                 | the done heading `RECEIVED N FILES, ...` and whether the check mark's `SHA-256 matched` text shows |
 | dismissRequestResult | `Make another link` (DN2 Dismiss is cut, D-169)    | `Make another link` gone (the lane back to Ready) |

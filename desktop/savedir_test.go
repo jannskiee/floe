@@ -49,6 +49,31 @@ func TestResolveSaveDir(t *testing.T) {
 	}
 }
 
+// W3 R2-01: a %NAME% set to nothing leaves nothing to resolve, which is the
+// caller's default as for an empty field. It indexed dir[0] and panicked inside
+// a Wails call, which never settles the promise: Make link sat on "Making
+// link..." until a restart.
+func TestResolveSaveDirEmptyExpansion(t *testing.T) {
+	t.Setenv("FLOE_QA_EMPTY", "")
+	for _, in := range []string{"%FLOE_QA_EMPTY%", `"%FLOE_QA_EMPTY%"`, " %FLOE_QA_EMPTY% "} {
+		got, err := resolveSaveDir(in)
+		if err != nil || got != "" {
+			t.Errorf("resolveSaveDir(%q) = %q, %v, want the caller's default (\"\", nil)", in, got, err)
+		}
+	}
+}
+
+// W3 R2-11: the home folder is read only when a typed path needs it, so an
+// unset USERPROFILE refuses no absolute folder.
+func TestResolveSaveDirAbsoluteNeedsNoHome(t *testing.T) {
+	abs := t.TempDir()
+	t.Setenv("USERPROFILE", "")
+	t.Setenv("HOME", "")
+	if got, err := resolveSaveDir(abs); err != nil || got != filepath.Clean(abs) {
+		t.Fatalf("resolveSaveDir(%q) with no home = %q, %v, want the folder itself", abs, got, err)
+	}
+}
+
 func TestSaveDirUsable(t *testing.T) {
 	dir := t.TempDir()
 	if !saveDirUsable(filepath.Join(dir, "new", "deeper")) {
@@ -63,6 +88,41 @@ func TestSaveDirUsable(t *testing.T) {
 	}
 	if missing := missingDrive(); missing != "" && saveDirUsable(missing+`\Floe`) {
 		t.Errorf("a folder on a drive that does not exist (%s) is not usable", missing)
+	}
+}
+
+// W3 R2-02: a name Windows refuses (< > : " | ? * or a control character)
+// cannot be made at Accept, so it is not a usable folder; Make link then ends
+// with save-folder instead of spending the link on write-failed.
+func TestSaveDirUsableRefusesNamesWindowsCannotMake(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the refused characters are Windows' own")
+	}
+	dir := t.TempDir()
+	for _, name := range []string{"a|b", "a:b", "a<b", "a>b", `a"b`, "a?b", "a*b", "a\tb", "a\x01b"} {
+		if saveDirUsable(filepath.Join(dir, name, "Floe")) {
+			t.Errorf("%q is usable, want refused", filepath.Join(dir, name, "Floe"))
+		}
+	}
+	if !saveDirUsable(filepath.Join(dir, "a b (2)", "Floe")) {
+		t.Error("spaces and parentheses are legal in a name")
+	}
+}
+
+// W3 R2-02: a Save to made only of quotes, or of a %NAME% set to nothing, is
+// the default folder as an empty field is, never the raw text kept as a
+// relative folder that Accept would resolve against the working directory.
+func TestMakeRequestLinkBlankFolderIsTheDefault(t *testing.T) {
+	t.Setenv("FLOE_QA_EMPTY", "")
+	def := t.TempDir()
+	old := requestDefaultDirFn
+	requestDefaultDirFn = func() string { return def }
+	t.Cleanup(func() { requestDefaultDirFn = old })
+	for _, in := range []string{`""`, `"   "`, "%FLOE_QA_EMPTY%"} {
+		a, _ := laneApp(t, nil)
+		if s := a.MakeRequestLink("x", in, "24h", false); s.SaveDir != def {
+			t.Errorf("Make link into %q: SaveDir = %q, want the default %q", in, s.SaveDir, def)
+		}
 	}
 }
 

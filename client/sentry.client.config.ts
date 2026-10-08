@@ -5,7 +5,7 @@ import { IGNORED_ERROR_PATTERNS } from './lib/ignoredErrors';
 import { isInjectedScriptError } from './lib/injectedScripts';
 import { isNonBrowserRuntimeError } from './lib/nonBrowserRuntimes';
 import { isStaleBundleError } from './lib/staleBundle';
-import { scrubErrorEvent, scrubSpanJson, scrubTransactionEvent, scrubUrl } from './lib/scrubUrl';
+import { scrubBreadcrumb, scrubErrorEvent, scrubSpanJson, scrubTransactionEvent } from './lib/scrubUrl';
 import { tracesSampler } from './lib/traceSampling';
 
 // One budget per page load: no single error is sent more than a few times,
@@ -93,16 +93,11 @@ Sentry.init({
         return scrubbed;
     },
 
-    // Breadcrumbs (navigation, fetch, xhr) record URLs as they happen; scrub the
-    // room secret out of each one before it's attached to any event.
+    // Breadcrumbs (navigation, fetch, xhr, console) record URLs and logged text
+    // as they happen; scrub the room secret out of each one before it's attached
+    // to any event, with the server's rule (scrubBreadcrumb).
     beforeBreadcrumb(breadcrumb) {
-        const data = breadcrumb.data;
-        if (data) {
-            if (typeof data.url === 'string') data.url = scrubUrl(data.url);
-            if (typeof data.to === 'string') data.to = scrubUrl(data.to);
-            if (typeof data.from === 'string') data.from = scrubUrl(data.from);
-        }
-        return breadcrumb;
+        return scrubBreadcrumb(breadcrumb);
     },
 
     // Transactions never pass through beforeSend: the SDK routes them here

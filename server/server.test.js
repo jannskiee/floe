@@ -82,11 +82,16 @@ const {
     REQUEST_CREATE_KEYS_MAX,
     requestRoomIds,
     REQUEST_USED_MARKER_MS,
+    REQUEST_USED_MAX,
+    usedMarkers,
+    countUsedMarkers,
     endedLinks,
     liveByKey,
     REQUEST_LIVE_PER_KEY,
     REQUEST_ENDED_MARKER_MS,
     REQUEST_ENDED_MAX,
+    SIGNAL_MAX_CHARS,
+    SIGNAL_MAX_DEPTH,
 } = require('./server');
 
 // ---------------------------------------------------------------------------
@@ -611,6 +616,76 @@ describe('handleSignal', () => {
         // pA targets pB by id, but pB is in a different room — must be dropped.
         handleSignal(pA, { type: 'offer' }, 'peer-B');
         assert.equal(pB.msgs.length, 0, 'must not receive a cross-room signal');
+    });
+
+    // W3 R5 O-1: the server re-serializes every signal it relays, and that can
+    // grow it (a number written 9e20 comes out 21 characters long; a Socket.IO
+    // binary attachment, as a JSON array of byte values, about four times its
+    // size). A signal is relayed only when it is plain JSON, at most
+    // SIGNAL_MAX_DEPTH deep and SIGNAL_MAX_CHARS long as the target receives it.
+    function pairInRoom() {
+        const pA = makePeer('peer-A');
+        const pB = makePeer('peer-B');
+        handleJoinRoom(pA, ROOM_ID);
+        handleJoinRoom(pB, ROOM_ID);
+        pA.msgs.length = 0;
+        pB.msgs.length = 0;
+        return { pA, pB };
+    }
+
+    it('relays a real offer carrying every candidate of a many-adapter PC, and a candidate', () => {
+        const { pA, pB } = pairInRoom();
+        const lines = ['v=0', 'o=- 4611731400430051336 2 IN IP4 127.0.0.1', 's=-', 't=0 0', 'a=group:BUNDLE 0',
+            'm=application 9 UDP/DTLS/SCTP webrtc-datachannel', 'c=IN IP4 0.0.0.0', 'a=ice-ufrag:Zx9t', 'a=ice-pwd:3vB0d2aZ7m8kQwPq1rXyNc5u',
+            'a=fingerprint:sha-256 ' + Array.from({ length: 32 }, () => 'AB').join(':'), 'a=setup:actpass', 'a=mid:0', 'a=sctp-port:5000'];
+        for (let i = 0; i < 80; i++) lines.push(`a=candidate:${1000 + i} 1 udp 2122260223 192.168.${i}.17 ${50000 + i} typ host generation 0 network-id ${i}`);
+        const offer = { type: 'offer', sdp: lines.join('\r\n') + '\r\n' };
+        handleSignal(pA, offer, null);
+        handleSignal(pA, { candidate: { candidate: 'candidate:1 1 udp 2122260223 10.0.0.2 50000 typ host', sdpMid: '0', sdpMLineIndex: 0, usernameFragment: 'Zx9t' } }, null);
+        assert.equal(pB.msgs.filter(m => m.type === 'signal').length, 2);
+        assert.ok(JSON.stringify(offer).length < SIGNAL_MAX_CHARS / 4, 'a real offer is far below the bound');
+    });
+
+    it('drops a signal that would grow past the bound as the server re-serializes it', () => {
+        const { pA, pB } = pairInRoom();
+        // About 1 MB as a /ws frame ("9e20," each), 4.4 MB once re-serialized.
+        handleSignal(pA, { type: 'offer', sdp: 'v=0', pad: new Array(200_000).fill(9e20) }, null);
+        assert.equal(pB.msgs.length, 0);
+    });
+
+    it('drops a signal longer than SIGNAL_MAX_CHARS, and relays one just under it', () => {
+        const { pA, pB } = pairInRoom();
+        handleSignal(pA, { type: 'offer', sdp: 'x'.repeat(SIGNAL_MAX_CHARS) }, null);
+        assert.equal(pB.msgs.length, 0);
+        // Escapes count as the target receives them: 12,000 quotes are 24,000 characters.
+        handleSignal(pA, { type: 'offer', sdp: '"'.repeat(SIGNAL_MAX_CHARS / 2) }, null);
+        assert.equal(pB.msgs.length, 0);
+        handleSignal(pA, { type: 'offer', sdp: 'x'.repeat(SIGNAL_MAX_CHARS - 100) }, null);
+        assert.equal(pB.msgs.length, 1);
+    });
+
+    it('drops a signal holding binary, as a Socket.IO attachment arrives, or any object that is not plain JSON', () => {
+        const { pA, pB } = pairInRoom();
+        for (const signal of [
+            { type: 'offer', sdp: Buffer.alloc(16) },
+            { type: 'offer', sdp: new Uint8Array(16) },
+            { type: 'offer', sdp: new ArrayBuffer(16) },
+            { type: 'offer', sdp: new Date(0) },
+            { type: 'offer', sdp: new Map() },
+            Buffer.from('{"type":"offer"}'),
+        ]) handleSignal(pA, signal, null);
+        assert.equal(pB.msgs.length, 0);
+    });
+
+    it('drops a signal nested deeper than SIGNAL_MAX_DEPTH, without a throw', () => {
+        const { pA, pB } = pairInRoom();
+        let deep = { type: 'offer' };
+        for (let i = 0; i < 5000; i++) deep = [deep];
+        assert.doesNotThrow(() => handleSignal(pA, { type: 'offer', nest: deep }, null));
+        let edge = 'x';
+        for (let i = 0; i < SIGNAL_MAX_DEPTH; i++) edge = [edge];
+        handleSignal(pA, { type: 'offer', nest: edge }, null);
+        assert.equal(pB.msgs.length, 0);
     });
 });
 
@@ -2267,6 +2342,7 @@ function resetRequestState(on = true) {
     rooms.clear();
     roomMeta.clear();
     if (requestRoomIds) requestRoomIds.clear();
+    if (usedMarkers) usedMarkers.clear();
     if (endedLinks) endedLinks.clear();
     if (liveByKey) liveByKey.clear();
     requestCreates.clear();
@@ -2278,8 +2354,8 @@ function resetRequestState(on = true) {
     policyStore.apply({ requestLinks: on });
 }
 
-function hostJoin(peer, token, now) {
-    handleHostJoin(peer, roomIdFromToken(token), token, now);
+function hostJoin(peer, token, now, endsIn) {
+    handleHostJoin(peer, roomIdFromToken(token), token, now, endsIn);
     return peer.msgs[peer.msgs.length - 1];
 }
 
@@ -3898,47 +3974,77 @@ describe('request rooms: a used link (D-130)', () => {
         // First in the Map, a planted marker whose room array makes
         // endReservation throw; the real marker after it must still go.
         roomMeta.set('planted-used', { kind: 'request', sealed: true, used: true, closedAt: 0 });
-        requestRoomIds.add('planted-used');
+        usedMarkers.set('planted-used', 0);
         rooms.set('planted-used', [null]);
         const { id } = usedRequestLink(CLOSED);
         assert.equal(roomMeta.get(id).used, true);
         assert.doesNotThrow(() => cleanupTick(CLOSED + REQUEST_USED_MARKER_MS + 1));
         assert.equal(roomMeta.has(id), false, 'the sweep went on past the bad entry');
         roomMeta.delete('planted-used');
-        requestRoomIds.delete('planted-used');
+        usedMarkers.delete('planted-used');
         rooms.delete('planted-used');
     });
 
-    it('the request-room count stays exact across mark, sweep and cap, and a marker counts toward MAX_REQUEST_ROOMS', () => {
-        const check = (what) => assert.equal(requestRoomIds.size, countRequestRooms(), what);
+    it('the request-room and marker counts stay exact across mark, sweep and cap, and a marker holds no MAX_REQUEST_ROOMS slot (W3 R1-01)', () => {
+        const check = (what) => {
+            assert.equal(requestRoomIds.size, countRequestRooms(), `${what}: live`);
+            assert.equal(usedMarkers.size, countUsedMarkers(), `${what}: markers`);
+        };
         const used = usedRequestLink(CLOSED, 'k1', 'k1v');
         check('a sealed close');
-        assert.ok(requestRoomIds.has(used.id), 'the marker keeps its slot');
-        assert.equal(requestRoomIds.size, 1);
+        assert.equal(requestRoomIds.has(used.id), false, 'the marker gives its slot back');
+        assert.equal(usedMarkers.get(used.id), CLOSED);
         const waiting = pairedRequestRoom('k2', 'k2v');
         handleRequestControl(waiting.host, 'request-close', waiting.id, CLOSED);
         check('an unsealed close');
-        assert.equal(requestRoomIds.size, 1);
+        assert.equal(requestRoomIds.size, 0);
+        assert.equal(usedMarkers.size, 1);
 
         // The cap: planted live reservations (host seated, young, so no sweep
-        // ends them) and the one marker fill it exactly.
-        for (let i = 1; i < MAX_REQUEST_ROOMS; i++) {
+        // ends them) fill it exactly, beside the marker.
+        for (let i = 0; i < MAX_REQUEST_ROOMS; i++) {
             roomMeta.set(`fill-${i}`, { keys: new Set(), kind: 'request', hostPeerId: `planted-${i}`, hostAbsentSince: null, createdAt: CLOSED, sealed: false });
             requestRoomIds.add(`fill-${i}`);
         }
         check('full');
-        assert.equal(requestRoomIds.size, MAX_REQUEST_ROOMS);
         const t = newToken();
         assert.deepEqual(hostJoin(makePeer('late', 'k3'), t, CLOSED + 1), { type: 'refused', data: { code: 'busy' } });
         assert.equal(roomMeta.has(roomIdFromToken(t)), false);
 
-        // The sweep frees the marker's slot, and only that one.
+        // The marker's sweep frees no slot; a live end does.
         cleanupTick(CLOSED + REQUEST_USED_MARKER_MS + 1);
         check('the marker sweep');
-        assert.equal(requestRoomIds.size, MAX_REQUEST_ROOMS - 1);
-        assert.deepEqual(hostJoin(makePeer('later', 'k3'), t, CLOSED + REQUEST_USED_MARKER_MS + 2), { type: 'room-joined', data: { role: 'host' } });
+        assert.equal(roomMeta.has(used.id), false);
+        assert.equal(usedMarkers.size, 0);
+        assert.equal(requestRoomIds.size, MAX_REQUEST_ROOMS);
+        endReservation('fill-0', CLOSED + REQUEST_USED_MARKER_MS + 2);
+        check('a live end');
+        assert.deepEqual(hostJoin(makePeer('later', 'k3'), t, CLOSED + REQUEST_USED_MARKER_MS + 3), { type: 'room-joined', data: { role: 'host' } });
         check('a create into the freed slot');
         assert.equal(requestRoomIds.size, MAX_REQUEST_ROOMS);
+    });
+
+    it('used markers stay bounded: past REQUEST_USED_MAX the oldest is forgotten, answers host-absent and can be made again (W3 R1-01)', () => {
+        assert.equal(REQUEST_USED_MAX, 2 * MAX_REQUEST_ROOMS);
+        const oldest = usedRequestLink(CLOSED, 'k-old', 'k-old-v');
+        for (let i = 1; i < REQUEST_USED_MAX; i++) {
+            roomMeta.set(`marker-${i}`, { kind: 'request', sealed: true, used: true, closedAt: CLOSED + 1 });
+            usedMarkers.set(`marker-${i}`, CLOSED + 1);
+        }
+        assert.equal(usedMarkers.size, REQUEST_USED_MAX);
+        const newest = usedRequestLink(CLOSED + 2, 'k-new', 'k-new-v');
+        assert.equal(usedMarkers.size, REQUEST_USED_MAX);
+        assert.equal(countUsedMarkers(), REQUEST_USED_MAX);
+        assert.equal(roomMeta.has(oldest.id), false, 'the oldest is forgotten');
+        assert.equal(usedMarkers.has(oldest.id), false);
+        assert.equal(roomMeta.get('marker-1').used, true, 'and only the oldest');
+        assert.equal(roomMeta.get(newest.id).used, true);
+        const v = makePeer('v', 'k-v');
+        handleRequestJoin(v, oldest.id, CLOSED + 3);
+        assert.deepEqual(v.msgs.pop(), { type: 'host-absent', data: {} });
+        handleRequestJoin(v, newest.id, CLOSED + 4);
+        assert.deepEqual(v.msgs.pop(), { type: 'room-full', data: {} });
+        assert.deepEqual(hostJoin(makePeer('back', 'k-old'), oldest.token, CLOSED + 5), { type: 'room-joined', data: { role: 'host' } });
     });
 
     // A pair that has signaled both ways, so its room is sealed (D-116), with
@@ -4031,7 +4137,13 @@ describe('request rooms: a used link (D-130)', () => {
         assert.equal(old.host.roomId, null);
         assert.equal(old.visitor.roomId, null);
         assert.equal(old.host.msgs.length + old.visitor.msgs.length, 0, 'silently');
-        assertEndedWithoutMarker(old, ageEnd, 'the age ceiling');
+        // No link outlives the age ceiling, so it answers link-ended (W3 R1-02):
+        // an ended link, never a used marker, and its token still re-creates it.
+        assert.equal(roomMeta.has(old.id), false, 'the age ceiling');
+        assert.equal(requestRoomIds.has(old.id), false, 'the age ceiling: its slot is free');
+        const probe = makePeer('probe-old', 'k-probe');
+        handleRequestJoin(probe, old.id, ageEnd + 1);
+        assert.deepEqual(probe.msgs, [{ type: 'link-ended', data: {} }], 'the age ceiling: request-join');
         assertRecreated(old, 'ko', ageEnd + 10, 'the age ceiling');
     });
 
@@ -4262,6 +4374,22 @@ describe('request rooms: ended links, the per-network cap and squatters (D-176)'
         assert.equal(createsInWindow('k-fresh', T), 0);
     });
 
+    it('used links hold no MAX_REQUEST_ROOMS slot: 250 networks spending their day on used links leave room for a new one (W3 R1-01)', () => {
+        // Each network makes its 20, seats its own visitor, signals both ways
+        // and closes: no socket held, every link a used marker for a day.
+        const networks = MAX_REQUEST_ROOMS / REQUEST_CREATES_PER_DAY;
+        let last;
+        for (let k = 0; k < networks; k++) {
+            for (let i = 0; i < REQUEST_CREATES_PER_DAY; i++) last = usedRequestLink(T + 5_000, `k-flood-${k}`, `k-flood-${k}-v`);
+        }
+        assert.equal(liveByKey.size, 0, 'nobody holds a live link');
+        assert.equal(requestRoomIds.size, countRequestRooms());
+        const v = makePeer('v', 'k-v');
+        handleRequestJoin(v, last.id, T + 6_000);
+        assert.deepEqual(v.msgs.pop(), { type: 'room-full', data: {} }, 'a used link still says so');
+        assert.deepEqual(waitingLink('k-fresh', T + 7_000).reply, { type: 'room-joined', data: { role: 'host' } });
+    });
+
     it('the token holder wins its derived id back from an ordinary room squatting on it', () => {
         const { token, id, host } = waitingLink('k-host');
         // The reservation lapses (a restart, or the host away past the grace).
@@ -4290,5 +4418,93 @@ describe('request rooms: ended links, the per-network cap and squatters (D-176)'
         const back = makePeer('back', 'k-host');
         assert.deepEqual(hostJoin(back, token, T + 10), { type: 'room-joined', data: { role: 'host' } });
         assert.equal(squatter.roomId, id.toUpperCase(), 'its own room is untouched');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// W3 R1-02: a link that ends while its host is away. Only request-close left an
+// ended link (D-176), so a desktop asleep, offline or off at its link's end
+// left visitors on host-absent ("They may have closed Floe") with a Try again
+// that could never work. The host join names the link's remaining life
+// (endsIn), and the server keeps that end past the reservation.
+// ---------------------------------------------------------------------------
+
+describe('request rooms: a link that ends while its host is away (W3 R1-02)', () => {
+    beforeEach(() => resetRequestState(true));
+    after(() => resetRequestState(false));
+
+    const T = RQ_T0;
+    const HOUR = 60 * 60 * 1000;
+
+    function link(key, endsIn, at = T) {
+        const token = newToken();
+        const id = roomIdFromToken(token);
+        const host = makePeer(`host-${randomUUID()}`, key);
+        const reply = hostJoin(host, token, at, endsIn);
+        return { token, id, host, reply };
+    }
+
+    function answer(id, at) {
+        const v = makePeer(`v-${randomUUID()}`, 'k-visitor');
+        handleRequestJoin(v, id, at);
+        return v.msgs.pop();
+    }
+
+    it('keeps the end it was given, in server time', () => {
+        const { id, reply } = link('k-host', HOUR);
+        assert.deepEqual(reply, { type: 'room-joined', data: { role: 'host' } });
+        assert.equal(roomMeta.get(id).endsAt, T + HOUR);
+    });
+
+    it('a reservation the grace forgot answers host-absent before its end and link-ended from it, for a day', () => {
+        const { id, host } = link('k-host', HOUR);
+        handleDisconnect(host, T + 1_000);
+        cleanupTick(T + 1_000 + REQUEST_GRACE_MS + 61_000);
+        assert.equal(roomMeta.has(id), false, 'the grace forgot the reservation');
+        assert.deepEqual(answer(id, T + HOUR - 1), { type: 'host-absent', data: {} }, 'before its end the host may come back');
+        assert.deepEqual(answer(id, T + HOUR), { type: 'link-ended', data: {} });
+        cleanupTick(T + HOUR + REQUEST_ENDED_MARKER_MS + 61_000);
+        assert.deepEqual(answer(id, T + HOUR + REQUEST_ENDED_MARKER_MS + 62_000), { type: 'host-absent', data: {} }, 'a day after its end');
+    });
+
+    it('a reservation still in its grace answers link-ended once its end has passed', () => {
+        const { id, host } = link('k-host', HOUR);
+        handleDisconnect(host, T + HOUR - 60_000);
+        assert.deepEqual(answer(id, T + HOUR - 1), { type: 'host-absent', data: {} });
+        assert.deepEqual(answer(id, T + HOUR + 1), { type: 'link-ended', data: {} });
+    });
+
+    it('its host coming back before the end makes it again, and nothing says ended', () => {
+        const { id, token, host } = link('k-host', HOUR);
+        handleDisconnect(host, T);
+        cleanupTick(T + REQUEST_GRACE_MS + 61_000);
+        const back = makePeer('back', 'k-host');
+        const at = T + REQUEST_GRACE_MS + 62_000;
+        assert.deepEqual(hostJoin(back, token, at, T + HOUR - at), { type: 'room-joined', data: { role: 'host' } });
+        assert.equal(endedLinks.has(id), false);
+        assert.deepEqual(answer(id, at + 1_000), { type: 'request-joined', data: { role: 'visitor' } });
+    });
+
+    it('past the age ceiling every link has ended, whether or not its host named an end', () => {
+        const named = link('k-one', HOUR);
+        const unnamed = link('k-two', undefined);
+        cleanupTick(T + REQUEST_MAX_AGE_MS + 61_000);
+        assert.deepEqual(answer(unnamed.id, T + REQUEST_MAX_AGE_MS + 62_000), { type: 'link-ended', data: {} });
+        // An end named long ago has had its day.
+        assert.deepEqual(answer(named.id, T + REQUEST_MAX_AGE_MS + 62_000), { type: 'host-absent', data: {} });
+    });
+
+    it('an endsIn the server cannot use is ignored, as an older desktop\'s missing one is', () => {
+        const bad = ['3600000', -1, 0, 1.5, NaN, Infinity, REQUEST_MAX_AGE_MS + 1, null, { valueOf: () => HOUR }, [HOUR]];
+        bad.forEach((endsIn, i) => {
+            const { id, reply } = link(`k-bad-${i}`, endsIn);
+            assert.deepEqual(reply, { type: 'room-joined', data: { role: 'host' } }, String(endsIn));
+            assert.equal(roomMeta.get(id).endsAt, null, String(endsIn));
+        });
+        // A reclaim never moves the end.
+        const { id, token, host } = link('k-host', HOUR);
+        handleDisconnect(host, T + 1_000);
+        assert.deepEqual(hostJoin(makePeer('back', 'k-host'), token, T + 2_000, 7 * 24 * HOUR), { type: 'room-joined', data: { role: 'host' } });
+        assert.equal(roomMeta.get(id).endsAt, T + HOUR);
     });
 });

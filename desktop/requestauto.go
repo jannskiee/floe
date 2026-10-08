@@ -53,6 +53,7 @@ type requestSpace struct {
 	freeKnown    bool  // DiskFree answered with no error and not -1 (G5)
 	capacity     int64 // the volume's size; 0 when it could not be read (G13 then asks)
 	namedStreams bool  // the volume positively keeps the downloaded-file mark (G6)
+	markKnown    bool  // the volume answered the mark question in time (W3 R2-08)
 }
 
 // requestSpaceFor asks the save folder's volume, through the nearest folder
@@ -70,7 +71,8 @@ func requestSpaceFor(saveDir string, pr RequestPrompt) requestSpace {
 	}
 	size := make(chan int64, 1)
 	go func() { size <- volumeCapacity(dir) }()
-	sp.namedStreams = !volumeLacksMark(dir)
+	carries, known := volumeMark(dir)
+	sp.namedStreams, sp.markKnown = known && carries, known
 	sp.capacity = <-size
 	return sp
 }
@@ -148,12 +150,13 @@ func autoFloor(capacity int64) int64 {
 
 // autoAskReason names why a drop that carried no warning still asked on a
 // link that accepts automatically (D-176): the volume could not be read (G5,
-// or G13 without its size), it cannot keep the downloaded-file mark (G6), or
-// the floor (G13). The prompt draws one gray line for it, so an owner who
-// turned Auto-accept on learns why this drop waits for them.
+// G13 without its size, or G6 without an answer, W3 R2-08), it cannot keep the
+// downloaded-file mark (G6), or the floor (G13). The prompt draws one gray
+// line for it, so an owner who turned Auto-accept on learns why this drop
+// waits for them.
 func autoAskReason(sp requestSpace) string {
 	switch {
-	case !sp.freeKnown || sp.capacity <= 0:
+	case !sp.freeKnown || sp.capacity <= 0 || !sp.markKnown:
 		return "auto-unknown"
 	case !sp.namedStreams:
 		return "auto-no-mark"

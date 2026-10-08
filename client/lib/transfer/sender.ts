@@ -100,8 +100,8 @@ export interface SenderDeps {
     // behind hashBlob. A rejection, or a synchronous throw, is read as null.
     hashBlob?: (blob: Blob, signal?: AbortSignal) => Promise<string | null>;
     // How long a digest may take for a file of this many bytes before the end
-    // frame goes out without one. Overridable as on the receiver, so a test can
-    // make the bound fire.
+    // frame goes out without one, capped at END_DIGEST_WAIT_MS after the last
+    // chunk. Overridable as on the receiver, so a test can make the bound fire.
     hashBoundMs?: (bytes: number) => number;
 }
 

@@ -166,6 +166,10 @@ func TestExecuteKeepsCobrasOwnOutput(t *testing.T) {
 			t.Errorf("floe %s printed %q, want %q", strings.Join(c.args, " "), got, c.want)
 		}
 	}
+	// help keeps cobra's own answer for a topic that is not a request link.
+	if stdout, stderr, _ := runArgsAll(t, "help", "nope"); !strings.Contains(stdout+stderr, "Unknown help topic") {
+		t.Errorf("floe help nope lost cobra's answer:\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+	}
 }
 
 // TestRequestLinkTypedAsTheCommandIsNeverPrintedBack (FU-53, FU-46 review 1
@@ -191,6 +195,13 @@ func TestRequestLinkTypedAsTheCommandIsNeverPrintedBack(t *testing.T) {
 		run{"after a root flag", []string{"--no-relay", shapes["a whole link"]}},
 		run{"after --server and its value", []string{"--server", closedServer, shapes["a whole link"]}},
 		run{"with --help after it", []string{shapes["a whole link"], "--help"}},
+		// deep QA A3-07: cobra's help answers an unknown topic with the link quoted.
+		run{"after help", []string{"help", shapes["a whole link"]}},
+		run{"after --server, its value and help", []string{"--server", closedServer, "help", shapes["a whole link"]}},
+		// W3 R5-08: cobra drops a lone dash and an empty argument before it
+		// looks for the command.
+		run{"after a lone dash and help", []string{"-", "help", shapes["a whole link"]}},
+		run{"after an empty argument and help", []string{"", "help", shapes["a whole link"]}},
 	)
 	for _, r := range runs {
 		t.Run(r.name, func(t *testing.T) {

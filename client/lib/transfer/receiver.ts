@@ -40,7 +40,8 @@ export interface ReceiverDeps {
     // Worker behind hashBlob. A rejection, or a synchronous throw, is read as null.
     hashBlob?: (blob: Blob, signal?: AbortSignal) => Promise<string | null>;
     // How long a digest may take for a file of this many bytes before the file
-    // is kept unverified instead.
+    // is kept unverified instead, capped at POST_END_HASH_WAIT_MS for every
+    // file but the last of a batch.
     hashBoundMs?: (bytes: number) => number;
 }
 

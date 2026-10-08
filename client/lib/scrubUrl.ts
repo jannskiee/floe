@@ -101,6 +101,7 @@ export interface ScrubbableTransaction {
     transaction?: string;
     contexts?: { trace?: { data?: Record<string, unknown> } };
     spans?: ScrubbableSpan[];
+    breadcrumbs?: unknown;
 }
 
 // Scrubs the room secret out of one span, in place: its description, its URL
@@ -143,13 +144,18 @@ export function scrubTransactionEvent<T extends ScrubbableTransaction>(event: T)
     if (event.request?.url) event.request.url = scrubUrl(event.request.url);
     scrubAttributes(event.contexts?.trace?.data);
     for (const span of event.spans ?? []) scrubSpanJson(span);
+    // A transaction carries the scope's breadcrumbs as an error does
+    // (applyScopeDataToEvent), and the browser hook no longer walks a logged
+    // object (W3 R5-01): what is in one is scrubbed here, on the SDK's copy.
+    if (Array.isArray(event.breadcrumbs)) event.breadcrumbs = event.breadcrumbs.map((crumb: unknown) => scrubEventBreadcrumb(crumb));
     return event;
 }
 
 export interface ScrubbableErrorEvent {
     request?: { url?: string };
     transaction?: string;
-    exception?: { values?: { stacktrace?: { frames?: { filename?: string; abs_path?: string }[] } }[] };
+    exception?: { values?: { value?: string; stacktrace?: { frames?: { filename?: string; abs_path?: string }[] } }[] };
+    breadcrumbs?: unknown;
 }
 
 // Scrubs the room secret and the request-link id out of an error event, in
@@ -160,7 +166,11 @@ export interface ScrubbableErrorEvent {
 // not the parameterized name a pageload gets, so it takes the transaction-name
 // rule. V8 names an inline script's frames after the document URL without its
 // fragment, so a frame thrown from one on /r carries the path too; frames from
-// bundle chunks hold no /r segment and come back as they were.
+// bundle chunks hold no /r segment and come back as they were. An exception's
+// value and the event's breadcrumbs are text anything on the page can write (a
+// third-party or extension script that logs location.href or the link), so the
+// value takes the free-text rule and each breadcrumb scrubEventBreadcrumb's
+// (deep QA A4-06, W3 R5-04).
 //
 // It never throws, whatever the shape: beforeSend drops an event whose hook
 // throws, and a scrub has no business losing an error report. A value, a
@@ -169,10 +179,13 @@ export interface ScrubbableErrorEvent {
 export function scrubErrorEvent<T extends ScrubbableErrorEvent>(event: T): T {
     if (typeof event.request?.url === 'string') event.request.url = scrubUrl(event.request.url);
     if (typeof event.transaction === 'string') event.transaction = scrubTransactionName(event.transaction);
+    if (Array.isArray(event.breadcrumbs)) event.breadcrumbs = event.breadcrumbs.map((crumb: unknown) => scrubEventBreadcrumb(crumb));
     const values: unknown = event.exception?.values;
     if (!Array.isArray(values)) return event;
     for (const value of values) {
-        if (!isObject(value) || !isObject(value.stacktrace)) continue;
+        if (!isObject(value)) continue;
+        if (typeof value.value === 'string') value.value = scrubText(value.value);
+        if (!isObject(value.stacktrace)) continue;
         const frames = value.stacktrace.frames;
         if (!Array.isArray(frames)) continue;
         for (const frame of frames) {
@@ -269,16 +282,71 @@ function scrubServerRequest(event: ScrubbableServerRequest): void {
     }
 }
 
-// The server and edge configs have no beforeBreadcrumb, and both event kinds
-// carry the scope's breadcrumbs: a console breadcrumb holds whatever was
-// logged, a Next render fault's stack included. url, to and from in data take
-// request.url's rule, as the browser's beforeBreadcrumb does; every other
-// string, the message and each console argument included, takes the
-// description rule. A breadcrumb list of a shape the SDK does not write is
-// deleted, and a value nested deeper than the SDK's own normalization leaves
-// one is dropped rather than walked.
+// A console breadcrumb holds whatever was logged, a Next render fault's stack
+// included, and the SDK's own sentry.event breadcrumb holds "Type: value" of an
+// earlier error: neither went through any rule before deep QA A4-06. Two
+// passes now cover them, because the two places a breadcrumb is seen hold
+// different things.
+//
+// beforeBreadcrumb (the browser) gets the breadcrumb as it is made, and
+// @sentry/browser 10.72.0 puts the page's own console arguments in its data,
+// live, before the real console call: a logged object there is the app's own
+// state. Walking it took a share link in state down to its path and a deep
+// object's leaves to undefined, threw on a frozen object or a getter, and in a
+// probe left the page's React tree dead after one console.log(button) (W3
+// R5-01). So scrubBreadcrumb touches only what the SDK made: the message, url,
+// to and from, and each logged string, in a new arguments array.
+//
+// An event about to be sent carries a normalized copy of every breadcrumb's
+// data (prepareEvent's normalizeEvent, before beforeSend and
+// beforeSendTransaction), so there every string at any depth is scrubbed, by
+// copying: scrubEventBreadcrumb, used by the browser's and the server's event
+// hooks alike. A breadcrumb list of a shape the SDK does not write is deleted
+// on the server, and a value nested deeper than the SDK's own normalization
+// leaves one is dropped rather than walked.
 const BREADCRUMB_URL_KEYS = ['url', 'to', 'from'] as const;
 const MAX_BREADCRUMB_DEPTH = 8;
+
+/** One breadcrumb as beforeBreadcrumb sees it: its message and every logged
+ *  string take the free-text rule, and url, to and from in data request.url's.
+ *  A logged object is never walked or written to. Never throws. */
+export function scrubBreadcrumb<T>(crumb: T): T {
+    if (!isObject(crumb)) return crumb;
+    const c: Record<string, unknown> = crumb;
+    try {
+        if (typeof c.message === 'string') c.message = scrubText(c.message);
+        const data = c.data;
+        if (isObject(data) && !Array.isArray(data)) {
+            for (const key of BREADCRUMB_URL_KEYS) {
+                const value = data[key];
+                if (typeof value === 'string') data[key] = scrubUrl(value);
+            }
+            const args = data.arguments;
+            if (Array.isArray(args)) {
+                data.arguments = args.map((arg: unknown) => (typeof arg === 'string' ? scrubText(arg) : arg));
+            }
+        }
+    } catch {
+        // A breadcrumb the SDK did not shape is left as it is.
+    }
+    return crumb;
+}
+
+/** One breadcrumb of an event about to be sent: a copy in which url, to and
+ *  from in data take request.url's rule and every other string, at any depth,
+ *  the free-text rule. Never throws, and writes into nothing it did not make. */
+function scrubEventBreadcrumb(crumb: unknown): unknown {
+    const out = scrubCopy(crumb, 0);
+    const data = isObject(crumb) ? crumb.data : undefined;
+    const copied = isObject(out) ? out.data : undefined;
+    if (isObject(data) && !Array.isArray(data) && isObject(copied) && !Array.isArray(copied)) {
+        for (const key of BREADCRUMB_URL_KEYS) {
+            const value = data[key];
+            if (typeof value === 'string') copied[key] = scrubUrl(value);
+        }
+    }
+    return out;
+}
 
 function scrubBreadcrumbs(event: ScrubbableServerRequest): void {
     const crumbs: unknown = event.breadcrumbs;
@@ -287,26 +355,23 @@ function scrubBreadcrumbs(event: ScrubbableServerRequest): void {
         delete event.breadcrumbs;
         return;
     }
-    event.breadcrumbs = crumbs.map((crumb: unknown) => {
-        const data = isObject(crumb) ? crumb.data : undefined;
-        if (isObject(data) && !Array.isArray(data)) {
-            for (const key of BREADCRUMB_URL_KEYS) {
-                const value = data[key];
-                if (typeof value === 'string') data[key] = scrubUrl(value);
-            }
-        }
-        // The description rule leaves the URLs just scrubbed as they are.
-        return scrubStrings(crumb, 0);
-    });
+    event.breadcrumbs = crumbs.map((crumb: unknown) => scrubEventBreadcrumb(crumb));
 }
 
-function scrubStrings(value: unknown, depth: number): unknown {
-    if (typeof value === 'string') return scrubDescription(value);
+// A copy of value with every string scrubbed by the free-text rule. A property
+// that throws when read, or anything past MAX_BREADCRUMB_DEPTH, is left out.
+function scrubCopy(value: unknown, depth: number): unknown {
+    if (typeof value === 'string') return scrubText(value);
     if (!isObject(value)) return value;
     if (depth >= MAX_BREADCRUMB_DEPTH) return undefined;
-    if (Array.isArray(value)) return value.map((item: unknown) => scrubStrings(item, depth + 1));
-    for (const key of Object.keys(value)) value[key] = scrubStrings(value[key], depth + 1);
-    return value;
+    try {
+        if (Array.isArray(value)) return value.map((item: unknown) => scrubCopy(item, depth + 1));
+        const out: Record<string, unknown> = {};
+        for (const key of Object.keys(value)) out[key] = scrubCopy(value[key], depth + 1);
+        return out;
+    } catch {
+        return undefined;
+    }
 }
 
 // A query parameter or fragment key named room, the legacy and the current
@@ -358,6 +423,29 @@ function scrubDescription(description: string): string {
                 ? (scrubUrl(token) ?? '')
                 : token
         )
+        .join('');
+}
+
+// Free text (an exception's value, a breadcrumb's message, a logged string):
+// the description rule, except that a token that is only URL-shaped because
+// it starts with '#' is rewritten only when it is a fragment parameter
+// (#room=, #k=) or a room id (W3 R5-04). "React error #418", "member #peer"
+// and "token # in JSON" are not link fragments, and the description rule
+// turned each into "/".
+const FRAGMENT_SECRET = /^#(?:[a-z][a-z0-9_]*=|[0-9a-f]{8}-[0-9a-f]{4}-)/i;
+
+function scrubText(text: string): string {
+    if (!mayHoldSecret(text)) return text;
+    return text
+        .split(/(\s+)/)
+        .map((token) => {
+            if (!mayHoldSecret(token)) return token;
+            const urlish =
+                EMBEDDED_URL.test(token) ||
+                ROOM_PARAM.test(token) ||
+                (URL_TOKEN.test(token) && (!token.startsWith('#') || FRAGMENT_SECRET.test(token)));
+            return urlish ? (scrubUrl(token) ?? '') : token;
+        })
         .join('');
 }
 

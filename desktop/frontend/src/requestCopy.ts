@@ -45,7 +45,7 @@ export const READY_HIDE_IP_LINE = 'Hide my IP limits drops to 2 GB'; // R17
 // belongs to the LINK ENDS group.
 export const AUTO_ACCEPT_LABEL = 'Auto-accept'; // R29, the checkbox's accessible name
 export const READY_AUTO_LINE = 'Anyone with this link can send you files without asking'; // R30, amber, only while R29 is on
-export const AUTO_ACCEPT_TIP = 'Only turn this on if you trust everyone with the link'; // R31, the info tooltip's warning, amber with a caution icon
+export const AUTO_ACCEPT_TIP = 'Only turn this on if you trust everyone with the link'; // R31, the info tooltip's warning, amber, no icon (D-174, H10.2)
 export const AUTO_ACCEPT_TIP_DETAIL = 'Files save without asking, except in a few cases, like low space or a USB drive'; // R31a, its second line, gray (an open list: G4 to G13 ask in more cases than two)
 export const AUTO_ACCEPT_ABOUT = 'About Auto-accept'; // R32, the info icon's accessible name
 

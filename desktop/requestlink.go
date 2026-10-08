@@ -186,7 +186,7 @@ var requestDefaultDirFn = func() string {
 // joinWithTokenFn is the host join, a package var so tests can return any
 // result at once instead of waiting out the client's own 10 s reply timeout.
 // The lane arms no join timer of its own (M-04).
-var joinWithTokenFn = (*signaling.Client).JoinRoomWithToken
+var joinWithTokenFn = (*signaling.Client).JoinRoomWithTokenUntil
 
 // reqAnswer is one owner answer to one prompt, for the Decide callback.
 type reqAnswer struct {
@@ -269,6 +269,9 @@ type requestLane struct {
 	// live mirrors liveState(state) for readers that must not take mu: the
 	// close guard runs on the Windows message-pump thread.
 	live atomic.Bool
+	// holdsClose is live without "making", for the close guard alone: see
+	// closeGuardNow.
+	holdsClose atomic.Bool
 
 	// pairFn is the pairing body, run on user-connected by the goroutine that
 	// owns sc: runRequestDrop (S1-DSK-03b), through pairRequest. Its contract:
@@ -368,7 +371,8 @@ func requestLifetime(lifetime string) (time.Duration, bool) {
 }
 
 // liveState reports whether state means a link is being made, is open, or a
-// drop runs: the states the one-link rule and the close guard count.
+// drop runs: the states the one-link rule counts. The close guard counts the
+// same states but "making" (closeGuardNow, 0ce8486).
 func liveState(state string) bool {
 	switch state {
 	case "making", "waiting", "reconnecting", "connecting", "deciding", "declined", "receiving":
@@ -378,17 +382,29 @@ func liveState(state string) bool {
 }
 
 // liveNow reports whether a link is being made, is open, or a drop runs. It
-// reads the atomic only and never takes the lane mutex, so the close guard,
-// which runs on the Windows message-pump thread, can never wait on the lane.
-// Nil-safe.
+// reads the atomic only and never takes the lane mutex. The close guard reads
+// closeGuardNow since 0ce8486, and the one-link rule reads l.live under the
+// lane mutex, so only tests call this now. Nil-safe.
 func (l *requestLane) liveNow() bool {
 	return l != nil && l.live.Load()
 }
 
-// setStateLocked moves the lane to state with code and keeps live in step.
+// closeGuardNow reports whether the lane must hold a close for the Close Floe?
+// question: a link is open or a drop runs. A link still being made is not
+// one: nothing has been shared yet, closeForQuit ends the making, and the
+// question had no sentence for it, so it said "Closing Floe stops the
+// transfer" where there was none (deep QA A5-03). The one-link rule still
+// counts making (liveNow). Atomic only, like liveNow. Nil-safe.
+func (l *requestLane) closeGuardNow() bool {
+	return l != nil && l.holdsClose.Load()
+}
+
+// setStateLocked moves the lane to state with code and keeps live and
+// holdsClose in step.
 func (l *requestLane) setStateLocked(state, code string) {
 	l.state, l.code = state, code
 	l.live.Store(liveState(state))
+	l.holdsClose.Store(liveState(state) && state != "making")
 }
 
 // endLocked moves the lane to a terminal state and forgets the link's
@@ -692,6 +708,10 @@ func (a *App) MakeRequestLink(label string, saveDir string, lifetime string, aut
 		folderOK = false
 	} else if abs != "" {
 		saveDir = abs
+	} else {
+		// Only quotes, or a %NAME% set to nothing: the default, as for an
+		// empty field, never the raw text kept as a relative folder (W3 R2-02).
+		saveDir = requestDefaultDirFn()
 	}
 
 	l := a.lane()
@@ -839,7 +859,7 @@ func (a *App) runRequestLink(rg uint64, stop <-chan struct{}, hideIP bool, lifet
 	}
 
 	// g: the host join.
-	sc, res := a.hostJoin(rg, server, roomID, hostToken)
+	sc, res := a.hostJoin(rg, server, roomID, hostToken, expiresAt)
 	if sc == nil && res == 0 {
 		return // superseded while connecting
 	}
@@ -889,7 +909,11 @@ func (a *App) runRequestLink(rg uint64, stop <-chan struct{}, hideIP bool, lifet
 // during the join would write request-close while the join was still writing
 // the engine's room id: a data race, and a close frame naming no room that
 // leaves the reservation the join then takes for its grace (review 1a F4).
-func (a *App) hostJoin(rg uint64, server, roomID, hostToken string) (*signaling.Client, signaling.HostJoinResult) {
+//
+// The join names the time the link has left, so the server can tell a visitor
+// after expiresAt that the link has ended even when this PC is asleep, offline
+// or off then and sends no request-close (W3 R1-02).
+func (a *App) hostJoin(rg uint64, server, roomID, hostToken string, expiresAt time.Time) (*signaling.Client, signaling.HostJoinResult) {
 	sc, err := signaling.Connect(server, signaling.WithLiveness(requestPing, requestReadDeadline))
 	if err != nil {
 		if !a.requestActive(rg) {
@@ -901,7 +925,7 @@ func (a *App) hostJoin(rg uint64, server, roomID, hostToken string) (*signaling.
 		sc.Close()
 		return nil, 0
 	}
-	res, _ := joinWithTokenFn(sc, roomID, hostToken)
+	res, _ := joinWithTokenFn(sc, roomID, hostToken, time.Until(expiresAt))
 	if !a.setRequestSignaling(rg, sc) {
 		// rg ended during the join, which left the socket to this goroutine:
 		// free the reservation the join may have taken, then close it.
@@ -1084,7 +1108,7 @@ func (a *App) reconnect(rg uint64, stop <-chan struct{}, server, roomID, hostTok
 			a.reqUpdate(rg, func(l *requestLane) { l.endLocked("ended", "expired") })
 			return nil, attempt
 		}
-		sc, res := a.hostJoin(rg, server, roomID, hostToken)
+		sc, res := a.hostJoin(rg, server, roomID, hostToken, expiresAt)
 		if sc == nil && res == 0 {
 			return nil, attempt
 		}
@@ -1375,13 +1399,16 @@ func (a *App) openPrompt(rg uint64, p RequestPrompt) uint64 {
 
 // endPrompt is the end of a prompt that was not accepted: declined, timed
 // out, or the visitor left while the owner decided. The flash stops, the title
-// is Floe again, and the end is counted for E-40.
+// is Floe again, and the end is counted for E-40. The close hint (W13) is set
+// here too, so the second ended prompt suggests closing the link as the link
+// reopens; set only at the next openPrompt, it came one prompt late, and the
+// prompt it then sat on hid it (deep QA A5-05).
 func (a *App) endPrompt(rg uint64) {
 	l := a.lane()
 	l.mu.Lock()
 	if rg == l.gen {
 		l.promptEnds = append(l.promptEnds, l.now())
-		l.pruneEndsLocked()
+		l.suggestClose = l.pruneEndsLocked()
 	}
 	l.mu.Unlock()
 	a.attentionOff()
@@ -1468,10 +1495,12 @@ func (l *requestLane) pruneEndsLocked() bool {
 }
 
 // requestToast names one of the four fixed notifications the lane may send.
-// Nothing else can reach a Windows toast from this lane: go-toast falls back
-// to a PowerShell script on any COM error, where a visitor string could run
-// a command (spec 05 section 10, L14), so the text is a closed set of
-// constants and never the label, a name, a count or engine text.
+// Nothing else can reach a Windows toast from this lane: the text is a closed
+// set of constants and never the label, a name, a count or engine text (spec
+// 05 section 10, L14). The rule was born of go-toast's PowerShell fallback,
+// where a visitor string could have run a command; toast_windows.go never
+// engages that fallback now (deep QA A2-02), and the rule stands anyway: a
+// toast is no place for a stranger's words.
 type requestToast int
 
 const (

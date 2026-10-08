@@ -356,7 +356,7 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 		runtime.EventsEmit(a.ctx, event, payload)
 	}
 
-	abs, err := resolveSaveDir(outputDir)
+	abs, err := resolveReceiveDir(outputDir)
 	if err != nil {
 		return "", fmt.Errorf("cannot create output directory: %w", err)
 	}
@@ -753,9 +753,10 @@ func (a *App) requestDecide(rg uint64, p requestPairing, d *requestDrop, in tran
 	l.mu.Unlock()
 	at := now()
 	// The window runs from here, where answerBy is taken, not from after
-	// openPrompt's flash, title and toast (go-toast can fall back to a
-	// PowerShell run), so their time never comes out of the margin before the
-	// visitor's own ack timer (review 2a N3). The wall clock, not the lane's
+	// openPrompt's flash, title and toast (on Windows the toast is only queued
+	// since A2-02; the flash and title are still calls), so their time never
+	// comes out of the margin before the visitor's own ack timer (review 2a
+	// N3). The wall clock, not the lane's
 	// clock seam, times it.
 	opened := time.Now()
 	pr := requestPromptFor(p, in, d.route, at)
@@ -950,12 +951,22 @@ func (a *App) endRequestDrop(rg uint64, sc *signaling.Client, d *requestDrop, er
 // is opened (H7 S-7). Only a volume that positively says it keeps named
 // streams carries it: one that says no, and one that could not be asked, lack
 // it, so the Done view keeps its not-scanned line rather than hide it on a
-// guess. The question is a handle open on the volume, which a share that stops
-// answering holds for the SMB timeout, so it is asked on its own goroutine and
-// waited for only requestVolumeStreamsBound: a question that outlasts the bound
-// counts as unable. The answer channel has room for the late reply, so the
-// goroutine ends on its own and the reply is dropped; it touches no lane state.
+// guess.
 func volumeLacksMark(dir string) bool {
+	carries, known := volumeMark(dir)
+	return !known || !carries
+}
+
+// volumeMark asks whether files saved under dir can carry the downloaded-file
+// mark; known is false when the volume could not be asked, so an Auto-accept
+// prompt says Floe could not check the drive rather than that Windows cannot
+// mark files on it (W3 R2-08). The question is a handle open on the volume,
+// which a share that stops answering holds for the SMB timeout, so it is asked
+// on its own goroutine and waited for only requestVolumeStreamsBound: a
+// question that outlasts the bound has no answer. The answer channel has room
+// for the late reply, so the goroutine ends on its own and the reply is
+// dropped; it touches no lane state.
+func volumeMark(dir string) (carries, known bool) {
 	type answer struct {
 		carries bool
 		err     error
@@ -970,9 +981,12 @@ func volumeLacksMark(dir string) bool {
 	defer bound.Stop()
 	select {
 	case a := <-reply:
-		return a.err != nil || !a.carries
+		if a.err != nil {
+			return false, false
+		}
+		return a.carries, true
 	case <-bound.C:
-		return true
+		return false, false
 	}
 }
 
@@ -1078,6 +1092,20 @@ func requestLimits() *transfer.ReceiveLimits {
 	}
 }
 
+// promptBase is the save folder's own name for the prompt's folder line (P3),
+// or the volume itself for a drive or share root: filepath.Base of a root is a
+// bare separator, which drew "\Acme 2026-10-08 1405" for Save to D:\ (deep QA
+// A2-05). The volume keeps its separator so the join reads "D:\Acme ...".
+func promptBase(saveDir string) string {
+	base := filepath.Base(saveDir)
+	if base == string(filepath.Separator) {
+		if v := filepath.VolumeName(saveDir); v != "" {
+			return v + string(filepath.Separator)
+		}
+	}
+	return base
+}
+
 // requestPromptFor builds the Accept prompt from numbers and host values only
 // (OD-04, Q-C7): the visitor's counts, this PC's folder, clock and free space,
 // and warning codes. in.FirstName is never read.
@@ -1085,7 +1113,7 @@ func requestPromptFor(p requestPairing, in transfer.IncomingInfo, route string, 
 	pr := RequestPrompt{
 		Files:      in.Files,
 		TotalBytes: in.TotalBytes,
-		Folder:     filepath.Join(filepath.Base(p.saveDir), dropFolderName(p.label, now)),
+		Folder:     filepath.Join(promptBase(p.saveDir), dropFolderName(p.label, now)),
 		AnswerBy:   now.Add(requestDecideWindow).UnixMilli(),
 	}
 	// The drop folder does not exist yet, so the volume is asked through the

@@ -122,6 +122,18 @@ func WithLiveness(ping, readDeadline time.Duration) Option {
 	}
 }
 
+// maxServerMessage bounds one frame from the signaling server. gorilla's
+// default is no limit, and ReadMessage buffers a whole frame, so one huge
+// frame from a hostile server, or from anyone on a plain ws:// path, could
+// exhaust the memory of floe send, floe receive or a desktop holding a request
+// link for days (deep QA A3-06). A frame over it ends the connection the way
+// a drop does. The server relays a peer's signal only within 64 KiB as sent
+// (server.js signalFits, W3 R5 O-1), far under this. An older server
+// re-serializes whatever a peer sends and can grow a 1 MB frame past 4 MB, so
+// there a peer in the same room can end this side's connection (W3 R5-02):
+// the transfer it is part of, which it could also simply abandon.
+const maxServerMessage = 2 << 20
+
 // Connect opens a WebSocket connection to serverURL/ws.
 // serverURL may start with http://, https://, ws://, or wss://.
 func Connect(serverURL string, opts ...Option) (*Client, error) {
@@ -140,6 +152,7 @@ func Connect(serverURL string, opts ...Option) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot connect to signaling server at %s: %w", wsURL, err)
 	}
+	conn.SetReadLimit(maxServerMessage)
 
 	c := newClient(conn, cfg)
 
@@ -237,6 +250,9 @@ type hostJoinFrame struct {
 	Type      string `json:"type"`
 	RoomID    string `json:"roomId"`
 	HostToken string `json:"hostToken"`
+	// EndsIn is the link's remaining life in milliseconds, left out when not
+	// named (JoinRoomWithTokenUntil).
+	EndsIn int64 `json:"endsIn,omitempty"`
 }
 
 // HostJoinResult is the server's answer to JoinRoomWithToken. The zero value
@@ -322,6 +338,16 @@ func (r HostJoinResult) String() string {
 // error text contains the token. The token is not kept: it is written once
 // and dropped.
 func (c *Client) JoinRoomWithToken(roomId, hostToken string) (HostJoinResult, error) {
+	return c.JoinRoomWithTokenUntil(roomId, hostToken, 0)
+}
+
+// JoinRoomWithTokenUntil is JoinRoomWithToken naming the link's remaining
+// life, endsIn, in whole milliseconds (W3 R1-02). A server that reads it
+// answers a visitor who comes after the link's end with link-ended even when
+// this host is asleep, offline or off then and never sent request-close; a
+// server that predates it ignores the field. Under a millisecond names
+// nothing, and the frame is JoinRoomWithToken's.
+func (c *Client) JoinRoomWithTokenUntil(roomId, hostToken string, endsIn time.Duration) (HostJoinResult, error) {
 	derived := RoomIDFromToken(hostToken)
 	if derived == "" {
 		return HostInvalidToken, errHostTokenShape
@@ -331,7 +357,7 @@ func (c *Client) JoinRoomWithToken(roomId, hostToken string) (HostJoinResult, er
 	}
 
 	c.roomId = roomId
-	if err := c.writeJSON(hostJoinFrame{Type: "join-room", RoomID: roomId, HostToken: hostToken}); err != nil {
+	if err := c.writeJSON(hostJoinFrame{Type: "join-room", RoomID: roomId, HostToken: hostToken, EndsIn: max(endsIn.Milliseconds(), 0)}); err != nil {
 		return HostDown, fmt.Errorf("could not send the host join: %w", err)
 	}
 

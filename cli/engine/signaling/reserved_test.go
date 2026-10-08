@@ -175,6 +175,33 @@ func TestJoinRoomWithTokenTypedResults(t *testing.T) {
 	}
 }
 
+// W3 R1-02: the host join can name its link's remaining life, in whole
+// milliseconds after the token; with nothing named (or under a millisecond)
+// the frame is the one pinned above.
+func TestJoinRoomWithTokenUntilNamesTheLinksEnd(t *testing.T) {
+	for _, tc := range []struct {
+		endsIn time.Duration
+		field  string
+	}{
+		{90*time.Minute + 1500*time.Microsecond, `,"endsIn":5400001`},
+		{0, ""},
+		{-time.Second, ""},
+		{999 * time.Microsecond, ""},
+	} {
+		tok, room := tokenPair(t)
+		srv, frames := answerServer(t, `{"type":"room-joined","role":"host"}`)
+		c := dial(t, srv)
+		if got, err := c.JoinRoomWithTokenUntil(room, tok, tc.endsIn); got != HostJoined || err != nil {
+			t.Fatalf("endsIn %v: (%v, %v), want joined", tc.endsIn, got, err)
+		}
+		want := []byte(`{"type":"join-room","roomId":"` + room + `","hostToken":"` + tok + `"` + tc.field + `}` + wireEnd)
+		frame := frameWithin(t, frames, 3*time.Second)
+		if sha256.Sum256(frame) != sha256.Sum256(want) {
+			t.Fatalf("endsIn %v: join frame = %s, want %s", tc.endsIn, redact(frame, tok), redact(want, tok))
+		}
+	}
+}
+
 // E-59: a server from before reserved rooms treats a token join as a plain
 // join and seats the socket by join order, answering room-joined with role
 // sender (or receiver). That is the only negative signal it gives, so any

@@ -104,18 +104,18 @@ func (a *App) CancelTransfer() {
 }
 
 // closeBlocked reports whether quitting must be intercepted: a live,
-// uncancelled transfer is in flight, or a request link is being made, is open
-// or is receiving a drop, and the user has not yet said "Close anyway". Pure
-// state, testable on a bare &App{}. The lane is read through its atomic only,
-// never its mutex, and never while a.mu is held: this runs on the Windows
-// message-pump thread. With nothing live on any lane it returns false, which
-// keeps an unclosable window impossible.
+// uncancelled transfer is in flight, or a request link is open or receiving a
+// drop (not while it is only being made: closeGuardNow), and the user has not
+// yet said "Close anyway". Pure state, testable on a bare &App{}. The lane is
+// read through its atomic only, never its mutex, and never while a.mu is held:
+// this runs on the Windows message-pump thread. With nothing live on any lane
+// it returns false, which keeps an unclosable window impossible.
 func (a *App) closeBlocked() bool {
 	a.mu.Lock()
 	transfer := a.busy && !a.cancelled
 	allow := a.allowClose
 	a.mu.Unlock()
-	return !allow && (transfer || a.lane().liveNow())
+	return !allow && (transfer || a.lane().closeGuardNow())
 }
 
 // onBeforeClose is the Wails close hook, covering every close path (the
