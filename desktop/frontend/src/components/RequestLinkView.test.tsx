@@ -696,8 +696,9 @@ describe('the layout (D-136)', () => {
         const long = `D:\\Footage\\Floe requests\\${'A'.repeat(64)} 2026-09-14 1405`;
         const {rerender} = render(<RequestLinkView {...at('done')} snap={snap({state: 'done', result: {...result, folder: long}})}/>);
         const name = screen.getByTitle(long);
-        expect(name.textContent!.endsWith(' 2026-09-14 1405')).toBe(true);
-        expect(name.textContent!.length).toBeLessThanOrEqual(34);
+        expect(name.textContent!.endsWith('2026-09-14 1405')).toBe(true);
+        // 33 characters of 12 px mono fill the 238.63 px beside Show in folder.
+        expect(name.textContent!.length).toBeLessThanOrEqual(33);
         // A name that fits shows whole, and the title is still the full path.
         rerender(<RequestLinkView {...at('done')}/>);
         expect(screen.getByTitle(result.folder).textContent).toBe('Acme footage 2026-09-14 1405');

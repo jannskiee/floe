@@ -60,8 +60,11 @@ const t1Class = 'text-sm leading-normal text-zinc-200';
 const t2Class = 'text-xs leading-relaxed text-zinc-400';
 const t3Class = 'text-xs leading-relaxed text-zinc-500';
 const warnClass = 'text-xs leading-relaxed text-amber-300/80';
-// The Done folder name, in characters (12 px mono beside Show in folder).
-const DONE_FOLDER_MAX = 34;
+// The Done folder name, in characters (12 px mono beside Show in folder). The
+// walkthrough measured 7.2 px a character in a 238.63 px room, room for 33, so
+// 34 let CSS cut the very timestamp the middle cut keeps (deep QA L12
+// cell-08); 32 leaves a character of slack.
+const DONE_FOLDER_MAX = 32;
 // The SAVE TO field's text at rest, in characters. The card is 448 px at every
 // window size (max-w-lg less px-8), which leaves the field 270 px of text
 // beside Browse; QA-H6 capture 11 fit 40 characters of a typical path in
