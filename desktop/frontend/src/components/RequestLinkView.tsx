@@ -122,7 +122,7 @@ export default function RequestLinkView(props: RequestLinkViewProps) {
                     the sub-tab row right above already says it. */}
                 <p className={snap.label ? headClass : 'sr-only'}>{copy.linkHeading(snap.label)}</p>
                 <p className={t1Class}>{copy.endedLine(snap.code, snap.expiresAt)}</p>
-                <Button className="w-full" onClick={props.onMakeAnother}>{copy.MAKE_ANOTHER_LINK}</Button>
+                <Button id="floe-make-another" className="w-full" onClick={props.onMakeAnother}>{copy.MAKE_ANOTHER_LINK}</Button>
             </div>
         );
     }
@@ -334,7 +334,7 @@ function LinkBlock({phase, snap, onClose}: {phase: Phase; snap: RequestLinkSnaps
             <div className="flex gap-3">
                 {/* White only while the link waits: the view's one job then.
                     Once someone connects, Accept (or nothing) is the white one. */}
-                <Button variant={phase === 'waiting' ? 'primary' : 'secondary'} className="flex-1" onClick={copyLink}>{copied ? copy.COPIED : copy.COPY_LINK}</Button>
+                <Button id="floe-copy-link" variant={phase === 'waiting' ? 'primary' : 'secondary'} className="flex-1" onClick={copyLink}>{copied ? copy.COPIED : copy.COPY_LINK}</Button>
                 {/* The one Close link, on the right rail, in the same box in
                     every link phase (the prompt mounts below the hairline). */}
                 <Button id="floe-close-link" variant="secondary" className="min-w-24" onClick={onClose}>{copy.CLOSE_LINK}</Button>
@@ -360,7 +360,7 @@ function ActivitySlot(props: RequestLinkViewProps) {
                     <p className={t1Class}>{copy.DECLINED_LINE}</p>
                     <p className={t2Class}>{copy.DECLINED_QUESTION}</p>
                 </div>
-                <Button variant="outline" className="w-full" onClick={() => props.onAnswer(snap.promptGen, 'keep-waiting')}>{copy.KEEP_WAITING}</Button>
+                <Button id="floe-keep-waiting" variant="outline" className="w-full" onClick={() => props.onAnswer(snap.promptGen, 'keep-waiting')}>{copy.KEEP_WAITING}</Button>
             </div>
         );
     }
@@ -542,7 +542,7 @@ function Receiving({snap, progress, accepted, onCancelDrop}: RequestLinkViewProp
     return (
         <div className="space-y-4">
             <div className="space-y-2">
-                <p className={headClass}>{copy.receivingHeading(index, count, snap.label)}</p>
+                <p id="floe-receiving-heading" tabIndex={-1} className={cn(headClass, 'outline-none')}>{copy.receivingHeading(index, count, snap.label)}</p>
                 {folder && <p className={t2Class}>{copy.INTO} <span className={intoClass}>{folder}</span></p>}
             </div>
             <div className="space-y-2">
@@ -652,7 +652,7 @@ function Result({phase, snap, onMakeAnother, onShowInFolder}: RequestLinkViewPro
             )}
             {/* The one way out of a result (D-169). Outline, not white: the
                 result and Show in folder lead, the next link follows. */}
-            <Button variant="outline" className="w-full" onClick={onMakeAnother}>{copy.MAKE_ANOTHER_LINK}</Button>
+            <Button id="floe-make-another" variant="outline" className="w-full" onClick={onMakeAnother}>{copy.MAKE_ANOTHER_LINK}</Button>
             {confirming && (
                 <RenamedConfirm
                     onCancel={() => setConfirming(false)}

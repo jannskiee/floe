@@ -88,12 +88,18 @@ import {
     CLOSE_LINK_OPEN_LINE,
     CODE_PASTE_LINE,
     CODE_TAB,
+    DECLINED_LINE,
     KEEP_FLOE_OPEN,
     LINK_OPEN_DESCRIPTION,
     OPEN_IN_BROWSER,
     REQUEST_TAB,
     REQUEST_TAB_NAME,
     START_OVER_LINK_LINE,
+    STOPPED_HEADING,
+    WAITING_LINE,
+    doneHeading,
+    endedLine,
+    stoppedCard,
 } from './requestCopy';
 import {formatIncoming, type IncomingPreview} from './incoming';
 import {track, type Marker, type Prog} from './progress';
@@ -914,16 +920,27 @@ function App() {
     // A1 once per prompt, and the channel emptied between prompts so the next
     // one is a change the screen reader speaks. A2 comes from the view.
     const lastPromptGen = useRef(0);
+    const reqPrevState = useRef('');
     useEffect(() => {
-        if (reqUI.snap.state !== 'deciding') {
-            setReqAnnounce('');
+        const s = reqUI.snap;
+        const prev = reqPrevState.current;
+        reqPrevState.current = s.state;
+        if (s.state !== 'deciding') {
+            const r = s.result;
+            let line = '';
+            if (s.state === 'done' && r) line = doneHeading(r.saved, r.bytes);
+            else if (s.state === 'stopped' && r) line = `${STOPPED_HEADING}. ${stoppedCard(s.code, r.saved, r.files)}`;
+            else if (s.state === 'ended') line = endedLine(s.code, s.expiresAt);
+            else if (s.state === 'declined') line = DECLINED_LINE;
+            else if (s.state === 'waiting' && prev === 'making') line = WAITING_LINE;
+            setReqAnnounce(line);
             return;
         }
         if (reqUI.snap.promptGen !== lastPromptGen.current) {
             lastPromptGen.current = reqUI.snap.promptGen;
             setReqAnnounce(ANNOUNCE_REQUEST);
         }
-    }, [reqUI.snap.state, reqUI.snap.promptGen]);
+    }, [reqUI.snap.state, reqUI.snap.promptGen, reqUI.snap.gen]);
 
     // Persist only the transfer tabs; relaunching into History would be odd.
     useEffect(() => { if (mode !== 'history') localStorage.setItem('floe:mode', mode); }, [mode]);
@@ -1608,6 +1625,24 @@ function App() {
     const dropRelay = dropMoving && reqUI.snap.route === 'relay';
     const dropDirect = dropMoving && reqUI.snap.route === 'direct';
     const onRequestView = !settingsOpen && mode === 'receive' && receiveKind === 'request';
+    // A5-02: after the owner's own action unmounts the control they pressed,
+    // focus goes to the new state's own control (the undo bar's orphan rule:
+    // only when focus fell to the page). A change the owner did not cause
+    // moves nothing (spec 06 5.6).
+    const reqActed = useRef(false);
+    useEffect(() => {
+        if (!reqActed.current) return;
+        const target: Record<string, string> = {
+            waiting: 'floe-copy-link', reconnecting: 'floe-copy-link', connecting: 'floe-copy-link',
+            declined: 'floe-keep-waiting', receiving: 'floe-receiving-heading',
+            done: 'floe-make-another', stopped: 'floe-make-another', ended: 'floe-make-another', error: LABEL_INPUT_ID,
+        };
+        const id = target[reqPhase];
+        if (!id) return; // making, deciding: wait for the state the action leads to
+        reqActed.current = false;
+        if (document.activeElement && document.activeElement !== document.body) return;
+        requestAnimationFrame(() => document.getElementById(id)?.focus());
+    }, [reqPhase]);
     // On REQUEST LINK the card's top is one anchored spot for every state, so
     // a prompt mounting below cannot re-center it and move Close link
     // (VR3-D03), and no state starts the card higher or lower than another
@@ -1732,6 +1767,7 @@ function App() {
     // snapshot or is followed by request:state; nothing here decides a state.
     function makeRequestLink(label: string, lifetime: Lifetime, autoAccept: boolean) {
         dispatchReq({type: 'MAKE'});
+        reqActed.current = true;
         // Automatic only when the form's switch says so (D-173, G1).
         MakeRequestLink(label, requestSaveDir.trim(), lifetime, autoAccept === true)
             .then((s) => dispatchReq({type: 'SNAPSHOT', snap: normalizeSnapshot(s)}))
@@ -1739,6 +1775,7 @@ function App() {
             .finally(() => dispatchReq({type: 'MAKE_DONE'}));
     }
     function answerRequest(promptGen: number, answer: 'accept' | 'decline' | 'keep-waiting') {
+        reqActed.current = true;
         AnswerRequest(promptGen, answer).then((s) => dispatchReq({type: 'SNAPSHOT', snap: normalizeSnapshot(s)})).catch(() => {});
     }
     // The base folder is remembered when the owner types or picks one, and
@@ -2535,10 +2572,10 @@ function App() {
                                             saveDir={requestSaveDir}
                                             onSaveDirChange={changeRequestSaveDir}
                                             onMake={makeRequestLink}
-                                            onClose={() => { CloseRequestLink().catch(() => {}); }}
+                                            onClose={() => { reqActed.current = true; CloseRequestLink().catch(() => {}); }}
                                             onAnswer={answerRequest}
-                                            onCancelDrop={() => { CancelRequestDrop().catch(() => {}); }}
-                                            onRetry={() => { RetryRequestLink().catch(() => {}); }}
+                                            onCancelDrop={() => { reqActed.current = true; CancelRequestDrop().catch(() => {}); }}
+                                            onRetry={() => { reqActed.current = true; RetryRequestLink().catch(() => {}); }}
                                             onShowInFolder={(dir) => { OpenFolder(dir).catch(() => {}); }}
                                             onMakeAnother={makeAnotherLink}
                                             onBrowse={pickRequestFolder}
