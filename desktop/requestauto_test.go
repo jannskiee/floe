@@ -10,6 +10,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1003,5 +1004,109 @@ func TestRequestToastTextIsCalm(t *testing.T) {
 	}
 	if _, _, ok := requestToastText(toastDropAutoAccepted + 1); ok {
 		t.Error("a key past the table has text")
+	}
+}
+
+// promptOf is the first prompt snapshot the recorder saw, or nil.
+func (x *autoDecide) promptOf() *RequestPrompt {
+	for _, s := range x.rec.all() {
+		if s.Prompt != nil {
+			return s.Prompt
+		}
+	}
+	return nil
+}
+
+// TestAutoAcceptPromptSaysWhyItAsks (D-176, deep QA A5-01): on a link that
+// accepts automatically, a drop that carried no warning but still asked names
+// its reason, so the prompt can say why; the floor's own size rides beside it.
+// A drop that asks for a warning's sake keeps that warning only, and a link
+// made with Auto-accept off never carries a reason.
+func TestAutoAcceptPromptSaysWhyItAsks(t *testing.T) {
+	in := func(files int, total, first int64) transfer.IncomingInfo {
+		return transfer.IncomingInfo{Files: files, TotalBytes: total, FirstName: "a.bin", FirstSize: first}
+	}
+	cases := []struct {
+		name      string
+		auto      bool
+		vol       func(v *autoVolume)
+		in        transfer.IncomingInfo
+		warnings  []string
+		floorWant int64
+	}{
+		{"under a tenth of the drive", true, func(v *autoVolume) { v.free, v.capacity = 150*gib, 1024*gib }, in(3, 60*gib, 1<<20), []string{"auto-floor"}, 1024 * gib / 10},
+		{"under the 20 GiB floor", true, func(v *autoVolume) { v.free, v.capacity = 30*gib, 100*gib }, in(3, 12*gib, 1<<20), []string{"auto-floor"}, 20 * gib},
+		{"no downloaded-file mark", true, func(v *autoVolume) { v.streams = false }, autoIncoming, []string{"auto-no-mark"}, 0},
+		{"free space unreadable", true, func(v *autoVolume) { v.free = -1 }, autoIncoming, []string{"auto-unknown"}, 0},
+		{"size unreadable", true, func(v *autoVolume) { v.capacity = 0 }, autoIncoming, []string{"auto-unknown"}, 0},
+		{"a warning asks for itself", true, func(v *autoVolume) { v.free = 3 * gib }, in(3, 2*gib, 1<<20), []string{"low-space"}, 0},
+		{"Auto-accept off", false, func(v *autoVolume) { v.free, v.capacity = 150*gib, 1024*gib }, in(3, 60*gib, 1<<20), nil, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			v := roomyVolume()
+			tc.vol(&v)
+			v.install(t)
+			setVar(t, &requestDecideWindow, 50*time.Millisecond)
+			x := newAutoDecide(t, tc.auto, "direct")
+			assertAsked(t, x, x.decide(tc.in))
+			p := x.promptOf()
+			if p == nil {
+				t.Fatal("no prompt snapshot")
+			}
+			if fmt.Sprint(p.Warnings) != fmt.Sprint(tc.warnings) && !(len(p.Warnings) == 0 && len(tc.warnings) == 0) {
+				t.Fatalf("warnings %q, want %q", p.Warnings, tc.warnings)
+			}
+			if p.FloorBytes != tc.floorWant {
+				t.Fatalf("FloorBytes %d, want %d", p.FloorBytes, tc.floorWant)
+			}
+		})
+	}
+}
+
+// TestWaitingLinkSaysItWillAsk (D-176): a link that accepts automatically on
+// a drive already under its floor carries AutoAsks low-space while it waits,
+// so the waiting line says it will ask; the watcher re-reads the drive and
+// clears it once there is room. A link made with Auto-accept off never
+// carries it.
+func TestWaitingLinkSaysItWillAsk(t *testing.T) {
+	var low atomic.Bool
+	low.Store(true)
+	setVar(t, &autoSpaceFn, func(string) bool { return low.Load() })
+	setVar(t, &autoSpaceEvery, 50*time.Millisecond)
+	f := newFakeSignalServer(t)
+	a, _ := laneApp(t, f)
+	a.MakeRequestLink("x", t.TempDir(), "24h", true)
+	waitFor(t, 5*time.Second, "AutoAsks low-space", func() bool {
+		s := stateOf(a)
+		return s.State == "waiting" && s.AutoAsks == "low-space"
+	})
+	low.Store(false)
+	waitFor(t, 5*time.Second, "AutoAsks cleared", func() bool { return stateOf(a).AutoAsks == "" })
+
+	g := newFakeSignalServer(t)
+	b, _ := laneApp(t, g)
+	low.Store(true)
+	b.MakeRequestLink("x", t.TempDir(), "24h", false)
+	waitState(t, b, 5*time.Second, "waiting")
+	time.Sleep(200 * time.Millisecond)
+	if s := stateOf(b); s.AutoAsks != "" {
+		t.Fatalf("a link made with Auto-accept off carries AutoAsks %q", s.AutoAsks)
+	}
+}
+
+func TestAutoAskReason(t *testing.T) {
+	for _, c := range []struct {
+		sp   requestSpace
+		want string
+	}{
+		{requestSpace{free: 10 * gib, freeKnown: true, capacity: 100 * gib, namedStreams: true}, "auto-floor"},
+		{requestSpace{free: 10 * gib, freeKnown: true, capacity: 100 * gib, namedStreams: false}, "auto-no-mark"},
+		{requestSpace{free: 10 * gib, freeKnown: false, capacity: 100 * gib, namedStreams: true}, "auto-unknown"},
+		{requestSpace{free: 10 * gib, freeKnown: true, capacity: 0, namedStreams: true}, "auto-unknown"},
+	} {
+		if got := autoAskReason(c.sp); got != c.want {
+			t.Errorf("autoAskReason(%+v) = %q, want %q", c.sp, got, c.want)
+		}
 	}
 }

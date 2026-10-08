@@ -724,14 +724,14 @@ describe('the layout (D-136)', () => {
     });
 
     it('SAVE TO cuts a long folder in the middle while the field is at rest, and edits the whole path (QA-H6 L-2)', async () => {
-        // At 1000 x 640 the field cut "...\l12-scratch\save-base" at its end, so
+        // At 1000 x 640 the field cut "...\Acme drops\2026-10" at its end, so
         // the folder that says where the files go was the part hidden. Done and
         // History cut in the middle (M5); the Ready form now does too, with the
         // same helper. The field's own value stays the whole path: UIA,
         // Playwright and a screen reader read that, and focus shows it to edit.
         const user = userEvent.setup();
-        const long = 'C:\\Users\\Admin\\floe-audit\\fu27-h6\\l12-scratch\\save-base';
-        const cut = 'C:\\...\\fu27-h6\\l12-scratch\\save-base';
+        const long = 'C:\\Users\\someone\\Projects\\Clients\\Acme drops\\2026-10';
+        const cut = 'C:\\...\\Clients\\Acme drops\\2026-10';
         const {rerender} = render(<RequestLinkView {...at('ready', {saveDir: long})}/>);
         const field = screen.getByLabelText('Save to') as HTMLInputElement;
         expect(field.value).toBe(long);
@@ -1281,6 +1281,24 @@ describe('Auto-accept (D-173, D-174)', () => {
         expect(screen.getByText(/^Ends /).textContent).not.toContain('automatically');
     });
 
+
+    it('an automatic link on a drive under its floor says it will ask (W5b, D-176)', () => {
+        render(<RequestLinkView {...at('waiting')} snap={snap({state: 'waiting', autoAccept: true, autoAsks: 'low-space', saveDir: 'C:\\Users\\x\\Downloads\\Floe'})}/>);
+        const line = screen.getByText(/^Ends .* · Asks first, low space on C:$/);
+        expect(line.className).toContain('text-zinc-400');
+        expect(screen.queryByText(/Accepts automatically/)).toBeNull();
+    });
+
+    it('a prompt on an automatic link gives its reason in gray, while a warning stays amber (D-176, D-177)', () => {
+        const asked = snap({state: 'deciding', autoAccept: true, saveDir: 'C:\\Users\\x\\Downloads\\Floe', prompt: {...prompt, freeBytes: 30 * GB, warnings: ['auto-floor'], floorBytes: 48 * GB}});
+        const {rerender} = render(<RequestLinkView {...at('deciding', {snap: asked})}/>);
+        const reason = screen.getByText('Asks because C: would have under 48.0 GB free');
+        expect(reason.className).toContain('text-zinc-400');
+        expect(reason.className).not.toContain('amber');
+        const warned = snap({state: 'deciding', autoAccept: true, prompt: {...prompt, freeBytes: 31 * GB, warnings: ['low-space']}});
+        rerender(<RequestLinkView {...at('deciding', {snap: warned})}/>);
+        expect(screen.getByText(/^Only 31\.0 GB free on D:/).className).toContain('text-amber-300/80');
+    });
     it('an automatic link that asks, or was declined, does not say Accepts automatically over the prompt (review R2 F2)', () => {
         for (const ph of ['deciding', 'declined'] as const) {
             const {unmount} = render(<RequestLinkView {...at(ph)} snap={{...at(ph).snap, autoAccept: true}}/>);

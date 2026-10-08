@@ -140,3 +140,76 @@ func autoEligible(pr RequestPrompt, route string, sp requestSpace) bool {
 	// comes from the engine and is refused rather than trusted.
 	return pr.TotalBytes >= 0 && sp.free-pr.TotalBytes >= floor // G13
 }
+
+// autoFloor is G13's floor for a volume of this size.
+func autoFloor(capacity int64) int64 {
+	return max(autoFloorBytes, capacity/autoFloorShare)
+}
+
+// autoAskReason names why a drop that carried no warning still asked on a
+// link that accepts automatically (D-176): the volume could not be read (G5,
+// or G13 without its size), it cannot keep the downloaded-file mark (G6), or
+// the floor (G13). The prompt draws one gray line for it, so an owner who
+// turned Auto-accept on learns why this drop waits for them.
+func autoAskReason(sp requestSpace) string {
+	switch {
+	case !sp.freeKnown || sp.capacity <= 0:
+		return "auto-unknown"
+	case !sp.namedStreams:
+		return "auto-no-mark"
+	}
+	return "auto-floor"
+}
+
+// autoSpaceFn answers whether the drive under saveDir is already below the
+// floor, so every drop on a link that accepts automatically would ask; a
+// seam, so a test stands in any drive. Unknown answers false: the waiting line
+// claims nothing it did not measure.
+var autoSpaceFn = func(saveDir string) bool {
+	dir := nearestDir(saveDir)
+	if dir == "" {
+		return false
+	}
+	free, err := requestDiskFreeFn(dir)
+	if err != nil || free < 0 {
+		return false
+	}
+	capacity := volumeCapacity(dir)
+	return capacity > 0 && free < autoFloor(capacity)
+}
+
+// autoSpaceEvery is how often a waiting link that accepts automatically
+// re-reads its drive: links live for up to seven days, and free space moves.
+var autoSpaceEvery = 10 * time.Minute
+
+// watchAutoSpace keeps the snapshot's AutoAsks true to the drive for link
+// generation rg, until stop closes. It runs on its own goroutine: a Stat or
+// DiskFree of an offline share can stall, and the lane's own loop must not.
+func (a *App) watchAutoSpace(rg uint64, stop <-chan struct{}, saveDir string) {
+	tick := time.NewTicker(autoSpaceEvery)
+	defer tick.Stop()
+	for {
+		v := ""
+		if autoSpaceFn(saveDir) {
+			v = "low-space"
+		}
+		a.setAutoAsks(rg, v)
+		select {
+		case <-stop:
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+func (a *App) setAutoAsks(rg uint64, v string) {
+	l := a.lane()
+	l.mu.Lock()
+	if l.gen != rg || l.autoAsks == v {
+		l.mu.Unlock()
+		return
+	}
+	l.autoAsks = v
+	l.mu.Unlock()
+	a.emitState(rg)
+}

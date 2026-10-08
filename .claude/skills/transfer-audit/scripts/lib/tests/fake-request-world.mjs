@@ -324,7 +324,7 @@ export function fakeCliVisitor(world, opts) {
         const n = v.files.length;
         const out = ['', `  Sending   ${v.files.join(', ')} (${n === 1 ? '1 file' : `${n} files`}, 4 KB)`, '  Joining the request link...'];
         if (v.state === 'loading') return out;
-        out.push('  Connecting...', `  Connected (${world.route})`, '  Waiting for them to accept. They have 9 min to answer.', '  Nothing is saved until they accept.');
+        out.push('  Connecting...', `  Connected (${world.route})`, '  Waiting for them to accept. They have 9 min to answer.');
         if (v.state === 'arrived' && !world.has('cli-no-arrived') && !world.has('cli-exit')) {
             out.push('', n === 1 ? `  1 file arrived (4 KB in 0s, ${world.route}).` : `  All ${n} files arrived (4 KB in 0s, ${world.route}).`);
             if (v.verified === n || world.has('sha-line-lie'))

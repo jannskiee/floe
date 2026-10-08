@@ -379,6 +379,16 @@ describe('the request lane selectors', () => {
         }
     });
 
+
+    it('normalizeSnapshot keeps autoAsks only as low-space and floorBytes only when positive (D-176)', () => {
+        expect(normalizeSnapshot({state: 'waiting', autoAsks: 'low-space'}).autoAsks).toBe('low-space');
+        for (const junk of [undefined, null, '', 'LOW-SPACE', 'anything', 1, true, {}]) {
+            expect(normalizeSnapshot({state: 'waiting', autoAsks: junk}).autoAsks, String(junk)).toBeUndefined();
+        }
+        const pr = (v: unknown) => normalizeSnapshot({state: 'deciding', prompt: {files: 1, totalBytes: 1, warnings: ['auto-floor'], floorBytes: v}}).prompt;
+        expect(pr(48 * 1024 ** 3)?.floorBytes).toBe(48 * 1024 ** 3);
+        for (const junk of [undefined, null, 0, -5, 'x']) expect(pr(junk)?.floorBytes, String(junk)).toBeUndefined();
+    });
     it('normalizeSnapshot hides the not-scanned line only for an explicit false: absent or junk shows it (S-7, RC-2)', () => {
         const result = (v: unknown) => normalizeSnapshot({state: 'done', result: {files: 1, saved: 1, noNamedStreams: v}}).result;
         expect(result(false)?.noNamedStreams).toBe(false);

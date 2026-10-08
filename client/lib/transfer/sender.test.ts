@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { sendFiles, sendAbortReason, CONTROL_FLUSH_MS, type SenderDeps } from './sender';
-import { ackMessage, incompatibleMessage, ACK_TIMEOUT_MS, CONTROL_MSG_MAX, READ_SLAB, DEFAULT_CHUNK } from './protocol';
+import { ackMessage, incompatibleMessage, ACK_TIMEOUT_MS, CONTROL_MSG_MAX, READ_SLAB, DEFAULT_CHUNK, END_DIGEST_WAIT_MS } from './protocol';
 
 const enc = new TextEncoder();
 
@@ -332,6 +332,42 @@ describe('sender: unreadable file', () => {
         expect(sawEnd).toBe(false);
         expect(allSent).toBe(false);
     });
+
+    it('a zero-size file that cannot be read is never announced (T13-F3)', async () => {
+        const errors: string[] = [];
+        const failures: Array<{ kind: string; index: number }> = [];
+        const announced: string[] = [];
+        let allSent = false;
+        // Chromium gives a picked file whose absolute path is over 260
+        // characters a size of 0, and reading it throws NotFoundError.
+        const longPath = {
+            name: 'leaf-under-limit.txt',
+            size: 0,
+            arrayBuffer: () => Promise.reject(new Error('NotFoundError')),
+            slice: () => ({ arrayBuffer: () => Promise.reject(new Error('NotFoundError')) }),
+        } as unknown as File;
+        const deps: SenderDeps = {
+            send: (d) => {
+                if (typeof d === 'string' && (JSON.parse(d) as { type: string }).type === 'metadata') announced.push(d);
+            },
+            onData: () => () => {},
+            channel: makeBufferChannel(),
+            sctpMaxMessageSize: null,
+        };
+
+        await sendFiles(deps, [{ file: longPath, id: 'x' }], {
+            onError: (m) => errors.push(m),
+            onFailed: (f) => failures.push(f),
+            onAllSent: () => { allSent = true; },
+        }, { sendHashes: false });
+
+        expect(announced).toEqual([]);
+        expect(errors).toHaveLength(1);
+        expect(errors[0]).toContain('leaf-under-limit.txt');
+        expect(failures).toEqual([{ kind: 'unreadable', index: 1 }]);
+        expect(allSent).toBe(false);
+    });
+
 });
 
 /**
@@ -652,6 +688,30 @@ describe('sender: per-file SHA-256 on end', () => {
         expect(h.strings.filter((s) => s.includes('"end"'))).toEqual(['{"type":"end"}']);
     });
 
+    // A Go receiver (the CLI and Floe Desktop, released builds included) ends a
+    // receive after 60 s with no frame and deletes the file, so a hasher slower
+    // than the link must never hold end that long, whatever the size bound says.
+    it('sends end without a digest within END_DIGEST_WAIT_MS of the last chunk', async () => {
+        vi.useFakeTimers();
+        try {
+            const h = hashDeps({
+                hashBlob: () => new Promise<string | null>(() => {}),
+                // What hashBoundMs gives a 1 GB file: far past a Go receiver's stall.
+                hashBoundMs: () => 130_000,
+            });
+            const sending = sendFiles(h.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], {}, { sendHashes: true });
+            await vi.advanceTimersByTimeAsync(END_DIGEST_WAIT_MS - 1);
+            expect(h.ends()).toEqual([]);
+            await vi.advanceTimersByTimeAsync(1);
+            expect(h.ends()).toEqual([{ type: 'end' }]);
+            await vi.advanceTimersByTimeAsync(CONTROL_FLUSH_MS);
+            await sending;
+            expect(END_DIGEST_WAIT_MS).toBeLessThan(60_000);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('omits sha256 when hashing is off', async () => {
         let calls = 0;
         const h = hashDeps({ hashBlob: async () => { calls += 1; return DIGEST; } });
@@ -847,6 +907,13 @@ describe('sender: visitor options', () => {
         v.close();
     });
 
+    it('a real empty file still goes out (T13-F3)', async () => {
+        const v = visitorDeps();
+        await within(sendFiles(v.deps, [{ id: 'a', file: makeFile(0, 'empty.txt') }], {}, { sendHashes: false }));
+        expect(v.names()).toEqual(['empty.txt']);
+        v.close();
+    });
+
     it('ackTimeoutMs applies to the first file only', async () => {
         vi.useFakeTimers();
         try {
@@ -890,6 +957,30 @@ describe('sender: visitor options', () => {
             expect(errors).toEqual([]);
 
             await vi.advanceTimersByTimeAsync(1);
+            await p;
+            expect(failures).toEqual([{ kind: 'ack-timeout', index: 2 }]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('under requireReceived later files wait ackTimeoutMs too (A3-03)', async () => {
+        vi.useFakeTimers();
+        try {
+            const failures: Failure[] = [];
+            // A host that commits file 1 slowly (a blocked rename retries for
+            // up to 5 minutes) acks file 2 late: the /r visitor must not give
+            // up at 120 s while the CLI visitor would still be waiting.
+            const v = visitorDeps({ ackFiles: 1 });
+            const p = sendFiles(v.deps, entries(2), {
+                onFailed: (f) => failures.push(f),
+            }, { ackTimeoutMs: 300_000, requireReceived: true, sendHashes: false });
+            await vi.advanceTimersByTimeAsync(0);
+
+            await vi.advanceTimersByTimeAsync(ACK_TIMEOUT_MS + 1);
+            expect(failures).toEqual([]);
+
+            await vi.advanceTimersByTimeAsync(300_000 - ACK_TIMEOUT_MS - 1);
             await p;
             expect(failures).toEqual([{ kind: 'ack-timeout', index: 2 }]);
         } finally {

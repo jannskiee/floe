@@ -496,6 +496,9 @@ function cleanupTick(now = Date.now()) {
             else requestCreates.set(key, valid);
         } catch { /* the next tick tries this entry again */ }
     }
+    for (const [roomId, at] of endedLinks) {
+        if (now - at > REQUEST_ENDED_MARKER_MS) endedLinks.delete(roomId);
+    }
 }
 
 // .unref() so the interval doesn't prevent the process from exiting (e.g. in tests).
@@ -649,6 +652,48 @@ const REQUEST_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000 + 10 * 60 * 1000;
 // from the close, not from the create. The sweep's 60 s interval makes it 24 h
 // to 24 h and one minute.
 const REQUEST_USED_MARKER_MS = 24 * 60 * 60 * 1000;
+// At most this many live reservations per rate key (D-176). Holding sockets
+// open, one network could otherwise keep MAX_REQUEST_ROOMS alone across a
+// link's seven days, and about 250 keys could fill it for everyone. Ten keeps
+// an office behind one address making links; filling the cap now takes 500
+// keys. Like the global cap, a refusal here answers busy, which names no
+// policy of the joiner's own (limited is its daily create budget).
+const REQUEST_LIVE_PER_KEY = 10;
+// sealDigest(rate key) -> live reservations made from it. Kept in step at the
+// one create and the two ends (forgetReservation, the used-marker swap), so the
+// cap is one read and never a walk.
+const liveByKey = new Map();
+// A link closed or ended before anyone used it (an unsealed request-close: Close
+// link while waiting, or the desktop's own end of the link's life) answers
+// link-ended for a day (D-176), instead of host-absent's promise that the host
+// may come back. In their own map, never roomMeta: an ended link holds no
+// MAX_REQUEST_ROOMS slot, or a create-and-close loop could fill the cap with no
+// socket held. Bounded by count; past the ceiling the oldest is dropped, which
+// only turns its answer back into host-absent. Lost on a restart, like the used
+// markers.
+const REQUEST_ENDED_MARKER_MS = 24 * 60 * 60 * 1000;
+const REQUEST_ENDED_MAX = 20000;
+const endedLinks = new Map(); // roomId -> closedAt, oldest first
+
+function noteEndedLink(roomId, now) {
+    endedLinks.delete(roomId);
+    while (endedLinks.size >= REQUEST_ENDED_MAX) endedLinks.delete(endedLinks.keys().next().value);
+    endedLinks.set(roomId, now);
+}
+
+function isEndedLink(roomId, now) {
+    const at = endedLinks.get(roomId);
+    return at !== undefined && now - at <= REQUEST_ENDED_MARKER_MS;
+}
+
+// A live reservation's place on its key is given back when it ends or becomes
+// a used marker; a marker never held one.
+function releaseLivePlace(meta) {
+    if (!meta || meta.kind !== 'request' || meta.used || !meta.ownerDigest) return;
+    const n = (liveByKey.get(meta.ownerDigest) || 0) - 1;
+    if (n > 0) liveByKey.set(meta.ownerDigest, n);
+    else liveByKey.delete(meta.ownerDigest);
+}
 
 // sealDigest(rateKey) -> timestamps of successful creates inside the window, at
 // most REQUEST_CREATES_PER_DAY each. Written only on a successful create, which
@@ -709,6 +754,7 @@ function countRequestRooms() {
 }
 
 function forgetReservation(roomId) {
+    releaseLivePlace(roomMeta.get(roomId));
     roomMeta.delete(roomId);
     requestRoomIds.delete(roomId);
 }
@@ -734,6 +780,7 @@ function endReservation(roomId, now = Date.now(), { markUsed = false } = {}) {
         // A fresh object, not the reservation with fields deleted, so nothing
         // personal can ride along. The id stays in requestRoomIds, so the
         // marker counts toward MAX_REQUEST_ROOMS.
+        releaseLivePlace(meta);
         roomMeta.set(roomId, { kind: 'request', sealed: true, used: true, closedAt: now });
     } else {
         forgetReservation(roomId);
@@ -910,7 +957,9 @@ function handleRequestJoin(peer, roomId, now = Date.now()) {
     const id = roomId.toLowerCase();
     const meta = roomMeta.get(id);
     if (!meta || meta.kind !== 'request') {
-        peer.send('host-absent', {});
+        // An unknown id and an ordinary room's id answer alike (no oracle); a
+        // link its host ended unused says so for a day (D-176).
+        peer.send(isEndedLink(id, now) ? 'link-ended' : 'host-absent', {});
         return;
     }
     if (peer.roomId === id) return; // already seated here: no second user-connected
@@ -995,12 +1044,14 @@ function handleRequestControl(peer, type, roomId, now = Date.now()) {
         return;
     }
     if (type === 'request-close') {
-        if (visitor && !meta.sealed) {
-            try { visitor.send('host-absent', {}); } catch { /* undeliverable */ }
+        const unused = !meta.sealed;
+        if (visitor && unused) {
+            try { visitor.send('link-ended', {}); } catch { /* undeliverable */ }
         }
         // Unseats both, and leaves the used marker when sealed (the one end
-        // that does, D-130).
+        // that does, D-130); an unsealed close leaves an ended link (D-176).
         endReservation(id, now, { markUsed: true });
+        if (unused) noteEndedLink(id, now);
     }
 }
 
@@ -1060,18 +1111,26 @@ function handleHostJoin(peer, roomId, hostToken, now = Date.now()) {
             return;
         }
     }
-    // Never convert an ordinary room into a reserved one. (A used link never
-    // reaches this line: its marker answered room-full above.)
+    // An ordinary room at the token's own derived id can only be there because
+    // someone read the id off the link (an honest collision is 2^-122), most
+    // likely to deny it once the reservation lapsed (a restart, or the host
+    // away past the grace). The token's holder takes it back: its occupants
+    // hear room-full and lose their seats. (A used link never reaches this
+    // line: its marker answered room-full above.)
     if (roomMeta.has(id) || rooms.has(id)) {
-        peer.send('room-full', {});
-        return;
+        for (const p of rooms.get(id) || []) {
+            p.roomId = null;
+            try { p.send('room-full', {}); } catch { /* undeliverable */ }
+        }
+        destroyRoom(id);
     }
     if (createsInWindow(peer.key, now) >= REQUEST_CREATES_PER_DAY) {
         peer.send('refused', { code: 'limited' });
         return;
     }
-    if (requestRoomIds.size >= MAX_REQUEST_ROOMS) {
-        peer.send('refused', { code: 'limited' });
+    const ownerDigest = sealDigest(peer.key);
+    if ((liveByKey.get(ownerDigest) || 0) >= REQUEST_LIVE_PER_KEY || requestRoomIds.size >= MAX_REQUEST_ROOMS) {
+        peer.send('refused', { code: 'busy' });
         return;
     }
 
@@ -1086,8 +1145,11 @@ function handleHostJoin(peer, roomId, hostToken, now = Date.now()) {
         seatedAt: [], // times of the last few seatings (seatingAllowed)
         createdAt: now,
         hostAbsentSince: null,
+        ownerDigest, // the creating key's digest, for REQUEST_LIVE_PER_KEY; never the key
     });
     requestRoomIds.add(id);
+    liveByKey.set(ownerDigest, (liveByKey.get(ownerDigest) || 0) + 1);
+    endedLinks.delete(id); // a link made again is no longer ended
     forgetCodesFor(id); // no phrase may alias a request room
     rooms.set(id, [peer]);
     peer.roomId = id;
@@ -1717,4 +1779,9 @@ module.exports = {
     handleRequestControl,
     REQUEST_MAX_AGE_MS,
     REQUEST_USED_MARKER_MS,
+    endedLinks,
+    liveByKey,
+    REQUEST_LIVE_PER_KEY,
+    REQUEST_ENDED_MARKER_MS,
+    REQUEST_ENDED_MAX,
 };

@@ -16,6 +16,7 @@
 package transfer
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -102,6 +103,22 @@ var deliveryBuffered = func(dc *webrtc.DataChannel) uint64 { return dc.BufferedA
 // openForSend opens each file the send reads. A seam for tests, which hold
 // an open until they have stopped the send; os.Open in every build.
 var openForSend = os.Open
+
+// metadataJSON is a metadata frame as it goes on the wire: json.Marshal's
+// encoding without its HTML escaping, which writes <, > and & as six-byte
+// \u escapes that only matter inside HTML. With it, a legal file name of 150
+// ampersands made a 1,075-byte frame, over the 1,000-byte control limit every
+// receiver holds frames to, while a browser (JSON.stringify) sent the same
+// name (deep QA T13-F2). Any JSON reader takes either form.
+// sendFile and the request-link precheck (metadataFrameLen) both use it, so
+// the precheck measures what the wire carries.
+func metadataJSON(m metadataMsg) []byte {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(m) // a struct of strings and numbers cannot fail to encode
+	return bytes.TrimSuffix(b.Bytes(), []byte("\n"))
+}
 
 // metadataMsg is sent before each file to describe it.
 type metadataMsg struct {
@@ -984,7 +1001,7 @@ func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struc
 		PvMin:      MinProtocolVersion,
 		Ver:        localVer,
 	}
-	metaJSON, _ := json.Marshal(meta)
+	metaJSON := metadataJSON(meta)
 	// Last look before the metadata: the open and the Stat above can take a
 	// while (an on-open scan, a cloud placeholder, a share), and a stop seen
 	// here keeps a file the person stopped from ever being announced.

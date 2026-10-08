@@ -69,6 +69,9 @@ export interface RequestLinkSnapshot {
     /** The link's own Auto-accept switch (D-173): true when a drop that needs
      *  no asking is accepted at once. Per link, never remembered. */
     autoAccept: boolean;
+    /** low-space while a link that accepts automatically sits on a drive
+     *  already under its floor, so every drop asks (D-176). */
+    autoAsks?: string;
     route: string;
     reconnectUntil?: number;
     missedAt?: number;
@@ -88,6 +91,8 @@ export interface RequestPrompt {
     folder: string;
     freeBytes: number;
     warnings: string[];
+    /** The free space an automatic drop must leave, beside auto-floor. */
+    floorBytes?: number;
     answerBy: number;
 }
 
@@ -269,6 +274,7 @@ export function normalizeSnapshot(raw: unknown): RequestLinkSnapshot {
         expiresAt: num(r.expiresAt),
         // Automatic only when the bridge says exactly true (G1: fail closed).
         autoAccept: r.autoAccept === true,
+        ...(str(r.autoAsks) === 'low-space' ? {autoAsks: 'low-space'} : {}),
         route: str(r.route),
         suggestClose: r.suggestClose === true,
         battery: r.battery === true,
@@ -283,6 +289,7 @@ export function normalizeSnapshot(raw: unknown): RequestLinkSnapshot {
             folder: str(p.folder),
             freeBytes: num(p.freeBytes),
             warnings: Array.isArray(p.warnings) ? p.warnings.filter((w): w is string => typeof w === 'string') : [],
+            ...(num(p.floorBytes) > 0 ? {floorBytes: num(p.floorBytes)} : {}),
             answerBy: num(p.answerBy),
         };
     }

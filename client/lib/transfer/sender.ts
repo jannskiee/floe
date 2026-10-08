@@ -20,6 +20,7 @@ import {
     ACK_TIMEOUT_MS,
     SEND_FILE_HASHES,
     hashBoundMs,
+    END_DIGEST_WAIT_MS,
     type Ack,
     type Incompatible,
     type Received,
@@ -135,7 +136,11 @@ export interface SendOptions {
     // decide passes a longer value. Later files keep ACK_TIMEOUT_MS: only the
     // first metadata waits for a human to answer a prompt, and after that the
     // receiver is already committed, so a long deadline there would only delay
-    // a dead transfer (spec 07 4.9).
+    // a dead transfer (spec 07 4.9). Under requireReceived (a request-link
+    // drop) every file waits ackTimeoutMs: the host acks a file only after it
+    // has synced and committed the one before, and E-36 lets that commit retry
+    // a blocked rename for 5 minutes, which the CLI visitor's deadline already
+    // covers for every file (deep QA A3-03).
     ackTimeoutMs?: number;
     // Whether each file's SHA-256 goes on its end frame. Defaults to
     // SEND_FILE_HASHES, the rollback lever.
@@ -232,7 +237,7 @@ export async function sendFiles(
             try {
                 ok = await sendSingleFile(
                     deps, entry, i + 1, files.length, totalBytes, cb, view, emitView,
-                    i === 0 ? (opts.ackTimeoutMs ?? ACK_TIMEOUT_MS) : ACK_TIMEOUT_MS, session,
+                    (i === 0 || opts.requireReceived) ? (opts.ackTimeoutMs ?? ACK_TIMEOUT_MS) : ACK_TIMEOUT_MS, session,
                     { enabled: opts.sendHashes ?? SEND_FILE_HASHES, hashBlob: deps.hashBlob ?? workerHashBlob, signal: hashAbort.signal }
                 );
             } finally {
@@ -401,6 +406,26 @@ async function sendSingleFile(
     if (session.reportStop()) return false;
 
     channel.bufferedAmountLowThreshold = LOW_WATER;
+
+    // 0. A file of size 0 is read once before it is announced. Chromium gives
+    // a picked file whose absolute path is over 260 characters a size of 0,
+    // and reading it throws NotFoundError; the chunk and digest loops never
+    // read a zero-size file, so it went out empty and both sides showed
+    // "SHA-256 matched" (deep QA T13-F3). A real empty file reads as nothing.
+    if (file.size === 0) {
+        try {
+            await file.arrayBuffer();
+        } catch {
+            cb.onError?.(
+                `Could not read "${wireName}". It may have been moved, renamed, ` +
+                `or on a drive or folder that is no longer available. Nothing further was sent.`
+            );
+            cb.onFailed?.({ kind: 'unreadable', index });
+            return false;
+        }
+        if (destroyed()) return true;
+        if (session.reportStop()) return false;
+    }
 
     // 1. Send metadata with protocol version fields
     try {
@@ -607,8 +632,11 @@ async function sendSingleFile(
         // life of the page, so no end frame ever went out (CP0-F2). The bound
         // resolves null, which is what an absent digest already means: the key
         // is left off the frame and the receiver keeps its byte-count check.
+        // END_DIGEST_WAIT_MS caps it under a Go receiver's 60 s stall, which
+        // otherwise deletes a file whose every byte already arrived.
+        const boundMs = Math.min((deps.hashBoundMs ?? hashBoundMs)(entry.file.size), END_DIGEST_WAIT_MS);
         const bound = new Promise<null>((resolve) => {
-            boundTimer = setTimeout(() => resolve(null), (deps.hashBoundMs ?? hashBoundMs)(entry.file.size));
+            boundTimer = setTimeout(() => resolve(null), boundMs);
         });
         let outcome: string | null | typeof STOPPED;
         try {

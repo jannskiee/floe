@@ -16,6 +16,7 @@ import {
     normalizeSha256,
     metadataProblem,
     hashBoundMs as defaultHashBoundMs,
+    POST_END_HASH_WAIT_MS,
     type End,
     type Metadata,
     type Incompatible,
@@ -762,7 +763,12 @@ export function createReceiver(
                             // even when that callback throws.
                             const ac = new AbortController();
                             bound = ac.signal;
-                            boundTimer = setTimeout(() => ac.abort(), hashBoundMs(size));
+                            // With more files to come the sender is waiting on the
+                            // next ack, which queues behind this hash.
+                            const waitMs = meta.index < meta.total
+                                ? Math.min(hashBoundMs(size), POST_END_HASH_WAIT_MS)
+                                : hashBoundMs(size);
+                            boundTimer = setTimeout(() => ac.abort(), waitMs);
                             cb.onVerifying?.(meta.index, meta.total);
                             return hashBlob(blob, ac.signal);
                         })

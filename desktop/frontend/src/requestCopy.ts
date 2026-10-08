@@ -57,6 +57,7 @@ const ERROR_LINES: Record<string, string> = {
     'no-relay': "Hide my IP needs a relay this server doesn't have", // E5
     'relay-unknown': "Couldn't read this server's relay details for Hide my IP", // E6
     'already-open': 'Close your open link to make a new one', // E7
+    'save-folder': "Couldn't use that folder", // E9 (D-177): a Save to folder Floe cannot use, refused at Make link
 };
 
 function has(table: Record<string, unknown>, key: string): boolean {
@@ -98,10 +99,13 @@ export const COPY_LINK = 'Copy link'; // W2
 export const COPIED = 'Copied'; // W3
 export const CLOSE_LINK = 'Close link'; // W4
 export const ACCEPTS_AUTOMATICALLY = 'Accepts automatically'; // W5a, after the end time
-/** W5, and W5a on a link made with Auto-accept on (D-173). */
-export function scopeLine(expiresAt: number, now: number, autoAccept = false): string {
+/** W5, W5a on a link made with Auto-accept on (D-173), and W5b when that
+ *  link's drive is already under its floor, so every drop asks (D-176). */
+export function scopeLine(expiresAt: number, now: number, autoAccept = false, autoAsks = '', saveDir = ''): string {
     const w5 = `Ends ${fmtEnds(expiresAt, now)}`; // W5 (D-168: no "For one person")
-    return autoAccept ? `${w5} · ${ACCEPTS_AUTOMATICALLY}` : w5; // W5a
+    if (!autoAccept) return w5;
+    if (autoAsks === 'low-space') return `${w5} · Asks first, low space on ${driveOf(saveDir)}`; // W5b
+    return `${w5} · ${ACCEPTS_AUTOMATICALLY}`; // W5a
 }
 export const WAITING_LINE = 'Waiting for files'; // W8 (W9 is cut: the IP line is said once, at Ready)
 export function missedLine(missedAt: number): string {
@@ -167,7 +171,7 @@ export function driveOf(saveDir: string): string {
 /** warningLine maps a prompt warning code to its line (P4, P5, P6), or '' for a
  *  code this build does not know. The laptop-power code is no longer one: P11
  *  is the Receiving view's LAPTOP_LINE (E-94). */
-export function warningLine(code: string, p: {freeBytes: number; totalBytes: number}, saveDir: string): string {
+export function warningLine(code: string, p: {freeBytes: number; totalBytes: number; floorBytes?: number}, saveDir: string): string {
     switch (code) {
         case 'low-space':
             return `Only ${fmtBytes(p.freeBytes)} free on ${driveOf(saveDir)}, not enough for this drop`; // P4
@@ -175,6 +179,14 @@ export function warningLine(code: string, p: {freeBytes: number; totalBytes: num
             return "This drive can't save files over 4 GB"; // P5
         case 'relay-over-cap':
             return `This ${fmtBytes(p.totalBytes)} drop is over the 2 GB Hide my IP limit`; // P6
+        // On a link that accepts automatically, why this drop still asks
+        // (D-176, D-177): gray, a reason rather than a warning.
+        case 'auto-floor':
+            return `Asks because ${driveOf(saveDir)} would have under ${fmtBytes(p.floorBytes ?? 0)} free`; // P13a
+        case 'auto-no-mark':
+            return `Asks because Windows can't mark files on ${driveOf(saveDir)}`; // P13b
+        case 'auto-unknown':
+            return `Asks because Floe couldn't check ${driveOf(saveDir)}`; // P13c
         default:
             return '';
     }

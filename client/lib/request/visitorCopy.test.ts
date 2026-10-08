@@ -154,6 +154,12 @@ describe('visitor copy: server answers and the attempt states', () => {
             lines: ['Ask for a new link.'],
             action: null,
         });
+        expect(statusCopy(model('V5d'), CTX)).toMatchObject({
+            title: 'This link has ended',
+            lines: ['Ask them for a new link.'],
+            action: null,
+        });
+        expect(announcement(model('V5d'), CTX)).toBe('This link has ended');
         expect(statusCopy(model('V5b'), CTX)).toMatchObject({ title: 'Request links are turned off right now', lines: [] });
         expect(statusCopy(model('V5c'), CTX)).toMatchObject({
             title: 'Request links are not available on this Floe server.',

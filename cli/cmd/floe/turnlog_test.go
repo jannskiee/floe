@@ -73,6 +73,27 @@ func TestTURNClientLogIsQuietFromTheStart(t *testing.T) {
 	}
 }
 
+// TestMuxLogIsQuietFromTheStart (deep QA QA-07): from process start, a
+// factory built from pion's default, as peer.New builds the one pion/webrtc
+// gives its packet mux, prints nothing for the "mux" scope. Before, a stalled
+// send printed its ERROR line once per datagram, 174 times in one QA run.
+func TestMuxLogIsQuietFromTheStart(t *testing.T) {
+	if pionLevelChosen() {
+		t.Skip("a PION_LOG_* or PIONS_LOG_* level is set for this run, and floe leaves those alone")
+	}
+	var buf bytes.Buffer
+	f := logging.NewDefaultLoggerFactory()
+	f.Writer = &buf
+	f.NewLogger("mux").Errorf("failed to read from packetio.Buffer %s", "short buffer")
+	if buf.Len() != 0 {
+		t.Fatalf("pion's default factory printed the mux's ERROR line: %q", buf.String())
+	}
+	f.NewLogger("floe-control").Errorf("still printed")
+	if !strings.Contains(buf.String(), "floe-control ERROR: ") {
+		t.Fatalf("a scope other than mux lost pion's default ERROR level: %q", buf.String())
+	}
+}
+
 // forgedReason is the reason phrase the on-path shim puts in its 403: an
 // OSC 52 clipboard write, a screen clear, and a CR LF that starts a line
 // passing for floe's own.

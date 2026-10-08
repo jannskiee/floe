@@ -136,6 +136,9 @@ func TestJoinRoomWithTokenTypedResults(t *testing.T) {
 		{"refused disabled", `{"type":"refused","code":"disabled"}`, HostRefusedDisabled, false},
 		{"refused limited", `{"type":"refused","code":"limited"}`, HostRefusedLimited, false},
 		{"refused future-code", `{"type":"refused","code":"future-code"}`, HostRefusedUnknown, false},
+		// busy (a full server, or this network's live links at their cap, D-176) has no
+		// line of its own: Floe Desktop shows its generic Couldn't make a link.
+		{"refused busy", `{"type":"refused","code":"busy"}`, HostRefusedUnknown, false},
 		{"refused without a code", `{"type":"refused"}`, HostRefusedUnknown, false},
 		{"room-full", `{"type":"room-full"}`, HostRoomFull, false},
 		{"error Invalid host token", `{"type":"error","message":"Invalid host token"}`, HostInvalidToken, false},
@@ -282,6 +285,7 @@ func TestRequestJoinTypedResults(t *testing.T) {
 	}{
 		{"request-joined visitor", `{"type":"request-joined","role":"visitor"}`, VisitorJoined, false},
 		{"host-absent", `{"type":"host-absent"}`, VisitorHostAbsent, false},
+		{"link-ended", `{"type":"link-ended"}`, VisitorLinkEnded, false},
 		{"room-full", `{"type":"room-full"}`, VisitorRoomFull, false},
 		{"disabled", `{"type":"disabled"}`, VisitorDisabled, false},
 		{"error Invalid room ID", `{"type":"error","message":"Invalid room ID"}`, VisitorInvalidRoom, false},
@@ -762,7 +766,7 @@ func TestResultStringsAreFixed(t *testing.T) {
 	visitor := map[RequestJoinResult]string{
 		0: "unknown", VisitorJoined: "joined", VisitorHostAbsent: "host-absent",
 		VisitorRoomFull: "room-full", VisitorDisabled: "disabled", VisitorInvalidRoom: "invalid-room",
-		VisitorTimeout: "timeout", VisitorDown: "down", VisitorDown + 1: "unknown",
+		VisitorTimeout: "timeout", VisitorDown: "down", VisitorLinkEnded: "link-ended", VisitorLinkEnded + 1: "unknown",
 	}
 	for r, want := range visitor {
 		if got := r.String(); got != want {

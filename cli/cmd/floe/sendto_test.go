@@ -782,7 +782,10 @@ func TestSendToDeliversAndPrintsSHALine(t *testing.T) {
 	wantInOrder(t, r.stdout,
 		"Sending   "+shoot+" (2 files, 1.06 MB)",
 		tlJoining, tlConnecting)
-	wantInOrder(t, r.stdout, tlWaiting, tlNothingSave)
+	wantInOrder(t, r.stdout, tlWaiting)
+	if strings.Contains(r.stdout, tlNothingSave) {
+		t.Fatalf("stdout still claims nothing is saved before an accept, false on an Auto-accept link (D-177):\n%s", r.stdout)
+	}
 	arrived := regexp.MustCompile(`(?m)^  All 2 files arrived \(1\.06 MB in \d+s, direct\)\.\n  ` + regexp.QuoteMeta(tlVerified) + `\n`)
 	if !arrived.MatchString(r.stdout) {
 		t.Fatalf("stdout lacks TL-03's two lines:\n%s", r.stdout)
@@ -1026,6 +1029,7 @@ func TestSendToServerAnswersPrintFixedLines(t *testing.T) {
 		line   string
 	}{
 		{"host-absent", "Their computer is not connected right now. The person who made this link may have closed Floe."},
+		{"link-ended", "This link has ended. Ask them for a new link."},
 		{"room-full", "This link has already been used. Ask the person who made it for a new one."},
 		{"disabled", "Request links are turned off right now."},
 		{"none", "Request links are not available on this Floe server."},
@@ -1491,7 +1495,9 @@ func TestSendToPickTimeLimitsEndBeforeAnyNetwork(t *testing.T) {
 			return dir
 		}, []string{"This drop has more than 10,000 files. Zip them first."}},
 		{"a description over one control message (TL-31)", func(t *testing.T) string {
-			p, _ := oneFile(t, t.TempDir(), strings.Repeat("&", 150)+".bin", 16)
+			// U+2028, which the wire still writes as a six-byte escape; & is one
+			// byte there since the metadata frame dropped HTML escaping (T13-F2).
+			p, _ := oneFile(t, t.TempDir(), strings.Repeat(string(rune(0x2028)), 160)+".bin", 16)
 			return p
 		}, []string{"A folder path is too long to send. Zip deeply nested folders first."}},
 	} {
@@ -1618,7 +1624,7 @@ func TestWatchSetupReportsASeatTakenAsSetupSucceeds(t *testing.T) {
 		}
 	}
 	run := func(w *watch, setup func() (*webrtc.DataChannel, error)) (*webrtc.DataChannel, string, error) {
-		return watchSetup(w.roomFull, w.hostAbsent, w.disabled, func() { w.closeOnce.Do(func() { close(w.closed) }) }, setup)
+		return watchSetup(w.roomFull, w.hostAbsent, nil, w.disabled, func() { w.closeOnce.Do(func() { close(w.closed) }) }, setup)
 	}
 	open := &webrtc.DataChannel{}
 
@@ -1706,7 +1712,10 @@ func TestSendToEveryRefusalCodeHasFixedLine(t *testing.T) {
 				t.Fatalf("host: %v", herr)
 			}
 			wantOutcome(t, r, c.lines...)
-			wantInOrder(t, r.stdout, tlWaiting, tlNothingSave)
+			wantInOrder(t, r.stdout, tlWaiting)
+			if strings.Contains(r.stdout, tlNothingSave) {
+				t.Fatalf("stdout still claims nothing is saved before an accept (D-177):\n%s", r.stdout)
+			}
 		})
 	}
 }

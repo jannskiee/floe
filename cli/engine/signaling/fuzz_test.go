@@ -95,6 +95,11 @@ func drainOne(c *Client) map[string]string {
 	default:
 	}
 	select {
+	case <-c.LinkEnded:
+		got["LinkEnded"] = ""
+	default:
+	}
+	select {
 	case <-c.Disabled:
 		got["Disabled"] = ""
 	default:
@@ -116,6 +121,7 @@ func FuzzDecodeServerMessage(f *testing.F) {
 		"refused future":          []byte(`{"type":"refused","code":"future-code"}`),
 		"refused null code":       []byte(`{"type":"refused","code":null}`),
 		"host-absent":             []byte(`{"type":"host-absent"}`),
+		"link-ended":              []byte(`{"type":"link-ended"}`),
 		"disabled":                []byte(`{"type":"disabled"}`),
 		"room-full":               []byte(`{"type":"room-full"}`),
 		"peer-disconnected":       []byte(`{"type":"peer-disconnected"}`),
@@ -156,6 +162,7 @@ func FuzzDecodeServerMessage(f *testing.F) {
 		"error":             "Errors",
 		"refused":           "Refused",
 		"host-absent":       "HostAbsent",
+		"link-ended":        "LinkEnded",
 		"disabled":          "Disabled",
 	}
 

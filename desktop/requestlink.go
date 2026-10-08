@@ -73,6 +73,11 @@ type RequestLinkSnapshot struct {
 	// (D-173): true when a drop that needs no asking is accepted at once. It
 	// is per link, set by every Make link and never remembered (G1, G2).
 	AutoAccept bool `json:"autoAccept"`
+	// AutoAsks is "low-space" while a link that accepts automatically sits on
+	// a drive already under its free-space floor, so every drop asks (D-176):
+	// the waiting line says so instead of "Accepts automatically". Empty
+	// otherwise, and always on a link made with Auto-accept off.
+	AutoAsks string `json:"autoAsks,omitempty"`
 	// Route is "", "direct" or "relay".
 	Route string `json:"route"`
 	// ReconnectUntil is set while reconnecting: the lane retries until the
@@ -108,9 +113,13 @@ type RequestPrompt struct {
 	Folder    string `json:"folder"`
 	FreeBytes int64  `json:"freeBytes"` // free space on the save volume
 	// Warnings are codes, never text: low-space, file-too-large-for-drive,
-	// relay-over-cap.
+	// relay-over-cap, and on a link that accepts automatically the one reason
+	// this drop still asks (auto-floor, auto-no-mark, auto-unknown; D-176).
 	Warnings []string `json:"warnings"`
-	AnswerBy int64    `json:"answerBy"`
+	// FloorBytes is the free space an automatic drop must leave (G13), set
+	// only beside the auto-floor reason, for its line.
+	FloorBytes int64 `json:"floorBytes,omitempty"`
+	AnswerBy   int64 `json:"answerBy"`
 	// freeKnown says FreeBytes is DiskFree's answer, not its zero value; the
 	// automatic path reads it instead of asking the volume again (review R1
 	// F1). Unexported, so it never reaches the bridge.
@@ -223,6 +232,8 @@ type requestLane struct {
 	// from its own argument, never read from a setting or a previous link,
 	// and copied into each pairing (G1, G2, D-173).
 	autoAccept bool
+	// autoAsks is the snapshot's AutoAsks, kept by watchAutoSpace.
+	autoAsks string
 
 	sc   *signaling.Client // the host /ws socket while a link is open
 	conn closer            // the peer connection while connecting..receiving
@@ -432,6 +443,7 @@ func (l *requestLane) snapshotLocked() RequestLinkSnapshot {
 		Label:        l.label,
 		SaveDir:      l.saveDir,
 		AutoAccept:   l.autoAccept,
+		AutoAsks:     l.autoAsks,
 		Route:        l.route,
 		SuggestClose: l.suggestClose,
 		Battery:      l.battery,
@@ -673,8 +685,13 @@ func (a *App) MakeRequestLink(label string, saveDir string, lifetime string, aut
 	// of Downloads, which a slow or offline redirected folder can stall), so
 	// it is worked out before the lane lock (review 1a F5).
 	saveDir = strings.TrimSpace(saveDir)
+	folderOK := true
 	if saveDir == "" {
 		saveDir = requestDefaultDirFn()
+	} else if abs, err := resolveSaveDir(saveDir); err != nil {
+		folderOK = false
+	} else if abs != "" {
+		saveDir = abs
 	}
 
 	l := a.lane()
@@ -707,6 +724,7 @@ func (a *App) MakeRequestLink(label string, saveDir string, lifetime string, aut
 	l.route, l.result, l.missedAt, l.suggestClose, l.battery = "", nil, time.Time{}, false, false
 	l.promptEnds, l.ownerStop = nil, false
 	l.autoEnds = nil
+	l.autoAsks = ""
 	l.label = displayLabel(label)
 	l.saveDir = saveDir
 	l.autoAccept = autoAccept
@@ -727,6 +745,22 @@ func (a *App) MakeRequestLink(label string, saveDir string, lifetime string, aut
 	a.emitState(rg)
 	go func() {
 		defer l.wg.Done()
+		// A folder that names no usable place (a missing drive, an offline
+		// share, a path through a file) ends Make link before any server is
+		// asked (D-177); otherwise the link waits and its first Accept spends
+		// it on a refusal that blames the sender. Here, on the lane goroutine:
+		// a Stat of an offline share can stall for its network timeout.
+		if !folderOK || !saveDirUsable(saveDir) {
+			a.reqFail(rg, "save-folder")
+			return
+		}
+		if autoAccept {
+			l.wg.Add(1)
+			go func() {
+				defer l.wg.Done()
+				a.watchAutoSpace(rg, stop, saveDir)
+			}()
+		}
 		a.runRequestLink(rg, stop, hideIP, lifetime)
 	}()
 	return snap
@@ -915,6 +949,14 @@ func (a *App) waitRequest(rg uint64, stop <-chan struct{}, sc *signaling.Client,
 			if !time.Now().Before(expiresAt) {
 				a.expireRequest(rg, sc)
 				return waitEnded
+			}
+			// Declined pairs nobody until the owner's Keep waiting (T17). The
+			// server's seal keeps a visitor out, but a room re-created after a
+			// restart or an absence past the grace comes back unsealed; a
+			// visitor seated there gets no offer, and its own setup timer ends
+			// it.
+			if a.requestInState(rg, "declined") {
+				continue
 			}
 			l.pairFn(rg, sc)
 			if !a.requestActive(rg) || !a.requestWaiting(rg) {

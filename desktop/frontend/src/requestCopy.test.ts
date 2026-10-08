@@ -38,6 +38,7 @@ describe('error codes', () => {
         ['already-open', 'Close your open link to make a new one'],
         ['no-relay', "Hide my IP needs a relay this server doesn't have"],
         ['relay-unknown', "Couldn't read this server's relay details for Hide my IP"],
+        ['save-folder', "Couldn't use that folder"],
     ])('maps %s to fixed copy', (code, want) => {
         expect(errorLine(code)).toBe(want);
     });
@@ -100,6 +101,11 @@ describe('waiting, reconnecting and ended lines', () => {
 
     it('writes the scope line with the link end, today or on a later date', () => {
         expect(scopeLine(END, NOW)).toBe('Ends today, 2:05 PM');
+        expect(scopeLine(END, NOW, true)).toBe('Ends today, 2:05 PM · Accepts automatically');
+        // W5b (D-176): the drive is already under the floor, so every drop asks.
+        expect(scopeLine(END, NOW, true, 'low-space', 'C:\\Users\\x\\Downloads\\Floe')).toBe('Ends today, 2:05 PM · Asks first, low space on C:');
+        // Only a link that accepts automatically ever says it.
+        expect(scopeLine(END, NOW, false, 'low-space', 'C:\\x')).toBe('Ends today, 2:05 PM');
         expect(fmtEnds(new Date(2026, 8, 21, 9, 0).getTime(), NOW)).toBe('Sep 21, 9:00 AM');
         expect(fmtClock(new Date(2026, 8, 14, 0, 7).getTime())).toBe('12:07 AM');
         expect(fmtClock(new Date(2026, 8, 14, 12, 0).getTime())).toBe('12:00 PM');
@@ -125,6 +131,13 @@ describe('the prompt', () => {
         ['relay-over-cap', 'This 38.0 GB drop is over the 2 GB Hide my IP limit'],
     ])('maps %s to fixed copy', (code, want) => {
         expect(warningLine(code, {freeBytes: 31 * GB, totalBytes: 38 * GB}, 'D:\\Footage\\Floe requests')).toBe(want);
+    });
+
+    it('names why a drop on an Auto-accept link still asks (D-176, D-177)', () => {
+        const p = {freeBytes: 31 * GB, totalBytes: 38 * GB, floorBytes: 48 * GB};
+        expect(warningLine('auto-floor', p, 'C:\\Users\\x\\Downloads\\Floe')).toBe('Asks because C: would have under 48.0 GB free');
+        expect(warningLine('auto-no-mark', p, 'G:\\Floe')).toBe("Asks because Windows can't mark files on G:");
+        expect(warningLine('auto-unknown', p, 'D:\\Footage')).toBe("Asks because Floe couldn't check D:");
     });
 
     it('drops a warning code it does not know', () => {

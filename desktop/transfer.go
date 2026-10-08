@@ -356,6 +356,11 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 		runtime.EventsEmit(a.ctx, event, payload)
 	}
 
+	abs, err := resolveSaveDir(outputDir)
+	if err != nil {
+		return "", fmt.Errorf("cannot create output directory: %w", err)
+	}
+	outputDir = abs
 	if outputDir == "" {
 		outputDir = defaultReceiveDir()
 	}
@@ -761,20 +766,30 @@ func (a *App) requestDecide(rg uint64, p requestPairing, d *requestDrop, in tran
 	// else asks below, exactly as on a link made with the switch off. The
 	// branch returns through Accept's own half: no new decision kind, no
 	// engine change (G11).
-	if p.autoAccept && autoPromptOK(pr, d.route) && autoEligible(pr, d.route, requestSpaceFor(p.saveDir, pr)) {
-		// Close link may have ended this link already. A prompt would hear
-		// that in its select; this branch has none, so it asks first, and
-		// nothing is made for a link that is gone (C2-10).
-		select {
-		case <-p.stop:
-			return refuse(transfer.CodeStopped)
-		default:
+	if p.autoAccept && autoPromptOK(pr, d.route) {
+		sp := requestSpaceFor(p.saveDir, pr)
+		if autoEligible(pr, d.route, sp) {
+			// Close link may have ended this link already. A prompt would hear
+			// that in its select; this branch has none, so it asks first, and
+			// nothing is made for a link that is gone (C2-10).
+			select {
+			case <-p.stop:
+				return refuse(transfer.CodeStopped)
+			default:
+			}
+			dec := a.acceptRequestDrop(rg, p, d, at, false)
+			if dec.Kind == transfer.DecisionAccept {
+				a.onAutoAccept(rg)
+			}
+			return dec
 		}
-		dec := a.acceptRequestDrop(rg, p, d, at, false)
-		if dec.Kind == transfer.DecisionAccept {
-			a.onAutoAccept(rg)
+		// The owner turned Auto-accept on, so the prompt says why this drop
+		// asks (D-176). Codes only, as for every warning.
+		reason := autoAskReason(sp)
+		pr.Warnings = append(pr.Warnings, reason)
+		if reason == "auto-floor" {
+			pr.FloorBytes = autoFloor(sp.capacity)
 		}
-		return dec
 	}
 	pg := a.openPrompt(rg, pr)
 	if pg == 0 {

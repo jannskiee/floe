@@ -1615,19 +1615,22 @@ func TestRequestToastsAreConstant(t *testing.T) {
 // call passes exactly the title and body requestToastText returned, every
 // reference to notifyRequest is a call with a table key, and requestToastText
 // returns constants. The transfer lane's calls pass string literals. No toast
-// package is imported directly, with one exception (H7 S-13): toast_windows.go
-// imports exactly go-toast v2 for the silent push, and toastFor there builds
-// the only toast.Notification, from a title, a body, foreground activation and
-// silent audio and nothing else; no other go-toast name appears in that file,
-// and the import goes by no name but toast. notify hands pushToast and pushFn its own
+// package is imported directly, with one exception (H7 S-13, deep QA A2-02):
+// toast_windows.go imports exactly go-toast v2's wintoast, by no name but
+// wintoast, and names it only in comToast, as one call of wintoast.Push with
+// exactly two arguments, so no option (the PowerShell fallback above all) is
+// ever passed; no file names PowershellFallback or PreferPowershell. toastXML
+// there builds the only toast (its output is pinned by TestToastXMLShape and
+// TestToastXMLTextCannotEndAnElement). notify hands pushToast and pushFn its own
 // title and body untouched, in calls of exactly four and three arguments, and
 // pushToast, whose parameters are exactly (ctx, title, body, silent), sends
-// them as exactly that and nothing more: neither function assigns, declares,
-// ranges into, shadows or takes the address of its title or body, the Wails
-// options are built inline from Title and Body, and the value toastFor returns
-// has no use but its one Push call (R-OPUS-1 OP-1). Because the
-// whole package is scanned, the
-// S1-DSK-03b drop (runRequestDrop) is covered by name without being listed.
+// them as exactly that and nothing more: neither it nor toastXML assigns,
+// declares, ranges into, shadows or takes the address of its title or body, the
+// Wails options (toast_other.go) are built inline from Title and Body, and
+// toast_windows.go's pushToast names title and body only in its one call
+// toastXML(title, body, silent) (R-OPUS-1 OP-1). Because the whole package is
+// scanned, the S1-DSK-03b drop (runRequestDrop) is covered by name without
+// being listed.
 func TestNoDirectNotifyInRequestLane(t *testing.T) {
 	type use struct{ name, owner string }
 	allowed := map[use]bool{
@@ -1635,15 +1638,12 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 		{"notifyFn", "app.go:(*App).notify"}:                           false,
 		{"pushFn", "app.go:(*App).notify"}:                             false,
 		{"pushToast", "app.go:(*App).notify"}:                          false,
-		{"SendNotification", "toast_windows.go:pushToast"}:             false,
-		{"NotificationOptions", "toast_windows.go:pushToast"}:          false,
 		{"SendNotification", "toast_other.go:pushToast"}:               false,
 		{"NotificationOptions", "toast_other.go:pushToast"}:            false,
 		{"pushToast", "toast_windows.go:pushToast"}:                    false,
 		{"pushToast", "toast_other.go:pushToast"}:                      false,
-		{"toastFor", "toast_windows.go:toastFor"}:                      false,
-		{"toastFor", "toast_windows.go:pushToast"}:                     false,
-		{"Notification", "toast_windows.go:toastFor"}:                  false,
+		{"toastXML", "toast_windows.go:toastXML"}:                      false,
+		{"toastXML", "toast_windows.go:pushToast"}:                     false,
 		{"InitializeNotifications", "app.go:(*App).startup"}:           false,
 		{"notifyFn", "app.go:App"}:                                     false,
 		{"pushFn", "app.go:App"}:                                       false,
@@ -1660,21 +1660,21 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 	// reach go-toast too, and so would any later one (review 2b L1).
 	named := map[string]bool{
 		"notify": true, "notifyFn": true, "notifyTransferFailed": true,
-		"pushToast": true, "pushFn": true, "toastFor": true,
+		"pushToast": true, "pushFn": true, "toastXML": true,
 	}
 	watched := func(name string) bool { return named[name] || strings.Contains(name, "Notification") }
 	keys := map[string]bool{"toastRequestArrived": true, "toastDropDone": true, "toastDropFailed": true, "toastDropAutoAccepted": true}
 	const laneOwner = "requestlink.go:(*App).notifyRequest"
 	const notifyOwner = "app.go:(*App).notify"
-	const toastImport = `"git.sr.ht/~jackmordaunt/go-toast/v2"`
+	const toastImport = `"git.sr.ht/~jackmordaunt/go-toast/v2/wintoast"`
 
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	fset := token.NewFileSet()
-	parsed, laneNotify, pushCalls := 0, 0, 0
-	var sawRequest, sawTable, sawToastFor, sawToastImport bool
+	parsed, laneNotify, pushCalls, comPushes := 0, 0, 0, 0
+	var sawRequest, sawTable, sawToastXML, sawToastImport bool
 	for _, file := range files {
 		if strings.HasSuffix(file, "_test.go") {
 			continue
@@ -1686,13 +1686,20 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 		parsed++
 		for _, imp := range f.Imports {
 			if strings.Contains(strings.ToLower(imp.Path.Value), "toast") {
-				if file == "toast_windows.go" && imp.Path.Value == toastImport && (imp.Name == nil || imp.Name.Name == "toast") {
+				if file == "toast_windows.go" && imp.Path.Value == toastImport && (imp.Name == nil || imp.Name.Name == "wintoast") {
 					sawToastImport = true
 					continue
 				}
-				t.Errorf("%s imports %s: a notification goes through notify only, and only toast_windows.go may import go-toast", file, imp.Path.Value)
+				t.Errorf("%s imports %s: a notification goes through notify only, and only toast_windows.go may import go-toast's wintoast", file, imp.Path.Value)
 			}
 		}
+		// go-toast's PowerShell fallback is never asked for, by any file (A2-02).
+		ast.Inspect(f, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok && (id.Name == "PowershellFallback" || id.Name == "PreferPowershell") {
+				t.Errorf("%v: %s names %s; Floe never engages go-toast's PowerShell path", fset.Position(id.Pos()), file, id.Name)
+			}
+			return true
+		})
 		for _, decl := range f.Decls {
 			owner := file + ":" + declOwner(decl)
 			fd, _ := decl.(*ast.FuncDecl)
@@ -1782,9 +1789,9 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 						default:
 							t.Errorf("%v: notify reaches %s other than with its own title and body", at, id.Name)
 						}
-					case id.Name == "toastFor" && owner == "toast_windows.go:pushToast":
-						if call == nil || len(call.Args) != 2 || !isIdent(call.Args[0], "title") || !isIdent(call.Args[1], "body") {
-							t.Errorf("%v: pushToast builds its toast from something other than its own title and body", at)
+					case id.Name == "toastXML" && owner == "toast_windows.go:pushToast":
+						if call == nil || len(call.Args) != 3 || !isIdent(call.Args[0], "title") || !isIdent(call.Args[1], "body") || !isIdent(call.Args[2], "silent") {
+							t.Errorf("%v: pushToast builds its toast from something other than its own title, body and silent", at)
 						}
 					case id.Name == "notifyTransferFailed":
 						if call == nil || len(call.Args) != 2 || !isStringLit(call.Args[1]) {
@@ -1823,20 +1830,38 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 			if fd != nil && owner == notifyOwner {
 				checkTextUnchanged(t, fset, fd, "notify")
 			}
-			// In toast_windows.go a go-toast name (toast.X) appears only inside
-			// toastFor: another call such as toast.SetAppData would set what the
-			// PowerShell fallback script carries, past toastFor's pin.
-			if file == "toast_windows.go" && owner != "toast_windows.go:toastFor" {
+			// In toast_windows.go a go-toast name (wintoast.X) appears only in
+			// comToast, as the callee of one call with exactly two arguments:
+			// wintoast.Push(appID, xml). A third argument is an option, and the
+			// options are the PowerShell paths (A2-02); another call such as
+			// wintoast.SetAppData would change the sender past this pin.
+			if file == "toast_windows.go" {
+				calls := map[*ast.SelectorExpr]*ast.CallExpr{}
 				ast.Inspect(decl, func(n ast.Node) bool {
-					if sel, ok := n.(*ast.SelectorExpr); ok && isIdent(sel.X, "toast") {
-						t.Errorf("%v: %s names toast.%s; only toastFor may use go-toast", fset.Position(sel.Pos()), owner, sel.Sel.Name)
+					if c, ok := n.(*ast.CallExpr); ok {
+						if sel, ok := c.Fun.(*ast.SelectorExpr); ok {
+							calls[sel] = c
+						}
 					}
 					return true
 				})
+				ast.Inspect(decl, func(n ast.Node) bool {
+					sel, ok := n.(*ast.SelectorExpr)
+					if !ok || !isIdent(sel.X, "wintoast") {
+						return true
+					}
+					c := calls[sel]
+					if owner != "toast_windows.go:comToast" || sel.Sel.Name != "Push" || c == nil || len(c.Args) != 2 || c.Ellipsis.IsValid() {
+						t.Errorf("%v: %s names wintoast.%s; only comToast may use go-toast, as one wintoast.Push(appID, xml)", fset.Position(sel.Pos()), owner, sel.Sel.Name)
+						return true
+					}
+					comPushes++
+					return true
+				})
 			}
-			if fd != nil && owner == "toast_windows.go:toastFor" {
-				sawToastFor = true
-				checkToastFor(t, fset, fd)
+			if fd != nil && owner == "toast_windows.go:toastXML" {
+				sawToastXML = true
+				checkToastXML(t, fset, fd)
 			}
 			if fd != nil && (owner == "toast_windows.go:pushToast" || owner == "toast_other.go:pushToast") {
 				checkTextUnchanged(t, fset, fd, file+" pushToast")
@@ -1847,8 +1872,8 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 	if parsed < 10 || !sawRequest || !sawTable {
 		t.Fatalf("parsed %d files, notifyRequest found %v, requestToastText found %v", parsed, sawRequest, sawTable)
 	}
-	if !sawToastFor || !sawToastImport {
-		t.Errorf("toast_windows.go: toastFor found %v, go-toast import found %v; the exception exists for exactly that file", sawToastFor, sawToastImport)
+	if !sawToastXML || !sawToastImport || comPushes != 1 {
+		t.Errorf("toast_windows.go: toastXML found %v, wintoast import found %v, wintoast.Push calls %d (want 1); the exception exists for exactly that file", sawToastXML, sawToastImport, comPushes)
 	}
 	if laneNotify != 1 {
 		t.Errorf("notifyRequest references notify %d times, want exactly its one call", laneNotify)
@@ -1907,37 +1932,56 @@ func recvTypeName(e ast.Expr) string {
 	return "?"
 }
 
-// checkToastFor pins the one place a toast.Notification is built (H7 S-13):
-// toastFor(title, body) has exactly one statement, a return of one literal
-// whose keys are Title, Body, ActivationType and Audio and whose values are
-// title, body, toast.Foreground and toast.Silent. No Icon, HeroIcon, Actions,
-// Inputs or ActivationArguments (a launch value runs on a click), and no free
-// audio: the sound is the preference's to give back by taking the other path.
-func checkToastFor(t *testing.T, fset *token.FileSet, fd *ast.FuncDecl) {
+// checkToastXML pins the one place a toast is built (H7 S-13, deep QA A2-02):
+// toastXML takes exactly (title, body string, silent bool), never changes its
+// text, and names title and body once each, as the []byte(...) second argument
+// of an xml.EscapeText call, so neither reaches the XML unescaped. What it
+// builds (no image, action, input or launch value) is pinned by
+// TestToastXMLShape and TestToastXMLTextCannotEndAnElement.
+func checkToastXML(t *testing.T, fset *token.FileSet, fd *ast.FuncDecl) {
 	t.Helper()
 	var params []string
 	for _, f := range fd.Type.Params.List {
-		for _, n := range f.Names {
-			params = append(params, n.Name)
+		for _, id := range f.Names {
+			params = append(params, id.Name+" "+dottedName(f.Type))
 		}
 	}
-	if strings.Join(params, ",") != "title,body" {
-		t.Errorf("%v: toastFor takes (%s), want (title, body)", fset.Position(fd.Pos()), strings.Join(params, ", "))
+	if got := strings.Join(params, ", "); got != "title string, body string, silent bool" {
+		t.Errorf("%v: toastXML takes (%s), want exactly (title, body string, silent bool)", fset.Position(fd.Pos()), got)
 	}
-	if len(fd.Body.List) != 1 {
-		t.Fatalf("%v: toastFor has %d statements, want its one return", fset.Position(fd.Pos()), len(fd.Body.List))
-	}
-	ret, ok := fd.Body.List[0].(*ast.ReturnStmt)
-	if !ok || len(ret.Results) != 1 {
-		t.Fatalf("%v: toastFor is not a single return", fset.Position(fd.Pos()))
-	}
-	lit, ok := ret.Results[0].(*ast.CompositeLit)
-	if !ok {
-		t.Fatalf("%v: toastFor does not return a literal", fset.Position(ret.Pos()))
-	}
-	checkKeyedLiteral(t, fset, lit, "toastFor", map[string]string{
-		"Title": "title", "Body": "body", "ActivationType": "toast.Foreground", "Audio": "toast.Silent",
+	checkTextUnchanged(t, fset, fd, "toastXML")
+	escaped := map[*ast.Ident]bool{}
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		c, ok := n.(*ast.CallExpr)
+		if !ok || dottedName(c.Fun) != "xml.EscapeText" || len(c.Args) != 2 {
+			return true
+		}
+		conv, ok := c.Args[1].(*ast.CallExpr)
+		if !ok || len(conv.Args) != 1 {
+			return true
+		}
+		if at, ok := conv.Fun.(*ast.ArrayType); ok && at.Len == nil && isIdent(at.Elt, "byte") {
+			if id, ok := conv.Args[0].(*ast.Ident); ok {
+				escaped[id] = true
+			}
+		}
+		return true
 	})
+	uses := map[string]int{}
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		id, ok := n.(*ast.Ident)
+		if !ok || (id.Name != "title" && id.Name != "body") {
+			return true
+		}
+		uses[id.Name]++
+		if !escaped[id] {
+			t.Errorf("%v: toastXML names %s other than as xml.EscapeText(w, []byte(%s))", fset.Position(id.Pos()), id.Name, id.Name)
+		}
+		return true
+	})
+	if uses["title"] != 1 || uses["body"] != 1 {
+		t.Errorf("%v: toastXML names title %d times and body %d times, want once each", fset.Position(fd.Pos()), uses["title"], uses["body"])
+	}
 }
 
 // checkKeyedLiteral requires lit to be made of Key: value pairs, exactly the
@@ -2029,14 +2073,12 @@ func checkTextUnchanged(t *testing.T, fset *token.FileSet, fd *ast.FuncDecl, who
 
 // checkPushToast pins what pushToast does with the text once notify has handed
 // it over (H7 review R-S-1 F1), in both toast_windows.go and toast_other.go.
-// The one SendNotification call takes its options as an inline literal with
-// exactly Title: title and Body: body, so nothing can edit them between the
-// literal and the send. On Windows the silent path also holds the value
-// toastFor returns: it is declared once, from toastFor, and its one use is its
-// own Push() call. An assignment to a field of it (ActivationArguments is a
-// launch value that runs on a click, Icon and Body are what Windows shows),
-// another method, or handing it on would reach the toast past the pin on
-// toastFor's literal, which ends where its return does.
+// In toast_other.go the one SendNotification call takes its options as an
+// inline literal with exactly Title: title and Body: body, so nothing can edit
+// them between the literal and the send. toast_windows.go sends nothing
+// through Wails (A2-02): its pushToast names title and body once each, and
+// toastXML once, in the one call toastXML(title, body, silent) that the
+// allowlist case checks, so the text reaches the toast only through toastXML.
 func checkPushToast(t *testing.T, fset *token.FileSet, fd *ast.FuncDecl, file string) {
 	t.Helper()
 	var params []string
@@ -2071,50 +2113,24 @@ func checkPushToast(t *testing.T, fset *token.FileSet, fd *ast.FuncDecl, file st
 		}
 		return true
 	})
-	if sends != 1 || optionIdents != 1 {
-		t.Errorf("%v: %s pushToast has %d SendNotification calls and %d NotificationOptions references, want one each", fset.Position(fd.Pos()), file, sends, optionIdents)
-	}
 	if file != "toast_windows.go" {
+		if sends != 1 || optionIdents != 1 {
+			t.Errorf("%v: %s pushToast has %d SendNotification calls and %d NotificationOptions references, want one each", fset.Position(fd.Pos()), file, sends, optionIdents)
+		}
 		return
 	}
-	var def *ast.Ident
-	defs, toastRefs := 0, 0
-	for _, st := range fd.Body.List {
-		as, ok := st.(*ast.AssignStmt)
-		if !ok || as.Tok != token.DEFINE || len(as.Lhs) != 1 || len(as.Rhs) != 1 {
-			continue
-		}
-		if call, ok := as.Rhs[0].(*ast.CallExpr); ok && isIdent(call.Fun, "toastFor") {
-			defs++
-			def, _ = as.Lhs[0].(*ast.Ident)
-		}
+	if sends != 0 || optionIdents != 0 {
+		t.Errorf("%v: toast_windows.go pushToast has %d SendNotification calls and %d NotificationOptions references, want none: Wails' notification engages the PowerShell fallback", fset.Position(fd.Pos()), sends, optionIdents)
 	}
+	uses := map[string]int{}
 	ast.Inspect(fd.Body, func(n ast.Node) bool {
-		if id, ok := n.(*ast.Ident); ok && id.Name == "toastFor" {
-			toastRefs++
+		if id, ok := n.(*ast.Ident); ok && (id.Name == "title" || id.Name == "body" || id.Name == "toastXML") {
+			uses[id.Name]++
 		}
 		return true
 	})
-	if def == nil || defs != 1 || toastRefs != 1 {
-		t.Errorf("%v: pushToast must declare its toast once, as a top-level statement, from its one call to toastFor (%d declarations, %d references)", fset.Position(fd.Pos()), defs, toastRefs)
-		return
-	}
-	uses, pushes := 0, 0
-	ast.Inspect(fd.Body, func(n ast.Node) bool {
-		switch n := n.(type) {
-		case *ast.Ident:
-			if n.Name == def.Name && n != def {
-				uses++
-			}
-		case *ast.CallExpr:
-			if sel, ok := n.Fun.(*ast.SelectorExpr); ok && isIdent(sel.X, def.Name) && sel.Sel.Name == "Push" && len(n.Args) == 0 {
-				pushes++
-			}
-		}
-		return true
-	})
-	if uses != 1 || pushes != 1 {
-		t.Errorf("%v: pushToast names the toast %s %d times beyond its declaration and calls %s.Push() %d times; its one use must be that Push()", fset.Position(fd.Pos()), def.Name, uses, def.Name, pushes)
+	if uses["title"] != 1 || uses["body"] != 1 || uses["toastXML"] != 1 {
+		t.Errorf("%v: toast_windows.go pushToast names title %d, body %d and toastXML %d times, want once each, in toastXML(title, body, silent)", fset.Position(fd.Pos()), uses["title"], uses["body"], uses["toastXML"])
 	}
 }
 
@@ -2809,5 +2825,37 @@ func TestReopenAfterAcceptClearsOwnerStop(t *testing.T) {
 	a.endDrop(1, "stopped", "peer-abort", nil)
 	if n := r.count(to3[0], to3[1]); n != 1 {
 		t.Fatalf("the next drop's failure sent %d failure toasts, want 1", n)
+	}
+}
+
+// TestDeclinedLinkPairsNobody (D-176, deep QA A1-02): after Decline only the
+// owner's Keep waiting reopens a link (T17). The server's seal keeps a new
+// visitor out, but a room re-created after a server restart or an absence past
+// the grace comes back unsealed, and a visitor seated there must not reach the
+// prompt: the lane leaves it with no offer, stays declined, and Keep waiting
+// still reopens it.
+func TestDeclinedLinkPairsNobody(t *testing.T) {
+	f := newFakeSignalServer(t)
+	a, _ := laneApp(t, f)
+	l := a.lane()
+	l.backoffBase, l.backoffCap = 20*time.Millisecond, 80*time.Millisecond
+	var calls atomic.Int32
+	l.pairFn = func(uint64, *signaling.Client) { calls.Add(1) }
+	s := makeWaiting(t, a)
+	forceState(a, "declined", 5)
+	f.dropAll()
+	waitFor(t, 5*time.Second, "the re-join to settle", func() bool {
+		return len(f.tokenJoins()) == 2 && stateOf(a).State != "reconnecting"
+	})
+	f.userConnected()
+	time.Sleep(300 * time.Millisecond)
+	if n := calls.Load(); n != 0 {
+		t.Fatalf("a visitor seated on a declined link reached pairFn %d time(s)", n)
+	}
+	if now := stateOf(a); now.State != "declined" || now.Link != s.Link {
+		t.Fatalf("after a visitor was seated while declined: %q, same link %v", now.State, now.Link == s.Link)
+	}
+	if out := a.AnswerRequest(5, "keep-waiting"); out.State != "waiting" {
+		t.Fatalf("keep-waiting: %q", out.State)
 	}
 }

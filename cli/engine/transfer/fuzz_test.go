@@ -267,12 +267,17 @@ func safeJoinSeeds() []fuzzSeed {
 	}
 }
 
-// anchoredOracle is startsAtDriveOrRoot written a second way: a separator of
-// either kind first, or an ASCII letter and a colon that end the name or come
-// before a separator (D-117: "P:L 2025.xlsx" is a name, not a drive).
+// anchoredOracle is startsAtDriveOrRoot written a second way: a slash first, a
+// backslash first with another separator somewhere after it (A3-04: a lone
+// leading backslash is a POSIX name), or an ASCII letter and a colon that end
+// the name or come before a separator (D-117: "P:L 2025.xlsx" is a name, not
+// a drive).
 func anchoredOracle(name string) bool {
-	if strings.HasPrefix(name, "/") || strings.HasPrefix(name, `\`) {
+	if strings.HasPrefix(name, "/") {
 		return true
+	}
+	if rest, ok := strings.CutPrefix(name, `\`); ok {
+		return strings.IndexAny(rest, `\/`) >= 0
 	}
 	if len(name) < 2 || name[1] != ':' ||
 		!strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", rune(name[0])) {

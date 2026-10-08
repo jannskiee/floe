@@ -61,7 +61,13 @@ func TestCheckPathShape(t *testing.T) {
 		{`\\.\PhysicalDrive0`, notRelative.code, notRelative.reason},
 		{"/etc/x", notRelative.code, notRelative.reason},
 		{`\Windows\evil.dll`, notRelative.code, notRelative.reason},
+		{`\Windows/evil.dll`, notRelative.code, notRelative.reason},
+		{`\\`, notRelative.code, notRelative.reason},
 		{"/", notRelative.code, notRelative.reason},
+		// A leading backslash with no separator after it is a POSIX name,
+		// which safeJoin contains (A3-04): notes.txt on Windows.
+		{`\notes.txt`, "", ""},
+		{`\`, "", ""},
 		// Only a drive or a root at the very start: these are relative.
 		{`a/C:/b.txt`, "", ""},
 		{`1:x.txt`, "", ""},
@@ -149,7 +155,9 @@ func TestCheckFirstMetadata(t *testing.T) {
 	}{
 		{"10000 files", func(*FileInfo) {}, requestLimits(), ""},
 		{"10001 files", func(i *FileInfo) { i.Total = 10001 }, requestLimits(), CodeOverApproved},
-		{"total bytes 0", func(i *FileInfo) { i.TotalBytes = 0; i.FileSize = 0 }, requestLimits(), CodeOverApproved},
+		{"total bytes 0 with data in file 1", func(i *FileInfo) { i.TotalBytes = 0 }, requestLimits(), CodeOverApproved},
+		// A drop of empty files announces a total of 0 and passes (A3-02).
+		{"total bytes 0, all empty", func(i *FileInfo) { i.TotalBytes = 0; i.FileSize = 0 }, requestLimits(), ""},
 		{"first is file 2", func(i *FileInfo) { i.Index = 2 }, requestLimits(), CodeOverApproved},
 		{"MaxFiles 0 refuses everything", func(*FileInfo) {}, &ReceiveLimits{}, CodeOverApproved},
 	}
@@ -410,14 +418,14 @@ func TestLimitsTotalMustStayConstantAndIndexInOrder(t *testing.T) {
 }
 
 // TestLimitsAnnouncedTotalZeroRefused: a request-link drop must announce its
-// total (a pre-1.6.0 sender cannot use a link anyway); zero or absent is
-// refused before OnIncoming and Decide.
+// total (a pre-1.6.0 sender cannot use a link anyway); zero with data in the
+// first file, or absent, is refused before OnIncoming and Decide.
 func TestLimitsAnnouncedTotalZeroRefused(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping ICE loopback transfer in -short mode")
 	}
 	rows := []struct{ name, meta string }{
-		{"zero", metaFor("a.txt", 0, 1, 1, 0)},
+		{"zero", metaFor("a.txt", 4, 1, 1, 0)},
 		{"absent", `{"type":"metadata","id":"z","fileName":"a.txt","fileSize":4,"index":1,"total":1,"pv":1,"pvMin":1}`},
 	}
 	for _, row := range rows {
@@ -430,6 +438,34 @@ func TestLimitsAnnouncedTotalZeroRefused(t *testing.T) {
 			}
 			wantRefused(t, run, CodeOverApproved, CodeOverApproved.WireReason())
 		})
+	}
+}
+
+// TestLimitsEmptyDropSaved (deep QA A3-02, T13-F1): a request-link drop of
+// two empty files announces a total of 0. The owner is asked once, both files
+// are saved, and the sender gets its received frame, where the host used to
+// refuse it over-approved before asking and the link was spent.
+func TestLimitsEmptyDropSaved(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ICE loopback transfer in -short mode")
+	}
+	stubDisk(t, 0, 1<<40)
+	d := &acceptingDecide{}
+	run := runScripted(t, t.TempDir(), metaFor("a.txt", 0, 1, 2, 0), ReceiveOptions{Limits: requestLimits(), Decide: d.decide},
+		func(h *handSender, n int) {
+			h.text(`{"type":"end"}`)
+			if n == 1 {
+				h.text(metaFor("b.txt", 0, 2, 2, 0))
+			}
+		})
+	if run.refusal != nil {
+		t.Fatalf("the empty drop was refused: %+v", *run.refusal)
+	}
+	if run.incoming != 1 || d.calls != 1 || !run.received {
+		t.Fatalf("incoming=%d decide=%d received=%v, want one prompt and a received frame (%s)", run.incoming, d.calls, run.received, run.summary())
+	}
+	if strings.Join(run.tree, ",") != "a.txt,b.txt" {
+		t.Fatalf("the output folder holds %v, want a.txt and b.txt", run.tree)
 	}
 }
 
@@ -537,7 +573,7 @@ func TestLimitsRunBeforeDecide(t *testing.T) {
 		reason     string
 	}{
 		{"10001 files", metaFor("a.txt", 4, 1, 10001, 4), CodeOverApproved, CodeOverApproved.WireReason()},
-		{"total bytes 0", metaFor("a.txt", 0, 1, 1, 0), CodeOverApproved, CodeOverApproved.WireReason()},
+		{"total bytes 0 with data in file 1", metaFor("a.txt", 4, 1, 1, 0), CodeOverApproved, CodeOverApproved.WireReason()},
 		{"file 2 first", metaFor("a.txt", 4, 2, 2, 8), CodeOverApproved, CodeOverApproved.WireReason()},
 		{"depth 33", metaFor(strings.Repeat("d/", 32)+"f.txt", 4, 1, 1, 4), CodePathTooLong, CodePathTooLong.WireReason()},
 		{"drive path", metaFor(`C:\x.txt`, 4, 1, 1, 4), CodePathTooLong, reasonPathNotRelative},

@@ -37,6 +37,7 @@ export type VisitorState =
     | 'V5a' // Used
     | 'V5b' // Turned off
     | 'V5c' // Not available on this server
+    | 'V5d' // Ended: closed or past its end before anyone used it (D-176)
     | 'V6' // Connecting
     | 'V6a' // Couldn't connect
     | 'V6b' // Hide my IP needs a relay
@@ -75,7 +76,7 @@ export type VisitorEvent =
     | { type: 'SOCKET_REFUSED' } // E10
     | {
           type: 'JOIN_ANSWER'; // E11
-          answer: 'request-joined' | 'host-absent' | 'room-full' | 'disabled' | 'error';
+          answer: 'request-joined' | 'host-absent' | 'link-ended' | 'room-full' | 'disabled' | 'error';
           /** Milliseconds since this page's previous attempt ended, or null
            *  on the first attempt. Read only for room-full (row R2). */
           sincePreviousAttemptMs?: number | null;
@@ -209,7 +210,7 @@ export const initialModel: VisitorModel = {
  *  socket (E-04): that frees seat 1 for the host's request-reopen and keeps a
  *  late server answer out of the next attempt. */
 export const ATTEMPT_ENDING_STATES: readonly VisitorState[] = [
-    'V4', 'V5a', 'V5b', 'V5c', 'V6a', 'V6b', 'V6d', 'V8a', 'V8b', 'V9',
+    'V4', 'V5a', 'V5b', 'V5c', 'V5d', 'V6a', 'V6b', 'V6d', 'V8a', 'V8b', 'V9',
     'V11', 'V11a', 'V11b', 'V12', 'V12a', 'V13',
 ];
 
@@ -406,7 +407,7 @@ export function reduce(model: VisitorModel, event: VisitorEvent): Step {
     if (s === 'V7') return waiting(model, event);
     if (s === 'V10') return sending(model, event);
 
-    // V1, V2, V5a to V5c, V11, V11a, V11b, V12, V13: terminal for this page.
+    // V1, V2, V5a to V5d, V11, V11a, V11b, V12, V13: terminal for this page.
     return stay(model);
 }
 
@@ -437,6 +438,8 @@ function connecting(model: VisitorModel, event: VisitorEvent): Step {
                     return to(model, 'V6', { joined: true }, ['clearJoinTimer', 'armSetupTimer']);
                 case 'host-absent':
                     return end(model, 'V4');
+                case 'link-ended':
+                    return end(model, 'V5d');
                 case 'disabled':
                     return end(model, 'V5b');
                 case 'error':

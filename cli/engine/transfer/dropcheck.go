@@ -6,7 +6,6 @@ package transfer
 // here with nothing sent (TL-30, TL-31).
 
 import (
-	"encoding/json"
 	"errors"
 )
 
@@ -69,12 +68,12 @@ func precheckEntries(entries []fileEntry, localVer string) (int, error) {
 const worstCaseFileID = "ffffffff-ffff-ffff-ffff-ffffffffffff"
 
 // metadataFrameLen is how many bytes e's metadata frame will be on the wire:
-// the same struct sendFile marshals, with the widest index the drop reaches
-// (the last, index equal to total) and this walk's sizes. json.Marshal is the
-// measure because its escaping is the wire's: a quote or a backslash costs two
-// bytes, <, > and & six, and a character outside the BMP four.
+// the same struct sendFile encodes, with the widest index the drop reaches
+// (the last, index equal to total) and this walk's sizes. metadataJSON is the
+// measure because it is the wire's encoding: a quote or a backslash costs two
+// bytes, <, > and & one, and a character outside the BMP four.
 func metadataFrameLen(e fileEntry, total int, totalBytes int64, localVer string) int {
-	b, _ := json.Marshal(metadataMsg{
+	b := metadataJSON(metadataMsg{
 		Type:       "metadata",
 		ID:         worstCaseFileID,
 		FileName:   e.displayName,
