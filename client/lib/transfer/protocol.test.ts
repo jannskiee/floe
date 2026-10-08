@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
     PROTOCOL_VERSION,
     MIN_PROTOCOL_VERSION,
@@ -20,6 +21,8 @@ import {
     verifiedCountOf,
     ackConfirmsOf,
     SEND_FILE_HASHES,
+    END_DIGEST_WAIT_MS,
+    POST_END_HASH_WAIT_MS,
     type Ack,
     type Incompatible,
     type Received,
@@ -473,5 +476,29 @@ describe('classifyControl and JSON whitespace', () => {
         expect(classifyControl(' {"type":"end"}')).toBeNull();
         expect(classifyControl('x{"type":"end"}')).toBeNull();
         expect(classifyControl('   ')).toBeNull();
+    });
+});
+
+// W3 R3-03: the two browser hash waits against the Go clocks they exist to
+// stay under, read from the Go sources so a change on either side fails here.
+// The end-digest wait leaves 15 s of a Go receiver's stall for the end frame
+// to cross; the post-end wait leaves room for a Go sender's undrained tail
+// (HIGH_WATER at 0.5 MB/s, about 17 s) before that sender's ack clock ends.
+describe('the browser hash waits fit the Go clocks', () => {
+    const goSecondsMs = (file: string, name: string): number => {
+        const src = readFileSync(new URL(`../../../cli/engine/transfer/${file}`, import.meta.url), 'utf8');
+        const line = src.split('\n').find((l) => l.includes(name) && l.includes('time.Second'));
+        const m = line ? /=\s*(\d+)\s*\*\s*time\.Second/.exec(line) : null;
+        if (!m) throw new Error(`${name} not found in ${file}`);
+        return Number(m[1]) * 1000;
+    };
+
+    it('END_DIGEST_WAIT_MS leaves 15 s of receiveStallTimeout', () => {
+        expect(END_DIGEST_WAIT_MS + 15_000).toBeLessThanOrEqual(goSecondsMs('receiver.go', 'receiveStallTimeout'));
+    });
+
+    it('POST_END_HASH_WAIT_MS leaves a Go sender its tail drain inside defaultAckTimeout', () => {
+        const tailDrainMs = (HIGH_WATER / 500_000) * 1000;
+        expect(POST_END_HASH_WAIT_MS + tailDrainMs).toBeLessThanOrEqual(goSecondsMs('deadlines.go', 'defaultAckTimeout'));
     });
 });
