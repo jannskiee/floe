@@ -28,7 +28,7 @@ func TestDeadlineConstantsMatchTS(t *testing.T) {
 
 // TestBrowserHashWaitsFitGoClocks pins the two Go clocks that the browser's
 // digest waits are sized under: END_DIGEST_WAIT_MS (45 s, under the 60 s
-// stall) and POST_END_HASH_WAIT_MS (100 s, under the 120 s ack wait) in
+// stall) and POST_END_HASH_WAIT_MS (90 s, under the 120 s ack wait) in
 // client/lib/transfer/protocol.ts. Shortening either clock here without
 // shrinking its twin there lets a slow browser hasher fail a whole file again.
 func TestBrowserHashWaitsFitGoClocks(t *testing.T) {
@@ -36,6 +36,6 @@ func TestBrowserHashWaitsFitGoClocks(t *testing.T) {
 		t.Errorf("receiveStallTimeout = %v, want 60s (END_DIGEST_WAIT_MS in client/lib/transfer/protocol.ts is 45 s under it)", receiveStallTimeout)
 	}
 	if defaultAckTimeout != 120*time.Second {
-		t.Errorf("defaultAckTimeout = %v, want 120s (POST_END_HASH_WAIT_MS in client/lib/transfer/protocol.ts is 100 s under it)", defaultAckTimeout)
+		t.Errorf("defaultAckTimeout = %v, want 120s (POST_END_HASH_WAIT_MS in client/lib/transfer/protocol.ts is 90 s under it)", defaultAckTimeout)
 	}
 }

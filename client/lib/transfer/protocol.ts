@@ -65,10 +65,12 @@ export const END_DIGEST_WAIT_MS = 45_000;
  * follow. The next metadata, and so its ack, queues behind the hash, and both
  * senders wait ACK_TIMEOUT_MS for that ack (defaultAckTimeout in
  * cli/engine/transfer/deadlines.go), so past this wait the file is kept
- * unverified rather than the batch timing out. The last file of a batch keeps
- * hashBoundMs: no sender waits on it.
+ * unverified rather than the batch timing out. 90 s, not closer to 120: a Go
+ * sender sends the next metadata without draining, so its clock can start up
+ * to the tail drain (8 MB at 0.5 MB/s, about 16 s) before this hash does. The
+ * last file of a batch keeps hashBoundMs: no sender waits on it.
  */
-export const POST_END_HASH_WAIT_MS = 100_000;
+export const POST_END_HASH_WAIT_MS = 90_000;
 
 // ProtocolVersion is the highest wire protocol version this build speaks.
 // MinProtocolVersion is the lowest it still supports.
