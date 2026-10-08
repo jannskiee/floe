@@ -354,15 +354,8 @@ function ActivitySlot(props: RequestLinkViewProps) {
     // Two gaps only: 8 px inside a group of lines, 16 px between a group and
     // the control under it.
     if (phase === 'declined') {
-        return (
-            <div className="space-y-4">
-                <div className="space-y-2">
-                    <p className={t1Class}>{copy.DECLINED_LINE}</p>
-                    <p className={t2Class}>{copy.DECLINED_QUESTION}</p>
-                </div>
-                <Button id="floe-keep-waiting" variant="outline" className="w-full" onClick={() => props.onAnswer(snap.promptGen, 'keep-waiting')}>{copy.KEEP_WAITING}</Button>
-            </div>
-        );
+        // Keyed on the prompt, like Prompt, so each decline gets its own guard.
+        return <Declined key={snap.promptGen} {...props}/>;
     }
     if (phase === 'reconnecting') {
         return (
@@ -393,6 +386,33 @@ function ActivitySlot(props: RequestLinkViewProps) {
         </div>
     ) : (
         <p className={t1Class}>{copy.WAITING_LINE}</p>
+    );
+}
+
+// Declined, with Keep waiting under the prompt's 1 s guard from the moment it
+// renders. Keep waiting reopens the link and sits where the Decline that just
+// rendered it was, so the second click of a double click on Decline pressed it
+// (deep QA A5-12), and since focus moves to it after Decline (A5-02) a held
+// Enter would too. Every activation inside the guard is ignored.
+function Declined({snap, onAnswer}: RequestLinkViewProps) {
+    const mountedAt = useRef(Date.now());
+    const [guarded, setGuarded] = useState(true);
+    useEffect(() => {
+        const id = window.setTimeout(() => setGuarded(false), GUARD_MS);
+        return () => clearTimeout(id);
+    }, []);
+    const keepWaiting = () => {
+        if (guardActive(Date.now(), mountedAt.current, null)) return;
+        onAnswer(snap.promptGen, 'keep-waiting');
+    };
+    return (
+        <div className="space-y-4">
+            <div className="space-y-2">
+                <p className={t1Class}>{copy.DECLINED_LINE}</p>
+                <p className={t2Class}>{copy.DECLINED_QUESTION}</p>
+            </div>
+            <Button id="floe-keep-waiting" variant="outline" className={cn('w-full', guarded && 'cursor-not-allowed opacity-50')} aria-disabled={guarded} onClick={keepWaiting}>{copy.KEEP_WAITING}</Button>
+        </div>
     );
 }
 

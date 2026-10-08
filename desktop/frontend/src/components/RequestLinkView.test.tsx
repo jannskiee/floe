@@ -91,6 +91,28 @@ describe('the Accept guard', () => {
         vi.useRealTimers();
     });
 
+    it('Keep waiting has the guard too, so a double click on Decline cannot reopen the link (A5-12)', () => {
+        // The second click of a double click lands where Decline was, which is
+        // Keep waiting once Declined renders; a held Enter lands there too now
+        // that focus moves to it. Both are ignored for 1 s.
+        const p = at('declined');
+        render(<RequestLinkView {...p}/>);
+        const keep = screen.getByRole('button', {name: 'Keep waiting'});
+        expect(keep.getAttribute('aria-disabled')).toBe('true');
+        act(() => { vi.advanceTimersByTime(120); });
+        mouseClick(keep);
+        fireEvent.click(keep); // a keyboard activation, detail 0
+        act(() => { vi.advanceTimersByTime(870); }); // 990 ms after render
+        mouseClick(keep);
+        expect(p.onAnswer).not.toHaveBeenCalled();
+
+        act(() => { vi.advanceTimersByTime(10); });
+        expect(keep.getAttribute('aria-disabled')).toBe('false');
+        mouseClick(keep);
+        expect(p.onAnswer).toHaveBeenCalledTimes(1);
+        expect(p.onAnswer).toHaveBeenCalledWith(p.snap.promptGen, 'keep-waiting');
+    });
+
     it('guard blocks clicks for 1 s', () => {
         const p = at('deciding');
         render(<RequestLinkView {...p}/>);
