@@ -402,7 +402,12 @@ func firstWord(args []string) int {
 			}
 			return -1
 		}
-		if a == "-" || !strings.HasPrefix(a, "-") {
+		if a == "" || a == "-" {
+			// cobra drops both before it looks for the command, so the word
+			// after them is the one it runs (W3 R5-08).
+			continue
+		}
+		if !strings.HasPrefix(a, "-") {
 			return i
 		}
 		name := strings.TrimLeft(a, "-")

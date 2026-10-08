@@ -198,6 +198,10 @@ func TestRequestLinkTypedAsTheCommandIsNeverPrintedBack(t *testing.T) {
 		// deep QA A3-07: cobra's help answers an unknown topic with the link quoted.
 		run{"after help", []string{"help", shapes["a whole link"]}},
 		run{"after --server, its value and help", []string{"--server", closedServer, "help", shapes["a whole link"]}},
+		// W3 R5-08: cobra drops a lone dash and an empty argument before it
+		// looks for the command.
+		run{"after a lone dash and help", []string{"-", "help", shapes["a whole link"]}},
+		run{"after an empty argument and help", []string{"", "help", shapes["a whole link"]}},
 	)
 	for _, r := range runs {
 		t.Run(r.name, func(t *testing.T) {
