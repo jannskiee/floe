@@ -320,23 +320,100 @@ describe('scrubUrl on a request link', () => {
         expect(scrubErrorEvent(structuredClone(plain))).toEqual(plain);
     });
 
-    it('the browser breadcrumb hook scrubs the message and every string, as the server does (A4-06)', () => {
+    it('the browser breadcrumb hook scrubs the message, the URLs and every logged string (A4-06)', () => {
         const crumb = {
             category: 'console',
             message: `href=https://floe.one/#room=${ROOM_ID}`,
-            data: { url: `/r/${LINK_ID}#${ROOM_ID}`, arguments: [{ nested: `https://floe.one/r/${LINK_ID}` }] },
+            data: {
+                url: `/r/${LINK_ID}#${ROOM_ID}`,
+                arguments: [`at https://floe.one/r/${LINK_ID}`, { nested: `https://floe.one/r/${LINK_ID}` }] as unknown[],
+            },
         };
+        const logged = crumb.data.arguments[1];
         const out = scrubBreadcrumb(crumb);
-        const json = JSON.stringify(out);
-        expect(json).not.toContain(ROOM_ID);
-        expect(json).not.toContain(LINK_ID);
+        expect(out.message).not.toContain(ROOM_ID);
         expect(out.data.url).toBe('/r/redacted');
+        expect(out.data.arguments[0]).not.toContain(LINK_ID);
+        // A logged object is the page's own, live: it is left to the event
+        // hooks, which scrub the SDK's normalized copy (W3 R5-01, below).
+        expect(out.data.arguments[1]).toBe(logged);
+        expect(logged).toEqual({ nested: `https://floe.one/r/${LINK_ID}` });
         const nav = { category: 'navigation', data: { from: '/', to: '/download' } };
         expect(scrubBreadcrumb(structuredClone(nav))).toEqual(nav);
         // The config imports the SDK and cannot load here, so its wiring is read
         // as text: the hook hands every breadcrumb to scrubBreadcrumb whole.
         const src = readFileSync(fileURLToPath(new URL('../sentry.client.config.ts', import.meta.url)), 'utf8');
         expect(src).toMatch(/beforeBreadcrumb\(breadcrumb\) \{\s*return scrubBreadcrumb\(breadcrumb\);\s*\},/);
+    });
+
+    it('the browser hook never walks or writes the objects a page logged, and never throws (W3 R5-01)', () => {
+        // @sentry/browser hands beforeBreadcrumb the page's own console
+        // arguments, live, before the real console call: walking them took a
+        // share link in the app's state down to its path, left a deep object
+        // without its leaves, and threw on a frozen object or a getter.
+        const link = `https://floe.one/?s=n0nce#room=${ROOM_ID}`;
+        const state = { link, peer: { a: { b: { c: { d: { e: 1 } } } } } };
+        const frozen = Object.freeze({ link });
+        const getter = Object.defineProperty({}, 'link', { get: () => link, enumerable: true }) as { link: string };
+        const chain: Record<string, unknown> = {};
+        let at = chain;
+        for (let i = 0; i < 12; i++) {
+            const next: Record<string, unknown> = {};
+            at.return = next;
+            at = next;
+        }
+        const args: unknown[] = [`page ${link}`, state, frozen, getter, chain];
+        const crumb = { category: 'console', level: 'log', message: `page ${link}`, data: { arguments: args, logger: 'console' } };
+        let out: typeof crumb | undefined;
+        expect(() => {
+            out = scrubBreadcrumb(crumb);
+        }).not.toThrow();
+        expect(state).toEqual({ link, peer: { a: { b: { c: { d: { e: 1 } } } } } });
+        expect(frozen.link).toBe(link);
+        expect(getter.link).toBe(link);
+        let depth = 0;
+        for (let x = chain; x.return; x = x.return as Record<string, unknown>) depth++;
+        expect(depth).toBe(12);
+        expect(args[0]).toBe(`page ${link}`);
+        // The breadcrumb's own text is scrubbed; the page's objects ride along as they are.
+        expect(out?.message).not.toContain(ROOM_ID);
+        expect(out?.data.arguments[0]).not.toContain(ROOM_ID);
+        expect(out?.data.arguments[1]).toBe(state);
+    });
+
+    it('the event hooks scrub what the browser hook left, on the normalized copy, for errors and transactions (W3 R5-01)', () => {
+        const crumb = {
+            category: 'console',
+            message: 'state',
+            data: { arguments: ['state', { nested: `https://floe.one/r/${LINK_ID}#${ROOM_ID}` }], logger: 'console' },
+        };
+        const live = scrubBreadcrumb(crumb);
+        // The SDK attaches a normalized copy of every breadcrumb's data to each
+        // event it sends, transactions included (applyScopeDataToEvent).
+        const events = [scrubErrorEvent({ breadcrumbs: [structuredClone(live)] }), scrubTransactionEvent({ breadcrumbs: [structuredClone(live)] })];
+        for (const event of events) {
+            const json = JSON.stringify(event);
+            expect(json).not.toContain(ROOM_ID);
+            expect(json).not.toContain(LINK_ID);
+        }
+    });
+
+    it('free text keeps a # that is not a link fragment (W3 R5-04)', () => {
+        const texts = [
+            'Minified React error #418; visit https://react.dev/errors/418?args[]=text for the full message',
+            'Cannot read private member #peer from an object whose class did not declare it',
+            'Unexpected token # in JSON at position 0',
+        ];
+        for (const value of texts) {
+            const event = { exception: { values: [{ value }] }, breadcrumbs: [{ category: 'console', message: value }] };
+            const out = scrubErrorEvent(event);
+            expect(out.exception.values[0].value).toBe(value);
+            expect((out.breadcrumbs as { message: string }[])[0].message).toBe(value);
+            expect(scrubBreadcrumb({ message: value }).message).toBe(value);
+        }
+        // A fragment that can hold the room id still goes.
+        const event = { exception: { values: [{ value: `bad #room=${ROOM_ID} and #${ROOM_ID}` }] } };
+        expect(JSON.stringify(scrubErrorEvent(event))).not.toContain(ROOM_ID);
     });
 
     it('a fragment-less /r URL wrapped, in a query value or percent-encoded is still redacted', () => {
