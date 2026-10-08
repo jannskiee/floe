@@ -1078,6 +1078,20 @@ func requestLimits() *transfer.ReceiveLimits {
 	}
 }
 
+// promptBase is the save folder's own name for the prompt's folder line (P3),
+// or the volume itself for a drive or share root: filepath.Base of a root is a
+// bare separator, which drew "\Acme 2026-10-08 1405" for Save to D:\ (deep QA
+// A2-05). The volume keeps its separator so the join reads "D:\Acme ...".
+func promptBase(saveDir string) string {
+	base := filepath.Base(saveDir)
+	if base == string(filepath.Separator) {
+		if v := filepath.VolumeName(saveDir); v != "" {
+			return v + string(filepath.Separator)
+		}
+	}
+	return base
+}
+
 // requestPromptFor builds the Accept prompt from numbers and host values only
 // (OD-04, Q-C7): the visitor's counts, this PC's folder, clock and free space,
 // and warning codes. in.FirstName is never read.
@@ -1085,7 +1099,7 @@ func requestPromptFor(p requestPairing, in transfer.IncomingInfo, route string, 
 	pr := RequestPrompt{
 		Files:      in.Files,
 		TotalBytes: in.TotalBytes,
-		Folder:     filepath.Join(filepath.Base(p.saveDir), dropFolderName(p.label, now)),
+		Folder:     filepath.Join(promptBase(p.saveDir), dropFolderName(p.label, now)),
 		AnswerBy:   now.Add(requestDecideWindow).UnixMilli(),
 	}
 	// The drop folder does not exist yet, so the volume is asked through the

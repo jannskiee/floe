@@ -1792,6 +1792,31 @@ func TestRunRequestDropHideIPWithoutRelayReopens(t *testing.T) {
 // drive-limit warning asks about the first file, the only one known before
 // Accept; a later file over the limit is refused at its own metadata. A batch
 // of small files larger than 4 GB on a FAT32 drive gets no warning.
+func TestRequestPromptFolderAtDriveRoot(t *testing.T) {
+	// deep QA A2-05: filepath.Base of a drive root is a bare separator, so a
+	// Save to of D:\ drew "\Acme 2026-10-08 1405" on the prompt. promptBase is
+	// pure; one prompt is built end to end (a share root there would ask a
+	// server for its free space).
+	if runtime.GOOS != "windows" {
+		t.Skip("drive and share roots are Windows paths")
+	}
+	for saveDir, want := range map[string]string{
+		`D:\`:                   `D:\`,
+		`\\server\share\`:       `\\server\share\`,
+		`D:\Footage`:            `Footage`,
+		`C:\Users\x\Downloads\`: `Downloads`,
+	} {
+		if got := promptBase(saveDir); got != want {
+			t.Errorf("promptBase(%q) = %q, want %q", saveDir, got, want)
+		}
+	}
+	now := time.Date(2026, 10, 8, 14, 5, 0, 0, time.Local)
+	got := requestPromptFor(requestPairing{saveDir: `D:\`, label: "Acme"}, transfer.IncomingInfo{Files: 1, TotalBytes: 1}, "", now).Folder
+	if want := `D:\` + dropFolderName("Acme", now); got != want {
+		t.Errorf("Save to the D: root: prompt folder %q, want %q", got, want)
+	}
+}
+
 func TestRequestPromptDriveLimitWarnsForFirstFileOnly(t *testing.T) {
 	const fat32Max = 4294967295
 	setVar(t, &requestVolumeMaxFn, func(string) (int64, error) { return fat32Max, nil })
