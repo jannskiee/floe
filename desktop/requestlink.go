@@ -269,6 +269,9 @@ type requestLane struct {
 	// live mirrors liveState(state) for readers that must not take mu: the
 	// close guard runs on the Windows message-pump thread.
 	live atomic.Bool
+	// holdsClose is live without "making", for the close guard alone: see
+	// closeGuardNow.
+	holdsClose atomic.Bool
 
 	// pairFn is the pairing body, run on user-connected by the goroutine that
 	// owns sc: runRequestDrop (S1-DSK-03b), through pairRequest. Its contract:
@@ -385,10 +388,22 @@ func (l *requestLane) liveNow() bool {
 	return l != nil && l.live.Load()
 }
 
-// setStateLocked moves the lane to state with code and keeps live in step.
+// closeGuardNow reports whether the lane must hold a close for the Close Floe?
+// question: a link is open or a drop runs. A link still being made is not
+// one: nothing has been shared yet, closeForQuit ends the making, and the
+// question had no sentence for it, so it said "Closing Floe stops the
+// transfer" where there was none (deep QA A5-03). The one-link rule still
+// counts making (liveNow). Atomic only, like liveNow. Nil-safe.
+func (l *requestLane) closeGuardNow() bool {
+	return l != nil && l.holdsClose.Load()
+}
+
+// setStateLocked moves the lane to state with code and keeps live and
+// holdsClose in step.
 func (l *requestLane) setStateLocked(state, code string) {
 	l.state, l.code = state, code
 	l.live.Store(liveState(state))
+	l.holdsClose.Store(liveState(state) && state != "making")
 }
 
 // endLocked moves the lane to a terminal state and forgets the link's
