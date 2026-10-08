@@ -950,12 +950,22 @@ func (a *App) endRequestDrop(rg uint64, sc *signaling.Client, d *requestDrop, er
 // is opened (H7 S-7). Only a volume that positively says it keeps named
 // streams carries it: one that says no, and one that could not be asked, lack
 // it, so the Done view keeps its not-scanned line rather than hide it on a
-// guess. The question is a handle open on the volume, which a share that stops
-// answering holds for the SMB timeout, so it is asked on its own goroutine and
-// waited for only requestVolumeStreamsBound: a question that outlasts the bound
-// counts as unable. The answer channel has room for the late reply, so the
-// goroutine ends on its own and the reply is dropped; it touches no lane state.
+// guess.
 func volumeLacksMark(dir string) bool {
+	carries, known := volumeMark(dir)
+	return !known || !carries
+}
+
+// volumeMark asks whether files saved under dir can carry the downloaded-file
+// mark; known is false when the volume could not be asked, so an Auto-accept
+// prompt says Floe could not check the drive rather than that Windows cannot
+// mark files on it (W3 R2-08). The question is a handle open on the volume,
+// which a share that stops answering holds for the SMB timeout, so it is asked
+// on its own goroutine and waited for only requestVolumeStreamsBound: a
+// question that outlasts the bound has no answer. The answer channel has room
+// for the late reply, so the goroutine ends on its own and the reply is
+// dropped; it touches no lane state.
+func volumeMark(dir string) (carries, known bool) {
 	type answer struct {
 		carries bool
 		err     error
@@ -970,9 +980,12 @@ func volumeLacksMark(dir string) bool {
 	defer bound.Stop()
 	select {
 	case a := <-reply:
-		return a.err != nil || !a.carries
+		if a.err != nil {
+			return false, false
+		}
+		return a.carries, true
 	case <-bound.C:
-		return true
+		return false, false
 	}
 }
 

@@ -919,7 +919,7 @@ func TestRequestSpaceForAsksTheNearestFolder(t *testing.T) {
 	setVar(t, &requestVolumeSizeFn, func(dir string) (int64, error) { ask("size " + dir); return 1024 * gib, nil })
 	setVar(t, &requestVolumeStreamsFn, func(dir string) (bool, error) { ask("streams " + dir); return true, nil })
 	sp := requestSpaceFor(filepath.Join(root, "Floe", "not yet"), RequestPrompt{FreeBytes: 500 * gib, freeKnown: true})
-	if want := (requestSpace{free: 500 * gib, freeKnown: true, capacity: 1024 * gib, namedStreams: true}); sp != want {
+	if want := (requestSpace{free: 500 * gib, freeKnown: true, capacity: 1024 * gib, namedStreams: true, markKnown: true}); sp != want {
 		t.Fatalf("requestSpaceFor = %+v, want %+v", sp, want)
 	}
 	sort.Strings(asked)
@@ -1037,6 +1037,7 @@ func TestAutoAcceptPromptSaysWhyItAsks(t *testing.T) {
 		{"under a tenth of the drive", true, func(v *autoVolume) { v.free, v.capacity = 150*gib, 1024*gib }, in(3, 60*gib, 1<<20), []string{"auto-floor"}, 1024 * gib / 10},
 		{"under the 20 GiB floor", true, func(v *autoVolume) { v.free, v.capacity = 30*gib, 100*gib }, in(3, 12*gib, 1<<20), []string{"auto-floor"}, 20 * gib},
 		{"no downloaded-file mark", true, func(v *autoVolume) { v.streams = false }, autoIncoming, []string{"auto-no-mark"}, 0},
+		{"the mark could not be checked", true, func(v *autoVolume) { v.streamsErr = errors.New("the share did not answer") }, autoIncoming, []string{"auto-unknown"}, 0},
 		{"free space unreadable", true, func(v *autoVolume) { v.free = -1 }, autoIncoming, []string{"auto-unknown"}, 0},
 		{"size unreadable", true, func(v *autoVolume) { v.capacity = 0 }, autoIncoming, []string{"auto-unknown"}, 0},
 		{"a warning asks for itself", true, func(v *autoVolume) { v.free = 3 * gib }, in(3, 2*gib, 1<<20), []string{"low-space"}, 0},
@@ -1100,10 +1101,11 @@ func TestAutoAskReason(t *testing.T) {
 		sp   requestSpace
 		want string
 	}{
-		{requestSpace{free: 10 * gib, freeKnown: true, capacity: 100 * gib, namedStreams: true}, "auto-floor"},
-		{requestSpace{free: 10 * gib, freeKnown: true, capacity: 100 * gib, namedStreams: false}, "auto-no-mark"},
-		{requestSpace{free: 10 * gib, freeKnown: false, capacity: 100 * gib, namedStreams: true}, "auto-unknown"},
-		{requestSpace{free: 10 * gib, freeKnown: true, capacity: 0, namedStreams: true}, "auto-unknown"},
+		{requestSpace{free: 10 * gib, freeKnown: true, capacity: 100 * gib, namedStreams: true, markKnown: true}, "auto-floor"},
+		{requestSpace{free: 10 * gib, freeKnown: true, capacity: 100 * gib, namedStreams: false, markKnown: true}, "auto-no-mark"},
+		{requestSpace{free: 10 * gib, freeKnown: false, capacity: 100 * gib, namedStreams: true, markKnown: true}, "auto-unknown"},
+		{requestSpace{free: 10 * gib, freeKnown: true, capacity: 0, namedStreams: true, markKnown: true}, "auto-unknown"},
+		{requestSpace{free: 10 * gib, freeKnown: true, capacity: 100 * gib, namedStreams: false, markKnown: false}, "auto-unknown"},
 	} {
 		if got := autoAskReason(c.sp); got != c.want {
 			t.Errorf("autoAskReason(%+v) = %q, want %q", c.sp, got, c.want)

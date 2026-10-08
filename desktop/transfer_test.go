@@ -1699,13 +1699,13 @@ func (b *blockedVolume) ask(string) (bool, error) {
 	return true, nil
 }
 
-// askingGoroutines counts goroutines still inside volumeLacksMark's own ask.
+// askingGoroutines counts goroutines still inside volumeMark's own ask.
 func askingGoroutines() int {
 	buf := make([]byte, 1<<20)
 	buf = buf[:runtime.Stack(buf, true)]
 	n := 0
 	for _, g := range strings.Split(string(buf), "\n\n") {
-		if strings.Contains(g, "volumeLacksMark.func") {
+		if strings.Contains(g, "volumeMark.func") {
 			n++
 		}
 	}
