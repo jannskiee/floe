@@ -255,6 +255,18 @@ func (s *reqServer) disable() {
 	}
 }
 
+// endLink sends the seated visitor link-ended, as the server does when the
+// host closes a link nobody has used yet (D-176, server.js
+// handleRequestControl).
+func (s *reqServer) endLink() {
+	s.mu.Lock()
+	v := s.visitor
+	s.mu.Unlock()
+	if v != nil {
+		v.send(map[string]interface{}{"type": "link-ended"})
+	}
+}
+
 // drop closes the host's or the visitor's socket from the server's side.
 func (s *reqServer) drop(host bool) {
 	s.mu.Lock()
@@ -1606,6 +1618,16 @@ func TestSendToDisabledDuringSetupEndsOnTL07(t *testing.T) {
 	endsOn(t, o, s, 2*time.Second, s.disable, "Request links are turned off right now.")
 }
 
+// TestSendToLinkEndedDuringSetupEndsOnItsLine: the host closing the link while
+// the visitor is seated but not yet connected ends the setup at once on the
+// approved D-176 line, not on "Couldn't connect" (W3 R1-03).
+func TestSendToLinkEndedDuringSetupEndsOnItsLine(t *testing.T) {
+	o := captureOutput(t)
+	s := newReqServer(t, "seat")
+	startHost(t, s, silentHost)
+	endsOn(t, o, s, 2*time.Second, s.endLink, "This link has ended. Ask them for a new link.")
+}
+
 // TestWatchSetupReportsASeatTakenAsSetupSucceeds: a seat taken away at the
 // moment the setup succeeds ends the setup on its reason, because the watcher
 // has already closed the connection; with no event the channel comes back
@@ -1613,24 +1635,27 @@ func TestSendToDisabledDuringSetupEndsOnTL07(t *testing.T) {
 // nit 10). No network: the setup is a func the test controls.
 func TestWatchSetupReportsASeatTakenAsSetupSucceeds(t *testing.T) {
 	type watch struct {
-		roomFull, hostAbsent, disabled chan struct{}
-		closed                         chan struct{}
-		closeOnce                      sync.Once
+		roomFull, hostAbsent, linkEnded, disabled chan struct{}
+		closed                                    chan struct{}
+		closeOnce                                 sync.Once
 	}
 	newWatch := func() *watch {
 		return &watch{
-			roomFull: make(chan struct{}, 1), hostAbsent: make(chan struct{}, 1), disabled: make(chan struct{}, 1),
-			closed: make(chan struct{}),
+			roomFull: make(chan struct{}, 1), hostAbsent: make(chan struct{}, 1), linkEnded: make(chan struct{}, 1),
+			disabled: make(chan struct{}, 1), closed: make(chan struct{}),
 		}
 	}
 	run := func(w *watch, setup func() (*webrtc.DataChannel, error)) (*webrtc.DataChannel, string, error) {
-		return watchSetup(w.roomFull, w.hostAbsent, nil, w.disabled, func() { w.closeOnce.Do(func() { close(w.closed) }) }, setup)
+		return watchSetup(w.roomFull, w.hostAbsent, w.linkEnded, w.disabled, func() { w.closeOnce.Do(func() { close(w.closed) }) }, setup)
 	}
 	open := &webrtc.DataChannel{}
+	events := func(w *watch) map[string]chan struct{} {
+		return map[string]chan struct{}{"room-full": w.roomFull, "host-absent": w.hostAbsent, "link-ended": w.linkEnded, "disabled": w.disabled}
+	}
 
-	for _, event := range []string{"room-full", "host-absent", "disabled"} {
+	for _, event := range []string{"room-full", "host-absent", "link-ended", "disabled"} {
 		w := newWatch()
-		fire := map[string]chan struct{}{"room-full": w.roomFull, "host-absent": w.hostAbsent, "disabled": w.disabled}[event]
+		fire := events(w)[event]
 		// The setup succeeds, but only once the event is in and the watcher
 		// has closed the connection under it.
 		dc, ended, err := run(w, func() (*webrtc.DataChannel, error) {
@@ -1643,7 +1668,7 @@ func TestWatchSetupReportsASeatTakenAsSetupSucceeds(t *testing.T) {
 		}
 		// The usual order: the watcher's close is what ends the setup.
 		w = newWatch()
-		fire = map[string]chan struct{}{"room-full": w.roomFull, "host-absent": w.hostAbsent, "disabled": w.disabled}[event]
+		fire = events(w)[event]
 		if _, ended, err := run(w, func() (*webrtc.DataChannel, error) {
 			fire <- struct{}{}
 			<-w.closed
