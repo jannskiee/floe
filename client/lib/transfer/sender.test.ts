@@ -332,6 +332,42 @@ describe('sender: unreadable file', () => {
         expect(sawEnd).toBe(false);
         expect(allSent).toBe(false);
     });
+
+    it('a zero-size file that cannot be read is never announced (T13-F3)', async () => {
+        const errors: string[] = [];
+        const failures: Array<{ kind: string; index: number }> = [];
+        const announced: string[] = [];
+        let allSent = false;
+        // Chromium gives a picked file whose absolute path is over 260
+        // characters a size of 0, and reading it throws NotFoundError.
+        const longPath = {
+            name: 'leaf-under-limit.txt',
+            size: 0,
+            arrayBuffer: () => Promise.reject(new Error('NotFoundError')),
+            slice: () => ({ arrayBuffer: () => Promise.reject(new Error('NotFoundError')) }),
+        } as unknown as File;
+        const deps: SenderDeps = {
+            send: (d) => {
+                if (typeof d === 'string' && (JSON.parse(d) as { type: string }).type === 'metadata') announced.push(d);
+            },
+            onData: () => () => {},
+            channel: makeBufferChannel(),
+            sctpMaxMessageSize: null,
+        };
+
+        await sendFiles(deps, [{ file: longPath, id: 'x' }], {
+            onError: (m) => errors.push(m),
+            onFailed: (f) => failures.push(f),
+            onAllSent: () => { allSent = true; },
+        }, { sendHashes: false });
+
+        expect(announced).toEqual([]);
+        expect(errors).toHaveLength(1);
+        expect(errors[0]).toContain('leaf-under-limit.txt');
+        expect(failures).toEqual([{ kind: 'unreadable', index: 1 }]);
+        expect(allSent).toBe(false);
+    });
+
 });
 
 /**
@@ -868,6 +904,13 @@ describe('sender: visitor options', () => {
         const v = visitorDeps();
         await within(sendFiles(v.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], {}));
         expect(v.names()).toEqual(['a.bin']);
+        v.close();
+    });
+
+    it('a real empty file still goes out (T13-F3)', async () => {
+        const v = visitorDeps();
+        await within(sendFiles(v.deps, [{ id: 'a', file: makeFile(0, 'empty.txt') }], {}, { sendHashes: false }));
+        expect(v.names()).toEqual(['empty.txt']);
         v.close();
     });
 

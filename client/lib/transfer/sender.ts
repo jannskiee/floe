@@ -407,6 +407,26 @@ async function sendSingleFile(
 
     channel.bufferedAmountLowThreshold = LOW_WATER;
 
+    // 0. A file of size 0 is read once before it is announced. Chromium gives
+    // a picked file whose absolute path is over 260 characters a size of 0,
+    // and reading it throws NotFoundError; the chunk and digest loops never
+    // read a zero-size file, so it went out empty and both sides showed
+    // "SHA-256 matched" (deep QA T13-F3). A real empty file reads as nothing.
+    if (file.size === 0) {
+        try {
+            await file.arrayBuffer();
+        } catch {
+            cb.onError?.(
+                `Could not read "${wireName}". It may have been moved, renamed, ` +
+                `or on a drive or folder that is no longer available. Nothing further was sent.`
+            );
+            cb.onFailed?.({ kind: 'unreadable', index });
+            return false;
+        }
+        if (destroyed()) return true;
+        if (session.reportStop()) return false;
+    }
+
     // 1. Send metadata with protocol version fields
     try {
         send(metadataMessage(id, wireName, file.size, index, total, totalBytes));
