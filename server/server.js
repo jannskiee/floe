@@ -597,9 +597,12 @@ function destroyRoom(roomId) {
 // ceiling; a lazy expiry) still forgets the reservation outright, sealed or not
 // (review 1 F1): a room is sealed from its pairing through the prompt and a
 // Decline, so a sealed room whose host went away may have delivered nothing,
-// and its host must be able to re-create it. An unsealed close alone leaves an
-// ended link behind, outside roomMeta (endedLinks, D-176). A request-close
-// lost with its socket therefore falls back to host-absent (OD-28).
+// and its host must be able to re-create it. An unsealed close leaves an
+// ended link behind, outside roomMeta (endedLinks, D-176), and so do a lapse
+// (lapseReservation: from the end the host named, at once past the age
+// ceiling) and the kill switch (applyPolicyChange). A request-close lost with
+// its socket therefore reads host-absent until the link's end, and for good
+// from a desktop that names no end (OD-28).
 //
 // E-15 with the marker (W3 R1-01): a marker holds no MAX_REQUEST_ROOMS slot.
 // It gives its key's live place back and takes one of REQUEST_USED_MAX places
@@ -1089,10 +1092,11 @@ function handleRequestJoin(peer, roomId, now = Date.now()) {
 // link while waiting, or the link's own end; D-176). A sealed room has been
 // used, so its reservation becomes a used marker for REQUEST_USED_MARKER_MS
 // (D-130): a later request-join answers room-full, and a host join is refused.
-// These are the only ends that leave a marker. An unsealed visitor hears
-// link-ended; a sealed one is left to its data channel. Nobody is seated in
-// a marker and it has no host, so no control frame reaches one: a reopen can
-// never unseal a used link.
+// Of the host's own messages, these are the only ends that leave a marker; a
+// lapse and the kill switch leave ended links too (lapseReservation,
+// applyPolicyChange). An unsealed visitor hears link-ended; a sealed one is
+// left to its data channel. Nobody is seated in a marker and it has no host,
+// so no control frame reaches one: a reopen can never unseal a used link.
 function handleRequestControl(peer, type, roomId, now = Date.now()) {
     if (typeof roomId !== 'string' || roomId.length !== 36) return;
     const id = roomId.toLowerCase();
@@ -1238,21 +1242,35 @@ function handleHostJoin(peer, roomId, hostToken, now = Date.now(), endsIn = unde
 // disabled, and both lose their seat. A sealed room is left alone, because its
 // drop runs on its data channel and needs nothing more from this server.
 // Nothing here logs: the store already wrote its one fixed line.
-function applyPolicyChange(prev, next) {
+//
+// An ended room leaves the mark a close or a lapse would (C1-07), for when
+// request links are back on: a seated host takes refused {disabled} as its
+// link's end (requestlink.go), so that link answers link-ended at once, and a
+// host away in its grace heard nothing and may come back to make its link
+// again, so that link answers from the end it named, as a lapse does.
+function applyPolicyChange(prev, next, now = Date.now()) {
     if (!(prev && prev.requestLinks === true) || (next && next.requestLinks === true)) return;
     for (const [roomId, meta] of roomMeta) {
         if (meta.kind !== 'request' || meta.sealed) continue;
+        let hostTold = false;
         for (const p of rooms.get(roomId) || []) {
             p.roomId = null;
             try {
-                if (p.id === meta.hostPeerId) p.send('refused', { code: 'disabled' });
-                else p.send('disabled', {});
+                if (p.id === meta.hostPeerId) {
+                    p.send('refused', { code: 'disabled' });
+                    hostTold = true;
+                } else {
+                    p.send('disabled', {});
+                }
             } catch {
                 // Undeliverable; the peer times out on its own.
             }
         }
         rooms.delete(roomId);
+        const endsAt = meta.endsAt;
         forgetReservation(roomId);
+        if (hostTold) noteEndedLink(roomId, now);
+        else if (typeof endsAt === 'number') noteEndedLink(roomId, endsAt);
     }
 }
 
@@ -1416,27 +1434,32 @@ function handleJoinRoom(peer, roomId) {
 // the server build a 40 MB frame for a /ws target, stalling it for about
 // 350 ms and taking 170 MB. A signal is relayed only when it is plain JSON
 // (objects, arrays, strings, finite numbers, booleans, null), at most
-// SIGNAL_MAX_DEPTH deep and at most SIGNAL_MAX_CHARS long as the target
-// receives it; anything else is dropped, silently, like any undeliverable
-// signal. The walk stops at the first level or character past a bound, so a
-// refused signal costs no more than the bound to look at.
+// SIGNAL_MAX_DEPTH deep and at most SIGNAL_MAX_CHARS characters (UTF-16
+// units) long as JSON.stringify writes it for the target, keys and escapes
+// included; anything else is dropped, silently, like any undeliverable
+// signal. A character is at most three bytes on the wire, so a relayed
+// signal is at most 192 KiB, far inside the 2 MiB a Go peer reads. The walk
+// stops at the first level or character past a bound, so a refused signal
+// costs no more than the bound to look at.
 const SIGNAL_MAX_CHARS = 64 * 1024;
 const SIGNAL_MAX_DEPTH = 8;
 
 function signalFits(signal) {
     let left = SIGNAL_MAX_CHARS;
+    // A string, value or key, with its quotes. An escape is at most six
+    // characters as JSON.stringify writes it (C1-09: keys were counted raw).
+    const text = (value) => {
+        left -= 2;
+        for (let i = 0; i < value.length && left >= 0; i++) {
+            const c = value.charCodeAt(i);
+            left -= c < 0x20 || c === 0x22 || c === 0x5c || (c >= 0xd800 && c <= 0xdfff) ? 6 : 1;
+        }
+        return left >= 0;
+    };
     const fits = (value, depth) => {
         if (value === null || typeof value === 'boolean') return (left -= 5) >= 0;
         if (typeof value === 'number') return Number.isFinite(value) && (left -= String(value).length) >= 0;
-        if (typeof value === 'string') {
-            left -= 2;
-            // An escape is at most six characters as JSON.stringify writes it.
-            for (let i = 0; i < value.length && left >= 0; i++) {
-                const c = value.charCodeAt(i);
-                left -= c < 0x20 || c === 0x22 || c === 0x5c || (c >= 0xd800 && c <= 0xdfff) ? 6 : 1;
-            }
-            return left >= 0;
-        }
+        if (typeof value === 'string') return text(value);
         if (typeof value !== 'object' || depth >= SIGNAL_MAX_DEPTH) return false;
         if (Array.isArray(value)) {
             left -= 2;
@@ -1451,8 +1474,8 @@ function signalFits(signal) {
         if (proto !== Object.prototype && proto !== null) return false;
         left -= 2;
         for (const key of Object.keys(value)) {
-            left -= key.length + 4;
-            if (left < 0 || !fits(value[key], depth + 1)) return false;
+            // The key, then its colon and a comma.
+            if (!text(key) || (left -= 2) < 0 || !fits(value[key], depth + 1)) return false;
         }
         return left >= 0;
     };

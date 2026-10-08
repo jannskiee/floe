@@ -96,17 +96,26 @@ func resolveReceiveDir(dir string) (string, error) {
 }
 
 // saveDirUsable reports whether an absolute save folder can be made: no name
-// in it holds a character Windows refuses, and the nearest part of it that
-// exists is a folder. A missing drive, an offline share, a path through a file
-// or a name like a|b has none, and a link made there would only fail at
-// Accept, spending the link on a refusal that blames the sender. Stat can
-// stall for an offline share's network timeout, so callers ask it off the
-// UI's path.
+// in it holds a character Windows refuses or ends the way Windows trims, and
+// the nearest part of it that exists is a folder. A missing drive, an offline
+// share, a path through a file or a name like a|b or "foo " has none, and a
+// link made there would only fail at Accept, spending the link on a refusal
+// that blames the sender. Stat can stall for an offline share's network
+// timeout, so callers ask it off the UI's path.
 func saveDirUsable(dir string) bool {
-	if runtime.GOOS == "windows" && strings.ContainsFunc(dir[len(filepath.VolumeName(dir)):], badNameRune) {
-		return false
+	dir = filepath.Clean(dir)
+	if runtime.GOOS == "windows" {
+		rest := dir[len(filepath.VolumeName(dir)):]
+		if strings.ContainsFunc(rest, badNameRune) {
+			return false
+		}
+		for _, name := range strings.Split(rest, string(filepath.Separator)) {
+			if badNameEnd(name) {
+				return false
+			}
+		}
 	}
-	for p := filepath.Clean(dir); ; {
+	for p := dir; ; {
 		if fi, err := os.Stat(p); err == nil {
 			return fi.IsDir()
 		}
@@ -123,4 +132,15 @@ func saveDirUsable(dir string) bool {
 // \\server\share) is left to the Stat walk.
 func badNameRune(r rune) bool {
 	return r < 0x20 || strings.ContainsRune(`<>:"|?*`, r)
+}
+
+// badNameEnd reports whether a name ends the way Windows trims (C1-08). Windows
+// takes a space, and a period after the one it removes, off the end of a name
+// it is handed whole, but not off the same name inside a longer path: "foo " is
+// made as "foo", and "foo \Floe" then cannot be found. A single trailing
+// period is trimmed both ways, so "foo." works. Clean has already removed the
+// "." and ".." steps.
+func badNameEnd(name string) bool {
+	name = strings.TrimSuffix(name, ".")
+	return strings.HasSuffix(name, " ") || strings.HasSuffix(name, ".")
 }

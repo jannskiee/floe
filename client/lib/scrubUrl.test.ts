@@ -416,6 +416,36 @@ describe('scrubUrl on a request link', () => {
         expect(JSON.stringify(scrubErrorEvent(event))).not.toContain(ROOM_ID);
     });
 
+    it('free text drops a room id after a # inside any token, a quoted selector included (C1-04)', () => {
+        // Chromium's own message when a script hands the fragment to
+        // querySelector: the token starts with a quote, so it is not URL-shaped,
+        // and the /r fragment is a bare room id.
+        const value = `Failed to execute 'querySelector' on 'Document': '#${ROOM_ID}' is not a valid selector.`;
+        const kept = "Failed to execute 'querySelector' on 'Document': '#redacted' is not a valid selector.";
+        const event = { exception: { values: [{ value }] }, breadcrumbs: [{ category: 'console', message: value }] };
+        const out = scrubErrorEvent(event);
+        expect(out.exception.values[0].value).toBe(kept);
+        expect(JSON.stringify(out)).not.toContain(ROOM_ID);
+        expect(scrubBreadcrumb({ message: value }).message).toBe(kept);
+        expect(scrubBreadcrumb({ message: `(#${ROOM_ID.toUpperCase()})` }).message).toBe('(#redacted)');
+        // A selector without a room id comes back as it was.
+        const plain = "Failed to execute 'querySelector' on 'Document': '#main-content' is not a valid selector.";
+        expect(scrubBreadcrumb({ message: plain }).message).toBe(plain);
+    });
+
+    it('free text drops a # token that carries a /r path (C1-05)', () => {
+        // A hash route names the link the way /r/<linkId> does. The free-text
+        // rule kept these, where the description rule before it made each "/".
+        for (const route of [`#/r/${LINK_ID}`, `#r/${LINK_ID}`, `#/%72/${LINK_ID}`, `#%2Fr%2F${LINK_ID}`]) {
+            const value = `No route matches ${route} here`;
+            const event = { exception: { values: [{ value }] }, breadcrumbs: [{ category: 'console', message: value }] };
+            const out = scrubErrorEvent(event);
+            expect(out.exception.values[0].value, route).toBe('No route matches / here');
+            expect(JSON.stringify(out), route).not.toContain(LINK_ID);
+            expect(scrubBreadcrumb({ message: value }).message, route).toBe('No route matches / here');
+        }
+    });
+
     it('a fragment-less /r URL wrapped, in a query value or percent-encoded is still redacted', () => {
         // [as written, what it must become]: no producer writes these today
         // (review 3 N1), but each one carries the id past a rule that only

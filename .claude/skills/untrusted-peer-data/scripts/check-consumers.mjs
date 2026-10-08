@@ -107,7 +107,7 @@ export const FIELDS = {
 // notification. That is worth keeping as a row rather than deleting.
 //
 // desktop/toast_windows.go and desktop/toast_other.go are the second kind:
-// their rows record that pushToast and toastFor carry only the constant strings
+// their rows record that pushToast and toastXML carry only the constant strings
 // notify was handed.
 //
 // desktop/frontend/src/components/Toasts.tsx is the second kind too: its one

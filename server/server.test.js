@@ -78,6 +78,7 @@ const {
     REQUEST_JOINS_PER_MINUTE,
     REQUEST_SEATINGS_PER_MINUTE,
     handleRequestControl,
+    applyPolicyChange,
     REQUEST_MAX_AGE_MS,
     REQUEST_CREATE_KEYS_MAX,
     requestRoomIds,
@@ -662,6 +663,18 @@ describe('handleSignal', () => {
         assert.equal(pB.msgs.length, 0);
         handleSignal(pA, { type: 'offer', sdp: 'x'.repeat(SIGNAL_MAX_CHARS - 100) }, null);
         assert.equal(pB.msgs.length, 1);
+    });
+
+    it('counts a key as the target receives it, escapes included (C1-09)', () => {
+        const { pA, pB } = pairInRoom();
+        // A control character is six characters once written as an escape:
+        // 11,000 of them in a key are 66,000, past the bound.
+        const key = String.fromCharCode(1).repeat(11_000);
+        assert.ok(JSON.stringify({ [key]: 1 }).length > SIGNAL_MAX_CHARS);
+        handleSignal(pA, { type: 'offer', [key]: 1 }, null);
+        assert.equal(pB.msgs.length, 0);
+        handleSignal(pA, { type: 'offer', [String.fromCharCode(1).repeat(10_000)]: 1 }, null);
+        assert.equal(pB.msgs.length, 1, '60,000 characters as written still fit');
     });
 
     it('drops a signal holding binary, as a Socket.IO attachment arrives, or any object that is not plain JSON', () => {
@@ -4465,6 +4478,29 @@ describe('request rooms: a link that ends while its host is away (W3 R1-02)', ()
         assert.deepEqual(answer(id, T + HOUR), { type: 'link-ended', data: {} });
         cleanupTick(T + HOUR + REQUEST_ENDED_MARKER_MS + 61_000);
         assert.deepEqual(answer(id, T + HOUR + REQUEST_ENDED_MARKER_MS + 62_000), { type: 'host-absent', data: {} }, 'a day after its end');
+    });
+
+    // C1-07: the kill switch forgot every unsealed reservation without a mark,
+    // so once request links were back on its links answered host-absent, and a
+    // Try again that could not work, even past their end. applyPolicyChange is
+    // called directly so the store still reads on: links are back on.
+    it('a link the kill switch ended answers link-ended once request links are back on (C1-07)', () => {
+        const seated = link('k-seated', HOUR);
+        const away = link('k-away', HOUR);
+        handleDisconnect(away.host, T + 1_000);
+        applyPolicyChange({ requestLinks: true }, { requestLinks: false }, T + 2_000);
+        assert.deepEqual(seated.host.msgs.pop(), { type: 'refused', data: { code: 'disabled' } });
+        assert.equal(roomMeta.has(seated.id), false);
+        assert.equal(roomMeta.has(away.id), false);
+        // refused {disabled} ends the link on the desktop for good.
+        assert.deepEqual(answer(seated.id, T + 3_000), { type: 'link-ended', data: {} });
+        // A host away in its grace heard nothing and may come back to make its
+        // link again, so its link answers from the end it named, as a lapse.
+        assert.deepEqual(answer(away.id, T + 3_000), { type: 'host-absent', data: {} });
+        assert.deepEqual(answer(away.id, T + HOUR), { type: 'link-ended', data: {} });
+        const back = makePeer('back', 'k-away');
+        assert.deepEqual(hostJoin(back, away.token, T + 4_000, HOUR), { type: 'room-joined', data: { role: 'host' } });
+        assert.equal(endedLinks.has(away.id), false, 'a link made again is no longer ended');
     });
 
     it('a reservation still in its grace answers link-ended once its end has passed', () => {
