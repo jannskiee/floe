@@ -597,9 +597,12 @@ function destroyRoom(roomId) {
 // ceiling; a lazy expiry) still forgets the reservation outright, sealed or not
 // (review 1 F1): a room is sealed from its pairing through the prompt and a
 // Decline, so a sealed room whose host went away may have delivered nothing,
-// and its host must be able to re-create it. An unsealed close alone leaves an
-// ended link behind, outside roomMeta (endedLinks, D-176). A request-close
-// lost with its socket therefore falls back to host-absent (OD-28).
+// and its host must be able to re-create it. An unsealed close leaves an
+// ended link behind, outside roomMeta (endedLinks, D-176), and so do a lapse
+// (lapseReservation: from the end the host named, at once past the age
+// ceiling) and the kill switch (applyPolicyChange). A request-close lost with
+// its socket therefore reads host-absent until the link's end, and for good
+// from a desktop that names no end (OD-28).
 //
 // E-15 with the marker (W3 R1-01): a marker holds no MAX_REQUEST_ROOMS slot.
 // It gives its key's live place back and takes one of REQUEST_USED_MAX places
@@ -1089,10 +1092,11 @@ function handleRequestJoin(peer, roomId, now = Date.now()) {
 // link while waiting, or the link's own end; D-176). A sealed room has been
 // used, so its reservation becomes a used marker for REQUEST_USED_MARKER_MS
 // (D-130): a later request-join answers room-full, and a host join is refused.
-// These are the only ends that leave a marker. An unsealed visitor hears
-// link-ended; a sealed one is left to its data channel. Nobody is seated in
-// a marker and it has no host, so no control frame reaches one: a reopen can
-// never unseal a used link.
+// Of the host's own messages, these are the only ends that leave a marker; a
+// lapse and the kill switch leave ended links too (lapseReservation,
+// applyPolicyChange). An unsealed visitor hears link-ended; a sealed one is
+// left to its data channel. Nobody is seated in a marker and it has no host,
+// so no control frame reaches one: a reopen can never unseal a used link.
 function handleRequestControl(peer, type, roomId, now = Date.now()) {
     if (typeof roomId !== 'string' || roomId.length !== 36) return;
     const id = roomId.toLowerCase();
