@@ -125,12 +125,21 @@ func depthBelow(rel string) int {
 // system, and elsewhere saves the name as sent. Only the first bytes are read:
 // a drive or a root later in the name ("a/C:/x", " C:\x") is an ordinary
 // component, and safeJoin is what contains it.
+//
+// A backslash is a legal character in a macOS or Linux file name, so a leading
+// one with no separator after it ("\notes.txt" from a Mac or Linux sender) is
+// a name as well (deep QA A3-04): safeJoin saves notes.txt on Windows and the
+// name as sent elsewhere, as every release before layer 1 did. Followed by
+// more path ("\Windows\evil.dll", "\\server\share", "\\?\C:\x") it is a root.
 func startsAtDriveOrRoot(name string) bool {
 	if name == "" {
 		return false
 	}
-	if name[0] == '/' || name[0] == '\\' {
+	if name[0] == '/' {
 		return true
+	}
+	if name[0] == '\\' {
+		return strings.ContainsAny(name[1:], `\/`)
 	}
 	c := name[0] | 0x20 // ASCII lower case; only letters survive the range test
 	if len(name) < 2 || c < 'a' || c > 'z' || name[1] != ':' {
@@ -167,11 +176,17 @@ func checkAnnouncedSize(size, volumeMax int64) (RefusalCode, string) {
 
 // checkFirstMetadata is layer 2 at the first metadata, the checks that need
 // no folder and so run before OnIncoming and Decide: the announced count
-// within MaxFiles, an announced total that is present and not zero, and file
-// 1 first. The last is also checked before every claim; asking it here too
-// means the owner is never prompted for a drop the next check would refuse.
+// within MaxFiles, an announced total that is present, and file 1 first. A
+// total of zero with an empty first file is a drop of empty files (one empty
+// file, a folder of placeholders), which every other path delivers, so it
+// passes (deep QA A3-02, T13-F1): an approved total of zero still holds the
+// drop to zero data bytes (checkFrame), and checkEveryMetadata holds every
+// later frame to the same total. With a first file that is not empty, a zero
+// total is one that is absent, as from a sender before 1.6.0. File 1 first is
+// also checked before every claim; asking it here too means the owner is
+// never prompted for a drop the next check would refuse.
 func checkFirstMetadata(info FileInfo, l *ReceiveLimits) (RefusalCode, string) {
-	if info.Total > l.MaxFiles || info.TotalBytes == 0 || info.Index != 1 {
+	if info.Total > l.MaxFiles || (info.TotalBytes == 0 && info.FileSize > 0) || info.Index != 1 {
 		return CodeOverApproved, CodeOverApproved.WireReason()
 	}
 	return "", ""
