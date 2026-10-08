@@ -1371,6 +1371,60 @@ function handleJoinRoom(peer, roomId) {
     }
 }
 
+// The signal a peer relays, bounded before this server serializes it (W3 R5
+// O-1). A whole signaling exchange is under 10 KB: an offer or answer with
+// every candidate of a many-adapter PC, or one candidate. Relaying
+// re-serializes the signal, and that can grow it past the frame it came in: a
+// number written 9e20 comes out 21 characters long, and a Socket.IO binary
+// attachment as a JSON array of byte values, about four times its size.
+// Measured before this bound: a 1 MB /ws frame went out as 4.4 MB, and one
+// Socket.IO event with ten 1 MB attachments (socket.io-parser's ceiling) made
+// the server build a 40 MB frame for a /ws target, stalling it for about
+// 350 ms and taking 170 MB. A signal is relayed only when it is plain JSON
+// (objects, arrays, strings, finite numbers, booleans, null), at most
+// SIGNAL_MAX_DEPTH deep and at most SIGNAL_MAX_CHARS long as the target
+// receives it; anything else is dropped, silently, like any undeliverable
+// signal. The walk stops at the first level or character past a bound, so a
+// refused signal costs no more than the bound to look at.
+const SIGNAL_MAX_CHARS = 64 * 1024;
+const SIGNAL_MAX_DEPTH = 8;
+
+function signalFits(signal) {
+    let left = SIGNAL_MAX_CHARS;
+    const fits = (value, depth) => {
+        if (value === null || typeof value === 'boolean') return (left -= 5) >= 0;
+        if (typeof value === 'number') return Number.isFinite(value) && (left -= String(value).length) >= 0;
+        if (typeof value === 'string') {
+            left -= 2;
+            // An escape is at most six characters as JSON.stringify writes it.
+            for (let i = 0; i < value.length && left >= 0; i++) {
+                const c = value.charCodeAt(i);
+                left -= c < 0x20 || c === 0x22 || c === 0x5c || (c >= 0xd800 && c <= 0xdfff) ? 6 : 1;
+            }
+            return left >= 0;
+        }
+        if (typeof value !== 'object' || depth >= SIGNAL_MAX_DEPTH) return false;
+        if (Array.isArray(value)) {
+            left -= 2;
+            for (const item of value) {
+                if ((left -= 1) < 0 || !fits(item, depth + 1)) return false;
+            }
+            return left >= 0;
+        }
+        // A Buffer, a typed array, an ArrayBuffer or any class instance is not
+        // what a signal is; Socket.IO hands binary attachments over as Buffers.
+        const proto = Object.getPrototypeOf(value);
+        if (proto !== Object.prototype && proto !== null) return false;
+        left -= 2;
+        for (const key of Object.keys(value)) {
+            left -= key.length + 4;
+            if (left < 0 || !fits(value[key], depth + 1)) return false;
+        }
+        return left >= 0;
+    };
+    return fits(signal, 0);
+}
+
 function handleSignal(senderPeer, signal, targetId) {
     if (!signal) return;
 
@@ -1387,6 +1441,8 @@ function handleSignal(senderPeer, signal, targetId) {
     const targetPeer = room.find(p => p.id !== senderPeer.id);
     if (!targetPeer) return;
     if (targetId && targetPeer.id !== targetId) return;
+    // Before the seal counts it: a dropped signal was never routed.
+    if (!signalFits(signal)) return;
 
     // From here the signal goes to the other seat, and only now does the
     // sender's key count toward the room seal (handleJoinRoom). A sender and a
@@ -1828,4 +1884,6 @@ module.exports = {
     REQUEST_LIVE_PER_KEY,
     REQUEST_ENDED_MARKER_MS,
     REQUEST_ENDED_MAX,
+    SIGNAL_MAX_CHARS,
+    SIGNAL_MAX_DEPTH,
 };

@@ -458,22 +458,24 @@ test('a peer flooding a non-reading peer is cut off, not buffered', async (t) =>
         () => false
     );
 
-    // Under maxPayload (1 MB) per frame, and at most 64 of them: 32 MB offered
-    // in total and never more, so a regression cannot grow the CI runner past
-    // that bound. The pacing lets the server read and route each frame.
-    const payload = 'x'.repeat(512 * 1024);
+    // 60 KB a frame, under SIGNAL_MAX_CHARS (a bigger signal is dropped before
+    // it is routed, W3 R5 O-1), and at most 32 MB offered in total and never
+    // more, so a regression cannot grow the CI runner past that bound. The
+    // pacing lets the server read and route each frame.
+    const payload = 'x'.repeat(60 * 1024);
+    const cap = Math.floor((32 * 1024 * 1024) / payload.length);
     let frames = 0;
-    while (frames < 64 && !cutOff) {
+    while (frames < cap && !cutOff) {
         a.send(JSON.stringify({ type: 'signal', signal: payload }));
         frames++;
-        await new Promise((r) => setTimeout(r, 25));
+        await new Promise((r) => setTimeout(r, 4));
     }
 
     assert.equal(
         await sawCutOff, true,
-        `the server queued ${frames} frames of 512 KB for a peer that never read one`
+        `the server queued ${frames} frames of 60 KB for a peer that never read one`
     );
-    assert.ok(frames < 64, `expected the cut-off before the 32 MB cap, offered all ${frames} frames`);
+    assert.ok(frames < cap, `expected the cut-off before the 32 MB cap, offered all ${frames} frames`);
 
     // A is untouched: the flood costs the flooder's own peer its seat, nothing
     // more. The app-level ping is the cheapest proof the socket still serves.

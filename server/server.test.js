@@ -90,6 +90,8 @@ const {
     REQUEST_LIVE_PER_KEY,
     REQUEST_ENDED_MARKER_MS,
     REQUEST_ENDED_MAX,
+    SIGNAL_MAX_CHARS,
+    SIGNAL_MAX_DEPTH,
 } = require('./server');
 
 // ---------------------------------------------------------------------------
@@ -614,6 +616,76 @@ describe('handleSignal', () => {
         // pA targets pB by id, but pB is in a different room — must be dropped.
         handleSignal(pA, { type: 'offer' }, 'peer-B');
         assert.equal(pB.msgs.length, 0, 'must not receive a cross-room signal');
+    });
+
+    // W3 R5 O-1: the server re-serializes every signal it relays, and that can
+    // grow it (a number written 9e20 comes out 21 characters long; a Socket.IO
+    // binary attachment, as a JSON array of byte values, about four times its
+    // size). A signal is relayed only when it is plain JSON, at most
+    // SIGNAL_MAX_DEPTH deep and SIGNAL_MAX_CHARS long as the target receives it.
+    function pairInRoom() {
+        const pA = makePeer('peer-A');
+        const pB = makePeer('peer-B');
+        handleJoinRoom(pA, ROOM_ID);
+        handleJoinRoom(pB, ROOM_ID);
+        pA.msgs.length = 0;
+        pB.msgs.length = 0;
+        return { pA, pB };
+    }
+
+    it('relays a real offer carrying every candidate of a many-adapter PC, and a candidate', () => {
+        const { pA, pB } = pairInRoom();
+        const lines = ['v=0', 'o=- 4611731400430051336 2 IN IP4 127.0.0.1', 's=-', 't=0 0', 'a=group:BUNDLE 0',
+            'm=application 9 UDP/DTLS/SCTP webrtc-datachannel', 'c=IN IP4 0.0.0.0', 'a=ice-ufrag:Zx9t', 'a=ice-pwd:3vB0d2aZ7m8kQwPq1rXyNc5u',
+            'a=fingerprint:sha-256 ' + Array.from({ length: 32 }, () => 'AB').join(':'), 'a=setup:actpass', 'a=mid:0', 'a=sctp-port:5000'];
+        for (let i = 0; i < 80; i++) lines.push(`a=candidate:${1000 + i} 1 udp 2122260223 192.168.${i}.17 ${50000 + i} typ host generation 0 network-id ${i}`);
+        const offer = { type: 'offer', sdp: lines.join('\r\n') + '\r\n' };
+        handleSignal(pA, offer, null);
+        handleSignal(pA, { candidate: { candidate: 'candidate:1 1 udp 2122260223 10.0.0.2 50000 typ host', sdpMid: '0', sdpMLineIndex: 0, usernameFragment: 'Zx9t' } }, null);
+        assert.equal(pB.msgs.filter(m => m.type === 'signal').length, 2);
+        assert.ok(JSON.stringify(offer).length < SIGNAL_MAX_CHARS / 4, 'a real offer is far below the bound');
+    });
+
+    it('drops a signal that would grow past the bound as the server re-serializes it', () => {
+        const { pA, pB } = pairInRoom();
+        // About 1 MB as a /ws frame ("9e20," each), 4.4 MB once re-serialized.
+        handleSignal(pA, { type: 'offer', sdp: 'v=0', pad: new Array(200_000).fill(9e20) }, null);
+        assert.equal(pB.msgs.length, 0);
+    });
+
+    it('drops a signal longer than SIGNAL_MAX_CHARS, and relays one just under it', () => {
+        const { pA, pB } = pairInRoom();
+        handleSignal(pA, { type: 'offer', sdp: 'x'.repeat(SIGNAL_MAX_CHARS) }, null);
+        assert.equal(pB.msgs.length, 0);
+        // Escapes count as the target receives them: 12,000 quotes are 24,000 characters.
+        handleSignal(pA, { type: 'offer', sdp: '"'.repeat(SIGNAL_MAX_CHARS / 2) }, null);
+        assert.equal(pB.msgs.length, 0);
+        handleSignal(pA, { type: 'offer', sdp: 'x'.repeat(SIGNAL_MAX_CHARS - 100) }, null);
+        assert.equal(pB.msgs.length, 1);
+    });
+
+    it('drops a signal holding binary, as a Socket.IO attachment arrives, or any object that is not plain JSON', () => {
+        const { pA, pB } = pairInRoom();
+        for (const signal of [
+            { type: 'offer', sdp: Buffer.alloc(16) },
+            { type: 'offer', sdp: new Uint8Array(16) },
+            { type: 'offer', sdp: new ArrayBuffer(16) },
+            { type: 'offer', sdp: new Date(0) },
+            { type: 'offer', sdp: new Map() },
+            Buffer.from('{"type":"offer"}'),
+        ]) handleSignal(pA, signal, null);
+        assert.equal(pB.msgs.length, 0);
+    });
+
+    it('drops a signal nested deeper than SIGNAL_MAX_DEPTH, without a throw', () => {
+        const { pA, pB } = pairInRoom();
+        let deep = { type: 'offer' };
+        for (let i = 0; i < 5000; i++) deep = [deep];
+        assert.doesNotThrow(() => handleSignal(pA, { type: 'offer', nest: deep }, null));
+        let edge = 'x';
+        for (let i = 0; i < SIGNAL_MAX_DEPTH; i++) edge = [edge];
+        handleSignal(pA, { type: 'offer', nest: edge }, null);
+        assert.equal(pB.msgs.length, 0);
     });
 });
 
