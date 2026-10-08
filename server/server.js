@@ -1238,21 +1238,35 @@ function handleHostJoin(peer, roomId, hostToken, now = Date.now(), endsIn = unde
 // disabled, and both lose their seat. A sealed room is left alone, because its
 // drop runs on its data channel and needs nothing more from this server.
 // Nothing here logs: the store already wrote its one fixed line.
-function applyPolicyChange(prev, next) {
+//
+// An ended room leaves the mark a close or a lapse would (C1-07), for when
+// request links are back on: a seated host takes refused {disabled} as its
+// link's end (requestlink.go), so that link answers link-ended at once, and a
+// host away in its grace heard nothing and may come back to make its link
+// again, so that link answers from the end it named, as a lapse does.
+function applyPolicyChange(prev, next, now = Date.now()) {
     if (!(prev && prev.requestLinks === true) || (next && next.requestLinks === true)) return;
     for (const [roomId, meta] of roomMeta) {
         if (meta.kind !== 'request' || meta.sealed) continue;
+        let hostTold = false;
         for (const p of rooms.get(roomId) || []) {
             p.roomId = null;
             try {
-                if (p.id === meta.hostPeerId) p.send('refused', { code: 'disabled' });
-                else p.send('disabled', {});
+                if (p.id === meta.hostPeerId) {
+                    p.send('refused', { code: 'disabled' });
+                    hostTold = true;
+                } else {
+                    p.send('disabled', {});
+                }
             } catch {
                 // Undeliverable; the peer times out on its own.
             }
         }
         rooms.delete(roomId);
+        const endsAt = meta.endsAt;
         forgetReservation(roomId);
+        if (hostTold) noteEndedLink(roomId, now);
+        else if (typeof endsAt === 'number') noteEndedLink(roomId, endsAt);
     }
 }
 
