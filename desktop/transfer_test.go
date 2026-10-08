@@ -1842,10 +1842,8 @@ func TestRunRequestDropHideIPWithoutRelayReopens(t *testing.T) {
 	}
 }
 
-// TestRequestPromptDriveLimitWarnsForFirstFileOnly (D-118, spec 05 8.3): the
-// drive-limit warning asks about the first file, the only one known before
-// Accept; a later file over the limit is refused at its own metadata. A batch
-// of small files larger than 4 GB on a FAT32 drive gets no warning.
+// TestRequestPromptFolderAtDriveRoot (deep QA A2-05): a drive-root Save to
+// names the drive on the prompt, not a bare separator.
 func TestRequestPromptFolderAtDriveRoot(t *testing.T) {
 	// deep QA A2-05: filepath.Base of a drive root is a bare separator, so a
 	// Save to of D:\ drew "\Acme 2026-10-08 1405" on the prompt. promptBase is
@@ -1871,6 +1869,10 @@ func TestRequestPromptFolderAtDriveRoot(t *testing.T) {
 	}
 }
 
+// TestRequestPromptDriveLimitWarnsForFirstFileOnly (D-118, spec 05 8.3): the
+// drive-limit warning asks about the first file, the only one known before
+// Accept; a later file over the limit is refused at its own metadata. A batch
+// of small files larger than 4 GB on a FAT32 drive gets no warning.
 func TestRequestPromptDriveLimitWarnsForFirstFileOnly(t *testing.T) {
 	const fat32Max = 4294967295
 	setVar(t, &requestVolumeMaxFn, func(string) (int64, error) { return fat32Max, nil })

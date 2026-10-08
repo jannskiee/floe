@@ -371,7 +371,8 @@ func requestLifetime(lifetime string) (time.Duration, bool) {
 }
 
 // liveState reports whether state means a link is being made, is open, or a
-// drop runs: the states the one-link rule and the close guard count.
+// drop runs: the states the one-link rule counts. The close guard counts the
+// same states but "making" (closeGuardNow, 0ce8486).
 func liveState(state string) bool {
 	switch state {
 	case "making", "waiting", "reconnecting", "connecting", "deciding", "declined", "receiving":
@@ -381,9 +382,9 @@ func liveState(state string) bool {
 }
 
 // liveNow reports whether a link is being made, is open, or a drop runs. It
-// reads the atomic only and never takes the lane mutex, so the close guard,
-// which runs on the Windows message-pump thread, can never wait on the lane.
-// Nil-safe.
+// reads the atomic only and never takes the lane mutex. The close guard reads
+// closeGuardNow since 0ce8486, and the one-link rule reads l.live under the
+// lane mutex, so only tests call this now. Nil-safe.
 func (l *requestLane) liveNow() bool {
 	return l != nil && l.live.Load()
 }
