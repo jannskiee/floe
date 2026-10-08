@@ -514,6 +514,12 @@ function connecting(model: VisitorModel, event: VisitorEvent): Step {
             return model.sendStarted ? refusedBeforeAccept(model, event) : stay(model);
         case 'ACK_TIMEOUT':
             return model.sendStarted ? end(model, 'V8b') : stay(model);
+        case 'UNREADABLE':
+            // A zero-size file is read before its metadata (344eebb, so a file
+            // Chromium cannot read never goes out as an empty one), and file 1
+            // can fail that read here, still in Connecting (W3 R3-01). Nothing
+            // was sent; the C-130 card names the file.
+            return model.sendStarted ? end(model, 'V11', { stop: null, unreadableIndex: event.index }) : stay(model);
         case 'CHANNEL_CLOSED':
         case 'SEND_SETTLED_SILENT':
             // The channel went, or the send gave up, before any metadata:
@@ -540,9 +546,9 @@ function waiting(model: VisitorModel, event: VisitorEvent): Step {
         case 'SEND_SETTLED_SILENT':
             return end(model, 'V12', { lost: 'silent' });
         case 'UNREADABLE':
-            // The frozen C-130 row: an unreadable file maps to V11 after the
-            // first ack, which is every case the sender can report, since it
-            // reads a file only after that file's ack.
+            // The frozen C-130 row: an unreadable file maps to V11. The sender
+            // reads a file with bytes after its ack, and a zero-size one just
+            // before its metadata, so file 1 can also arrive in Connecting.
             return end(model, 'V11', { stop: null, unreadableIndex: event.index });
         case 'CANCEL':
             return to(model, 'V6d', {}, [...CANCEL_TEARDOWN]);
@@ -589,9 +595,9 @@ function sending(model: VisitorModel, event: VisitorEvent): Step {
         case 'SEND_SETTLED_SILENT':
             return end(model, 'V12', { lost: 'silent' });
         case 'UNREADABLE':
-            // The frozen C-130 row: an unreadable file maps to V11 after the
-            // first ack, which is every case the sender can report, since it
-            // reads a file only after that file's ack.
+            // The frozen C-130 row: an unreadable file maps to V11. The sender
+            // reads a file with bytes after its ack, and a zero-size one just
+            // before its metadata, so file 1 can also arrive in Connecting.
             return end(model, 'V11', { stop: null, unreadableIndex: event.index });
         case 'CANCEL':
             return to(model, 'V11a', {}, [...CANCEL_TEARDOWN]);

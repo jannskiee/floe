@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { watchSend, firstStringFrame, afterSettle } from './sendOutcome';
+import { senderEvents } from './senderEvents';
+import { reduce, initialModel, type VisitorEvent, type VisitorModel } from './visitorState';
 import { sendFiles, type SenderDeps } from '../transfer/sender';
 import { ackMessage } from '../transfer/protocol';
 
@@ -131,6 +133,62 @@ describe('firstStringFrame', () => {
         send2('{}');
         send2('{}');
         expect(calls).toBe(1);
+    });
+});
+
+// W3 R3-01, the page's whole path: the sender reads a zero-size file before
+// its metadata (344eebb), so an unreadable FIRST file is reported while the
+// page is still in Connecting. It has to end on the C-130 card (V11) there,
+// not sit on Connecting until the host's 30 s close turns it into Couldn't
+// connect (V6a) with a Try again that fails the same way.
+describe('an unreadable zero-size first file on /r', () => {
+    function unreadableEmpty(name: string): File {
+        const gone = () => Promise.reject(new DOMException('A requested file or directory could not be found', 'NotFoundError'));
+        return { name, size: 0, type: '', arrayBuffer: gone, slice: () => ({ arrayBuffer: gone }) } as unknown as File;
+    }
+
+    it('ends on V11 naming file 1, with nothing sent and no host close needed', async () => {
+        let model: VisitorModel = initialModel;
+        const dispatch = (e: VisitorEvent) => {
+            model = reduce(model, e).model;
+        };
+        const toSend: VisitorEvent[] = [
+            { type: 'LINK_OK', roomId: 'room' },
+            { type: 'FILES_ADDED' },
+            { type: 'SEND', count: 1, size: 0, hideIp: false, reading: false },
+            { type: 'ICE_READY', hasTurn: true },
+            { type: 'SOCKET_CONNECTED' },
+            { type: 'JOIN_ANSWER', answer: 'request-joined', sincePreviousAttemptMs: null },
+            { type: 'CHANNEL_OPEN' },
+            { type: 'RELAY_VERDICT', action: 'proceed', isRelay: false },
+        ];
+        for (const e of toSend) dispatch(e);
+        expect(model.state).toBe('V6');
+        expect(model.sendStarted).toBe(true);
+
+        const strings: string[] = [];
+        const deps: SenderDeps = {
+            send: firstStringFrame(
+                (d) => {
+                    if (typeof d === 'string') strings.push(d);
+                },
+                () => dispatch({ type: 'FIRST_METADATA_SENT', now: 1 })
+            ),
+            onData: () => () => {},
+            channel: { bufferedAmount: 0, bufferedAmountLowThreshold: 0, addEventListener: () => {}, removeEventListener: () => {} },
+        };
+        const watch = watchSend(senderEvents({ dispatch, now: () => 1, isDestroyed: () => false, onWireVerdict: () => {} }));
+        await sendFiles(deps, [{ id: 'a', file: unreadableEmpty('a.txt') }], watch.callbacks, {
+            requireReceived: true,
+            sendHashes: false,
+        });
+        const settled = afterSettle({ live: true, reported: watch.reported() });
+        if (settled) dispatch(settled);
+
+        expect(strings).toEqual([]);
+        expect(model.state).toBe('V11');
+        expect(model.stop).toBeNull();
+        expect(model.unreadableIndex).toBe(1);
     });
 });
 

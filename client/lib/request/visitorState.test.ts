@@ -576,12 +576,25 @@ describe('visitor state: Sending rows', () => {
     });
     it('V10 + an unreadable file goes to V11 with the visitor\'s own index (the frozen C-130 mapping)', () => {
         // approved-copy-web.md C-130: "maps to V11 after the first ack". The
-        // sender reads a file only after its ack, so this is always the case.
+        // sender reads a file after its ack, so a file with bytes always
+        // lands here.
         const r = step(modelIn('V10', { ackIndex: 2 }), { type: 'UNREADABLE', index: 2 });
         expect(r.model.state).toBe('V11');
         expect(r.model.stop).toBeNull();
         expect(r.model.unreadableIndex).toBe(2);
         expect(r.effects).toContain('disconnectSocket');
+    });
+    it('V6 + an unreadable file 1 goes to V11 once the send has started (W3 R3-01)', () => {
+        // A zero-size file is read before its metadata (344eebb), so file 1 can
+        // be reported while the page still shows Connecting.
+        const r = step(modelIn('V6', { channelOpen: true, sendStarted: true }), { type: 'UNREADABLE', index: 1 });
+        expect(r.model.state).toBe('V11');
+        expect(r.model.stop).toBeNull();
+        expect(r.model.unreadableIndex).toBe(1);
+        expect(r.effects).toContain('disconnectSocket');
+        // No send, nothing read: a stray report changes nothing.
+        const idle = step(modelIn('V6', { channelOpen: true, sendStarted: false }), { type: 'UNREADABLE', index: 1 });
+        expect(idle.model.state).toBe('V6');
     });
 });
 
