@@ -435,6 +435,12 @@ function scrubDescription(description: string): string {
 // each into "/".
 const FRAGMENT_SECRET = /^#(?:[a-z][a-z0-9_]*=|[0-9a-f]{8}-[0-9a-f]{4}-|(?:\/|%2f)?(?:r|%72)(?:\/|%2f))/i;
 
+// A room id after a '#' inside a token that is not URL-shaped, as in
+// Chromium's "'#<id>' is not a valid selector" when a script hands a /r
+// fragment, a bare room id, to querySelector (C1-04). Only the id goes; the
+// quotes and the rest of the message stay.
+const FRAGMENT_ROOM_ID = /#[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
 function scrubText(text: string): string {
     if (!mayHoldSecret(text)) return text;
     return text
@@ -445,7 +451,7 @@ function scrubText(text: string): string {
                 EMBEDDED_URL.test(token) ||
                 ROOM_PARAM.test(token) ||
                 (URL_TOKEN.test(token) && (!token.startsWith('#') || FRAGMENT_SECRET.test(token)));
-            return urlish ? (scrubUrl(token) ?? '') : token;
+            return urlish ? (scrubUrl(token) ?? '') : token.replace(FRAGMENT_ROOM_ID, '#redacted');
         })
         .join('');
 }
