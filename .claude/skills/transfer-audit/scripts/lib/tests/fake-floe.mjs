@@ -169,7 +169,6 @@ async function sendTo(paths) {
     const suffix = process.env.FAKE_FLOE_SUFFIX || 'direct';
     out(`  Connected (${suffix})`);
     out('  Waiting for them to accept. They have 9 min to answer.');
-    out('  Nothing is saved until they accept.');
     await sleep(DELAY);
     if (process.env.FAKE_FLOE_TO === 'declined') {
         err('  They declined. Nothing was sent.');

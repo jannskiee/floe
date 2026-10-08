@@ -782,7 +782,10 @@ func TestSendToDeliversAndPrintsSHALine(t *testing.T) {
 	wantInOrder(t, r.stdout,
 		"Sending   "+shoot+" (2 files, 1.06 MB)",
 		tlJoining, tlConnecting)
-	wantInOrder(t, r.stdout, tlWaiting, tlNothingSave)
+	wantInOrder(t, r.stdout, tlWaiting)
+	if strings.Contains(r.stdout, tlNothingSave) {
+		t.Fatalf("stdout still claims nothing is saved before an accept, false on an Auto-accept link (D-177):\n%s", r.stdout)
+	}
 	arrived := regexp.MustCompile(`(?m)^  All 2 files arrived \(1\.06 MB in \d+s, direct\)\.\n  ` + regexp.QuoteMeta(tlVerified) + `\n`)
 	if !arrived.MatchString(r.stdout) {
 		t.Fatalf("stdout lacks TL-03's two lines:\n%s", r.stdout)
@@ -1707,7 +1710,10 @@ func TestSendToEveryRefusalCodeHasFixedLine(t *testing.T) {
 				t.Fatalf("host: %v", herr)
 			}
 			wantOutcome(t, r, c.lines...)
-			wantInOrder(t, r.stdout, tlWaiting, tlNothingSave)
+			wantInOrder(t, r.stdout, tlWaiting)
+			if strings.Contains(r.stdout, tlNothingSave) {
+				t.Fatalf("stdout still claims nothing is saved before an accept (D-177):\n%s", r.stdout)
+			}
 		})
 	}
 }

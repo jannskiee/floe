@@ -69,7 +69,6 @@ var relayGateFor = transfer.RelayGate
 const (
 	lineJoining        = "Joining the request link..."
 	lineConnecting     = "Connecting..."
-	lineNothingSaved   = "Nothing is saved until they accept."
 	lineHostAbsent     = "Their computer is not connected right now. The person who made this link may have closed Floe."
 	lineLinkEnded      = "This link has ended. Ask them for a new link."
 	lineRoomFull       = "This link has already been used. Ask the person who made it for a new one."
@@ -454,7 +453,6 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 		return r.keep(cmd, err)
 	}
 	r.say("  " + lineWaiting)
-	r.say("  " + lineNothingSaved)
 
 	var acceptedAt time.Time
 	var delivered transfer.Delivered
