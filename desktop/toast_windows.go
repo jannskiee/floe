@@ -2,23 +2,29 @@
 
 package main
 
-// Delivery of an OS toast on Windows (H7 S-13, S-14). This is the ONE file that
-// imports go-toast, and toastFor is the one place a toast.Notification is built:
-// TestNoDirectNotifyInRequestLane pins both. go-toast falls back to a
-// PowerShell script on any COM error, where a visitor string could run a
-// command (spec 05 section 10, L14), so what reaches this file is only what
-// notify was handed: a constant title and body, never a name, a label or engine
-// text.
+// Delivery of an OS toast on Windows (H7 S-13, S-14; deep QA A2-02). This is
+// the ONE file that imports go-toast, and toastXML is the one place a toast is
+// built: TestNoDirectNotifyInRequestLane pins both. Every toast goes out
+// through go-toast's COM path, wintoast.Push with no option. Wails' runtime
+// notification and go-toast's Notification.Push both add the PowerShell
+// fallback, which on any COM error runs a hidden "PowerShell -ExecutionPolicy
+// Bypass -File <temp>.ps1" that the caller waits on with no bound, and whose
+// here-string would run a "$(...)" in the text (spec 05 section 10, L14). The
+// fallback shows nothing the COM path could not, so it is never engaged. What
+// reaches this file is still only what notify was handed: a constant title and
+// body, never a name, a label or engine text.
 
 import (
 	"context"
 	_ "embed"
+	"encoding/xml"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
+	"sync"
 
-	toast "git.sr.ht/~jackmordaunt/go-toast/v2"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"git.sr.ht/~jackmordaunt/go-toast/v2/wintoast"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -30,10 +36,12 @@ const toastKeyRoot = `Software\Classes\AppUserModelId\`
 // rather than the exe's file name, which is what it shows by default.
 const toastDisplayName = "Floe"
 
-// toastIconPNG is the fallback for the icon Windows reads for a toast. Wails
-// extracts it into the temp folder once per run, and a silent toast can fire
-// before any sound toast has made it. A 96 px MSIX asset, not the 1024 px app
-// icon: it rides in the binary for a rare repair.
+// toastIconPNG is the icon Windows reads for an unpackaged build's toast, from
+// the temp-folder path Wails registers at startup. Wails writes that file only
+// when its own notification is sent, which Floe no longer uses, so
+// ensureToastIcon writes this one there whenever it is missing. A 96 px MSIX
+// asset, not the 1024 px app icon. A packaged build's toasts take the package's
+// logo instead.
 //
 //go:embed build/msix/assets/Square44x44Logo.targetsize-96.png
 var toastIconPNG []byte
@@ -44,29 +52,83 @@ var (
 	toastWriteFn   = writeToastString
 )
 
-// pushToast delivers one toast. With sound on it is today's path, Wails'
-// runtime notification, unchanged. Silent goes straight to go-toast, because
-// Wails passes only a title and a body and so always plays the default sound.
-func pushToast(ctx context.Context, title, body string, silent bool) {
-	if !silent {
-		_ = runtime.SendNotification(ctx, runtime.NotificationOptions{Title: title, Body: body})
-		return
-	}
-	ensureToastIcon()
-	n := toastFor(title, body)
-	_ = n.Push()
+// toastAppID is the sender a toast goes out under: the package's own
+// AppUserModelID when Floe runs from its MSIX package (the Store build), and
+// "" otherwise, which go-toast reads as the exe-name ID Wails registered at
+// startup. Under the package that registration lands in the package's private
+// registry view, which Windows' notification service never reads, so a toast
+// sent under the exe name shows nothing on a PC that has only the Store build.
+// It is read once: a process's package identity never changes. A test seam.
+var toastAppID = sync.OnceValue(packageAppID)
+
+// toastQueueSize bounds the toasts waiting for the one goroutine that shows
+// them. A drop's prompt toast is sent from inside its Decide, and a code
+// receive's before ReceiveByCode returns, so delivery never runs on the
+// caller; a full queue drops the toast, which is best-effort anyway.
+const toastQueueSize = 8
+
+// toastJob is one built toast and the sender it goes out under.
+type toastJob struct{ appID, xml string }
+
+// toastLine carries toasts to the one goroutine that shows them.
+type toastLine struct {
+	queue chan toastJob
+	start sync.Once
+	push  func(appID, xml string) error
 }
 
-// toastFor is the silent toast: a title, a body, foreground activation and no
-// sound. No icon (Windows takes the registered one), no actions or inputs, and
-// no launch value, so a click runs nothing.
-func toastFor(title, body string) toast.Notification {
-	return toast.Notification{
-		Title:          title,
-		Body:           body,
-		ActivationType: toast.Foreground,
-		Audio:          toast.Silent,
+// toasts is the app's one line; tests build their own.
+var toasts = &toastLine{queue: make(chan toastJob, toastQueueSize), push: comToast}
+
+// comToast shows one toast through the Windows Runtime. The call passes no
+// option, so go-toast's PowerShell fallback is never engaged.
+func comToast(appID, xml string) error {
+	return wintoast.Push(appID, xml)
+}
+
+// send queues one toast without waiting, starting the delivery goroutine on
+// first use. It reports whether the toast was queued.
+func (l *toastLine) send(job toastJob) bool {
+	l.start.Do(func() { go l.run() })
+	select {
+	case l.queue <- job:
+		return true
+	default:
+		return false
 	}
+}
+
+// run shows the queued toasts one at a time on one locked thread, so
+// go-toast's one-time Windows Runtime start and every push share it.
+func (l *toastLine) run() {
+	goruntime.LockOSThread()
+	for job := range l.queue {
+		ensureToastIcon()
+		_ = l.push(job.appID, job.xml)
+	}
+}
+
+// pushToast hands one toast to the delivery goroutine and returns at once.
+func pushToast(ctx context.Context, title, body string, silent bool) {
+	toasts.send(toastJob{appID: toastAppID(), xml: toastXML(title, body, silent)})
+}
+
+// toastXML builds the one toast Floe shows: a title, a body, foreground
+// activation with no launch value (a click runs nothing), and Windows' default
+// sound unless silent. No image, action or input. The text is escaped rather
+// than wrapped in CDATA, so no title or body can end an element.
+func toastXML(title, body string, silent bool) string {
+	var b strings.Builder
+	b.WriteString(`<toast activationType="foreground" launch="" duration="short"><visual><binding template="ToastGeneric"><text hint-maxLines="1">`)
+	_ = xml.EscapeText(&b, []byte(title))
+	b.WriteString(`</text><text>`)
+	_ = xml.EscapeText(&b, []byte(body))
+	b.WriteString(`</text></binding></visual>`)
+	if silent {
+		b.WriteString(`<audio silent="true" />`)
+	}
+	b.WriteString(`</toast>`)
+	return b.String()
 }
 
 // ensureToastIcon restores the toast icon when it has gone missing. The path
