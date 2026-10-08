@@ -104,6 +104,10 @@ export const visitorCopy = {
     usedTitle: 'This link has already been used',
     /** C-44. */
     usedBody: 'Ask for a new link.',
+    /** C-131 (D-176): the link was closed, or reached its end, before anyone used it. */
+    endedTitle: 'This link has ended',
+    /** C-132 (D-176). */
+    endedBody: 'Ask them for a new link.',
     /** C-45. */
     turnedOff: 'Request links are turned off right now',
     /** C-46: no answer to request-join at all (an older or self-hosted server). */
@@ -392,6 +396,8 @@ export function statusCopy(model: VisitorModel, ctx: StatusContext): StatusCopy 
             return card('ended', visitorCopy.usedTitle, [visitorCopy.usedBody]);
         case 'V5b':
             return card('ended', visitorCopy.turnedOff);
+        case 'V5d':
+            return card('ended', visitorCopy.endedTitle, [visitorCopy.endedBody]);
         case 'V5c':
             return card('ended', visitorCopy.notAvailable, [], null, { one: true });
         case 'V6':
@@ -483,6 +489,7 @@ export function announcement(model: VisitorModel, ctx: StatusContext): string {
         case 'V5a':
         case 'V5b':
         case 'V5c':
+        case 'V5d':
         case 'V6a':
         case 'V8a':
         case 'V8b':

@@ -70,8 +70,13 @@ type Client struct {
 	Refused chan string
 
 	// HostAbsent receives when a request-join finds no host in the room, or
-	// the host of an unsealed room left or closed it.
+	// the host of an unsealed room left.
 	HostAbsent chan struct{}
+
+	// LinkEnded receives when a request-join finds a link its host closed, or
+	// that reached its end, before anyone used it, or the host closes it while
+	// this visitor waits unsealed.
+	LinkEnded chan struct{}
 
 	// Disabled receives when a request-join finds the server's request links
 	// turned off, or they are turned off while a visitor waits.
@@ -160,6 +165,7 @@ func newClient(conn *websocket.Conn, cfg config) *Client {
 		Errors:        make(chan string, 4),
 		Refused:       make(chan string, 1),
 		HostAbsent:    make(chan struct{}, 1),
+		LinkEnded:     make(chan struct{}, 1),
 		Disabled:      make(chan struct{}, 1),
 		Down:          make(chan struct{}),
 		stop:          make(chan struct{}),
@@ -405,6 +411,9 @@ const (
 	// VisitorDown: the socket closed, or the join could not be written,
 	// before an answer arrived.
 	VisitorDown
+	// VisitorLinkEnded: link-ended. The host closed the link, or it reached
+	// its end, before anyone used it. Last, so no earlier value moves.
+	VisitorLinkEnded
 )
 
 // String is a fixed word per result.
@@ -424,6 +433,8 @@ func (r RequestJoinResult) String() string {
 		return "timeout"
 	case VisitorDown:
 		return "down"
+	case VisitorLinkEnded:
+		return "link-ended"
 	}
 	return "unknown"
 }
@@ -449,6 +460,8 @@ func (c *Client) RequestJoin(roomId string) (RequestJoinResult, error) {
 		return VisitorJoined, nil
 	case <-c.HostAbsent:
 		return VisitorHostAbsent, nil
+	case <-c.LinkEnded:
+		return VisitorLinkEnded, nil
 	case <-c.RoomFull:
 		return VisitorRoomFull, nil
 	case <-c.Disabled:
@@ -614,6 +627,12 @@ func (c *Client) dispatch(raw []byte) {
 	case "host-absent":
 		select {
 		case c.HostAbsent <- struct{}{}:
+		default:
+		}
+
+	case "link-ended":
+		select {
+		case c.LinkEnded <- struct{}{}:
 		default:
 		}
 

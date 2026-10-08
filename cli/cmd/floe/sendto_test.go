@@ -1026,6 +1026,7 @@ func TestSendToServerAnswersPrintFixedLines(t *testing.T) {
 		line   string
 	}{
 		{"host-absent", "Their computer is not connected right now. The person who made this link may have closed Floe."},
+		{"link-ended", "This link has ended. Ask them for a new link."},
 		{"room-full", "This link has already been used. Ask the person who made it for a new one."},
 		{"disabled", "Request links are turned off right now."},
 		{"none", "Request links are not available on this Floe server."},
@@ -1618,7 +1619,7 @@ func TestWatchSetupReportsASeatTakenAsSetupSucceeds(t *testing.T) {
 		}
 	}
 	run := func(w *watch, setup func() (*webrtc.DataChannel, error)) (*webrtc.DataChannel, string, error) {
-		return watchSetup(w.roomFull, w.hostAbsent, w.disabled, func() { w.closeOnce.Do(func() { close(w.closed) }) }, setup)
+		return watchSetup(w.roomFull, w.hostAbsent, nil, w.disabled, func() { w.closeOnce.Do(func() { close(w.closed) }) }, setup)
 	}
 	open := &webrtc.DataChannel{}
 

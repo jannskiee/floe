@@ -187,6 +187,13 @@ describe('visitor state: Connecting rows', () => {
         const r = step(modelIn('V6'), { type: 'JOIN_ANSWER', answer: 'room-full', sincePreviousAttemptMs: null });
         expect(r.model.state).toBe('V5a');
     });
+    // D-176: a link its host closed, or that reached its end, before anyone used it.
+    it('V6 + E11 link-ended goes to V5d, which ends the attempt and stays', () => {
+        const r = step(modelIn('V6'), { type: 'JOIN_ANSWER', answer: 'link-ended' });
+        expect(r.model.state).toBe('V5d');
+        expect(r.effects).toContain('disconnectSocket');
+        expect(step(r.model, { type: 'TRY_AGAIN', count: 1, size: 1, hideIp: false }).model.state).toBe('V5d');
+    });
     it('V6 + E11 disabled goes to V5b', () => {
         expect(step(modelIn('V6'), { type: 'JOIN_ANSWER', answer: 'disabled' }).model.state).toBe('V5b');
     });
@@ -841,6 +848,7 @@ describe('visitor state: the rules carried from the reviews', () => {
             [modelIn('V6'), { type: 'JOIN_ANSWER', answer: 'host-absent' }], // V4
             [modelIn('V6'), { type: 'JOIN_ANSWER', answer: 'room-full', sincePreviousAttemptMs: null }], // V5a
             [modelIn('V6'), { type: 'JOIN_ANSWER', answer: 'disabled' }], // V5b
+            [modelIn('V6'), { type: 'JOIN_ANSWER', answer: 'link-ended' }], // V5d
             [modelIn('V6'), { type: 'JOIN_NO_ANSWER' }], // V5c
             [modelIn('V6'), { type: 'SETUP_TIMEOUT' }], // V6a
             [modelIn('V6'), { type: 'PEER_ERROR' }], // V6a
@@ -875,7 +883,7 @@ describe('visitor state: the rules carried from the reviews', () => {
             reached.add(r.model.state);
         }
         expect([...reached].sort()).toEqual(
-            ['V4', 'V5a', 'V5b', 'V5c', 'V6a', 'V6b', 'V6d', 'V8a', 'V8b', 'V9', 'V11', 'V11a', 'V11b', 'V12', 'V12a', 'V13'].sort()
+            ['V4', 'V5a', 'V5b', 'V5c', 'V5d', 'V6a', 'V6b', 'V6d', 'V8a', 'V8b', 'V9', 'V11', 'V11a', 'V11b', 'V12', 'V12a', 'V13'].sort()
         );
         expect([...ATTEMPT_ENDING_STATES].sort()).toEqual([...reached].sort());
     });

@@ -341,7 +341,7 @@ function createVisitorController(deps: ControllerDeps) {
                 s.on(name, fn);
                 listeners.push([name, fn]);
             };
-            const answer = (kind: 'request-joined' | 'host-absent' | 'room-full' | 'disabled' | 'error') => () =>
+            const answer = (kind: 'request-joined' | 'host-absent' | 'link-ended' | 'room-full' | 'disabled' | 'error') => () =>
                 dispatchFor(a, {
                     type: 'JOIN_ANSWER',
                     answer: kind,
@@ -361,6 +361,7 @@ function createVisitorController(deps: ControllerDeps) {
             on('disconnect', () => dispatchFor(a, { type: 'SOCKET_LOST' }));
             on('request-joined', answer('request-joined'));
             on('host-absent', answer('host-absent'));
+            on('link-ended', answer('link-ended'));
             on('room-full', answer('room-full'));
             on('disabled', answer('disabled'));
             // The server's words are never read: an error answer is a fixed

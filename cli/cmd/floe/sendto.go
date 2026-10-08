@@ -71,6 +71,7 @@ const (
 	lineConnecting     = "Connecting..."
 	lineNothingSaved   = "Nothing is saved until they accept."
 	lineHostAbsent     = "Their computer is not connected right now. The person who made this link may have closed Floe."
+	lineLinkEnded      = "This link has ended. Ask them for a new link."
 	lineRoomFull       = "This link has already been used. Ask the person who made it for a new one."
 	lineDisabled       = "Request links are turned off right now."
 	lineNoAnswer       = "Request links are not available on this Floe server."
@@ -414,6 +415,8 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 	case signaling.VisitorJoined:
 	case signaling.VisitorHostAbsent:
 		return r.fail(cmd, lineHostAbsent)
+	case signaling.VisitorLinkEnded:
+		return r.fail(cmd, lineLinkEnded)
 	case signaling.VisitorRoomFull:
 		return r.fail(cmd, lineRoomFull)
 	case signaling.VisitorDisabled:
@@ -431,6 +434,9 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		if ended == "disabled" {
 			return r.fail(cmd, lineDisabled)
+		}
+		if ended == "link-ended" {
+			return r.fail(cmd, lineLinkEnded)
 		}
 		return r.fail(cmd, lineCouldNotConnect)
 	}
@@ -535,14 +541,14 @@ func requestJoin(sc *signaling.Client, roomID string) signaling.RequestJoinResul
 
 // setupWatched answers the host's offer while it watches for the three
 // answers that take the seat away during setup: room-full (the host reopened
-// the link, evicting this visitor, E-03), host-absent (the host left or
-// closed the link before the room sealed: the server sends that, and not
-// peer-disconnected, to an unsealed visitor) and disabled. SetupAsReceiver
+// the link, evicting this visitor, E-03), host-absent (the host left before
+// the room sealed: the server sends that, and not peer-disconnected, to an
+// unsealed visitor), link-ended (the host closed the link) and disabled. SetupAsReceiver
 // watches PeerLeft and the socket itself (S1-ENG-11) and cannot see these, so
 // the watcher closes the connection, which ends the setup at once instead of
 // at its 30 s wait. ended names which one did it, "" for none.
 func setupWatched(sc *signaling.Client, conn *peer.Connection) (dc *webrtc.DataChannel, ended string, err error) {
-	return watchSetup(sc.RoomFull, sc.HostAbsent, sc.Disabled, conn.Close, conn.SetupAsReceiver)
+	return watchSetup(sc.RoomFull, sc.HostAbsent, sc.LinkEnded, sc.Disabled, conn.Close, conn.SetupAsReceiver)
 }
 
 // watchSetup is setupWatched over its parts, so a test can take the seat away
@@ -551,7 +557,7 @@ func setupWatched(sc *signaling.Client, conn *peer.Connection) (dc *webrtc.DataC
 // and the setup ends on its reason whatever the setup itself returned (a
 // channel that opened just as its connection was closed would print Connected
 // and WAIT, then C-112; review lens A, nit 10), or it did not and never will.
-func watchSetup(roomFull, hostAbsent, disabled <-chan struct{}, closeConn func(), setup func() (*webrtc.DataChannel, error)) (*webrtc.DataChannel, string, error) {
+func watchSetup(roomFull, hostAbsent, linkEnded, disabled <-chan struct{}, closeConn func(), setup func() (*webrtc.DataChannel, error)) (*webrtc.DataChannel, string, error) {
 	why := make(chan string, 1)
 	stop := make(chan struct{})
 	done := make(chan struct{})
@@ -563,6 +569,8 @@ func watchSetup(roomFull, hostAbsent, disabled <-chan struct{}, closeConn func()
 			w = "room-full"
 		case <-hostAbsent:
 			w = "host-absent"
+		case <-linkEnded:
+			w = "link-ended"
 		case <-disabled:
 			w = "disabled"
 		case <-stop:
