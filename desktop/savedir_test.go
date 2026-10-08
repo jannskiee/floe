@@ -109,6 +109,43 @@ func TestSaveDirUsableRefusesNamesWindowsCannotMake(t *testing.T) {
 	}
 }
 
+// C1-08: Windows trims a space, and a period after the one it takes off,
+// from the end of a name it is handed whole, but not from the same name inside
+// a longer path. "foo " is made as "foo", "foo \Floe" then cannot be found,
+// and the link was spent at Accept. A single trailing period is trimmed both
+// ways, so "foo." works (measured on Windows 11 26200; the MkdirAll checks keep
+// the rule honest against the OS).
+func TestSaveDirUsableRefusesNamesWindowsTrims(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the trimming is Windows' own")
+	}
+	dir := t.TempDir()
+	for _, name := range []string{"foo ", "foo..", "foo. ", "foo .", "foo..."} {
+		p := filepath.Join(dir, name, "Floe")
+		if saveDirUsable(p) {
+			t.Errorf("%q is usable, want refused", p)
+		}
+		if saveDirUsable(filepath.Join(dir, name)) {
+			t.Errorf("%q as the last name is usable, want refused", filepath.Join(dir, name))
+		}
+		if err := os.MkdirAll(p, 0o755); err == nil {
+			t.Errorf("MkdirAll(%q) worked, so the rule refuses a folder Windows can make", p)
+		}
+	}
+	for _, name := range []string{"foo.", " foo", "a.b", "a b"} {
+		p := filepath.Join(dir, name, "Floe")
+		if !saveDirUsable(p) {
+			t.Errorf("%q is refused, want usable", p)
+		}
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Errorf("MkdirAll(%q): %v, so the rule passes a folder Windows cannot make", p, err)
+		}
+	}
+	if !saveDirUsable(dir + `\x\..\Floe`) {
+		t.Error("a parent step is not a name ending in a period")
+	}
+}
+
 // W3 R2-02: a Save to made only of quotes, or of a %NAME% set to nothing, is
 // the default folder as an empty field is, never the raw text kept as a
 // relative folder that Accept would resolve against the working directory.
