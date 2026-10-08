@@ -358,6 +358,18 @@ describe('rateKey', () => {
         assert.equal(rateKey('0:0:0:0:0:0:0:1'), rateKey('::1'));
     });
 
+    it('a port a proxy appended is dropped before keying (A1-05)', () => {
+        assert.equal(rateKey('203.0.113.5:4711'), '203.0.113.5');
+        assert.equal(rateKey('203.0.113.5:4712'), rateKey('203.0.113.5'));
+        assert.equal(rateKey('[2001:db8::1]:443'), '2001:db8:0:0::/64');
+        assert.equal(rateKey('[2001:db8::1]'), '2001:db8:0:0::/64');
+        assert.equal(rateKey('[::ffff:1.2.3.4]:80'), '1.2.3.4');
+        // Not an address once the port is gone: kept as it came, a bucket of its own.
+        assert.equal(rateKey('999.1.1.1:80'), '999.1.1.1:80');
+        assert.equal(rateKey('[not-an-ip]:80'), '[not-an-ip]:80');
+        assert.equal(rateKey('203.0.113.5:'), '203.0.113.5:');
+    });
+
     it('unparseable inputs keep distinct buckets', () => {
         assert.notEqual(rateKey('unknown'), rateKey('garbage'));
         assert.equal(rateKey('1.2.3.4'), '1.2.3.4');
@@ -1881,6 +1893,7 @@ describe('policy', () => {
         'request links: on',
         'request links: off',
         'policy file unreadable, keeping previous policy',
+        'policy file not found, request links off',
     ]);
 
     // Written the way the runbook says to edit it: a temp file renamed over the
@@ -1932,6 +1945,32 @@ describe('policy', () => {
         fs.rmSync(file);
         assert.equal(s.reload(), 'missing');
         assert.equal(s.requestLinks(), false);
+    });
+
+    it('a configured file that is missing says so once per stretch, in fixed text (A1-06)', () => {
+        const { file, lines, s } = store('absent.json');
+        assert.equal(s.reload(), 'missing');
+        assert.equal(s.reload(), 'missing');
+        assert.deepEqual(lines, ['policy file not found, request links off']);
+
+        writePolicy(file, '{"requestLinks":true}');
+        assert.equal(s.reload(), 'ok');
+        fs.rmSync(file);
+        assert.equal(s.reload(), 'missing');
+        assert.deepEqual(lines, [
+            'policy file not found, request links off',
+            'request links: on',
+            'policy file not found, request links off',
+            'request links: off',
+        ]);
+        for (const l of lines) assert.ok(FIXED_LINES.has(l), l);
+
+        // No path set is off on purpose, and says nothing.
+        const quiet = [];
+        const none = createPolicyStore({ path: '', log: (l) => quiet.push(l) });
+        none.reload();
+        none.reload();
+        assert.deepEqual(quiet, []);
     });
 
     it('malformed JSON keeps the last good policy', () => {

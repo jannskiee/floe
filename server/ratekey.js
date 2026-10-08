@@ -39,9 +39,23 @@ function expandIPv6(addr) {
     return groups.map(g => parseInt(g, 16));
 }
 
+// A proxy that appends the client's port to X-Forwarded-For (Azure Application
+// Gateway does by default) writes 203.0.113.5:4711 or [2001:db8::1]:443, which
+// keyed every connection apart, so no per-address budget bound behind it (deep
+// QA A1-05). The port goes; what is left must still parse as an address, or the
+// input is kept as it came.
+function withoutPort(addr) {
+    const v4 = /^(\d{1,3}(?:\.\d{1,3}){3}):\d{1,5}$/.exec(addr);
+    if (v4 && net.isIPv4(v4[1])) return v4[1];
+    const v6 = /^\[([^\]]+)\](?::\d{1,5})?$/.exec(addr);
+    if (v6 && net.isIPv6(v6[1])) return v6[1];
+    return addr;
+}
+
 function rateKey(addr) {
     if (!addr) return 'unknown';
     if (typeof addr !== 'string') return addr;
+    addr = withoutPort(addr);
     if (net.isIPv4(addr)) return addr;
     // net.isIPv6 accepts a zone id (%eth0, and %eth0.100 with a dot), which the
     // dotted-tail split above would misread and, with seven groups plus ::, throw

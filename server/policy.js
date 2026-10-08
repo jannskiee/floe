@@ -28,6 +28,11 @@ const POLICY_MAX_BYTES = 64 * 1024;
 const LOG_ON = 'request links: on';
 const LOG_OFF = 'request links: off';
 const LOG_UNREADABLE = 'policy file unreadable, keeping previous policy';
+// A POLICY_FILE that is set but not there is how a missed volume mount looks
+// (docker-compose's commented-out block, Unraid's Path entry): the defaults are
+// already off, so swap() has nothing to log, and only /health showed it (deep
+// QA A1-06). Fixed text, never the path.
+const LOG_MISSING = 'policy file not found, request links off';
 
 // Pure. Only `requestLinks: true` (the boolean) turns the feature on; the
 // string "true" and every other value are off. Unknown keys are ignored, so
@@ -114,6 +119,7 @@ function createPolicyStore({ path = '', onChange = () => {}, log = (line) => con
     let current = DEFAULT_POLICY;
     let stamp = null;
     let failing = false;
+    let missing = false;
 
     function swap(next) {
         const prev = current;
@@ -137,6 +143,11 @@ function createPolicyStore({ path = '', onChange = () => {}, log = (line) => con
                 return 'error';
             }
             failing = false;
+            // Once per stretch that a configured file is absent, like the
+            // unreadable line; no path set means off on purpose and says nothing.
+            const gone = r.kind === 'missing' && Boolean(path);
+            if (gone && !missing) log(LOG_MISSING);
+            missing = gone;
             if (r.kind === 'unchanged') return 'unchanged';
             stamp = r.stamp;
             swap(r.policy);
